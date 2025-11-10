@@ -28,7 +28,6 @@ async function getAirtable(table: string) {
 }
 
 export default async function DashboardPage() {
-  // using the tables you said were in the base
   const table1 = await getAirtable("Table 1");
   const leads = await getAirtable("Leads");
   const leadConvos = await getAirtable("Lead conversations");
@@ -53,53 +52,77 @@ export default async function DashboardPage() {
         <div style={{ background: "white", padding: "1rem", borderRadius: "0.75rem", flex: 1 }}>
           <p>Table 1 rows</p>
           <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{table1.records.length}</h2>
-          {table1.error && (
-            <p style={{ fontSize: "0.65rem", color: "#b91c1c" }}>Table: {table1.table}</p>
-          )}
         </div>
         <div style={{ background: "white", padding: "1rem", borderRadius: "0.75rem", flex: 1 }}>
           <p>Leads</p>
           <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{leads.records.length}</h2>
-          {leads.error && (
-            <p style={{ fontSize: "0.65rem", color: "#b91c1c" }}>Table: {leads.table}</p>
-          )}
         </div>
         <div style={{ background: "white", padding: "1rem", borderRadius: "0.75rem", flex: 1 }}>
           <p>Lead conversations</p>
           <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{leadConvos.records.length}</h2>
-          {leadConvos.error && (
-            <p style={{ fontSize: "0.65rem", color: "#b91c1c" }}>Table: {leadConvos.table}</p>
+          {leadConvos.records.length === 0 && (
+            <p style={{ fontSize: "0.65rem", color: "#94a3b8" }}>
+              Table exists, no conversations yet.
+            </p>
           )}
         </div>
       </div>
 
-      {/* show latest rows from Table 1 */}
       <div style={{ display: "flex", gap: "1rem" }}>
+        {/* Table 1 nicely */}
         <div style={{ flex: 2, background: "white", padding: "1rem", borderRadius: "0.75rem" }}>
-          <h3 style={{ marginBottom: "0.5rem" }}>Table 1 (raw rows)</h3>
+          <h3 style={{ marginBottom: "0.5rem" }}>Table 1 (cleaned)</h3>
           {table1.records.length === 0 && (
             <p style={{ fontSize: "0.8rem", color: "#64748b" }}>
               No rows found in “Table 1”.
             </p>
           )}
-          {table1.records.map((row: any) => (
-            <pre
-              key={row.id}
-              style={{
-                background: "#e2e8f0",
-                padding: "0.5rem",
-                borderRadius: "0.5rem",
-                marginBottom: "0.5rem",
-                fontSize: "0.7rem",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {JSON.stringify(row.fields, null, 2)}
-            </pre>
-          ))}
+          {table1.records.map((row: any) => {
+            const f = row.fields || {};
+            // try to show something human first
+            const title =
+              f.Title ||
+              f.Name ||
+              f["Content"] ||
+              f["Post"] ||
+              f["Summary"] ||
+              "Row " + row.id.slice(0, 5);
+
+            return (
+              <div
+                key={row.id}
+                style={{
+                    borderBottom: "1px solid #e2e8f0",
+                    padding: "0.5rem 0",
+                    marginBottom: "0.25rem",
+                }}
+              >
+                <p style={{ fontWeight: 500 }}>{title}</p>
+                {/* show a secondary field if we have it */}
+                {f.Description && (
+                  <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>{f.Description}</p>
+                )}
+                {/* if it's all weird formula fields, show JSON small */}
+                {!f.Title && !f.Name && !f.Description && (
+                  <pre
+                    style={{
+                      background: "#e2e8f0",
+                      padding: "0.4rem",
+                      borderRadius: "0.4rem",
+                      fontSize: "0.65rem",
+                      marginTop: "0.25rem",
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {JSON.stringify(f, null, 2)}
+                  </pre>
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        {/* leads list */}
+        {/* Leads nicely */}
         <div style={{ flex: 1, background: "white", padding: "1rem", borderRadius: "0.75rem" }}>
           <h3 style={{ marginBottom: "0.5rem" }}>Leads</h3>
           {leads.records.length === 0 && (
@@ -107,16 +130,22 @@ export default async function DashboardPage() {
               No rows found in “Leads”.
             </p>
           )}
-          {leads.records.map((row: any) => (
-            <div key={row.id} style={{ marginBottom: "0.5rem" }}>
-              <p style={{ fontWeight: 500 }}>
-                {row.fields.Name || row.fields.name || "Lead"}
-              </p>
-              <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
-                {row.fields.Email || row.fields.email || ""}
-              </p>
-            </div>
-          ))}
+          {leads.records.map((row: any) => {
+            const f = row.fields || {};
+            return (
+              <div key={row.id} style={{ marginBottom: "0.5rem" }}>
+                <p style={{ fontWeight: 500 }}>{f.Name || f.name || "Lead"}</p>
+                {(f.Email || f.email) && (
+                  <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
+                    {f.Email || f.email}
+                  </p>
+                )}
+                {f.Status && (
+                  <p style={{ fontSize: "0.65rem" }}>Status: {f.Status}</p>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
