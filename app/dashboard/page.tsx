@@ -67,6 +67,9 @@ export default async function DashboardPage() {
         fontFamily: "system-ui, sans-serif",
       }}
     >
+
+      <ContentForm />
+
       <h1 style={{ fontSize: "2rem", fontWeight: "bold", marginBottom: "1rem" }}>
         Root Health Ops
       </h1>
