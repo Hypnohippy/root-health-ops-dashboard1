@@ -1,6 +1,10 @@
 // app/dashboard/page.tsx
 
-async function getTable(table: string) {
+async function getTable(
+  table: string,
+  sortField?: string,
+  direction: "asc" | "desc" = "desc"
+) {
   const baseId = process.env.AIRTABLE_BASE_ID;
   const apiKey = process.env.AIRTABLE_API_KEY;
 
@@ -8,15 +12,20 @@ async function getTable(table: string) {
     return { records: [], error: "Missing env vars", table };
   }
 
-  const res = await fetch(
-    `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}?maxRecords=20&sort[0][field]=created_at&sort[0][direction]=desc`,
-    {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-      cache: "no-store",
-    }
-  );
+  // build URL differently if we have a sort field
+  const baseUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}`;
+  const url = sortField
+    ? `${baseUrl}?maxRecords=20&sort[0][field]=${encodeURIComponent(
+        sortField
+      )}&sort[0][direction]=${direction}`
+    : `${baseUrl}?maxRecords=20`;
+
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    cache: "no-store",
+  });
 
   if (!res.ok) {
     const text = await res.text();
@@ -28,11 +37,11 @@ async function getTable(table: string) {
 }
 
 export default async function DashboardPage() {
-  // these names are from your schema dump
-  const content = await getTable("Content");
-  const automations = await getTable("Automation_Log");
-  const leads = await getTable("Leads");
-  const introducers = await getTable("Introducers");
+  // use the correct field names from your schema
+  const content = await getTable("Content", "Created Time");
+  const automations = await getTable("Automation_Log", "run_at");
+  const leads = await getTable("Leads", "created_at");
+  const introducers = await getTable("Introducers"); // no sort
 
   return (
     <div
@@ -59,7 +68,7 @@ export default async function DashboardPage() {
             {content.records.length}
           </h2>
           {content.error && (
-            <p style={{ fontSize: "0.65rem", color: "#b91c1c" }}>{content.error}</p>
+            <p style={{ fontSize: "0.6rem", color: "#b91c1c" }}>{content.error}</p>
           )}
         </div>
         <div style={{ background: "white", padding: "1rem", borderRadius: "0.75rem", flex: 1 }}>
@@ -67,6 +76,9 @@ export default async function DashboardPage() {
           <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>
             {automations.records.length}
           </h2>
+          {automations.error && (
+            <p style={{ fontSize: "0.6rem", color: "#b91c1c" }}>{automations.error}</p>
+          )}
         </div>
         <div style={{ background: "white", padding: "1rem", borderRadius: "0.75rem", flex: 1 }}>
           <p>Leads</p>
@@ -86,7 +98,7 @@ export default async function DashboardPage() {
         {/* AUTOMATIONS */}
         <div style={{ flex: 1.5, background: "white", padding: "1rem", borderRadius: "0.75rem" }}>
           <h3 style={{ marginBottom: "0.5rem" }}>Automation_Log</h3>
-          {automations.records.length === 0 && (
+          {automations.records.length === 0 && !automations.error && (
             <p style={{ fontSize: "0.8rem", color: "#64748b" }}>
               No rows found in “Automation_Log”.
             </p>
@@ -148,7 +160,7 @@ export default async function DashboardPage() {
         {/* CONTENT */}
         <div style={{ flex: 1, background: "white", padding: "1rem", borderRadius: "0.75rem" }}>
           <h3 style={{ marginBottom: "0.5rem" }}>Content</h3>
-          {content.records.length === 0 && (
+          {content.records.length === 0 && !content.error && (
             <p style={{ fontSize: "0.8rem", color: "#64748b" }}>
               No rows found in “Content”.
             </p>
@@ -194,7 +206,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* LEADS LIST */}
+      {/* LEADS */}
       <div
         style={{
           marginTop: "1rem",
