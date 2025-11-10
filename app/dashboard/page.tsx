@@ -1,15 +1,16 @@
 // app/dashboard/page.tsx
+// this version asks Airtable: "what tables do you have in this base?"
 
-async function getAirtable(table: string) {
+async function getSchema() {
   const baseId = process.env.AIRTABLE_BASE_ID;
   const apiKey = process.env.AIRTABLE_API_KEY;
 
   if (!baseId || !apiKey) {
-    return { records: [], error: "Missing env vars", table };
+    return { error: "Missing env vars", tables: [] };
   }
 
   const res = await fetch(
-    `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}?maxRecords=20`,
+    `https://api.airtable.com/v0/meta/bases/${baseId}/tables`,
     {
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -20,17 +21,15 @@ async function getAirtable(table: string) {
 
   if (!res.ok) {
     const text = await res.text();
-    return { records: [], error: text, table };
+    return { error: text, tables: [] };
   }
 
   const data = await res.json();
-  return { records: data.records || [], error: null, table };
+  return { error: null, tables: data.tables || [] };
 }
 
 export default async function DashboardPage() {
-  const table1 = await getAirtable("Table 1");
-  const leads = await getAirtable("Leads");
-  const leadConvos = await getAirtable("Lead conversations");
+  const schema = await getSchema();
 
   return (
     <div
@@ -43,107 +42,58 @@ export default async function DashboardPage() {
       }}
     >
       <h1 style={{ fontSize: "2rem", fontWeight: "bold", marginBottom: "1rem" }}>
-        Root Health Dashboard
+        Root Health Dashboard – Airtable tables
       </h1>
-      <p style={{ marginBottom: "1.5rem" }}>Live Airtable snapshot (GPT base)</p>
+      <p style={{ marginBottom: "1rem" }}>
+        Showing what Airtable says is in base <code>{process.env.AIRTABLE_BASE_ID}</code>
+      </p>
 
-      {/* counts */}
-      <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}>
-        <div style={{ background: "white", padding: "1rem", borderRadius: "0.75rem", flex: 1 }}>
-          <p>Table 1 rows</p>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{table1.records.length}</h2>
-        </div>
-        <div style={{ background: "white", padding: "1rem", borderRadius: "0.75rem", flex: 1 }}>
-          <p>Leads</p>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{leads.records.length}</h2>
-        </div>
-        <div style={{ background: "white", padding: "1rem", borderRadius: "0.75rem", flex: 1 }}>
-          <p>Lead conversations</p>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{leadConvos.records.length}</h2>
-          {leadConvos.records.length === 0 && (
-            <p style={{ fontSize: "0.65rem", color: "#94a3b8" }}>
-              Table exists, no conversations yet.
+      {schema.error && (
+        <pre
+          style={{
+            background: "#fee2e2",
+            color: "#b91c1c",
+            padding: "0.75rem",
+            borderRadius: "0.5rem",
+            whiteSpace: "pre-wrap",
+            marginBottom: "1rem",
+          }}
+        >
+          {schema.error}
+        </pre>
+      )}
+
+      {schema.tables.length === 0 && !schema.error && (
+        <p>No tables found in this base.</p>
+      )}
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
+        {schema.tables.map((table: any) => (
+          <div
+            key={table.id}
+            style={{
+              background: "white",
+              padding: "1rem",
+              borderRadius: "0.75rem",
+              minWidth: "240px",
+            }}
+          >
+            <h2 style={{ fontWeight: 600, marginBottom: "0.5rem" }}>
+              {table.name}
+            </h2>
+            <p style={{ fontSize: "0.7rem", color: "#94a3b8", marginBottom: "0.5rem" }}>
+              {table.fields.length} fields
             </p>
-          )}
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: "1rem" }}>
-        {/* TABLE 1 with field names shown */}
-        <div style={{ flex: 2, background: "white", padding: "1rem", borderRadius: "0.75rem" }}>
-          <h3 style={{ marginBottom: "0.5rem" }}>Table 1</h3>
-          {table1.records.length === 0 && (
-            <p style={{ fontSize: "0.8rem", color: "#64748b" }}>No rows found in “Table 1”.</p>
-          )}
-          {table1.records.map((row: any) => {
-            const f = row.fields || {};
-            return (
-              <div
-                key={row.id}
-                style={{
-                  borderBottom: "1px solid #e2e8f0",
-                  padding: "0.5rem 0",
-                  marginBottom: "0.5rem",
-                }}
-              >
-                {/* show all fields so we can see exact names */}
-                <p style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
-                  {f["A Name"] ||
-                    f["A name"] ||
-                    f["Name"] ||
-                    "(no A Name field found)"}
-                </p>
-                {f.Assignee && (
-                  <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
-                    Assignee: {f.Assignee}
-                  </p>
-                )}
-                {f.Status && (
-                  <p style={{ fontSize: "0.7rem" }}>Status: {f.Status}</p>
-                )}
-
-                {/* debug: show full field keys */}
-                <details style={{ marginTop: "0.25rem" }}>
-                  <summary style={{ fontSize: "0.65rem", cursor: "pointer" }}>
-                    show fields
-                  </summary>
-                  <pre
-                    style={{
-                      background: "#e2e8f0",
-                      padding: "0.4rem",
-                      borderRadius: "0.4rem",
-                      fontSize: "0.65rem",
-                      whiteSpace: "pre-wrap",
-                    }}
-                  >
-                    {JSON.stringify(f, null, 2)}
-                  </pre>
-                </details>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* LEADS */}
-        <div style={{ flex: 1, background: "white", padding: "1rem", borderRadius: "0.75rem" }}>
-          <h3 style={{ marginBottom: "0.5rem" }}>Leads</h3>
-          {leads.records.length === 0 && (
-            <p style={{ fontSize: "0.8rem", color: "#64748b" }}>No rows found in “Leads”.</p>
-          )}
-          {leads.records.map((row: any) => {
-            const f = row.fields || {};
-            return (
-              <div key={row.id} style={{ marginBottom: "0.5rem" }}>
-                <p style={{ fontWeight: 500 }}>{f.Name || f.name || "Lead"}</p>
-                {(f.Email || f.email) && (
-                  <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
-                    {f.Email || f.email}
-                  </p>
-                )}
-              </div>
-            );
-          })}
-        </div>
+            <ul style={{ fontSize: "0.75rem", lineHeight: 1.3 }}>
+              {table.fields.map((field: any) => (
+                <li key={field.id}>
+                  {field.name}{" "}
+                  <span style={{ color: "#94a3b8" }}>({field.type})</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
     </div>
   );
