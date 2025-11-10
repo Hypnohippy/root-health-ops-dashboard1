@@ -1,5 +1,7 @@
 // app/dashboard/page.tsx
 
+import ContentForm from "./ContentForm";
+
 // helper to fetch a table with optional sort
 async function getTable(
   table: string,
