@@ -1,6 +1,7 @@
 // app/dashboard/page.tsx
 
 import ContentForm from "./ContentForm";
+import ReplyForm from "./ReplyForm";
 
 // helper to fetch a table with optional sort
 async function getTable(
@@ -40,20 +41,19 @@ async function getTable(
 
 export default async function DashboardPage() {
   // your real tables
-  const content = await getTable("Content", "Created Time");          // for publishing
+  const content = await getTable("Content", "Created Time"); // for publishing
   const leadConvos = await getTable("Lead_Conversations", "created_at"); // for replies
-  const automations = await getTable("Automation_Log", "run_at");     // for Make checks
+  const automations = await getTable("Automation_Log", "run_at"); // for Make checks
 
-  // 1) content queue = not posted
+  // content queue = not posted
   const contentQueue = content.records.filter((r: any) => {
     const f = r.fields || {};
     return f.status !== "posted" && f.status !== "Published";
   });
 
-  // 2) reply queue = conversations that aren't done
+  // reply queue = conversations that aren't done
   const replyQueue = leadConvos.records.filter((r: any) => {
     const f = r.fields || {};
-    // you can tweak this condition later
     return f.status !== "done" && f.status !== "replied";
   });
 
@@ -67,8 +67,9 @@ export default async function DashboardPage() {
         fontFamily: "system-ui, sans-serif",
       }}
     >
-
+      {/* the two forms at the top */}
       <ContentForm />
+      <ReplyForm />
 
       <h1 style={{ fontSize: "2rem", fontWeight: "bold", marginBottom: "1rem" }}>
         Root Health Ops
@@ -93,25 +94,16 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      {/* three columns like before */}
       <div style={{ display: "flex", gap: "1rem" }}>
-        {/* CONTENT QUEUE */}
+        {/* content list */}
         <div style={{ flex: 1, background: "white", borderRadius: "0.75rem", padding: "1rem" }}>
           <h3 style={{ marginBottom: "0.5rem" }}>Content to post</h3>
-          {contentQueue.length === 0 && (
-            <p style={{ fontSize: "0.8rem", color: "#64748b" }}>
-              Nothing to post. Add rows in Airtable → Content.
-            </p>
-          )}
+          {contentQueue.length === 0 && <p>No content to post.</p>}
           {contentQueue.map((row: any) => {
             const f = row.fields || {};
             return (
-              <div
-                key={row.id}
-                style={{
-                  borderBottom: "1px solid #e2e8f0",
-                  padding: "0.4rem 0",
-                }}
-              >
+              <div key={row.id} style={{ marginBottom: "0.75rem" }}>
                 <p style={{ fontWeight: 500 }}>
                   {f.title || f.test || f.test2 || "Untitled content"}
                 </p>
@@ -124,24 +116,14 @@ export default async function DashboardPage() {
           })}
         </div>
 
-        {/* REPLY QUEUE */}
+        {/* replies */}
         <div style={{ flex: 1, background: "white", borderRadius: "0.75rem", padding: "1rem" }}>
           <h3 style={{ marginBottom: "0.5rem" }}>Replies needed</h3>
-          {replyQueue.length === 0 && (
-            <p style={{ fontSize: "0.8rem", color: "#64748b" }}>
-              No conversations need replies.
-            </p>
-          )}
+          {replyQueue.length === 0 && <p>No conversations need replies.</p>}
           {replyQueue.map((row: any) => {
             const f = row.fields || {};
             return (
-              <div
-                key={row.id}
-                style={{
-                  borderBottom: "1px solid #e2e8f0",
-                  padding: "0.4rem 0",
-                }}
-              >
+              <div key={row.id} style={{ marginBottom: "0.75rem" }}>
                 <p style={{ fontWeight: 500 }}>
                   {f.message_body ? f.message_body.slice(0, 80) : "Conversation"}
                   {f.message_body && f.message_body.length > 80 ? "..." : ""}
@@ -154,62 +136,42 @@ export default async function DashboardPage() {
           })}
         </div>
 
-        {/* AUTOMATIONS */}
+        {/* automations */}
         <div style={{ flex: 1, background: "white", borderRadius: "0.75rem", padding: "1rem" }}>
           <h3 style={{ marginBottom: "0.5rem" }}>Latest automations</h3>
-          {automations.records.length === 0 && (
-            <p style={{ fontSize: "0.8rem", color: "#64748b" }}>
-              No rows in Automation_Log yet.
-            </p>
-          )}
+          {automations.records.length === 0 && <p>No rows in Automation_Log yet.</p>}
           {automations.records.map((row: any) => {
             const f = row.fields || {};
             return (
               <div
                 key={row.id}
                 style={{
-                  borderBottom: "1px solid #e2e8f0",
-                  padding: "0.4rem 0",
+                  marginBottom: "0.75rem",
                   display: "flex",
                   justifyContent: "space-between",
                   gap: "0.5rem",
+                  borderBottom: "1px solid #e2e8f0",
+                  paddingBottom: "0.5rem",
                 }}
               >
                 <div>
-                  <p style={{ fontWeight: 500 }}>
-                    {f.action || "Automation run"}
-                  </p>
+                  <p style={{ fontWeight: 500 }}>{f.action || "Automation run"}</p>
                   <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
-                    {f.platform || ""}
+                    {f.platform || ""} {f.run_at ? `• ${f.run_at}` : ""}
                   </p>
                 </div>
-                {f.success === false ? (
-                    <span
-                      style={{
-                        background: "#fee2e2",
-                        color: "#b91c1c",
-                        fontSize: "0.6rem",
-                        padding: "0.1rem 0.5rem",
-                        borderRadius: "9999px",
-                        height: "fit-content",
-                      }}
-                    >
-                      failed
-                    </span>
-                  ) : (
-                    <span
-                      style={{
-                        background: "#dcfce7",
-                        color: "#166534",
-                        fontSize: "0.6rem",
-                        padding: "0.1rem 0.5rem",
-                        borderRadius: "9999px",
-                        height: "fit-content",
-                      }}
-                    >
-                      ok
-                    </span>
-                  )}
+                <span
+                  style={{
+                    background: f.success === false ? "#fee2e2" : "#dcfce7",
+                    color: f.success === false ? "#b91c1c" : "#166534",
+                    fontSize: "0.6rem",
+                    padding: "0.2rem 0.5rem",
+                    borderRadius: "9999px",
+                    height: "fit-content",
+                  }}
+                >
+                  {f.success === false ? "failed" : "ok"}
+                </span>
               </div>
             );
           })}
@@ -218,3 +180,4 @@ export default async function DashboardPage() {
     </div>
   );
 }
+
