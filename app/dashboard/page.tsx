@@ -9,7 +9,7 @@ async function getAirtable(table: string) {
   }
 
   const res = await fetch(
-    `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}?maxRecords=10&sort[0][field]=created_time&sort[0][direction]=desc`,
+    `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}?maxRecords=10`,
     {
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -28,10 +28,10 @@ async function getAirtable(table: string) {
 }
 
 export default async function DashboardPage() {
-  // use your real table names
-  const content = await getAirtable("Content");
-  const automations = await getAirtable("Automations Log");
-  const introducers = await getAirtable("Introducers");
+  // using the tables you said were in the base
+  const table1 = await getAirtable("Table 1");
+  const leads = await getAirtable("Leads");
+  const leadConvos = await getAirtable("Lead conversations");
 
   return (
     <div
@@ -46,115 +46,74 @@ export default async function DashboardPage() {
       <h1 style={{ fontSize: "2rem", fontWeight: "bold", marginBottom: "1rem" }}>
         Root Health Dashboard
       </h1>
-      <p style={{ marginBottom: "1.5rem" }}>Live Airtable snapshot</p>
+      <p style={{ marginBottom: "1.5rem" }}>Live Airtable snapshot (GPT base)</p>
 
       {/* top counts */}
       <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}>
         <div style={{ background: "white", padding: "1rem", borderRadius: "0.75rem", flex: 1 }}>
-          <p>Content rows</p>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{content.records.length}</h2>
-          {content.error && (
-            <p style={{ fontSize: "0.6rem", color: "#b91c1c" }}>Table: {content.table}</p>
+          <p>Table 1 rows</p>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{table1.records.length}</h2>
+          {table1.error && (
+            <p style={{ fontSize: "0.65rem", color: "#b91c1c" }}>Table: {table1.table}</p>
           )}
         </div>
         <div style={{ background: "white", padding: "1rem", borderRadius: "0.75rem", flex: 1 }}>
-          <p>Automation runs</p>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{automations.records.length}</h2>
-          {automations.error && (
-            <p style={{ fontSize: "0.6rem", color: "#b91c1c" }}>Table: {automations.table}</p>
+          <p>Leads</p>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{leads.records.length}</h2>
+          {leads.error && (
+            <p style={{ fontSize: "0.65rem", color: "#b91c1c" }}>Table: {leads.table}</p>
           )}
         </div>
         <div style={{ background: "white", padding: "1rem", borderRadius: "0.75rem", flex: 1 }}>
-          <p>Introducers</p>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{introducers.records.length}</h2>
-          {introducers.error && (
-            <p style={{ fontSize: "0.6rem", color: "#b91c1c" }}>Table: {introducers.table}</p>
+          <p>Lead conversations</p>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{leadConvos.records.length}</h2>
+          {leadConvos.error && (
+            <p style={{ fontSize: "0.65rem", color: "#b91c1c" }}>Table: {leadConvos.table}</p>
           )}
         </div>
       </div>
 
-      {/* latest automations */}
+      {/* show latest rows from Table 1 */}
       <div style={{ display: "flex", gap: "1rem" }}>
         <div style={{ flex: 2, background: "white", padding: "1rem", borderRadius: "0.75rem" }}>
-          <h3 style={{ marginBottom: "0.5rem" }}>Automations Log</h3>
-          {automations.records.length === 0 && (
+          <h3 style={{ marginBottom: "0.5rem" }}>Table 1 (raw rows)</h3>
+          {table1.records.length === 0 && (
             <p style={{ fontSize: "0.8rem", color: "#64748b" }}>
-              No rows found or table name is different (“Automations Log”?)
+              No rows found in “Table 1”.
             </p>
           )}
-          {automations.records.map((row: any) => (
-            <div
-              key={row.id}
-              style={{ borderBottom: "1px solid #e2e8f0", padding: "0.5rem 0" }}
-            >
-              <p style={{ fontWeight: 500 }}>
-                {row.fields.action || row.fields.details || "Automation event"}
-              </p>
-              <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
-                {row.fields.platform || ""} {row.fields.run_at ? `• ${row.fields.run_at}` : ""}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        {/* recent content */}
-        <div style={{ flex: 1, background: "white", padding: "1rem", borderRadius: "0.75rem" }}>
-          <h3 style={{ marginBottom: "0.5rem" }}>Recent Content</h3>
-          {content.records.length === 0 && (
-            <p style={{ fontSize: "0.8rem", color: "#64748b" }}>
-              No rows found in “Content”.
-            </p>
-          )}
-          {content.records.map((row: any) => (
-            <div key={row.id} style={{ marginBottom: "0.5rem" }}>
-              <p style={{ fontWeight: 500 }}>
-                {row.fields.Title ||
-                  row.fields.test ||
-                  row.fields["test 1"] ||
-                  "Content item"}
-              </p>
-              <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
-                {row.fields.Platform || row.fields.platform || ""}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* introducers */}
-      <div
-        style={{
-          marginTop: "1rem",
-          background: "white",
-          padding: "1rem",
-          borderRadius: "0.75rem",
-        }}
-      >
-        <h3 style={{ marginBottom: "0.5rem" }}>Introducers</h3>
-        {introducers.records.length === 0 && (
-          <p style={{ fontSize: "0.8rem", color: "#64748b" }}>
-            No rows found in “Introducers”.
-          </p>
-        )}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
-          {introducers.records.map((row: any) => (
-            <div
+          {table1.records.map((row: any) => (
+            <pre
               key={row.id}
               style={{
-                border: "1px solid #e2e8f0",
-                borderRadius: "0.75rem",
-                padding: "0.5rem 0.75rem",
-                minWidth: "180px",
+                background: "#e2e8f0",
+                padding: "0.5rem",
+                borderRadius: "0.5rem",
+                marginBottom: "0.5rem",
+                fontSize: "0.7rem",
+                whiteSpace: "pre-wrap",
               }}
             >
+              {JSON.stringify(row.fields, null, 2)}
+            </pre>
+          ))}
+        </div>
+
+        {/* leads list */}
+        <div style={{ flex: 1, background: "white", padding: "1rem", borderRadius: "0.75rem" }}>
+          <h3 style={{ marginBottom: "0.5rem" }}>Leads</h3>
+          {leads.records.length === 0 && (
+            <p style={{ fontSize: "0.8rem", color: "#64748b" }}>
+              No rows found in “Leads”.
+            </p>
+          )}
+          {leads.records.map((row: any) => (
+            <div key={row.id} style={{ marginBottom: "0.5rem" }}>
               <p style={{ fontWeight: 500 }}>
-                {row.fields.name || row.fields.Name || "No name"}
+                {row.fields.Name || row.fields.name || "Lead"}
               </p>
               <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
-                {row.fields["social handle"] || row.fields.email || ""}
-              </p>
-              <p style={{ fontSize: "0.7rem" }}>
-                Leads: <strong>{row.fields.leads_referred ?? 0}</strong>
+                {row.fields.Email || row.fields.email || ""}
               </p>
             </div>
           ))}
