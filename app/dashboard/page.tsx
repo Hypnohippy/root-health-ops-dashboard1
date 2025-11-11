@@ -1,183 +1,174 @@
-// app/dashboard/page.tsx
+"use client";
 
-import ContentForm from "./ContentForm";
-import ReplyForm from "./ReplyForm";
+import { useEffect, useState } from "react";
 
-// helper to fetch a table with optional sort
-async function getTable(
-  table: string,
-  sortField?: string,
-  direction: "asc" | "desc" = "desc"
-) {
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  const apiKey = process.env.AIRTABLE_API_KEY;
+type ReplyRecord = {
+  id: string;
+  createdTime?: string;
+  message_body?: string;
+  platform?: string;
+  direction?: string;
+  status?: string;
+};
 
-  if (!baseId || !apiKey) {
-    return { records: [], error: "Missing env vars", table };
+export default function DashboardPage() {
+  const [data, setData] = useState<ReplyRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // ✅ Fetch replies from your /api/replies endpoint
+  async function load() {
+    setLoading(true);
+    const res = await fetch("/api/replies", { cache: "no-store" });
+    const json = await res.json();
+    setData(json.records || []);
+    setLoading(false);
   }
 
-  const baseUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}`;
-  const url = sortField
-    ? `${baseUrl}?maxRecords=30&sort[0][field]=${encodeURIComponent(
-        sortField
-      )}&sort[0][direction]=${direction}`
-    : `${baseUrl}?maxRecords=30`;
+  useEffect(() => {
+    load();
+  }, []);
 
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-    cache: "no-store",
-  });
+  // ✅ Function: Save new content to Airtable
+  async function handleSaveToAirtable(content: string, platform: string) {
+    const body = {
+      message_body: content,
+      platform,
+      direction: "outbound",
+      status: "ready",
+    };
 
-  if (!res.ok) {
-    const text = await res.text();
-    return { records: [], error: text, table };
+    const res = await fetch("/api/reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const json = await res.json();
+    if (res.ok) {
+      alert("✅ Saved to Airtable!");
+      load(); // refresh list
+    } else {
+      alert("❌ Failed to save: " + JSON.stringify(json));
+    }
   }
 
-  const data = await res.json();
-  return { records: data.records || [], error: null, table };
-}
+  // ✅ Function: Log a reply to Airtable
+  async function handleLogReply(message: string, platform: string) {
+    const body = {
+      message_body: message,
+      platform,
+      direction: "outbound",
+      status: "sent",
+    };
 
-export default async function DashboardPage() {
-  // your real tables
-  const content = await getTable("Content", "Created Time"); // for publishing
-  const leadConvos = await getTable("Lead_Conversations", "created_at"); // for replies
-  const automations = await getTable("Automation_Log", "run_at"); // for Make checks
+    const res = await fetch("/api/reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
-  // content queue = not posted
-  const contentQueue = content.records.filter((r: any) => {
-    const f = r.fields || {};
-    return f.status !== "posted" && f.status !== "Published";
-  });
-
-  // reply queue = conversations that aren't done
-  const replyQueue = leadConvos.records.filter((r: any) => {
-    const f = r.fields || {};
-    return f.status !== "done" && f.status !== "replied";
-  });
+    const json = await res.json();
+    if (res.ok) {
+      alert("✅ Reply logged!");
+      load(); // refresh list
+    } else {
+      alert("❌ Failed to log reply: " + JSON.stringify(json));
+    }
+  }
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        padding: "2rem",
-        background: "#0f172a0d",
-        color: "#0f172a",
-        fontFamily: "system-ui, sans-serif",
-      }}
-    >
-      {/* the two forms at the top */}
-      <ContentForm />
-      <ReplyForm />
+    <div className="p-6 space-y-6">
+      <h1 className="text-3xl font-bold">Root Health Ops Dashboard</h1>
 
-      <h1 style={{ fontSize: "2rem", fontWeight: "bold", marginBottom: "1rem" }}>
-        Root Health Ops
-      </h1>
-      <p style={{ marginBottom: "1.5rem" }}>
-        Things to post, people to reply to, what Make actually did.
-      </p>
+      {/* --- Create New Content --- */}
+      <section className="p-4 border rounded-xl bg-gray-50 space-y-3">
+        <h2 className="text-xl font-semibold">Create new content</h2>
+        <p className="text-sm text-gray-600">
+          Quick test buttons to send sample content to Airtable.
+        </p>
 
-      {/* top counters */}
-      <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}>
-        <div style={{ background: "white", borderRadius: "0.75rem", padding: "1rem", flex: 1 }}>
-          <p>Content to post</p>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{contentQueue.length}</h2>
-        </div>
-        <div style={{ background: "white", borderRadius: "0.75rem", padding: "1rem", flex: 1 }}>
-          <p>Replies needed</p>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{replyQueue.length}</h2>
-        </div>
-        <div style={{ background: "white", borderRadius: "0.75rem", padding: "1rem", flex: 1 }}>
-          <p>Recent automations</p>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{automations.records.length}</h2>
-        </div>
-      </div>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() =>
+              handleSaveToAirtable(
+                "Feeling stressed lately but want to take control of your health again?",
+                "LinkedIn"
+              )
+            }
+            className="rounded-lg bg-green-600 text-white px-4 py-2 hover:bg-green-700"
+          >
+            Save to Airtable
+          </button>
 
-      {/* three columns like before */}
-      <div style={{ display: "flex", gap: "1rem" }}>
-        {/* content list */}
-        <div style={{ flex: 1, background: "white", borderRadius: "0.75rem", padding: "1rem" }}>
-          <h3 style={{ marginBottom: "0.5rem" }}>Content to post</h3>
-          {contentQueue.length === 0 && <p>No content to post.</p>}
-          {contentQueue.map((row: any) => {
-            const f = row.fields || {};
-            return (
-              <div key={row.id} style={{ marginBottom: "0.75rem" }}>
-                <p style={{ fontWeight: 500 }}>
-                  {f.title || f.test || f.test2 || "Untitled content"}
-                </p>
-                <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
-                  {Array.isArray(f.platform) ? f.platform.join(", ") : f.platform || "No platform"}
-                  {f.status ? ` • ${f.status}` : ""}
-                </p>
-              </div>
-            );
-          })}
+          <button
+            onClick={() =>
+              handleLogReply(
+                "Thanks for reaching out! Take control of your health with Root Health.",
+                "Reddit"
+              )
+            }
+            className="rounded-lg bg-blue-600 text-white px-4 py-2 hover:bg-blue-700"
+          >
+            Log Reply
+          </button>
         </div>
+      </section>
 
-        {/* replies */}
-        <div style={{ flex: 1, background: "white", borderRadius: "0.75rem", padding: "1rem" }}>
-          <h3 style={{ marginBottom: "0.5rem" }}>Replies needed</h3>
-          {replyQueue.length === 0 && <p>No conversations need replies.</p>}
-          {replyQueue.map((row: any) => {
-            const f = row.fields || {};
-            return (
-              <div key={row.id} style={{ marginBottom: "0.75rem" }}>
-                <p style={{ fontWeight: 500 }}>
-                  {f.message_body ? f.message_body.slice(0, 80) : "Conversation"}
-                  {f.message_body && f.message_body.length > 80 ? "..." : ""}
-                </p>
-                <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
-                  {f.platform || ""} {f.direction ? `• ${f.direction}` : ""}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* automations */}
-        <div style={{ flex: 1, background: "white", borderRadius: "0.75rem", padding: "1rem" }}>
-          <h3 style={{ marginBottom: "0.5rem" }}>Latest automations</h3>
-          {automations.records.length === 0 && <p>No rows in Automation_Log yet.</p>}
-          {automations.records.map((row: any) => {
-            const f = row.fields || {};
-            return (
-              <div
-                key={row.id}
-                style={{
-                  marginBottom: "0.75rem",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: "0.5rem",
-                  borderBottom: "1px solid #e2e8f0",
-                  paddingBottom: "0.5rem",
-                }}
-              >
-                <div>
-                  <p style={{ fontWeight: 500 }}>{f.action || "Automation run"}</p>
-                  <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
-                    {f.platform || ""} {f.run_at ? `• ${f.run_at}` : ""}
-                  </p>
-                </div>
-                <span
-                  style={{
-                    background: f.success === false ? "#fee2e2" : "#dcfce7",
-                    color: f.success === false ? "#b91c1c" : "#166534",
-                    fontSize: "0.6rem",
-                    padding: "0.2rem 0.5rem",
-                    borderRadius: "9999px",
-                    height: "fit-content",
-                  }}
-                >
-                  {f.success === false ? "failed" : "ok"}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {/* --- Replies Table --- */}
+      <section className="p-4 border rounded-xl bg-white">
+        <h2 className="text-xl font-semibold mb-3">Replies Needed / Logged</h2>
+        {loading ? (
+          <p>Loading data...</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm border-collapse border border-gray-200">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border border-gray-200 p-2 text-left">Platform</th>
+                  <th className="border border-gray-200 p-2 text-left">Direction</th>
+                  <th className="border border-gray-200 p-2 text-left">Status</th>
+                  <th className="border border-gray-200 p-2 text-left">Message</th>
+                  <th className="border border-gray-200 p-2 text-left">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.length > 0 ? (
+                  data.map((row) => (
+                    <tr key={row.id} className="hover:bg-gray-50">
+                      <td className="border border-gray-200 p-2">
+                        {row.platform || "-"}
+                      </td>
+                      <td className="border border-gray-200 p-2">
+                        {row.direction || "-"}
+                      </td>
+                      <td className="border border-gray-200 p-2">
+                        {row.status || "-"}
+                      </td>
+                      <td className="border border-gray-200 p-2">
+                        {row.message_body || "-"}
+                      </td>
+                      <td className="border border-gray-200 p-2">
+                        {row.createdTime
+                          ? new Date(row.createdTime).toLocaleString()
+                          : "-"}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      className="border border-gray-200 p-3 text-center text-gray-500"
+                      colSpan={5}
+                    >
+                      No records yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
-
