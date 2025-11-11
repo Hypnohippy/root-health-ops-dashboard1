@@ -12,7 +12,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<AirtableRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // editor state
+  // editor
   const [newMessage, setNewMessage] = useState(
     "Feeling stressed lately but want to take control of your health again?"
   );
@@ -33,7 +33,7 @@ export default function DashboardPage() {
     setTimeout(() => setToast(null), 3500);
   }
 
-  // load from API
+  // fetch data
   async function load() {
     setLoading(true);
     const res = await fetch("/api/replies", { cache: "no-store" });
@@ -54,6 +54,7 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, []);
 
+  // save
   async function handleSaveToAirtable() {
     const body = {
       "message body": newMessage,
@@ -77,6 +78,7 @@ export default function DashboardPage() {
     }
   }
 
+  // log reply
   async function handleLogReply() {
     const body = {
       "message body": newMessage,
@@ -100,6 +102,7 @@ export default function DashboardPage() {
     }
   }
 
+  // AI draft
   async function handleAIDraft() {
     const res = await fetch("/api/ai/reply", {
       method: "POST",
@@ -107,7 +110,7 @@ export default function DashboardPage() {
       body: JSON.stringify({
         sourceText: newMessage,
         platform: newPlatform,
-        style: "warm, human, not salesy",
+        style: "warm, human, founder, not apologetic",
       }),
     });
     const json = await res.json();
@@ -119,6 +122,7 @@ export default function DashboardPage() {
     }
   }
 
+  // load a draft card into editor
   function loadDraftIntoEditor(record: any) {
     const fields = record.fields || record;
     setNewMessage(fields["message body"] || "");
@@ -126,6 +130,7 @@ export default function DashboardPage() {
     showToast("success", "Draft loaded into editor");
   }
 
+  // mark sent
   async function handleMarkSent(id: string) {
     const res = await fetch(`/api/replies/${id}`, {
       method: "PATCH",
@@ -141,94 +146,111 @@ export default function DashboardPage() {
     }
   }
 
-  // filtered data
+  // filter
   const filtered = data.filter((row) => {
-    const fields = (row as any).fields || row;
-    const platform = fields["Platform"] || "";
-    const direction = fields["direction"] || "";
-    if (filterPlatform && platform !== filterPlatform) return false;
-    if (filterDirection && direction !== filterDirection) return false;
+    const f = (row as any).fields || row;
+    const p = f["Platform"] || "";
+    const d = f["direction"] || "";
+    if (filterPlatform && p !== filterPlatform) return false;
+    if (filterDirection && d !== filterDirection) return false;
     return true;
   });
 
-  // little helpers for UI
+  // status colours
   function statusColor(status?: string) {
     switch (status) {
       case "to_post":
-        return "bg-amber-100 text-amber-700";
+        return "bg-amber-500/20 text-amber-100 border border-amber-500/30";
       case "drafted":
-        return "bg-purple-100 text-purple-700";
+        return "bg-purple-500/20 text-purple-100 border border-purple-500/30";
       case "sent":
-        return "bg-green-100 text-green-700";
       case "posted":
-        return "bg-green-100 text-green-700";
+        return "bg-emerald-500/20 text-emerald-100 border border-emerald-500/30";
       case "needs_reply":
-        return "bg-red-100 text-red-700";
+        return "bg-rose-500/20 text-rose-100 border border-rose-500/30";
       default:
-        return "bg-gray-100 text-gray-600";
+        return "bg-slate-500/20 text-slate-100 border border-slate-500/30";
     }
   }
 
   return (
-    <div className="p-6 space-y-6 relative bg-slate-50 min-h-screen">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-900 text-slate-50 p-6 space-y-6">
       {/* toast */}
       {toast ? (
         <div
-          className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-lg text-white shadow-lg ${
-            toast.type === "success" ? "bg-green-600" : "bg-red-600"
+          className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-xl text-white shadow-lg ${
+            toast.type === "success" ? "bg-emerald-500" : "bg-rose-500"
           }`}
         >
           {toast.msg}
         </div>
       ) : null}
 
-      <h1 className="text-3xl font-bold tracking-tight">Root Health Ops Dashboard</h1>
+      <header className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Root Health Ops Dashboard
+          </h1>
+          <p className="text-slate-300 text-sm mt-1">
+            Your cockpit for content, replies and automations.
+          </p>
+        </div>
+        <button
+          onClick={load}
+          className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-sm border border-white/10"
+        >
+          Refresh
+        </button>
+      </header>
 
-      {/* editor */}
-      <section className="p-4 border rounded-xl bg-white shadow-sm space-y-4">
-        <h2 className="text-xl font-semibold">Create / log content</h2>
-
-        <div className="flex flex-col gap-3 max-w-xl">
+      {/* editor card */}
+      <section className="backdrop-blur-lg bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl space-y-4">
+        <h2 className="text-lg font-semibold">Create / log content</h2>
+        <div className="flex flex-col gap-3 max-w-2xl">
           <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-slate-700">Message text</span>
+            <span className="text-xs uppercase tracking-wide text-slate-200">
+              Message text
+            </span>
             <textarea
-              className="border rounded-lg p-2 min-h-[90px] focus:outline-none focus:ring-2 focus:ring-slate-300"
+              className="bg-slate-950/40 border border-white/10 rounded-xl p-3 min-h-[90px] focus:outline-none focus:ring-2 focus:ring-indigo-400/60"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
             />
           </label>
 
-          <label className="flex flex-col gap-1 w-48">
-            <span className="text-sm font-medium text-slate-700">Platform</span>
+          <label className="flex flex-col gap-1 w-56">
+            <span className="text-xs uppercase tracking-wide text-slate-200">
+              Platform
+            </span>
             <select
-              className="border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-300"
+              className="bg-slate-950/40 border border-white/10 rounded-xl p-2 focus:outline-none"
               value={newPlatform}
               onChange={(e) => setNewPlatform(e.target.value)}
             >
               <option value="LinkedIn">LinkedIn</option>
-              <option value="Reddit">Reddit</option>
               <option value="Instagram">Instagram</option>
               <option value="TikTok">TikTok</option>
               <option value="Facebook">Facebook</option>
+              <option value="Reddit">Reddit</option>
             </select>
           </label>
 
           <div className="flex flex-wrap gap-3">
             <button
               onClick={handleSaveToAirtable}
-              className="rounded-lg bg-green-600 text-white px-4 py-2 hover:bg-green-700 text-sm"
+              className="rounded-lg bg-emerald-500 text-slate-950 px-4 py-2 text-sm font-medium hover:bg-emerald-400"
             >
               Save to Airtable
             </button>
             <button
               onClick={handleLogReply}
-              className="rounded-lg bg-blue-600 text-white px-4 py-2 hover:bg-blue-700 text-sm"
+              className="rounded-lg bg-indigo-400 text-slate-950 px-4 py-2 text-sm font-medium hover:bg-indigo-300"
             >
               Log Reply
             </button>
             <button
               onClick={handleAIDraft}
-              className="rounded-lg bg-purple-600 text-white px-4 py-2 hover:bg-purple-700 text-sm"
+              className="rounded-lg bg-fuchsia-500 text-slate-50 px-4 py-2 text-sm font-medium hover:bg-fuchsia-400"
             >
               AI draft
             </button>
@@ -236,11 +258,13 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* AI drafted posts strip */}
-      <section className="p-4 border rounded-xl bg-white shadow-sm space-y-3">
-        <h2 className="text-lg font-semibold">AI drafted posts</h2>
-        <p className="text-sm text-slate-500">
-          These are rows in Airtable with status = <code>drafted</code>. Click one to load it into the editor above.
+      {/* drafted posts */}
+      <section className="backdrop-blur-lg bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl space-y-3">
+        <h2 className="text-base font-semibold text-slate-50">
+          AI drafted posts
+        </h2>
+        <p className="text-xs text-slate-300">
+          These come from Airtable records with <code>status = drafted</code>.
         </p>
         <div className="flex gap-3 flex-wrap">
           {data
@@ -252,27 +276,32 @@ export default function DashboardPage() {
               const f = (r as any).fields || r;
               return (
                 <div
-                    key={r.id}
-                    className="border rounded-lg p-3 bg-slate-50 flex flex-col gap-2 max-w-sm"
+                  key={r.id}
+                  className="bg-slate-950/30 border border-white/10 rounded-xl p-3 max-w-sm space-y-2"
                 >
-                  <p className="text-sm text-slate-700">
-                    {f["message body"] ? f["message body"].slice(0, 140) : "No text"}
-                    {f["message body"] && f["message body"].length > 140 ? "..." : ""}
+                  <p className="text-sm text-slate-50">
+                    {f["message body"]
+                      ? f["message body"].slice(0, 130)
+                      : "No text"}
+                    {f["message body"] && f["message body"].length > 130
+                      ? "..."
+                      : ""}
                   </p>
-                  <p className="text-xs text-slate-400">
-                    Platform: {f["Platform"] || "—"}
+                  <p className="text-[10px] uppercase text-slate-400 tracking-wide">
+                    {f["Platform"] || "—"}
                   </p>
                   <button
                     onClick={() => loadDraftIntoEditor(r)}
-                    className="text-xs px-3 py-1 bg-slate-900 text-white rounded hover:bg-slate-800 self-start"
+                    className="text-xs px-3 py-1 bg-slate-50 text-slate-900 rounded-lg hover:bg-slate-200"
                   >
                     Load into editor
                   </button>
                 </div>
               );
             })}
-          {data.filter((r) => ((r as any).fields || r)["status"] === "drafted").length === 0 ? (
-            <p className="text-sm text-slate-400">No AI drafts yet.</p>
+          {data.filter((r) => ((r as any).fields || r)["status"] === "drafted")
+            .length === 0 ? (
+            <p className="text-sm text-slate-300">No AI drafts yet.</p>
           ) : null}
         </div>
       </section>
@@ -281,19 +310,19 @@ export default function DashboardPage() {
       <section className="flex flex-wrap gap-3 items-center justify-between">
         <div className="flex gap-2">
           <select
-            className="border rounded-lg p-1 text-sm bg-white"
+            className="bg-white/5 border border-white/10 rounded-lg p-1 text-sm"
             value={filterPlatform}
             onChange={(e) => setFilterPlatform(e.target.value)}
           >
             <option value="">All platforms</option>
             <option value="LinkedIn">LinkedIn</option>
-            <option value="Reddit">Reddit</option>
             <option value="Instagram">Instagram</option>
             <option value="TikTok">TikTok</option>
             <option value="Facebook">Facebook</option>
+            <option value="Reddit">Reddit</option>
           </select>
           <select
-            className="border rounded-lg p-1 text-sm bg-white"
+            className="bg-white/5 border border-white/10 rounded-lg p-1 text-sm"
             value={filterDirection}
             onChange={(e) => setFilterDirection(e.target.value)}
           >
@@ -302,18 +331,13 @@ export default function DashboardPage() {
             <option value="inbound">inbound</option>
           </select>
         </div>
-        <button
-          onClick={load}
-          className="text-sm px-3 py-1 border rounded-lg hover:bg-white"
-        >
-          Refresh
-        </button>
+        <p className="text-xs text-slate-400">Auto-refresh every 30s</p>
       </section>
 
-      {/* pretty card list */}
-      <section className="space-y-4">
+      {/* conversation cards */}
+      <section className="space-y-4 pb-10">
         {loading ? (
-          <p className="text-slate-500">Loading data...</p>
+          <p className="text-slate-200">Loading data…</p>
         ) : filtered.length === 0 ? (
           <p className="text-slate-400">No records yet.</p>
         ) : (
@@ -322,28 +346,28 @@ export default function DashboardPage() {
             return (
               <div
                 key={row.id}
-                className="bg-white border rounded-xl p-4 shadow-sm flex flex-col gap-3"
+                className="backdrop-blur-lg bg-white/5 border border-white/10 rounded-2xl p-4 shadow-lg space-y-3"
               >
                 {/* header */}
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <span className="text-xs px-2 py-1 rounded-full bg-slate-950/40 border border-white/10">
                       {f["Platform"] || "Unknown"}
                     </span>
                     <span
-                      className={`text-xs px-2 py-1 rounded-full ${statusColor(
+                      className={`text-[10px] px-2 py-1 rounded-full uppercase tracking-wide ${statusColor(
                         f["status"]
                       )}`}
                     >
                       {f["status"] || "—"}
                     </span>
                     {f["direction"] ? (
-                      <span className="text-xs text-slate-400">
+                      <span className="text-[10px] uppercase text-slate-300">
                         {f["direction"]}
                       </span>
                     ) : null}
                   </div>
-                  <span className="text-xs text-slate-400">
+                  <span className="text-[10px] text-slate-400">
                     {f["created at"]
                       ? f["created at"]
                       : row.createdTime
@@ -352,34 +376,36 @@ export default function DashboardPage() {
                   </span>
                 </div>
 
-                {/* original post / context */}
+                {/* original/context if present */}
                 {f["Original post / context"] ? (
-                  <div className="bg-slate-50 border border-slate-100 rounded-lg p-3">
-                    <p className="text-xs uppercase text-slate-400 mb-1">
+                  <div className="bg-slate-950/30 border border-white/5 rounded-xl p-3">
+                    <p className="text-[10px] uppercase text-slate-400 mb-1">
                       Original
                     </p>
-                    <p className="text-sm text-slate-700">
+                    <p className="text-sm text-slate-50">
                       {f["Original post / context"]}
                     </p>
                   </div>
                 ) : null}
 
-                {/* our message (AI or manual) */}
+                {/* our message */}
                 <div className="space-y-1">
-                  <p className="text-xs uppercase text-slate-400">Your message</p>
-                  <p className="text-sm text-slate-800 whitespace-pre-line">
+                  <p className="text-[10px] uppercase text-slate-400">
+                    Your message
+                  </p>
+                  <p className="text-sm text-slate-50 whitespace-pre-line">
                     {f["message body"] || "—"}
                   </p>
                 </div>
 
-                {/* link */}
+                {/* external link */}
                 {f["Post URL"] ? (
                   <a
                     href={f["Post URL"]}
                     target="_blank"
-                    className="text-xs text-blue-600 underline w-fit"
+                    className="text-xs text-indigo-200 underline"
                   >
-                    View original post ↗
+                    View on {f["Platform"]} ↗
                   </a>
                 ) : null}
 
@@ -387,13 +413,13 @@ export default function DashboardPage() {
                 <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={() => loadDraftIntoEditor(row)}
-                    className="text-xs px-3 py-1 border rounded-lg hover:bg-slate-50"
+                    className="text-xs px-3 py-1 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10"
                   >
                     Edit in editor
                   </button>
                   <button
                     onClick={() => handleMarkSent(row.id)}
-                    className="text-xs px-3 py-1 bg-slate-900 text-white rounded-lg hover:bg-slate-800"
+                    className="text-xs px-3 py-1 rounded-lg bg-slate-950 text-slate-50 hover:bg-slate-800"
                   >
                     Mark sent
                   </button>
