@@ -15,7 +15,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<ReplyRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // ✅ Fetch replies from your /api/replies endpoint
+  // fetch from /api/replies
   async function load() {
     setLoading(true);
     const res = await fetch("/api/replies", { cache: "no-store" });
@@ -28,13 +28,13 @@ export default function DashboardPage() {
     load();
   }, []);
 
-  // ✅ Function: Save new content to Airtable
+  // ✅ create content in Airtable (no status)
   async function handleSaveToAirtable(content: string, platform: string) {
     const body = {
       message_body: content,
       platform,
       direction: "outbound",
-      status: "ready",
+      // status: "ready",  // ❌ removed because Airtable rejected it
     };
 
     const res = await fetch("/api/reply", {
@@ -46,19 +46,19 @@ export default function DashboardPage() {
     const json = await res.json();
     if (res.ok) {
       alert("✅ Saved to Airtable!");
-      load(); // refresh list
+      load();
     } else {
       alert("❌ Failed to save: " + JSON.stringify(json));
     }
   }
 
-  // ✅ Function: Log a reply to Airtable
+  // ✅ log reply in Airtable (also no status)
   async function handleLogReply(message: string, platform: string) {
     const body = {
       message_body: message,
       platform,
       direction: "outbound",
-      status: "sent",
+      // status: "sent", // ❌ removed for same reason
     };
 
     const res = await fetch("/api/reply", {
@@ -70,7 +70,7 @@ export default function DashboardPage() {
     const json = await res.json();
     if (res.ok) {
       alert("✅ Reply logged!");
-      load(); // refresh list
+      load();
     } else {
       alert("❌ Failed to log reply: " + JSON.stringify(json));
     }
@@ -80,7 +80,7 @@ export default function DashboardPage() {
     <div className="p-6 space-y-6">
       <h1 className="text-3xl font-bold">Root Health Ops Dashboard</h1>
 
-      {/* --- Create New Content --- */}
+      {/* Create new content */}
       <section className="p-4 border rounded-xl bg-gray-50 space-y-3">
         <h2 className="text-xl font-semibold">Create new content</h2>
         <p className="text-sm text-gray-600">
@@ -114,7 +114,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* --- Replies Table --- */}
+      {/* Replies table */}
       <section className="p-4 border rounded-xl bg-white">
         <h2 className="text-xl font-semibold mb-3">Replies Needed / Logged</h2>
         {loading ? (
