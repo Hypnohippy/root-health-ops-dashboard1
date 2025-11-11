@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-// we keep it loose because Airtable can return flattened or fields{}
 type AirtableRecord = {
   id: string;
   createdTime?: string;
@@ -13,7 +12,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<AirtableRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // form state
+  // editor state
   const [newMessage, setNewMessage] = useState(
     "Feeling stressed lately but want to take control of your health again?"
   );
@@ -34,7 +33,7 @@ export default function DashboardPage() {
     setTimeout(() => setToast(null), 3500);
   }
 
-  // load from /api/replies
+  // load Airtable data from our API
   async function load() {
     setLoading(true);
     const res = await fetch("/api/replies", { cache: "no-store" });
@@ -55,13 +54,13 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, []);
 
-  // SAVE → creates a row the Make scenario can post
+  // save a post for Make to publish
   async function handleSaveToAirtable() {
     const body = {
       "message body": newMessage,
       Platform: newPlatform,
       direction: "outbound",
-      status: "to_post", // we added this in Airtable
+      status: "to_post", // Make will watch for this
     };
 
     const res = await fetch("/api/reply", {
@@ -79,13 +78,13 @@ export default function DashboardPage() {
     }
   }
 
-  // LOG → for “I replied already, log it”
+  // log an actual reply you sent
   async function handleLogReply() {
     const body = {
       "message body": newMessage,
       Platform: newPlatform,
       direction: "outbound",
-      status: "sent", // you said you have this
+      status: "sent",
     };
 
     const res = await fetch("/api/reply", {
@@ -103,7 +102,7 @@ export default function DashboardPage() {
     }
   }
 
-  // AI → get draft from /api/ai/reply
+  // ask our AI route for a draft
   async function handleAIDraft() {
     const res = await fetch("/api/ai/reply", {
       method: "POST",
@@ -123,7 +122,15 @@ export default function DashboardPage() {
     }
   }
 
-  // mark as sent → PATCH /api/replies/[id]
+  // click a draft card → load it into the editor
+  function loadDraftIntoEditor(record: any) {
+    const fields = record.fields || record;
+    setNewMessage(fields["message body"] || "");
+    setNewPlatform(fields["Platform"] || "LinkedIn");
+    showToast("success", "Draft loaded into editor");
+  }
+
+  // mark a record as sent
   async function handleMarkSent(id: string) {
     const res = await fetch(`/api/replies/${id}`, {
       method: "PATCH",
@@ -139,7 +146,7 @@ export default function DashboardPage() {
     }
   }
 
-  // client-side filters
+  // apply filters
   const filtered = data.filter((row) => {
     const fields = (row as any).fields || row;
     const platform = fields["Platform"] || "";
@@ -164,7 +171,7 @@ export default function DashboardPage() {
 
       <h1 className="text-3xl font-bold">Root Health Ops Dashboard</h1>
 
-      {/* form */}
+      {/* editor / cockpit */}
       <section className="p-4 border rounded-xl bg-gray-50 space-y-4">
         <h2 className="text-xl font-semibold">Create / log content</h2>
 
@@ -217,7 +224,55 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* table */}
+      {/* AI drafted posts panel */}
+      <section className="p-4 border rounded-xl bg-white space-y-3">
+        <h2 className="text-lg font-semibold">AI drafted posts</h2>
+        <p className="text-sm text-gray-600">
+          These are rows in Airtable with status = <code>drafted</code>. Click one to load it into the editor above.
+        </p>
+        <div className="flex gap-3 flex-wrap">
+          {data
+            .filter((r) => {
+              const f = (r as any).fields || r;
+              return f["status"] === "drafted";
+            })
+            .map((r) => {
+              const f = (r as any).fields || r;
+              return (
+                <div
+                  key={r.id}
+                  className="border rounded p-3 max-w-sm bg-gray-50 flex flex-col gap-2"
+                >
+                  <p className="text-sm">
+                    {f["message body"]
+                      ? f["message body"].slice(0, 140)
+                      : "No text"}
+                    {f["message body"] && f["message body"].length > 140
+                      ? "..."
+                      : ""}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Platform: {f["Platform"] || "—"}
+                  </p>
+                  <button
+                    onClick={() => loadDraftIntoEditor(r)}
+                    className="text-xs px-3 py-1 bg-black text-white rounded hover:bg-gray-800 self-start"
+                  >
+                    Load into editor
+                  </button>
+                </div>
+              );
+            })}
+          {data.filter((r) => {
+            const f = (r as any).fields || r;
+            return f["status"] === "drafted";
+          }).length === 0 ? (
+            <p className="text-sm text-gray-500">No AI drafts yet.</p>
+          ) : null}
+        </div>
+      </section>
+
+      {/* main table */}
       <section className="p-4 border rounded-xl bg-white space-y-4">
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-xl font-semibold">Replies / content</h2>
