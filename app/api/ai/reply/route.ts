@@ -5,7 +5,7 @@ export async function POST(req: Request) {
   const {
     sourceText,
     platform = "LinkedIn",
-    style = "warm, human, not salesy",
+    style = "warm, human, founder of Root Health, practical",
   } = body;
 
   const apiKey =
@@ -15,43 +15,44 @@ export async function POST(req: Request) {
 
   if (!apiKey) {
     return NextResponse.json(
-      {
-        error: "Missing OpenAI key on server",
-      },
+      { error: "Missing OpenAI key on server" },
       { status: 500 }
     );
   }
 
-  // make the model stick to what YOU wrote
   let platformHint = "";
   if (platform === "LinkedIn") {
     platformHint =
-      "Keep it professional but warm, 2-5 sentences, no hard sell. End with a gentle invitation or reflection.";
+      "Sound like a thoughtful founder. 2–5 sentences. No sales pitch. No emojis unless natural.";
   } else if (platform === "Instagram" || platform === "TikTok") {
-    platformHint = "Warmer, shorter, 1 emoji is ok.";
+    platformHint =
+      "Short, warm, encouraging, 1 emoji is ok, focus on feeling seen.";
   } else if (platform === "Reddit") {
     platformHint =
-      "Sound like a real person, no sales language, 1 short paragraph.";
+      "Sound like a real person, no brand-speak, one short paragraph.";
   }
 
   const prompt = `
-You are writing AS the founder of Root Health, a self-directed health/wellbeing platform.
+You are writing as the founder of Root Health, a calm, grounded wellness product for people dealing with stress, burnout and loss of control.
 
-User wrote this and wants to reply or post about it:
-"""${sourceText || "no user text was provided"}"""
+User/context:
+"""${sourceText || "The person is talking about stress and burnout."}"""
 
-Your job:
-1. Stay ON the topic above. Do NOT invent a different topic.
-2. Acknowledge their situation (stress, health, burnout, small steps, control).
-3. Offer 1 practical, doable step.
-4. Speak as a human, not a marketer.
-5. Do NOT diagnose, just encourage self-management and seeking help if needed.
-6. Keep it suitable for ${platform}.
+Write a reply suitable for ${platform}.
 
-Style: ${style}
+Rules:
+- DO NOT start with "I'm sorry", "I'm sorry to hear", "Sorry that", or any apology.
+- Start by recognising what's real for them (e.g. "That kind of burnout sneaks up on you..." or "What you're describing is really common when stress piles up...").
+- Keep the tone human, not clinical. No corporate phrases.
+- Offer ONE small, doable next step (breathing, 10-minute walk, journaling, naming stress).
+- Gently point to taking back control, which is Root Health's vibe.
+- Do NOT diagnose or promise outcomes.
+- Keep it concise.
+
+Tone to aim for: ${style}
 Platform guidance: ${platformHint}
 
-Now write ONE reply/post.
+Now write ONE reply.
   `.trim();
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -63,7 +64,7 @@ Now write ONE reply/post.
     body: JSON.stringify({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.6, // a bit tighter so it doesn't drift
+      temperature: 0.6,
     }),
   });
 
