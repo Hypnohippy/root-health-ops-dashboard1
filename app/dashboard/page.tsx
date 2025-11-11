@@ -15,7 +15,12 @@ export default function DashboardPage() {
   const [data, setData] = useState<ReplyRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // fetch from /api/replies
+  // form state
+  const [newMessage, setNewMessage] = useState(
+    "Feeling stressed lately but want to take control of your health again?"
+  );
+  const [newPlatform, setNewPlatform] = useState("LinkedIn");
+
   async function load() {
     setLoading(true);
     const res = await fetch("/api/replies", { cache: "no-store" });
@@ -28,13 +33,12 @@ export default function DashboardPage() {
     load();
   }, []);
 
-  // ✅ create content in Airtable (no status)
-  async function handleSaveToAirtable(content: string, platform: string) {
+  // create content in Airtable (no status because Airtable complained)
+  async function handleSaveToAirtable() {
     const body = {
-      message_body: content,
-      platform,
+      message_body: newMessage,
+      platform: newPlatform,
       direction: "outbound",
-      // status: "ready",  // ❌ removed because Airtable rejected it
     };
 
     const res = await fetch("/api/reply", {
@@ -52,13 +56,12 @@ export default function DashboardPage() {
     }
   }
 
-  // ✅ log reply in Airtable (also no status)
-  async function handleLogReply(message: string, platform: string) {
+  // log reply
+  async function handleLogReply() {
     const body = {
-      message_body: message,
-      platform,
+      message_body: newMessage,
+      platform: newPlatform,
       direction: "outbound",
-      // status: "sent", // ❌ removed for same reason
     };
 
     const res = await fetch("/api/reply", {
@@ -80,43 +83,64 @@ export default function DashboardPage() {
     <div className="p-6 space-y-6">
       <h1 className="text-3xl font-bold">Root Health Ops Dashboard</h1>
 
-      {/* Create new content */}
-      <section className="p-4 border rounded-xl bg-gray-50 space-y-3">
-        <h2 className="text-xl font-semibold">Create new content</h2>
-        <p className="text-sm text-gray-600">
-          Quick test buttons to send sample content to Airtable.
-        </p>
+      {/* Create / Log */}
+      <section className="p-4 border rounded-xl bg-gray-50 space-y-4">
+        <h2 className="text-xl font-semibold">Create new content / Log reply</h2>
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() =>
-              handleSaveToAirtable(
-                "Feeling stressed lately but want to take control of your health again?",
-                "LinkedIn"
-              )
-            }
-            className="rounded-lg bg-green-600 text-white px-4 py-2 hover:bg-green-700"
-          >
-            Save to Airtable
-          </button>
+        <div className="flex flex-col gap-3 max-w-xl">
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium">Message text</span>
+            <textarea
+              className="border rounded-lg p-2 min-h-[90px]"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+            />
+          </label>
 
-          <button
-            onClick={() =>
-              handleLogReply(
-                "Thanks for reaching out! Take control of your health with Root Health.",
-                "Reddit"
-              )
-            }
-            className="rounded-lg bg-blue-600 text-white px-4 py-2 hover:bg-blue-700"
-          >
-            Log Reply
-          </button>
+          <label className="flex flex-col gap-1 w-48">
+            <span className="text-sm font-medium">Platform</span>
+            <select
+              className="border rounded-lg p-2"
+              value={newPlatform}
+              onChange={(e) => setNewPlatform(e.target.value)}
+            >
+              <option value="LinkedIn">LinkedIn</option>
+              <option value="Reddit">Reddit</option>
+              <option value="Instagram">Instagram</option>
+              <option value="TikTok">TikTok</option>
+              <option value="Facebook">Facebook</option>
+            </select>
+          </label>
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleSaveToAirtable}
+              className="rounded-lg bg-green-600 text-white px-4 py-2 hover:bg-green-700"
+            >
+              Save to Airtable
+            </button>
+            <button
+              onClick={handleLogReply}
+              className="rounded-lg bg-blue-600 text-white px-4 py-2 hover:bg-blue-700"
+            >
+              Log Reply
+            </button>
+          </div>
         </div>
       </section>
 
       {/* Replies table */}
       <section className="p-4 border rounded-xl bg-white">
-        <h2 className="text-xl font-semibold mb-3">Replies Needed / Logged</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xl font-semibold">Replies Needed / Logged</h2>
+          <button
+            onClick={load}
+            className="text-sm px-3 py-1 border rounded-lg hover:bg-gray-50"
+          >
+            Refresh
+          </button>
+        </div>
+
         {loading ? (
           <p>Loading data...</p>
         ) : (
@@ -144,10 +168,10 @@ export default function DashboardPage() {
                       <td className="border border-gray-200 p-2">
                         {row.status || "-"}
                       </td>
-                      <td className="border border-gray-200 p-2">
+                      <td className="border border-gray-200 p-2 max-w-md">
                         {row.message_body || "-"}
                       </td>
-                      <td className="border border-gray-200 p-2">
+                      <td className="border border-gray-200 p-2 whitespace-nowrap">
                         {row.createdTime
                           ? new Date(row.createdTime).toLocaleString()
                           : "-"}
