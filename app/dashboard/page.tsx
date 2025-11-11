@@ -2,37 +2,41 @@
 
 import { useEffect, useState } from "react";
 
-// we'll normalise the Airtable shape on the client
-type ReplyRecord = {
+type AirtableRecord = {
   id: string;
   createdTime?: string;
-  fields: {
-    ID?: string;
-    Lead?: string;
-    Platform?: string;
-    direction?: string;
-    ["message body"]?: string;
-    ["created at"]?: string;
-    ["sent by"]?: string;
-    status?: string;
-  };
+  // our /api/replies might have flattened fields, so we handle both shapes
+  [key: string]: any;
 };
 
 export default function DashboardPage() {
-  const [data, setData] = useState<ReplyRecord[]>([]);
+  const [data, setData] = useState<AirtableRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // form state
+  // form
   const [newMessage, setNewMessage] = useState(
     "Feeling stressed lately but want to take control of your health again?"
   );
   const [newPlatform, setNewPlatform] = useState("LinkedIn");
 
+  // filters
+  const [filterPlatform, setFilterPlatform] = useState("");
+  const [filterDirection, setFilterDirection] = useState("");
+
+  // toast
+  const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+
+  function showToast(type: "success" | "error", msg: string) {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 3500);
+  }
+
   async function load() {
     setLoading(true);
+
+    // we'll just hit /api/replies and filter on client
     const res = await fetch("/api/replies", { cache: "no-store" });
     const json = await res.json();
-    // json.records is what our /api/replies returned
     setData(json.records || []);
     setLoading(false);
   }
@@ -41,14 +45,20 @@ export default function DashboardPage() {
     load();
   }, []);
 
-  // ✅ save content to Airtable using your real field names
+  // auto-refresh every 30s
+  useEffect(() => {
+    const id = setInterval(() => {
+      load();
+    }, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  // create
   async function handleSaveToAirtable() {
     const body = {
-      // these keys must match Airtable exactly
       "message body": newMessage,
       Platform: newPlatform,
       direction: "outbound",
-      // status: "ready", // leave out because Airtable rejected it
     };
 
     const res = await fetch("/api/reply", {
@@ -59,20 +69,20 @@ export default function DashboardPage() {
 
     const json = await res.json();
     if (res.ok) {
-      alert("✅ Saved to Airtable!");
+      showToast("success", "Saved to Airtable");
+      setNewMessage("");
       load();
     } else {
-      alert("❌ Failed to save: " + JSON.stringify(json));
+      showToast("error", "Failed: " + JSON.stringify(json));
     }
   }
 
-  // ✅ log reply with same field names
+  // log
   async function handleLogReply() {
     const body = {
       "message body": newMessage,
       Platform: newPlatform,
       direction: "outbound",
-      // status: "sent",
     };
 
     const res = await fetch("/api/reply", {
@@ -83,20 +93,62 @@ export default function DashboardPage() {
 
     const json = await res.json();
     if (res.ok) {
-      alert("✅ Reply logged!");
+      showToast("success", "Reply logged");
       load();
     } else {
-      alert("❌ Failed to log reply: " + JSON.stringify(json));
+      showToast("error", "Failed: " + JSON.stringify(json));
     }
   }
 
+  // mark sent
+  async function handleMarkSent(id: string) {
+    // we'll try to set status to "sent" – if Airtable still blocks it, change to plain text field
+    const res = await fetch(`/api/replies/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "sent" }),
+    });
+
+    const json = await res.json();
+    if (res.ok) {
+      showToast("success", "Marked as sent");
+      load();
+    } else {
+      showToast("error", "Failed to update: " + JSON.stringify(json));
+    }
+  }
+
+  // apply client-side filters
+  const filtered = data.filter((row) => {
+    // row might be flattened (Platform at top) or under fields
+    const fields = (row as any).fields || row;
+
+    const platform = fields["Platform"] || "";
+    const direction = fields["direction"] || "";
+
+    if (filterPlatform && platform !== filterPlatform) return false;
+    if (filterDirection && direction !== filterDirection) return false;
+    return true;
+  });
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 relative">
+      {/* toast */}
+      {toast ? (
+        <div
+          className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-lg text-white ${
+            toast.type === "success" ? "bg-green-600" : "bg-red-600"
+          }`}
+        >
+          {toast.msg}
+        </div>
+      ) : null}
+
       <h1 className="text-3xl font-bold">Root Health Ops Dashboard</h1>
 
-      {/* Create / Log */}
+      {/* form */}
       <section className="p-4 border rounded-xl bg-gray-50 space-y-4">
-        <h2 className="text-xl font-semibold">Create new content / Log reply</h2>
+        <h2 className="text-xl font-semibold">Create / log content</h2>
 
         <div className="flex flex-col gap-3 max-w-xl">
           <label className="flex flex-col gap-1">
@@ -105,23 +157,26 @@ export default function DashboardPage() {
               className="border rounded-lg p-2 min-h-[90px]"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Write the reply or post content..."
             />
           </label>
 
-          <label className="flex flex-col gap-1 w-48">
-            <span className="text-sm font-medium">Platform</span>
-            <select
-              className="border rounded-lg p-2"
-              value={newPlatform}
-              onChange={(e) => setNewPlatform(e.target.value)}
-            >
-              <option value="LinkedIn">LinkedIn</option>
-              <option value="Reddit">Reddit</option>
-              <option value="Instagram">Instagram</option>
-              <option value="TikTok">TikTok</option>
-              <option value="Facebook">Facebook</option>
-            </select>
-          </label>
+          <div className="flex gap-3">
+            <label className="flex flex-col gap-1 w-48">
+              <span className="text-sm font-medium">Platform</span>
+              <select
+                className="border rounded-lg p-2"
+                value={newPlatform}
+                onChange={(e) => setNewPlatform(e.target.value)}
+              >
+                <option value="LinkedIn">LinkedIn</option>
+                <option value="Reddit">Reddit</option>
+                <option value="Instagram">Instagram</option>
+                <option value="TikTok">TikTok</option>
+                <option value="Facebook">Facebook</option>
+              </select>
+            </label>
+          </div>
 
           <div className="flex gap-3">
             <button
@@ -140,16 +195,39 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Replies table */}
-      <section className="p-4 border rounded-xl bg-white">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xl font-semibold">Replies Needed / Logged</h2>
-          <button
-            onClick={load}
-            className="text-sm px-3 py-1 border rounded-lg hover:bg-gray-50"
-          >
-            Refresh
-          </button>
+      {/* filters + table */}
+      <section className="p-4 border rounded-xl bg-white space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-xl font-semibold">Replies / content</h2>
+          <div className="flex gap-2">
+            <select
+              className="border rounded-lg p-1 text-sm"
+              value={filterPlatform}
+              onChange={(e) => setFilterPlatform(e.target.value)}
+            >
+              <option value="">All platforms</option>
+              <option value="LinkedIn">LinkedIn</option>
+              <option value="Reddit">Reddit</option>
+              <option value="Instagram">Instagram</option>
+              <option value="TikTok">TikTok</option>
+              <option value="Facebook">Facebook</option>
+            </select>
+            <select
+              className="border rounded-lg p-1 text-sm"
+              value={filterDirection}
+              onChange={(e) => setFilterDirection(e.target.value)}
+            >
+              <option value="">All directions</option>
+              <option value="outbound">outbound</option>
+              <option value="inbound">inbound</option>
+            </select>
+            <button
+              onClick={load}
+              className="text-sm px-3 py-1 border rounded-lg hover:bg-gray-50"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -162,19 +240,15 @@ export default function DashboardPage() {
                   <th className="border border-gray-200 p-2 text-left">Platform</th>
                   <th className="border border-gray-200 p-2 text-left">direction</th>
                   <th className="border border-gray-200 p-2 text-left">message body</th>
-                  <th className="border border-gray-200 p-2 text-left">Lead</th>
                   <th className="border border-gray-200 p-2 text-left">status</th>
                   <th className="border border-gray-200 p-2 text-left">created</th>
+                  <th className="border border-gray-200 p-2 text-left">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {data.length > 0 ? (
-                  data.map((row) => {
-                    const f = row as any; // raw record
-                    // because our /api/replies endpoint already flattened fields,
-                    // your current response might be { id, createdTime, ...fields }
-                    // so let's support both shapes:
-                    const fields = (row as any).fields || (row as any);
+                {filtered.length > 0 ? (
+                  filtered.map((row) => {
+                    const fields = (row as any).fields || row;
                     return (
                       <tr key={row.id} className="hover:bg-gray-50">
                         <td className="border border-gray-200 p-2">
@@ -187,9 +261,6 @@ export default function DashboardPage() {
                           {fields["message body"] || "-"}
                         </td>
                         <td className="border border-gray-200 p-2">
-                          {fields["Lead"] || "-"}
-                        </td>
-                        <td className="border border-gray-200 p-2">
                           {fields["status"] || "-"}
                         </td>
                         <td className="border border-gray-200 p-2 whitespace-nowrap">
@@ -198,6 +269,14 @@ export default function DashboardPage() {
                             : row.createdTime
                             ? new Date(row.createdTime).toLocaleString()
                             : "-"}
+                        </td>
+                        <td className="border border-gray-200 p-2">
+                          <button
+                            onClick={() => handleMarkSent(row.id)}
+                            className="text-xs px-3 py-1 bg-black text-white rounded hover:bg-gray-800"
+                          >
+                            Mark sent
+                          </button>
                         </td>
                       </tr>
                     );
