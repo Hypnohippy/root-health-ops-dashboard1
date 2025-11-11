@@ -2,34 +2,56 @@ import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { sourceText, platform, style } = body;
+  const {
+    sourceText,
+    platform = "LinkedIn",
+    style = "warm, human, not salesy",
+  } = body;
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey =
+    process.env.OPENAI_API_KEY ||
+    process.env.OPENAI_APIKEY ||
+    process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+
   if (!apiKey) {
     return NextResponse.json(
-      { error: "Missing OPENAI_API_KEY" },
+      {
+        error: "Missing OpenAI key on server",
+      },
       { status: 500 }
     );
   }
 
+  // make the model stick to what YOU wrote
   let platformHint = "";
-  if (platform === "Reddit") {
+  if (platform === "LinkedIn") {
     platformHint =
-      "Sound like a real Reddit comment, friendly, no sales, short paragraph.";
-  } else if (platform === "LinkedIn") {
-    platformHint =
-      "Professional but warm, 2-4 sentences, value-first, no hard sell.";
+      "Keep it professional but warm, 2-5 sentences, no hard sell. End with a gentle invitation or reflection.";
   } else if (platform === "Instagram" || platform === "TikTok") {
-    platformHint = "Warm, encouraging, 1-2 emojis are ok.";
+    platformHint = "Warmer, shorter, 1 emoji is ok.";
+  } else if (platform === "Reddit") {
+    platformHint =
+      "Sound like a real person, no sales language, 1 short paragraph.";
   }
 
   const prompt = `
-Write a reply suitable for ${platform || "LinkedIn"}.
-${platformHint}
-Tone: ${style || "human, not salesy, Root Health founder vibe"}.
-Reply to this content:
-"""${sourceText || "User talking about stress/health"}"""
-Return ONLY the reply text.
+You are writing AS the founder of Root Health, a self-directed health/wellbeing platform.
+
+User wrote this and wants to reply or post about it:
+"""${sourceText || "no user text was provided"}"""
+
+Your job:
+1. Stay ON the topic above. Do NOT invent a different topic.
+2. Acknowledge their situation (stress, health, burnout, small steps, control).
+3. Offer 1 practical, doable step.
+4. Speak as a human, not a marketer.
+5. Do NOT diagnose, just encourage self-management and seeking help if needed.
+6. Keep it suitable for ${platform}.
+
+Style: ${style}
+Platform guidance: ${platformHint}
+
+Now write ONE reply/post.
   `.trim();
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -41,7 +63,7 @@ Return ONLY the reply text.
     body: JSON.stringify({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
+      temperature: 0.6, // a bit tighter so it doesn't drift
     }),
   });
 
