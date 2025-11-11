@@ -2,13 +2,20 @@
 
 import { useEffect, useState } from "react";
 
+// we'll normalise the Airtable shape on the client
 type ReplyRecord = {
   id: string;
   createdTime?: string;
-  message_body?: string;
-  platform?: string;
-  direction?: string;
-  status?: string;
+  fields: {
+    ID?: string;
+    Lead?: string;
+    Platform?: string;
+    direction?: string;
+    ["message body"]?: string;
+    ["created at"]?: string;
+    ["sent by"]?: string;
+    status?: string;
+  };
 };
 
 export default function DashboardPage() {
@@ -25,6 +32,7 @@ export default function DashboardPage() {
     setLoading(true);
     const res = await fetch("/api/replies", { cache: "no-store" });
     const json = await res.json();
+    // json.records is what our /api/replies returned
     setData(json.records || []);
     setLoading(false);
   }
@@ -33,12 +41,14 @@ export default function DashboardPage() {
     load();
   }, []);
 
-  // create content in Airtable (no status because Airtable complained)
+  // ✅ save content to Airtable using your real field names
   async function handleSaveToAirtable() {
     const body = {
-      message_body: newMessage,
-      platform: newPlatform,
+      // these keys must match Airtable exactly
+      "message body": newMessage,
+      Platform: newPlatform,
       direction: "outbound",
+      // status: "ready", // leave out because Airtable rejected it
     };
 
     const res = await fetch("/api/reply", {
@@ -56,12 +66,13 @@ export default function DashboardPage() {
     }
   }
 
-  // log reply
+  // ✅ log reply with same field names
   async function handleLogReply() {
     const body = {
-      message_body: newMessage,
-      platform: newPlatform,
+      "message body": newMessage,
+      Platform: newPlatform,
       direction: "outbound",
+      // status: "sent",
     };
 
     const res = await fetch("/api/reply", {
@@ -149,40 +160,53 @@ export default function DashboardPage() {
               <thead className="bg-gray-100">
                 <tr>
                   <th className="border border-gray-200 p-2 text-left">Platform</th>
-                  <th className="border border-gray-200 p-2 text-left">Direction</th>
-                  <th className="border border-gray-200 p-2 text-left">Status</th>
-                  <th className="border border-gray-200 p-2 text-left">Message</th>
-                  <th className="border border-gray-200 p-2 text-left">Created</th>
+                  <th className="border border-gray-200 p-2 text-left">direction</th>
+                  <th className="border border-gray-200 p-2 text-left">message body</th>
+                  <th className="border border-gray-200 p-2 text-left">Lead</th>
+                  <th className="border border-gray-200 p-2 text-left">status</th>
+                  <th className="border border-gray-200 p-2 text-left">created</th>
                 </tr>
               </thead>
               <tbody>
                 {data.length > 0 ? (
-                  data.map((row) => (
-                    <tr key={row.id} className="hover:bg-gray-50">
-                      <td className="border border-gray-200 p-2">
-                        {row.platform || "-"}
-                      </td>
-                      <td className="border border-gray-200 p-2">
-                        {row.direction || "-"}
-                      </td>
-                      <td className="border border-gray-200 p-2">
-                        {row.status || "-"}
-                      </td>
-                      <td className="border border-gray-200 p-2 max-w-md">
-                        {row.message_body || "-"}
-                      </td>
-                      <td className="border border-gray-200 p-2 whitespace-nowrap">
-                        {row.createdTime
-                          ? new Date(row.createdTime).toLocaleString()
-                          : "-"}
-                      </td>
-                    </tr>
-                  ))
+                  data.map((row) => {
+                    const f = row as any; // raw record
+                    // because our /api/replies endpoint already flattened fields,
+                    // your current response might be { id, createdTime, ...fields }
+                    // so let's support both shapes:
+                    const fields = (row as any).fields || (row as any);
+                    return (
+                      <tr key={row.id} className="hover:bg-gray-50">
+                        <td className="border border-gray-200 p-2">
+                          {fields["Platform"] || "-"}
+                        </td>
+                        <td className="border border-gray-200 p-2">
+                          {fields["direction"] || "-"}
+                        </td>
+                        <td className="border border-gray-200 p-2 max-w-md">
+                          {fields["message body"] || "-"}
+                        </td>
+                        <td className="border border-gray-200 p-2">
+                          {fields["Lead"] || "-"}
+                        </td>
+                        <td className="border border-gray-200 p-2">
+                          {fields["status"] || "-"}
+                        </td>
+                        <td className="border border-gray-200 p-2 whitespace-nowrap">
+                          {fields["created at"]
+                            ? fields["created at"]
+                            : row.createdTime
+                            ? new Date(row.createdTime).toLocaleString()
+                            : "-"}
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
                     <td
                       className="border border-gray-200 p-3 text-center text-gray-500"
-                      colSpan={5}
+                      colSpan={6}
                     >
                       No records yet.
                     </td>
