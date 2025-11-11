@@ -33,7 +33,7 @@ export default function DashboardPage() {
     setTimeout(() => setToast(null), 3500);
   }
 
-  // load Airtable data from our API
+  // load from API
   async function load() {
     setLoading(true);
     const res = await fetch("/api/replies", { cache: "no-store" });
@@ -46,7 +46,7 @@ export default function DashboardPage() {
     load();
   }, []);
 
-  // auto-refresh every 30s
+  // auto-refresh
   useEffect(() => {
     const id = setInterval(() => {
       load();
@@ -54,13 +54,12 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, []);
 
-  // save a post for Make to publish
   async function handleSaveToAirtable() {
     const body = {
       "message body": newMessage,
       Platform: newPlatform,
       direction: "outbound",
-      status: "to_post", // Make will watch for this
+      status: "to_post",
     };
 
     const res = await fetch("/api/reply", {
@@ -78,7 +77,6 @@ export default function DashboardPage() {
     }
   }
 
-  // log an actual reply you sent
   async function handleLogReply() {
     const body = {
       "message body": newMessage,
@@ -102,7 +100,6 @@ export default function DashboardPage() {
     }
   }
 
-  // ask our AI route for a draft
   async function handleAIDraft() {
     const res = await fetch("/api/ai/reply", {
       method: "POST",
@@ -122,7 +119,6 @@ export default function DashboardPage() {
     }
   }
 
-  // click a draft card → load it into the editor
   function loadDraftIntoEditor(record: any) {
     const fields = record.fields || record;
     setNewMessage(fields["message body"] || "");
@@ -130,7 +126,6 @@ export default function DashboardPage() {
     showToast("success", "Draft loaded into editor");
   }
 
-  // mark a record as sent
   async function handleMarkSent(id: string) {
     const res = await fetch(`/api/replies/${id}`, {
       method: "PATCH",
@@ -146,7 +141,7 @@ export default function DashboardPage() {
     }
   }
 
-  // apply filters
+  // filtered data
   const filtered = data.filter((row) => {
     const fields = (row as any).fields || row;
     const platform = fields["Platform"] || "";
@@ -156,12 +151,30 @@ export default function DashboardPage() {
     return true;
   });
 
+  // little helpers for UI
+  function statusColor(status?: string) {
+    switch (status) {
+      case "to_post":
+        return "bg-amber-100 text-amber-700";
+      case "drafted":
+        return "bg-purple-100 text-purple-700";
+      case "sent":
+        return "bg-green-100 text-green-700";
+      case "posted":
+        return "bg-green-100 text-green-700";
+      case "needs_reply":
+        return "bg-red-100 text-red-700";
+      default:
+        return "bg-gray-100 text-gray-600";
+    }
+  }
+
   return (
-    <div className="p-6 space-y-6 relative">
+    <div className="p-6 space-y-6 relative bg-slate-50 min-h-screen">
       {/* toast */}
       {toast ? (
         <div
-          className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-lg text-white ${
+          className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-lg text-white shadow-lg ${
             toast.type === "success" ? "bg-green-600" : "bg-red-600"
           }`}
         >
@@ -169,27 +182,26 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      <h1 className="text-3xl font-bold">Root Health Ops Dashboard</h1>
+      <h1 className="text-3xl font-bold tracking-tight">Root Health Ops Dashboard</h1>
 
-      {/* editor / cockpit */}
-      <section className="p-4 border rounded-xl bg-gray-50 space-y-4">
+      {/* editor */}
+      <section className="p-4 border rounded-xl bg-white shadow-sm space-y-4">
         <h2 className="text-xl font-semibold">Create / log content</h2>
 
         <div className="flex flex-col gap-3 max-w-xl">
           <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium">Message text</span>
+            <span className="text-sm font-medium text-slate-700">Message text</span>
             <textarea
-              className="border rounded-lg p-2 min-h-[90px]"
+              className="border rounded-lg p-2 min-h-[90px] focus:outline-none focus:ring-2 focus:ring-slate-300"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="Write the reply or post content..."
             />
           </label>
 
           <label className="flex flex-col gap-1 w-48">
-            <span className="text-sm font-medium">Platform</span>
+            <span className="text-sm font-medium text-slate-700">Platform</span>
             <select
-              className="border rounded-lg p-2"
+              className="border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-300"
               value={newPlatform}
               onChange={(e) => setNewPlatform(e.target.value)}
             >
@@ -204,19 +216,19 @@ export default function DashboardPage() {
           <div className="flex flex-wrap gap-3">
             <button
               onClick={handleSaveToAirtable}
-              className="rounded-lg bg-green-600 text-white px-4 py-2 hover:bg-green-700"
+              className="rounded-lg bg-green-600 text-white px-4 py-2 hover:bg-green-700 text-sm"
             >
               Save to Airtable
             </button>
             <button
               onClick={handleLogReply}
-              className="rounded-lg bg-blue-600 text-white px-4 py-2 hover:bg-blue-700"
+              className="rounded-lg bg-blue-600 text-white px-4 py-2 hover:bg-blue-700 text-sm"
             >
               Log Reply
             </button>
             <button
               onClick={handleAIDraft}
-              className="rounded-lg bg-purple-600 text-white px-4 py-2 hover:bg-purple-700"
+              className="rounded-lg bg-purple-600 text-white px-4 py-2 hover:bg-purple-700 text-sm"
             >
               AI draft
             </button>
@@ -224,10 +236,10 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* AI drafted posts panel */}
-      <section className="p-4 border rounded-xl bg-white space-y-3">
+      {/* AI drafted posts strip */}
+      <section className="p-4 border rounded-xl bg-white shadow-sm space-y-3">
         <h2 className="text-lg font-semibold">AI drafted posts</h2>
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-slate-500">
           These are rows in Airtable with status = <code>drafted</code>. Click one to load it into the editor above.
         </p>
         <div className="flex gap-3 flex-wrap">
@@ -240,137 +252,155 @@ export default function DashboardPage() {
               const f = (r as any).fields || r;
               return (
                 <div
-                  key={r.id}
-                  className="border rounded p-3 max-w-sm bg-gray-50 flex flex-col gap-2"
+                    key={r.id}
+                    className="border rounded-lg p-3 bg-slate-50 flex flex-col gap-2 max-w-sm"
                 >
-                  <p className="text-sm">
-                    {f["message body"]
-                      ? f["message body"].slice(0, 140)
-                      : "No text"}
-                    {f["message body"] && f["message body"].length > 140
-                      ? "..."
-                      : ""}
+                  <p className="text-sm text-slate-700">
+                    {f["message body"] ? f["message body"].slice(0, 140) : "No text"}
+                    {f["message body"] && f["message body"].length > 140 ? "..." : ""}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-slate-400">
                     Platform: {f["Platform"] || "—"}
                   </p>
                   <button
                     onClick={() => loadDraftIntoEditor(r)}
-                    className="text-xs px-3 py-1 bg-black text-white rounded hover:bg-gray-800 self-start"
+                    className="text-xs px-3 py-1 bg-slate-900 text-white rounded hover:bg-slate-800 self-start"
                   >
                     Load into editor
                   </button>
                 </div>
               );
             })}
-          {data.filter((r) => {
-            const f = (r as any).fields || r;
-            return f["status"] === "drafted";
-          }).length === 0 ? (
-            <p className="text-sm text-gray-500">No AI drafts yet.</p>
+          {data.filter((r) => ((r as any).fields || r)["status"] === "drafted").length === 0 ? (
+            <p className="text-sm text-slate-400">No AI drafts yet.</p>
           ) : null}
         </div>
       </section>
 
-      {/* main table */}
-      <section className="p-4 border rounded-xl bg-white space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <h2 className="text-xl font-semibold">Replies / content</h2>
-          <div className="flex gap-2">
-            <select
-              className="border rounded-lg p-1 text-sm"
-              value={filterPlatform}
-              onChange={(e) => setFilterPlatform(e.target.value)}
-            >
-              <option value="">All platforms</option>
-              <option value="LinkedIn">LinkedIn</option>
-              <option value="Reddit">Reddit</option>
-              <option value="Instagram">Instagram</option>
-              <option value="TikTok">TikTok</option>
-              <option value="Facebook">Facebook</option>
-            </select>
-            <select
-              className="border rounded-lg p-1 text-sm"
-              value={filterDirection}
-              onChange={(e) => setFilterDirection(e.target.value)}
-            >
-              <option value="">All directions</option>
-              <option value="outbound">outbound</option>
-              <option value="inbound">inbound</option>
-            </select>
-            <button
-              onClick={load}
-              className="text-sm px-3 py-1 border rounded-lg hover:bg-gray-50"
-            >
-              Refresh
-            </button>
-          </div>
+      {/* filters */}
+      <section className="flex flex-wrap gap-3 items-center justify-between">
+        <div className="flex gap-2">
+          <select
+            className="border rounded-lg p-1 text-sm bg-white"
+            value={filterPlatform}
+            onChange={(e) => setFilterPlatform(e.target.value)}
+          >
+            <option value="">All platforms</option>
+            <option value="LinkedIn">LinkedIn</option>
+            <option value="Reddit">Reddit</option>
+            <option value="Instagram">Instagram</option>
+            <option value="TikTok">TikTok</option>
+            <option value="Facebook">Facebook</option>
+          </select>
+          <select
+            className="border rounded-lg p-1 text-sm bg-white"
+            value={filterDirection}
+            onChange={(e) => setFilterDirection(e.target.value)}
+          >
+            <option value="">All directions</option>
+            <option value="outbound">outbound</option>
+            <option value="inbound">inbound</option>
+          </select>
         </div>
+        <button
+          onClick={load}
+          className="text-sm px-3 py-1 border rounded-lg hover:bg-white"
+        >
+          Refresh
+        </button>
+      </section>
 
+      {/* pretty card list */}
+      <section className="space-y-4">
         {loading ? (
-          <p>Loading data...</p>
+          <p className="text-slate-500">Loading data...</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-slate-400">No records yet.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm border-collapse border border-gray-200">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="border border-gray-200 p-2 text-left">Platform</th>
-                  <th className="border border-gray-200 p-2 text-left">direction</th>
-                  <th className="border border-gray-200 p-2 text-left">message body</th>
-                  <th className="border border-gray-200 p-2 text-left">status</th>
-                  <th className="border border-gray-200 p-2 text-left">created</th>
-                  <th className="border border-gray-200 p-2 text-left">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length > 0 ? (
-                  filtered.map((row) => {
-                    const fields = (row as any).fields || row;
-                    return (
-                      <tr key={row.id} className="hover:bg-gray-50">
-                        <td className="border border-gray-200 p-2">
-                          {fields["Platform"] || "-"}
-                        </td>
-                        <td className="border border-gray-200 p-2">
-                          {fields["direction"] || "-"}
-                        </td>
-                        <td className="border border-gray-200 p-2 max-w-md">
-                          {fields["message body"] || "-"}
-                        </td>
-                        <td className="border border-gray-200 p-2">
-                          {fields["status"] || "-"}
-                        </td>
-                        <td className="border border-gray-200 p-2 whitespace-nowrap">
-                          {fields["created at"]
-                            ? fields["created at"]
-                            : row.createdTime
-                            ? new Date(row.createdTime).toLocaleString()
-                            : "-"}
-                        </td>
-                        <td className="border border-gray-200 p-2">
-                          <button
-                            onClick={() => handleMarkSent(row.id)}
-                            className="text-xs px-3 py-1 bg-black text-white rounded hover:bg-gray-800"
-                          >
-                            Mark sent
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td
-                      className="border border-gray-200 p-3 text-center text-gray-500"
-                      colSpan={6}
+          filtered.map((row) => {
+            const f = (row as any).fields || row;
+            return (
+              <div
+                key={row.id}
+                className="bg-white border rounded-xl p-4 shadow-sm flex flex-col gap-3"
+              >
+                {/* header */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {f["Platform"] || "Unknown"}
+                    </span>
+                    <span
+                      className={`text-xs px-2 py-1 rounded-full ${statusColor(
+                        f["status"]
+                      )}`}
                     >
-                      No records yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                      {f["status"] || "—"}
+                    </span>
+                    {f["direction"] ? (
+                      <span className="text-xs text-slate-400">
+                        {f["direction"]}
+                      </span>
+                    ) : null}
+                  </div>
+                  <span className="text-xs text-slate-400">
+                    {f["created at"]
+                      ? f["created at"]
+                      : row.createdTime
+                      ? new Date(row.createdTime).toLocaleString()
+                      : ""}
+                  </span>
+                </div>
+
+                {/* original post / context */}
+                {f["Original post / context"] ? (
+                  <div className="bg-slate-50 border border-slate-100 rounded-lg p-3">
+                    <p className="text-xs uppercase text-slate-400 mb-1">
+                      Original
+                    </p>
+                    <p className="text-sm text-slate-700">
+                      {f["Original post / context"]}
+                    </p>
+                  </div>
+                ) : null}
+
+                {/* our message (AI or manual) */}
+                <div className="space-y-1">
+                  <p className="text-xs uppercase text-slate-400">Your message</p>
+                  <p className="text-sm text-slate-800 whitespace-pre-line">
+                    {f["message body"] || "—"}
+                  </p>
+                </div>
+
+                {/* link */}
+                {f["Post URL"] ? (
+                  <a
+                    href={f["Post URL"]}
+                    target="_blank"
+                    className="text-xs text-blue-600 underline w-fit"
+                  >
+                    View original post ↗
+                  </a>
+                ) : null}
+
+                {/* actions */}
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    onClick={() => loadDraftIntoEditor(row)}
+                    className="text-xs px-3 py-1 border rounded-lg hover:bg-slate-50"
+                  >
+                    Edit in editor
+                  </button>
+                  <button
+                    onClick={() => handleMarkSent(row.id)}
+                    className="text-xs px-3 py-1 bg-slate-900 text-white rounded-lg hover:bg-slate-800"
+                  >
+                    Mark sent
+                  </button>
+                </div>
+              </div>
+            );
+          })
         )}
       </section>
     </div>
