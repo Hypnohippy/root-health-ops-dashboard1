@@ -12,11 +12,12 @@ export default function DashboardPage() {
   const [data, setData] = useState<AirtableRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // editor
+  // editor state
   const [newMessage, setNewMessage] = useState(
     "Feeling stressed lately but want to take control of your health again?"
   );
   const [newPlatform, setNewPlatform] = useState("LinkedIn");
+  const [tone, setTone] = useState("Supportive"); // Supportive | Founder | Coach | Direct
 
   // filters
   const [filterPlatform, setFilterPlatform] = useState("");
@@ -47,28 +48,40 @@ export default function DashboardPage() {
     const json = await res.json();
     if (res.ok) { showToast("success", "Saved to Airtable"); load(); } else { showToast("error", "Failed to save: " + JSON.stringify(json)); }
   }
+
   async function handleLogReply() {
     const body = { "message body": newMessage, Platform: newPlatform, direction: "outbound", status: "sent" };
     const res = await fetch("/api/reply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const json = await res.json();
     if (res.ok) { showToast("success", "Reply logged"); load(); } else { showToast("error", "Failed to log: " + JSON.stringify(json)); }
   }
+
   async function handleAIDraft() {
     const res = await fetch("/api/ai/reply", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourceText: newMessage, platform: newPlatform, style: "warm, human, founder, not apologetic" }),
+      body: JSON.stringify({
+        sourceText: newMessage,
+        platform: newPlatform,
+        style: `Root Health ${tone.toLowerCase()} tone, human, not apologetic`,
+      }),
     });
     const json = await res.json();
-    if (res.ok) { setNewMessage(json.draft); showToast("success", "AI draft created"); }
-    else { showToast("error", "AI failed: " + JSON.stringify(json)); }
+    if (res.ok) {
+      setNewMessage(json.draft);
+      showToast("success", "Re-draft created");
+    } else {
+      showToast("error", "AI failed: " + JSON.stringify(json));
+    }
   }
+
   function loadDraftIntoEditor(record: any) {
     const f = record.fields || record;
     setNewMessage(f["message body"] || "");
     setNewPlatform(f["Platform"] || "LinkedIn");
     showToast("success", "Draft loaded into editor");
   }
+
   async function handleMarkSent(id: string) {
     const res = await fetch(`/api/replies/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "sent" }) });
     const json = await res.json();
@@ -97,34 +110,13 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-900 text-slate-50 p-6 space-y-6">
+    <div className="space-y-6">
       {/* toast */}
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-xl text-white shadow-lg ${toast.type === "success" ? "bg-emerald-500" : "bg-rose-500"}`}>
           {toast.msg}
         </div>
       )}
-
-      {/* HEADER with NAV */}
-      <header className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Root Health Ops Dashboard</h1>
-          <p className="text-slate-300 text-sm mt-1">Your cockpit for content, replies and automations.</p>
-        </div>
-        <nav className="backdrop-blur-md bg-white/5 border border-white/10 rounded-full px-2 py-1 shadow-md">
-          <ul className="flex items-center gap-1">
-            <li>
-              <a href="/dashboard" className="px-3 py-2 text-sm rounded-full hover:bg-white/10">Home</a>
-            </li>
-            <li>
-              <a href="/dashboard/connect" className="px-3 py-2 text-sm rounded-full hover:bg-white/10">Connect</a>
-            </li>
-            <li>
-              <a href="/dashboard/metrics" className="px-3 py-2 text-sm rounded-full hover:bg-white/10">Metrics</a>
-            </li>
-          </ul>
-        </nav>
-      </header>
 
       {/* EDITOR */}
       <section className="backdrop-blur-lg bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl space-y-4">
@@ -138,24 +130,48 @@ export default function DashboardPage() {
               onChange={(e) => setNewMessage(e.target.value)}
             />
           </label>
-          <label className="flex flex-col gap-1 w-56">
-            <span className="text-xs uppercase tracking-wide text-slate-200">Platform</span>
-            <select
-              className="bg-slate-950/40 border border-white/10 rounded-xl p-2 focus:outline-none"
-              value={newPlatform}
-              onChange={(e) => setNewPlatform(e.target.value)}
-            >
-              <option value="LinkedIn">LinkedIn</option>
-              <option value="Instagram">Instagram</option>
-              <option value="TikTok">TikTok</option>
-              <option value="Facebook">Facebook</option>
-              <option value="Reddit">Reddit</option>
-            </select>
-          </label>
+
+          <div className="flex flex-wrap gap-4">
+            <label className="flex flex-col gap-1 w-56">
+              <span className="text-xs uppercase tracking-wide text-slate-200">Platform</span>
+              <select
+                className="bg-slate-950/40 border border-white/10 rounded-xl p-2 focus:outline-none"
+                value={newPlatform}
+                onChange={(e) => setNewPlatform(e.target.value)}
+              >
+                <option value="LinkedIn">LinkedIn</option>
+                <option value="Instagram">Instagram</option>
+                <option value="TikTok">TikTok</option>
+                <option value="Facebook">Facebook</option>
+                <option value="Reddit">Reddit</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1 w-56">
+              <span className="text-xs uppercase tracking-wide text-slate-200">Tone</span>
+              <select
+                className="bg-slate-950/40 border border-white/10 rounded-xl p-2 focus:outline-none"
+                value={tone}
+                onChange={(e) => setTone(e.target.value)}
+              >
+                <option>Supportive</option>
+                <option>Founder</option>
+                <option>Coach</option>
+                <option>Direct</option>
+              </select>
+            </label>
+          </div>
+
           <div className="flex flex-wrap gap-3">
-            <button onClick={handleSaveToAirtable} className="rounded-lg bg-emerald-500 text-slate-950 px-4 py-2 text-sm font-medium hover:bg-emerald-400">Save to Airtable</button>
-            <button onClick={handleLogReply} className="rounded-lg bg-indigo-400 text-slate-950 px-4 py-2 text-sm font-medium hover:bg-indigo-300">Log Reply</button>
-            <button onClick={handleAIDraft} className="rounded-lg bg-fuchsia-500 text-slate-50 px-4 py-2 text-sm font-medium hover:bg-fuchsia-400">AI draft</button>
+            <button onClick={handleSaveToAirtable} className="rounded-lg bg-emerald-500 text-slate-950 px-4 py-2 text-sm font-medium hover:bg-emerald-400">
+              Save to Airtable
+            </button>
+            <button onClick={handleLogReply} className="rounded-lg bg-indigo-400 text-slate-950 px-4 py-2 text-sm font-medium hover:bg-indigo-300">
+              Log Reply
+            </button>
+            <button onClick={handleAIDraft} className="rounded-lg bg-fuchsia-500 text-slate-50 px-4 py-2 text-sm font-medium hover:bg-fuchsia-400">
+              Re-draft
+            </button>
           </div>
         </div>
       </section>
@@ -169,9 +185,14 @@ export default function DashboardPage() {
             const f = (r as any).fields || r;
             return (
               <div key={r.id} className="bg-slate-950/30 border border-white/10 rounded-xl p-3 max-w-sm space-y-2">
-                <p className="text-sm text-slate-50">{f["message body"] ? f["message body"].slice(0, 130) : "No text"}{f["message body"] && f["message body"].length > 130 ? "..." : ""}</p>
+                <p className="text-sm text-slate-50">
+                  {f["message body"] ? f["message body"].slice(0, 130) : "No text"}
+                  {f["message body"] && f["message body"].length > 130 ? "..." : ""}
+                </p>
                 <p className="text-[10px] uppercase text-slate-400 tracking-wide">{f["Platform"] || "—"}</p>
-                <button onClick={() => loadDraftIntoEditor(r)} className="text-xs px-3 py-1 bg-slate-50 text-slate-900 rounded-lg hover:bg-slate-200">Load into editor</button>
+                <button onClick={() => loadDraftIntoEditor(r)} className="text-xs px-3 py-1 bg-slate-50 text-slate-900 rounded-lg hover:bg-slate-200">
+                  Load into editor
+                </button>
               </div>
             );
           })}
@@ -219,7 +240,7 @@ export default function DashboardPage() {
                     {f["direction"] && <span className="text-[10px] uppercase text-slate-300">{f["direction"]}</span>}
                   </div>
                   <span className="text-[10px] text-slate-400">
-                    {f["created at"] ? f["created at"] : row.createdTime ? new Date(row.createdTime).toLocaleString() : ""}
+                    {f["created at"] ? f["created at"] : f.createdTime ? new Date(f.createdTime).toLocaleString() : ""}
                   </span>
                 </div>
 
