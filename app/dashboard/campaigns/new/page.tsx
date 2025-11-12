@@ -31,13 +31,12 @@ export default function NewCampaignPage() {
     try {
       const prompt = `
 You are Root Health's founder voice. Create concise ad copy for ${platform} with objective ${objective}.
-Offer recognition (not apology), 1 clear benefit, 1 gentle call-to-action. No clinical tone.
-
-Landing page: ${url}
+Avoid starting with apologies. Recognise the reader's reality, offer one clear benefit, and a gentle CTA.
+No clinical tone. Landing page: ${url}
 Audience hints: ${audienceKeywords}
-Headline today: "${headline}"
+Current headline: "${headline}"
 
-Return two parts separated by ---:
+Return two parts separated by '---':
 PRIMARY_TEXT (2-3 sentences)
 HEADLINE (max 40 chars)
       `.trim();
