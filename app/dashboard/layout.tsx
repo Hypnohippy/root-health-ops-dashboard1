@@ -43,14 +43,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Metrics
               </a>
             </li>
-            <li>
-              <a
-                href="/dashboard/campaigns/new"
-                className={linkClasses("/dashboard/campaigns/new")}
-              >
-                Campaigns
-              </a>
-            </li>
+           <li>
+  <a
+    href="/dashboard/campaigns"
+    className={linkClasses("/dashboard/campaigns")}
+  >
+    Campaigns
+  </a>
+</li>
+
           </ul>
         </nav>
       </header>
