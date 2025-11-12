@@ -20,6 +20,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <li><a href="/dashboard" className={linkClasses("/dashboard")}>Home</a></li>
             <li><a href="/dashboard/connect" className={linkClasses("/dashboard/connect")}>Connect</a></li>
             <li><a href="/dashboard/metrics" className={linkClasses("/dashboard/metrics")}>Metrics</a></li>
+            <li><a href="/dashboard/campaigns/new" className={linkClasses("/dashboard/campaigns/new")}>Campaigns</a></li>
           </ul>
         </nav>
       </header>
