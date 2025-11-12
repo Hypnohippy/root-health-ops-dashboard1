@@ -1,101 +1,72 @@
 import { NextRequest, NextResponse } from "next/server";
 
-/** Minimal Airtable helper */
-async function createInTable(
-  baseId: string,
-  apiKey: string,
-  tableName: string,
-  fields: Record<string, any>
-) {
-  const res = await fetch(
-    `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ records: [{ fields }] }),
-    }
-  );
-  const data = await res.json();
-  return { ok: res.ok, status: res.status, data };
-}
-
-async function listFromTable(
-  baseId: string,
-  apiKey: string,
-  tableName: string,
-  view?: string
-) {
-  const url = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`);
-  if (view) url.searchParams.set("view", view);
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    cache: "no-store",
-  });
-  const data = await res.json();
-  return { ok: res.ok, status: res.status, data };
-}
-
 const TABLE = process.env.AIRTABLE_CAMPAIGNS_TABLE || "Campaigns";
 
-export async function GET() {
+function requireEnv() {
   const baseId = process.env.AIRTABLE_BASE_ID;
   const apiKey = process.env.AIRTABLE_API_KEY;
   if (!baseId || !apiKey) {
-    return NextResponse.json({ error: "Missing Airtable env" }, { status: 500 });
+    throw new Error("Missing Airtable env (AIRTABLE_BASE_ID / AIRTABLE_API_KEY)");
   }
-  const out = await listFromTable(baseId, apiKey, TABLE);
-  if (!out.ok) return NextResponse.json(out.data, { status: out.status });
-  return NextResponse.json(out.data);
+  return { baseId, apiKey };
 }
 
-export async function POST(req: NextRequest) {
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  const apiKey = process.env.AIRTABLE_API_KEY;
-  if (!baseId || !apiKey) {
-    return NextResponse.json({ error: "Missing Airtable env" }, { status: 500 });
+async function airtableFetch(path: string, init?: RequestInit) {
+  const { baseId, apiKey } = requireEnv();
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(path)}`;
+  return fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
+    },
+    cache: "no-store",
+  });
+}
+
+/** GET /api/campaigns -> list campaigns */
+export async function GET() {
+  try {
+    const res = await airtableFetch(TABLE);
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || "Airtable error" }, { status: 500 });
   }
+}
 
-  const body = await req.json();
-  // Expected fields (feel free to extend the Airtable table to match these):
-  const {
-    name,
-    platform,          // "Meta (Facebook/IG)" | "Google" | "LinkedIn"
-    objective,         // "Leads" | "Traffic" | "Awareness"
-    budget_daily,      // number
-    start_date,        // ISO string
-    end_date,          // ISO string
-    location,          // "United Kingdom" etc
-    age_range,         // "25-54" etc
-    audience_keywords, // string
-    primary_text,      // ad body
-    headline,          // for Meta/LinkedIn; Google uses headlines array
-    url,               // landing page
-    media_url,         // optional
-    status,            // "draft" | "queued_to_publish" | "published"
-  } = body;
+/** POST /api/campaigns -> create campaign */
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
 
-  const fields = {
-    name,
-    platform,
-    objective,
-    "budget_daily": budget_daily,
-    "start_date": start_date,
-    "end_date": end_date,
-    "location": location,
-    "age_range": age_range,
-    "audience_keywords": audience_keywords,
-    "primary_text": primary_text,
-    "headline": headline,
-    "url": url,
-    "media_url": media_url,
-    "status": status || "draft",
-    "created_at": new Date().toISOString(),
-  };
+    // Map incoming payload -> Airtable fields
+    const fields = {
+      name: body.name ?? null,
+      platform: body.platform ?? null,                   // "Meta (Facebook/IG)" | "Google" | "LinkedIn"
+      objective: body.objective ?? null,                 // "Leads" | "Traffic" | "Awareness"
+      budget_daily: Number(body.budget_daily ?? 0),
+      start_date: body.start_date ?? null,               // ISO
+      end_date: body.end_date ?? null,                   // ISO
+      location: body.location ?? null,
+      age_range: body.age_range ?? null,
+      audience_keywords: body.audience_keywords ?? "",
+      primary_text: body.primary_text ?? "",
+      headline: body.headline ?? "",
+      url: body.url ?? "",
+      media_url: body.media_url ?? null,
+      status: body.status ?? "draft",                    // "draft" | "queued_to_publish" | "published"
+      created_at: new Date().toISOString(),
+    };
 
-  const out = await createInTable(baseId, apiKey, TABLE, fields);
-  if (!out.ok) return NextResponse.json(out.data, { status: out.status });
-  return NextResponse.json(out.data);
+    const res = await airtableFetch(TABLE, {
+      method: "POST",
+      body: JSON.stringify({ records: [{ fields }] }),
+    });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || "Airtable error" }, { status: 500 });
+  }
 }
