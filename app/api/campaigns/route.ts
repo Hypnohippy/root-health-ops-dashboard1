@@ -43,23 +43,23 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const body = await req.json();
 
-  const fields = {
-    name: body.name ?? null,
-    platform: body.platform ?? null,
-    objective: body.objective ?? null,
-    budget_daily: Number(body.budget_daily ?? 0),
-    start_date: body.start_date ?? null,
-    end_date: body.end_date ?? null,
-    location: body.location ?? null,
-    age_range: body.age_range ?? null,
-    audience_keywords: body.audience_keywords ?? "",
-    primary_text: body.primary_text ?? "",
-    headline: body.headline ?? "",
-    url: body.url ?? "",
-    media_url: body.media_url ?? null,
-    status: body.status ?? "draft",
-    created_at: new Date().toISOString(),
-  };
+ const fields = {
+  name: body.name ?? null,
+  platform: body.platform ?? null,
+  objective: body.objective ?? null,
+  budget_daily: Number(body.budget_daily ?? 0),
+  start_date: body.start_date ?? null,
+  end_date: body.end_date ?? null,
+  location: body.location ?? null,
+  age_range: body.age_range ?? null,
+  audience_keywords: body.audience_keywords ?? "",
+  primary_text: body.primary_text ?? "",
+  headline: body.headline ?? "",
+  url: body.url ?? "",
+  media_url: body.media_url ?? null,
+  status: body.status ?? "draft",
+};
+
 
   const primaryTable = process.env.AIRTABLE_CAMPAIGNS_TABLE || "Campaigns";
   const first = await createRecord(primaryTable, fields);
