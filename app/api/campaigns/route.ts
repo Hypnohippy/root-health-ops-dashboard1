@@ -1,103 +1,92 @@
 import { NextRequest, NextResponse } from "next/server";
 
-function requireEnv() {
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  const apiKey = process.env.AIRTABLE_API_KEY;
-  if (!baseId || !apiKey) throw new Error("Missing AIRTABLE_BASE_ID or AIRTABLE_API_KEY");
-  return { baseId, apiKey };
-}
-
-async function afetch(path: string, init?: RequestInit) {
-  const { baseId, apiKey } = requireEnv();
-  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(path)}`;
-  return fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
-  });
-}
-
-async function createRecord(table: string, fields: Record<string, any>) {
-  const res = await afetch(table, {
-    method: "POST",
-    body: JSON.stringify({ records: [{ fields }] }),
-  });
-  const data = await res.json();
-  return { ok: res.ok, status: res.status, data, tableTried: table };
-}
-
-export async function GET() {
-  const main = process.env.AIRTABLE_CAMPAIGNS_TABLE || "Campaigns";
-  const res = await afetch(main);
-  const data = await res.json();
-  return NextResponse.json(
-    res.ok ? data : { error: "Airtable GET failed", table: main, airtable: data },
-    { status: res.status }
-  );
-}
-
+/**
+ * Strict ad-copy generator for campaigns.
+ * Always returns JSON: { variants: [{ primary_text, headline }] }
+ * Guardrails to prevent "support reply" tone.
+ */
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  try {
+    const { platform, objective, url, audienceKeywords, brandVoice = "Root Health founder" } = await req.json();
 
- const fields = {
-  name: body.name ?? null,
-  platform: body.platform ?? null,
-  objective: body.objective ?? null,
-  budget_daily: Number(body.budget_daily ?? 0),
-  start_date: body.start_date ?? null,
-  end_date: body.end_date ?? null,
-  location: body.location ?? null,
-  age_range: body.age_range ?? null,
-  audience_keywords: body.audience_keywords ?? "",
-  primary_text: body.primary_text ?? "",
-  headline: body.headline ?? "",
-  url: body.url ?? "",
-  media_url: body.media_url ?? null,
-  status: body.status ?? "draft",
-};
+    const prompt = `
+You are a senior performance marketing copywriter writing for ${brandVoice}.
+Task: Generate ${3} distinct ad variants for ${platform} with objective ${objective}.
+Audience: people navigating stress, burnout, overwhelm; they want practical, hopeful help.
+Style: punchy, specific, motivating; never apologetic; never clinical; no therapist-style replies.
+CTA: clear, action-oriented; suitable for ads (e.g., "Start today", "Discover how", "Try Root Health").
 
+Rules (very important):
+- DO NOT write supportive replies or acknowledgements like "I'm sorry you're feeling..." or "What you're experiencing..."
+- DO NOT ask reflective questions; this is not a comment reply.
+- Keep PRIMARY_TEXT to 2–4 short sentences (skimmable, hook first).
+- HEADLINE must be 4–8 words, scroll-stopping, not vapid.
+- Use second person ("you") or outcome framing.
+- Include ONE clear benefit and ONE CTA in PRIMARY_TEXT.
+- Align the objective:
+  - Leads: urgency + value + trust ("Get your plan")
+  - Traffic: curiosity + benefit + soft CTA ("Learn more")
+  - Awareness: bold promise + identity ("Feel like yourself again")
 
-  const primaryTable = process.env.AIRTABLE_CAMPAIGNS_TABLE || "Campaigns";
-  const first = await createRecord(primaryTable, fields);
-  if (first.ok) return NextResponse.json(first.data);
+Landing page: ${url}
+Audience keywords: ${audienceKeywords}
 
-  // Helpful fallback & diagnostics
-  if (primaryTable !== "Campaigns") {
-    const second = await createRecord("Campaigns", fields);
-    if (second.ok) return NextResponse.json(second.data);
-    return NextResponse.json(
-      {
-        error: "Could not create campaign in Airtable",
-        tried: [
-          { table: first.tableTried, response: first.data },
-          { table: second.tableTried, response: second.data },
-        ],
-        hints: [
-          "Check table name (env AIRTABLE_CAMPAIGNS_TABLE) exactly matches Airtable.",
-          "Check token scopes: data.records:read, data.records:write, schema.bases:read.",
-          "Ensure the token has access to THIS base.",
-          "For single selects, ensure options exist (platform/objective/status).",
-        ],
+Return ONLY valid JSON with this shape:
+{
+  "variants": [
+    { "primary_text": "...", "headline": "..." },
+    { "primary_text": "...", "headline": "..." },
+    { "primary_text": "...", "headline": "..." }
+  ]
+}
+    `.trim();
+
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
       },
-      { status: 500 }
-    );
-  }
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0.8,
+        top_p: 0.9,
+        max_tokens: 500,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "You write high-converting ad copy. You never produce therapy-like replies. You output strictly JSON." },
+          { role: "user", content: prompt },
+        ],
+      }),
+    });
 
-  return NextResponse.json(
-    {
-      error: "Could not create campaign in Airtable",
-      tried: [{ table: first.tableTried, response: first.data }],
-      hints: [
-        "Check a table named 'Campaigns' exists in the same base.",
-        "Or set AIRTABLE_CAMPAIGNS_TABLE to the exact table name.",
-        "Check token scopes and base access.",
-        "Ensure single select options exist.",
-      ],
-    },
-    { status: 500 }
-  );
+    const json = await res.json();
+    if (!res.ok) {
+      return NextResponse.json({ error: json.error?.message || "AI request failed" }, { status: res.status });
+    }
+
+    // Parse the JSON content safely
+    let payload: any;
+    try {
+      const content = json.choices?.[0]?.message?.content || "{}";
+      payload = JSON.parse(content);
+    } catch {
+      return NextResponse.json({ error: "AI returned non-JSON content" }, { status: 500 });
+    }
+
+    // Basic validation
+    if (!payload?.variants || !Array.isArray(payload.variants) || payload.variants.length === 0) {
+      return NextResponse.json({ error: "AI returned no variants" }, { status: 500 });
+    }
+
+    // Trim fields
+    const variants = payload.variants.map((v: any) => ({
+      primary_text: String(v.primary_text || "").trim(),
+      headline: String(v.headline || "").trim(),
+    }));
+
+    return NextResponse.json({ variants });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
+  }
 }
