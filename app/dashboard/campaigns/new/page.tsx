@@ -30,16 +30,27 @@ export default function NewCampaignPage() {
     setBusy(true);
     try {
       const prompt = `
-You are Root Health's founder voice. Create concise ad copy for ${platform} with objective ${objective}.
-Avoid starting with apologies. Recognise the reader's reality, offer one clear benefit, and a gentle CTA.
-No clinical tone. Landing page: ${url}
-Audience hints: ${audienceKeywords}
-Current headline: "${headline}"
+You are a marketing copywriter for Root Health, creating ad copy for ${platform} with the objective ${objective}.
 
-Return two parts separated by '---':
-PRIMARY_TEXT (2-3 sentences)
-HEADLINE (max 40 chars)
-      `.trim();
+Tone: uplifting, clear, motivating — never apologetic or clinical.  
+Audience: people experiencing stress, burnout, or overwhelm who want to feel better naturally.  
+Goal: inspire curiosity and clicks.
+
+Include the following in the result:
+1️⃣ PRIMARY_TEXT — a short ad body (2–4 sentences) that connects emotionally, names the problem, offers Root Health as the simple next step, and ends with a call to action.  
+2️⃣ HEADLINE — 4–8 words, memorable, like “Take Control of Your Health” or “Find Calm Again”.
+
+Landing page: ${url}  
+Audience keywords: ${audienceKeywords}
+
+Format:
+PRIMARY_TEXT:
+...
+---
+HEADLINE:
+...
+`.trim();
+
 
       const res = await fetch("/api/ai/reply", {
         method: "POST",
