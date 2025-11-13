@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
+/** Healthcheck so you can hit /api/ai/campaign in a browser */
+export async function GET() {
+  return NextResponse.json({ ok: true, route: "/api/ai/campaign" });
+}
+
 /**
  * Strict ad-copy generator for campaigns.
- * Always returns JSON: { variants: [{ primary_text, headline }] }
+ * Always returns JSON: { variants: [{ primary_text, headline }, ...] }
  * Guardrails to prevent "support reply" tone.
  */
 export async function POST(req: NextRequest) {
@@ -10,20 +15,19 @@ export async function POST(req: NextRequest) {
     const { platform, objective, url, audienceKeywords, brandVoice = "Root Health founder" } = await req.json();
 
     const prompt = `
-You are a senior performance marketing copywriter writing for ${brandVoice}.
-Task: Generate ${3} distinct ad variants for ${platform} with objective ${objective}.
-Audience: people navigating stress, burnout, overwhelm; they want practical, hopeful help.
-Style: punchy, specific, motivating; never apologetic; never clinical; no therapist-style replies.
-CTA: clear, action-oriented; suitable for ads (e.g., "Start today", "Discover how", "Try Root Health").
+You are a senior PERFORMANCE MARKETING copywriter for ${brandVoice}.
+Task: Generate 3 DISTINCT ad variants for ${platform} with objective ${objective}.
+Audience: people navigating stress/burnout who want practical, hopeful help.
+Style: punchy, specific, motivating; NEVER apologetic; NEVER clinical; NOT a therapist reply.
+CTA: clear, action-oriented; suitable for ads.
 
-Rules (very important):
-- DO NOT write supportive replies or acknowledgements like "I'm sorry you're feeling..." or "What you're experiencing..."
+VERY IMPORTANT RULES:
+- DO NOT write supportive replies like "I'm sorry you're feeling..." or "What you're experiencing..."
 - DO NOT ask reflective questions; this is not a comment reply.
-- Keep PRIMARY_TEXT to 2–4 short sentences (skimmable, hook first).
-- HEADLINE must be 4–8 words, scroll-stopping, not vapid.
-- Use second person ("you") or outcome framing.
-- Include ONE clear benefit and ONE CTA in PRIMARY_TEXT.
-- Align the objective:
+- Keep PRIMARY_TEXT to 2–4 short sentences (hook first).
+- HEADLINE: 4–8 words, scroll-stopping (e.g., "Take Control of Your Health").
+- Include ONE clear benefit + ONE CTA in PRIMARY_TEXT.
+- Align to objective:
   - Leads: urgency + value + trust ("Get your plan")
   - Traffic: curiosity + benefit + soft CTA ("Learn more")
   - Awareness: bold promise + identity ("Feel like yourself again")
@@ -31,7 +35,7 @@ Rules (very important):
 Landing page: ${url}
 Audience keywords: ${audienceKeywords}
 
-Return ONLY valid JSON with this shape:
+Return ONLY valid JSON with exactly this shape:
 {
   "variants": [
     { "primary_text": "...", "headline": "..." },
@@ -54,33 +58,35 @@ Return ONLY valid JSON with this shape:
         max_tokens: 500,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: "You write high-converting ad copy. You never produce therapy-like replies. You output strictly JSON." },
+          {
+            role: "system",
+            content:
+              "You write high-converting ad copy. You NEVER produce therapy-style replies. Output strictly JSON matching the requested schema."
+          },
           { role: "user", content: prompt },
         ],
       }),
     });
 
-    const json = await res.json();
+    const raw = await res.json();
     if (!res.ok) {
-      return NextResponse.json({ error: json.error?.message || "AI request failed" }, { status: res.status });
+      return NextResponse.json({ error: raw.error?.message || "AI request failed" }, { status: res.status });
     }
 
-    // Parse the JSON content safely
-    let payload: any;
+    // Parse JSON content
+    let payload: any = {};
     try {
-      const content = json.choices?.[0]?.message?.content || "{}";
+      const content = raw.choices?.[0]?.message?.content || "{}";
       payload = JSON.parse(content);
     } catch {
       return NextResponse.json({ error: "AI returned non-JSON content" }, { status: 500 });
     }
 
-    // Basic validation
-    if (!payload?.variants || !Array.isArray(payload.variants) || payload.variants.length === 0) {
+    // Basic validation + trimming
+    if (!payload?.variants || !Array.isArray(payload.variants) || payload.variants.length < 1) {
       return NextResponse.json({ error: "AI returned no variants" }, { status: 500 });
     }
-
-    // Trim fields
-    const variants = payload.variants.map((v: any) => ({
+    const variants = payload.variants.slice(0, 3).map((v: any) => ({
       primary_text: String(v.primary_text || "").trim(),
       headline: String(v.headline || "").trim(),
     }));
