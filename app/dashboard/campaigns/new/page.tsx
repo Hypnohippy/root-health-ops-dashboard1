@@ -2,6 +2,20 @@
 
 import { useState } from "react";
 
+type Variant = { primary_text: string; headline: string };
+
+function looksLikeReply(text: string) {
+  const t = text.toLowerCase();
+  return (
+    t.includes("i'm sorry you") ||
+    t.includes("i’m sorry you") ||
+    t.includes("what you're experiencing") ||
+    t.includes("what you’re experiencing") ||
+    t.includes("it can feel overwhelming") ||
+    t.includes("remember,") // common therapist opener
+  );
+}
+
 export default function NewCampaignPage() {
   const [name, setName] = useState("Root Health – December Stress Relief");
   const [platform, setPlatform] = useState<"Meta (Facebook/IG)" | "Google" | "LinkedIn">("Meta (Facebook/IG)");
@@ -14,68 +28,70 @@ export default function NewCampaignPage() {
   const [audienceKeywords, setAudienceKeywords] = useState("burnout, stress, anxiety, self care, therapy");
   const [url, setUrl] = useState("https://roothealth.app");
   const [mediaUrl, setMediaUrl] = useState("");
-  const [primaryText, setPrimaryText] = useState("Feeling the year-end pressure? Take control of your health with simple, guided steps. Start small today.");
-  const [headline, setHeadline] = useState("Take control of your health.");
+
+  const [primaryText, setPrimaryText] = useState("");
+  const [headline, setHeadline] = useState("");
   const [status, setStatus] = useState<"draft" | "queued_to_publish">("draft");
 
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{type:"success"|"error"; msg:string}|null>(null);
+  const [variants, setVariants] = useState<Variant[]>([]);
 
   function showToast(type: "success"|"error", msg: string){
     setToast({type,msg});
     setTimeout(()=>setToast(null), 3500);
   }
 
+  async function callCampaignAI(): Promise<Variant[]> {
+    const res = await fetch("/api/ai/campaign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        platform,
+        objective,
+        url,
+        audienceKeywords,
+        brandVoice: "Root Health founder",
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || "AI error");
+    return json.variants || [];
+  }
+
   async function generateCopy() {
     setBusy(true);
+    setVariants([]);
     try {
-      const prompt = `
-You are a marketing copywriter for Root Health, creating ad copy for ${platform} with the objective ${objective}.
+      // try up to 2 attempts if reply-like text sneaks in
+      let attempt = 0;
+      let good: Variant[] = [];
+      while (attempt < 2 && good.length === 0) {
+        const v = await callCampaignAI();
+        good = v.filter((x) => !looksLikeReply(x.primary_text));
+        attempt++;
+      }
 
-Tone: uplifting, clear, motivating — never apologetic or clinical.  
-Audience: people experiencing stress, burnout, or overwhelm who want to feel better naturally.  
-Goal: inspire curiosity and clicks.
+      if (good.length === 0) {
+        showToast("error", "The AI drifted into reply tone. Try again.");
+        return;
+      }
 
-Include the following in the result:
-1️⃣ PRIMARY_TEXT — a short ad body (2–4 sentences) that connects emotionally, names the problem, offers Root Health as the simple next step, and ends with a call to action.  
-2️⃣ HEADLINE — 4–8 words, memorable, like “Take Control of Your Health” or “Find Calm Again”.
-
-Landing page: ${url}  
-Audience keywords: ${audienceKeywords}
-
-Format:
-PRIMARY_TEXT:
-...
----
-HEADLINE:
-...
-`.trim();
-
-
-      const res = await fetch("/api/ai/reply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceText: prompt,
-          platform: "LinkedIn",
-          style: "Root Health founder, supportive, practical, not apologetic",
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "AI error");
-
-      const draft: string = json.draft || "";
-      const parts = draft.split("---");
-      const body = (parts[0] || "").replace(/^PRIMARY_TEXT/i, "").trim();
-      const head = (parts[1] || "").replace(/^HEADLINE/i, "").trim();
-      if (body) setPrimaryText(body);
-      if (head) setHeadline(head);
-      showToast("success", "Ad copy generated");
+      setVariants(good);
+      setPrimaryText(good[0].primary_text || "");
+      setHeadline(good[0].headline || "");
+      showToast("success", `Generated ${good.length} ad variant${good.length>1?"s":""}`);
     } catch (e:any) {
       showToast("error", e.message || "Failed to generate");
     } finally {
       setBusy(false);
     }
+  }
+
+  function useVariant(v: Variant) {
+    setPrimaryText(v.primary_text);
+    setHeadline(v.headline);
+    showToast("success", "Variant loaded into editor");
   }
 
   async function saveCampaign() {
@@ -123,7 +139,7 @@ HEADLINE:
       <div className="backdrop-blur-lg bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl space-y-5">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold">New Campaign</h1>
-          <a href="/dashboard" className="px-3 py-1 rounded-lg bg-white/10 border border-white/10 hover:bg-white/20 text-sm">← Back</a>
+          <a href="/dashboard/campaigns" className="px-3 py-1 rounded-lg bg-white/10 border border-white/10 hover:bg-white/20 text-sm">← Back</a>
         </div>
 
         {/* Basics */}
@@ -211,7 +227,7 @@ HEADLINE:
 
         <div className="flex flex-wrap gap-3">
           <button onClick={generateCopy} disabled={busy} className="rounded-lg bg-fuchsia-500 text-slate-50 px-4 py-2 text-sm font-medium hover:bg-fuchsia-400">
-            {busy ? "Thinking…" : "Generate ad copy"}
+            {busy ? "Thinking…" : "Generate 3 ad variants"}
           </button>
           <select value={status} onChange={e=>setStatus(e.target.value as any)} className="bg-slate-950/40 border border-white/10 rounded-xl p-2">
             <option value="draft">Save as draft</option>
@@ -221,6 +237,28 @@ HEADLINE:
             {busy ? "Saving…" : "Save"}
           </button>
         </div>
+
+        {/* Variant picker */}
+        {variants.length > 0 && (
+          <div className="mt-5 space-y-3">
+            <h3 className="text-base font-semibold">Pick a variant</h3>
+            <div className="grid md:grid-cols-3 gap-3">
+              {variants.map((v, idx) => (
+                <div key={idx} className="bg-slate-950/30 border border-white/10 rounded-xl p-3 space-y-2">
+                  <p className="text-xs uppercase text-slate-400">Variant {String.fromCharCode(65+idx)}</p>
+                  <p className="text-sm text-slate-50 whitespace-pre-wrap">{v.primary_text}</p>
+                  <p className="text-xs text-indigo-200 mt-1">Headline: <span className="font-medium">{v.headline}</span></p>
+                  <button
+                    onClick={() => useVariant(v)}
+                    className="mt-2 text-xs px-3 py-1 bg-slate-50 text-slate-900 rounded-lg hover:bg-slate-200"
+                  >
+                    Use this
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
