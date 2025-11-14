@@ -8,6 +8,18 @@ type Variant = {
 };
 
 type PlatformPreviewType = "meta" | "linkedin" | "google";
+type LengthMode = "short" | "medium" | "long";
+
+function HelpTip({ text }: { text: string }) {
+  return (
+    <span
+      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/30 bg-black/40 text-[10px] text-slate-200 cursor-help"
+      title={text}
+    >
+      ?
+    </span>
+  );
+}
 
 function PlatformPreview({
   platform,
@@ -97,7 +109,9 @@ export default function NewCampaignPage() {
   // core fields
   const [name, setName] = useState("Root Health – December Stress Relief");
   const [platform, setPlatform] = useState("Meta (Facebook/IG)");
-  const [objective, setObjective] = useState("Leads");
+  const [objective, setObjective] = useState<"Leads" | "Traffic" | "Awareness">(
+    "Leads"
+  );
   const [budgetDaily, setBudgetDaily] = useState("10");
   const [url, setUrl] = useState("https://roothealth.app");
   const [startDate, setStartDate] = useState("");
@@ -114,6 +128,9 @@ export default function NewCampaignPage() {
   const [utmSource, setUtmSource] = useState("facebook");
   const [utmMedium, setUtmMedium] = useState("paid_social");
   const [utmCampaign, setUtmCampaign] = useState("root_health_dec_stress");
+
+  // ad length
+  const [lengthMode, setLengthMode] = useState<LengthMode>("medium");
 
   // variants
   const [variants, setVariants] = useState<Variant[]>([]);
@@ -159,6 +176,7 @@ export default function NewCampaignPage() {
           url,
           audienceKeywords,
           brandVoice: "Root Health founder",
+          lengthMode,
         }),
       });
 
@@ -176,7 +194,14 @@ export default function NewCampaignPage() {
 
       setVariants(got);
       setSelectedVariantIndex(0);
-      setMessage("Generated 3 ad-style variants.");
+      setMessage(
+        `Generated 3 ${lengthMode === "short"
+          ? "short"
+          : lengthMode === "long"
+          ? "long-form"
+          : "medium-length"
+        } ad variants.`
+      );
     } catch (e: any) {
       setError(e?.message || "Error generating variants");
     } finally {
@@ -289,8 +314,9 @@ export default function NewCampaignPage() {
               New Campaign – Root Health
             </h1>
             <p className="text-sm text-slate-300">
-              Your glass cockpit for ad creation. Generate ad-style copy, preview
-              by platform, and save A/B/C variants into Airtable.
+              Your glass cockpit for ad creation. Choose ad length, generate
+              performance copy, preview by platform, and save A/B/C variants
+              into Airtable.
             </p>
           </div>
           <a
@@ -328,6 +354,7 @@ export default function NewCampaignPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
                     Campaign name
+                    <HelpTip text="Internal name only – used so you and your team can recognise this campaign later." />
                   </label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
@@ -338,6 +365,7 @@ export default function NewCampaignPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
                     Platform
+                    <HelpTip text="Where this campaign will run. Used to shape the tone (e.g. more emotional for Meta, more stats-led for LinkedIn)." />
                   </label>
                   <select
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
@@ -353,11 +381,14 @@ export default function NewCampaignPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
                     Objective
+                    <HelpTip text="Leads = capture signups/interest, Traffic = drive clicks, Awareness = get seen and remembered." />
                   </label>
                   <select
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={objective}
-                    onChange={(e) => setObjective(e.target.value)}
+                    onChange={(e) =>
+                      setObjective(e.target.value as "Leads" | "Traffic" | "Awareness")
+                    }
                   >
                     <option>Leads</option>
                     <option>Traffic</option>
@@ -367,6 +398,7 @@ export default function NewCampaignPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
                     Daily budget (£)
+                    <HelpTip text="Planning only – this is stored for reporting and ad planning, not sent to ad networks." />
                   </label>
                   <input
                     type="number"
@@ -422,6 +454,7 @@ export default function NewCampaignPage() {
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-200">
                   Audience keywords (comma-separated)
+                  <HelpTip text="Rough description of who this is for – job roles, struggles or interests. Used to point the AI at the right person." />
                 </label>
                 <textarea
                   className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400 min-h-[60px]"
@@ -429,7 +462,8 @@ export default function NewCampaignPage() {
                   onChange={(e) => setAudienceKeywords(e.target.value)}
                 />
                 <p className="text-[11px] text-slate-300">
-                  Sent to the AI so it understands who&apos;s seeing this ad.
+                  Example: "burnout, NHS staff, senior leaders, new mums, ADHD, small
+                  business owners".
                 </p>
               </div>
             </section>
@@ -442,6 +476,7 @@ export default function NewCampaignPage() {
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-200">
                   Landing URL
+                  <HelpTip text="Where the ad sends people. Usually a Root Health landing page, quiz or signup page." />
                 </label>
                 <input
                   className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
@@ -453,6 +488,7 @@ export default function NewCampaignPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
                     utm_source
+                    <HelpTip text="Where the click comes from (e.g. facebook, linkedin). Shows up in analytics." />
                   </label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
@@ -463,6 +499,7 @@ export default function NewCampaignPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
                     utm_medium
+                    <HelpTip text="Type of traffic (e.g. paid_social, email, referral)." />
                   </label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
@@ -473,6 +510,7 @@ export default function NewCampaignPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
                     utm_campaign
+                    <HelpTip text="Name of this campaign in analytics. Matches what you use in ads so reporting is clean." />
                   </label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
@@ -493,6 +531,7 @@ export default function NewCampaignPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
                     Media URL (optional)
+                    <HelpTip text="Image URL for the ad preview and future automatic posting." />
                   </label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
@@ -503,6 +542,7 @@ export default function NewCampaignPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
                     Video URL (optional)
+                    <HelpTip text="Video file URL if you're using video creative with this copy." />
                   </label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
@@ -513,12 +553,18 @@ export default function NewCampaignPage() {
               </div>
             </section>
 
-            {/* Variants */}
+            {/* Variants + Length */}
             <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold text-slate-50">
-                  Short ad variants (A/B/C)
-                </h2>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-50">
+                    Ad variants (A/B/C)
+                  </h2>
+                  <p className="text-[11px] text-slate-300">
+                    3 creative angles, same audience & settings. Perfect for
+                    testing what actually converts.
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={handleGenerateVariants}
@@ -528,10 +574,49 @@ export default function NewCampaignPage() {
                   {isGenerating ? "Generating..." : "Generate 3 ad variants"}
                 </button>
               </div>
-              <p className="text-[11px] text-slate-300">
-                AI creates before/after style ads with emojis and a CTA, ready to
-                test across platforms.
-              </p>
+
+              {/* Ad length selector */}
+              <div className="space-y-2">
+                <p className="text-[11px] font-medium text-slate-200">
+                  Ad length
+                  <HelpTip text="Short = punchy and fast. Medium = full but scannable. Long = story-style ad with deeper emotional build." />
+                </p>
+                <div className="inline-flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLengthMode("short")}
+                    className={`rounded-full px-3 py-1 text-xs border ${
+                      lengthMode === "short"
+                        ? "bg-emerald-400 text-slate-950 border-emerald-300"
+                        : "bg-black/30 text-slate-100 border-white/20"
+                    }`}
+                  >
+                    Short (2–4 sentences)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLengthMode("medium")}
+                    className={`rounded-full px-3 py-1 text-xs border ${
+                      lengthMode === "medium"
+                        ? "bg-emerald-400 text-slate-950 border-emerald-300"
+                        : "bg-black/30 text-slate-100 border-white/20"
+                    }`}
+                  >
+                    Medium (120–220 words)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLengthMode("long")}
+                    className={`rounded-full px-3 py-1 text-xs border ${
+                      lengthMode === "long"
+                        ? "bg-emerald-400 text-slate-950 border-emerald-300"
+                        : "bg-black/30 text-slate-100 border-white/20"
+                    }`}
+                  >
+                    Long (story-style)
+                  </button>
+                </div>
+              </div>
 
               {variants.length > 0 && (
                 <div className="space-y-4">
@@ -576,7 +661,7 @@ export default function NewCampaignPage() {
                     <div className="rounded-xl border border-white/15 bg-black/30 p-3 space-y-3">
                       <div>
                         <p className="text-[11px] font-semibold text-slate-300">
-                          Primary text
+                          Primary text (generated)
                         </p>
                         <p className="text-sm whitespace-pre-wrap text-slate-50">
                           {selectedVariant.primary_text}
