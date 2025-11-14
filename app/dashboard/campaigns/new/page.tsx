@@ -24,22 +24,26 @@ function PlatformPreview({
 }) {
   if (platform === "meta") {
     return (
-      <div className="rounded-xl border bg-white p-4 text-sm max-w-xl space-y-3">
+      <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 text-sm max-w-xl space-y-3 shadow-lg">
         <div className="flex items-center gap-2">
-          <div className="h-9 w-9 rounded-full bg-gray-300" />
+          <div className="h-9 w-9 rounded-full bg-white/20" />
           <div>
-            <div className="font-semibold">{pageName}</div>
-            <div className="text-xs text-gray-500">Sponsored · Meta</div>
+            <div className="font-semibold text-slate-50">{pageName}</div>
+            <div className="text-xs text-slate-300">Sponsored · Meta</div>
           </div>
         </div>
-        <p className="text-sm whitespace-pre-wrap">{primaryText}</p>
-        <div className="border rounded-lg overflow-hidden">
-          <div className="h-36 bg-gray-200" />
+        <p className="text-sm whitespace-pre-wrap text-slate-50">
+          {primaryText}
+        </p>
+        <div className="border border-white/10 rounded-xl overflow-hidden bg-black/20">
+          <div className="h-36 bg-gradient-to-br from-slate-600/70 via-slate-500/60 to-emerald-500/40" />
           <div className="p-3">
-            <div className="text-[11px] uppercase text-gray-500 tracking-wide">
+            <div className="text-[11px] uppercase text-slate-300 tracking-wide">
               {url?.replace(/^https?:\/\//, "") || "roothealth.app"}
             </div>
-            <div className="text-sm font-semibold">{headline}</div>
+            <div className="text-sm font-semibold text-slate-50">
+              {headline}
+            </div>
           </div>
         </div>
       </div>
@@ -48,22 +52,26 @@ function PlatformPreview({
 
   if (platform === "linkedin") {
     return (
-      <div className="rounded-xl border bg-white p-4 text-sm max-w-xl space-y-3">
+      <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 text-sm max-w-xl space-y-3 shadow-lg">
         <div className="flex items-center gap-2">
-          <div className="h-9 w-9 rounded-full bg-gray-300" />
+          <div className="h-9 w-9 rounded-full bg-white/20" />
           <div>
-            <div className="font-semibold">{pageName}</div>
-            <div className="text-xs text-gray-500">Promoted · LinkedIn</div>
+            <div className="font-semibold text-slate-50">{pageName}</div>
+            <div className="text-xs text-slate-300">Promoted · LinkedIn</div>
           </div>
         </div>
-        <p className="text-sm whitespace-pre-wrap">{primaryText}</p>
-        <div className="border rounded-lg overflow-hidden">
-          <div className="h-32 bg-gray-200" />
+        <p className="text-sm whitespace-pre-wrap text-slate-50">
+          {primaryText}
+        </p>
+        <div className="border border-white/10 rounded-xl overflow-hidden bg-black/20">
+          <div className="h-32 bg-gradient-to-br from-sky-600/70 via-sky-500/60 to-emerald-500/40" />
           <div className="p-3">
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-slate-300">
               {url?.replace(/^https?:\/\//, "") || "roothealth.app"}
             </div>
-            <div className="text-sm font-semibold">{headline}</div>
+            <div className="text-sm font-semibold text-slate-50">
+              {headline}
+            </div>
           </div>
         </div>
       </div>
@@ -72,13 +80,15 @@ function PlatformPreview({
 
   // google
   return (
-    <div className="rounded-xl border bg-white p-4 text-sm max-w-xl space-y-2">
-      <div className="text-xs text-gray-500">Sponsored · Google</div>
-      <div className="text-[11px] text-green-700">
+    <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 text-sm max-w-xl space-y-2 shadow-lg">
+      <div className="text-xs text-slate-300">Sponsored · Google</div>
+      <div className="text-[11px] text-emerald-400">
         {url?.replace(/^https?:\/\//, "") || "roothealth.app"}
       </div>
-      <div className="text-base font-semibold">{headline}</div>
-      <p className="text-sm text-gray-700 whitespace-pre-wrap">{primaryText}</p>
+      <div className="text-base font-semibold text-slate-50">{headline}</div>
+      <p className="text-sm text-slate-100 whitespace-pre-wrap">
+        {primaryText}
+      </p>
     </div>
   );
 }
@@ -107,9 +117,8 @@ export default function NewCampaignPage() {
 
   // variants
   const [variants, setVariants] = useState<Variant[]>([]);
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState<number | null>(
-    null
-  );
+  const [selectedVariantIndex, setSelectedVariantIndex] =
+    useState<number | null>(null);
   const [previewPlatform, setPreviewPlatform] =
     useState<PlatformPreviewType>("meta");
 
@@ -272,29 +281,35 @@ export default function NewCampaignPage() {
     selectedVariantIndex !== null ? variants[selectedVariantIndex] : null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
       <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
         <header className="flex items-center justify-between gap-2">
           <div>
-            <h1 className="text-2xl font-semibold">
+            <h1 className="text-2xl font-semibold text-slate-50">
               New Campaign – Root Health
             </h1>
-            <p className="text-sm text-gray-600">
-              Generate ad-style copy, preview by platform and save A/B/C
-              variants into Airtable.
+            <p className="text-sm text-slate-300">
+              Your glass cockpit for ad creation. Generate ad-style copy, preview
+              by platform, and save A/B/C variants into Airtable.
             </p>
           </div>
+          <a
+            href="/dashboard/campaigns"
+            className="rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-white/10"
+          >
+            ← Back to campaigns
+          </a>
         </header>
 
         {(message || error) && (
           <div className="space-y-2">
             {message && (
-              <div className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
+              <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
                 {message}
               </div>
             )}
             {error && (
-              <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
+              <div className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
                 {error}
               </div>
             )}
@@ -305,21 +320,27 @@ export default function NewCampaignPage() {
           {/* LEFT */}
           <div className="space-y-6">
             {/* Campaign settings */}
-            <section className="rounded-xl border bg-white p-4 space-y-4">
-              <h2 className="text-sm font-semibold">Campaign settings</h2>
+            <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
+              <h2 className="text-sm font-semibold text-slate-50">
+                Campaign settings
+              </h2>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Campaign name</label>
+                  <label className="text-xs font-medium text-slate-200">
+                    Campaign name
+                  </label>
                   <input
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Platform</label>
+                  <label className="text-xs font-medium text-slate-200">
+                    Platform
+                  </label>
                   <select
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={platform}
                     onChange={(e) => setPlatform(e.target.value)}
                   >
@@ -330,9 +351,11 @@ export default function NewCampaignPage() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Objective</label>
+                  <label className="text-xs font-medium text-slate-200">
+                    Objective
+                  </label>
                   <select
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={objective}
                     onChange={(e) => setObjective(e.target.value)}
                   >
@@ -342,48 +365,54 @@ export default function NewCampaignPage() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">
+                  <label className="text-xs font-medium text-slate-200">
                     Daily budget (£)
                   </label>
                   <input
                     type="number"
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={budgetDaily}
                     onChange={(e) => setBudgetDaily(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Start date</label>
+                  <label className="text-xs font-medium text-slate-200">
+                    Start date
+                  </label>
                   <input
                     type="date"
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">
+                  <label className="text-xs font-medium text-slate-200">
                     End date (optional)
                   </label>
                   <input
                     type="date"
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Location</label>
+                  <label className="text-xs font-medium text-slate-200">
+                    Location
+                  </label>
                   <input
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Age range</label>
+                  <label className="text-xs font-medium text-slate-200">
+                    Age range
+                  </label>
                   <input
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
                     value={ageRange}
                     onChange={(e) => setAgeRange(e.target.value)}
                   />
@@ -391,51 +420,62 @@ export default function NewCampaignPage() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-medium">
+                <label className="text-xs font-medium text-slate-200">
                   Audience keywords (comma-separated)
                 </label>
                 <textarea
-                  className="w-full rounded-md border px-2 py-1.5 text-sm min-h-[60px]"
+                  className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400 min-h-[60px]"
                   value={audienceKeywords}
                   onChange={(e) => setAudienceKeywords(e.target.value)}
                 />
+                <p className="text-[11px] text-slate-300">
+                  Sent to the AI so it understands who&apos;s seeing this ad.
+                </p>
               </div>
             </section>
 
             {/* URL + UTM */}
-            <section className="rounded-xl border bg-white p-4 space-y-4">
-              <h2 className="text-sm font-semibold">
+            <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
+              <h2 className="text-sm font-semibold text-slate-50">
                 Landing URL & tracking
               </h2>
               <div className="space-y-1">
-                <label className="text-xs font-medium">Landing URL</label>
+                <label className="text-xs font-medium text-slate-200">
+                  Landing URL
+                </label>
                 <input
-                  className="w-full rounded-md border px-2 py-1.5 text-sm"
+                  className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                 />
               </div>
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">utm_source</label>
+                  <label className="text-xs font-medium text-slate-200">
+                    utm_source
+                  </label>
                   <input
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={utmSource}
                     onChange={(e) => setUtmSource(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">utm_medium</label>
+                  <label className="text-xs font-medium text-slate-200">
+                    utm_medium
+                  </label>
                   <input
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={utmMedium}
                     onChange={(e) => setUtmMedium(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">utm_campaign</label>
+                  <label className="text-xs font-medium text-slate-200">
+                    utm_campaign
+                  </label>
                   <input
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={utmCampaign}
                     onChange={(e) => setUtmCampaign(e.target.value)}
                   />
@@ -444,28 +484,28 @@ export default function NewCampaignPage() {
               <button
                 type="button"
                 onClick={applyUtmToUrl}
-                className="rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white"
+                className="rounded-md bg-emerald-400 px-3 py-1.5 text-xs font-medium text-slate-950 shadow-md hover:bg-emerald-300"
               >
                 Apply UTM to URL
               </button>
 
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">
+                  <label className="text-xs font-medium text-slate-200">
                     Media URL (optional)
                   </label>
                   <input
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
                     value={mediaUrl}
                     onChange={(e) => setMediaUrl(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">
+                  <label className="text-xs font-medium text-slate-200">
                     Video URL (optional)
                   </label>
                   <input
-                    className="w-full rounded-md border px-2 py-1.5 text-sm"
+                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
                     value={videoUrl}
                     onChange={(e) => setVideoUrl(e.target.value)}
                   />
@@ -474,29 +514,29 @@ export default function NewCampaignPage() {
             </section>
 
             {/* Variants */}
-            <section className="rounded-xl border bg-white p-4 space-y-4">
+            <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold">
+                <h2 className="text-sm font-semibold text-slate-50">
                   Short ad variants (A/B/C)
                 </h2>
                 <button
                   type="button"
                   onClick={handleGenerateVariants}
                   disabled={isGenerating}
-                  className="rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+                  className="rounded-md bg-emerald-400 px-3 py-1.5 text-xs font-medium text-slate-950 shadow-md hover:bg-emerald-300 disabled:opacity-60"
                 >
                   {isGenerating ? "Generating..." : "Generate 3 ad variants"}
                 </button>
               </div>
-              <p className="text-[11px] text-gray-500">
-                The AI will create before/after style ads with emojis and a CTA,
-                ready to test.
+              <p className="text-[11px] text-slate-300">
+                AI creates before/after style ads with emojis and a CTA, ready to
+                test across platforms.
               </p>
 
               {variants.length > 0 && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {variants.map((_, idx) => (
                         <button
                           key={idx}
@@ -504,20 +544,20 @@ export default function NewCampaignPage() {
                           onClick={() => setSelectedVariantIndex(idx)}
                           className={`rounded-full px-3 py-1 text-xs border ${
                             selectedVariantIndex === idx
-                              ? "bg-black text-white"
-                              : "bg-white text-black"
+                              ? "bg-emerald-400 text-slate-950 border-emerald-300"
+                              : "bg-black/30 text-slate-100 border-white/20"
                           }`}
                         >
                           Variant {["A", "B", "C"][idx] || idx + 1}
                         </button>
                       ))}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={handleSaveSelected}
                         disabled={isSaving || selectedVariantIndex === null}
-                        className="rounded-md border px-3 py-1.5 text-xs disabled:opacity-60"
+                        className="rounded-md border border-white/30 bg-black/30 px-3 py-1.5 text-xs text-slate-100 hover:bg-black/40 disabled:opacity-60"
                       >
                         Save selected
                       </button>
@@ -525,7 +565,7 @@ export default function NewCampaignPage() {
                         type="button"
                         onClick={handleSaveAll}
                         disabled={isSaving || variants.length === 0}
-                        className="rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+                        className="rounded-md bg-emerald-400 px-3 py-1.5 text-xs font-medium text-slate-950 shadow-md hover:bg-emerald-300 disabled:opacity-60"
                       >
                         Save all 3 (A/B/C)
                       </button>
@@ -533,20 +573,22 @@ export default function NewCampaignPage() {
                   </div>
 
                   {selectedVariant && (
-                    <div className="rounded-lg border bg-gray-50 p-3 space-y-3">
+                    <div className="rounded-xl border border-white/15 bg-black/30 p-3 space-y-3">
                       <div>
-                        <p className="text-[11px] font-semibold text-gray-600">
+                        <p className="text-[11px] font-semibold text-slate-300">
                           Primary text
                         </p>
-                        <p className="text-sm whitespace-pre-wrap">
+                        <p className="text-sm whitespace-pre-wrap text-slate-50">
                           {selectedVariant.primary_text}
                         </p>
                       </div>
                       <div>
-                        <p className="text-[11px] font-semibold text-gray-600">
+                        <p className="text-[11px] font-semibold text-slate-300">
                           Headline
                         </p>
-                        <p className="text-sm">{selectedVariant.headline}</p>
+                        <p className="text-sm text-slate-50">
+                          {selectedVariant.headline}
+                        </p>
                       </div>
                     </div>
                   )}
@@ -557,17 +599,19 @@ export default function NewCampaignPage() {
 
           {/* RIGHT – PREVIEW */}
           <div className="space-y-4">
-            <section className="rounded-xl border bg-white p-4 space-y-4">
+            <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold">Platform preview</h2>
-                <div className="inline-flex rounded-full border bg-gray-50 p-1 text-[11px]">
+                <h2 className="text-sm font-semibold text-slate-50">
+                  Platform preview
+                </h2>
+                <div className="inline-flex rounded-full border border-white/20 bg-black/30 p-1 text-[11px]">
                   <button
                     type="button"
                     onClick={() => setPreviewPlatform("meta")}
                     className={`px-3 py-1 rounded-full ${
                       previewPlatform === "meta"
-                        ? "bg-black text-white"
-                        : "text-gray-700"
+                        ? "bg-emerald-400 text-slate-950"
+                        : "text-slate-100"
                     }`}
                   >
                     Meta
@@ -577,8 +621,8 @@ export default function NewCampaignPage() {
                     onClick={() => setPreviewPlatform("linkedin")}
                     className={`px-3 py-1 rounded-full ${
                       previewPlatform === "linkedin"
-                        ? "bg-black text-white"
-                        : "text-gray-700"
+                        ? "bg-emerald-400 text-slate-950"
+                        : "text-slate-100"
                     }`}
                   >
                     LinkedIn
@@ -588,8 +632,8 @@ export default function NewCampaignPage() {
                     onClick={() => setPreviewPlatform("google")}
                     className={`px-3 py-1 rounded-full ${
                       previewPlatform === "google"
-                        ? "bg-black text-white"
-                        : "text-gray-700"
+                        ? "bg-emerald-400 text-slate-950"
+                        : "text-slate-100"
                     }`}
                   >
                     Google
@@ -606,15 +650,15 @@ export default function NewCampaignPage() {
                   pageName="Root Health"
                 />
               ) : (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-slate-300">
                   Generate variants and select one to see how it will look on
                   each platform.
                 </p>
               )}
             </section>
 
-            <section className="rounded-xl border bg-white p-4 text-xs text-gray-600 space-y-2">
-              <p className="font-semibold text-gray-800">
+            <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 text-xs text-slate-200 space-y-2 shadow-lg">
+              <p className="font-semibold text-slate-50">
                 How this connects to Airtable
               </p>
               <ul className="list-disc pl-4 space-y-1">
