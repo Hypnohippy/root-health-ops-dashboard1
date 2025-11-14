@@ -1,237 +1,312 @@
 "use client";
 
-import { useState } from "react";
+import React, { useEffect, useState } from "react";
 
-type Variant = { primary_text: string; headline: string };
+type CampaignRecord = {
+  id: string;
+  name?: string;
+  platform?: string;
+  objective?: string;
+  primary_text?: string;
+  headline?: string;
+  status?: string;
+  ab_group?: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  budget_daily?: number | string | null;
+  url?: string;
+};
 
-export default function NewCampaignPage() {
-  const [name, setName] = useState("Root Health – December Stress Relief");
-  const [platform, setPlatform] = useState<"Meta (Facebook/IG)" | "Google" | "LinkedIn">("Meta (Facebook/IG)");
-  const [objective, setObjective] = useState("Leads");
-  const [budgetDaily, setBudgetDaily] = useState(10);
-  const [startDate, setStartDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState<string>("");
-  const [location, setLocation] = useState("United Kingdom");
-  const [ageRange, setAgeRange] = useState("25-54");
-  const [audienceKeywords, setAudienceKeywords] = useState("burnout, stress, anxiety, self care, therapy");
-  const [url, setUrl] = useState("https://roothealth.app");
-  const [mediaUrl, setMediaUrl] = useState("");
+type GroupedCampaign = {
+  key: string;
+  name: string;
+  platform: string;
+  objective: string;
+  campaigns: CampaignRecord[];
+};
 
-  const [primaryText, setPrimaryText] = useState("Feeling the year-end pressure? Take control of your health with simple, guided steps. Start small today.");
-  const [headline, setHeadline] = useState("Take control of your health.");
-  const [status, setStatus] = useState<"draft" | "queued_to_publish">("draft");
+export default function CampaignsPage() {
+  const [campaigns, setCampaigns] = useState<CampaignRecord[]>([]);
+  const [grouped, setGrouped] = useState<GroupedCampaign[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [platformFilter, setPlatformFilter] = useState<string>("all");
+  const [objectiveFilter, setObjectiveFilter] = useState<string>("all");
 
-  const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{type:"success"|"error"; msg:string}|null>(null);
-  const [variants, setVariants] = useState<Variant[]>([]);
+  useEffect(() => {
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
 
-  function showToast(type: "success"|"error", msg: string){
-    setToast({type,msg});
-    setTimeout(()=>setToast(null), 3500);
-  }
+        const res = await fetch("/api/campaigns", {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
 
-  async function generateCopy() {
-    setBusy(true);
-    setVariants([]);
-    try {
-      const res = await fetch("/api/ai/campaign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform,
-          objective,
-          url,
-          audienceKeywords,
-          brandVoice: "Root Health founder",
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "AI error");
-      const v: Variant[] = json.variants || [];
-      if (!v.length) throw new Error("No variants returned");
-      setVariants(v);
-      // Auto-load the first into the editor
-      setPrimaryText(v[0].primary_text || "");
-      setHeadline(v[0].headline || "");
-      showToast("success", "Generated 3 ad variants");
-    } catch (e:any) {
-      showToast("error", e.message || "Failed to generate");
-    } finally {
-      setBusy(false);
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to load campaigns");
+        }
+
+        const rows: any[] = Array.isArray(data)
+          ? data
+          : Array.isArray(data.records)
+          ? data.records
+          : [];
+
+        const mapped: CampaignRecord[] = rows.map((row: any) => {
+          const fields = row.fields ?? row;
+          return {
+            id: String(row.id || fields.id || Math.random().toString(36)),
+            name: fields.name ?? "",
+            platform: fields.platform ?? "",
+            objective: fields.objective ?? "",
+            primary_text: fields.primary_text ?? "",
+            headline: fields.headline ?? "",
+            status: fields.status ?? "",
+            ab_group: fields.ab_group ?? "",
+            start_date: fields.start_date ?? null,
+            end_date: fields.end_date ?? null,
+            budget_daily: fields.budget_daily ?? null,
+            url: fields.url ?? "",
+          };
+        });
+
+        setCampaigns(mapped);
+      } catch (e: any) {
+        setError(e?.message || "Error loading campaigns");
+      } finally {
+        setLoading(false);
+      }
     }
-  }
 
-  function useVariant(v: Variant) {
-    setPrimaryText(v.primary_text);
-    setHeadline(v.headline);
-    showToast("success", "Variant loaded into editor");
-  }
+    load();
+  }, []);
 
-  async function saveCampaign() {
-    setBusy(true);
-    try {
-      const payload = {
-        name,
-        platform,
-        objective,
-        budget_daily: Number(budgetDaily),
-        start_date: startDate ? new Date(startDate).toISOString() : null,
-        end_date: endDate ? new Date(endDate).toISOString() : null,
-        location,
-        age_range: ageRange,
-        audience_keywords: audienceKeywords,
-        primary_text: primaryText,
-        headline,
-        url,
-        media_url: mediaUrl || null,
-        status,
-      };
-      const res = await fetch("/api/campaigns", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify(payload),
+  useEffect(() => {
+    const byGroup: Record<string, GroupedCampaign> = {};
+
+    campaigns
+      .filter((c) =>
+        platformFilter === "all" ? true : c.platform === platformFilter
+      )
+      .filter((c) =>
+        objectiveFilter === "all" ? true : c.objective === objectiveFilter
+      )
+      .forEach((c) => {
+        const key = `${c.name ?? "Untitled"}|${c.platform ?? ""}|${
+          c.objective ?? ""
+        }`;
+        if (!byGroup[key]) {
+          byGroup[key] = {
+            key,
+            name: c.name || "Untitled campaign",
+            platform: c.platform || "Unknown",
+            objective: c.objective || "",
+            campaigns: [],
+          };
+        }
+        byGroup[key].campaigns.push(c);
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(json));
-      showToast("success", status === "queued_to_publish" ? "Queued for publish" : "Saved as draft");
-    } catch(e:any){
-      showToast("error", e.message || "Save failed");
-    } finally{
-      setBusy(false);
-    }
-  }
+
+    const groupsArr = Object.values(byGroup).map((g) => ({
+      ...g,
+      campaigns: [...g.campaigns].sort((a, b) => {
+        const order: Record<string, number> = { A: 1, B: 2, C: 3 };
+        const aKey = (a.ab_group || "").toUpperCase();
+        const bKey = (b.ab_group || "").toUpperCase();
+        return (order[aKey] || 99) - (order[bKey] || 99);
+      }),
+    }));
+
+    groupsArr.sort((a, b) => {
+      const aDate = a.campaigns[0]?.start_date || a.campaigns[0]?.id || "";
+      const bDate = b.campaigns[0]?.start_date || b.campaigns[0]?.id || "";
+      return String(bDate).localeCompare(String(aDate));
+    });
+
+    setGrouped(groupsArr);
+  }, [campaigns, platformFilter, objectiveFilter]);
+
+  const allPlatforms = Array.from(
+    new Set(campaigns.map((c) => c.platform).filter(Boolean))
+  );
+  const allObjectives = Array.from(
+    new Set(campaigns.map((c) => c.objective).filter(Boolean))
+  );
 
   return (
-    <div className="min-h-screen text-slate-50 space-y-6">
-      {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-xl text-white shadow-lg ${toast.type==="success"?"bg-emerald-500":"bg-rose-500"}`}>
-          {toast.msg}
-        </div>
-      )}
-
-      <div className="backdrop-blur-lg bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl space-y-5">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">New Campaign</h1>
-          <a href="/dashboard/campaigns" className="px-3 py-1 rounded-lg bg-white/10 border border-white/10 hover:bg-white/20 text-sm">← Back</a>
-        </div>
-
-        {/* Basics */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <label className="flex flex-col gap-1">
-            <span className="text-xs uppercase text-slate-300">Campaign name</span>
-            <input className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={name} onChange={e=>setName(e.target.value)} />
-          </label>
-
-          <div className="grid grid-cols-2 gap-4">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase text-slate-300">Platform</span>
-              <select className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={platform} onChange={e=>setPlatform(e.target.value as any)}>
-                <option>Meta (Facebook/IG)</option>
-                <option>Google</option>
-                <option>LinkedIn</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase text-slate-300">Objective</span>
-              <select className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={objective} onChange={e=>setObjective(e.target.value)}>
-                <option>Leads</option>
-                <option>Traffic</option>
-                <option>Awareness</option>
-              </select>
-            </label>
+    <div className="min-h-screen bg-gray-50">
+      <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
+        <header className="flex items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold">Campaigns</h1>
+            <p className="text-sm text-gray-600">
+              See your split tests at a glance. Each card groups variants by
+              campaign name, platform and objective.
+            </p>
           </div>
+          <a
+            href="/dashboard/campaigns/new"
+            className="rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white"
+          >
+            + New campaign
+          </a>
+        </header>
 
-          <div className="grid grid-cols-2 gap-4">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase text-slate-300">Daily budget (£)</span>
-              <input type="number" min={1} className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={budgetDaily} onChange={e=>setBudgetDaily(Number(e.target.value))}/>
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase text-slate-300">Landing URL</span>
-              <input className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={url} onChange={e=>setUrl(e.target.value)} />
-            </label>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase text-slate-300">Start date</span>
-              <input type="date" className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={startDate} onChange={e=>setStartDate(e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase text-slate-300">End date (optional)</span>
-              <input type="date" className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={endDate} onChange={e=>setEndDate(e.target.value)} />
-            </label>
-          </div>
-
-          {/* Audience */}
-          <div className="grid grid-cols-2 gap-4">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase text-slate-300">Location</span>
-              <input className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={location} onChange={e=>setLocation(e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase text-slate-300">Age range</span>
-              <input className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={ageRange} onChange={e=>setAgeRange(e.target.value)} />
-            </label>
-          </div>
-
-          <label className="flex flex-col gap-1 lg:col-span-2">
-            <span className="text-xs uppercase text-slate-300">Audience keywords (comma-separated)</span>
-            <input className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={audienceKeywords} onChange={e=>setAudienceKeywords(e.target.value)} />
-          </label>
-
-          {/* Creative */}
-          <label className="flex flex-col gap-1 lg:col-span-2">
-            <span className="text-xs uppercase text-slate-300">Primary text</span>
-            <textarea className="bg-slate-950/40 border border-white/10 rounded-xl p-3 min-h-[100px]" value={primaryText} onChange={e=>setPrimaryText(e.target.value)} />
-          </label>
-
-          <div className="grid grid-cols-2 gap-4 lg:col-span-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase text-slate-300">Headline</span>
-              <input className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={headline} onChange={e=>setHeadline(e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase text-slate-300">Media URL (optional)</span>
-              <input className="bg-slate-950/40 border border-white/10 rounded-xl p-2" value={mediaUrl} onChange={e=>setMediaUrl(e.target.value)} />
-            </label>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <button onClick={generateCopy} disabled={busy} className="rounded-lg bg-fuchsia-500 text-slate-50 px-4 py-2 text-sm font-medium hover:bg-fuchsia-400">
-            {busy ? "Thinking…" : "Generate 3 ad variants"}
-          </button>
-          <select value={status} onChange={e=>setStatus(e.target.value as any)} className="bg-slate-950/40 border border-white/10 rounded-xl p-2">
-            <option value="draft">Save as draft</option>
-            <option value="queued_to_publish">Queue to publish</option>
-          </select>
-          <button onClick={saveCampaign} disabled={busy} className="rounded-lg bg-emerald-500 text-slate-950 px-4 py-2 text-sm font-medium hover:bg-emerald-400">
-            {busy ? "Saving…" : "Save"}
-          </button>
-        </div>
-
-        {/* Variant picker */}
-        {variants.length > 0 && (
-          <div className="mt-5 space-y-3">
-            <h3 className="text-base font-semibold">Pick a variant</h3>
-            <div className="grid md:grid-cols-3 gap-3">
-              {variants.map((v, idx) => (
-                <div key={idx} className="bg-slate-950/30 border border-white/10 rounded-xl p-3 space-y-2">
-                  <p className="text-xs uppercase text-slate-400">Variant {String.fromCharCode(65+idx)}</p>
-                  <p className="text-sm text-slate-50 whitespace-pre-wrap">{v.primary_text}</p>
-                  <p className="text-xs text-indigo-200 mt-1">Headline: <span className="font-medium">{v.headline}</span></p>
-                  <button
-                    onClick={() => useVariant(v)}
-                    className="mt-2 text-xs px-3 py-1 bg-slate-50 text-slate-900 rounded-lg hover:bg-slate-200"
-                  >
-                    Use this
-                  </button>
-                </div>
+        <section className="rounded-xl border bg-white p-4 flex flex-wrap gap-4 items-center text-xs">
+          <div className="space-y-1">
+            <p className="font-semibold text-gray-700">Platform</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setPlatformFilter("all")}
+                className={`rounded-full px-3 py-1 border ${
+                  platformFilter === "all"
+                    ? "bg-black text-white"
+                    : "bg-white text-gray-800"
+                }`}
+              >
+                All
+              </button>
+              {allPlatforms.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPlatformFilter(p || "")}
+                  className={`rounded-full px-3 py-1 border ${
+                    platformFilter === p
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-800"
+                  }`}
+                >
+                  {p}
+                </button>
               ))}
             </div>
           </div>
+
+          <div className="space-y-1">
+            <p className="font-semibold text-gray-700">Objective</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setObjectiveFilter("all")}
+                className={`rounded-full px-3 py-1 border ${
+                  objectiveFilter === "all"
+                    ? "bg-black text-white"
+                    : "bg-white text-gray-800"
+                }`}
+              >
+                All
+              </button>
+              {allObjectives.map((o) => (
+                <button
+                  key={o}
+                  type="button"
+                  onClick={() => setObjectiveFilter(o || "")}
+                  className={`rounded-full px-3 py-1 border ${
+                    objectiveFilter === o
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-800"
+                  }`}
+                >
+                  {o}
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {loading && (
+          <p className="text-sm text-gray-500">Loading campaigns…</p>
         )}
+        {error && (
+          <p className="text-sm text-red-600">
+            Error loading campaigns: {error}
+          </p>
+        )}
+
+        {!loading && !error && grouped.length === 0 && (
+          <p className="text-sm text-gray-500">
+            No campaigns yet. Create one from the top-right button.
+          </p>
+        )}
+
+        <div className="space-y-4">
+          {grouped.map((group) => (
+            <div
+              key={group.key}
+              className="rounded-xl border bg-white p-4 space-y-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold">{group.name}</h2>
+                  <p className="text-xs text-gray-500">
+                    {group.platform} · {group.objective}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {group.campaigns.map((c) => (
+                    <span
+                      key={c.id}
+                      className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] gap-1"
+                    >
+                      <span className="font-semibold">
+                        {c.ab_group || "–"}
+                      </span>
+                      <span className="text-gray-500">
+                        {c.status || "draft"}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                {group.campaigns.map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-lg border bg-gray-50 p-3 space-y-2 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold">
+                        Variant {c.ab_group || "–"}
+                      </span>
+                      {c.budget_daily && (
+                        <span className="text-[11px] text-gray-500">
+                          £{c.budget_daily}/day
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-500">
+                      {c.headline || "No headline"}
+                    </p>
+                    <p className="line-clamp-4 whitespace-pre-wrap">
+                      {c.primary_text || "No primary text"}
+                    </p>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[11px] text-gray-500">
+                        {c.start_date || "No date"}
+                      </span>
+                      {c.url && (
+                        <a
+                          href={c.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] text-blue-600 underline"
+                        >
+                          View URL
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
