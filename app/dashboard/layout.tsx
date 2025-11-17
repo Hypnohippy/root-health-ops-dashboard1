@@ -51,6 +51,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     Campaigns
   </a>
 </li>
+  <a
+    href="/dashboard/stories/new"
+    className={linkClasses("/dashboard/stories/new")}
+  >
+    Stories
+  </a>
+</li>
+
 
           </ul>
         </nav>
