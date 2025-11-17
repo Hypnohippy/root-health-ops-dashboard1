@@ -21,31 +21,35 @@ export async function POST(req: NextRequest) {
 
     const token = await getLinkedInAccessToken();
 
-    // Get current user info (to know author URN)
-    const meRes = await fetch("https://api.linkedin.com/v2/me", {
+    // 🔄 IMPORTANT CHANGE:
+    // Use /userinfo (OpenID Connect) instead of /me
+    const userRes = await fetch("https://api.linkedin.com/v2/userinfo", {
       headers: {
         Authorization: `Bearer ${token}`,
       },
     });
 
-    const me = await meRes.json();
-    if (!meRes.ok) {
+    const userInfo = await userRes.json();
+
+    if (!userRes.ok) {
       return NextResponse.json(
-        { error: me.message || "Failed to fetch LinkedIn profile" },
+        { error: userInfo.message || "Failed to fetch LinkedIn user info" },
         { status: 500 }
       );
     }
 
-    const personId = me.id;
-    if (!personId) {
+    // "sub" is the member id in OIDC land, used to build the URN
+    const sub = userInfo.sub as string | undefined;
+    if (!sub) {
       return NextResponse.json(
-        { error: "Could not determine LinkedIn person id" },
+        { error: "No 'sub' field in LinkedIn userinfo response" },
         { status: 500 }
       );
     }
 
-    const authorUrn = `urn:li:person:${personId}`;
+    const authorUrn = `urn:li:person:${sub}`;
 
+    // Build the UGC post
     const postBody = {
       author: authorUrn,
       lifecycleState: "PUBLISHED",
@@ -67,7 +71,9 @@ export async function POST(req: NextRequest) {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
+        // LinkedIn now expect these headers for v2 UGC posts
         "X-Restli-Protocol-Version": "2.0.0",
+        "LinkedIn-Version": "202402",
       },
       body: JSON.stringify(postBody),
     });
