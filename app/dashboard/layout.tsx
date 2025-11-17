@@ -1,65 +1,91 @@
 "use client";
+
+import React from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+type DashboardLayoutProps = {
+  children: React.ReactNode;
+};
+
+export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
-  const linkClasses = (href: string) =>
-    `px-3 py-2 text-sm rounded-full transition ${
-      pathname === href
-        ? "bg-white/20 text-white"
-        : "hover:bg-white/10 text-slate-200"
-    }`;
+
+  const linkClasses = (href: string) => {
+    const isActive =
+      pathname === href ||
+      (href !== "/dashboard" && pathname.startsWith(href));
+
+    return [
+      "block rounded-md px-3 py-1.5 text-sm transition-colors",
+      isActive
+        ? "bg-emerald-400 text-slate-950"
+        : "text-slate-100 hover:bg-white/10",
+    ].join(" ");
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-900 text-slate-50">
-      {/* Header */}
-      <header className="flex items-center justify-between p-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Root Health Ops</h1>
-          <p className="text-slate-300 text-xs">Your cockpit for growth</p>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+      <header className="border-b border-white/10 bg-black/30 backdrop-blur-xl">
+        <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+          {/* Brand */}
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-xl bg-emerald-400/80 shadow-lg shadow-emerald-500/40" />
+            <div className="flex flex-col leading-tight">
+              <span className="text-sm font-semibold text-slate-50">
+                Root Health Ops
+              </span>
+              <span className="text-[11px] text-slate-300">
+                Your cockpit for growth
+              </span>
+            </div>
+          </div>
 
-        {/* Navigation */}
-        <nav className="backdrop-blur-md bg-white/5 border border-white/10 rounded-full px-2 py-1 shadow-md">
-          <ul className="flex items-center gap-1">
+          {/* Nav links */}
+          <ul className="flex items-center gap-2">
             <li>
-              <a href="/dashboard" className={linkClasses("/dashboard")}>
+              <Link href="/dashboard" className={linkClasses("/dashboard")}>
                 Home
-              </a>
+              </Link>
             </li>
+
             <li>
-              <a
+              <Link
                 href="/dashboard/connect"
                 className={linkClasses("/dashboard/connect")}
               >
                 Connect
-              </a>
+              </Link>
             </li>
+
             <li>
-              <a
+              <Link
                 href="/dashboard/metrics"
                 className={linkClasses("/dashboard/metrics")}
               >
                 Metrics
-              </a>
+              </Link>
             </li>
-           <li>
-  <a
-    href="/dashboard/campaigns"
-    className={linkClasses("/dashboard/campaigns")}
-  >
-    Campaigns
-  </a>
-</li>
-  <a
-    href="/dashboard/stories/new"
-    className={linkClasses("/dashboard/stories/new")}
-  >
-    Stories
-  </a>
-</li>
 
+            <li>
+              <Link
+                href="/dashboard/campaigns"
+                className={linkClasses("/dashboard/campaigns")}
+              >
+                Campaigns
+              </Link>
+            </li>
 
+            {/* 👇 NEW STORIES BUTTON 👇 */}
+            <li>
+              <Link
+                href="/dashboard/stories/new"
+                className={linkClasses("/dashboard/stories/new")}
+              >
+                Stories
+              </Link>
+            </li>
+            {/* 👆 NEW STORIES BUTTON 👆 */}
           </ul>
         </nav>
       </header>
@@ -69,3 +95,4 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     </div>
   );
 }
+
