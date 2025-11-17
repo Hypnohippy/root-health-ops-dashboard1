@@ -76,7 +76,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               </Link>
             </li>
 
-            {/* 👇 NEW STORIES BUTTON 👇 */}
             <li>
               <Link
                 href="/dashboard/stories/new"
@@ -85,7 +84,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 Stories
               </Link>
             </li>
-            {/* 👆 NEW STORIES BUTTON 👆 */}
+
+            <li>
+              <Link
+                href="/dashboard/scheduled"
+                className={linkClasses("/dashboard/scheduled")}
+              >
+                Scheduled
+              </Link>
+            </li>
           </ul>
         </nav>
       </header>
@@ -95,4 +102,3 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     </div>
   );
 }
-
