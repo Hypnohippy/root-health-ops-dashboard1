@@ -147,26 +147,72 @@ export default function ConnectPage() {
           </section>
 
           {/* Facebook card */}
+                   {/* Facebook card */}
           <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold">Facebook</h2>
                 <p className="text-xs text-slate-300">
-                  Post to your Page and fetch comments for reply tracking via the
+                  Post to your Page and (later) fetch comments for reply tracking via the
                   Meta Graph API.
                 </p>
               </div>
-              <span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium text-slate-300 border border-slate-500/40">
-                Not connected
+              <span className="inline-flex items-center rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-medium text-emerald-200 border border-emerald-400/40">
+                Connected (pilot)
               </span>
             </div>
-            <button
-              type="button"
-              disabled
-              className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-slate-200 cursor-not-allowed"
-            >
-              Unavailable (coming soon)
-            </button>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-slate-200 cursor-not-allowed"
+              >
+                Full OAuth coming soon
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await fetch("/api/facebook/post", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        message:
+                          "Testing Root Health Ops Facebook connection – posted from the Connect page 🌱",
+                        link: "https://roothealth.app",
+                      }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                      alert(
+                        `Failed to post to Facebook: ${
+                          data.error || "Unknown error"
+                        }`
+                      );
+                      return;
+                    }
+                    alert("Posted a test update to your Facebook Page 🟢");
+                  } catch (e: any) {
+                    alert(
+                      `Error calling Facebook API: ${
+                        e?.message || "Unknown error"
+                      }`
+                    );
+                  }
+                }}
+                className="inline-flex items-center rounded-full border border-sky-400/80 bg-sky-400 px-3 py-1.5 text-[11px] font-medium text-slate-950 shadow-md hover:bg-sky-300"
+              >
+                Post a test now
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-300/90">
+              For now, this uses a Page access token stored in your environment variables.
+              In the SaaS version, each therapist will connect their own Page via Facebook
+              Login.
+            </p>
           </section>
 
           {/* Google card */}
