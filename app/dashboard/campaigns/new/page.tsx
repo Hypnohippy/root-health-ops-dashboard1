@@ -90,7 +90,7 @@ function PlatformPreview({
     );
   }
 
-  // google
+  // google preview
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 text-sm max-w-xl space-y-2 shadow-lg">
       <div className="text-xs text-slate-300">Sponsored · Google</div>
@@ -142,6 +142,7 @@ export default function NewCampaignPage() {
   // status
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPostingLinkedIn, setIsPostingLinkedIn] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -195,11 +196,12 @@ export default function NewCampaignPage() {
       setVariants(got);
       setSelectedVariantIndex(0);
       setMessage(
-        `Generated 3 ${lengthMode === "short"
-          ? "short"
-          : lengthMode === "long"
-          ? "long-form"
-          : "medium-length"
+        `Generated 3 ${
+          lengthMode === "short"
+            ? "short"
+            : lengthMode === "long"
+            ? "long-form"
+            : "medium-length"
         } ad variants.`
       );
     } catch (e: any) {
@@ -302,8 +304,51 @@ export default function NewCampaignPage() {
     }
   }
 
+  async function handlePostSelectedToLinkedIn() {
+    resetNotices();
+
+    if (selectedVariantIndex === null || !variants[selectedVariantIndex]) {
+      setError("No variant selected");
+      return;
+    }
+
+    if (platform !== "LinkedIn") {
+      setError("Set platform to LinkedIn to post directly.");
+      return;
+    }
+
+    const v = variants[selectedVariantIndex];
+
+    // Compose the post: ad text + URL on a new line so people can click through
+    const text = `${v.primary_text}\n\n${url}`;
+
+    try {
+      setIsPostingLinkedIn(true);
+      const res = await fetch("/api/linkedin/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to post to LinkedIn");
+        return;
+      }
+
+      setMessage("Posted selected variant to LinkedIn successfully 🟢");
+    } catch (e: any) {
+      setError(e?.message || "Error posting to LinkedIn");
+    } finally {
+      setIsPostingLinkedIn(false);
+    }
+  }
+
   const selectedVariant =
     selectedVariantIndex !== null ? variants[selectedVariantIndex] : null;
+
+  const canPostToLinkedIn =
+    !!selectedVariant && platform === "LinkedIn" && !isPostingLinkedIn;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
@@ -315,8 +360,8 @@ export default function NewCampaignPage() {
             </h1>
             <p className="text-sm text-slate-300">
               Your glass cockpit for ad creation. Choose ad length, generate
-              performance copy, preview by platform, and save A/B/C variants
-              into Airtable.
+              performance copy, preview by platform, save A/B/C variants – and
+              post to LinkedIn in one click.
             </p>
           </div>
           <a
@@ -343,7 +388,7 @@ export default function NewCampaignPage() {
         )}
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)]">
-          {/* LEFT */}
+          {/* LEFT SIDE */}
           <div className="space-y-6">
             {/* Campaign settings */}
             <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
@@ -387,7 +432,9 @@ export default function NewCampaignPage() {
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={objective}
                     onChange={(e) =>
-                      setObjective(e.target.value as "Leads" | "Traffic" | "Awareness")
+                      setObjective(
+                        e.target.value as "Leads" | "Traffic" | "Awareness"
+                      )
                     }
                   >
                     <option>Leads</option>
@@ -462,8 +509,8 @@ export default function NewCampaignPage() {
                   onChange={(e) => setAudienceKeywords(e.target.value)}
                 />
                 <p className="text-[11px] text-slate-300">
-                  Example: "burnout, NHS staff, senior leaders, new mums, ADHD, small
-                  business owners".
+                  Example: "burnout, NHS staff, senior leaders, new mums, ADHD,
+                  small business owners".
                 </p>
               </div>
             </section>
@@ -553,7 +600,7 @@ export default function NewCampaignPage() {
               </div>
             </section>
 
-            {/* Variants + Length */}
+            {/* Variants + Length + Actions */}
             <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
@@ -620,7 +667,7 @@ export default function NewCampaignPage() {
 
               {variants.length > 0 && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div className="flex flex-wrap gap-2">
                       {variants.map((_, idx) => (
                         <button
@@ -654,6 +701,20 @@ export default function NewCampaignPage() {
                       >
                         Save all 3 (A/B/C)
                       </button>
+                      <button
+                        type="button"
+                        onClick={handlePostSelectedToLinkedIn}
+                        disabled={!canPostToLinkedIn}
+                        className={`rounded-md px-3 py-1.5 text-xs font-medium shadow-md ${
+                          canPostToLinkedIn
+                            ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
+                            : "bg-black/30 text-slate-400 cursor-not-allowed border border-white/15"
+                        }`}
+                      >
+                        {isPostingLinkedIn
+                          ? "Posting to LinkedIn..."
+                          : "Post selected to LinkedIn"}
+                      </button>
                     </div>
                   </div>
 
@@ -682,7 +743,7 @@ export default function NewCampaignPage() {
             </section>
           </div>
 
-          {/* RIGHT – PREVIEW */}
+          {/* RIGHT SIDE – PREVIEW + INFO */}
           <div className="space-y-4">
             <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
               <div className="flex items-center justify-between gap-2">
@@ -761,6 +822,11 @@ export default function NewCampaignPage() {
                 <li>
                   URL & UTM go into <code>url</code>, <code>utm_source</code>,{" "}
                   <code>utm_medium</code>, <code>utm_campaign</code>.
+                </li>
+                <li>
+                  When platform is set to <strong>LinkedIn</strong>, you can
+                  post the selected variant straight from this page using your
+                  connected LinkedIn account.
                 </li>
               </ul>
             </section>
