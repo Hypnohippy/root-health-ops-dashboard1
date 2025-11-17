@@ -59,6 +59,10 @@ export default function NewStoryPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
+  const [isScheduling, setIsScheduling] = useState(false);
+
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
 
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +115,6 @@ export default function NewStoryPage() {
   }
 
   async function saveStoryToAirtable(variant: StoryVariant) {
-    // Uses existing /api/content -> Content table in Airtable
     const res = await fetch("/api/content", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -161,8 +164,6 @@ export default function NewStoryPage() {
     }
 
     const variant = variants[selectedVariantIndex];
-
-    // Compose post: title as heading, then story
     const text = `${variant.title}\n\n${variant.story}`;
 
     try {
@@ -187,11 +188,62 @@ export default function NewStoryPage() {
     }
   }
 
+  async function handleScheduleSelected() {
+    resetNotices();
+
+    if (selectedVariantIndex === null || !variants[selectedVariantIndex]) {
+      setError("No story variant selected");
+      return;
+    }
+
+    if (!scheduleDate || !scheduleTime) {
+      setError("Please choose a date and time to schedule.");
+      return;
+    }
+
+    const variant = variants[selectedVariantIndex];
+
+    // Combine date + time into ISO
+    const scheduledISO = new Date(
+      `${scheduleDate}T${scheduleTime}:00`
+    ).toISOString();
+
+    try {
+      setIsScheduling(true);
+      const res = await fetch("/api/schedule/story", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: variant.title || "Story post",
+          body: variant.story,
+          platform,
+          scheduledTime: scheduledISO,
+          seriesName: seriesEnabled ? scenario : undefined,
+          episodeNumber: seriesEnabled ? seriesEpisode : undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to schedule story");
+        return;
+      }
+
+      setMessage("Story scheduled successfully. It will auto-post at that time.");
+    } catch (e: any) {
+      setError(e?.message || "Error scheduling story");
+    } finally {
+      setIsScheduling(false);
+    }
+  }
+
   const selectedVariant =
     selectedVariantIndex !== null ? variants[selectedVariantIndex] : null;
 
   const canPostToLinkedIn =
     !!selectedVariant && platform === "LinkedIn" && !isPosting;
+
+  const canSchedule = !!selectedVariant && !isScheduling;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
@@ -433,7 +485,7 @@ export default function NewStoryPage() {
                   </h2>
                   <p className="text-[11px] text-slate-300">
                     Try different angles and tones. Pick your favourite, save it
-                    to Airtable, or post it directly.
+                    to Airtable, post now, or schedule it to auto-post.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -486,31 +538,79 @@ export default function NewStoryPage() {
                   </div>
 
                   {selectedVariant && (
-                    <div className="rounded-xl border border-white/15 bg-black/30 p-3 space-y-3">
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-300">
-                          Title
-                        </p>
-                        <p className="text-sm font-semibold text-slate-50">
-                          {selectedVariant.title || "Untitled story"}
-                        </p>
+                    <>
+                      <div className="rounded-xl border border-white/15 bg-black/30 p-3 space-y-3">
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-300">
+                            Title
+                          </p>
+                          <p className="text-sm font-semibold text-slate-50">
+                            {selectedVariant.title || "Untitled story"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-300">
+                            Story
+                          </p>
+                          <p className="text-sm whitespace-pre-wrap text-slate-50">
+                            {selectedVariant.story}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-300">
-                          Story
+
+                      {/* Scheduler */}
+                      <div className="rounded-xl border border-white/15 bg-black/25 p-3 space-y-2 mt-3">
+                        <p className="text-[11px] font-semibold text-slate-200">
+                          Schedule this story
+                          <HelpTip text="Pick a date and time. The system will automatically post this story to the selected platform when it’s due (currently LinkedIn only)." />
                         </p>
-                        <p className="text-sm whitespace-pre-wrap text-slate-50">
-                          {selectedVariant.story}
-                        </p>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <label className="text-[11px] text-slate-300">
+                              Date
+                            </label>
+                            <input
+                              type="date"
+                              className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-xs text-slate-50"
+                              value={scheduleDate}
+                              onChange={(e) => setScheduleDate(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[11px] text-slate-300">
+                              Time
+                            </label>
+                            <input
+                              type="time"
+                              className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-xs text-slate-50"
+                              value={scheduleTime}
+                              onChange={(e) => setScheduleTime(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleScheduleSelected}
+                          disabled={!canSchedule}
+                          className={`mt-2 rounded-md px-3 py-1.5 text-xs font-medium shadow-md ${
+                            canSchedule
+                              ? "bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+                              : "bg-black/30 text-slate-400 cursor-not-allowed border border-white/15"
+                          }`}
+                        >
+                          {isScheduling
+                            ? "Scheduling..."
+                            : "Schedule story to auto-post"}
+                        </button>
                       </div>
-                    </div>
+                    </>
                   )}
                 </>
               ) : (
                 <p className="text-xs text-slate-300">
                   Generate stories to see variants here. You can then save one
-                  as content, or post directly to LinkedIn if the platform is
-                  set to LinkedIn.
+                  as content, post directly to LinkedIn, or schedule it to
+                  auto-post later.
                 </p>
               )}
             </section>
@@ -555,12 +655,14 @@ export default function NewStoryPage() {
                   and <code>status = draft</code>.
                 </li>
                 <li>
-                  You can see and manage these stories alongside other content
-                  in your main dashboard.
+                  When you click{" "}
+                  <strong>Schedule story to auto-post</strong>, a record is
+                  created in <code>Scheduled_Posts</code> with{" "}
+                  <code>scheduled_time</code> and <code>status = pending</code>.
                 </li>
                 <li>
-                  In future, scheduled posting will read from this same table or
-                  a dedicated scheduler table.
+                  The cron job then picks up due records and marks them{" "}
+                  <code>posted</code> or <code>failed</code>.
                 </li>
               </ul>
             </section>
