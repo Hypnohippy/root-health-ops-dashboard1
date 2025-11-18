@@ -11,7 +11,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // For now we ignore the body. The Make scenario posts a fixed caption/link.
     const res = await fetch(MAKE_FB_WEBHOOK_URL, {
       method: "POST",
     });
