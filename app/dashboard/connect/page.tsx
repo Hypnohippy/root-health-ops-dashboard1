@@ -171,9 +171,7 @@ export default function ConnectPage() {
                 disabled={testingFacebook}
                 className="inline-flex items-center rounded-full border border-sky-400/80 bg-sky-400 px-3 py-1.5 text-[11px] font-medium text-slate-950 shadow-md hover:bg-sky-300 disabled:opacity-60"
               >
-                {testingFacebook
-                  ? "Posting..."
-                  : "Post a Facebook test now"}
+                {testingFacebook ? "Posting..." : "Post a Facebook test now"}
               </button>
             </div>
             <p className="text-[11px] text-slate-300/90">
@@ -200,4 +198,59 @@ export default function ConnectPage() {
             <button
               type="button"
               disabled
-              className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-slate-200 cursor
+              className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-slate-200 cursor-not-allowed"
+            >
+              Unavailable (coming soon)
+            </button>
+          </section>
+
+          {/* Google card */}
+          <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold">Google</h2>
+                <p className="text-xs text-slate-300">
+                  Google Ads & Calendar (for discovery calls). Use budget + goal
+                  to auto-plan campaigns.
+                </p>
+              </div>
+              <span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium text-slate-300 border border-slate-500/40">
+                Not connected
+              </span>
+            </div>
+            <button
+              type="button"
+              disabled
+              className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-slate-200 cursor-not-allowed"
+            >
+              Unavailable (coming soon)
+            </button>
+          </section>
+
+          {/* Stripe card */}
+          <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold">Stripe</h2>
+                <p className="text-xs text-slate-300">
+                  Billing & plans. Track MRR and take payments for your coaching
+                  programs.
+                </p>
+              </div>
+              <span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium text-slate-300 border border-slate-500/40">
+                Not connected
+              </span>
+            </div>
+            <button
+              type="button"
+              disabled
+              className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-slate-200 cursor-not-allowed"
+            >
+              Unavailable (coming soon)
+            </button>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
