@@ -1,63 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const FACEBOOK_PAGE_ID = process.env.FACEBOOK_PAGE_ID;
-const FACEBOOK_PAGE_ACCESS_TOKEN = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+const MAKE_FB_WEBHOOK_URL = process.env.MAKE_FB_WEBHOOK_URL;
 
-if (!FACEBOOK_PAGE_ID || !FACEBOOK_PAGE_ACCESS_TOKEN) {
+if (!MAKE_FB_WEBHOOK_URL) {
   console.warn(
-    "[facebook/post] Missing FACEBOOK_PAGE_ID or FACEBOOK_PAGE_ACCESS_TOKEN env vars"
+    "[facebook/post] Missing MAKE_FB_WEBHOOK_URL env var – Facebook via Make is not configured."
   );
 }
 
 export async function POST(req: NextRequest) {
   try {
-    if (!FACEBOOK_PAGE_ID || !FACEBOOK_PAGE_ACCESS_TOKEN) {
+    if (!MAKE_FB_WEBHOOK_URL) {
       return NextResponse.json(
-        { error: "Facebook is not configured" },
+        { error: "Facebook posting is not configured (missing webhook URL)" },
         { status: 500 }
       );
     }
 
-    const { message, link } = await req.json();
-
-    if (!message) {
-      return NextResponse.json(
-        { error: "message is required" },
-        { status: 400 }
-      );
-    }
-
-    const params = new URLSearchParams();
-    params.append("message", message);
-    params.append("access_token", FACEBOOK_PAGE_ACCESS_TOKEN);
-    if (link) {
-      params.append("link", link);
-    }
-
-    const res = await fetch(
-      `https://graph.facebook.com/v21.0/${FACEBOOK_PAGE_ID}/feed`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: params.toString(),
-      }
-    );
-
-    const data = await res.json();
+    // We ignore the body for now – scenario posts a fixed caption/link
+    const res = await fetch(MAKE_FB_WEBHOOK_URL, {
+      method: "POST",
+    });
 
     if (!res.ok) {
-      console.error("[facebook/post] Error", data);
+      const text = await res.text();
+      console.error("[facebook/post] Make webhook error:", text);
       return NextResponse.json(
-        { error: data.error?.message || "Failed to post to Facebook" },
-        { status: res.status }
+        { error: "Failed to trigger Facebook posting" },
+        { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, result: data });
+    return NextResponse.json({ ok: true });
   } catch (err: any) {
-    console.error("[facebook/post] Exception", err);
+    console.error("[facebook/post] Exception:", err);
     return NextResponse.json(
       { error: err?.message || "Server error" },
       { status: 500 }
