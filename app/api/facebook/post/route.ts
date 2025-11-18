@@ -21,7 +21,11 @@ export async function POST(req: NextRequest) {
     if (!res.ok) {
       console.error("[facebook/post] Make webhook error:", res.status, text);
       return NextResponse.json(
-        { error: "Make webhook call failed", status: res.status, details: text },
+        {
+          error: "Make webhook call failed",
+          status: res.status,
+          details: text,
+        },
         { status: 500 }
       );
     }
