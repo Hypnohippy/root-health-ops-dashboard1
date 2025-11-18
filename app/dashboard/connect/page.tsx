@@ -3,13 +3,14 @@
 import React, { useState } from "react";
 
 export default function ConnectPage() {
-  const [testingPost, setTestingPost] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [testingLinkedIn, setTestingLinkedIn] = useState(false);
+  const [testingFacebook, setTestingFacebook] = useState(false);
 
-  async function postTestUpdate() {
+  async function postLinkedInTest() {
     try {
-      setTestingPost(true);
+      setTestingLinkedIn(true);
       setMessage(null);
       setError(null);
 
@@ -32,7 +33,32 @@ export default function ConnectPage() {
     } catch (e: any) {
       setError(e?.message || "Unknown error posting to LinkedIn.");
     } finally {
-      setTestingPost(false);
+      setTestingLinkedIn(false);
+    }
+  }
+
+  async function postFacebookTest() {
+    try {
+      setTestingFacebook(true);
+      setMessage(null);
+      setError(null);
+
+      const res = await fetch("/api/facebook/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to trigger Facebook posting.");
+        return;
+      }
+
+      setMessage("Told Make to post a test update to Facebook 🟢");
+    } catch (e: any) {
+      setError(e?.message || "Unknown error posting to Facebook.");
+    } finally {
+      setTestingFacebook(false);
     }
   }
 
@@ -74,7 +100,8 @@ export default function ConnectPage() {
           <div className="text-xs text-slate-300 space-y-1">
             <p>
               <span className="font-semibold text-slate-100">Next:</span> Enable
-              Google (ads) & Stripe (billing) once you&apos;re ready to scale.
+              Facebook via Make, then Google (ads) & Stripe (billing) once
+              you&apos;re ready to scale.
             </p>
           </div>
         </section>
@@ -108,11 +135,11 @@ export default function ConnectPage() {
               </button>
               <button
                 type="button"
-                onClick={postTestUpdate}
-                disabled={testingPost}
+                onClick={postLinkedInTest}
+                disabled={testingLinkedIn}
                 className="inline-flex items-center rounded-full border border-emerald-300/80 bg-emerald-400 px-3 py-1.5 text-[11px] font-medium text-slate-950 shadow-md hover:bg-emerald-300 disabled:opacity-60"
               >
-                {testingPost ? "Posting..." : "Post a test now"}
+                {testingLinkedIn ? "Posting..." : "Post a LinkedIn test now"}
               </button>
             </div>
 
@@ -120,6 +147,39 @@ export default function ConnectPage() {
               This sends a simple test update to your LinkedIn feed using the
               Root Health Ops connection, so you can confirm everything is wired
               correctly.
+            </p>
+          </section>
+
+          {/* Facebook card */}
+          <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold">Facebook</h2>
+                <p className="text-xs text-slate-300">
+                  Post to your Page via Make. Full multi-user OAuth will come
+                  later; for now this connects your own Page.
+                </p>
+              </div>
+              <span className="inline-flex items-center rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-medium text-emerald-200 border border-emerald-400/40">
+                Connected (via Make)
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={postFacebookTest}
+                disabled={testingFacebook}
+                className="inline-flex items-center rounded-full border border-sky-400/80 bg-sky-400 px-3 py-1.5 text-[11px] font-medium text-slate-950 shadow-md hover:bg-sky-300 disabled:opacity-60"
+              >
+                {testingFacebook
+                  ? "Posting..."
+                  : "Post a Facebook test now"}
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-300/90">
+              This calls your Make webhook, which in turn posts a fixed caption +
+              link to your connected Facebook Page. Later we&apos;ll wire this
+              to campaigns and stories.
             </p>
           </section>
 
@@ -140,128 +200,4 @@ export default function ConnectPage() {
             <button
               type="button"
               disabled
-              className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-slate-200 cursor-not-allowed"
-            >
-              Unavailable (coming soon)
-            </button>
-          </section>
-
-          {/* Facebook card */}
-                   {/* Facebook card */}
-          <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold">Facebook</h2>
-                <p className="text-xs text-slate-300">
-                  Post to your Page and (later) fetch comments for reply tracking via the
-                  Meta Graph API.
-                </p>
-              </div>
-              <span className="inline-flex items-center rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-medium text-emerald-200 border border-emerald-400/40">
-                Connected (pilot)
-              </span>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled
-                className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-slate-200 cursor-not-allowed"
-              >
-                Full OAuth coming soon
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    const res = await fetch("/api/facebook/post", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        message:
-                          "Testing Root Health Ops Facebook connection – posted from the Connect page 🌱",
-                        link: "https://roothealth.app",
-                      }),
-                    });
-                    const data = await res.json();
-                    if (!res.ok) {
-                      alert(
-                        `Failed to post to Facebook: ${
-                          data.error || "Unknown error"
-                        }`
-                      );
-                      return;
-                    }
-                    alert("Posted a test update to your Facebook Page 🟢");
-                  } catch (e: any) {
-                    alert(
-                      `Error calling Facebook API: ${
-                        e?.message || "Unknown error"
-                      }`
-                    );
-                  }
-                }}
-                className="inline-flex items-center rounded-full border border-sky-400/80 bg-sky-400 px-3 py-1.5 text-[11px] font-medium text-slate-950 shadow-md hover:bg-sky-300"
-              >
-                Post a test now
-              </button>
-            </div>
-
-            <p className="text-[11px] text-slate-300/90">
-              For now, this uses a Page access token stored in your environment variables.
-              In the SaaS version, each therapist will connect their own Page via Facebook
-              Login.
-            </p>
-          </section>
-
-          {/* Google card */}
-          <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold">Google</h2>
-                <p className="text-xs text-slate-300">
-                  Google Ads & Calendar (for discovery calls). Use budget + goal
-                  to auto-plan campaigns.
-                </p>
-              </div>
-              <span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium text-slate-300 border border-slate-500/40">
-                Not connected
-              </span>
-            </div>
-            <button
-              type="button"
-              disabled
-              className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-slate-200 cursor-not-allowed"
-            >
-              Unavailable (coming soon)
-            </button>
-          </section>
-
-          {/* Stripe card */}
-          <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold">Stripe</h2>
-                <p className="text-xs text-slate-300">
-                  Billing & plans. Track MRR and take payments for your coaching
-                  programs.
-                </p>
-              </div>
-              <span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium text-slate-300 border border-slate-500/40">
-                Not connected
-              </span>
-            </div>
-            <button
-              type="button"
-              disabled
-              className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-slate-200 cursor-not-allowed"
-            >
-              Unavailable (coming soon)
-            </button>
-          </section>
-        </div>
-      </div>
-    </div>
-  );
-}
+              className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-slate-200 cursor
