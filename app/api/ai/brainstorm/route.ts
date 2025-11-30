@@ -1,65 +1,136 @@
 import { NextResponse } from "next/server";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+export const runtime = "edge"; // safe + fast on Vercel
+
+type BrainstormMode = "single_post" | "series" | "ad_variants";
+
+type BrainstormRequestBody = {
+  messages: { role: "user" | "assistant"; content: string }[];
+  mode: BrainstormMode;
+  brandContext?: string;
+};
+
+const MODE_INSTRUCTIONS: Record<BrainstormMode, string> = {
+  single_post: `
+Write ONE highly engaging LinkedIn/Facebook post.
+
+- Tone: human, open, not-salesy, but with a clear invitation or next step.
+- Format: short paragraphs, plenty of white space.
+- Include a gentle, conversational "why" behind Root Health / the work.
+- End with a soft call-to-action (e.g. invite conversation, connection, or to learn more).
+`,
+
+  series: `
+Write a SERIES of 3 posts that logically follow each other.
+
+- Post 1: story + context (the vulnerability / the "why").
+- Post 2: the insight, what changed, what you learned.
+- Post 3: the invitation, what you're building now, and how it helps.
+
+Output format:
+[Post 1]
+...text...
+
+[Post 2]
+...text...
+
+[Post 3]
+...text...
+
+Keep it human, honest, and not too salesy.
+`,
+
+  ad_variants: `
+Write 3 short ad-style variations for LinkedIn or Facebook.
+
+- Each variation 2–5 short lines.
+- Clear hook in line 1.
+- One clear benefit or outcome for the reader.
+- One clear CTA (book a call / learn more / message me).
+
+Output format:
+[Variant 1]
+...
+
+[Variant 2]
+...
+
+[Variant 3]
+...
+`,
+};
 
 export async function POST(req: Request) {
   try {
-    if (!OPENAI_API_KEY) {
-      console.error("❌ Missing OPENAI_API_KEY in environment");
+    const body = (await req.json()) as BrainstormRequestBody;
+
+    const { messages, mode, brandContext } = body;
+
+    if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
-        { error: "Server misconfigured: missing OPENAI_API_KEY" },
+        { error: "Missing OPENAI_API_KEY environment variable" },
         { status: 500 }
       );
     }
 
-    const body = await req.json();
-    const { messages, tone } = body;
+    const systemPrompt = `
+You are an expert marketing and storytelling assistant embedded inside the Root Health Ops dashboard.
 
-    // messages should be an array of { role: "user" | "assistant", content: string }
-    // coming from your Brainstorm UI
-    const systemMessage = {
-      role: "system",
-      content:
-        "You are a collaborative copywriting and storytelling assistant helping a founder brainstorm LinkedIn and Facebook posts. " +
-        "You write in a human, vulnerable, honest voice, not salesy or hype. " +
-        "You help shape series of posts that connect emotionally and gently guide people toward Root Health and its benefits.",
-    };
+Your job:
+- Brainstorm and refine content for LinkedIn & Facebook posts.
+- Help the user sound open, vulnerable, and human — not corporate.
+- Always keep posts practical and grounded, not fluffy.
 
-    const conversation = [
-      systemMessage,
-      ...(Array.isArray(messages) ? messages : []),
+Brand context (if provided):
+${brandContext || "No extra context provided."}
+
+Mode instructions:
+${MODE_INSTRUCTIONS[mode] || MODE_INSTRUCTIONS.single_post}
+    `.trim();
+
+    const openAIMessages = [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      ...messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
     ];
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini", // or whatever model you're using elsewhere
-        messages: conversation,
-        temperature: tone === "bold" ? 0.9 : tone === "soft" ? 0.5 : 0.7,
+        model: "gpt-4o-mini",
+        messages: openAIMessages,
+        temperature: 0.8,
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("OpenAI API error:", response.status, errorText);
+      console.error("OpenAI error:", errorText);
       return NextResponse.json(
-        { error: "Error from AI service" },
+        { error: "Failed to generate content" },
         { status: 500 }
       );
     }
 
-    const data = await response.json();
-    const reply = data?.choices?.[0]?.message?.content ?? "";
+    const json = await response.json();
+    const reply =
+      json.choices?.[0]?.message?.content ||
+      "Sorry, I couldn't generate a response.";
 
     return NextResponse.json({ reply });
   } catch (error) {
-    console.error("Brainstorm endpoint error:", error);
+    console.error("Brainstorm API error:", error);
     return NextResponse.json(
-      { error: "Unexpected error in brainstorm endpoint" },
+      { error: "Unexpected server error" },
       { status: 500 }
     );
   }
