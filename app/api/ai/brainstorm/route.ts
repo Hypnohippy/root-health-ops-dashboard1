@@ -1,111 +1,185 @@
-import OpenAI from "openai";
+// app/api/ai/brainstorm/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+/**
+ * Brainstorming Chat API
+ *
+ * POST /api/ai/brainstorm
+ *
+ * Body:
+ * {
+ *   "messages": [
+ *     { "role": "user" | "assistant", "content": "..." },
+ *     ...
+ *   ],
+ *   "platform": "LinkedIn" | "Facebook" | "Instagram"
+ * }
+ *
+ * Returns:
+ * {
+ *   "reply": "assistant's conversational reply",
+ *   "draft": "optional improved post draft"
+ * }
+ */
+
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    route: "/api/ai/brainstorm",
+    usage:
+      "POST a JSON body with { messages: [{ role, content }...], platform } to continue the brainstorm.",
+  });
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { messages, mode } = body as {
-      messages: { role: "user" | "assistant"; content: string }[];
-      mode?: "chat" | "series";
-    };
+    const body = await req.json().catch(() => null);
 
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    if (!body || typeof body !== "object") {
       return NextResponse.json(
-        { error: "No messages provided" },
+        { error: "Invalid JSON body" },
         { status: 400 }
       );
     }
 
-    const isSeriesMode = mode === "series";
+    const { messages, platform = "LinkedIn" } = body as {
+      messages?: { role: string; content: string }[];
+      platform?: string;
+    };
 
-    const systemPrompt = isSeriesMode
-      ? `
-You are an expert marketing copywriter embedded inside the Root Health Ops dashboard.
-
-The user and you have been brainstorming a vulnerable, human story about burnout, anxiety, recovery and why the Root Health / Fuel Geist platform exists.
-
-Your job now is to turn the WHOLE conversation into a clear 3-part social media SERIES for LinkedIn or Facebook.
-
-Each post should:
-- Have a short, scroll-stopping TITLE.
-- Be written as a STORY, not a sales pitch.
-- Be open, honest, and grounded – professional but very human.
-- End with **one gentle call to action** (e.g. comment, reflect, or connect).
-
-CRITICAL:
-Return ONLY valid JSON in this exact shape:
-
-{
-  "series": [
-    { "title": "Post 1 title", "story": "Full text of post 1" },
-    { "title": "Post 2 title", "story": "Full text of post 2" },
-    { "title": "Post 3 title", "story": "Full text of post 3" }
-  ]
-}
-
-Do not add markdown, backticks or explanation.
-`
-      : `
-You are an embedded AI assistant inside the Root Health Ops dashboard.
-
-Your job is to brainstorm with the founder about:
-- burnout, anxiety, PTSD
-- why Root Health / Fuel Geist exists
-- how to tell vulnerable but safe stories
-- how to invite people towards the app and support,
-  without feeling salesy or pushy.
-
-Reply as a warm, intelligent conversation partner.
-Be concise but human. Avoid jargon.
-`;
-
-    const openaiMessages = [
-      { role: "system" as const, content: systemPrompt },
-      ...messages,
-    ];
-
-    const completion = await client.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: openaiMessages,
-    });
-
-    const content = completion.choices[0]?.message?.content || "";
-
-    if (!isSeriesMode) {
-      // Normal chat reply
-      return NextResponse.json({ reply: content });
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return NextResponse.json(
+        { error: "messages[] is required" },
+        { status: 400 }
+      );
     }
 
-    // Series mode – we expect JSON
-    try {
-      const parsed = JSON.parse(content);
-      if (
-        !parsed ||
-        !Array.isArray(parsed.series) ||
-        parsed.series.length === 0
-      ) {
-        return NextResponse.json(
-          { error: "AI did not return a valid series object" },
-          { status: 500 }
-        );
-      }
+    const safePlatform =
+      typeof platform === "string" && platform.trim().length > 0
+        ? platform.trim()
+        : "LinkedIn";
 
-      return NextResponse.json(parsed);
-    } catch (err) {
-      console.error("Failed to parse series JSON:", err, content);
+    const platformGuidance =
+      safePlatform.toLowerCase() === "linkedin"
+        ? "Lean a bit more professional and reflective – LinkedIn style."
+        : safePlatform.toLowerCase() === "facebook"
+        ? "Make it more conversational and human – Facebook Page style."
+        : safePlatform.toLowerCase() === "instagram"
+        ? "Shorter, more emotional, and visual – Instagram caption style."
+        : "Neutral, works across LinkedIn and Facebook.";
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
       return NextResponse.json(
-        { error: "Failed to parse AI response for series" },
+        { error: "OPENAI_API_KEY not configured" },
         { status: 500 }
       );
     }
+
+    // Build OpenAI chat messages
+    const openAIMessages = [
+      {
+        role: "system",
+        content: `
+You are "Brainstorm Buddy", a conversational content strategist for Root Health Ops.
+
+Job:
+- Help David riff on ideas for posts for LinkedIn and Facebook (Fuel Geist).
+- Stay very HUMAN, natural and collaborative – like this chat, not like a stiff copywriter.
+- You are allowed to ask questions, suggest angles, and tweak wording over several turns.
+
+Brand:
+- Root Health / Root Cause Power: self-guided app that helps people map stress, patterns, and small steps.
+- Founder has lived experience of trauma, burnout and rebuilding.
+- No clinical claims, no medical advice, no overpromising. It's about insight, agency and gentle support.
+
+Behaviour:
+- You chat naturally: short paragraphs, no walls of text.
+- When relevant, you can propose an improved post DRAFT based on the conversation so far.
+
+VERY IMPORTANT OUTPUT FORMAT:
+Always return ONLY valid JSON like:
+
+{
+  "reply": "what you want to say back to David in a conversational way",
+  "draft": "optional suggested post as a single text block, or empty string if not needed yet"
+}
+
+Rules:
+- "reply" is the chatty back-and-forth voice.
+- "draft" is the more polished post text (can be empty until David asks for a draft).
+- Never include markdown or emojis in the JSON structure itself (they are fine inside the strings).
+- Do NOT wrap JSON in backticks or add any text around it.
+- You're currently brainstorming for: ${safePlatform}.
+${platformGuidance}
+      `.trim(),
+      },
+      // Pass through the existing dialog
+      ...messages.map((m) => ({
+        role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+        content: String(m.content || ""),
+      })),
+      // Small extra nudge at the end
+      {
+        role: "user",
+        content:
+          "Please respond following the JSON schema with fields 'reply' and 'draft' only.",
+      },
+    ];
+
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0.8,
+        top_p: 0.9,
+        max_tokens: 800,
+        response_format: { type: "json_object" },
+        messages: openAIMessages,
+      }),
+    });
+
+    const raw = await res.json();
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: raw?.error?.message || "AI request failed" },
+        { status: res.status }
+      );
+    }
+
+    let payload: any;
+    try {
+      const content = raw.choices?.[0]?.message?.content || "{}";
+      payload = JSON.parse(content);
+    } catch {
+      return NextResponse.json(
+        { error: "AI returned non-JSON content" },
+        { status: 500 }
+      );
+    }
+
+    const reply = String(payload?.reply || "").trim();
+    const draft = String(payload?.draft || "").trim();
+
+    if (!reply) {
+      return NextResponse.json(
+        { error: "AI returned empty reply" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      reply,
+      draft,
+    });
   } catch (err: any) {
-    console.error("Brainstorm API error:", err);
     return NextResponse.json(
-      { error: err?.message || "Unexpected error in brainstorm API" },
+      { error: err?.message || "Server error" },
       { status: 500 }
     );
   }
