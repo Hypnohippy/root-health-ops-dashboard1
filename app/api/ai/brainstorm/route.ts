@@ -1,97 +1,111 @@
 import OpenAI from "openai";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-type Mode = "single" | "series";
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { idea, tone, platform, mode }: {
-      idea: string;
-      tone?: string;
-      platform?: string;
-      mode?: Mode;
-    } = await req.json();
+    const body = await req.json();
+    const { messages, mode } = body as {
+      messages: { role: "user" | "assistant"; content: string }[];
+      mode?: "chat" | "series";
+    };
 
-    const safeMode: Mode = mode === "series" ? "series" : "single";
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return NextResponse.json(
+        { error: "No messages provided" },
+        { status: 400 }
+      );
+    }
 
-    const systemPrompt = `
-You are an expert LinkedIn and Facebook content strategist.
-You help a founder brainstorm vulnerable, honest, story-driven posts
-that gently lead to Root Health without sounding salesy or pushy.
+    const isSeriesMode = mode === "series";
 
-Always respond ONLY as raw JSON, no extra text.
-Use this exact shape:
+    const systemPrompt = isSeriesMode
+      ? `
+You are an expert marketing copywriter embedded inside the Root Health Ops dashboard.
+
+The user and you have been brainstorming a vulnerable, human story about burnout, anxiety, recovery and why the Root Health / Fuel Geist platform exists.
+
+Your job now is to turn the WHOLE conversation into a clear 3-part social media SERIES for LinkedIn or Facebook.
+
+Each post should:
+- Have a short, scroll-stopping TITLE.
+- Be written as a STORY, not a sales pitch.
+- Be open, honest, and grounded – professional but very human.
+- End with **one gentle call to action** (e.g. comment, reflect, or connect).
+
+CRITICAL:
+Return ONLY valid JSON in this exact shape:
 
 {
-  "mode": "single" | "series",
-  "posts": [
-    {
-      "title": "string",
-      "body": "string",
-      "call_to_action": "string"
-    }
+  "series": [
+    { "title": "Post 1 title", "story": "Full text of post 1" },
+    { "title": "Post 2 title", "story": "Full text of post 2" },
+    { "title": "Post 3 title", "story": "Full text of post 3" }
   ]
 }
-`.trim();
 
-    const userPrompt = `
-Idea: ${idea}
+Do not add markdown, backticks or explanation.
+`
+      : `
+You are an embedded AI assistant inside the Root Health Ops dashboard.
 
-Tone: ${tone || "open, vulnerable, hopeful, warm, not salesy"}
+Your job is to brainstorm with the founder about:
+- burnout, anxiety, PTSD
+- why Root Health / Fuel Geist exists
+- how to tell vulnerable but safe stories
+- how to invite people towards the app and support,
+  without feeling salesy or pushy.
 
-Platform: ${platform || "LinkedIn and Facebook"}
+Reply as a warm, intelligent conversation partner.
+Be concise but human. Avoid jargon.
+`;
 
-Mode: ${safeMode.toUpperCase()}.
-
-If mode is "single":
-- Write ONE strong post (1 title + 1 body + 1 gentle CTA).
-
-If mode is "series":
-- Write a 3-PART series (3 posts) that:
-  - Feels like a connected narrative.
-  - Post 1: sets the scene and problem.
-  - Post 2: goes deeper into the struggle and insight.
-  - Post 3: resolution, Root Health, and an invite to talk.
-
-IMPORTANT:
-- Return strictly valid JSON.
-- No markdown, no explanations, no extra keys.
-`.trim();
+    const openaiMessages = [
+      { role: "system" as const, content: systemPrompt },
+      ...messages,
+    ];
 
     const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.7,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
+      model: "gpt-4.1-mini",
+      messages: openaiMessages,
     });
 
-    const raw = completion.choices[0].message.content || "{}";
+    const content = completion.choices[0]?.message?.content || "";
 
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (e) {
-      // In case the model adds text around JSON, try to salvage it.
-      const firstBrace = raw.indexOf("{");
-      const lastBrace = raw.lastIndexOf("}");
-      if (firstBrace !== -1 && lastBrace !== -1) {
-        parsed = JSON.parse(raw.slice(firstBrace, lastBrace + 1));
-      } else {
-        throw e;
-      }
+    if (!isSeriesMode) {
+      // Normal chat reply
+      return NextResponse.json({ reply: content });
     }
 
-    return NextResponse.json(parsed);
-  } catch (err) {
+    // Series mode – we expect JSON
+    try {
+      const parsed = JSON.parse(content);
+      if (
+        !parsed ||
+        !Array.isArray(parsed.series) ||
+        parsed.series.length === 0
+      ) {
+        return NextResponse.json(
+          { error: "AI did not return a valid series object" },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json(parsed);
+    } catch (err) {
+      console.error("Failed to parse series JSON:", err, content);
+      return NextResponse.json(
+        { error: "Failed to parse AI response for series" },
+        { status: 500 }
+      );
+    }
+  } catch (err: any) {
     console.error("Brainstorm API error:", err);
     return NextResponse.json(
-      { error: "Failed to generate brainstorm content" },
+      { error: err?.message || "Unexpected error in brainstorm API" },
       { status: 500 }
     );
   }
