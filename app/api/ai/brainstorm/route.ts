@@ -1,102 +1,97 @@
-import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { NextResponse } from "next/server";
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+type Mode = "single" | "series";
+
 export async function POST(req: Request) {
   try {
-    const { prompt, tone, platform, mode } = await req.json();
+    const { idea, tone, platform, mode }: {
+      idea: string;
+      tone?: string;
+      platform?: string;
+      mode?: Mode;
+    } = await req.json();
 
-    if (!prompt) {
-      return NextResponse.json(
-        { error: "Prompt is required" },
-        { status: 400 }
-      );
+    const safeMode: Mode = mode === "series" ? "series" : "single";
+
+    const systemPrompt = `
+You are an expert LinkedIn and Facebook content strategist.
+You help a founder brainstorm vulnerable, honest, story-driven posts
+that gently lead to Root Health without sounding salesy or pushy.
+
+Always respond ONLY as raw JSON, no extra text.
+Use this exact shape:
+
+{
+  "mode": "single" | "series",
+  "posts": [
+    {
+      "title": "string",
+      "body": "string",
+      "call_to_action": "string"
     }
+  ]
+}
+`.trim();
 
-    const safeTone = tone || "open, honest, conversational";
-    const safePlatform = platform || "LinkedIn and Facebook";
-    const safeMode = mode === "single" ? "single" : "series";
+    const userPrompt = `
+Idea: ${idea}
+
+Tone: ${tone || "open, vulnerable, hopeful, warm, not salesy"}
+
+Platform: ${platform || "LinkedIn and Facebook"}
+
+Mode: ${safeMode.toUpperCase()}.
+
+If mode is "single":
+- Write ONE strong post (1 title + 1 body + 1 gentle CTA).
+
+If mode is "series":
+- Write a 3-PART series (3 posts) that:
+  - Feels like a connected narrative.
+  - Post 1: sets the scene and problem.
+  - Post 2: goes deeper into the struggle and insight.
+  - Post 3: resolution, Root Health, and an invite to talk.
+
+IMPORTANT:
+- Return strictly valid JSON.
+- No markdown, no explanations, no extra keys.
+`.trim();
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
+      temperature: 0.7,
       messages: [
-        {
-          role: "system",
-          content:
-            "You are an expert B2B social content writer for LinkedIn and Facebook. " +
-            "You ALWAYS respond with pure JSON (no extra commentary). " +
-            'For mode = "single", respond as: {"type":"single","post":{"title":"...","body":"..."}}. ' +
-            'For mode = "series", respond as: {"type":"series","posts":[{"title":"...","body":"..."},{"title":"...","body":"..."},{"title":"...","body":"..."}]}. ' +
-            "The body should be ready-to-post copy: formatted with line breaks, not markdown.",
-        },
-        {
-          role: "user",
-          content: `
-Platform: ${safePlatform}
-Tone: ${safeTone}
-Mode: ${safeMode}
-
-User brief:
-${prompt}
-
-If mode = "series", create a 3-part narrative series:
-- Part 1: hook + origin of the pain / story
-- Part 2: deeper insight, turning point, what changed
-- Part 3: resolution, key learnings, gentle invitation / call to action
-
-Keep it:
-- human
-- vulnerable where appropriate
-- not pushy, but with a clear sense of what the reader can do next (e.g. comment, DM, click through, start a conversation).
-          `,
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
       ],
     });
 
-    const content = completion.choices[0]?.message?.content;
+    const raw = completion.choices[0].message.content || "{}";
 
-    if (!content) {
-      return NextResponse.json(
-        { error: "No content from AI" },
-        { status: 500 }
-      );
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      // In case the model adds text around JSON, try to salvage it.
+      const firstBrace = raw.indexOf("{");
+      const lastBrace = raw.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        parsed = JSON.parse(raw.slice(firstBrace, lastBrace + 1));
+      } else {
+        throw e;
+      }
     }
 
-    const parsed =
-      typeof content === "string" ? JSON.parse(content) : JSON.parse(content[0].text);
-
-    // Tiny sanity check so the frontend doesn't blow up if model misbehaves
-    if (
-      parsed.type === "series" &&
-      Array.isArray(parsed.posts) &&
-      parsed.posts.length > 0
-    ) {
-      return NextResponse.json(parsed);
-    }
-
-    if (parsed.type === "single" && parsed.post) {
-      return NextResponse.json(parsed);
-    }
-
-    // Fallback: wrap in single post if format unexpected
+    return NextResponse.json(parsed);
+  } catch (err) {
+    console.error("Brainstorm API error:", err);
     return NextResponse.json(
-      {
-        type: "single",
-        post: {
-          title: "Generated post",
-          body: typeof content === "string" ? content : JSON.stringify(content),
-        },
-      },
-      { status: 200 }
-    );
-  } catch (error: any) {
-    console.error("Brainstorm API error:", error);
-    return NextResponse.json(
-      { error: "Failed to generate content" },
+      { error: "Failed to generate brainstorm content" },
       { status: 500 }
     );
   }
