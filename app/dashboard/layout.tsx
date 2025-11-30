@@ -1,3 +1,4 @@
+// app/dashboard/layout.tsx
 "use client";
 
 import React from "react";
@@ -91,6 +92,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 className={linkClasses("/dashboard/scheduled")}
               >
                 Scheduled
+              </Link>
+            </li>
+
+            {/* 🧠 Brainstorm Studio – same style as the others */}
+            <li>
+              <Link
+                href="/dashboard/brainstorm"
+                className={linkClasses("/dashboard/brainstorm")}
+              >
+                🧠 Brainstorm
               </Link>
             </li>
           </ul>
