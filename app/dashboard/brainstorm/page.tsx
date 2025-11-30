@@ -2,276 +2,280 @@
 
 import React, { useState } from "react";
 
-type Mode = "single" | "series";
-
-type BrainstormPost = {
-  title: string;
-  body: string;
-  call_to_action: string;
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
 };
 
-type BrainstormResult = {
-  mode: Mode;
-  posts: BrainstormPost[];
+type SeriesPost = {
+  title: string;
+  story: string;
 };
 
 export default function BrainstormPage() {
-  const [idea, setIdea] = useState("");
-  const [tone, setTone] = useState("open, vulnerable, hopeful");
-  const [platform, setPlatform] = useState("LinkedIn & Facebook");
-  const [mode, setMode] = useState<Mode>("series");
-  const [isLoading, setIsLoading] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      role: "assistant",
+      content:
+        "Tell me what you’d like to say. We can shape a vulnerable, human story together – then turn it into a series of posts when you’re ready.",
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
+
+  const [series, setSeries] = useState<SeriesPost[]>([]);
+  const [isSeriesLoading, setIsSeriesLoading] = useState(false);
+
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<BrainstormResult | null>(null);
 
-  // Allow inline tweaking of generated posts
-  const updatePost = (index: number, field: keyof BrainstormPost, value: string) => {
-    if (!result) return;
-    const updatedPosts = [...result.posts];
-    updatedPosts[index] = { ...updatedPosts[index], [field]: value };
-    setResult({ ...result, posts: updatedPosts });
-  };
-
-  const handleGenerate = async () => {
-    if (!idea.trim()) {
-      setError("Give me at least a short idea to work from.");
-      return;
-    }
-
-    setIsLoading(true);
+  function resetNotices() {
+    setNotice(null);
     setError(null);
+  }
+
+  async function sendMessage() {
+    if (!input.trim()) return;
+    resetNotices();
+
+    const newMessages: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: input.trim() },
+    ];
+    setMessages(newMessages);
+    setInput("");
+    setIsSending(true);
 
     try {
       const res = await fetch("/api/ai/brainstorm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idea, tone, platform, mode }),
+        body: JSON.stringify({ messages: newMessages, mode: "chat" }),
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Something went wrong");
+        setError(data.error || "The brainstorm AI failed to reply.");
+        return;
       }
 
-      const data = (await res.json()) as BrainstormResult;
-      setResult(data);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Failed to generate brainstorm");
+      const reply = (data.reply as string) || "";
+      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+    } catch (e: any) {
+      setError(e?.message || "Error talking to brainstorm AI.");
     } finally {
-      setIsLoading(false);
+      setIsSending(false);
     }
-  };
+  }
 
-  const copyAllToClipboard = async () => {
-    if (!result) return;
+  async function generateSeriesFromConversation() {
+    resetNotices();
 
-    const text = result.posts
-      .map((p, idx) => {
-        const header =
-          result.mode === "series"
-            ? `Series Part ${idx + 1}: ${p.title}`
-            : p.title;
-        return `${header}\n\n${p.body}\n\n${p.call_to_action}`;
-      })
-      .join("\n\n---\n\n");
+    if (messages.length === 0) {
+      setError("Have at least one or two messages in the conversation first.");
+      return;
+    }
+
+    setIsSeriesLoading(true);
+    setSeries([]);
 
     try {
-      await navigator.clipboard.writeText(text);
-      alert("Copied full brainstorm to clipboard. Go paste into Stories or Campaigns. 🙌");
-    } catch {
-      alert("Could not access clipboard. You can still select and copy manually.");
-    }
-  };
+      const res = await fetch("/api/ai/brainstorm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages, mode: "series" }),
+      });
 
-  // 🔌 HOOK POINT for future direct Airtable integration:
-  // Once we know your existing Stories API shape (URL + fields),
-  // we can replace the clipboard step with a real POST, reusing
-  // the same endpoint your /dashboard/stories/new page uses.
-  const saveSeriesToStories = async () => {
-    if (!result) return;
-    alert(
-      "This is where we’ll wire it straight into your existing Stories/Airtable endpoint. " +
-        "For now, use 'Copy to clipboard' and paste into Stories."
-    );
-  };
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to generate series from conversation.");
+        return;
+      }
+
+      const posts = (data.series || []) as SeriesPost[];
+      if (!posts.length) {
+        setError("AI returned no series posts.");
+        return;
+      }
+
+      setSeries(posts);
+      setNotice("Created a 3-part series from this brainstorm.");
+    } catch (e: any) {
+      setError(e?.message || "Error generating series.");
+    } finally {
+      setIsSeriesLoading(false);
+    }
+  }
+
+  async function savePostToAirtable(post: SeriesPost, index: number) {
+    resetNotices();
+
+    try {
+      const res = await fetch("/api/content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: post.title || `Brainstorm series post ${index + 1}`,
+          platform: "LinkedIn", // you can change this in Airtable later
+          body: post.story,
+          status: "draft",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to save story to Airtable.");
+        return;
+      }
+
+      setNotice(`Saved post ${index + 1} into Airtable Content as draft.`);
+    } catch (e: any) {
+      setError(e?.message || "Error saving to Airtable.");
+    }
+  }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-bold">🧠 Brainstorm Studio</h1>
-        <p className="text-sm text-slate-300">
-          Chat-style content studio for crafting vulnerable, story-driven posts
-          you can use in your existing Stories & Campaigns flows.
-        </p>
-      </header>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 lg:flex-row">
+        {/* LEFT: Chat / Brainstorm */}
+        <div className="flex-1 space-y-4">
+          <header className="space-y-1">
+            <h1 className="text-2xl font-semibold text-slate-50">
+              🧠 Brainstorm Studio
+            </h1>
+            <p className="text-sm text-slate-300">
+              Talk like you do here. We&apos;ll shape vulnerable, honest
+              stories about Root Health / Fuel Geist, then turn them into
+              ready-to-use posts.
+            </p>
+          </header>
 
-      {/* Controls */}
-      <section className="rounded-xl border border-white/10 bg-black/30 p-4 backdrop-blur">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-slate-200">
-              Core idea / theme
-            </label>
-            <textarea
-              className="w-full rounded-md border border-white/10 bg-black/40 p-2 text-sm text-slate-50 outline-none focus:border-emerald-400"
-              rows={4}
-              placeholder="e.g. I built Root Health because I burned out while carrying too much in silence..."
-              value={idea}
-              onChange={(e) => setIdea(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-200">
-                Tone
-              </label>
-              <input
-                className="w-full rounded-md border border-white/10 bg-black/40 p-2 text-sm text-slate-50 outline-none focus:border-emerald-400"
-                value={tone}
-                onChange={(e) => setTone(e.target.value)}
-              />
-              <p className="text-[11px] text-slate-400">
-                You can type things like: “raw but hopeful”, “professional but human”, “quietly confident”, etc.
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-200">
-                Platform focus
-              </label>
-              <input
-                className="w-full rounded-md border border-white/10 bg-black/40 p-2 text-sm text-slate-50 outline-none focus:border-emerald-400"
-                value={platform}
-                onChange={(e) => setPlatform(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-200">
-                Format
-              </label>
-              <div className="flex gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setMode("single")}
-                  className={`flex-1 rounded-md border px-2 py-1.5 ${
-                    mode === "single"
-                      ? "border-emerald-400 bg-emerald-400/10 text-emerald-200"
-                      : "border-white/10 text-slate-200 hover:bg-white/5"
-                  }`}
-                >
-                  Single post
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("series")}
-                  className={`flex-1 rounded-md border px-2 py-1.5 ${
-                    mode === "series"
-                      ? "border-emerald-400 bg-emerald-400/10 text-emerald-200"
-                      : "border-white/10 text-slate-200 hover:bg-white/5"
-                  }`}
-                >
-                  3-part series
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <button
-                type="button"
-                onClick={handleGenerate}
-                disabled={isLoading}
-                className="mt-2 w-full rounded-md bg-emerald-400 px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/40 disabled:opacity-60"
-              >
-                {isLoading ? "Thinking..." : "Generate with AI"}
-              </button>
+          {(notice || error) && (
+            <div className="space-y-2">
+              {notice && (
+                <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+                  {notice}
+                </div>
+              )}
               {error && (
-                <p className="mt-2 text-xs text-red-400">
+                <div className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
                   {error}
-                </p>
+                </div>
               )}
             </div>
+          )}
+
+          {/* Chat box */}
+          <div className="flex h-[420px] flex-col rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-lg">
+            <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
+              {messages.map((m, idx) => (
+                <div
+                  key={idx}
+                  className={`max-w-[90%] rounded-lg px-3 py-2 ${
+                    m.role === "user"
+                      ? "ml-auto bg-emerald-400 text-slate-950"
+                      : "mr-auto bg-black/40 text-slate-50 border border-white/10"
+                  }`}
+                >
+                  {m.content}
+                </div>
+              ))}
+            </div>
+
+            {/* Input */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                sendMessage();
+              }}
+              className="flex gap-2 border-t border-white/10 bg-black/40 px-3 py-2"
+            >
+              <textarea
+                className="flex-1 resize-none rounded-md border border-white/20 bg-black/40 px-2 py-1.5 text-xs text-slate-50 placeholder:text-slate-400"
+                rows={2}
+                placeholder="Tell me what you want to say – e.g. why you built Root Health, your own burnout story, how Coach Marcus helped, your journaling, etc."
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+              />
+              <button
+                type="submit"
+                disabled={isSending || !input.trim()}
+                className="self-end rounded-md bg-emerald-400 px-3 py-1.5 text-xs font-medium text-slate-950 shadow-md hover:bg-emerald-300 disabled:opacity-60"
+              >
+                {isSending ? "Thinking..." : "Send"}
+              </button>
+            </form>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[11px] text-slate-300 max-w-md">
+              When you&apos;re happy with the conversation, click below and
+              we&apos;ll turn this into a 3-part story series you can save into
+              Airtable and schedule from the Stories/Scheduled pages.
+            </p>
+            <button
+              type="button"
+              onClick={generateSeriesFromConversation}
+              disabled={isSeriesLoading}
+              className="rounded-md bg-sky-400 px-3 py-1.5 text-xs font-medium text-slate-950 shadow-md hover:bg-sky-300 disabled:opacity-60"
+            >
+              {isSeriesLoading
+                ? "Creating 3-part series..."
+                : "Summarise as 3-part series"}
+            </button>
           </div>
         </div>
-      </section>
 
-      {/* Results */}
-      {result && (
-        <section className="space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold">
-              Draft {result.mode === "series" ? "Series" : "Post"}
-            </h2>
-            <div className="flex gap-2 text-xs">
-              <button
-                onClick={copyAllToClipboard}
-                className="rounded-md border border-emerald-400/70 px-3 py-1.5 font-medium text-emerald-200 hover:bg-emerald-400/10"
-              >
-                Copy full text for Stories
-              </button>
-              <button
-                onClick={saveSeriesToStories}
-                className="rounded-md border border-white/20 px-3 py-1.5 font-medium text-slate-200 hover:bg-white/5"
-              >
-                (Future) Send to Stories / Airtable
-              </button>
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            {result.posts.map((post, idx) => (
-              <div
-                key={idx}
-                className="space-y-2 rounded-xl border border-white/10 bg-black/40 p-3"
-              >
-                <p className="text-[11px] uppercase tracking-wide text-slate-400">
-                  {result.mode === "series" ? `Part ${idx + 1}` : "Post"}
-                </p>
-                <input
-                  className="w-full rounded-md border border-white/10 bg-black/60 p-2 text-sm font-semibold text-slate-50 outline-none focus:border-emerald-400"
-                  value={post.title}
-                  onChange={(e) =>
-                    updatePost(idx, "title", e.target.value)
-                  }
-                />
-                <textarea
-                  className="mt-1 h-40 w-full rounded-md border border-white/10 bg-black/60 p-2 text-sm text-slate-50 outline-none focus:border-emerald-400"
-                  value={post.body}
-                  onChange={(e) =>
-                    updatePost(idx, "body", e.target.value)
-                  }
-                />
-                <textarea
-                  className="mt-1 w-full rounded-md border border-white/10 bg-black/60 p-2 text-xs text-slate-200 outline-none focus:border-emerald-400"
-                  value={post.call_to_action}
-                  onChange={(e) =>
-                    updatePost(idx, "call_to_action", e.target.value)
-                  }
-                />
-                <button
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(
-                        `${post.title}\n\n${post.body}\n\n${post.call_to_action}`
-                      );
-                      alert(
-                        `Copied part ${idx + 1} to clipboard. Paste it into Stories or Campaigns.`
-                      );
-                    } catch {
-                      alert("Could not access clipboard, please copy manually.");
-                    }
-                  }}
-                  className="mt-2 w-full rounded-md border border-white/20 px-2 py-1.5 text-xs text-slate-100 hover:bg-white/5"
+        {/* RIGHT: Series posts + Airtable actions */}
+        <div className="w-full max-w-md space-y-4">
+          <h2 className="text-sm font-semibold text-slate-50">
+            Series output & Airtable
+          </h2>
+          {series.length === 0 ? (
+            <p className="text-xs text-slate-300">
+              Once you click &quot;Summarise as 3-part series&quot;, your posts
+              will appear here. You can then save each one into your Airtable{" "}
+              <code>Content</code> table as a draft story.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {series.map((post, idx) => (
+                <div
+                  key={idx}
+                  className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-3 text-xs text-slate-200 shadow-lg"
                 >
-                  Copy this post only
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-semibold text-slate-300">
+                      Series Post {idx + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => savePostToAirtable(post, idx)}
+                      className="rounded-md border border-white/30 bg-black/30 px-2 py-1 text-[11px] text-slate-100 hover:bg-black/40"
+                    >
+                      Save to Airtable
+                    </button>
+                  </div>
+                  <p className="mb-1 text-xs font-semibold text-slate-50">
+                    {post.title || `Post ${idx + 1}`}
+                  </p>
+                  <p className="whitespace-pre-wrap text-[11px] text-slate-200">
+                    {post.story}
+                  </p>
+                </div>
+              ))}
+
+              <p className="text-[11px] text-slate-300">
+                These drafts land in the same Airtable <code>Content</code>{" "}
+                table your Stories page uses. From there you can schedule and
+                manage them as usual.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
