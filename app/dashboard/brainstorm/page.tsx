@@ -1,186 +1,133 @@
-// app/dashboard/brainstorm/page.tsx
-
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
+import Link from "next/link";
 
-type Role = "user" | "assistant";
-
-type ChatMessage = {
-  role: Role;
-  content: string;
-};
-
-const BrainstormPage: React.FC = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: "assistant",
-      content:
-        "Hi, I’m your AI content partner inside Root Health. Tell me about your audience, your industry, and what you’d like this post or series to achieve (engagement, leads, appointments). We’ll shape it together.",
-    },
+export default function BrainstormPage() {
+  const [messages, setMessages] = useState([
+    { role: "assistant", text: "👋 Hi David — what would you like to brainstorm today?" }
   ]);
   const [input, setInput] = useState("");
-  const [industry, setIndustry] = useState("");
-  const [platform, setPlatform] = useState("LinkedIn");
-  const [goal, setGoal] = useState("leads");
-  const [isSending, setIsSending] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSend = async () => {
-    if (!input.trim() || isSending) return;
+  async function sendMessage() {
+    if (!input.trim()) return;
 
-    const newMessages = [
-      ...messages,
-      { role: "user" as Role, content: input.trim() },
-    ];
-    setMessages(newMessages);
+    const userMessage = { role: "user", text: input };
+    setMessages((m) => [...m, userMessage]);
     setInput("");
-    setIsSending(true);
+    setLoading(true);
 
     try {
-      const res = await fetch("/api/ai/brainstorm", {
+      // This calls your existing /api/ai/reply endpoint
+      const res = await fetch("/api/ai/reply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: newMessages,
-          industry: industry || undefined,
-          platform: platform || undefined,
-          goal: goal || undefined,
-        }),
+        body: JSON.stringify({ message: userMessage.text })
       });
 
-      if (!res.ok) {
-        throw new Error("Request failed");
-      }
-
       const data = await res.json();
-      const reply = data.reply?.content || "Sorry, I couldn’t generate a reply.";
 
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: reply as string },
-      ]);
+      const aiMessage = {
+        role: "assistant",
+        text: data.reply || "Something went wrong — no reply received."
+      };
+
+      setMessages((m) => [...m, aiMessage]);
     } catch (err) {
-      console.error(err);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "Something went wrong talking to the AI. Please try again in a moment.",
-        },
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", text: "❌ Error connecting to AI." }
       ]);
-    } finally {
-      setIsSending(false);
     }
-  };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+    setLoading(false);
+  }
+
+  // Helper: Convert all messages into a single block of text
+  const compiledOutput = messages
+    .filter((m) => m.role === "assistant" || m.role === "user")
+    .map((m) => (m.role === "user" ? `🟦 YOU: ${m.text}` : `🟩 AI: ${m.text}`))
+    .join("\n\n");
+
+  // Helper to redirect user to prefilled editors
+  async function pushTo(type: "single" | "series" | "ad") {
+    localStorage.setItem("brainstorm_output", compiledOutput);
+    if (type === "single") window.location.href = "/dashboard/content/new";
+    if (type === "series") window.location.href = "/dashboard/campaigns/new";
+    if (type === "ad") window.location.href = "/dashboard/campaigns/new";
+  }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] p-4 gap-4">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-bold">AI Content Studio</h1>
-        <p className="text-sm text-gray-500">
-          Brainstorm posts, stories, and series with an AI that understands
-          your audience, platform, and goals. This is the “vibe” space, not just
-          a one-shot generator.
-        </p>
-      </header>
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
+      <h1 className="text-3xl font-bold">🧠 Content Brainstorm Studio</h1>
+      <p className="text-sm text-gray-500">
+        This is your private space to brainstorm ideas, craft stories, refine messaging,
+        and develop perfect LinkedIn/Facebook posts. When you're done → export directly
+        into content or campaign tools.
+      </p>
 
-      {/* Context controls */}
-      <div className="flex flex-wrap gap-3 text-sm">
-        <div className="flex flex-col">
-          <label className="mb-1 text-xs text-gray-500">Industry</label>
-          <input
-            className="border rounded-md px-2 py-1 text-sm min-w-[180px]"
-            placeholder="e.g. HR, coaching, finance"
-            value={industry}
-            onChange={(e) => setIndustry(e.target.value)}
-          />
-        </div>
-
-        <div className="flex flex-col">
-          <label className="mb-1 text-xs text-gray-500">Platform</label>
-          <select
-            className="border rounded-md px-2 py-1 text-sm"
-            value={platform}
-            onChange={(e) => setPlatform(e.target.value)}
+      {/* Chat Window */}
+      <div className="border rounded-lg p-4 h-[400px] overflow-y-auto bg-white space-y-4">
+        {messages.map((msg, idx) => (
+          <div
+            key={idx}
+            className={`p-3 rounded-lg max-w-[80%] ${
+              msg.role === "assistant"
+                ? "bg-green-100 ml-0"
+                : "bg-blue-100 ml-auto"
+            }`}
           >
-            <option>LinkedIn</option>
-            <option>Facebook</option>
-            <option>Instagram</option>
-            <option>Email newsletter</option>
-            <option>Blog</option>
-          </select>
-        </div>
-
-        <div className="flex flex-col">
-          <label className="mb-1 text-xs text-gray-500">Main Goal</label>
-          <select
-            className="border rounded-md px-2 py-1 text-sm"
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-          >
-            <option value="engagement">Engagement</option>
-            <option value="leads">Leads</option>
-            <option value="appointments">Appointments</option>
-            <option value="awareness">Awareness</option>
-          </select>
-        </div>
+            {msg.text}
+          </div>
+        ))}
       </div>
 
-      {/* Chat area */}
-      <div className="flex-1 border rounded-lg bg-white/80 overflow-hidden flex flex-col">
-        <div className="flex-1 overflow-y-auto p-3 space-y-3">
-          {messages.map((m, idx) => (
-            <div
-              key={idx}
-              className={`max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
-                m.role === "assistant"
-                  ? "bg-gray-100 self-start"
-                  : "bg-blue-100 self-end"
-              }`}
-            >
-              {m.content}
-            </div>
-          ))}
-          {isSending && (
-            <div className="text-xs text-gray-400 px-1">
-              Thinking of ideas…
-            </div>
-          )}
-        </div>
+      {/* Input Bar */}
+      <div className="flex gap-4">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Type your idea, story, or ask AI something..."
+          className="flex-1 border rounded-lg p-3"
+        />
+        <button
+          onClick={sendMessage}
+          disabled={loading}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg"
+        >
+          {loading ? "Thinking…" : "Send"}
+        </button>
+      </div>
 
-        {/* Input area */}
-        <div className="border-t p-3 flex gap-2 items-end">
-          <textarea
-            className="flex-1 border rounded-md px-2 py-2 text-sm resize-none h-16"
-            placeholder="Tell the AI what you want to create (e.g. a 3-part LinkedIn series on burnout for HR leaders, or a vulnerable story like the Root Health origin post)…"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
+      {/* Export Buttons */}
+      <div className="space-y-3">
+        <h2 className="font-semibold text-lg">📤 Export Brainstorm</h2>
+        <p className="text-gray-500 text-sm">Choose where to send your final content.</p>
+
+        <div className="flex gap-3">
           <button
-            onClick={handleSend}
-            disabled={isSending || !input.trim()}
-            className="px-4 py-2 rounded-md text-sm font-medium border bg-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => pushTo("single")}
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg"
           >
-            {isSending ? "Sending…" : "Send"}
+            ➕ Create Single Post
+          </button>
+
+          <button
+            onClick={() => pushTo("series")}
+            className="px-4 py-2 bg-orange-600 text-white rounded-lg"
+          >
+            🔗 Create Series (3-part, storytelling, etc.)
+          </button>
+
+          <button
+            onClick={() => pushTo("ad")}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg"
+          >
+            📣 Create Paid Ad
           </button>
         </div>
       </div>
-
-      <p className="text-[11px] text-gray-400">
-        Tip: Once you’ve co-created a post you love, you can copy it into your
-        existing Campaign / Stories tools and schedule it like everything else.
-      </p>
     </div>
   );
-};
-
-export default BrainstormPage;
+}
