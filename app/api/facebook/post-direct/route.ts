@@ -1,70 +1,55 @@
-// app/api/facebook/post-direct/route.ts
-import { NextRequest, NextResponse } from "next/server";
+// app/api/post-direct/route.ts
+// This route forwards whatever the Ops app sends to your Make webhook.
+// Make then posts to Facebook using its working connection.
 
-/**
- * POST /api/facebook/post-direct
- *
- * Body:
- * { "message": "Text to post on the Fuel Geist page" }
- */
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const message = (body?.message || "").toString().trim();
+    // Read the webhook URL from your environment variables
+    const webhookUrl =
+      process.env.MAKE_FB_WEBHOOK_URL ||
+      process.env.FACEBOOK_WEBHOOK_URL; // fallback if named differently
 
-    if (!message) {
-      return NextResponse.json(
-        { error: "Message is required" },
-        { status: 400 }
-      );
-    }
-
-    const pageId = process.env.FB_PAGE_ID;
-    const accessToken = process.env.FB_PAGE_ACCESS_TOKEN;
-
-    if (!pageId || !accessToken) {
-      return NextResponse.json(
-        {
-          error:
-            "Facebook page ID or access token missing. Check FB_PAGE_ID and FB_PAGE_ACCESS_TOKEN env vars.",
-        },
+    if (!webhookUrl) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Missing MAKE_FB_WEBHOOK_URL / FACEBOOK_WEBHOOK_URL env var",
+        }),
         { status: 500 }
       );
     }
 
-    const url = `https://graph.facebook.com/v20.0/${pageId}/feed`;
+    // Read the JSON body from the request (whatever your frontend sends)
+    const body = await req.json();
 
-    const params = new URLSearchParams();
-    params.append("message", message);
-    params.append("access_token", accessToken);
-
-    const fbRes = await fetch(url, {
+    // Forward it to Make
+    const makeResponse = await fetch(webhookUrl, {
       method: "POST",
-      body: params,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
 
-    const fbJson = await fbRes.json();
-
-    if (!fbRes.ok) {
-      return NextResponse.json(
-        {
-          error: fbJson?.error?.message || "Facebook API error",
-          details: fbJson,
-        },
-        { status: fbRes.status }
+    // If Make returns an error, pass it back
+    if (!makeResponse.ok) {
+      const text = await makeResponse.text();
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Make webhook call failed",
+          details: text,
+        }),
+        { status: 500 }
       );
     }
 
-    return NextResponse.json({
-      ok: true,
-      id: fbJson.id,
-      message: "Posted to Facebook page successfully",
-    });
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
   } catch (err: any) {
-    return NextResponse.json(
-      {
-        error: err?.message || "Server error posting to Facebook",
-      },
+    console.error("Error in /api/post-direct:", err);
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: err?.message || "Unknown error",
+      }),
       { status: 500 }
     );
   }
