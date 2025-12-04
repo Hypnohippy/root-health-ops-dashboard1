@@ -1,22 +1,8 @@
 // app/api/content/route.ts
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
-// Make sure these are set in Vercel:
-// NEXT_PUBLIC_SUPABASE_URL
-// SUPABASE_SERVICE_ROLE_KEY  (server-side only)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !serviceKey) {
-  throw new Error("Missing Supabase env vars (NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY)");
-}
-
-const supabase = createClient(supabaseUrl, serviceKey, {
-  auth: { persistSession: false },
-});
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
@@ -45,7 +31,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("content_items")
       .insert({
         organisation_id: organisationId,
