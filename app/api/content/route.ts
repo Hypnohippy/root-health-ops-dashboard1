@@ -1,59 +1,75 @@
 // app/api/content/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, serviceKey);
+// Make sure these are set in Vercel:
+// NEXT_PUBLIC_SUPABASE_URL
+// SUPABASE_SERVICE_ROLE_KEY  (server-side only)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-export async function POST(req: NextRequest) {
+if (!supabaseUrl || !serviceKey) {
+  throw new Error("Missing Supabase env vars (NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY)");
+}
+
+const supabase = createClient(supabaseUrl, serviceKey, {
+  auth: { persistSession: false },
+});
+
+export async function POST(req: Request) {
   try {
-    const { organisationId, body, mediaIds, platform } = await req.json();
+    const body = await req.json();
 
-    if (!organisationId || !body) {
+    // Expect something like this from your Ops app:
+    // {
+    //   organisationId,
+    //   title,
+    //   text,
+    //   platform,
+    //   socialAccountId,
+    //   scheduledAt
+    // }
+    const {
+      organisationId,
+      title,
+      text,
+      platform = "facebook",
+      socialAccountId,
+      scheduledAt,
+    } = body;
+
+    if (!organisationId || !text) {
       return NextResponse.json(
-        { error: "organisationId and body are required" },
+        { error: "organisationId and text are required" },
         { status: 400 }
       );
     }
 
-    const { data: content, error } = await supabase
+    const { data, error } = await supabase
       .from("content_items")
       .insert({
         organisation_id: organisationId,
-        body,
-        platform: platform || "facebook",
-        status: "draft",
+        title: title ?? null,
+        body: text,
+        platform,
+        status: scheduledAt ? "scheduled" : "sent",
+        scheduled_at: scheduledAt ?? null,
+        social_account_id: socialAccountId ?? null,
       })
-      .select("id")
+      .select()
       .single();
 
-    if (error || !content) {
-      console.error(error);
+    if (error) {
+      console.error("Supabase insert error", error);
       return NextResponse.json(
-        { error: "Failed to save content" },
+        { error: "Failed to save content", details: error.message },
         { status: 500 }
       );
     }
 
-    if (Array.isArray(mediaIds) && mediaIds.length > 0) {
-      const rows = mediaIds.map((id: string, index: number) => ({
-        content_id: content.id,
-        media_id: id,
-        position: index,
-      }));
-      const { error: cmError } = await supabase
-        .from("content_media")
-        .insert(rows);
-
-      if (cmError) {
-        console.error(cmError);
-      }
-    }
-
-    return NextResponse.json({ id: content.id });
+    return NextResponse.json({ content: data }, { status: 201 });
   } catch (err: any) {
-    console.error(err);
+    console.error("Content POST error", err);
     return NextResponse.json(
       { error: "Server error", details: err?.message },
       { status: 500 }
