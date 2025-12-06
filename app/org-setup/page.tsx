@@ -293,10 +293,11 @@ function OrgSetupInner() {
       fd.append(`media_${idx}`, file);
     });
 
-    const res = await fetch("/api/org-setup", {
-      method: "POST",
-      body: fd,
-    });
+    const res = await fetch("/api/org-setup2", {
+  method: "POST",
+  body: fd,
+});
+
 
     // 🔹 If auth has expired, send them to login cleanly
     if (res.status === 401) {
