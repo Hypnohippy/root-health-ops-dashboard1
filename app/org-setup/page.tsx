@@ -135,6 +135,38 @@ function OrgSetupInner() {
   const [redirecting, setRedirecting] = useState(false);
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 const [coachLoading, setCoachLoading] = useState(false);
+  const triggerCoach = async (reason: string, errorMessage?: string) => {
+  try {
+    setCoachLoading(true);
+    setCoachMessage(null);
+
+    const res = await fetch("/api/coach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "onboarding",
+        reason,
+        stepId: steps[stepIndex]?.id ?? "unknown-step",
+        orgName: form.orgName,
+        industry: form.industry,
+        errorMessage,
+      }),
+    });
+
+    if (!res.ok) throw new Error("Coach request failed");
+
+    const data = await res.json();
+    setCoachMessage(data.message ?? null);
+  } catch (err) {
+    console.error("[coach] request error", err);
+    setCoachMessage(
+      "Something glitched while fetching advice, but this is almost always fixable. Try the last step again, and if it still fails, send a quick screenshot to support."
+    );
+  } finally {
+    setCoachLoading(false);
+  }
+};
+
 
 
   // If billing=success, show the "workspace ready" screen
@@ -328,11 +360,16 @@ const handleSubmit = async () => {
     //    and move to the "workspace ready" screen.
     router.push("/org-setup?billing=success");
   } catch (err: any) {
-    console.error("[org-setup] submit error", err);
-    setError(err?.message || "Something went wrong saving your setup.");
-  } finally {
-    setSubmitting(false);
-  }
+  console.error("[org-setup] submit error", err);
+  const message = err?.message || "Something went wrong saving your setup.";
+  setError(message);
+
+  // Trigger Root Coach AI
+  triggerCoach("submit-error", message);
+} finally {
+  setSubmitting(false);
+}
+
 };
 
   return (
@@ -422,6 +459,19 @@ const handleSubmit = async () => {
             {error}
           </div>
         )}
+        {(coachLoading || coachMessage) && (
+  <div className="mb-4 rounded-2xl border border-emerald-600/60 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-50">
+    <div className="font-semibold mb-1 text-emerald-100">
+      Root Coach
+    </div>
+    {coachLoading ? (
+      <p>Thinking about your next best step…</p>
+    ) : (
+      <p>{coachMessage}</p>
+    )}
+  </div>
+)}
+
 
         {/* Footer controls */}
         <footer className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
