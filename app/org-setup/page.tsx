@@ -291,6 +291,8 @@ const [coachLoading, setCoachLoading] = useState(false);
 const handleSubmit = async () => {
   setSubmitting(true);
   setError(null);
+  setCoachMessage(null);
+
   try {
     const fd = new FormData();
 
@@ -356,20 +358,19 @@ const handleSubmit = async () => {
       slug: data.organisation?.slug,
     });
 
-    // 🔹 Instead of going to Stripe, just pretend billing succeeded
-    //    and move to the "workspace ready" screen.
-    router.push("/org-setup?billing=success");
+    // Force a clean reload onto the success URL to avoid any client-side glitches
+    window.location.href = "/org-setup?billing=success";
   } catch (err: any) {
-  console.error("[org-setup] submit error", err);
-  const message = err?.message || "Something went wrong saving your setup.";
-  setError(message);
+    console.error("[org-setup] submit error", err);
+    const message =
+      err?.message || "Something went wrong saving your setup.";
+    setError(message);
 
-  // Trigger Root Coach AI
-  triggerCoach("submit-error", message);
-} finally {
-  setSubmitting(false);
-}
-
+    // Trigger Root Coach AI (if wired)
+    triggerCoach("submit-error", message);
+  } finally {
+    setSubmitting(false);
+  }
 };
 
   return (
