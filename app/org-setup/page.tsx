@@ -335,9 +335,10 @@ function OrgSetupInner() {
     });
 
     // 🔹 Then kick off billing
-    const billingRes = await fetch("/api/billing/checkout", {
-      method: "POST",
-    });
+   const billingRes = await fetch("/api/billing/checkout2", {
+  method: "POST",
+});
+
 
     if (!billingRes.ok) {
       const raw = await billingRes.text().catch(() => "");
