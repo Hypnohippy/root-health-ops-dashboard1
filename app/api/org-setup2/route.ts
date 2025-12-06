@@ -1,272 +1,118 @@
-
-// app/api/org-setup/route.ts
+// app/api/org-setup2/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getCurrentUserId } from "@/lib/supabaseServer";
+import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 
-// Helper to safely read strings
-function getString(formData: FormData, key: string, fallback = ""): string {
-const v = formData.get(key);
-return typeof v === "string" ? v.trim() : fallback;
-}
-
-// Basic slugify
-function slugify(input: string): string {
-return input
-.toLowerCase()
-.trim()
-.replace(/[^a-z0-9]+/g, "-")
-.replace(/^-+|-+$/g, "")
-.slice(0, 60);
-}
-
 export async function POST(req: NextRequest) {
-try {
-const formData = await req.formData();
+  try {
+    const userId = await getCurrentUserId();
 
-const orgName = getString(formData, "orgName");
-if (!orgName) {
-return NextResponse.json(
-{ error: "orgName is required" },
-{ status: 400 }
-);
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Not authenticated. Please sign in again." },
+        { status: 401 }
+      );
+    }
+
+    const form = await req.formData();
+
+    const orgName = (form.get("orgName") as string | null)?.trim();
+    let orgSlug = (form.get("orgSlug") as string | null)?.trim();
+
+    if (!orgName) {
+      return NextResponse.json(
+        { error: "Organisation name is required." },
+        { status: 400 }
+      );
+    }
+
+    if (!orgSlug) {
+      orgSlug =
+        orgName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "") || randomUUID().slice(0, 8);
+    }
+
+    // For now, keep insert *minimal* so it doesn't break on missing columns.
+    // Once we see it working, we can add more fields (industry, colours, etc).
+    const { data: org, error: orgError } = await supabaseAdmin
+      .from("organisations")
+      .insert({
+        name: orgName,
+        slug: orgSlug,
+        created_by: userId,
+      })
+      .select("*")
+      .single();
+
+    if (orgError) {
+      console.error("[org-setup2] organisation insert error", orgError);
+      return NextResponse.json(
+        {
+          error: "Failed to insert organisation",
+          details: orgError.message ?? orgError,
+        },
+        { status: 500 }
+      );
+    }
+
+    const orgId = (org as any).id;
+
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error:
+            "Organisation created but no id returned from database. Please contact support.",
+          details: org,
+        },
+        { status: 500 }
+      );
+    }
+
+    // Create membership row for this user as owner
+    const { error: memberError } = await supabaseAdmin
+      .from("organisation_members")
+      .insert({
+        organisation_id: orgId,
+        user_id: userId,
+        role: "owner",
+      });
+
+    if (memberError) {
+      console.error("[org-setup2] membership insert error", memberError);
+      return NextResponse.json(
+        {
+          error:
+            "Organisation created but failed to create membership for this user.",
+          details: memberError.message ?? memberError,
+        },
+        { status: 500 }
+      );
+    }
+
+    // (Later we can add social_accounts, brand colours, etc.)
+    return NextResponse.json(
+      {
+        organisation: {
+          id: orgId,
+          name: orgName,
+          slug: orgSlug,
+        },
+      },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error("[org-setup2] unexpected error", err);
+    return NextResponse.json(
+      {
+        error: "Unexpected error in org-setup2.",
+        details: err?.message ?? String(err),
+      },
+      { status: 500 }
+    );
+  }
 }
-
-const rawSlug = getString(formData, "orgSlug");
-const industry = getString(formData, "industry");
-const orgSize = getString(formData, "orgSize");
-const website = getString(formData, "website");
-
-const primaryColor = getString(formData, "primaryColor", "#2563eb");
-const secondaryColor = getString(formData, "secondaryColor", "#0f172a");
-const accentColor = getString(formData, "accentColor", "#f97316");
-const brandTone = getString(formData, "brandTone", "warm");
-
-const ownerName = getString(formData, "ownerName");
-const ownerRole = getString(formData, "ownerRole", "Lead therapist");
-const inviteEmails = getString(formData, "inviteEmails");
-
-const postingFrequency = getString(formData, "postingFrequency", "medium");
-const goalsRaw = getString(formData, "goals", "[]");
-const contentTypesRaw = getString(formData, "contentTypes", "[]");
-
-let goals: string[] = [];
-let contentTypes: string[] = [];
-
-try {
-goals = JSON.parse(goalsRaw || "[]");
-} catch {
-goals = [];
-}
-
-try {
-contentTypes = JSON.parse(contentTypesRaw || "[]");
-} catch {
-contentTypes = [];
-}
-
-// Social prefs (we can use later for Connect / social_accounts)
-const connectFacebook = getString(formData, "connectFacebook") === "true";
-const connectInstagram = getString(formData, "connectInstagram") === "true";
-const connectTiktok = getString(formData, "connectTiktok") === "true";
-const connectLinkedin = getString(formData, "connectLinkedin") === "true";
-const connectGoogle = getString(formData, "connectGoogle") === "true";
-const connectEmailNewsletter =
-getString(formData, "connectEmailNewsletter") === "true";
-const connectWhatsApp = getString(formData, "connectWhatsApp") === "true";
-
-const channelPrefs = {
-facebook: connectFacebook,
-instagram: connectInstagram,
-tiktok: connectTiktok,
-linkedin: connectLinkedin,
-google_business: connectGoogle,
-email_newsletter: connectEmailNewsletter,
-whatsapp: connectWhatsApp,
-};
-
-// Make sure we have a slug
-const slug = rawSlug || slugify(orgName);
-
-// 👇 TODO (optional): get the CURRENT USER ID from your auth
-// If you already have a way to get the user id in your other routes,
-// paste that logic here and set ownerUserId accordingly.
-const ownerUserId: string | null = null;
-
-// We'll generate an org id so we can use it for storage paths
-const orgId = crypto.randomUUID();
-
-// 1) Create / update organisation row
-// Adjust column names to match your schema if they differ.
-const { data: org, error: orgError } = await supabaseAdmin
-.from("organisations")
-.upsert(
-[
-{
-id: orgId,
-name: orgName,
-slug,
-industry,
-size: orgSize,
-website,
-primary_color: primaryColor,
-secondary_color: secondaryColor,
-accent_color: accentColor,
-brand_tone: brandTone,
-posting_frequency: postingFrequency,
-goals,
-content_types: contentTypes,
-// Uncomment if you have this column:
-// channel_preferences: channelPrefs,
-// Uncomment if you have owner_id column:
-// owner_id: ownerUserId,
-},
-],
-{ onConflict: "id" }
-)
-.select("*")
-.single();
-
-if (orgError || !org) {
-console.error("orgError", orgError);
-return NextResponse.json(
-{ error: "Failed to insert organisation", details: orgError?.message },
-{ status: 500 }
-);
-}
-
-// 2) Upload logo (if provided)
-const logoEntry = formData.get("logo");
-let logoUrl: string | null = null;
-
-if (logoEntry && logoEntry instanceof File) {
-const logo = logoEntry as File;
-const ext =
-logo.name.includes(".") ? logo.name.split(".").pop() : "png";
-const path = `${org.id}/logo.${ext}`;
-
-const { data: logoUpload, error: logoError } = await supabaseAdmin.storage
-.from("org-logos")
-.upload(path, logo, {
-upsert: true,
-contentType: logo.type || "image/png",
-});
-
-if (logoError) {
-console.error("logoError", logoError);
-} else if (logoUpload) {
-const {
-data: { publicUrl },
-} = supabaseAdmin.storage.from("org-logos").getPublicUrl(logoUpload.path);
-logoUrl = publicUrl;
-
-// Save logo URL to org row
-await supabaseAdmin
-.from("organisations")
-.update({ logo_url: logoUrl })
-.eq("id", org.id);
-}
-}
-
-// 3) Upload media files (if any) + optional media table records
-const mediaFiles: { file: File; key: string }[] = [];
-for (const [key, value] of formData.entries()) {
-if (key.startsWith("media_") && value instanceof File) {
-mediaFiles.push({ file: value, key });
-}
-}
-
-const uploadedMedia: { path: string; url: string | null }[] = [];
-
-for (const { file } of mediaFiles) {
-try {
-const safeName = file.name.replace(/[^a-z0-9.\-_]+/gi, "_");
-const storagePath = `${org.id}/${Date.now()}-${safeName}`;
-
-const { data: uploadData, error: mediaError } = await supabaseAdmin
-.storage
-.from("org-media")
-.upload(storagePath, file, {
-contentType: file.type || "application/octet-stream",
-});
-
-if (mediaError || !uploadData) {
-console.error("mediaError", mediaError);
-continue;
-}
-
-const {
-data: { publicUrl },
-} = supabaseAdmin.storage
-.from("org-media")
-.getPublicUrl(uploadData.path);
-
-uploadedMedia.push({ path: uploadData.path, url: publicUrl });
-
-// OPTIONAL: if you have a `media` table, we can record each file:
-// await supabaseAdmin.from("media").insert({
-// organisation_id: org.id,
-// storage_path: uploadData.path,
-// public_url: publicUrl,
-// mime_type: file.type,
-// });
-} catch (err) {
-console.error("Unexpected media upload error", err);
-}
-}
-
-// 4) OPTIONAL: create owner membership row
-// If you have a members / organisation_members table and ownerUserId:
-// if (ownerUserId) {
-// await supabaseAdmin.from("organisation_members").upsert(
-// [
-// {
-// organisation_id: org.id,
-// user_id: ownerUserId,
-// role: "owner",
-// display_name: ownerName || null,
-// title: ownerRole || null,
-// },
-// ],
-// { onConflict: "organisation_id,user_id" }
-// );
-// }
-
-// 5) OPTIONAL: queue invites for inviteEmails (you can split and insert into an invites table)
-// const emails = inviteEmails
-// .split(/[\n,]+/)
-// .map((e) => e.trim())
-// .filter(Boolean);
-// if (emails.length > 0) {
-// await supabaseAdmin.from("organisation_invites").insert(
-// emails.map((email) => ({
-// organisation_id: org.id,
-// email,
-// invited_by: ownerUserId,
-// }))
-// );
-// }
-
-return NextResponse.json(
-{
-organisation: {
-id: org.id,
-name: org.name,
-slug: org.slug,
-logo_url: logoUrl ?? org.logo_url ?? null,
-},
-media: uploadedMedia,
-channelPrefs,
-},
-{ status: 200 }
-);
-} catch (err: any) {
-console.error("org-setup unexpected error", err);
-return NextResponse.json(
-{ error: "Unexpected error in org-setup", details: err?.message },
-{ status: 500 }
-);
-}
-}
-
