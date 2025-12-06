@@ -133,6 +133,9 @@ function OrgSetupInner() {
   const [error, setError] = useState<string | null>(null);
   const [checkingStatus, setCheckingStatus] = useState(true);
   const [redirecting, setRedirecting] = useState(false);
+  const [coachMessage, setCoachMessage] = useState<string | null>(null);
+const [coachLoading, setCoachLoading] = useState(false);
+
 
   // If billing=success, show the "workspace ready" screen
   if (billingStatus === "success") {
