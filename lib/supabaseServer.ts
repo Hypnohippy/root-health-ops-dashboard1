@@ -8,19 +8,22 @@ const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export function createSupabaseServerClient() {
-  // 👇 KEY CHANGE: tell TypeScript "trust me, this is fine"
   const cookieStore = cookies() as any;
 
   return createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       getAll() {
-        // TS thought cookieStore was a Promise; casting above fixes that
         return cookieStore.getAll();
       },
-      setAll(cookiesToSet) {
+      setAll(
+        cookiesToSet: {
+          name: string;
+          value: string;
+          options?: any;
+        }[]
+      ) {
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
-            // 👇 cast options so TS stops complaining
             cookieStore.set(name, value, options as any);
           });
         } catch {
