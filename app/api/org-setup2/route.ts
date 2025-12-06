@@ -7,7 +7,7 @@ import { randomUUID } from "crypto";
 export const runtime = "nodejs";
 
 // 🔹 Replace this with your real Supabase user ID from Auth → Users
-const FALLBACK_OWNER_ID = "REPLACE_WITH_YOUR_SUPABASE_USER_ID";
+const FALLBACK_OWNER_ID = "e83aeab8-69bf-4405-b34f-c13c6fa4bfd5";
 
 export async function POST(req: NextRequest) {
   try {
