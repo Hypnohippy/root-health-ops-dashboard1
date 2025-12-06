@@ -1,40 +1,28 @@
-// app/org-setup/page.tsx
 "use client";
 
-import React, { useState, DragEvent, FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-type BrandTone =
-  | "warm"
-  | "professional"
-  | "playful"
-  | "clinical"
-  | "spiritual"
-  | "direct";
+type StepId = "org" | "brand" | "goals" | "channels";
 
 type PostingFrequency = "low" | "medium" | "high";
 
-type OrgSetupForm = {
-  // Step 1 – org basics
+type OrgFormState = {
   orgName: string;
   orgSlug: string;
   industry: string;
   orgSize: string;
   website: string;
-
-  // Step 2 – brand
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
-  brandTone: BrandTone;
-  logoFile: File | null;
-
-  // Step 3 – team
+  brandTone: string;
   ownerName: string;
   ownerRole: string;
   inviteEmails: string;
-
-  // Step 4 – social & platforms
+  postingFrequency: PostingFrequency;
+  goals: string[];
+  contentTypes: string[];
   connectFacebook: boolean;
   connectInstagram: boolean;
   connectTiktok: boolean;
@@ -42,131 +30,176 @@ type OrgSetupForm = {
   connectGoogle: boolean;
   connectEmailNewsletter: boolean;
   connectWhatsApp: boolean;
-
-  // Step 5 – content & media
-  postingFrequency: PostingFrequency;
-  goals: string[];
-  contentTypes: string[];
+  logoFile: File | null;
   mediaFiles: File[];
 };
 
-const goalsOptions = [
-  { id: "more_leads", label: "More therapy enquiries / leads" },
-  { id: "fill_diary", label: "Fill empty diary slots" },
-  { id: "nurture", label: "Nurture existing clients" },
-  { id: "reactivation", label: "Re-activate past clients" },
-  { id: "authority", label: "Build authority & trust" },
+const initialFormState: OrgFormState = {
+  orgName: "",
+  orgSlug: "",
+  industry: "",
+  orgSize: "",
+  website: "",
+  primaryColor: "#2563eb",
+  secondaryColor: "#0f172a",
+  accentColor: "#f97316",
+  brandTone: "warm",
+  ownerName: "",
+  ownerRole: "Lead therapist",
+  inviteEmails: "",
+  postingFrequency: "medium",
+  goals: [],
+  contentTypes: [],
+  connectFacebook: true,
+  connectInstagram: true,
+  connectTiktok: false,
+  connectLinkedin: true,
+  connectGoogle: false,
+  connectEmailNewsletter: true,
+  connectWhatsApp: false,
+  logoFile: null,
+  mediaFiles: [],
+};
+
+const goalOptions = [
+  "Get more enquiries",
+  "Fill group programmes",
+  "Stay in touch with past clients",
+  "Build referral network",
+  "Educate and build trust",
 ];
 
 const contentTypeOptions = [
-  { id: "education", label: "Educational posts" },
-  { id: "stories", label: "Client stories (anonymous)" },
-  { id: "reels", label: "Short video / reels" },
-  { id: "emails", label: "Email newsletters" },
-  { id: "ads", label: "Ads / promotions" },
+  "Short posts",
+  "Carousel posts",
+  "Reels / video",
+  "Email newsletters",
+  "Blog-style articles",
 ];
 
-const totalSteps = 5;
+const steps: { id: StepId; title: string; description: string }[] = [
+  {
+    id: "org",
+    title: "Your organisation",
+    description: "Who you are, how big you are and where people can find you.",
+  },
+  {
+    id: "brand",
+    title: "Brand and colours",
+    description: "Set the visual tone so your content feels like you.",
+  },
+  {
+    id: "goals",
+    title: "Goals and content",
+    description: "Tell us what success looks like and how you like to show up.",
+  },
+  {
+    id: "channels",
+    title: "Channels and assets",
+    description: "Choose where we’ll post and drop in any key media.",
+  },
+];
 
 export default function OrgSetupPage() {
   const router = useRouter();
-  const [step, setStep] = useState<number>(1);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isBillingRedirect, setIsBillingRedirect] = useState(false);
+  const searchParams = useSearchParams();
+  const billingStatus = searchParams.get("billing");
+
+  const [stepIndex, setStepIndex] = useState(0);
+  const [form, setForm] = useState<OrgFormState>(initialFormState);
+  const [submitting, setSubmitting] = useState(false);
+  const [orgSummary, setOrgSummary] = useState<{
+    name?: string;
+    slug?: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const [form, setForm] = useState<OrgSetupForm>({
-    orgName: "",
-    orgSlug: "",
-    industry: "",
-    orgSize: "",
-    website: "",
+  // 🔁 If billing=success, show a "You're all set" screen instead of the wizard
+  if (billingStatus === "success") {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
+        <div className="w-full max-w-2xl bg-slate-900/80 border border-slate-700 rounded-3xl shadow-xl p-8 md:p-10 backdrop-blur">
+          <h1 className="text-2xl md:text-3xl font-semibold mb-3">
+            Your Root Health workspace is ready
+          </h1>
+          <p className="text-sm text-slate-300 mb-4">
+            Your organisation is set up and billing is active. You can now use
+            Root Health Ops to manage content, campaigns and replies.
+          </p>
 
-    primaryColor: "#2563eb",
-    secondaryColor: "#0f172a",
-    accentColor: "#f97316",
-    brandTone: "warm",
-    logoFile: null,
+          <div className="rounded-2xl border border-emerald-600/60 bg-emerald-500/10 px-4 py-3 mb-6 text-sm text-emerald-100">
+            <p className="font-medium mb-1">What’s next?</p>
+            <ul className="list-disc list-inside text-xs space-y-1 text-emerald-50/90">
+              <li>Head to your Ops Dashboard to see everything in one place.</li>
+              <li>
+                Or open the Connect page to plug in Facebook, Instagram,
+                LinkedIn and more.
+              </li>
+            </ul>
+          </div>
 
-    ownerName: "",
-    ownerRole: "Lead therapist",
-    inviteEmails: "",
+          <div className="flex flex-col md:flex-row gap-3">
+            <button
+              type="button"
+              onClick={() => router.push("/dashboard")}
+              className="flex-1 rounded-full bg-blue-500 px-4 py-2.5 text-sm font-semibold text-slate-50 hover:bg-blue-400"
+            >
+              Go to Ops Dashboard
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push("/connect")}
+              className="flex-1 rounded-full border border-slate-600 bg-slate-900/70 px-4 py-2.5 text-sm font-semibold text-slate-100 hover:border-blue-400"
+            >
+              Go to Connect
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-    connectFacebook: false,
-    connectInstagram: false,
-    connectTiktok: false,
-    connectLinkedin: false,
-    connectGoogle: false,
-    connectEmailNewsletter: false,
-    connectWhatsApp: false,
+  const currentStep = steps[stepIndex];
 
-    postingFrequency: "medium",
-    goals: ["more_leads", "fill_diary"],
-    contentTypes: ["education", "stories"],
-    mediaFiles: [],
-  });
-
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  const updateField = <K extends keyof OrgFormState>(
+    key: K,
+    value: OrgFormState[K]
   ) => {
-    const { name, value, type, checked } = e.target as HTMLInputElement;
-    setForm((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
-    }));
+    setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const toggleArrayField = (field: "goals" | "contentTypes", value: string) => {
+  const toggleArrayValue = (key: "goals" | "contentTypes", value: string) => {
     setForm((prev) => {
-      const arr = prev[field];
-      if (arr.includes(value)) {
-        return { ...prev, [field]: arr.filter((v) => v !== value) };
+      const existing = prev[key];
+      if (existing.includes(value)) {
+        return { ...prev, [key]: existing.filter((v) => v !== value) };
       }
-      return { ...prev, [field]: [...arr, value] };
+      return { ...prev, [key]: [...existing, value] };
     });
   };
 
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null;
-    setForm((prev) => ({ ...prev, logoFile: file }));
+  const onLogoChange = (file: File | null) => {
+    updateField("logoFile", file);
   };
 
-  const handleMediaDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const files = Array.from(e.dataTransfer.files || []);
-    if (!files.length) return;
-    setForm((prev) => ({
-      ...prev,
-      mediaFiles: [...prev.mediaFiles, ...files],
-    }));
+  const onMediaChange = (files: FileList | null) => {
+    if (!files) return;
+    const arr = Array.from(files);
+    updateField("mediaFiles", arr);
   };
 
-  const handleMediaInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    setForm((prev) => ({
-      ...prev,
-      mediaFiles: [...prev.mediaFiles, ...files],
-    }));
+  const goNext = () => {
+    setStepIndex((i) => Math.min(i + 1, steps.length - 1));
   };
 
-  const handleNext = () => {
-    if (step < totalSteps) setStep((s) => s + 1);
+  const goBack = () => {
+    setStepIndex((i) => Math.max(i - 1, 0));
   };
 
-  const handleBack = () => {
-    if (step > 1) setStep((s) => s - 1);
-  };
-
-  const handleSubmitOrgSetup = async (e?: FormEvent) => {
-    if (e) e.preventDefault();
-    setIsSaving(true);
+  const handleSubmit = async () => {
+    setSubmitting(true);
     setError(null);
-    setSuccessMessage(null);
-
     try {
-      // Build FormData so we can send files (logo + media)
       const fd = new FormData();
       fd.append("orgName", form.orgName);
       fd.append("orgSlug", form.orgSlug);
@@ -182,6 +215,10 @@ export default function OrgSetupPage() {
       fd.append("ownerName", form.ownerName);
       fd.append("ownerRole", form.ownerRole);
       fd.append("inviteEmails", form.inviteEmails);
+      fd.append("postingFrequency", form.postingFrequency);
+
+      fd.append("goals", JSON.stringify(form.goals));
+      fd.append("contentTypes", JSON.stringify(form.contentTypes));
 
       fd.append("connectFacebook", String(form.connectFacebook));
       fd.append("connectInstagram", String(form.connectInstagram));
@@ -191,10 +228,6 @@ export default function OrgSetupPage() {
       fd.append("connectEmailNewsletter", String(form.connectEmailNewsletter));
       fd.append("connectWhatsApp", String(form.connectWhatsApp));
 
-      fd.append("postingFrequency", form.postingFrequency);
-      fd.append("goals", JSON.stringify(form.goals));
-      fd.append("contentTypes", JSON.stringify(form.contentTypes));
-
       if (form.logoFile) {
         fd.append("logo", form.logoFile);
       }
@@ -203,755 +236,620 @@ export default function OrgSetupPage() {
         fd.append(`media_${idx}`, file);
       });
 
-      // TODO: implement /api/org-setup to:
-      // - create / update organisation in Supabase
-      // - create org member (owner) if needed
-      // - save brand + preferences
-      // - upload logo + media to storage
       const res = await fetch("/api/org-setup", {
         method: "POST",
         body: fd,
       });
 
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Failed to save organisation setup");
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || "Failed to save organisation");
       }
 
-      setSuccessMessage("Organisation setup saved. You’re ready for billing & connections.");
-      // Optionally auto-advance to last step
-      if (step < totalSteps) {
-        setStep(totalSteps);
-      }
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Something went wrong saving your setup.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
+      const data = await res.json();
+      setOrgSummary({
+        name: data.organisation?.name,
+        slug: data.organisation?.slug,
+      });
 
-  const handleBillingRedirect = async () => {
-    setIsBillingRedirect(true);
-    setError(null);
-
-    try {
-      // TODO: implement /api/billing/checkout
-      // This should:
-      // - create a Stripe customer + subscription for this org
-      // - return { url } for Stripe Checkout or Billing Portal
-      const res = await fetch("/api/billing/checkout", {
+      // After org saved, immediately kick off billing
+      const billingRes = await fetch("/api/billing/checkout", {
         method: "POST",
       });
 
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Failed to start billing.");
+      if (!billingRes.ok) {
+        const data = await billingRes.json().catch(() => ({}));
+        throw new Error(
+          data?.error || "Failed to start billing. Please try again."
+        );
       }
 
-      const data = (await res.json()) as { url?: string };
-      if (data.url) {
-        window.location.href = data.url;
+      const billingData = await billingRes.json();
+      if (billingData?.url) {
+        window.location.href = billingData.url as string;
       } else {
-        throw new Error("No billing URL returned from server.");
+        throw new Error("Stripe checkout URL missing.");
       }
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Could not start billing.");
-      setIsBillingRedirect(false);
+      console.error("[org-setup] submit error", err);
+      setError(err?.message || "Something went wrong saving your setup.");
+    } finally {
+      setSubmitting(false);
     }
-  };
-
-  const goToConnectPage = () => {
-    // TODO: point this to your "Connect" / social-accounts page
-    router.push("/connect");
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-5xl bg-slate-900/70 border border-slate-700 rounded-3xl shadow-xl p-6 md:p-10 backdrop-blur">
         {/* Header */}
-        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+        <header className="mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold">
-              Root Health Ops — Organisation Setup
+              Set up your organisation
             </h1>
-            <p className="text-sm text-slate-300 mt-1">
-              A therapist-friendly setup to get your whole practice running on Root Health in minutes.
+            <p className="mt-1 text-sm text-slate-300 max-w-xl">
+              This is a one-time setup. We’ll use this to connect your brand,
+              channels and team so Root Health can do the heavy lifting.
             </p>
           </div>
-          {/* Simple mini-preview of brand colours */}
-          <div className="flex items-center gap-2">
-            <div
-              className="h-8 w-8 rounded-full border border-slate-700"
-              style={{ backgroundColor: form.primaryColor }}
-            />
-            <div
-              className="h-8 w-8 rounded-full border border-slate-700"
-              style={{ backgroundColor: form.secondaryColor }}
-            />
-            <div
-              className="h-8 w-8 rounded-full border border-slate-700"
-              style={{ backgroundColor: form.accentColor }}
-            />
+          <div className="text-xs text-slate-400 bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 max-w-xs">
+            <p className="font-medium text-slate-200 mb-1">
+              You stay in control
+            </p>
+            <p>
+              Nothing is posted automatically. You always approve what goes out
+              under your name.
+            </p>
           </div>
         </header>
 
-        {/* Progress */}
-        <div className="mb-6">
-          <div className="flex justify-between text-xs uppercase tracking-wide text-slate-400 mb-2">
-            <span>Step {step} of {totalSteps}</span>
-            <span>
-              {step === 1 && "Clinic details"}
-              {step === 2 && "Brand & logo"}
-              {step === 3 && "Team & access"}
-              {step === 4 && "Social connections"}
-              {step === 5 && "Media & launch"}
-            </span>
-          </div>
-          <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-blue-500 transition-all"
-              style={{ width: `${(step / totalSteps) * 100}%` }}
-            />
-          </div>
-        </div>
+        {/* Step indicator */}
+        <nav className="mb-6 flex flex-wrap gap-3 text-xs">
+          {steps.map((s, index) => {
+            const isActive = index === stepIndex;
+            const isDone = index < stepIndex;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setStepIndex(index)}
+                className={`flex-1 min-w-[120px] rounded-full border px-3 py-1.5 text-left transition ${
+                  isActive
+                    ? "border-blue-500 bg-blue-500/20 text-blue-100"
+                    : isDone
+                    ? "border-emerald-500/70 bg-emerald-500/10 text-emerald-100"
+                    : "border-slate-700 bg-slate-900/70 text-slate-300"
+                }`}
+              >
+                <span className="block text-[11px] uppercase tracking-wide">
+                  Step {index + 1}
+                </span>
+                <span className="block text-xs font-medium">{s.title}</span>
+              </button>
+            );
+          })}
+        </nav>
 
-        {/* Error / success */}
+        {/* Content */}
+        <section className="rounded-2xl border border-slate-700 bg-slate-900/80 p-4 md:p-6 mb-4">
+          <h2 className="text-lg font-semibold mb-1">{currentStep.title}</h2>
+          <p className="text-xs text-slate-300 mb-4">
+            {currentStep.description}
+          </p>
+
+          {currentStep.id === "org" && (
+            <OrgStep form={form} updateField={updateField} />
+          )}
+          {currentStep.id === "brand" && (
+            <BrandStep form={form} updateField={updateField} />
+          )}
+          {currentStep.id === "goals" && (
+            <GoalsStep
+              form={form}
+              toggleArrayValue={toggleArrayValue}
+              updateField={updateField}
+            />
+          )}
+          {currentStep.id === "channels" && (
+            <ChannelsStep
+              form={form}
+              updateField={updateField}
+              onLogoChange={onLogoChange}
+              onMediaChange={onMediaChange}
+            />
+          )}
+        </section>
+
         {error && (
-          <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+          <div className="mb-4 rounded-2xl border border-red-600/60 bg-red-500/10 px-4 py-3 text-xs text-red-100">
             {error}
           </div>
         )}
-        {successMessage && (
-          <div className="mb-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-            {successMessage}
+
+        {/* Footer controls */}
+        <footer className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
+          <div className="text-[11px] text-slate-400">
+            Step {stepIndex + 1} of {steps.length}
+          </div>
+          <div className="flex gap-2 justify-end">
+            {stepIndex > 0 && (
+              <button
+                type="button"
+                onClick={goBack}
+                className="rounded-full border border-slate-600 bg-slate-900/80 px-4 py-2 text-xs font-medium text-slate-100 hover:border-slate-400"
+              >
+                Back
+              </button>
+            )}
+
+            {stepIndex < steps.length - 1 && (
+              <button
+                type="button"
+                onClick={goNext}
+                className="rounded-full bg-blue-500 px-4 py-2 text-xs font-semibold text-slate-50 hover:bg-blue-400"
+              >
+                Continue
+              </button>
+            )}
+
+            {stepIndex === steps.length - 1 && (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {submitting
+                  ? "Saving & opening billing…"
+                  : "Save setup & continue to billing"}
+              </button>
+            )}
+          </div>
+        </footer>
+
+        {/* Tiny summary when org is saved at least once */}
+        {orgSummary?.name && (
+          <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-[11px] text-slate-300">
+            <p className="mb-1">
+              <span className="font-semibold text-slate-100">
+                Workspace draft:
+              </span>{" "}
+              {orgSummary.name}
+            </p>
+            {orgSummary.slug && (
+              <p className="text-slate-500">
+                Slug:{" "}
+                <span className="font-mono text-slate-200">
+                  {orgSummary.slug}
+                </span>
+              </p>
+            )}
           </div>
         )}
-
-        <form onSubmit={handleSubmitOrgSetup}>
-          {/* STEP CONTENT */}
-          <div className="space-y-6">
-            {/* Step 1 – org basics */}
-            {step === 1 && (
-              <section className="grid gap-6 md:grid-cols-2">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-1">
-                    Clinic / organisation name
-                  </label>
-                  <input
-                    type="text"
-                    name="orgName"
-                    value={form.orgName}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                    placeholder="e.g. Calm Minds Therapy"
-                    required
-                  />
-                  <p className="mt-1 text-xs text-slate-400">
-                    This is how we’ll label your workspace and Stripe subscription.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Workspace short name / slug
-                  </label>
-                  <input
-                    type="text"
-                    name="orgSlug"
-                    value={form.orgSlug}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                    placeholder="e.g. calm-minds"
-                  />
-                  <p className="mt-1 text-xs text-slate-400">
-                    Used in URLs and internal references. Leave blank and we’ll generate one.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Therapy specialism / sector
-                  </label>
-                  <input
-                    type="text"
-                    name="industry"
-                    value={form.industry}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                    placeholder="e.g. trauma therapy, CBT clinic, coaching"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Clinic size
-                  </label>
-                  <select
-                    name="orgSize"
-                    value={form.orgSize}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                  >
-                    <option value="">Select size</option>
-                    <option value="solo">Solo practitioner</option>
-                    <option value="2-5">2–5 therapists</option>
-                    <option value="6-15">6–15 therapists</option>
-                    <option value="16-50">16–50 therapists</option>
-                    <option value="51+">51+ therapists</option>
-                  </select>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-1">
-                    Website (optional)
-                  </label>
-                  <input
-                    type="url"
-                    name="website"
-                    value={form.website}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                    placeholder="https://www.yourclinic.com"
-                  />
-                </div>
-              </section>
-            )}
-
-            {/* Step 2 – brand & logo */}
-            {step === 2 && (
-              <section className="grid gap-6 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Upload your logo
-                  </label>
-                  <div className="flex items-center gap-4">
-                    <label className="flex h-24 w-24 items-center justify-center rounded-2xl border border-dashed border-slate-600 bg-slate-900/70 text-xs text-slate-400 cursor-pointer hover:border-blue-500">
-                      <span className="text-center px-2">
-                        {form.logoFile ? "Change logo" : "Upload logo"}
-                      </span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={handleLogoChange}
-                      />
-                    </label>
-                    <div className="text-xs text-slate-400 space-y-1">
-                      <p>PNG or SVG, ideally on transparent background.</p>
-                      {form.logoFile && (
-                        <p className="text-emerald-300">
-                          Selected: {form.logoFile.name}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Brand tone of voice
-                  </label>
-                  <select
-                    name="brandTone"
-                    value={form.brandTone}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                  >
-                    <option value="warm">Warm & reassuring</option>
-                    <option value="professional">Professional & grounded</option>
-                    <option value="playful">Light & playful</option>
-                    <option value="clinical">Clinical & precise</option>
-                    <option value="spiritual">Spiritual & reflective</option>
-                    <option value="direct">Direct & to the point</option>
-                  </select>
-                  <p className="mt-1 text-xs text-slate-400">
-                    We’ll align all AI-generated content with this tone.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Primary brand colour
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="color"
-                      name="primaryColor"
-                      value={form.primaryColor}
-                      onChange={handleChange}
-                      className="h-10 w-16 rounded-lg border border-slate-700 bg-slate-900/80"
-                    />
-                    <input
-                      type="text"
-                      name="primaryColor"
-                      value={form.primaryColor}
-                      onChange={handleChange}
-                      className="flex-1 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                      placeholder="#2563eb"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Secondary brand colour
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="color"
-                      name="secondaryColor"
-                      value={form.secondaryColor}
-                      onChange={handleChange}
-                      className="h-10 w-16 rounded-lg border border-slate-700 bg-slate-900/80"
-                    />
-                    <input
-                      type="text"
-                      name="secondaryColor"
-                      value={form.secondaryColor}
-                      onChange={handleChange}
-                      className="flex-1 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                      placeholder="#0f172a"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Accent colour
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="color"
-                      name="accentColor"
-                      value={form.accentColor}
-                      onChange={handleChange}
-                      className="h-10 w-16 rounded-lg border border-slate-700 bg-slate-900/80"
-                    />
-                    <input
-                      type="text"
-                      name="accentColor"
-                      value={form.accentColor}
-                      onChange={handleChange}
-                      className="flex-1 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                      placeholder="#f97316"
-                    />
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {/* Step 3 – team & access */}
-            {step === 3 && (
-              <section className="space-y-6">
-                <div className="grid gap-6 md:grid-cols-2">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      Your name
-                    </label>
-                    <input
-                      type="text"
-                      name="ownerName"
-                      value={form.ownerName}
-                      onChange={handleChange}
-                      className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                      placeholder="e.g. Dr Jane Smith"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      Your role
-                    </label>
-                    <input
-                      type="text"
-                      name="ownerRole"
-                      value={form.ownerRole}
-                      onChange={handleChange}
-                      className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                      placeholder="Lead therapist, clinical director..."
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Invite your team (optional)
-                  </label>
-                  <textarea
-                    name="inviteEmails"
-                    value={form.inviteEmails}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm outline-none focus:border-blue-500 min-h-[80px]"
-                    placeholder="Paste or type email addresses, separated by commas or new lines."
-                  />
-                  <p className="mt-1 text-xs text-slate-400">
-                    We’ll send them an invite once your workspace and subscription are active.
-                  </p>
-                </div>
-              </section>
-            )}
-
-            {/* Step 4 – social connections */}
-            {step === 4 && (
-              <section className="space-y-6">
-                <p className="text-sm text-slate-300">
-                  Choose the channels you want Root Health to support. We’ll guide
-                  you to connect each account securely after setup.
-                </p>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <ToggleCard
-                    label="Facebook Page"
-                    description="Schedule posts, boost reach and reply to comments."
-                    checked={form.connectFacebook}
-                    onChange={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        connectFacebook: !prev.connectFacebook,
-                      }))
-                    }
-                  />
-                  <ToggleCard
-                    label="Instagram"
-                    description="Reels, stories and feed posts from the same content."
-                    checked={form.connectInstagram}
-                    onChange={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        connectInstagram: !prev.connectInstagram,
-                      }))
-                    }
-                  />
-                  <ToggleCard
-                    label="TikTok"
-                    description="Short videos optimised for discoverability."
-                    checked={form.connectTiktok}
-                    onChange={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        connectTiktok: !prev.connectTiktok,
-                      }))
-                    }
-                  />
-                  <ToggleCard
-                    label="LinkedIn"
-                    description="Professional presence and referral partner content."
-                    checked={form.connectLinkedin}
-                    onChange={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        connectLinkedin: !prev.connectLinkedin,
-                      }))
-                    }
-                  />
-                  <ToggleCard
-                    label="Google Business Profile"
-                    description="Local SEO posts and updates."
-                    checked={form.connectGoogle}
-                    onChange={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        connectGoogle: !prev.connectGoogle,
-                      }))
-                    }
-                  />
-                  <ToggleCard
-                    label="Email newsletter"
-                    description="Educational campaigns and gentle lead nurturing."
-                    checked={form.connectEmailNewsletter}
-                    onChange={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        connectEmailNewsletter: !prev.connectEmailNewsletter,
-                      }))
-                    }
-                  />
-                  <ToggleCard
-                    label="WhatsApp / messaging"
-                    description="Automated follow-ups and gentle check-ins."
-                    checked={form.connectWhatsApp}
-                    onChange={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        connectWhatsApp: !prev.connectWhatsApp,
-                      }))
-                    }
-                  />
-                </div>
-              </section>
-            )}
-
-            {/* Step 5 – media & launch */}
-            {step === 5 && (
-              <section className="space-y-6">
-                <div className="grid gap-6 md:grid-cols-2">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      How active do you want to be?
-                    </label>
-                    <div className="flex flex-col gap-2">
-                      <RadioPill
-                        name="postingFrequency"
-                        value="low"
-                        current={form.postingFrequency}
-                        onChange={handleChange}
-                        label="Gentle"
-                        description="1–2 key posts per week"
-                      />
-                      <RadioPill
-                        name="postingFrequency"
-                        value="medium"
-                        current={form.postingFrequency}
-                        onChange={handleChange}
-                        label="Steady"
-                        description="3–4 posts per week"
-                      />
-                      <RadioPill
-                        name="postingFrequency"
-                        value="high"
-                        current={form.postingFrequency}
-                        onChange={handleChange}
-                        label="Active"
-                        description="Most days of the week"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      Your priorities
-                    </label>
-                    <div className="grid gap-2">
-                      {goalsOptions.map((g) => (
-                        <label
-                          key={g.id}
-                          className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-sm cursor-pointer ${
-                            form.goals.includes(g.id)
-                              ? "border-emerald-500 bg-emerald-500/10"
-                              : "border-slate-700 bg-slate-900/60"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="mt-1"
-                            checked={form.goals.includes(g.id)}
-                            onChange={() => toggleArrayField("goals", g.id)}
-                          />
-                          <span>{g.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Content you’re happy to create
-                  </label>
-                  <div className="grid gap-2 md:grid-cols-3">
-                    {contentTypeOptions.map((c) => (
-                      <label
-                        key={c.id}
-                        className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-sm cursor-pointer ${
-                          form.contentTypes.includes(c.id)
-                            ? "border-blue-500 bg-blue-500/10"
-                            : "border-slate-700 bg-slate-900/60"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="mt-1"
-                          checked={form.contentTypes.includes(c.id)}
-                          onChange={() => toggleArrayField("contentTypes", c.id)}
-                        />
-                        <span>{c.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <p className="mt-1 text-xs text-slate-400">
-                    We’ll use this to pre-build campaigns and media suggestions.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Drop any existing media (optional)
-                  </label>
-                  <div
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={handleMediaDrop}
-                    className="mt-1 flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-600 bg-slate-900/60 px-4 py-8 text-center text-sm text-slate-300"
-                  >
-                    <p>Drag and drop images or short videos here</p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Think: clinic photos, branding, any short educational clips.
-                    </p>
-                    <label className="mt-3 inline-flex items-center rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1 text-xs cursor-pointer hover:border-blue-500">
-                      Browse files
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/*,video/*"
-                        className="hidden"
-                        onChange={handleMediaInputChange}
-                      />
-                    </label>
-                    {form.mediaFiles.length > 0 && (
-                      <p className="mt-3 text-xs text-emerald-300">
-                        {form.mediaFiles.length} file(s) added.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 text-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div>
-                    <p className="font-medium">
-                      Next: secure billing & plug-and-play social connections
-                    </p>
-                    <p className="text-slate-400 text-xs mt-1">
-                      We’ll never post without your approval. You stay in control — we do the heavy lifting.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 justify-start md:justify-end">
-                    <button
-                      type="button"
-                      onClick={goToConnectPage}
-                      className="rounded-full border border-slate-600 bg-slate-900/80 px-4 py-2 text-xs hover:border-blue-500"
-                    >
-                      Preview Connect setup
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleBillingRedirect}
-                      disabled={isBillingRedirect}
-                      className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-                    >
-                      {isBillingRedirect ? "Opening billing..." : "Continue to billing"}
-                    </button>
-                  </div>
-                </div>
-              </section>
-            )}
-          </div>
-
-          {/* Footer buttons */}
-          <div className="mt-8 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div className="text-xs text-slate-500">
-              You can change anything later in your organisation settings.
-            </div>
-            <div className="flex gap-2 justify-end">
-              {step > 1 && (
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  className="rounded-full border border-slate-600 bg-slate-900/80 px-4 py-2 text-xs hover:border-slate-400"
-                >
-                  Back
-                </button>
-              )}
-              {step < totalSteps && (
-                <button
-                  type="button"
-                  onClick={handleNext}
-                  className="rounded-full bg-slate-100 px-4 py-2 text-xs font-medium text-slate-900 hover:bg-white"
-                >
-                  Next
-                </button>
-              )}
-              {step === totalSteps && (
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="rounded-full bg-blue-500 px-4 py-2 text-xs font-medium text-slate-50 hover:bg-blue-400 disabled:opacity-60"
-                >
-                  {isSaving ? "Saving setup..." : "Save organisation setup"}
-                </button>
-              )}
-            </div>
-          </div>
-        </form>
       </div>
     </div>
   );
 }
 
-/* Simple helper components */
+/* --- Step components --- */
 
-function ToggleCard({
-  label,
-  description,
-  checked,
-  onChange,
+function OrgStep({
+  form,
+  updateField,
 }: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: () => void;
+  form: OrgFormState;
+  updateField: <K extends keyof OrgFormState>(
+    key: K,
+    value: OrgFormState[K]
+  ) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onChange}
-      className={`flex h-full flex-col items-start rounded-2xl border px-4 py-3 text-left text-sm transition ${
-        checked
-          ? "border-emerald-500 bg-emerald-500/10"
-          : "border-slate-700 bg-slate-900/60 hover:border-slate-500"
-      }`}
-    >
-      <div className="flex items-center gap-2 mb-1">
-        <span
-          className={`inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] ${
-            checked
-              ? "border-emerald-400 bg-emerald-500/40"
-              : "border-slate-500 bg-slate-800"
-          }`}
-        >
-          {checked ? "✓" : ""}
-        </span>
-        <span className="font-medium">{label}</span>
+    <div className="grid gap-4 md:grid-cols-2 text-xs">
+      <div className="space-y-2">
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Organisation name
+          </span>
+          <input
+            className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100"
+            value={form.orgName}
+            onChange={(e) => updateField("orgName", e.target.value)}
+            placeholder="Calm Minds Therapy Clinic"
+          />
+        </label>
+
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Website (optional)
+          </span>
+          <input
+            className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100"
+            value={form.website}
+            onChange={(e) => updateField("website", e.target.value)}
+            placeholder="https://example.com"
+          />
+        </label>
+
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Industry / focus
+          </span>
+          <input
+            className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100"
+            value={form.industry}
+            onChange={(e) => updateField("industry", e.target.value)}
+            placeholder="e.g. Trauma-informed therapy, coaching for burnout…"
+          />
+        </label>
       </div>
-      <p className="text-xs text-slate-400">{description}</p>
-    </button>
+
+      <div className="space-y-2">
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Size
+          </span>
+          <select
+            className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100"
+            value={form.orgSize}
+            onChange={(e) => updateField("orgSize", e.target.value)}
+          >
+            <option value="">Select size…</option>
+            <option value="solo">Solo practitioner</option>
+            <option value="small">2–5 clinicians</option>
+            <option value="medium">6–20 clinicians</option>
+            <option value="large">20+ clinicians</option>
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Custom URL slug (optional)
+          </span>
+          <input
+            className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 font-mono"
+            value={form.orgSlug}
+            onChange={(e) => updateField("orgSlug", e.target.value)}
+            placeholder="calm-minds"
+          />
+          <span className="mt-1 block text-[10px] text-slate-500">
+            Used in links and internal routing, e.g.{" "}
+            <span className="font-mono text-slate-300">
+              /org/calm-minds/dashboard
+            </span>
+          </span>
+        </label>
+
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Your name
+          </span>
+          <input
+            className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100"
+            value={form.ownerName}
+            onChange={(e) => updateField("ownerName", e.target.value)}
+            placeholder="Dr Jane Smith"
+          />
+        </label>
+
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Your role
+          </span>
+          <input
+            className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100"
+            value={form.ownerRole}
+            onChange={(e) => updateField("ownerRole", e.target.value)}
+            placeholder="Lead therapist, clinic director…"
+          />
+        </label>
+      </div>
+    </div>
   );
 }
 
-function RadioPill({
-  name,
-  value,
-  current,
-  onChange,
-  label,
-  description,
+function BrandStep({
+  form,
+  updateField,
 }: {
-  name: string;
-  value: PostingFrequency;
-  current: PostingFrequency;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  label: string;
-  description: string;
+  form: OrgFormState;
+  updateField: <K extends keyof OrgFormState>(
+    key: K,
+    value: OrgFormState[K]
+  ) => void;
 }) {
-  const active = current === value;
   return (
-    <label
-      className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-sm cursor-pointer ${
-        active
-          ? "border-blue-500 bg-blue-500/10"
-          : "border-slate-700 bg-slate-900/60 hover:border-slate-500"
-      }`}
-    >
-      <div>
-        <div className="font-medium">{label}</div>
-        <div className="text-xs text-slate-400">{description}</div>
+    <div className="grid gap-4 md:grid-cols-2 text-xs">
+      <div className="space-y-2">
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Primary brand colour
+          </span>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              className="h-8 w-8 rounded-full border border-slate-700 bg-slate-950/80"
+              value={form.primaryColor}
+              onChange={(e) => updateField("primaryColor", e.target.value)}
+            />
+            <input
+              className="flex-1 rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs font-mono text-slate-100"
+              value={form.primaryColor}
+              onChange={(e) => updateField("primaryColor", e.target.value)}
+            />
+          </div>
+        </label>
+
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Secondary colour
+          </span>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              className="h-8 w-8 rounded-full border border-slate-700 bg-slate-950/80"
+              value={form.secondaryColor}
+              onChange={(e) => updateField("secondaryColor", e.target.value)}
+            />
+            <input
+              className="flex-1 rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs font-mono text-slate-100"
+              value={form.secondaryColor}
+              onChange={(e) => updateField("secondaryColor", e.target.value)}
+            />
+          </div>
+        </label>
+
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Accent colour
+          </span>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              className="h-8 w-8 rounded-full border border-slate-700 bg-slate-950/80"
+              value={form.accentColor}
+              onChange={(e) => updateField("accentColor", e.target.value)}
+            />
+            <input
+              className="flex-1 rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs font-mono text-slate-100"
+              value={form.accentColor}
+              onChange={(e) => updateField("accentColor", e.target.value)}
+            />
+          </div>
+        </label>
       </div>
-      <input
-        type="radio"
-        name={name}
-        value={value}
-        checked={active}
-        onChange={onChange}
-        className="h-4 w-4"
-      />
-    </label>
+
+      <div className="space-y-3">
+        <div>
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Brand tone
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {["warm", "clinical", "playful", "direct"].map((tone) => (
+              <button
+                key={tone}
+                type="button"
+                onClick={() => updateField("brandTone", tone)}
+                className={`rounded-full border px-3 py-1.5 text-[11px] ${
+                  form.brandTone === tone
+                    ? "border-blue-500 bg-blue-500/20 text-blue-100"
+                    : "border-slate-700 bg-slate-950/80 text-slate-300"
+                }`}
+              >
+                {tone[0].toUpperCase() + tone.slice(1)}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[10px] text-slate-500">
+            This guides the language Root Health will use in content and
+            replies.
+          </p>
+        </div>
+
+        <div>
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            How often would you like to show up?
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: "low", label: "Gentle (1–2 posts/week)" },
+              { id: "medium", label: "Steady (3–4 posts/week)" },
+              { id: "high", label: "Active (5+ posts/week)" },
+            ].map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() =>
+                  updateField("postingFrequency", opt.id as PostingFrequency)
+                }
+                className={`rounded-full border px-3 py-1.5 text-[11px] ${
+                  form.postingFrequency === opt.id
+                    ? "border-blue-500 bg-blue-500/20 text-blue-100"
+                    : "border-slate-700 bg-slate-950/80 text-slate-300"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GoalsStep({
+  form,
+  toggleArrayValue,
+  updateField,
+}: {
+  form: OrgFormState;
+  toggleArrayValue: (key: "goals" | "contentTypes", value: string) => void;
+  updateField: <K extends keyof OrgFormState>(
+    key: K,
+    value: OrgFormState[K]
+  ) => void;
+}) {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 text-xs">
+      <div>
+        <span className="block mb-2 text-[11px] font-medium text-slate-200">
+          What are your main goals?
+        </span>
+        <div className="space-y-1.5">
+          {goalOptions.map((goal) => {
+            const active = form.goals.includes(goal);
+            return (
+              <button
+                key={goal}
+                type="button"
+                onClick={() => toggleArrayValue("goals", goal)}
+                className={`w-full text-left rounded-xl border px-3 py-2 text-xs ${
+                  active
+                    ? "border-emerald-500/70 bg-emerald-500/15 text-emerald-100"
+                    : "border-slate-700 bg-slate-950/80 text-slate-200"
+                }`}
+              >
+                {goal}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-[10px] text-slate-500">
+          We’ll prioritise campaigns that move you towards these outcomes.
+        </p>
+      </div>
+
+      <div>
+        <span className="block mb-2 text-[11px] font-medium text-slate-200">
+          Types of content you’re happy with
+        </span>
+        <div className="space-y-1.5">
+          {contentTypeOptions.map((ct) => {
+            const active = form.contentTypes.includes(ct);
+            return (
+              <button
+                key={ct}
+                type="button"
+                onClick={() => toggleArrayValue("contentTypes", ct)}
+                className={`w-full text-left rounded-xl border px-3 py-2 text-xs ${
+                  active
+                    ? "border-blue-500/70 bg-blue-500/15 text-blue-100"
+                    : "border-slate-700 bg-slate-950/80 text-slate-200"
+                }`}
+              >
+                {ct}
+              </button>
+            );
+          })}
+        </div>
+        <label className="mt-3 block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Team members to invite (optional)
+          </span>
+          <textarea
+            className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100"
+            rows={3}
+            value={form.inviteEmails}
+            onChange={(e) => updateField("inviteEmails", e.target.value)}
+            placeholder="colleague1@example.com, colleague2@example.com"
+          />
+          <span className="mt-1 block text-[10px] text-slate-500">
+            Separate with commas or new lines. We’ll prepare invites for later.
+          </span>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function ChannelsStep({
+  form,
+  updateField,
+  onLogoChange,
+  onMediaChange,
+}: {
+  form: OrgFormState;
+  updateField: <K extends keyof OrgFormState>(
+    key: K,
+    value: OrgFormState[K]
+  ) => void;
+  onLogoChange: (file: File | null) => void;
+  onMediaChange: (files: FileList | null) => void;
+}) {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 text-xs">
+      <div className="space-y-3">
+        <span className="block text-[11px] font-medium text-slate-200">
+          Where do you want Root Health to show up for you?
+        </span>
+        <div className="space-y-1.5">
+          {[
+            ["connectFacebook", "Facebook Page"],
+            ["connectInstagram", "Instagram"],
+            ["connectTiktok", "TikTok"],
+            ["connectLinkedin", "LinkedIn"],
+            ["connectGoogle", "Google Business Profile"],
+            ["connectEmailNewsletter", "Email newsletter"],
+            ["connectWhatsApp", "WhatsApp / messaging"],
+          ].map(([key, label]) => {
+            const k = key as keyof OrgFormState;
+            const value = form[k] as boolean;
+            return (
+              <label
+                key={key}
+                className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2"
+              >
+                <input
+                  type="checkbox"
+                  className="h-3 w-3 rounded border-slate-600 bg-slate-900/80"
+                  checked={value}
+                  onChange={(e) => updateField(k, e.target.checked as any)}
+                />
+                <span className="text-xs text-slate-100">{label}</span>
+              </label>
+            );
+          })}
+        </div>
+        <p className="mt-1 text-[10px] text-slate-500">
+          You can change this anytime from the Connect page.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Logo (optional)
+          </span>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) =>
+              onLogoChange(e.target.files?.[0] ? e.target.files[0] : null)
+            }
+            className="w-full text-[11px] text-slate-300 file:mr-2 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-1.5 file:text-xs file:text-slate-100"
+          />
+          <span className="mt-1 block text-[10px] text-slate-500">
+            Used in your Ops dashboard and campaign previews.
+          </span>
+        </label>
+
+        <label className="block">
+          <span className="block mb-1 text-[11px] font-medium text-slate-200">
+            Any hero images or key media we should know about?
+          </span>
+          <input
+            type="file"
+            multiple
+            accept="image/*,video/*"
+            onChange={(e) => onMediaChange(e.target.files)}
+            className="w-full text-[11px] text-slate-300 file:mr-2 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-1.5 file:text-xs file:text-slate-100"
+          />
+          <span className="mt-1 block text-[10px] text-slate-500">
+            Optional, but helpful. You can always add more later inside your
+            media library.
+          </span>
+        </label>
+      </div>
+    </div>
   );
 }
