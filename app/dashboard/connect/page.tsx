@@ -1,7 +1,7 @@
 // app/connect/page.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 type ProviderId =
   | "facebook"
@@ -23,6 +23,15 @@ type Provider = {
   status: ConnectionStatus;
   accountName?: string;
   lastSync?: string;
+};
+
+type SocialAccountsResponse = {
+  providers: {
+    id: ProviderId;
+    status: ConnectionStatus;
+    accountName?: string | null;
+    lastSync?: string | null;
+  }[];
 };
 
 const initialProviders: Provider[] = [
@@ -95,30 +104,81 @@ const connectUrls: Record<ProviderId, string> = {
 export default function ConnectPage() {
   const [providers, setProviders] = useState<Provider[]>(initialProviders);
   const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // Load real connection status from backend
+  useEffect(() => {
+    const loadConnections = async () => {
+      try {
+        const res = await fetch("/api/social-accounts", {
+          method: "GET",
+        });
+
+        if (!res.ok) {
+          throw new Error("Failed to fetch social accounts");
+        }
+
+        const data: SocialAccountsResponse = await res.json();
+
+        setProviders((prev) =>
+          prev.map((p) => {
+            const match = data.providers.find((api) => api.id === p.id);
+            if (!match) return p;
+            return {
+              ...p,
+              status: match.status,
+              accountName: match.accountName ?? undefined,
+              lastSync: match.lastSync ?? undefined,
+            };
+          })
+        );
+      } catch (err) {
+        console.error("[connect] Failed to load social accounts", err);
+        // fallback: keep initialProviders
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadConnections();
+  }, []);
 
   const handleConnectClick = (provider: Provider) => {
     const url = connectUrls[provider.id];
 
     if (!url || url === "#") {
-      // Safe fallback until backend is wired
       alert(
-        `Connection flow for ${provider.label} is not wired yet.\n\nUpdate connectUrls[ "${provider.id}" ] in app/connect/page.tsx to your real auth URL when ready.`
+        `Connection flow for ${provider.label} is not wired yet.\n\nUpdate connectUrls["${provider.id}"] in app/connect/page.tsx to your real auth URL when ready.`
       );
       return;
     }
 
     setBusyProvider(provider.id);
-    // In real life this will bounce them into Meta/TikTok/LinkedIn/etc:
+    // Real life: send them into Meta/TikTok/LinkedIn/Google/etc.
     window.location.href = url;
   };
 
-  const handleDisconnectClick = (provider: Provider) => {
-    // 👉 TODO: call your backend to revoke tokens / mark disconnected
-    // For now we just update local state so the UI feels snappy.
-    if (!confirm(`Disconnect ${provider.label}? Root Health will stop posting to it.`)) {
+  const handleDisconnectClick = async (provider: Provider) => {
+    if (
+      !confirm(
+        `Disconnect ${provider.label}? Root Health will stop posting to it.`
+      )
+    ) {
       return;
     }
 
+    try {
+      // 👉 TODO: implement real disconnect in backend.
+      await fetch("/api/social-accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "disconnect", providerId: provider.id }),
+      });
+    } catch (err) {
+      console.error("[connect] Failed to call disconnect endpoint", err);
+    }
+
+    // Optimistic UI update
     setProviders((prev) =>
       prev.map((p) =>
         p.id === provider.id
@@ -133,10 +193,24 @@ export default function ConnectPage() {
     );
   };
 
-  const handleTestClick = (provider: Provider) => {
-    // 👉 TODO: call a simple /api/connect/test?provider=... endpoint
-    alert(`We’ll add a real connection test for ${provider.label} here later.`);
+  const handleTestClick = async (provider: Provider) => {
+    try {
+      // 👉 TODO: implement real test in backend.
+      await fetch("/api/social-accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "test", providerId: provider.id }),
+      });
+      alert(`Connection test for ${provider.label} will be added here later.`);
+    } catch (err) {
+      console.error("[connect] Failed to test connection", err);
+      alert(`Could not test ${provider.label} right now.`);
+    }
   };
+
+  const connectedCount = providers.filter(
+    (p) => p.status === "connected"
+  ).length;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
@@ -167,21 +241,25 @@ export default function ConnectPage() {
         <section className="grid gap-4 md:grid-cols-3 mb-8 text-sm">
           <SummaryCard
             label="Connected channels"
-            value={`${providers.filter((p) => p.status === "connected").length} / ${
-              providers.length
-            }`}
+            value={`${connectedCount} / ${providers.length}`}
           />
           <SummaryCard
             label="Ready for posting"
             value={
-              providers.filter((p) => p.status === "connected").length > 0
+              connectedCount > 0
                 ? "Yes — at least one"
-                : "Not yet"
+                : "Not yet — connect a channel"
             }
           />
           <SummaryCard
-            label="Next step"
-            value="Connect Facebook / Instagram first if you’re not sure."
+            label="Status"
+            value={
+              loading
+                ? "Checking your connections…"
+                : connectedCount > 0
+                ? "Good to go"
+                : "Waiting for your first connection"
+            }
           />
         </section>
 
@@ -257,7 +335,8 @@ function ProviderCard({
           )}
           {provider.accountName && (
             <p className="mt-2 text-[11px] text-emerald-300">
-              Connected as <span className="font-medium">{provider.accountName}</span>
+              Connected as{" "}
+              <span className="font-medium">{provider.accountName}</span>
             </p>
           )}
           {provider.lastSync && (
