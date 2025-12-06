@@ -1,22 +1,12 @@
 // app/api/org-setup2/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getCurrentUserId } from "@/lib/supabaseServer";
 import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
-    const userId = await getCurrentUserId();
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: "Not authenticated. Please sign in again." },
-        { status: 401 }
-      );
-    }
-
     const form = await req.formData();
 
     const orgName = (form.get("orgName") as string | null)?.trim();
@@ -37,14 +27,12 @@ export async function POST(req: NextRequest) {
           .replace(/^-+|-+$/g, "") || randomUUID().slice(0, 8);
     }
 
-    // For now, keep insert *minimal* so it doesn't break on missing columns.
-    // Once we see it working, we can add more fields (industry, colours, etc).
+    // 🔹 Minimal insert: no auth, no membership yet.
     const { data: org, error: orgError } = await supabaseAdmin
       .from("organisations")
       .insert({
         name: orgName,
         slug: orgSlug,
-        created_by: userId,
       })
       .select("*")
       .single();
@@ -73,28 +61,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create membership row for this user as owner
-    const { error: memberError } = await supabaseAdmin
-      .from("organisation_members")
-      .insert({
-        organisation_id: orgId,
-        user_id: userId,
-        role: "owner",
-      });
-
-    if (memberError) {
-      console.error("[org-setup2] membership insert error", memberError);
-      return NextResponse.json(
-        {
-          error:
-            "Organisation created but failed to create membership for this user.",
-          details: memberError.message ?? memberError,
-        },
-        { status: 500 }
-      );
-    }
-
-    // (Later we can add social_accounts, brand colours, etc.)
     return NextResponse.json(
       {
         organisation: {
