@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type StepId = "org" | "brand" | "goals" | "channels";
@@ -100,7 +100,25 @@ const steps: { id: StepId; title: string; description: string }[] = [
   },
 ];
 
+// 🔹 Top-level page: just wraps inner logic in Suspense to satisfy Next.js
 export default function OrgSetupPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
+          <div className="rounded-3xl border border-slate-700 bg-slate-900/80 px-6 py-4 text-sm text-slate-200">
+            Loading organisation setup…
+          </div>
+        </div>
+      }
+    >
+      <OrgSetupInner />
+    </Suspense>
+  );
+}
+
+// 🔹 All the real logic lives here
+function OrgSetupInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const billingStatus = searchParams.get("billing");
@@ -113,8 +131,10 @@ export default function OrgSetupPage() {
     slug?: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(true);
+  const [redirecting, setRedirecting] = useState(false);
 
-  // 🔁 If billing=success, show a "You're all set" screen instead of the wizard
+  // If billing=success, show the "workspace ready" screen
   if (billingStatus === "success") {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
@@ -154,6 +174,43 @@ export default function OrgSetupPage() {
               Go to Connect
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Guard: if user already has an org, go straight to dashboard
+  React.useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const res = await fetch("/api/org-status");
+        if (!res.ok) {
+          throw new Error("Failed to check org status");
+        }
+        const data = await res.json();
+
+        if (data?.authenticated && data?.hasOrganisation) {
+          setRedirecting(true);
+          router.replace("/dashboard");
+          return;
+        }
+      } catch (err) {
+        console.error("[org-setup] status check failed", err);
+      } finally {
+        setCheckingStatus(false);
+      }
+    };
+
+    checkStatus();
+  }, [router]);
+
+  if (checkingStatus || redirecting) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
+        <div className="rounded-3xl border border-slate-700 bg-slate-900/80 px-6 py-4 text-sm text-slate-200">
+          {redirecting
+            ? "Taking you to your Ops Dashboard…"
+            : "Checking your organisation setup…"}
         </div>
       </div>
     );
@@ -252,7 +309,6 @@ export default function OrgSetupPage() {
         slug: data.organisation?.slug,
       });
 
-      // After org saved, immediately kick off billing
       const billingRes = await fetch("/api/billing/checkout", {
         method: "POST",
       });
@@ -407,7 +463,6 @@ export default function OrgSetupPage() {
           </div>
         </footer>
 
-        {/* Tiny summary when org is saved at least once */}
         {orgSummary?.name && (
           <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-[11px] text-slate-300">
             <p className="mb-1">
@@ -419,7 +474,7 @@ export default function OrgSetupPage() {
             {orgSummary.slug && (
               <p className="text-slate-500">
                 Slug:{" "}
-                <span className="font-mono text-slate-200">
+                <span className="font-mono text-slate-300">
                   {orgSummary.slug}
                 </span>
               </p>
