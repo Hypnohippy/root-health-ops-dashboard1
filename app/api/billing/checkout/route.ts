@@ -23,19 +23,23 @@ if (!stripePriceId) {
 
 const stripe = stripeSecretKey
   ? new Stripe(stripeSecretKey, {
-      apiVersion: "2024-06-20" as any,
+      // @ts-ignore – type mismatch between Stripe versions, but works at runtime
+      apiVersion: "2024-06-20",
     })
   : null;
 
 // ❗️ TODO: Replace this with your real auth logic.
-// e.g. Supabase auth helpers, session cookie, etc.
 async function getCurrentUserId(_req: NextRequest): Promise<string | null> {
-  // Example if you later wire Supabase auth:
-  // const supabase = createRouteHandlerClient<Database>({ cookies });
-  // const { data: { user } } = await supabase.auth.getUser();
-  // return user?.id ?? null;
+  // e.g. use Supabase auth here later
   return null;
 }
+
+type OrgRow = {
+  id: string;
+  name: string;
+  slug: string | null;
+  stripe_customer_id?: string | null;
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -49,7 +53,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1) Get current user id (you MUST wire this)
+    // 1) Get current user id (you MUST wire this later)
     const userId = await getCurrentUserId(req);
     if (!userId) {
       return NextResponse.json(
@@ -58,8 +62,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2) Find the organisation this user owns / belongs to
-    // Adjust table/column names to your actual schema.
+    // 2) Find the organisation this user belongs to
     const { data: membership, error: membershipError } = await supabaseAdmin
       .from("organisation_members")
       .select(
@@ -89,7 +92,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!membership || !membership.organisations) {
+    if (!membership) {
       return NextResponse.json(
         {
           error:
@@ -99,12 +102,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const org = membership.organisations as {
-      id: string;
-      name: string;
-      slug: string | null;
-      stripe_customer_id?: string | null;
-    };
+    // Supabase can return `organisations` as an object or array; normalise it
+    const orgField = (membership as any).organisations;
+    let org: OrgRow | null = null;
+
+    if (Array.isArray(orgField)) {
+      org = (orgField[0] as OrgRow) ?? null;
+    } else {
+      org = (orgField as OrgRow) ?? null;
+    }
+
+    if (!org) {
+      return NextResponse.json(
+        {
+          error:
+            "No organisation record attached to this membership. Check your Supabase relationships.",
+        },
+        { status: 500 }
+      );
+    }
 
     // 3) Ensure Stripe customer exists for this org
     let customerId = org.stripe_customer_id || null;
@@ -120,7 +136,7 @@ export async function POST(req: NextRequest) {
 
       customerId = customer.id;
 
-      // Save to organisations table (adjust column name if needed)
+      // Save to organisations table
       const { error: updateError } = await supabaseAdmin
         .from("organisations")
         .update({ stripe_customer_id: customerId })
