@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
           .replace(/^-+|-+$/g, "") || randomUUID().slice(0, 8);
     }
 
-    // 🔹 Minimal insert: no auth, no membership yet.
+    // Minimal insert: just name + slug for now
     const { data: org, error: orgError } = await supabaseAdmin
       .from("organisations")
       .insert({
@@ -41,8 +41,9 @@ export async function POST(req: NextRequest) {
       console.error("[org-setup2] organisation insert error", orgError);
       return NextResponse.json(
         {
-          error: "Failed to insert organisation",
-          details: orgError.message ?? orgError,
+          error: `Failed to insert organisation: ${
+            (orgError as any).message ?? String(orgError)
+          }`,
         },
         { status: 500 }
       );
@@ -55,7 +56,6 @@ export async function POST(req: NextRequest) {
         {
           error:
             "Organisation created but no id returned from database. Please contact support.",
-          details: org,
         },
         { status: 500 }
       );
@@ -75,8 +75,7 @@ export async function POST(req: NextRequest) {
     console.error("[org-setup2] unexpected error", err);
     return NextResponse.json(
       {
-        error: "Unexpected error in org-setup2.",
-        details: err?.message ?? String(err),
+        error: `Unexpected error in org-setup2: ${err?.message ?? String(err)}`,
       },
       { status: 500 }
     );
