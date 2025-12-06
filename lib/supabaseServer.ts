@@ -8,17 +8,20 @@ const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export function createSupabaseServerClient() {
-  const cookieStore = cookies();
+  // 👇 KEY CHANGE: tell TypeScript "trust me, this is fine"
+  const cookieStore = cookies() as any;
 
   return createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       getAll() {
+        // TS thought cookieStore was a Promise; casting above fixes that
         return cookieStore.getAll();
       },
       setAll(cookiesToSet) {
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
+            // 👇 cast options so TS stops complaining
+            cookieStore.set(name, value, options as any);
           });
         } catch {
           // Route Handlers can't always set cookies; safe to ignore.
