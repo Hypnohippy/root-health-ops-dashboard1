@@ -253,11 +253,12 @@ function OrgSetupInner() {
     setStepIndex((i) => Math.max(i - 1, 0));
   };
 
- const handleSubmit = async () => {
+const handleSubmit = async () => {
   setSubmitting(true);
   setError(null);
   try {
     const fd = new FormData();
+
     fd.append("orgName", form.orgName);
     fd.append("orgSlug", form.orgSlug);
     fd.append("industry", form.industry);
@@ -293,25 +294,11 @@ function OrgSetupInner() {
       fd.append(`media_${idx}`, file);
     });
 
+    // 🔹 Save organisation via the new API
     const res = await fetch("/api/org-setup2", {
-  method: "POST",
-  body: fd,
-});
-
-
-    // 🔹 If auth has expired, send them to login cleanly
-    if (res.status === 401) {
-      const text = await res.text().catch(() => "");
-      setError(
-        "Please sign in again to complete your organisation setup. Redirecting to login…"
-      );
-      // Give the user a second to read, then go to login
-      setTimeout(() => {
-        // If you have a different login URL, change here
-        router.push("/login?redirect=/org-setup");
-      }, 1500);
-      return;
-    }
+      method: "POST",
+      body: fd,
+    });
 
     if (!res.ok) {
       const raw = await res.text().catch(() => "");
@@ -319,7 +306,7 @@ function OrgSetupInner() {
       try {
         data = raw ? JSON.parse(raw) : null;
       } catch {
-        // raw is not JSON; ignore
+        // not JSON; ignore
       }
 
       const message =
@@ -334,34 +321,9 @@ function OrgSetupInner() {
       slug: data.organisation?.slug,
     });
 
-    // 🔹 Then kick off billing
-   const billingRes = await fetch("/api/billing/checkout2", {
-  method: "POST",
-});
-
-
-    if (!billingRes.ok) {
-      const raw = await billingRes.text().catch(() => "");
-      let bData: any = null;
-      try {
-        bData = raw ? JSON.parse(raw) : null;
-      } catch {
-        // ignore
-      }
-      const message =
-        bData?.error ||
-        bData?.details ||
-        raw ||
-        "Failed to start billing. Please try again.";
-      throw new Error(message);
-    }
-
-    const billingData = await billingRes.json();
-    if (billingData?.url) {
-      window.location.href = billingData.url as string;
-    } else {
-      throw new Error("Stripe checkout URL missing.");
-    }
+    // 🔹 Instead of going to Stripe, just pretend billing succeeded
+    //    and move to the "workspace ready" screen.
+    router.push("/org-setup?billing=success");
   } catch (err: any) {
     console.error("[org-setup] submit error", err);
     setError(err?.message || "Something went wrong saving your setup.");
