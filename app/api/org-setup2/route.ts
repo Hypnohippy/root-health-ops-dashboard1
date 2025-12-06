@@ -1,9 +1,13 @@
 // app/api/org-setup2/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getCurrentUserId } from "@/lib/supabaseServer";
 import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
+
+// 🔹 Replace this with your real Supabase user ID from Auth → Users
+const FALLBACK_OWNER_ID = "REPLACE_WITH_YOUR_SUPABASE_USER_ID";
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,12 +31,34 @@ export async function POST(req: NextRequest) {
           .replace(/^-+|-+$/g, "") || randomUUID().slice(0, 8);
     }
 
-    // Minimal insert: just name + slug for now
+    // Try to get the logged-in user; if that fails, fall back
+    let ownerId = FALLBACK_OWNER_ID;
+    try {
+      const userId = await getCurrentUserId();
+      if (userId) {
+        ownerId = userId;
+      }
+    } catch {
+      // ignore, we'll use fallback
+    }
+
+    if (!ownerId || ownerId === "REPLACE_WITH_YOUR_SUPABASE_USER_ID") {
+      return NextResponse.json(
+        {
+          error:
+            "Server not configured with an owner_id. Please update FALLBACK_OWNER_ID in app/api/org-setup2/route.ts.",
+        },
+        { status: 500 }
+      );
+    }
+
+    // Insert with owner_id to satisfy NOT NULL constraint
     const { data: org, error: orgError } = await supabaseAdmin
       .from("organisations")
       .insert({
         name: orgName,
         slug: orgSlug,
+        owner_id: ownerId,
       })
       .select("*")
       .single();
@@ -67,6 +93,7 @@ export async function POST(req: NextRequest) {
           id: orgId,
           name: orgName,
           slug: orgSlug,
+          owner_id: ownerId,
         },
       },
       { status: 200 }
