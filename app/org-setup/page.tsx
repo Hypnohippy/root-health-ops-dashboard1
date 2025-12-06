@@ -253,86 +253,120 @@ function OrgSetupInner() {
     setStepIndex((i) => Math.max(i - 1, 0));
   };
 
-  const handleSubmit = async () => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const fd = new FormData();
-      fd.append("orgName", form.orgName);
-      fd.append("orgSlug", form.orgSlug);
-      fd.append("industry", form.industry);
-      fd.append("orgSize", form.orgSize);
-      fd.append("website", form.website);
+ const handleSubmit = async () => {
+  setSubmitting(true);
+  setError(null);
+  try {
+    const fd = new FormData();
+    fd.append("orgName", form.orgName);
+    fd.append("orgSlug", form.orgSlug);
+    fd.append("industry", form.industry);
+    fd.append("orgSize", form.orgSize);
+    fd.append("website", form.website);
 
-      fd.append("primaryColor", form.primaryColor);
-      fd.append("secondaryColor", form.secondaryColor);
-      fd.append("accentColor", form.accentColor);
-      fd.append("brandTone", form.brandTone);
+    fd.append("primaryColor", form.primaryColor);
+    fd.append("secondaryColor", form.secondaryColor);
+    fd.append("accentColor", form.accentColor);
+    fd.append("brandTone", form.brandTone);
 
-      fd.append("ownerName", form.ownerName);
-      fd.append("ownerRole", form.ownerRole);
-      fd.append("inviteEmails", form.inviteEmails);
-      fd.append("postingFrequency", form.postingFrequency);
+    fd.append("ownerName", form.ownerName);
+    fd.append("ownerRole", form.ownerRole);
+    fd.append("inviteEmails", form.inviteEmails);
+    fd.append("postingFrequency", form.postingFrequency);
 
-      fd.append("goals", JSON.stringify(form.goals));
-      fd.append("contentTypes", JSON.stringify(form.contentTypes));
+    fd.append("goals", JSON.stringify(form.goals));
+    fd.append("contentTypes", JSON.stringify(form.contentTypes));
 
-      fd.append("connectFacebook", String(form.connectFacebook));
-      fd.append("connectInstagram", String(form.connectInstagram));
-      fd.append("connectTiktok", String(form.connectTiktok));
-      fd.append("connectLinkedin", String(form.connectLinkedin));
-      fd.append("connectGoogle", String(form.connectGoogle));
-      fd.append("connectEmailNewsletter", String(form.connectEmailNewsletter));
-      fd.append("connectWhatsApp", String(form.connectWhatsApp));
+    fd.append("connectFacebook", String(form.connectFacebook));
+    fd.append("connectInstagram", String(form.connectInstagram));
+    fd.append("connectTiktok", String(form.connectTiktok));
+    fd.append("connectLinkedin", String(form.connectLinkedin));
+    fd.append("connectGoogle", String(form.connectGoogle));
+    fd.append("connectEmailNewsletter", String(form.connectEmailNewsletter));
+    fd.append("connectWhatsApp", String(form.connectWhatsApp));
 
-      if (form.logoFile) {
-        fd.append("logo", form.logoFile);
-      }
-
-      form.mediaFiles.forEach((file, idx) => {
-        fd.append(`media_${idx}`, file);
-      });
-
-      const res = await fetch("/api/org-setup", {
-        method: "POST",
-        body: fd,
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || "Failed to save organisation");
-      }
-
-      const data = await res.json();
-      setOrgSummary({
-        name: data.organisation?.name,
-        slug: data.organisation?.slug,
-      });
-
-      const billingRes = await fetch("/api/billing/checkout", {
-        method: "POST",
-      });
-
-      if (!billingRes.ok) {
-        const data = await billingRes.json().catch(() => ({}));
-        throw new Error(
-          data?.error || "Failed to start billing. Please try again."
-        );
-      }
-
-      const billingData = await billingRes.json();
-      if (billingData?.url) {
-        window.location.href = billingData.url as string;
-      } else {
-        throw new Error("Stripe checkout URL missing.");
-      }
-    } catch (err: any) {
-      console.error("[org-setup] submit error", err);
-      setError(err?.message || "Something went wrong saving your setup.");
-    } finally {
-      setSubmitting(false);
+    if (form.logoFile) {
+      fd.append("logo", form.logoFile);
     }
-  };
+
+    form.mediaFiles.forEach((file, idx) => {
+      fd.append(`media_${idx}`, file);
+    });
+
+    const res = await fetch("/api/org-setup", {
+      method: "POST",
+      body: fd,
+    });
+
+    // 🔹 If auth has expired, send them to login cleanly
+    if (res.status === 401) {
+      const text = await res.text().catch(() => "");
+      setError(
+        "Please sign in again to complete your organisation setup. Redirecting to login…"
+      );
+      // Give the user a second to read, then go to login
+      setTimeout(() => {
+        // If you have a different login URL, change here
+        router.push("/login?redirect=/org-setup");
+      }, 1500);
+      return;
+    }
+
+    if (!res.ok) {
+      const raw = await res.text().catch(() => "");
+      let data: any = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        // raw is not JSON; ignore
+      }
+
+      const message =
+        data?.error || data?.details || raw || "Failed to save organisation";
+
+      throw new Error(message);
+    }
+
+    const data = await res.json();
+    setOrgSummary({
+      name: data.organisation?.name,
+      slug: data.organisation?.slug,
+    });
+
+    // 🔹 Then kick off billing
+    const billingRes = await fetch("/api/billing/checkout", {
+      method: "POST",
+    });
+
+    if (!billingRes.ok) {
+      const raw = await billingRes.text().catch(() => "");
+      let bData: any = null;
+      try {
+        bData = raw ? JSON.parse(raw) : null;
+      } catch {
+        // ignore
+      }
+      const message =
+        bData?.error ||
+        bData?.details ||
+        raw ||
+        "Failed to start billing. Please try again.";
+      throw new Error(message);
+    }
+
+    const billingData = await billingRes.json();
+    if (billingData?.url) {
+      window.location.href = billingData.url as string;
+    } else {
+      throw new Error("Stripe checkout URL missing.");
+    }
+  } catch (err: any) {
+    console.error("[org-setup] submit error", err);
+    setError(err?.message || "Something went wrong saving your setup.");
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
