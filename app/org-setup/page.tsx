@@ -94,6 +94,13 @@ function OrgSetupInner() {
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachAutoUsed, setCoachAutoUsed] = useState(false);
 
+  const steps = [
+    { id: "org", label: "Organisation" },
+    { id: "brand", label: "Brand & colours" },
+    { id: "people", label: "People & rhythm" },
+    { id: "channels", label: "Channels & assets" },
+  ];
+
   // -----------------------------------------------------------
   // Read ?billing=... from URL WITHOUT useSearchParams
   // -----------------------------------------------------------
@@ -118,7 +125,7 @@ function OrgSetupInner() {
         body: JSON.stringify({
           mode: "onboarding",
           reason,
-          stepId: stepIndex.toString(),
+          stepId: steps[stepIndex]?.id ?? "unknown-step",
           orgName: form.orgName,
           errorMessage,
         }),
@@ -214,25 +221,30 @@ function OrgSetupInner() {
     try {
       const fd = new FormData();
 
-      // Minimal but valid fields the API expects
+      // Basic org fields
       fd.append("orgName", form.orgName);
       fd.append("orgSlug", form.orgSlug);
       fd.append("industry", form.industry);
       fd.append("orgSize", form.orgSize);
       fd.append("website", form.website);
-      fd.append("ownerName", form.ownerName);
-      fd.append("ownerRole", form.ownerRole);
-      fd.append("inviteEmails", form.inviteEmails);
-      fd.append("postingFrequency", form.postingFrequency);
 
+      // Brand
       fd.append("primaryColor", form.primaryColor);
       fd.append("secondaryColor", form.secondaryColor);
       fd.append("accentColor", form.accentColor);
       fd.append("brandTone", form.brandTone);
 
+      // People & posting
+      fd.append("ownerName", form.ownerName);
+      fd.append("ownerRole", form.ownerRole);
+      fd.append("inviteEmails", form.inviteEmails);
+      fd.append("postingFrequency", form.postingFrequency);
+
+      // Goals & content types
       fd.append("goals", JSON.stringify(form.goals));
       fd.append("contentTypes", JSON.stringify(form.contentTypes));
 
+      // Channels
       fd.append("connectFacebook", String(form.connectFacebook));
       fd.append("connectInstagram", String(form.connectInstagram));
       fd.append("connectTiktok", String(form.connectTiktok));
@@ -241,6 +253,7 @@ function OrgSetupInner() {
       fd.append("connectEmailNewsletter", String(form.connectEmailNewsletter));
       fd.append("connectWhatsApp", String(form.connectWhatsApp));
 
+      // Files
       if (form.logoFile) {
         fd.append("logo", form.logoFile);
       }
@@ -273,7 +286,7 @@ function OrgSetupInner() {
         throw new Error(message);
       }
 
-      const data = await res.json();
+      await res.json();
 
       // Reset coach state on success
       setCoachAutoUsed(false);
@@ -297,47 +310,48 @@ function OrgSetupInner() {
   };
 
   // -----------------------------------------------------------
-  // Simple 2-step UI (keeps things usable without being crazy)
+  // Step navigation
   // -----------------------------------------------------------
-  const goNext = () => setStepIndex((s) => Math.min(s + 1, 1));
+  const goNext = () => setStepIndex((s) => Math.min(s + 1, steps.length - 1));
   const goBack = () => setStepIndex((s) => Math.max(s - 1, 0));
 
+  // -----------------------------------------------------------
+  // Rendering
+  // -----------------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
-      <div className="max-w-3xl mx-auto bg-slate-900/80 border border-slate-700 rounded-3xl shadow-xl p-6 md:p-10 backdrop-blur">
+      <div className="max-w-4xl mx-auto bg-slate-900/80 border border-slate-700 rounded-3xl shadow-xl p-6 md:p-10 backdrop-blur">
+        {/* Header */}
         <header className="mb-6">
           <h1 className="text-2xl md:text-3xl font-semibold">
             Root Health workspace setup
           </h1>
-          <p className="mt-2 text-sm text-slate-300">
-            We’ll grab a few details about your organisation and how you like to
-            work. This only needs to be done once.
+          <p className="mt-2 text-sm text-slate-300 max-w-2xl">
+            We&apos;ll grab a few details about your organisation, brand and
+            channels so Root Health Ops feels like it&apos;s built for you from
+            day one.
           </p>
         </header>
 
         {/* Step indicator */}
-        <div className="flex items-center gap-2 mb-6 text-xs text-slate-300">
-          <span
-            className={`inline-flex h-6 w-6 items-center justify-center rounded-full border ${
-              stepIndex === 0
-                ? "bg-blue-500 text-white border-blue-400"
-                : "bg-slate-800 text-slate-200 border-slate-600"
-            }`}
-          >
-            1
-          </span>
-          <span>Organisation</span>
-          <span className="text-slate-500">/</span>
-          <span
-            className={`inline-flex h-6 w-6 items-center justify-center rounded-full border ${
-              stepIndex === 1
-                ? "bg-blue-500 text-white border-blue-400"
-                : "bg-slate-800 text-slate-200 border-slate-600"
-            }`}
-          >
-            2
-          </span>
-          <span>Brand & goals</span>
+        <div className="flex flex-wrap items-center gap-2 mb-6 text-xs text-slate-300">
+          {steps.map((step, idx) => (
+            <React.Fragment key={step.id}>
+              <span
+                className={`inline-flex h-6 w-6 items-center justify-center rounded-full border ${
+                  stepIndex === idx
+                    ? "bg-blue-500 text-white border-blue-400"
+                    : "bg-slate-800 text-slate-200 border-slate-600"
+                }`}
+              >
+                {idx + 1}
+              </span>
+              <span>{step.label}</span>
+              {idx < steps.length - 1 && (
+                <span className="text-slate-500 mx-1">/</span>
+              )}
+            </React.Fragment>
+          ))}
         </div>
 
         {/* Error block */}
@@ -360,123 +374,14 @@ function OrgSetupInner() {
         )}
 
         {/* Step content */}
-        {stepIndex === 0 && (
-          <div className="space-y-4 mb-6 text-sm">
-            <div>
-              <label className="block text-slate-200 mb-1">
-                Organisation name
-              </label>
-              <input
-                className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
-                value={form.orgName}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, orgName: e.target.value }))
-                }
-                placeholder="Calm Minds Therapy"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-200 mb-1">
-                Workspace slug (optional)
-              </label>
-              <input
-                className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
-                value={form.orgSlug}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, orgSlug: e.target.value }))
-                }
-                placeholder="calm-minds-therapy"
-              />
-              <p className="mt-1 text-[11px] text-slate-400">
-                This becomes part of your URL. If you leave it blank, we’ll
-                generate one for you.
-              </p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="block text-slate-200 mb-1">Industry</label>
-                <input
-                  className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
-                  value={form.industry}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, industry: e.target.value }))
-                  }
-                  placeholder="Therapy, coaching, counselling…"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-200 mb-1">
-                  Organisation size
-                </label>
-                <select
-                  className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
-                  value={form.orgSize}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, orgSize: e.target.value }))
-                  }
-                >
-                  <option value="">Select…</option>
-                  <option value="solo">Just me</option>
-                  <option value="small">2–5 practitioners</option>
-                  <option value="medium">6–20 practitioners</option>
-                  <option value="large">21+ practitioners</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-slate-200 mb-1">Website (optional)</label>
-              <input
-                className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
-                value={form.website}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, website: e.target.value }))
-                }
-                placeholder="https://yourclinic.com"
-              />
-            </div>
-          </div>
-        )}
-
-        {stepIndex === 1 && (
-          <div className="space-y-4 mb-6 text-sm">
-            <div>
-              <label className="block text-slate-200 mb-1">Brand tone</label>
-              <select
-                className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
-                value={form.brandTone}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, brandTone: e.target.value }))
-                }
-              >
-                <option value="calm">Calm & reassuring</option>
-                <option value="direct">Direct & clear</option>
-                <option value="friendly">Friendly & informal</option>
-                <option value="professional">Professional & formal</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-slate-200 mb-1">
-                Primary goal with Root Health Ops
-              </label>
-              <textarea
-                className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm min-h-[80px]"
-                value={form.goals.join("\n")}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, goals: e.target.value.split("\n") }))
-                }
-                placeholder={`Examples:\n- Fill my diary with ideal clients\n- Stay visible without burning out\n- Nurture my existing community`}
-              />
-              <p className="mt-1 text-[11px] text-slate-400">
-                One thought per line is perfect — we&apos;ll use this to tune
-                AI suggestions.
-              </p>
-            </div>
-          </div>
-        )}
+        <div className="mb-6">
+          {stepIndex === 0 && (
+            <StepOrganisation form={form} setForm={setForm} />
+          )}
+          {stepIndex === 1 && <StepBrand form={form} setForm={setForm} />}
+          {stepIndex === 2 && <StepPeople form={form} setForm={setForm} />}
+          {stepIndex === 3 && <StepChannels form={form} setForm={setForm} />}
+        </div>
 
         {/* Footer buttons */}
         <div className="flex items-center justify-between mt-4">
@@ -489,7 +394,7 @@ function OrgSetupInner() {
             Back
           </button>
 
-          {stepIndex === 0 ? (
+          {stepIndex < steps.length - 1 ? (
             <button
               type="button"
               onClick={goNext}
@@ -507,6 +412,365 @@ function OrgSetupInner() {
             >
               {submitting ? "Saving…" : "Save setup & continue"}
             </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------
+// Step Components (kept in same file for now)
+// -----------------------------------------------------------
+function StepOrganisation({
+  form,
+  setForm,
+}: {
+  form: OrgFormState;
+  setForm: React.Dispatch<React.SetStateAction<OrgFormState>>;
+}) {
+  return (
+    <div className="space-y-4 text-sm">
+      <div>
+        <label className="block text-slate-200 mb-1">Organisation name</label>
+        <input
+          className="w-full rounded-xl bg-s
+late-950/60 border border-slate-700 px-3 py-2 text-sm"
+          value={form.orgName}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, orgName: e.target.value }))
+          }
+          placeholder="Calm Minds Therapy"
+        />
+      </div>
+
+      <div>
+        <label className="block text-slate-200 mb-1">
+          Workspace slug (optional)
+        </label>
+        <input
+          className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
+          value={form.orgSlug}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, orgSlug: e.target.value }))
+          }
+          placeholder="calm-minds-therapy"
+        />
+        <p className="mt-1 text-[11px] text-slate-400">
+          This becomes part of your URL. If you leave it blank, we’ll generate
+          one for you.
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="block text-slate-200 mb-1">Industry</label>
+          <input
+            className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
+            value={form.industry}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, industry: e.target.value }))
+            }
+            placeholder="Therapy, coaching, counselling…"
+          />
+        </div>
+        <div>
+          <label className="block text-slate-200 mb-1">
+            Organisation size
+          </label>
+          <select
+            className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
+            value={form.orgSize}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, orgSize: e.target.value }))
+            }
+          >
+            <option value="">Select…</option>
+            <option value="solo">Just me</option>
+            <option value="small">2–5 practitioners</option>
+            <option value="medium">6–20 practitioners</option>
+            <option value="large">21+ practitioners</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-slate-200 mb-1">Website (optional)</label>
+        <input
+          className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
+          value={form.website}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, website: e.target.value }))
+          }
+          placeholder="https://yourclinic.com"
+        />
+      </div>
+    </div>
+  );
+}
+
+function StepBrand({
+  form,
+  setForm,
+}: {
+  form: OrgFormState;
+  setForm: React.Dispatch<React.SetStateAction<OrgFormState>>;
+}) {
+  return (
+    <div className="space-y-4 text-sm">
+      <div className="grid gap-4 md:grid-cols-3">
+        <div>
+          <label className="block text-slate-200 mb-1">Primary colour</label>
+          <input
+            type="color"
+            className="w-full h-10 rounded-xl bg-transparent border border-slate-700"
+            value={form.primaryColor}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, primaryColor: e.target.value }))
+            }
+          />
+          <p className="mt-1 text-[11px] text-slate-400">{form.primaryColor}</p>
+        </div>
+        <div>
+          <label className="block text-slate-200 mb-1">Secondary colour</label>
+          <input
+            type="color"
+            className="w-full h-10 rounded-xl bg-transparent border border-slate-700"
+            value={form.secondaryColor}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, secondaryColor: e.target.value }))
+            }
+          />
+          <p className="mt-1 text-[11px] text-slate-400">
+            {form.secondaryColor}
+          </p>
+        </div>
+        <div>
+          <label className="block text-slate-200 mb-1">Accent colour</label>
+          <input
+            type="color"
+            className="w-full h-10 rounded-xl bg-transparent border border-slate-700"
+            value={form.accentColor}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, accentColor: e.target.value }))
+            }
+          />
+          <p className="mt-1 text-[11px] text-slate-400">{form.accentColor}</p>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-slate-200 mb-1">Brand tone</label>
+        <select
+          className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
+          value={form.brandTone}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, brandTone: e.target.value }))
+          }
+        >
+          <option value="calm">Calm & reassuring</option>
+          <option value="direct">Direct & clear</option>
+          <option value="friendly">Friendly & informal</option>
+          <option value="professional">Professional & formal</option>
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-slate-200 mb-1">
+          Main goals for Root Health Ops
+        </label>
+        <textarea
+          className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm min-h-[80px]"
+          value={form.goals.join("\n")}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, goals: e.target.value.split("\n") }))
+          }
+          placeholder={`Examples:\n- Fill my diary with ideal clients\n- Stay visible without burning out\n- Nurture my existing community`}
+        />
+        <p className="mt-1 text-[11px] text-slate-400">
+          One thought per line is perfect — we&apos;ll use this to tune AI
+          suggestions and campaign ideas.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function StepPeople({
+  form,
+  setForm,
+}: {
+  form: OrgFormState;
+  setForm: React.Dispatch<React.SetStateAction<OrgFormState>>;
+}) {
+  return (
+    <div className="space-y-4 text-sm">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="block text-slate-200 mb-1">Your name</label>
+          <input
+            className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
+            value={form.ownerName}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, ownerName: e.target.value }))
+            }
+            placeholder="Dr Jane Smith"
+          />
+        </div>
+        <div>
+          <label className="block text-slate-200 mb-1">Your role</label>
+          <input
+            className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
+            value={form.ownerRole}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, ownerRole: e.target.value }))
+            }
+            placeholder="Clinical director, lead coach…"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-slate-200 mb-1">
+          Team members to invite (optional)
+        </label>
+        <textarea
+          className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm min-h-[60px]"
+          value={form.inviteEmails}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, inviteEmails: e.target.value }))
+          }
+          placeholder={`one@email.com\nanother@email.com`}
+        />
+        <p className="mt-1 text-[11px] text-slate-400">
+          One email per line. We won&apos;t invite anyone until you confirm
+          inside the app.
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-slate-200 mb-1">
+          Ideal posting rhythm
+        </label>
+        <select
+          className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
+          value={form.postingFrequency}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, postingFrequency: e.target.value }))
+          }
+        >
+          <option value="weekly">Once a week</option>
+          <option value="twice-weekly">Twice a week</option>
+          <option value="three-weekly">3 times a week</option>
+          <option value="daily">Most days</option>
+        </select>
+        <p className="mt-1 text-[11px] text-slate-400">
+          This doesn&apos;t lock you in; it helps Root Health suggest realistic
+          next actions.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function StepChannels({
+  form,
+  setForm,
+}: {
+  form: OrgFormState;
+  setForm: React.Dispatch<React.SetStateAction<OrgFormState>>;
+}) {
+  const toggle = (field: keyof OrgFormState) => {
+    setForm((f) => ({ ...f, [field]: !f[field] as any }));
+  };
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setForm((f) => ({ ...f, logoFile: file }));
+  };
+
+  const handleMediaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    setForm((f) => ({ ...f, mediaFiles: files }));
+  };
+
+  return (
+    <div className="space-y-4 text-sm">
+      <div>
+        <label className="block text-slate-200 mb-2">
+          Channels you&apos;d like to use
+        </label>
+        <div className="grid gap-2 md:grid-cols-2">
+          {[
+            ["connectFacebook", "Facebook Page"],
+            ["connectInstagram", "Instagram Business"],
+            ["connectLinkedin", "LinkedIn Page"],
+            ["connectTiktok", "TikTok"],
+            ["connectGoogle", "Google Business Profile"],
+            ["connectEmailNewsletter", "Email newsletter"],
+            ["connectWhatsApp", "WhatsApp"],
+          ].map(([field, label]) => (
+            <button
+              key={field}
+              type="button"
+              onClick={() => toggle(field as keyof OrgFormState)}
+              className={`flex items-center justify-between rounded-xl border px-3 py-2 text-xs ${
+                (form as any)[field]
+                  ? "border-blue-400 bg-blue-500/15 text-blue-50"
+                  : "border-slate-700 bg-slate-950/60 text-slate-200"
+              }`}
+            >
+              <span>{label}</span>
+              <span
+                className={`h-4 w-7 rounded-full flex items-center px-0.5 ${
+                  (form as any)[field]
+                    ? "bg-blue-500 justify-end"
+                    : "bg-slate-600 justify-start"
+                }`}
+              >
+                <span className="h-3 w-3 rounded-full bg-white" />
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-[11px] text-slate-400">
+          We&apos;ll guide you to properly connect these inside the Connect page
+          after setup.
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="block text-slate-200 mb-1">
+            Upload your logo (optional)
+          </label>
+          <input
+            type="file"
+            accept="image/*"
+            className="w-full text-xs text-slate-300"
+            onChange={handleLogoChange}
+          />
+          {form.logoFile && (
+            <p className="mt-1 text-[11px] text-slate-400">
+              Selected: {form.logoFile.name}
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="block text-slate-200 mb-1">
+            Upload example media (optional)
+          </label>
+          <input
+            type="file"
+            multiple
+            accept="image/*,video/*"
+            className="w-full text-xs text-slate-300"
+            onChange={handleMediaChange}
+          />
+          {form.mediaFiles.length > 0 && (
+            <p className="mt-1 text-[11px] text-slate-400">
+              {form.mediaFiles.length} file(s) selected.
+            </p>
           )}
         </div>
       </div>
