@@ -158,8 +158,7 @@ const [coachLoading, setCoachLoading] = useState(false);
     const data = await res.json();
 setCoachAutoUsed(false);
 setCoachMessage(null);
-
-    setCoachMessage(data.message ?? null);
+ setCoachMessage(data.message ?? null);
   } catch (err) {
     console.error("[coach] request error", err);
     setCoachMessage(
