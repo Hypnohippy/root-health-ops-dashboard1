@@ -135,6 +135,7 @@ function OrgSetupInner() {
   const [redirecting, setRedirecting] = useState(false);
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 const [coachLoading, setCoachLoading] = useState(false);
+  const [coachAutoUsed, setCoachAutoUsed] = useState(false);
   const triggerCoach = async (reason: string, errorMessage?: string) => {
   try {
     setCoachLoading(true);
