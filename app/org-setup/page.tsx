@@ -383,16 +383,16 @@ const handleSubmit = async () => {
     // Force a clean reload onto the success URL to avoid any client-side glitches
     window.location.href = "/org-setup?billing=success";
   } catch (err: any) {
-    console.error("[org-setup] submit error", err);
-    const message =
-      err?.message || "Something went wrong saving your setup.";
-    setError(message);
+  console.error("[org-setup] submit error", err);
+  const message = err?.message || "Something went wrong saving your setup.";
+  setError(message);
 
-    // Trigger Root Coach AI (if wired)
-    triggerCoach("submit-error", message);
-  } finally {
-    setSubmitting(false);
-  }
+  // 🔥 Call AI Coach
+  triggerCoach("submit-error", message);
+} finally {
+  setSubmitting(false);
+}
+
 };
 
   return (
