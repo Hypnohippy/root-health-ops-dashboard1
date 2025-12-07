@@ -171,48 +171,70 @@ const [coachLoading, setCoachLoading] = useState(false);
 
   // If billing=success, show the "workspace ready" screen
   if (billingStatus === "success") {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
-        <div className="w-full max-w-2xl bg-slate-900/80 border border-slate-700 rounded-3xl shadow-xl p-8 md:p-10 backdrop-blur">
-          <h1 className="text-2xl md:text-3xl font-semibold mb-3">
-            Your Root Health workspace is ready
-          </h1>
-          <p className="text-sm text-slate-300 mb-4">
-            Your organisation is set up and billing is active. You can now use
-            Root Health Ops to manage content, campaigns and replies.
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-2xl bg-slate-900/80 border border-slate-700 rounded-3xl shadow-xl p-8 md:p-10 backdrop-blur">
+        <h1 className="text-2xl md:text-3xl font-semibold mb-3">
+          Your Root Health workspace is ready
+        </h1>
+        <p className="text-sm text-slate-300 mb-4">
+          Your organisation is set up and you’re ready to start using Root
+          Health Ops to manage content, campaigns and replies.
+        </p>
+
+        {/* What’s next box */}
+        <div className="rounded-2xl border border-emerald-600/60 bg-emerald-500/10 px-4 py-3 mb-4 text-sm text-emerald-100">
+          <p className="font-medium mb-1">What’s next?</p>
+          <ul className="list-disc list-inside text-xs space-y-1 text-emerald-50/90">
+            <li>Head to your Ops Dashboard to see everything in one place.</li>
+            <li>
+              Or open the Connect page to plug in Facebook, Instagram, LinkedIn
+              and more.
+            </li>
+          </ul>
+        </div>
+
+        {/* Root Coach panel on success */}
+        <div className="rounded-2xl border border-blue-500/60 bg-blue-500/10 px-4 py-3 mb-6 text-xs text-blue-50">
+          <div className="font-semibold mb-1 text-blue-100">Root Coach</div>
+          <p className="mb-1">
+            You’ve just done the part most people put off – you’ve created a
+            dedicated space for your marketing and client communication instead
+            of keeping it all in your head.
           </p>
+          <p className="mb-1">
+            For your first visit to the Ops Dashboard, pick one simple win:
+            either schedule a single post you’re genuinely proud of, or reply to
+            one person who&apos;s already in your world. Tiny consistent actions
+            beat big heroic efforts every time.
+          </p>
+          <p className="mt-1">
+            You are not behind. You&apos;re building something that will quietly
+            work for you in the background while you look after people.
+          </p>
+        </div>
 
-          <div className="rounded-2xl border border-emerald-600/60 bg-emerald-500/10 px-4 py-3 mb-6 text-sm text-emerald-100">
-            <p className="font-medium mb-1">What’s next?</p>
-            <ul className="list-disc list-inside text-xs space-y-1 text-emerald-50/90">
-              <li>Head to your Ops Dashboard to see everything in one place.</li>
-              <li>
-                Or open the Connect page to plug in Facebook, Instagram,
-                LinkedIn and more.
-              </li>
-            </ul>
-          </div>
-
-          <div className="flex flex-col md:flex-row gap-3">
-            <button
-              type="button"
-              onClick={() => router.push("/dashboard")}
-              className="flex-1 rounded-full bg-blue-500 px-4 py-2.5 text-sm font-semibold text-slate-50 hover:bg-blue-400"
-            >
-              Go to Ops Dashboard
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push("/connect")}
-              className="flex-1 rounded-full border border-slate-600 bg-slate-900/70 px-4 py-2.5 text-sm font-semibold text-slate-100 hover:border-blue-400"
-            >
-              Go to Connect
-            </button>
-          </div>
+        <div className="flex flex-col md:flex-row gap-3">
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard")}
+            className="flex-1 rounded-full bg-blue-500 px-4 py-2.5 text-sm font-semibold text-slate-50 hover:bg-blue-400"
+          >
+            Go to Ops Dashboard
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/connect")}
+            className="flex-1 rounded-full border border-slate-600 bg-slate-900/70 px-4 py-2.5 text-sm font-semibold text-slate-100 hover:border-blue-400"
+          >
+            Go to Connect
+          </button>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
 
   // Guard: if user already has an org, go straight to dashboard
   React.useEffect(() => {
