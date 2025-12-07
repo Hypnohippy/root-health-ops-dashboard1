@@ -157,10 +157,17 @@ const [coachLoading, setCoachLoading] = useState(false);
     if (!res.ok) throw new Error("Coach request failed");
 
     const data = await res.json();
+
 setCoachAutoUsed(false);
 setCoachMessage(null);
- setCoachMessage(data.message ?? null);
-  } catch (err) {
+
+setOrgSummary({
+  name: data.organisation?.name,
+  slug: data.organisation?.slug,
+});
+
+window.location.href = "/org-setup?billing=success";
+
     console.error("[coach] request error", err);
     setCoachMessage(
       "Something glitched while fetching advice, but this is almost always fixable. Try the last step again, and if it still fails, send a quick screenshot to support."
