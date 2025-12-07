@@ -374,7 +374,7 @@ const handleSubmit = async () => {
       let data: any = null;
       try {
         data = raw ? JSON.parse(raw) : null;
-      } catch {
+      } catch (err) {
         // not JSON; ignore
       }
 
