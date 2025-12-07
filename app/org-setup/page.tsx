@@ -70,6 +70,21 @@ const initialFormState: OrgFormState = {
   mediaFiles: [],
 };
 
+// Preset goal options for quick multi-select
+const GOAL_OPTIONS: string[] = [
+  "Fill my diary with ideal clients",
+  "Keep in touch with existing clients",
+  "Stay visible on social media with minimal effort",
+  "Generate a steady flow of new enquiries",
+  "Launch and fill new groups or programmes",
+  "Get more workshop / webinar signups",
+  "Nurture and grow my email list",
+  "Get more referrals from introducers / partners",
+  "Test new offers safely before going big",
+  "Build authority and trust in my niche",
+  "Reduce time spent on marketing admin",
+];
+
 // -----------------------------------------------------------
 // Main Page Component
 // -----------------------------------------------------------
@@ -434,8 +449,7 @@ function StepOrganisation({
       <div>
         <label className="block text-slate-200 mb-1">Organisation name</label>
         <input
-          className="w-full rounded-xl bg-s
-late-950/60 border border-slate-700 px-3 py-2 text-sm"
+          className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm"
           value={form.orgName}
           onChange={(e) =>
             setForm((f) => ({ ...f, orgName: e.target.value }))
@@ -516,6 +530,16 @@ function StepBrand({
   form: OrgFormState;
   setForm: React.Dispatch<React.SetStateAction<OrgFormState>>;
 }) {
+  const toggleGoal = (goal: string) => {
+    setForm((f) => {
+      const exists = f.goals.includes(goal);
+      if (exists) {
+        return { ...f, goals: f.goals.filter((g) => g !== goal) };
+      }
+      return { ...f, goals: [...f.goals, goal] };
+    });
+  };
+
   return (
     <div className="space-y-4 text-sm">
       <div className="grid gap-4 md:grid-cols-3">
@@ -576,20 +600,63 @@ function StepBrand({
       </div>
 
       <div>
+        <label className="block text-slate-200 mb-2">
+          What do you want Root Health Ops to help you with?
+        </label>
+        <p className="text-[11px] text-slate-400 mb-2">
+          Pick as many as you like. This shapes how the AI coach and campaign
+          suggestions speak to you.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {GOAL_OPTIONS.map((goal) => {
+            const active = form.goals.includes(goal);
+            return (
+              <button
+                key={goal}
+                type="button"
+                onClick={() => toggleGoal(goal)}
+                className={`rounded-full border px-3 py-1 text-[11px] ${
+                  active
+                    ? "border-blue-400 bg-blue-500/20 text-blue-50"
+                    : "border-slate-700 bg-slate-950/70 text-slate-200"
+                }`}
+              >
+                {goal}
+              </button>
+            );
+          })}
+        </div>
+        {form.goals.length === 0 && (
+          <p className="mt-1 text-[11px] text-amber-300/80">
+            You haven&apos;t selected any goals yet – pick one or two that feel
+            most important right now.
+          </p>
+        )}
+      </div>
+
+      <div>
         <label className="block text-slate-200 mb-1">
-          Main goals for Root Health Ops
+          Anything else we should know? (optional)
         </label>
         <textarea
-          className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm min-h-[80px]"
-          value={form.goals.join("\n")}
+          className="w-full rounded-xl bg-slate-950/60 border border-slate-700 px-3 py-2 text-sm min-h-[70px]"
+          placeholder="For example: I’ve burned out on social media before, or I only want to work with trauma-informed clients…"
           onChange={(e) =>
-            setForm((f) => ({ ...f, goals: e.target.value.split("\n") }))
+            setForm((f) => ({
+              ...f,
+              // tack extra notes onto goals as a pseudo-goal for now
+              goals: [
+                ...f.goals.filter((g) => !g.startsWith("NOTE:")),
+                ...(e.target.value
+                  ? [`NOTE: ${e.target.value.slice(0, 300)}`]
+                  : []),
+              ],
+            }))
           }
-          placeholder={`Examples:\n- Fill my diary with ideal clients\n- Stay visible without burning out\n- Nurture my existing community`}
         />
         <p className="mt-1 text-[11px] text-slate-400">
-          One thought per line is perfect — we&apos;ll use this to tune AI
-          suggestions and campaign ideas.
+          This helps Root Coach speak to your situation more personally later
+          on.
         </p>
       </div>
     </div>
