@@ -1,41 +1,65 @@
 // app/api/coach/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
 
-export const runtime = "nodejs";
+export const runtime = "nodejs"; // ensures server execution
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+});
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({} as any));
-    const mode = body.mode ?? "onboarding";
-    const stepId = body.stepId ?? "unknown-step";
-    const orgName = body.orgName ?? "";
-    const errorMessage = body.errorMessage ?? "";
+    const body = await req.json().catch(() => ({}));
+    const {
+      mode = "unknown",
+      stepId = "none",
+      orgName = "",
+      platform = "",
+      errorMessage = "",
+      recentStats = {},
+    } = body;
 
-    const message = `
-Okay, let's take a breath.
+    const prompt = `
+You are ROOT COACH — a warm, encouraging, highly practical AI mentor inside a marketing automation app.
+The user may be overwhelmed, confused, or frustrated. You NEVER blame the user.  
+You ALWAYS reassure, simplify, and suggest one tiny next step.
 
-Something in the setup just didn’t quite land, but this is usually a tiny configuration issue, not a sign that you’re doing anything wrong.
+Context of this situation:
+- Mode: ${mode}
+- Step: ${stepId}
+- Organisation: ${orgName || "unknown org"}
+- Platform: ${platform}
+- Error message: ${errorMessage}
+- Recent stats: ${JSON.stringify(recentStats)}
 
-You’re in the ${mode} flow on step “${stepId}” for ${
-      orgName || "your organisation"
-    }. The last message said: “${
-      errorMessage || "no specific error was shown"
-    }”.
+Your job:
+1. Calm the user with reassurance.
+2. Translate the error into human language.
+3. Give ONE simple next step to fix it.
+4. Encourage them with a very human, gentle tone.
 
-Here’s what I’d suggest:
-- First, try that step once more from the beginning – small glitches often clear on a second pass.
-- If it still fails, take a quick screenshot of the page and the error and send it to your Root Health support contact, so they can check the setup behind the scenes.
+Write your response in 3 short paragraphs. No technical jargon unless necessary.
+`;
 
-You’re doing the right thing by getting this in place – this bump is part of the process, not a verdict on you.
-`.trim();
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 220,
+      temperature: 0.7,
+    });
+
+    const message =
+      completion.choices?.[0]?.message?.content ??
+      "I'm here with you — let's take the next tiny step together.";
 
     return NextResponse.json({ message }, { status: 200 });
   } catch (err) {
-    console.error("[coach] error", err);
+    console.error("[coach] API error", err);
     return NextResponse.json(
       {
         message:
-          "Something glitched while fetching advice, but this is almost always fixable. Try the last step again, and if it still fails, send a quick screenshot to support.",
+          "I couldn't load personalised coaching, but you're doing fine — try the last action again, and if it still glitches, refresh the page and we’ll take it step by step.",
       },
       { status: 200 }
     );
