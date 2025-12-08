@@ -30,16 +30,16 @@ export default function DashboardHomePage() {
         throw new Error("Select at least one channel (Facebook for now).");
       }
 
-      const res = await fetch("/api/facebook/post-direct", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message,
-          origin: "quick_blast",
-        }),
-      });
+     const res = await fetch("/api/facebook-test-post", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    message,
+    origin: "quick_blast",
+  }),
+});
 
       let data: any = null;
       try {
