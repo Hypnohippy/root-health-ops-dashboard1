@@ -1,5 +1,15 @@
 import { NextResponse } from "next/server";
 
+// 🔍 Simple GET so you can check the route in a browser
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    route: "/api/facebook-test-post",
+    message:
+      "If you see this in the browser, the API route path is correct and returning JSON.",
+  });
+}
+
 export async function POST(req: Request) {
   try {
     const { message } = await req.json();
