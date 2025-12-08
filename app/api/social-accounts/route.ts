@@ -2,12 +2,10 @@ import { NextResponse } from "next/server";
 import { getCurrentUserId } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-// NOTE: We deliberately use supabaseAdmin here so RLS policies on
-// organisations / organisation_members / social_accounts don't block us.
-// We still scope everything by the current userId.
-
+// We deliberately use supabaseAdmin here so RLS doesn't block us.
+// We still scope everything ourselves by userId -> organisationId.
 async function resolveOrganisationId(userId: string) {
-  // 1) Try organisation_members (user is a member of an org)
+  // 1) Try organisation_members (user is explicitly a member)
   const { data: memberRows, error: memberError } = await supabaseAdmin
     .from("organisation_members")
     .select("organisation_id")
@@ -30,13 +28,37 @@ async function resolveOrganisationId(userId: string) {
     .limit(1);
 
   if (orgError) {
-    console.error("[social-accounts] organisations error", orgError);
+    console.error("[social-accounts] organisations (owner) error", orgError);
   }
 
   if (orgRows && orgRows.length > 0) {
     return orgRows[0].id as string;
   }
 
+  // 3) FINAL fallback: just grab the first organisation in the table.
+  // This makes things work for your single-tenant beta even if owner_id
+  // isn't wired yet. Later we can add a proper org picker.
+  const { data: anyOrgRows, error: anyOrgError } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
+
+  if (anyOrgError) {
+    console.error("[social-accounts] organisations (any) error", anyOrgError);
+  }
+
+  if (anyOrgRows && anyOrgRows.length > 0) {
+    console.warn(
+      "[social-accounts] Falling back to first organisation row for user",
+      userId
+    );
+    return anyOrgRows[0].id as string;
+  }
+
+  console.warn(
+    "[social-accounts] No organisation found at all for user",
+    userId
+  );
   return null;
 }
 
