@@ -1,183 +1,346 @@
-'use client';
 
-import React, { useState } from 'react';
+// app/connect/page.tsx
+"use client";
 
-export default function DashboardConnectPage() {
-  const [testMessage, setTestMessage] = useState(
-    'This is a test post from Root Health Ops Dashboard ✅'
-  );
-  const [isLoading, setIsLoading] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [coachMessage, setCoachMessage] = useState<string | null>(null);
+import React, { useState } from "react";
 
-  const sendTestPost = async () => {
-    setIsLoading(true);
-    setError(null);
-    setStatus(null);
-    setCoachMessage(null);
+type ProviderId =
+  | "facebook"
+  | "instagram"
+  | "tiktok"
+  | "linkedin"
+  | "google"
+  | "email"
+  | "whatsapp";
 
-    try {
-      const res = await fetch('/api/facebook-test-post', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: testMessage,
-        }),
-      });
+type ConnectionStatus = "connected" | "disconnected" | "pending";
 
-      const data = await res.json();
+type Provider = {
+  id: ProviderId;
+  name: string;
+  label: string;
+  description: string;
+  hint?: string;
+  status: ConnectionStatus;
+  accountName?: string;
+  lastSync?: string;
+};
 
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to send test post');
-      }
+const initialProviders: Provider[] = [
+  {
+    id: "facebook",
+    name: "Facebook",
+    label: "Facebook Page",
+    description: "Schedule posts, run gentle ads and reply to comments.",
+    hint: "Requires a Facebook Page and Business Manager access.",
+    status: "disconnected",
+  },
+  {
+    id: "instagram",
+    name: "Instagram",
+    label: "Instagram",
+    description: "Reels, stories and feed posts from the same content.",
+    hint: "Connect via your Facebook account (Meta).",
+    status: "disconnected",
+  },
+  {
+    id: "tiktok",
+    name: "TikTok",
+    label: "TikTok",
+    description: "Short-form video built from your campaigns.",
+    status: "disconnected",
+  },
+  {
+    id: "linkedin",
+    name: "LinkedIn",
+    label: "LinkedIn",
+    description: "Professional presence and referral partner content.",
+    status: "disconnected",
+  },
+  {
+    id: "google",
+    name: "Google Business Profile",
+    label: "Google Business Profile",
+    description: "Local SEO posts so clients find you when they’re searching.",
+    status: "disconnected",
+  },
+  {
+    id: "email",
+    name: "Email",
+    label: "Email newsletter",
+    description: "Educational campaigns and gentle nurture sequences.",
+    hint: "Connect your email platform or start simple with CSV export.",
+    status: "disconnected",
+  },
+  {
+    id: "whatsapp",
+    name: "WhatsApp",
+    label: "WhatsApp / messaging",
+    description: "Automated follow-ups and check-ins, never spammy.",
+    hint: "Requires a WhatsApp Business or approved messaging provider.",
+    status: "disconnected",
+  },
+];
 
-      setStatus('Test post sent successfully to Facebook via Make 🎉');
-    } catch (err: any) {
-      const message =
-        err?.message || 'Something went wrong sending the test post.';
-      setError(message);
+// 👉 TODO: update these URLs to your real OAuth / Make / API entrypoints
+const connectUrls: Record<ProviderId, string> = {
+  facebook: "/api/oauth/facebook/start",
+  instagram: "/api/oauth/instagram/start",
+  tiktok: "/api/oauth/tiktok/start",
+  linkedin: "/api/oauth/linkedin/start",
+  google: "/api/oauth/google/start",
+  email: "/connect/email/setup",
+  whatsapp: "/api/oauth/whatsapp/start",
+};
 
-      // Ask Root Coach what to do next (non-blocking)
-      fetch('/api/ai/root-coach', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          context: 'facebook_test_post',
-          errorMessage: message,
-          userAction:
-            'Tried to send Facebook Test Post from /dashboard/connect in Root Health Ops Dashboard',
-        }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data && data.coachMessage) {
-            setCoachMessage(data.coachMessage);
-          }
-        })
-        .catch(() => {
-          // ignore Root Coach failure silently
-        });
-    } finally {
-      setIsLoading(false);
+export default function ConnectPage() {
+  const [providers, setProviders] = useState<Provider[]>(initialProviders);
+  const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
+
+  const handleConnectClick = (provider: Provider) => {
+    const url = connectUrls[provider.id];
+
+    if (!url || url === "#") {
+      // Safe fallback until backend is wired
+      alert(
+        `Connection flow for ${provider.label} is not wired yet.\n\nUpdate connectUrls[ "${provider.id}" ] in app/connect/page.tsx to your real auth URL when ready.`
+      );
+      return;
     }
+
+    setBusyProvider(provider.id);
+    // In real life this will bounce them into Meta/TikTok/LinkedIn/etc:
+    window.location.href = url;
+  };
+
+  const handleDisconnectClick = (provider: Provider) => {
+    // 👉 TODO: call your backend to revoke tokens / mark disconnected
+    // For now we just update local state so the UI feels snappy.
+    if (!confirm(`Disconnect ${provider.label}? Root Health will stop posting to it.`)) {
+      return;
+    }
+
+    setProviders((prev) =>
+      prev.map((p) =>
+        p.id === provider.id
+          ? {
+              ...p,
+              status: "disconnected",
+              accountName: undefined,
+              lastSync: undefined,
+            }
+          : p
+      )
+    );
+  };
+
+  const handleTestClick = (provider: Provider) => {
+    // 👉 TODO: call a simple /api/connect/test?provider=... endpoint
+    alert(`We’ll add a real connection test for ${provider.label} here later.`);
   };
 
   return (
-    <div className="w-full space-y-6">
-      {/* Header inside dashboard */}
-      <div className="space-y-1">
-        <h1 className="text-xl font-semibold text-slate-50">
-          Connect Channels &amp; Facebook Test Post
-        </h1>
-        <p className="text-xs text-slate-400">
-          Wire up your social channels and fire a live Facebook test post via
-          Make. If anything breaks, Root Coach will help you debug it.
-        </p>
-      </div>
-
-      {/* Channel tiles (simple, dashboard-friendly) */}
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-2">
-          <h2 className="font-semibold text-sm">Facebook Page</h2>
-          <p className="text-xs text-slate-400">
-            Connect your Facebook Page for outbound posts and campaign tracking.
-          </p>
-          <button
-            className="mt-2 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium hover:bg-slate-700"
-            type="button"
-          >
-            Connect / Refresh
-          </button>
-        </div>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-2 opacity-60">
-          <h2 className="font-semibold text-sm">Instagram</h2>
-          <p className="text-xs text-slate-400">
-            Coming soon – post reels &amp; stories from Root Health Ops.
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-2 opacity-60">
-          <h2 className="font-semibold text-sm">TikTok</h2>
-          <p className="text-xs text-slate-400">
-            Coming soon – viral short-form sequences for your brand.
-          </p>
-        </div>
-      </section>
-
-      {/* Facebook Test Post Panel */}
-      <section className="rounded-2xl border border-emerald-500/30 bg-slate-900/80 p-6 space-y-4">
-        <div className="flex items-center justify-between gap-2">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-6xl bg-slate-900/70 border border-slate-700 rounded-3xl shadow-xl p-6 md:p-10 backdrop-blur">
+        {/* Header */}
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
-            <h2 className="text-base font-semibold text-slate-50">
-              Facebook Test Post
-            </h2>
-            <p className="text-[11px] text-slate-400">
-              Sends a live test payload to your Make webhook (
-              <code className="text-[10px] bg-slate-800 px-1 py-0.5 rounded">
-                FACEBOOK_TEST_WEBHOOK_URL
-              </code>
-              ). Use this to confirm your pipeline is alive end-to-end.
+            <h1 className="text-2xl md:text-3xl font-semibold">
+              Connect your channels
+            </h1>
+            <p className="text-sm text-slate-300 mt-1 max-w-xl">
+              Plug your existing pages and profiles into Root Health. You stay
+              in control — we only post what you approve.
             </p>
           </div>
-        </div>
+          <div className="text-xs text-slate-400 bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 max-w-xs">
+            <p className="font-medium text-slate-200 mb-1">
+              Therapist-friendly, not techy
+            </p>
+            <p>
+              Each connection can be removed at any time. No auto-posting until
+              you explicitly approve a campaign.
+            </p>
+          </div>
+        </header>
 
-        <div className="space-y-2">
-          <label className="block text-[11px] font-medium text-slate-300">
-            Test Message
-          </label>
-          <textarea
-            className="w-full min-h-[100px] rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-            value={testMessage}
-            onChange={(e) => setTestMessage(e.target.value)}
+        {/* Quick summary row */}
+        <section className="grid gap-4 md:grid-cols-3 mb-8 text-sm">
+          <SummaryCard
+            label="Connected channels"
+            value={`${providers.filter((p) => p.status === "connected").length} / ${
+              providers.length
+            }`}
           />
-        </div>
+          <SummaryCard
+            label="Ready for posting"
+            value={
+              providers.filter((p) => p.status === "connected").length > 0
+                ? "Yes — at least one"
+                : "Not yet"
+            }
+          />
+          <SummaryCard
+            label="Next step"
+            value="Connect Facebook / Instagram first if you’re not sure."
+          />
+        </section>
 
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={sendTestPost}
-            disabled={isLoading || !testMessage.trim()}
-            className="inline-flex items-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
-          >
-            {isLoading ? 'Sending…' : 'Send Facebook Test Post'}
-          </button>
+        {/* Providers grid */}
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {providers.map((provider) => (
+            <ProviderCard
+              key={provider.id}
+              provider={provider}
+              busy={busyProvider === provider.id}
+              onConnect={() => handleConnectClick(provider)}
+              onDisconnect={() => handleDisconnectClick(provider)}
+              onTest={() => handleTestClick(provider)}
+            />
+          ))}
+        </section>
 
-          {isLoading && (
-            <span className="text-[11px] text-slate-400">
-              Talking to Make &amp; Facebook…
-            </span>
+        {/* Footer */}
+        <footer className="mt-8 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs text-slate-400">
+          <p>
+            Need help connecting something? Your Root Health Ops workspace can
+            be fully guided on a call — no tech knowledge required.
+          </p>
+          <p className="text-slate-500">
+            Tip: Start with Facebook & Instagram, then add others over time.
+          </p>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/* Helper components */
+
+function SummaryCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3">
+      <p className="text-[11px] uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-medium text-slate-100">{value}</p>
+    </div>
+  );
+}
+
+function ProviderCard({
+  provider,
+  busy,
+  onConnect,
+  onDisconnect,
+  onTest,
+}: {
+  provider: Provider;
+  busy: boolean;
+  onConnect: () => void;
+  onDisconnect: () => void;
+  onTest: () => void;
+}) {
+  const isConnected = provider.status === "connected";
+  const isPending = provider.status === "pending";
+
+  return (
+    <div className="flex flex-col rounded-2xl border border-slate-700 bg-slate-900/80 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold">{provider.label}</span>
+            <StatusPill status={provider.status} />
+          </div>
+          <p className="mt-1 text-xs text-slate-300">{provider.description}</p>
+          {provider.hint && (
+            <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>
+          )}
+          {provider.accountName && (
+            <p className="mt-2 text-[11px] text-emerald-300">
+              Connected as <span className="font-medium">{provider.accountName}</span>
+            </p>
+          )}
+          {provider.lastSync && (
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              Last sync: {provider.lastSync}
+            </p>
           )}
         </div>
+      </div>
 
-        {status && (
-          <div className="mt-2 text-[11px] text-emerald-400">
-            {status}
-          </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {!isConnected && (
+          <button
+            type="button"
+            onClick={onConnect}
+            disabled={busy}
+            className="rounded-full bg-blue-500 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-blue-400 disabled:opacity-60"
+          >
+            {busy
+              ? `Opening ${provider.name}…`
+              : `Connect ${provider.name}`}
+          </button>
         )}
 
-        {error && (
-          <div className="mt-2 text-[11px] text-red-400">
-            {error}
-          </div>
+        {isConnected && (
+          <>
+            <button
+              type="button"
+              onClick={onTest}
+              className="rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-100 hover:bg-emerald-500/20"
+            >
+              Test connection
+            </button>
+            <button
+              type="button"
+              onClick={onDisconnect}
+              className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-red-500 hover:text-red-200"
+            >
+              Disconnect
+            </button>
+          </>
         )}
 
-        {coachMessage && (
-          <div className="mt-3 rounded-lg border border-sky-500/40 bg-sky-950/40 p-3">
-            <div className="text-[10px] uppercase tracking-wide text-sky-300 mb-1">
-              Root Coach
-            </div>
-            <div className="text-[11px] text-sky-50 whitespace-pre-wrap">
-              {coachMessage}
-            </div>
-          </div>
+        {isPending && !isConnected && (
+          <button
+            type="button"
+            onClick={onTest}
+            className="rounded-full border border-amber-500/70 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-500/20"
+          >
+            Refresh status
+          </button>
         )}
-      </section>
+      </div>
     </div>
+  );
+}
+
+function StatusPill({ status }: { status: ConnectionStatus }) {
+  let text = "";
+  let color = "";
+
+  switch (status) {
+    case "connected":
+      text = "Connected";
+      color = "bg-emerald-500/20 text-emerald-200 border-emerald-500/60";
+      break;
+    case "pending":
+      text = "Pending";
+      color = "bg-amber-500/15 text-amber-200 border-amber-500/60";
+      break;
+    case "disconnected":
+    default:
+      text = "Not connected";
+      color = "bg-slate-800 text-slate-300 border-slate-600";
+      break;
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${color}`}
+    >
+      {text}
+    </span>
   );
 }
