@@ -145,27 +145,41 @@ export default function DashboardConnectPage() {
     void loadSocialAccounts();
   }, []);
 
-  const saveSocialAccount = async (
-    providerId: ProviderId,
-    pageId?: string,
-    pageName?: string
-  ) => {
-    try {
-      await fetch("/api/social-accounts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          platform: providerId,
-          pageId: pageId ?? null,
-          pageName: pageName ?? null,
-        }),
-      });
-    } catch (err) {
-      console.error("[dashboard/connect] failed to save social account", err);
+ const saveSocialAccount = async (
+  providerId: ProviderId,
+  pageId?: string,
+  pageName?: string
+) => {
+  try {
+    const res = await fetch("/api/social-accounts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        platform: providerId,
+        pageId: pageId ?? null,
+        pageName: pageName ?? null,
+      }),
+    });
+
+    if (!res.ok) {
+      let body: any = null;
+      try {
+        body = await res.json();
+      } catch {
+        // ignore
+      }
+      console.error(
+        "[dashboard/connect] saveSocialAccount failed",
+        res.status,
+        body
+      );
     }
-  };
+  } catch (err) {
+    console.error("[dashboard/connect] failed to save social account", err);
+  }
+};
 
   const deleteSocialAccount = async (providerId: ProviderId) => {
     try {
