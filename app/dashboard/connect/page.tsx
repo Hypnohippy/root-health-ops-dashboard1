@@ -113,30 +113,32 @@ export default function DashboardConnectPage() {
 
   // 🔹 Helper: load social_accounts from the backend and sync providers
   const loadSocialAccounts = async () => {
-    try {
-      const res = await fetch("/api/social-accounts");
-      if (!res.ok) {
-        return;
-      }
-      const data = await res.json();
-      const rows: SocialAccountRow[] = data.socialAccounts ?? [];
-
-      setProviders((prev) =>
-        prev.map((p) => {
-          const row = rows.find((r) => r.platform === p.id);
-          if (!row) return p;
-
-          return {
-            ...p,
-            status: "connected" as ConnectionStatus,
-            accountName: row.page_name ?? p.accountName,
-          };
-        })
-      );
-    } catch (err) {
-      console.error("[dashboard/connect] failed to load social accounts", err);
+  try {
+    const res = await fetch("/api/social-accounts");
+    if (!res.ok) {
+      console.warn("[dashboard/connect] /api/social-accounts not ok", res.status);
+      return;
     }
-  };
+    const data = await res.json();
+    console.log("[dashboard/connect] social-accounts data:", data);
+    const rows: SocialAccountRow[] = data.socialAccounts ?? [];
+
+    setProviders((prev) =>
+      prev.map((p) => {
+        const row = rows.find((r) => r.platform === p.id);
+        if (!row) return p;
+
+        return {
+          ...p,
+          status: "connected" as ConnectionStatus,
+          accountName: row.page_name ?? p.accountName,
+        };
+      })
+    );
+  } catch (err) {
+    console.error("[dashboard/connect] failed to load social accounts", err);
+  }
+};
 
   // 🔹 Initial load of social_accounts
   useEffect(() => {
