@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomUUID } from "crypto";
 
-// TEMP: single-tenant beta mode.
-// We just use the first organisation row as "the current org".
+// Single-tenant beta mode: use the first organisation row as "the current org".
 async function getSingleTenantOrganisationId() {
   const { data, error } = await supabaseAdmin
     .from("organisations")
@@ -85,7 +84,7 @@ export async function POST(req: Request) {
     // See if we already have a row for this org + platform
     const { data: existingRows, error: existingError } = await supabaseAdmin
       .from("social_accounts")
-      .select("id")
+      .select("id, page_id")
       .eq("organisation_id", organisationId)
       .eq("platform", platform)
       .limit(1);
@@ -97,13 +96,23 @@ export async function POST(req: Request) {
     let result;
 
     if (existingRows && existingRows.length > 0) {
+      // UPDATE path
       const id = existingRows[0].id;
+
+      // Respect NOT NULL on page_id:
+      // - Only update it if caller actually sends a pageId
+      // - Otherwise leave it as whatever non-null value it already has
+      const updatePayload: any = {
+        page_name: pageName ?? null,
+      };
+
+      if (typeof pageId === "string" && pageId.trim().length > 0) {
+        updatePayload.page_id = pageId;
+      }
+
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
-        .update({
-          page_id: pageId ?? null,
-          page_name: pageName ?? null,
-        })
+        .update(updatePayload)
         .eq("id", id)
         .select()
         .single();
@@ -111,14 +120,24 @@ export async function POST(req: Request) {
       if (error) {
         console.error("[social-accounts] update error", error);
         return NextResponse.json(
-          { error: "Failed to update social account" },
+          { error: "Failed to update social account", details: error },
           { status: 500 }
         );
       }
 
       result = data;
     } else {
-      const newId = randomUUID(); // ensure we always provide a non-null id
+      // INSERT path
+      const newId = randomUUID();
+
+      // Respect NOT NULL on page_id:
+      // We don't know the real FB page ID yet (no OAuth), so we store
+      // a placeholder that we can overwrite later when we implement
+      // real page selection.
+      const safePageId =
+        (typeof pageId === "string" && pageId.trim().length > 0
+          ? pageId
+          : "pending_page_id") + "";
 
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
@@ -126,8 +145,11 @@ export async function POST(req: Request) {
           id: newId,
           organisation_id: organisationId,
           platform,
-          page_id: pageId ?? null,
+          page_id: safePageId, // NOT NULL
           page_name: pageName ?? null,
+          // connection_type defaults to 'make_webhook'
+          // is_active defaults to true
+          // created_at defaults to now()
         })
         .select()
         .single();
