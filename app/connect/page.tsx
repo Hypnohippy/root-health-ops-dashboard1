@@ -1,152 +1,182 @@
-"use client";
+'use client';
 
-import React, { useState } from "react";
+import React, { useState } from 'react';
 
 export default function ConnectPage() {
-  const [fbMessage, setFbMessage] = useState(
-    "This is a test post from Root Health Ops."
+  const [testMessage, setTestMessage] = useState(
+    'This is a test post from Root Health Ops Dashboard ✅'
   );
-  const [fbLink, setFbLink] = useState("");
-  const [fbStatus, setFbStatus] = useState<string | null>(null);
-  const [fbLoading, setFbLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
-  const handleFacebookTestPost = async () => {
+  const sendTestPost = async () => {
+    setIsLoading(true);
+    setError(null);
+    setStatus(null);
+    setCoachMessage(null);
+
     try {
-      setFbLoading(true);
-      setFbStatus(null);
-
-      const res = await fetch("/api/social/facebook-test-post", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch('/api/facebook-test-post', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
-          message: fbMessage,
-          link: fbLink,
+          message: testMessage,
         }),
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || "Failed to trigger test post");
+        throw new Error(data.error || 'Failed to send test post');
       }
 
-      setFbStatus("✅ Test post triggered. Check your Facebook Page.");
+      setStatus('Test post sent successfully to Facebook via Make 🎉');
     } catch (err: any) {
-      console.error("[connect] facebook test error", err);
-      setFbStatus(
-        err?.message ||
-          "Something went wrong triggering the test post. Check your webhook URL and try again."
-      );
+      const message =
+        err?.message || 'Something went wrong sending the test post.';
+      setError(message);
+
+      // Ask Root Coach what to do next
+      fetch('/api/ai/root-coach', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          context: 'facebook_test_post',
+          errorMessage: message,
+          userAction:
+            'Tried to send Facebook Test Post from Connect page in Root Health Ops Dashboard',
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.coachMessage) {
+            setCoachMessage(data.coachMessage);
+          }
+        })
+        .catch(() => {
+          // silently ignore Root Coach failure
+        });
     } finally {
-      setFbLoading(false);
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-4xl bg-slate-900/80 border border-slate-700 rounded-3xl shadow-xl p-6 md:p-10 backdrop-blur">
-        <header className="mb-6">
-          <h1 className="text-2xl md:text-3xl font-semibold">
-            Connect your channels
+    <div className="min-h-screen bg-slate-950 text-slate-50">
+      <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+        <header className="space-y-2">
+          <h1 className="text-3xl font-bold">
+            Connect Channels &amp; Facebook Test Post
           </h1>
-          <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-            This is where Root Health Ops plugs into Facebook, Instagram,
-            LinkedIn, TikTok and more. Today you can fire a real test post to
-            Facebook using your existing Make scenario, so you know the
-            pipeline works end-to-end.
+          <p className="text-slate-300 text-sm">
+            Wire up your social channels and fire a live Facebook test post via
+            Make. If anything breaks, Root Coach will help you debug it.
           </p>
         </header>
 
-        {/* Channel status cards */}
-        <section className="grid gap-4 md:grid-cols-2 text-xs mb-8">
-          {[
-            { label: "Facebook Page", status: "Test posting available" },
-            { label: "Instagram Business", status: "Coming soon" },
-            { label: "LinkedIn Page", status: "Coming soon" },
-            { label: "TikTok", status: "Coming soon" },
-            { label: "Google Business Profile", status: "Coming soon" },
-            { label: "Email newsletter", status: "Coming soon" },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 flex items-center justify-between"
+        {/* Channel tiles */}
+        <section className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2">
+            <h2 className="font-semibold">Facebook Page</h2>
+            <p className="text-xs text-slate-400">
+              Connect your Facebook Page for outbound posts and campaign
+              tracking.
+            </p>
+            <button
+              className="mt-2 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium hover:bg-slate-700"
+              type="button"
             >
-              <div>
-                <div className="text-slate-100 font-medium">{item.label}</div>
-                <div className="text-[11px] text-slate-400">{item.status}</div>
-              </div>
-              <button
-                type="button"
-                disabled
-                className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-[11px] text-slate-400 cursor-not-allowed"
-              >
-                {item.status === "Test posting available"
-                  ? "Using webhook"
-                  : "Not yet available"}
-              </button>
-            </div>
-          ))}
-        </section>
+              Connect / Refresh
+            </button>
+          </div>
 
-        {/* Facebook test posting panel */}
-        <section className="rounded-2xl border border-blue-500/60 bg-blue-500/10 p-4 mb-4 text-sm">
-          <h2 className="text-sm font-semibold text-blue-100 mb-2">
-            Facebook test post (via Make)
-          </h2>
-          <p className="text-[11px] text-blue-50/80 mb-3">
-            This uses your existing Make scenario. Make sure{" "}
-            <span className="font-mono">
-              FACEBOOK_TEST_WEBHOOK_URL
-            </span>{" "}
-            is set in Vercel to your Make webhook URL. Then send a test post
-            straight from Root Health Ops.
-          </p>
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2 opacity-60">
+            <h2 className="font-semibold">Instagram</h2>
+            <p className="text-xs text-slate-400">
+              Coming soon – post reels & stories from Root Health Ops.
+            </p>
+          </div>
 
-          <div className="space-y-3">
-            <div>
-              <label className="block text-[11px] text-blue-50 mb-1">
-                Message
-              </label>
-              <textarea
-                className="w-full rounded-xl bg-slate-950/70 border border-blue-500/60 px-3 py-2 text-xs text-slate-100"
-                value={fbMessage}
-                onChange={(e) => setFbMessage(e.target.value)}
-                rows={3}
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] text-blue-50 mb-1">
-                Link (optional)
-              </label>
-              <input
-                className="w-full rounded-xl bg-slate-950/70 border border-blue-500/60 px-3 py-2 text-xs text-slate-100"
-                value={fbLink}
-                onChange={(e) => setFbLink(e.target.value)}
-                placeholder="https://roothealth.app"
-              />
-            </div>
-
-            {fbStatus && (
-              <div className="text-[11px] text-blue-50 mt-1">{fbStatus}</div>
-            )}
-
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={handleFacebookTestPost}
-                disabled={fbLoading}
-                className="rounded-full bg-blue-500 px-4 py-2 text-xs font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-40"
-              >
-                {fbLoading ? "Sending…" : "Send test post to Facebook"}
-              </button>
-            </div>
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2 opacity-60">
+            <h2 className="font-semibold">TikTok</h2>
+            <p className="text-xs text-slate-400">
+              Coming soon – viral short-form sequences for your brand.
+            </p>
           </div>
         </section>
 
-        <footer className="text-[11px] text-slate-500">
-          As we wire in each platform, this page will light up with real
-          “Connect” buttons, status tags and posting options, all guided by Root
-          Coach so you&apos;re never left guessing.
-        </footer>
+        {/* Facebook Test Post Panel */}
+        <section className="mt-6 rounded-2xl border border-emerald-500/30 bg-slate-900/70 p-6 space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-xl font-semibold">Facebook Test Post</h2>
+              <p className="text-xs text-slate-400">
+                Sends a live test payload to your Make webhook (
+                <code className="text-[10px] bg-slate-800 px-1 py-0.5 rounded">
+                  FACEBOOK_TEST_WEBHOOK_URL
+                </code>
+                ). Use this to confirm your pipeline is alive end-to-end.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-slate-300">
+              Test Message
+            </label>
+            <textarea
+              className="w-full min-h-[120px] rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+              value={testMessage}
+              onChange={(e) => setTestMessage(e.target.value)}
+            />
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={sendTestPost}
+              disabled={isLoading || !testMessage.trim()}
+              className="inline-flex items-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+            >
+              {isLoading ? 'Sending…' : 'Send Facebook Test Post'}
+            </button>
+
+            {isLoading && (
+              <span className="text-xs text-slate-400">
+                Talking to Make &amp; Facebook…
+              </span>
+            )}
+          </div>
+
+          {status && (
+            <div className="mt-2 text-xs text-emerald-400">
+              {status}
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-2 text-xs text-red-400">
+              {error}
+            </div>
+          )}
+
+          {coachMessage && (
+            <div className="mt-3 rounded-lg border border-sky-500/40 bg-sky-950/40 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-sky-300 mb-1">
+                Root Coach
+              </div>
+              <div className="text-xs text-sky-50 whitespace-pre-wrap">
+                {coachMessage}
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
