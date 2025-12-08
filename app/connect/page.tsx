@@ -1,7 +1,7 @@
 // app/connect/page.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 type ProviderId =
   | "facebook"
@@ -81,7 +81,7 @@ const initialProviders: Provider[] = [
   },
 ];
 
-// 👉 TODO: update these URLs to your real OAuth / Make / API entrypoints
+// 👉 TODO later: real OAuth / auth entrypoints
 const connectUrls: Record<ProviderId, string> = {
   facebook: "/api/oauth/facebook/start",
   instagram: "/api/oauth/instagram/start",
@@ -92,11 +92,17 @@ const connectUrls: Record<ProviderId, string> = {
   whatsapp: "/api/oauth/whatsapp/start",
 };
 
+type SocialAccountRow = {
+  platform: ProviderId;
+  page_id: string | null;
+  page_name: string | null;
+};
+
 export default function ConnectPage() {
   const [providers, setProviders] = useState<Provider[]>(initialProviders);
   const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
 
-  // 🔹 New: Facebook Test Post + Root Coach state
+  // Facebook Test Post + Root Coach state
   const [testMessage, setTestMessage] = useState(
     "This is a test post from Root Health Ops Dashboard ✅"
   );
@@ -105,11 +111,79 @@ export default function ConnectPage() {
   const [testError, setTestError] = useState<string | null>(null);
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
+  // 🔹 Load existing social_accounts for this org
+  useEffect(() => {
+    const loadSocialAccounts = async () => {
+      try {
+        const res = await fetch("/api/social-accounts");
+        if (!res.ok) {
+          return;
+        }
+        const data = await res.json();
+        const rows: SocialAccountRow[] = data.socialAccounts ?? [];
+
+        setProviders((prev) =>
+          prev.map((p) => {
+            const row = rows.find((r) => r.platform === p.id);
+            if (!row) return p;
+
+            return {
+              ...p,
+              status: "connected" as ConnectionStatus,
+              accountName: row.page_name ?? p.accountName,
+            };
+          })
+        );
+      } catch (err) {
+        console.error("[connect] failed to load social accounts", err);
+      }
+    };
+
+    loadSocialAccounts();
+  }, []);
+
+  const saveSocialAccount = async (
+    providerId: ProviderId,
+    pageId?: string,
+    pageName?: string
+  ) => {
+    try {
+      await fetch("/api/social-accounts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          platform: providerId,
+          pageId: pageId ?? null,
+          pageName: pageName ?? null,
+        }),
+      });
+    } catch (err) {
+      console.error("[connect] failed to save social account", err);
+    }
+  };
+
+  const deleteSocialAccount = async (providerId: ProviderId) => {
+    try {
+      await fetch("/api/social-accounts", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          platform: providerId,
+        }),
+      });
+    } catch (err) {
+      console.error("[connect] failed to delete social account", err);
+    }
+  };
+
   const handleConnectClick = (provider: Provider) => {
     const url = connectUrls[provider.id];
 
     if (!url || url === "#") {
-      // Safe fallback until backend is wired
       alert(
         `Connection flow for ${provider.label} is not wired yet.\n\nUpdate connectUrls[ "${provider.id}" ] in app/connect/page.tsx to your real auth URL when ready.`
       );
@@ -117,13 +191,10 @@ export default function ConnectPage() {
     }
 
     setBusyProvider(provider.id);
-    // In real life this will bounce them into Meta/TikTok/LinkedIn/etc:
     window.location.href = url;
   };
 
   const handleDisconnectClick = (provider: Provider) => {
-    // 👉 TODO: call your backend to revoke tokens / mark disconnected
-    // For now we just update local state so the UI feels snappy.
     if (
       !confirm(
         `Disconnect ${provider.label}? Root Health will stop posting to it.`
@@ -144,9 +215,10 @@ export default function ConnectPage() {
           : p
       )
     );
+
+    void deleteSocialAccount(provider.id);
   };
 
-  // 🔹 New: central function to actually send the test post to your API
   const sendFacebookTestPost = async () => {
     setTestIsLoading(true);
     setTestStatus(null);
@@ -166,7 +238,6 @@ export default function ConnectPage() {
 
       let data: any = null;
       try {
-        // This is where the "Unexpected end of JSON input" was coming from
         data = await res.json();
       } catch (err) {
         throw new Error(
@@ -179,12 +250,29 @@ export default function ConnectPage() {
       }
 
       setTestStatus("Test post sent successfully to Facebook via Make 🎉");
+
+      // Mark Facebook as connected locally + persist in social_accounts
+      const now = new Date().toISOString();
+
+      setProviders((prev) =>
+        prev.map((p) =>
+          p.id === "facebook"
+            ? {
+                ...p,
+                status: "connected" as ConnectionStatus,
+                lastSync: now,
+                accountName: p.accountName ?? "Your Facebook Page",
+              }
+            : p
+        )
+      );
+
+      void saveSocialAccount("facebook", null, "Your Facebook Page");
     } catch (err: any) {
       const message =
         err?.message || "Something went wrong sending the test post.";
       setTestError(message);
 
-      // 🔹 Ask Root Coach what to do next (non-blocking)
       fetch("/api/ai/root-coach", {
         method: "POST",
         headers: {
@@ -203,22 +291,18 @@ export default function ConnectPage() {
             setCoachMessage(data.coachMessage);
           }
         })
-        .catch(() => {
-          // silently ignore Root Coach failure
-        });
+        .catch(() => {});
     } finally {
       setTestIsLoading(false);
     }
   };
 
   const handleTestClick = (provider: Provider) => {
-    // 🔹 Special behaviour for Facebook: call the real test endpoint
     if (provider.id === "facebook") {
       void sendFacebookTestPost();
       return;
     }
 
-    // Other providers still just show a placeholder for now
     alert(`We’ll add a real connection test for ${provider.label} here later.`);
   };
 
@@ -283,7 +367,7 @@ export default function ConnectPage() {
           ))}
         </section>
 
-        {/* 🔹 New: Facebook Test Post panel */}
+        {/* Facebook Test Post panel */}
         <section className="rounded-2xl border border-emerald-500/30 bg-slate-900/80 p-6 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <div>
