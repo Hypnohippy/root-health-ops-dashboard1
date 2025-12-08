@@ -25,6 +25,8 @@ type Provider = {
   lastSync?: string;
 };
 
+const STORAGE_KEY = "rh_connect_providers";
+
 const initialProviders: Provider[] = [
   {
     id: "facebook",
@@ -113,77 +115,108 @@ export default function DashboardConnectPage() {
 
   // 🔹 Helper: load social_accounts from the backend and sync providers
   const loadSocialAccounts = async () => {
-  try {
-    const res = await fetch("/api/social-accounts");
-    if (!res.ok) {
-      console.warn("[dashboard/connect] /api/social-accounts not ok", res.status);
-      return;
+    try {
+      const res = await fetch("/api/social-accounts");
+      if (!res.ok) {
+        console.warn(
+          "[dashboard/connect] /api/social-accounts not ok",
+          res.status
+        );
+        return;
+      }
+      const data = await res.json();
+      console.log("[dashboard/connect] social-accounts data:", data);
+      const rows: SocialAccountRow[] = data.socialAccounts ?? [];
+
+      setProviders((prev) =>
+        prev.map((p) => {
+          const row = rows.find((r) => r.platform === p.id);
+          if (!row) return p;
+
+          return {
+            ...p,
+            status: "connected" as ConnectionStatus,
+            accountName: row.page_name ?? p.accountName,
+          };
+        })
+      );
+    } catch (err) {
+      console.error(
+        "[dashboard/connect] failed to load social accounts",
+        err
+      );
     }
-    const data = await res.json();
-    console.log("[dashboard/connect] social-accounts data:", data);
-    const rows: SocialAccountRow[] = data.socialAccounts ?? [];
+  };
 
-    setProviders((prev) =>
-      prev.map((p) => {
-        const row = rows.find((r) => r.platform === p.id);
-        if (!row) return p;
-
-        return {
-          ...p,
-          status: "connected" as ConnectionStatus,
-          accountName: row.page_name ?? p.accountName,
-        };
-      })
-    );
-  } catch (err) {
-    console.error("[dashboard/connect] failed to load social accounts", err);
-  }
-};
-
-  // 🔹 Initial load of social_accounts
+  // 🔹 Initial load: hydrate from localStorage, then overlay Supabase if it works
   useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const stored = window.localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as Provider[];
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setProviders(parsed);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[dashboard/connect] failed to read localStorage", err);
+    }
+
     void loadSocialAccounts();
   }, []);
 
- const saveSocialAccount = async (
-  providerId: ProviderId,
-  pageId?: string,
-  pageName?: string
-) => {
-  try {
-    const res = await fetch("/api/social-accounts", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        platform: providerId,
-        pageId: pageId ?? null,
-        pageName: pageName ?? null,
-      }),
-    });
-
-    if (!res.ok) {
-      let body: any = null;
-      try {
-        body = await res.json();
-      } catch {
-        // ignore
+  // 🔹 Persist providers state to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(providers));
       }
-      console.error(
-        "[dashboard/connect] saveSocialAccount failed",
-        res.status,
-        body
-      );
+    } catch (err) {
+      console.warn("[dashboard/connect] failed to write localStorage", err);
     }
-  } catch (err) {
-    console.error("[dashboard/connect] failed to save social account", err);
-  }
-};
+  }, [providers]);
+
+  const saveSocialAccount = async (
+    providerId: ProviderId,
+    pageId?: string,
+    pageName?: string
+  ) => {
+    try {
+      const res = await fetch("/api/social-accounts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          platform: providerId,
+          pageId: pageId ?? null,
+          pageName: pageName ?? null,
+        }),
+      });
+
+      if (!res.ok) {
+        let body: any = null;
+        try {
+          body = await res.json();
+        } catch {
+          // ignore
+        }
+        console.error(
+          "[dashboard/connect] saveSocialAccount failed",
+          res.status,
+          body
+        );
+      }
+    } catch (err) {
+      console.error("[dashboard/connect] failed to save social account", err);
+    }
+  };
 
   const deleteSocialAccount = async (providerId: ProviderId) => {
     try {
-      await fetch("/api/social-accounts", {
+      const res = await fetch("/api/social-accounts", {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -192,6 +225,20 @@ export default function DashboardConnectPage() {
           platform: providerId,
         }),
       });
+
+      if (!res.ok) {
+        let body: any = null;
+        try {
+          body = await res.json();
+        } catch {
+          // ignore
+        }
+        console.error(
+          "[dashboard/connect] deleteSocialAccount failed",
+          res.status,
+          body
+        );
+      }
     } catch (err) {
       console.error("[dashboard/connect] failed to delete social account", err);
     }
@@ -284,7 +331,7 @@ export default function DashboardConnectPage() {
         )
       );
 
-      // Persist to social_accounts and then reload from Supabase
+      // Best effort: persist to Supabase as well (may still 500, but UI now persists via localStorage)
       await saveSocialAccount("facebook", undefined, "Your Facebook Page");
       await loadSocialAccounts();
     } catch (err: any) {
