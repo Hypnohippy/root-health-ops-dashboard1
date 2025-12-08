@@ -12,7 +12,7 @@ export default function DashboardHomePage() {
   const [error, setError] = useState<string | null>(null);
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
-  // For now we support Facebook via the same Make webhook used by the Test Post
+  // For now we support Facebook directly via Graph API
   const [sendToFacebook, setSendToFacebook] = useState(true);
 
   const handleQuickBlast = async () => {
@@ -30,9 +30,7 @@ export default function DashboardHomePage() {
         throw new Error("Select at least one channel (Facebook for now).");
       }
 
-      // For now we reuse the existing Make webhook via /api/facebook-test-post.
-      // Later we can switch this to /api/facebook/post-now and wire tokens properly.
-      const res = await fetch("/api/facebook-test-post", {
+      const res = await fetch("/api/facebook/post-direct", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -48,7 +46,7 @@ export default function DashboardHomePage() {
         data = await res.json();
       } catch {
         throw new Error(
-          "Server did not return valid JSON. Check the /api/facebook-test-post route."
+          "Server did not return valid JSON. Check the /api/facebook/post-direct route."
         );
       }
 
@@ -56,7 +54,7 @@ export default function DashboardHomePage() {
         throw new Error(data.error || "Failed to send Quick Blast.");
       }
 
-      setStatus("Quick Blast sent to Facebook via Root Health Ops 🎉");
+      setStatus("Quick Blast posted directly to your Facebook Page 🎉");
     } catch (err: any) {
       const msg =
         err?.message || "Something went wrong sending your Quick Blast.";
@@ -163,7 +161,7 @@ export default function DashboardHomePage() {
                   <span>Facebook Page</span>
                   {sendToFacebook && (
                     <span className="text-[10px] text-emerald-300">
-                      connected
+                      selected
                     </span>
                   )}
                 </button>
@@ -200,7 +198,7 @@ export default function DashboardHomePage() {
 
               {isPosting && (
                 <span className="text-[11px] text-slate-400">
-                  Talking to Make &amp; Facebook…
+                  Talking directly to Facebook…
                 </span>
               )}
             </div>
@@ -272,9 +270,8 @@ export default function DashboardHomePage() {
                 Note
               </p>
               <p>
-                This is your live beta cockpit. We’ll swap the underlying
-                Facebook route from the test webhook to a direct Graph API
-                endpoint when you’re ready to go fully native.
+                This is your live beta cockpit. Quick Blast now talks directly
+                to Facebook. We can retire Make for posting bit by bit.
               </p>
             </div>
           </section>
