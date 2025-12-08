@@ -1,80 +1,31 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserId } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-// We deliberately use supabaseAdmin here so RLS doesn't block us.
-// We still scope everything ourselves by userId -> organisationId.
-async function resolveOrganisationId(userId: string) {
-  // 1) Try organisation_members (user is explicitly a member)
-  const { data: memberRows, error: memberError } = await supabaseAdmin
-    .from("organisation_members")
-    .select("organisation_id")
-    .eq("user_id", userId)
-    .limit(1);
-
-  if (memberError) {
-    console.error("[social-accounts] organisation_members error", memberError);
-  }
-
-  if (memberRows && memberRows.length > 0) {
-    return memberRows[0].organisation_id as string;
-  }
-
-  // 2) Fallback to organisations where user is the owner
-  const { data: orgRows, error: orgError } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .eq("owner_id", userId)
-    .limit(1);
-
-  if (orgError) {
-    console.error("[social-accounts] organisations (owner) error", orgError);
-  }
-
-  if (orgRows && orgRows.length > 0) {
-    return orgRows[0].id as string;
-  }
-
-  // 3) FINAL fallback: just grab the first organisation in the table.
-  // This makes things work for your single-tenant beta even if owner_id
-  // isn't wired yet. Later we can add a proper org picker.
-  const { data: anyOrgRows, error: anyOrgError } = await supabaseAdmin
+// TEMP: single-tenant beta mode.
+// We just use the first organisation row as "the current org".
+async function getSingleTenantOrganisationId() {
+  const { data, error } = await supabaseAdmin
     .from("organisations")
     .select("id")
     .limit(1);
 
-  if (anyOrgError) {
-    console.error("[social-accounts] organisations (any) error", anyOrgError);
+  if (error) {
+    console.error("[social-accounts] organisations error", error);
+    return null;
   }
 
-  if (anyOrgRows && anyOrgRows.length > 0) {
-    console.warn(
-      "[social-accounts] Falling back to first organisation row for user",
-      userId
-    );
-    return anyOrgRows[0].id as string;
+  if (!data || data.length === 0) {
+    console.warn("[social-accounts] No organisations found in database");
+    return null;
   }
 
-  console.warn(
-    "[social-accounts] No organisation found at all for user",
-    userId
-  );
-  return null;
+  return data[0].id as string;
 }
 
 // GET /api/social-accounts
 export async function GET() {
   try {
-    const userId = await getCurrentUserId();
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: "Not authenticated" },
-        { status: 401 }
-      );
-    }
-
-    const organisationId = await resolveOrganisationId(userId);
+    const organisationId = await getSingleTenantOrganisationId();
 
     if (!organisationId) {
       return NextResponse.json({
@@ -112,15 +63,6 @@ export async function GET() {
 // POST /api/social-accounts
 export async function POST(req: Request) {
   try {
-    const userId = await getCurrentUserId();
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: "Not authenticated" },
-        { status: 401 }
-      );
-    }
-
     const { platform, pageId, pageName } = await req.json();
 
     if (!platform) {
@@ -130,11 +72,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const organisationId = await resolveOrganisationId(userId);
+    const organisationId = await getSingleTenantOrganisationId();
 
     if (!organisationId) {
       return NextResponse.json(
-        { error: "No organisation found for current user" },
+        { error: "No organisation found" },
         { status: 400 }
       );
     }
@@ -213,15 +155,6 @@ export async function POST(req: Request) {
 // DELETE /api/social-accounts
 export async function DELETE(req: Request) {
   try {
-    const userId = await getCurrentUserId();
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: "Not authenticated" },
-        { status: 401 }
-      );
-    }
-
     const { platform } = await req.json();
 
     if (!platform) {
@@ -231,11 +164,11 @@ export async function DELETE(req: Request) {
       );
     }
 
-    const organisationId = await resolveOrganisationId(userId);
+    const organisationId = await getSingleTenantOrganisationId();
 
     if (!organisationId) {
       return NextResponse.json(
-        { error: "No organisation found for current user" },
+        { error: "No organisation found" },
         { status: 400 }
       );
     }
