@@ -267,7 +267,7 @@ export default function ConnectPage() {
         )
       );
 
-      void saveSocialAccount("facebook", null, "Your Facebook Page");
+      void saveSocialAccount("facebook", undefined, "Your Facebook Page");
     } catch (err: any) {
       const message =
         err?.message || "Something went wrong sending the test post.";
