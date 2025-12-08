@@ -1,4 +1,3 @@
-
 // app/connect/page.tsx
 "use client";
 
@@ -97,6 +96,15 @@ export default function ConnectPage() {
   const [providers, setProviders] = useState<Provider[]>(initialProviders);
   const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
 
+  // 🔹 New: Facebook Test Post + Root Coach state
+  const [testMessage, setTestMessage] = useState(
+    "This is a test post from Root Health Ops Dashboard ✅"
+  );
+  const [testIsLoading, setTestIsLoading] = useState(false);
+  const [testStatus, setTestStatus] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [coachMessage, setCoachMessage] = useState<string | null>(null);
+
   const handleConnectClick = (provider: Provider) => {
     const url = connectUrls[provider.id];
 
@@ -116,7 +124,11 @@ export default function ConnectPage() {
   const handleDisconnectClick = (provider: Provider) => {
     // 👉 TODO: call your backend to revoke tokens / mark disconnected
     // For now we just update local state so the UI feels snappy.
-    if (!confirm(`Disconnect ${provider.label}? Root Health will stop posting to it.`)) {
+    if (
+      !confirm(
+        `Disconnect ${provider.label}? Root Health will stop posting to it.`
+      )
+    ) {
       return;
     }
 
@@ -134,8 +146,79 @@ export default function ConnectPage() {
     );
   };
 
+  // 🔹 New: central function to actually send the test post to your API
+  const sendFacebookTestPost = async () => {
+    setTestIsLoading(true);
+    setTestStatus(null);
+    setTestError(null);
+    setCoachMessage(null);
+
+    try {
+      const res = await fetch("/api/facebook-test-post", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: testMessage,
+        }),
+      });
+
+      let data: any = null;
+      try {
+        // This is where the "Unexpected end of JSON input" was coming from
+        data = await res.json();
+      } catch (err) {
+        throw new Error(
+          "Server did not return valid JSON. Check the /api/facebook-test-post route."
+        );
+      }
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to send test post");
+      }
+
+      setTestStatus("Test post sent successfully to Facebook via Make 🎉");
+    } catch (err: any) {
+      const message =
+        err?.message || "Something went wrong sending the test post.";
+      setTestError(message);
+
+      // 🔹 Ask Root Coach what to do next (non-blocking)
+      fetch("/api/ai/root-coach", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          context: "facebook_test_post",
+          errorMessage: message,
+          userAction:
+            "Clicked Test connection / Facebook Test Post in app/connect/page.tsx",
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.coachMessage) {
+            setCoachMessage(data.coachMessage);
+          }
+        })
+        .catch(() => {
+          // silently ignore Root Coach failure
+        });
+    } finally {
+      setTestIsLoading(false);
+    }
+  };
+
   const handleTestClick = (provider: Provider) => {
-    // 👉 TODO: call a simple /api/connect/test?provider=... endpoint
+    // 🔹 Special behaviour for Facebook: call the real test endpoint
+    if (provider.id === "facebook") {
+      void sendFacebookTestPost();
+      return;
+    }
+
+    // Other providers still just show a placeholder for now
     alert(`We’ll add a real connection test for ${provider.label} here later.`);
   };
 
@@ -187,7 +270,7 @@ export default function ConnectPage() {
         </section>
 
         {/* Providers grid */}
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
           {providers.map((provider) => (
             <ProviderCard
               key={provider.id}
@@ -200,6 +283,75 @@ export default function ConnectPage() {
           ))}
         </section>
 
+        {/* 🔹 New: Facebook Test Post panel */}
+        <section className="rounded-2xl border border-emerald-500/30 bg-slate-900/80 p-6 space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base md:text-lg font-semibold text-slate-50">
+                Facebook Test Post
+              </h2>
+              <p className="text-[11px] md:text-xs text-slate-400">
+                Sends a live test payload to your Make webhook (
+                <code className="text-[10px] bg-slate-800 px-1 py-0.5 rounded">
+                  FACEBOOK_TEST_WEBHOOK_URL
+                </code>
+                ). Use this to confirm your pipeline is alive end-to-end.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-[11px] font-medium text-slate-300">
+              Test message content
+            </label>
+            <textarea
+              className="w-full min-h-[100px] rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+              value={testMessage}
+              onChange={(e) => setTestMessage(e.target.value)}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={sendFacebookTestPost}
+              disabled={testIsLoading || !testMessage.trim()}
+              className="inline-flex items-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+            >
+              {testIsLoading ? "Sending…" : "Send Facebook Test Post"}
+            </button>
+
+            {testIsLoading && (
+              <span className="text-[11px] text-slate-400">
+                Talking to Make &amp; Facebook…
+              </span>
+            )}
+          </div>
+
+          {testStatus && (
+            <div className="mt-2 text-[11px] text-emerald-400">
+              {testStatus}
+            </div>
+          )}
+
+          {testError && (
+            <div className="mt-2 text-[11px] text-red-400">
+              {testError}
+            </div>
+          )}
+
+          {coachMessage && (
+            <div className="mt-3 rounded-lg border border-sky-500/40 bg-sky-950/40 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-sky-300 mb-1">
+                Root Coach
+              </div>
+              <div className="text-[11px] text-sky-50 whitespace-pre-wrap">
+                {coachMessage}
+              </div>
+            </div>
+          )}
+        </section>
+
         {/* Footer */}
         <footer className="mt-8 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs text-slate-400">
           <p>
@@ -207,7 +359,7 @@ export default function ConnectPage() {
             be fully guided on a call — no tech knowledge required.
           </p>
           <p className="text-slate-500">
-            Tip: Start with Facebook & Instagram, then add others over time.
+            Tip: Start with Facebook &amp; Instagram, then add others over time.
           </p>
         </footer>
       </div>
@@ -258,7 +410,8 @@ function ProviderCard({
           )}
           {provider.accountName && (
             <p className="mt-2 text-[11px] text-emerald-300">
-              Connected as <span className="font-medium">{provider.accountName}</span>
+              Connected as{" "}
+              <span className="font-medium">{provider.accountName}</span>
             </p>
           )}
           {provider.lastSync && (
@@ -277,9 +430,7 @@ function ProviderCard({
             disabled={busy}
             className="rounded-full bg-blue-500 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-blue-400 disabled:opacity-60"
           >
-            {busy
-              ? `Opening ${provider.name}…`
-              : `Connect ${provider.name}`}
+            {busy ? `Opening ${provider.name}…` : `Connect ${provider.name}`}
           </button>
         )}
 
