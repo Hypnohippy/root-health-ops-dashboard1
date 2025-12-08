@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { randomUUID } from "crypto";
 
 // TEMP: single-tenant beta mode.
 // We just use the first organisation row as "the current org".
@@ -117,9 +118,12 @@ export async function POST(req: Request) {
 
       result = data;
     } else {
+      const newId = randomUUID(); // ensure we always provide a non-null id
+
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
         .insert({
+          id: newId,
           organisation_id: organisationId,
           platform,
           page_id: pageId ?? null,
@@ -131,7 +135,7 @@ export async function POST(req: Request) {
       if (error) {
         console.error("[social-accounts] insert error", error);
         return NextResponse.json(
-          { error: "Failed to create social account" },
+          { error: "Failed to create social account", details: error },
           { status: 500 }
         );
       }
