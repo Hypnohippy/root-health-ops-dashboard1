@@ -27,6 +27,12 @@ export async function POST(req: Request) {
       : [];
     const origin: string = body.origin || "quick_blast_dashboard";
 
+    // NEW: optional image URL coming from the dashboard
+    const imageUrl: string | undefined =
+      typeof body.imageUrl === "string" && body.imageUrl.trim().length > 0
+        ? body.imageUrl.trim()
+        : undefined;
+
     if (!message) {
       return NextResponse.json(
         { error: "Message is required." },
@@ -81,6 +87,7 @@ export async function POST(req: Request) {
           },
           body: JSON.stringify({
             message,
+            imageUrl, // 👈 NEW: forward imageUrl through to Make
             channel,
             origin,
             source: "root_health_ops_dashboard",
