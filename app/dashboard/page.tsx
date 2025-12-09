@@ -23,6 +23,8 @@ export default function DashboardHomePage() {
   const [message, setMessage] = useState(
     "Quick check-in from Root Health Ops Dashboard ✅"
   );
+  const [imageUrl, setImageUrl] = useState(""); // 👈 NEW: Image URL state
+
   const [isPosting, setIsPosting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +78,7 @@ export default function DashboardHomePage() {
           message: trimmed,
           channels,
           origin: "quick_blast_dashboard",
+          imageUrl: imageUrl.trim() || undefined, // 👈 NEW: send imageUrl if present
         }),
       });
 
@@ -223,6 +226,25 @@ export default function DashboardHomePage() {
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder="E.g. A gentle check-in message, a reminder, or something supportive for your audience."
               />
+            </div>
+
+            {/* NEW: Image URL field */}
+            <div className="space-y-1">
+              <label className="block text-[11px] font-medium text-slate-300">
+                Image URL (optional, mainly for Instagram)
+              </label>
+              <input
+                type="url"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-500"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="https://example.com/your-image.jpg"
+              />
+              <p className="text-[10px] text-slate-500">
+                Paste a direct image link (JPG/PNG). Instagram requires a valid
+                image URL for photo posts. You can leave this blank for
+                Facebook-only blasts.
+              </p>
             </div>
 
             {/* Channel selection */}
