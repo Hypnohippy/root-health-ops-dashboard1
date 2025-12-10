@@ -49,7 +49,7 @@ export default function DashboardHomePage() {
     return chans;
   };
 
-    const handleQuickBlast = async () => {
+      const handleQuickBlast = async () => {
     setIsPosting(true);
     setStatus(null);
     setError(null);
@@ -69,49 +69,58 @@ export default function DashboardHomePage() {
         throw new Error("Select at least one channel (e.g. Facebook).");
       }
 
-      const res = await fetch("/api/social/quick-blast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message,
-          platforms: channels,
-          imageUrl,
-        }),
-      });
+      const results: QuickBlastResult[] = [];
 
-      let data: any = null;
-      try {
-        data = await res.json();
-      } catch {
-        throw new Error(
-          "Server did not return valid JSON. Check the /api/social/quick-blast route."
-        );
+      // Call the API once per channel so we can show per-channel status
+      for (const channel of channels) {
+        try {
+          const res = await fetch("/api/social/quick-blast", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message,
+              channel,
+              imageUrl,
+            }),
+          });
+
+          let data: any = null;
+          try {
+            data = await res.json();
+          } catch {
+            results.push({
+              channel,
+              ok: false,
+              error:
+                "Server did not return valid JSON. Check the /api/social/quick-blast route.",
+            });
+            continue;
+          }
+
+          if (!data || data.success === false) {
+            results.push({
+              channel,
+              ok: false,
+              error:
+                data?.error ||
+                "Quick Blast failed for this channel. Check your Ayrshare setup.",
+            });
+          } else {
+            results.push({
+              channel,
+              ok: true,
+            });
+          }
+        } catch (channelErr: any) {
+          results.push({
+            channel,
+            ok: false,
+            error:
+              channelErr?.message ||
+              "Network error sending Quick Blast for this channel.",
+          });
+        }
       }
-
-      if (!res.ok) {
-        const msg =
-          data?.error ||
-          "Quick Blast failed for all selected channels. Check your connections.";
-
-        // Mark all selected channels as failed
-        const results: QuickBlastResult[] = channels.map((channel) => ({
-          channel,
-          ok: false,
-          error: msg,
-          status: res.status,
-        }));
-        setLastResults(results);
-        setError(msg);
-        throw new Error(msg);
-      }
-
-      // Ayrshare responded OK – treat all selected channels as sent
-      const success = data?.success ?? true;
-
-      const results: QuickBlastResult[] = channels.map((channel) => ({
-        channel,
-        ok: !!success,
-      }));
 
       setLastResults(results);
 
@@ -121,7 +130,7 @@ export default function DashboardHomePage() {
 
       if (successChannels.length === 0) {
         throw new Error(
-          "Quick Blast did not succeed on any channel. Check your connections."
+          "Quick Blast did not succeed on any channel. Check your Ayrshare connections."
         );
       }
 
@@ -159,6 +168,7 @@ export default function DashboardHomePage() {
       setIsPosting(false);
     }
   };
+
 
 
   const isAnyChannelSelected =
