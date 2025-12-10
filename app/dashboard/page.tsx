@@ -110,14 +110,14 @@ export default function DashboardHomePage() {
       const results: QuickBlastResult[] = [];
 
       for (const channel of channels) {
-        const res = await fetch("/api/social/quick-blast", {
+               const res = await fetch("/api/social/quick-blast", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: trimmed,
             channel, // single channel per call
             imageUrl,
-            // organisationId: CURRENT_ORG_ID (to be wired later)
+            organisationId, // 👈 now actually sent
           }),
         });
 
@@ -202,7 +202,7 @@ export default function DashboardHomePage() {
 
       const iso = date.toISOString();
 
-      const res = await fetch("/api/social/schedule", {
+           const res = await fetch("/api/social/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -210,7 +210,7 @@ export default function DashboardHomePage() {
           platforms: channels,
           imageUrl,
           scheduledAt: iso,
-          // organisationId: CURRENT_ORG_ID (to be wired later)
+          organisationId, // 👈 now actually sent
         }),
       });
 
