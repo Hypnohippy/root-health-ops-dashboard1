@@ -50,95 +50,98 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ---- 2) Optional limits & plan checks if we know the org ----
+    if (!organisationId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Missing organisation context while scheduling. Please contact support if this persists.",
+        },
+        { status: 200 }
+      );
+    }
+
+    // ---- 2) Plan & limit checks ----
     let limitInfo: any = null;
 
-    if (organisationId) {
-      try {
-        // Optional plan gating (e.g. TikTok requires Pro)
-        const { data: planRow, error: planErr } = await supabaseAdmin
-          .from("organisation_plans")
-          .select("plan")
-          .eq("organisation_id", organisationId)
-          .maybeSingle();
+    try {
+      // Plan gating
+      const { data: planRow, error: planErr } = await supabaseAdmin
+        .from("organisation_plans")
+        .select("plan")
+        .eq("organisation_id", organisationId)
+        .maybeSingle();
 
-        if (planErr) {
-          console.error("[schedule] plan lookup error", planErr);
+      if (planErr) {
+        console.error("[schedule] plan lookup error", planErr);
+      }
+
+      const plan = planRow?.plan || "basic";
+      const tiktokRequested = platforms.includes("tiktok");
+
+      if (tiktokRequested && plan === "basic") {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "TikTok scheduling requires the Pro plan or higher. Upgrade to unlock this channel.",
+            requiresPlan: "pro",
+          },
+          { status: 200 }
+        );
+      }
+
+      // Posting limit
+      const { data, error } = await supabaseAdmin.rpc(
+        "increment_org_post_usage",
+        {
+          p_organisation_id: organisationId,
         }
+      );
 
-        const plan = planRow?.plan || "basic";
-        const tiktokRequested = platforms.includes("tiktok");
-
-        if (tiktokRequested && plan === "basic") {
+      if (!error && Array.isArray(data) && data.length > 0) {
+        limitInfo = data[0];
+        if (!limitInfo.allowed) {
           return NextResponse.json(
             {
               success: false,
-              error:
-                "TikTok scheduling requires the Pro plan or higher. Upgrade to unlock this channel.",
-              requiresPlan: "pro",
+              error: `You've reached your ${limitInfo.posts_limit} posts/month limit. Upgrade to schedule more content.`,
+              overLimit: true,
+              limitInfo,
             },
             { status: 200 }
           );
         }
-
-        // Posting limit: count this scheduled post as a “slot”
-        const { data, error } = await supabaseAdmin.rpc(
-          "increment_org_post_usage",
-          {
-            p_organisation_id: organisationId,
-          }
-        );
-
-        if (!error && Array.isArray(data) && data.length > 0) {
-          limitInfo = data[0];
-          if (!limitInfo.allowed) {
-            return NextResponse.json(
-              {
-                success: false,
-                error: `You've reached your ${limitInfo.posts_limit} posts/month limit. Upgrade to schedule more content.`,
-                overLimit: true,
-                limitInfo,
-              },
-              { status: 200 }
-            );
-          }
-        } else if (error) {
-          console.error("[schedule] RPC error", error);
-        }
-      } catch (e) {
-        console.error("[schedule] exception during limits/plan", e);
+      } else if (error) {
+        console.error("[schedule] RPC error", error);
       }
+    } catch (e) {
+      console.error("[schedule] exception during limits/plan", e);
     }
 
-    // ---- 3) Store scheduled post locally; DO NOT call Ayrshare here ----
-    let insertRow: any = null;
+    // ---- 3) Store scheduled post locally ----
+    const { data: row, error: insertErr } = await supabaseAdmin
+      .from("content_items")
+      .insert({
+        organisation_id: organisationId,
+        text: message,
+        platforms,
+        scheduled_for: date.toISOString(),
+        image_url: imageUrl || null,
+        status: "scheduled",
+      })
+      .select()
+      .single();
 
-    if (organisationId) {
-      try {
-        const { data: row, error: insertErr } = await supabaseAdmin
-          .from("content_items")
-          .insert({
-            organisation_id: organisationId,
-            text: message,
-            platforms,
-            scheduled_for: date.toISOString(),
-            image_url: imageUrl || null,
-            status: "scheduled",
-          })
-          .select()
-          .single();
-
-        if (insertErr) {
-          console.error("[schedule] Failed to insert content item", insertErr);
-        } else {
-          insertRow = row;
-        }
-      } catch (e) {
-        console.error("[schedule] Exception inserting content item", e);
-      }
-    } else {
-      console.warn(
-        "[schedule] No organisationId provided – storing without org is currently skipped."
+    if (insertErr || !row) {
+      console.error("[schedule] Failed to insert content item", insertErr);
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Could not save your scheduled post. Please try again or contact support.",
+        },
+        { status: 200 }
       );
     }
 
@@ -146,7 +149,7 @@ export async function POST(req: NextRequest) {
       {
         success: true,
         scheduled: true,
-        item: insertRow,
+        item: row,
         limitInfo,
       },
       { status: 200 }
