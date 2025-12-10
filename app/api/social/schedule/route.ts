@@ -152,18 +152,28 @@ export async function POST(req: NextRequest) {
       console.error("[schedule] Ayrshare non-JSON response", res.status);
     }
 
-    if (!res.ok || data?.status === "error") {
-      console.error("[schedule] Ayrshare error", res.status, data);
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unable to schedule this post. Please check your channel connections or try again.",
-          // details: data, // keep internal if you don't want to expose
-        },
-        { status: 200 }
-      );
-    }
+   if (!res.ok || data?.status === "error") {
+  console.error("[schedule] Ayrshare error", res.status, data);
+  const firstError = Array.isArray(data?.errors) ? data.errors[0] : null;
+  const message =
+    firstError?.message ||
+    data?.message ||
+    "Unable to schedule this post. Please check your channel connections or try again.";
+
+  return NextResponse.json(
+    {
+      success: false,
+      error: message,
+      // TEMP: surface some extra info to help us debug; we can hide this later.
+      debug: {
+        statusCode: res.status,
+        code: firstError?.code,
+      },
+    },
+    { status: 200 }
+  );
+}
+
 
     // ---- 6) Optional Supabase insert (only if we know the org) ----
     let insertRow: any = null;
