@@ -69,15 +69,17 @@ export default function DashboardHomePage() {
         throw new Error("Select at least one channel (e.g. Facebook).");
       }
 
-      const res = await fetch("/api/social/quick-blast", {
+   await fetch("/api/social/quick-blast", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     message,
-    channel,   // use the variable you already had before we touched it
+    // use the existing `channels` variable that TypeScript knows about
+    platforms: channels,
     imageUrl,
   }),
 });
+
 
 
 
