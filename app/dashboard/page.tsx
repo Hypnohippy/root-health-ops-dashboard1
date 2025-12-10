@@ -74,11 +74,11 @@ export default function DashboardHomePage() {
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     message,
-    // new: generic platforms array – works for facebook, instagram, linkedin, tiktok, etc.
     platforms: selectedChannel ? [selectedChannel] : [],
-    imageUrl: imageUrl || null,
+    imageUrl,
   }),
 });
+
 
 
       let data: any = null;
