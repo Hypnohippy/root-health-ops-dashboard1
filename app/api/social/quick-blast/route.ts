@@ -7,8 +7,8 @@ export async function POST(req: NextRequest) {
   if (!AYRSHARE_API_KEY) {
     console.error("Missing AYRSHARE_API_KEY in environment variables");
     return NextResponse.json(
-      { error: "Server misconfiguration: missing Ayrshare API key." },
-      { status: 500 }
+      { success: false, error: "Server misconfiguration: missing Ayrshare API key." },
+      { status: 200 }
     );
   }
 
@@ -17,47 +17,33 @@ export async function POST(req: NextRequest) {
 
     const {
       message,
-      platforms,
       channel,
       imageUrl,
     }: {
       message?: string;
-      platforms?: string[];
       channel?: string;
       imageUrl?: string;
     } = body;
 
     if (!message || typeof message !== "string" || !message.trim()) {
       return NextResponse.json(
-        { error: "message is required" },
-        { status: 400 }
+        { success: false, error: "message is required" },
+        { status: 200 }
       );
     }
 
-    let finalPlatforms: string[] = [];
-
-    // Prefer explicit platforms array from the front-end
-    if (Array.isArray(platforms) && platforms.length > 0) {
-      finalPlatforms = platforms;
-    }
-    // Fallback: legacy single channel
-    else if (typeof channel === "string" && channel.trim().length > 0) {
-      finalPlatforms = [channel.trim()];
-    }
-
-    // 🔐 TEMP SAFETY NET:
-    // If front-end fails to send platforms/channel for any reason,
-    // do NOT 400 – just default to ["facebook"] so the request still works.
-    if (finalPlatforms.length === 0) {
-      finalPlatforms = ["facebook"];
-      console.warn(
-        "[quick-blast] No platforms/channel provided. Falling back to ['facebook']."
+    if (!channel || typeof channel !== "string" || !channel.trim()) {
+      return NextResponse.json(
+        { success: false, error: "channel is required" },
+        { status: 200 }
       );
     }
+
+    const platform = channel.trim(); // e.g. "facebook", "instagram", "linkedin", "tiktok"
 
     const payload: Record<string, any> = {
       post: message,
-      platforms: finalPlatforms,
+      platforms: [platform],
     };
 
     if (imageUrl && typeof imageUrl === "string" && imageUrl.trim().length > 0) {
@@ -79,26 +65,28 @@ export async function POST(req: NextRequest) {
       console.error("Ayrshare error", res.status, data);
       return NextResponse.json(
         {
-          error: "Failed to post via Ayrshare",
+          success: false,
+          error:
+            (data && (data.error || data.message)) ||
+            `Ayrshare error with status ${res.status}`,
           details: data,
         },
-        { status: 500 }
+        { status: 200 }
       );
     }
 
     return NextResponse.json(
       {
         success: true,
-        platforms: finalPlatforms,
-        data,
+        details: data,
       },
       { status: 200 }
     );
   } catch (error) {
     console.error("Error in /api/social/quick-blast:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+      { success: false, error: "Internal server error" },
+      { status: 200 }
     );
   }
 }
