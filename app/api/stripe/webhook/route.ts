@@ -7,7 +7,7 @@ const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY!;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
 
 const stripe = new Stripe(STRIPE_SECRET, {
-  apiVersion: "2023-10-16",
+  apiVersion: "2024-06-20",
 });
 
 export async function POST(req: NextRequest) {
