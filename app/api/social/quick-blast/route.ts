@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const platform = channel.trim(); // "facebook" | "instagram" | "linkedin" | "tiktok"...
+    const platform = channel.trim(); // "facebook" | "instagram" | "linkedin" | "tiktok" etc.
 
     const payload: Record<string, any> = {
       post: message,
@@ -59,29 +59,38 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
+    let data: any = null;
+    try {
+      data = await res.json();
+    } catch (e) {
+      console.error("Ayrshare non-JSON response", res.status);
+    }
 
-    // Ayrshare usually returns 200 with { status: "success" | "error" }
-    const statusFromBody = (data && data.status) || null;
+    const statusFromBody = data && typeof data === "object" ? data.status : null;
 
+    // If HTTP status is not OK or Ayrshare returns status: "error", treat as failure
     if (!res.ok || statusFromBody === "error") {
       console.error("Ayrshare error", res.status, data);
       return NextResponse.json(
         {
           success: false,
+          // 👇 Surface the full Ayrshare payload so we can see exactly what they are complaining about
           error:
             (data && (data.error || data.message)) ||
-            `Ayrshare error with status ${res.status}`,
-          details: data,
+            `Ayrshare returned ${res.status}: ${JSON.stringify(data)}`,
+          ayrshareStatusCode: res.status,
+          ayrshareRaw: data,
         },
         { status: 200 }
       );
     }
 
+    // Success case
     return NextResponse.json(
       {
         success: true,
-        details: data,
+        ayrshareStatusCode: res.status,
+        ayrshareRaw: data,
       },
       { status: 200 }
     );
