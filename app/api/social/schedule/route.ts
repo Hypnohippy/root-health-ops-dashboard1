@@ -22,7 +22,13 @@ export async function POST(req: NextRequest) {
       imageUrl,
       scheduledAt,
       organisationId,
-    } = body;
+    } = body as {
+      message?: string;
+      platforms?: string[];
+      imageUrl?: string;
+      scheduledAt?: string;
+      organisationId?: string;
+    };
 
     // ---- 1) Basic validation ----
     if (!message || typeof message !== "string" || !message.trim()) {
@@ -46,29 +52,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!organisationId) {
-      return NextResponse.json(
-        { success: false, error: "Missing organisationId." },
-        { status: 200 }
-      );
+    // IMPORTANT CHANGE:
+    // organisationId is now OPTIONAL.
+    // If present -> enforce plan & limits and store content_items.
+    // If missing -> skip those and just schedule via Ayrshare so you can keep testing.
+
+    // ---- 2) Optional plan gating (e.g. TikTok requires Pro) ----
+    let plan: string | null = null;
+
+    if (organisationId) {
+      try {
+        const { data: planRow, error: planErr } = await supabaseAdmin
+          .from("organisation_plans")
+          .select("plan")
+          .eq("organisation_id", organisationId)
+          .maybeSingle();
+
+        if (planErr) {
+          console.error("[schedule] plan lookup error", planErr);
+        }
+        plan = planRow?.plan || "basic";
+      } catch (e) {
+        console.error("[schedule] plan lookup exception", e);
+      }
     }
-
-    // ---- 2) Enforce plan gating (e.g. TikTok requires Pro) ----
-    const { data: planRow, error: planErr } = await supabaseAdmin
-      .from("organisation_plans")
-      .select("plan")
-      .eq("organisation_id", organisationId)
-      .maybeSingle();
-
-    if (planErr) {
-      console.error("[schedule] plan lookup error", planErr);
-    }
-
-    const plan = planRow?.plan || "basic";
 
     const tiktokRequested = platforms.includes("tiktok");
 
-    if (tiktokRequested && plan === "basic") {
+    if (organisationId && tiktokRequested && plan === "basic") {
       return NextResponse.json(
         {
           success: false,
@@ -79,44 +90,48 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ---- 3) Posting limit enforcement ----
+    // ---- 3) Optional posting limit enforcement ----
     let limitInfo: any = null;
 
-    try {
-      const { data, error } = await supabaseAdmin.rpc(
-        "increment_org_post_usage",
-        {
-          p_organisation_id: organisationId,
-        }
-      );
+    if (organisationId) {
+      try {
+        const { data, error } = await supabaseAdmin.rpc(
+          "increment_org_post_usage",
+          {
+            p_organisation_id: organisationId,
+          }
+        );
 
-      if (!error && Array.isArray(data) && data.length > 0) {
-        limitInfo = data[0];
-        if (!limitInfo.allowed) {
-          return NextResponse.json(
-            {
-              success: false,
-              error: `You've reached your ${limitInfo.posts_limit} posts/month limit. Upgrade to schedule more content.`,
-              overLimit: true,
-              limitInfo,
-            },
-            { status: 200 }
-          );
+        if (!error && Array.isArray(data) && data.length > 0) {
+          limitInfo = data[0];
+          if (!limitInfo.allowed) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: `You've reached your ${limitInfo.posts_limit} posts/month limit. Upgrade to schedule more content.`,
+                overLimit: true,
+                limitInfo,
+              },
+              { status: 200 }
+            );
+          }
+        } else if (error) {
+          console.error("[schedule] RPC error", error);
         }
+      } catch (e) {
+        console.error("[schedule] RPC exception", e);
+        // Don't block posting while testing if limits check fails
       }
-    } catch (e) {
-      console.error("[schedule] RPC error", e);
-      // Allow posting rather than blocking the platform while testing
     }
 
     // ---- 4) Build Ayrshare scheduling payload ----
     const payload: Record<string, any> = {
       post: message,
       platforms,
-      scheduleDate: scheduledAt,  // MUST be ISO string
+      scheduleDate: scheduledAt, // ISO string
     };
 
-    if (imageUrl && typeof imageUrl === "string") {
+    if (imageUrl && typeof imageUrl === "string" && imageUrl.trim()) {
       payload.mediaUrls = [imageUrl.trim()];
     }
 
@@ -130,38 +145,57 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
+    let data: any = null;
+    try {
+      data = await res.json();
+    } catch (e) {
+      console.error("[schedule] Ayrshare non-JSON response", res.status);
+    }
 
-    // Handle Ayrshare errors
     if (!res.ok || data?.status === "error") {
+      console.error("[schedule] Ayrshare error", res.status, data);
       return NextResponse.json(
         {
           success: false,
           error:
             "Unable to schedule this post. Please check your channel connections or try again.",
-          details: data,
+          // details: data, // keep internal if you don't want to expose
         },
         { status: 200 }
       );
     }
 
-    // ---- 6) Store record in Supabase ----
-    const { data: insertRow, error: insertErr } = await supabaseAdmin
-      .from("content_items")
-      .insert({
-        organisation_id: organisationId,
-        text: message,
-        platforms,
-        scheduled_for: scheduledAt,
-        image_url: imageUrl || null,
-        status: "scheduled",
-        ayrshare_ref: data?.id || null, // optional
-      })
-      .select()
-      .single();
+    // ---- 6) Optional Supabase insert (only if we know the org) ----
+    let insertRow: any = null;
 
-    if (insertErr) {
-      console.error("[schedule] Failed to insert content item", insertErr);
+    if (organisationId) {
+      try {
+        const { data: row, error: insertErr } = await supabaseAdmin
+          .from("content_items")
+          .insert({
+            organisation_id: organisationId,
+            text: message,
+            platforms,
+            scheduled_for: scheduledAt,
+            image_url: imageUrl || null,
+            status: "scheduled",
+            ayrshare_ref: data?.id || null,
+          })
+          .select()
+          .single();
+
+        if (insertErr) {
+          console.error("[schedule] Failed to insert content item", insertErr);
+        } else {
+          insertRow = row;
+        }
+      } catch (e) {
+        console.error("[schedule] Exception inserting content item", e);
+      }
+    } else {
+      console.warn(
+        "[schedule] No organisationId provided – skipping content_items insert."
+      );
     }
 
     return NextResponse.json(
