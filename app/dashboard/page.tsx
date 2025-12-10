@@ -70,17 +70,16 @@ export default function DashboardHomePage() {
       }
 
       const res = await fetch("/api/social/quick-blast", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: trimmed,
-          channels,
-          origin: "quick_blast_dashboard",
-          imageUrl: imageUrl.trim() || undefined, // 👈 NEW: send imageUrl if present
-        }),
-      });
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    message,
+    // new: generic platforms array – works for facebook, instagram, linkedin, tiktok, etc.
+    platforms: selectedChannel ? [selectedChannel] : [],
+    imageUrl: imageUrl || null,
+  }),
+});
+
 
       let data: any = null;
       try {
