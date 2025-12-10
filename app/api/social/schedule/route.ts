@@ -2,17 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
-const AYRSHARE_API_KEY = process.env.AYRSHARE_API_KEY;
-
 export async function POST(req: NextRequest) {
-  if (!AYRSHARE_API_KEY) {
-    console.error("Missing AYRSHARE_API_KEY");
-    return NextResponse.json(
-      { success: false, error: "Server missing social engine key." },
-      { status: 200 }
-    );
-  }
-
   try {
     const body = await req.json();
 
@@ -52,16 +42,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // IMPORTANT CHANGE:
-    // organisationId is now OPTIONAL.
-    // If present -> enforce plan & limits and store content_items.
-    // If missing -> skip those and just schedule via Ayrshare so you can keep testing.
+    const date = new Date(scheduledAt);
+    if (isNaN(date.getTime())) {
+      return NextResponse.json(
+        { success: false, error: "Scheduled date/time is invalid." },
+        { status: 200 }
+      );
+    }
 
-    // ---- 2) Optional plan gating (e.g. TikTok requires Pro) ----
-    let plan: string | null = null;
+    // ---- 2) Optional limits & plan checks if we know the org ----
+    let limitInfo: any = null;
 
     if (organisationId) {
       try {
+        // Optional plan gating (e.g. TikTok requires Pro)
         const { data: planRow, error: planErr } = await supabaseAdmin
           .from("organisation_plans")
           .select("plan")
@@ -71,30 +65,23 @@ export async function POST(req: NextRequest) {
         if (planErr) {
           console.error("[schedule] plan lookup error", planErr);
         }
-        plan = planRow?.plan || "basic";
-      } catch (e) {
-        console.error("[schedule] plan lookup exception", e);
-      }
-    }
 
-    const tiktokRequested = platforms.includes("tiktok");
+        const plan = planRow?.plan || "basic";
+        const tiktokRequested = platforms.includes("tiktok");
 
-    if (organisationId && tiktokRequested && plan === "basic") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "TikTok scheduling requires the Pro plan or higher.",
-          requiresPlan: "pro",
-        },
-        { status: 200 }
-      );
-    }
+        if (tiktokRequested && plan === "basic") {
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                "TikTok scheduling requires the Pro plan or higher. Upgrade to unlock this channel.",
+              requiresPlan: "pro",
+            },
+            { status: 200 }
+          );
+        }
 
-    // ---- 3) Optional posting limit enforcement ----
-    let limitInfo: any = null;
-
-    if (organisationId) {
-      try {
+        // Posting limit: count this scheduled post as a “slot”
         const { data, error } = await supabaseAdmin.rpc(
           "increment_org_post_usage",
           {
@@ -119,63 +106,11 @@ export async function POST(req: NextRequest) {
           console.error("[schedule] RPC error", error);
         }
       } catch (e) {
-        console.error("[schedule] RPC exception", e);
-        // Don't block posting while testing if limits check fails
+        console.error("[schedule] exception during limits/plan", e);
       }
     }
 
-    // ---- 4) Build Ayrshare scheduling payload ----
-    const payload: Record<string, any> = {
-      post: message,
-      platforms,
-      scheduleDate: scheduledAt, // ISO string
-    };
-
-    if (imageUrl && typeof imageUrl === "string" && imageUrl.trim()) {
-      payload.mediaUrls = [imageUrl.trim()];
-    }
-
-    // ---- 5) Call Ayrshare ----
-    const res = await fetch("https://api.ayrshare.com/api/post", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${AYRSHARE_API_KEY}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    let data: any = null;
-    try {
-      data = await res.json();
-    } catch (e) {
-      console.error("[schedule] Ayrshare non-JSON response", res.status);
-    }
-
-   if (!res.ok || data?.status === "error") {
-  console.error("[schedule] Ayrshare error", res.status, data);
-  const firstError = Array.isArray(data?.errors) ? data.errors[0] : null;
-  const message =
-    firstError?.message ||
-    data?.message ||
-    "Unable to schedule this post. Please check your channel connections or try again.";
-
-  return NextResponse.json(
-    {
-      success: false,
-      error: message,
-      // TEMP: surface some extra info to help us debug; we can hide this later.
-      debug: {
-        statusCode: res.status,
-        code: firstError?.code,
-      },
-    },
-    { status: 200 }
-  );
-}
-
-
-    // ---- 6) Optional Supabase insert (only if we know the org) ----
+    // ---- 3) Store scheduled post locally; DO NOT call Ayrshare here ----
     let insertRow: any = null;
 
     if (organisationId) {
@@ -186,10 +121,9 @@ export async function POST(req: NextRequest) {
             organisation_id: organisationId,
             text: message,
             platforms,
-            scheduled_for: scheduledAt,
+            scheduled_for: date.toISOString(),
             image_url: imageUrl || null,
             status: "scheduled",
-            ayrshare_ref: data?.id || null,
           })
           .select()
           .single();
@@ -204,7 +138,7 @@ export async function POST(req: NextRequest) {
       }
     } else {
       console.warn(
-        "[schedule] No organisationId provided – skipping content_items insert."
+        "[schedule] No organisationId provided – storing without org is currently skipped."
       );
     }
 
