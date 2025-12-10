@@ -8,6 +8,7 @@ type ChannelId =
   | "instagram"
   | "linkedin"
   | "tiktok"
+  | "reddit"
   | "google"
   | "email"
   | "whatsapp";
@@ -19,22 +20,28 @@ type QuickBlastResult = {
   status?: number;
 };
 
+type Mode = "now" | "schedule";
+
 export default function DashboardHomePage() {
   const [message, setMessage] = useState(
     "Quick check-in from Root Health Ops Dashboard ✅"
   );
-  const [imageUrl, setImageUrl] = useState(""); // 👈 NEW: Image URL state
+  const [imageUrl, setImageUrl] = useState("");
+
+  const [mode, setMode] = useState<Mode>("now");
+  const [scheduledAt, setScheduledAt] = useState(""); // datetime-local string
 
   const [isPosting, setIsPosting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
-  // Channel selection state – facebook on by default, others off but available
+  // Channel selection state
   const [sendToFacebook, setSendToFacebook] = useState(true);
   const [sendToInstagram, setSendToInstagram] = useState(false);
   const [sendToLinkedIn, setSendToLinkedIn] = useState(false);
   const [sendToTikTok, setSendToTikTok] = useState(false);
+  const [sendToReddit, setSendToReddit] = useState(false);
 
   const [lastResults, setLastResults] = useState<QuickBlastResult[] | null>(
     null
@@ -46,10 +53,40 @@ export default function DashboardHomePage() {
     if (sendToInstagram) chans.push("instagram");
     if (sendToLinkedIn) chans.push("linkedin");
     if (sendToTikTok) chans.push("tiktok");
+    if (sendToReddit) chans.push("reddit");
     return chans;
   };
 
-      const handleQuickBlast = async () => {
+  const isAnyChannelSelected =
+    sendToFacebook ||
+    sendToInstagram ||
+    sendToLinkedIn ||
+    sendToTikTok ||
+    sendToReddit;
+
+  const callRootCoach = (msg: string) => {
+    fetch("/api/ai/root-coach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        context: "quick_blast",
+        errorMessage: msg,
+        userAction:
+          mode === "now"
+            ? "Clicked Quick Blast (send now) on dashboard"
+            : "Clicked Quick Blast (schedule) on dashboard",
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.coachMessage) {
+          setCoachMessage(data.coachMessage);
+        }
+      })
+      .catch(() => {});
+  };
+
+  const handleQuickBlast = async () => {
     setIsPosting(true);
     setStatus(null);
     setError(null);
@@ -69,110 +106,145 @@ export default function DashboardHomePage() {
         throw new Error("Select at least one channel (e.g. Facebook).");
       }
 
+      // For now we are not yet passing organisationId; the API gracefully handles that.
       const results: QuickBlastResult[] = [];
 
-      // Call the API once per channel so we can show per-channel status
       for (const channel of channels) {
+        const res = await fetch("/api/social/quick-blast", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: trimmed,
+            channel, // single channel per call
+            imageUrl,
+            // organisationId: CURRENT_ORG_ID (to be wired later)
+          }),
+        });
+
+        let data: any = null;
         try {
-          const res = await fetch("/api/social/quick-blast", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              message,
-              channel,
-              imageUrl,
-            }),
-          });
+          data = await res.json();
+        } catch {
+          // ignore JSON parse errors, we'll treat as generic failure
+        }
 
-          let data: any = null;
-          try {
-            data = await res.json();
-          } catch {
-            results.push({
-              channel,
-              ok: false,
-              error:
-                "Server did not return valid JSON. Check the /api/social/quick-blast route.",
-            });
-            continue;
-          }
+        if (!data || data.success === false) {
+          const errText =
+            data?.error ||
+            data?.message ||
+            (data ? JSON.stringify(data) : null) ||
+            "Quick Blast failed for this channel. Check your social setup.";
 
-          if (!data || data.success === false) {
-            results.push({
-              channel,
-              ok: false,
-              error:
-                data?.error ||
-                "Quick Blast failed for this channel. Check your Ayrshare setup.",
-            });
-          } else {
-            results.push({
-              channel,
-              ok: true,
-            });
-          }
-        } catch (channelErr: any) {
           results.push({
             channel,
             ok: false,
-            error:
-              channelErr?.message ||
-              "Network error sending Quick Blast for this channel.",
+            error: errText,
+          });
+        } else {
+          results.push({
+            channel,
+            ok: true,
           });
         }
       }
 
       setLastResults(results);
 
-      const successChannels = results
-        .filter((r) => r.ok)
-        .map((r) => r.channel);
+      const successChannels = results.filter((r) => r.ok).map((r) => r.channel);
 
       if (successChannels.length === 0) {
         throw new Error(
-          "Quick Blast did not succeed on any channel. Check your Ayrshare connections."
+          "Quick Blast did not succeed on any channel. Check your Ayrshare connections or plan."
         );
       }
 
       setStatus(
-        `Quick Blast sent via ${successChannels.join(
-          ", "
-        )} using Root Health Ops 🎉`
+        `Quick Blast sent via ${successChannels.join(", ")} using Root Health Ops 🎉`
       );
     } catch (err: any) {
       const msg =
         err?.message || "Something went wrong sending your Quick Blast.";
       setError(msg);
-
-      // Ask Root Coach to help if something breaks
-      fetch("/api/ai/root-coach", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          context: "quick_blast",
-          errorMessage: msg,
-          userAction:
-            "Clicked Quick Blast on the dashboard (app/dashboard/page.tsx)",
-        }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data && data.coachMessage) {
-            setCoachMessage(data.coachMessage);
-          }
-        })
-        .catch(() => {});
+      callRootCoach(msg);
     } finally {
       setIsPosting(false);
     }
   };
 
+  const handleSchedule = async () => {
+    setIsPosting(true);
+    setStatus(null);
+    setError(null);
+    setCoachMessage(null);
+    setLastResults(null);
 
+    try {
+      const trimmed = message.trim();
 
-  const isAnyChannelSelected =
-    sendToFacebook || sendToInstagram || sendToLinkedIn || sendToTikTok;
+      if (!trimmed) {
+        throw new Error("Please write something to schedule.");
+      }
+
+      const channels = buildSelectedChannels();
+
+      if (channels.length === 0) {
+        throw new Error("Select at least one channel (e.g. Facebook).");
+      }
+
+      if (!scheduledAt) {
+        throw new Error("Choose a date and time to schedule this post.");
+      }
+
+      const date = new Date(scheduledAt);
+      if (isNaN(date.getTime())) {
+        throw new Error("The scheduled date/time is not valid.");
+      }
+
+      const iso = date.toISOString();
+
+      const res = await fetch("/api/social/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: trimmed,
+          platforms: channels,
+          imageUrl,
+          scheduledAt: iso,
+          // organisationId: CURRENT_ORG_ID (to be wired later)
+        }),
+      });
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(
+          "Server did not return valid JSON from /api/social/schedule."
+        );
+      }
+
+      if (!data?.success) {
+        const msg =
+          data?.error ||
+          "Could not schedule this post. Please check your channels or plan.";
+        setError(msg);
+        throw new Error(msg);
+      }
+
+      setStatus(
+        `Post scheduled via ${channels.join(
+          ", "
+        )} for ${date.toLocaleString()} using Root Health Ops 📅`
+      );
+    } catch (err: any) {
+      const msg =
+        err?.message || "Something went wrong scheduling your post.";
+      setError(msg);
+      callRootCoach(msg);
+    } finally {
+      setIsPosting(false);
+    }
+  };
 
   const renderChannelResult = (channel: ChannelId) => {
     if (!lastResults) return null;
@@ -204,8 +276,9 @@ export default function DashboardHomePage() {
               Root Health Ops Dashboard
             </h1>
             <p className="mt-1 text-sm text-slate-300 max-w-xl">
-              Post to your channels in a couple of clicks, then drop into
-              campaigns, stories, and metrics when you’re ready.
+              Post to your channels in a couple of clicks, or schedule content
+              ahead. Then drop into campaigns, stories, and metrics when you’re
+              ready.
             </p>
           </div>
           <div className="text-xs text-slate-400 bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 max-w-xs">
@@ -229,14 +302,44 @@ export default function DashboardHomePage() {
                   Quick Blast
                 </h2>
                 <p className="text-[11px] md:text-xs text-slate-400">
-                  A fast way to share a message across your channels. Behind
-                  the scenes, Root Health talks to your Make scenarios so
-                  therapists never have to touch tokens or dev tools.
+                  Share a message right now or schedule it for later across your
+                  connected channels.
                 </p>
               </div>
               <span className="inline-flex items-center rounded-full border border-emerald-500/50 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-200">
-                Live beta · Make-powered
+                Live beta · Social engine
               </span>
+            </div>
+
+            {/* Mode toggle */}
+            <div className="flex items-center gap-3 text-[11px]">
+              <span className="text-slate-300 font-medium">Mode:</span>
+              <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setMode("now")}
+                  className={[
+                    "px-3 py-1.5",
+                    mode === "now"
+                      ? "bg-emerald-500 text-slate-950"
+                      : "text-slate-300",
+                  ].join(" ")}
+                >
+                  Send now
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("schedule")}
+                  className={[
+                    "px-3 py-1.5",
+                    mode === "schedule"
+                      ? "bg-emerald-500 text-slate-950"
+                      : "text-slate-300",
+                  ].join(" ")}
+                >
+                  Schedule
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -247,11 +350,11 @@ export default function DashboardHomePage() {
                 className="w-full min-h-[140px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="E.g. A gentle check-in message, a reminder, or something supportive for your audience."
+                placeholder="E.g. a gentle check-in, reminder, or something supportive for your audience."
               />
             </div>
 
-            {/* NEW: Image URL field */}
+            {/* Image URL field */}
             <div className="space-y-1">
               <label className="block text-[11px] font-medium text-slate-300">
                 Image URL (optional, mainly for Instagram)
@@ -269,6 +372,25 @@ export default function DashboardHomePage() {
                 Facebook-only blasts.
               </p>
             </div>
+
+            {/* Schedule fields (only when in schedule mode) */}
+            {mode === "schedule" && (
+              <div className="space-y-1">
+                <label className="block text-[11px] font-medium text-slate-300">
+                  When should this go out?
+                </label>
+                <input
+                  type="datetime-local"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-500"
+                  value={scheduledAt}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                />
+                <p className="text-[10px] text-slate-500">
+                  Choose a future date and time. Root Health Ops will hand this
+                  to your social engine to post automatically.
+                </p>
+              </div>
+            )}
 
             {/* Channel selection */}
             <div className="space-y-2">
@@ -355,27 +477,58 @@ export default function DashboardHomePage() {
                   )}
                   {renderChannelResult("tiktok")}
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSendToReddit((prev) => !prev)}
+                  className={[
+                    "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 transition",
+                    sendToReddit
+                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-100"
+                      : "border-slate-600 bg-slate-900 text-slate-300 hover:border-slate-500",
+                  ].join(" ")}
+                >
+                  <span className="h-2 w-2 rounded-full bg-orange-500" />
+                  <span>Reddit</span>
+                  {sendToReddit && (
+                    <span className="text-[10px] text-emerald-300 ml-1">
+                      selected
+                    </span>
+                  )}
+                  {renderChannelResult("reddit")}
+                </button>
               </div>
               <p className="text-[10px] text-slate-500">
-                Facebook is wired via your existing Make webhook. Other
-                channels will light up as you add their Make webhook URLs in
-                Vercel.
+                Facebook, Instagram, LinkedIn and more are powered by your
+                unified social engine connection. TikTok and advanced features
+                unlock on higher plans.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={handleQuickBlast}
-                disabled={isPosting || !message.trim() || !isAnyChannelSelected}
+                onClick={mode === "now" ? handleQuickBlast : handleSchedule}
+                disabled={
+                  isPosting ||
+                  !message.trim() ||
+                  !isAnyChannelSelected ||
+                  (mode === "schedule" && !scheduledAt)
+                }
                 className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
               >
-                {isPosting ? "Sending…" : "Send Quick Blast"}
+                {isPosting
+                  ? mode === "now"
+                    ? "Sending…"
+                    : "Scheduling…"
+                  : mode === "now"
+                  ? "Send Quick Blast"
+                  : "Schedule Post"}
               </button>
 
               {isPosting && (
                 <span className="text-[11px] text-slate-400">
-                  Talking to your Make scenarios…
+                  Talking to your social engine…
                 </span>
               )}
             </div>
@@ -428,7 +581,8 @@ export default function DashboardHomePage() {
                 Today’s focus
               </p>
               <p className="text-slate-100">
-                Use Quick Blast to share something supportive, then explore{" "}
+                Use Quick Blast to send something supportive now, or schedule a
+                few posts for the week ahead. Then explore{" "}
                 <span className="font-medium">Connect</span> to wire more
                 channels and <span className="font-medium">Campaigns</span> to
                 turn ideas into sequences.
@@ -443,7 +597,7 @@ export default function DashboardHomePage() {
                 <li>
                   • Use{" "}
                   <span className="font-medium text-slate-100">Connect</span> to
-                  ensure each card is wired to its Make scenario.
+                  ensure each card is wired to your social engine.
                 </li>
                 <li>
                   • Visit{" "}
@@ -455,7 +609,7 @@ export default function DashboardHomePage() {
                 <li>
                   • Use{" "}
                   <span className="font-medium text-slate-100">Campaigns</span>{" "}
-                  to turn the best ideas into scheduled posts via Make.
+                  to turn the best ideas into scheduled posts.
                 </li>
                 <li>
                   • Later,{" "}
@@ -470,9 +624,9 @@ export default function DashboardHomePage() {
                 Note
               </p>
               <p>
-                Quick Blast now uses a single Make-powered endpoint for all
-                channels. Coaches stay in a simple UI while your scenarios
-                handle Facebook, Instagram, LinkedIn, and more.
+                Quick Blast and scheduling now use a single social engine
+                endpoint for all channels. Therapists stay in a simple UI while
+                Root Health handles the complex API work under the surface.
               </p>
             </div>
           </section>
