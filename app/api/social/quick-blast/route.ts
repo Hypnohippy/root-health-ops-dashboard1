@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const platform = channel.trim(); // e.g. "facebook", "instagram", "linkedin", "tiktok"
+    const platform = channel.trim(); // "facebook" | "instagram" | "linkedin" | "tiktok"...
 
     const payload: Record<string, any> = {
       post: message,
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       payload.mediaUrls = [imageUrl.trim()];
     }
 
-    const res = await fetch("https://app.ayrshare.com/api/post", {
+    const res = await fetch("https://api.ayrshare.com/api/post", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -61,7 +61,10 @@ export async function POST(req: NextRequest) {
 
     const data = await res.json();
 
-    if (!res.ok) {
+    // Ayrshare usually returns 200 with { status: "success" | "error" }
+    const statusFromBody = (data && data.status) || null;
+
+    if (!res.ok || statusFromBody === "error") {
       console.error("Ayrshare error", res.status, data);
       return NextResponse.json(
         {
