@@ -74,10 +74,11 @@ export default function DashboardHomePage() {
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     message,
-    platforms: selectedChannel ? [selectedChannel] : [],
+    channel,   // use the variable you already had before we touched it
     imageUrl,
   }),
 });
+
 
 
 
