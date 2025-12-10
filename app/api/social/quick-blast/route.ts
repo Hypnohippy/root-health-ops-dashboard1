@@ -10,6 +10,40 @@ type ChannelId =
   | "email"
   | "whatsapp";
 
+type QuickBlastResult = {
+  channel: ChannelId;
+  ok: boolean;
+  error?: string;
+  status?: number;
+};
+
+const AYRSHARE_POST_ENDPOINT = "https://api.ayrshare.com/api/post";
+
+/**
+ * Map our internal channels → Ayrshare platform IDs.
+ * Docs: platforms: 'facebook', 'instagram', 'linkedin', 'tiktok', 'gmb', ... :contentReference[oaicite:0]{index=0}
+ */
+const channelToPlatform: Partial<Record<ChannelId, string>> = {
+  facebook: "facebook",
+  instagram: "instagram",
+  linkedin: "linkedin",
+  tiktok: "tiktok",
+  google: "gmb", // Google Business Profile
+  // email / whatsapp not handled by Ayrshare – yet
+};
+
+/**
+ * Reverse map from Ayrshare platform → our ChannelId
+ * so we can interpret per-platform results in the response.
+ */
+const platformToChannel: Record<string, ChannelId> = {
+  facebook: "facebook",
+  instagram: "instagram",
+  linkedin: "linkedin",
+  tiktok: "tiktok",
+  gmb: "google",
+};
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => null);
@@ -27,7 +61,7 @@ export async function POST(req: Request) {
       : [];
     const origin: string = body.origin || "quick_blast_dashboard";
 
-    // NEW: optional image URL coming from the dashboard
+    // Optional image URL support – if frontend sends it
     const imageUrl: string | undefined =
       typeof body.imageUrl === "string" && body.imageUrl.trim().length > 0
         ? body.imageUrl.trim()
@@ -47,92 +81,184 @@ export async function POST(req: Request) {
       );
     }
 
-    // Map channel → webhook URL from env vars
-    const channelWebhooks: { [key in ChannelId]?: string } = {
-      facebook:
-        process.env.FACEBOOK_TEST_WEBHOOK_URL ||
-        process.env.MAKE_FACEBOOK_QUICK_BLAST_WEBHOOK_URL,
-      instagram: process.env.MAKE_INSTAGRAM_QUICK_BLAST_WEBHOOK_URL,
-      linkedin: process.env.MAKE_LINKEDIN_QUICK_BLAST_WEBHOOK_URL,
-      tiktok: process.env.MAKE_TIKTOK_QUICK_BLAST_WEBHOOK_URL,
-      google: process.env.MAKE_GOOGLE_BUSINESS_QUICK_BLAST_WEBHOOK_URL,
-      email: process.env.MAKE_EMAIL_QUICK_BLAST_WEBHOOK_URL,
-      whatsapp: process.env.MAKE_WHATSAPP_QUICK_BLAST_WEBHOOK_URL,
-    };
+    const apiKey = process.env.AYRSHARE_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error:
+            "AYRSHARE_API_KEY is not configured. Please add it to your Vercel env vars.",
+        },
+        { status: 500 }
+      );
+    }
 
-    const results: {
-      channel: ChannelId;
-      ok: boolean;
-      error?: string;
-      status?: number;
-    }[] = [];
+    // Convert selected channels → Ayrshare platforms
+    const platforms = channels
+      .map((ch) => channelToPlatform[ch])
+      .filter((p): p is string => !!p);
 
-    for (const channel of channels) {
-      const webhookUrl = channelWebhooks[channel];
+    const unsupportedChannels = channels.filter(
+      (ch) => !channelToPlatform[ch]
+    );
 
-      if (!webhookUrl) {
-        results.push({
-          channel,
-          ok: false,
-          error: `No webhook configured for ${channel}. Add the appropriate MAKE_*_QUICK_BLAST_WEBHOOK_URL env var.`,
-        });
-        continue;
-      }
+    if (platforms.length === 0 && unsupportedChannels.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Selected channels are not supported by the Ayrshare integration yet.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const results: QuickBlastResult[] = [];
+
+    // Pre-fill results for unsupported ones so the UI can show “not supported yet”
+    for (const ch of unsupportedChannels) {
+      results.push({
+        channel: ch,
+        ok: false,
+        error: `Channel "${ch}" is not yet supported by the Ayrshare integration.`,
+      });
+    }
+
+    if (platforms.length === 0) {
+      // Everything selected was unsupported – bail out but still return results
+      return NextResponse.json(
+        {
+          error: "No supported channels were selected.",
+          results,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Call Ayrshare /post once for all supported platforms
+    // Docs: https://www.ayrshare.com/docs/apis/post/post :contentReference[oaicite:1]{index=1}
+    let ayrshareRes: Response;
+    let ayrshareData: any = null;
+
+    try {
+      ayrshareRes = await fetch(AYRSHARE_POST_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`, // API Key auth :contentReference[oaicite:2]{index=2}
+        },
+        body: JSON.stringify({
+          post: message,
+          platforms,
+          // Optional image/video
+          ...(imageUrl ? { mediaUrls: [imageUrl] } : {}),
+          // Optional tracking
+          refId: origin,
+        }),
+      });
 
       try {
-        const res = await fetch(webhookUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            message,
-            imageUrl, // 👈 NEW: forward imageUrl through to Make
-            channel,
-            origin,
-            source: "root_health_ops_dashboard",
-          }),
-        });
-
-        if (!res.ok) {
-          let errorText: string | undefined;
-          try {
-            errorText = await res.text();
-          } catch {
-            // ignore
-          }
-
-          results.push({
-            channel,
-            ok: false,
-            status: res.status,
-            error:
-              errorText ||
-              `Make webhook returned status ${res.status} for ${channel}`,
-          });
-        } else {
-          results.push({
-            channel,
-            ok: true,
-            status: res.status,
-          });
-        }
-      } catch (err: any) {
+        ayrshareData = await ayrshareRes.json();
+      } catch {
+        // Ayrshare should always return JSON, but guard just in case
+        ayrshareData = null;
+      }
+    } catch (err: any) {
+      // Network-level failure – mark all supported channels as failed
+      for (const ch of channels) {
+        if (!channelToPlatform[ch]) continue;
         results.push({
-          channel,
+          channel: ch,
           ok: false,
           error:
             err?.message ||
-            `Unexpected error calling Make webhook for ${channel}.`,
+            "Network error calling Ayrshare /post. Please try again.",
         });
+      }
+
+      return NextResponse.json(
+        {
+          error:
+            "Quick Blast failed to reach the posting provider (Ayrshare).",
+          results,
+        },
+        { status: 502 }
+      );
+    }
+
+    // Ayrshare responded but might have rejected the request
+    if (!ayrshareRes.ok) {
+      const errorMsg =
+        ayrshareData?.error ||
+        ayrshareData?.message ||
+        `Ayrshare returned status ${ayrshareRes.status}.`;
+
+      for (const ch of channels) {
+        if (!channelToPlatform[ch]) continue;
+        results.push({
+          channel: ch,
+          ok: false,
+          status: ayrshareRes.status,
+          error: errorMsg,
+        });
+      }
+
+      return NextResponse.json(
+        {
+          error: "Quick Blast failed for all supported channels.",
+          results,
+        },
+        { status: 502 }
+      );
+    }
+
+    // Ayrshare OK – try to interpret per-platform statuses
+    const postIds = Array.isArray(ayrshareData?.postIds)
+      ? ayrshareData.postIds
+      : [];
+
+    // Build a quick lookup: platform → success/error
+    const perPlatformStatus: Record<
+      string,
+      { ok: boolean; error?: string }
+    > = {};
+
+    if (postIds.length > 0) {
+      for (const item of postIds) {
+        const platform = item?.platform;
+        const status = item?.status;
+        if (!platform) continue;
+
+        perPlatformStatus[platform] = {
+          ok: status === "success",
+          error: status === "success" ? undefined : `Platform status: ${status}`,
+        };
       }
     }
 
-    if (results.length === 0) {
-      return NextResponse.json(
-        { error: "No channels were processed." },
-        { status: 400 }
-      );
+    // For each supported channel, derive a result
+    for (const ch of channels) {
+      const platform = channelToPlatform[ch];
+      if (!platform) continue; // already handled as unsupported above
+
+      const platStatus = perPlatformStatus[platform];
+
+      if (!platStatus) {
+        // No per-platform info; fall back to overall Ayrshare status
+        const overallStatus = ayrshareData?.status;
+        const ok = overallStatus === "success" || overallStatus === "pending";
+        results.push({
+          channel: ch,
+          ok,
+          error: ok
+            ? undefined
+            : `No per-platform status from Ayrshare (overall: ${overallStatus}).`,
+        });
+      } else {
+        results.push({
+          channel: ch,
+          ok: platStatus.ok,
+          error: platStatus.error,
+        });
+      }
     }
 
     const anySuccess = results.some((r) => r.ok);
@@ -140,7 +266,7 @@ export async function POST(req: Request) {
     if (!anySuccess) {
       return NextResponse.json(
         {
-          error: "Quick Blast failed for all selected channels.",
+          error: "Quick Blast did not succeed on any supported channel.",
           results,
         },
         { status: 500 }
