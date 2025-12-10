@@ -3,23 +3,34 @@ import { NextRequest, NextResponse } from "next/server";
 
 const AYRSHARE_API_KEY = process.env.AYRSHARE_API_KEY;
 
-if (!AYRSHARE_API_KEY) {
-  console.error("Missing AYRSHARE_API_KEY in environment variables");
-}
-
 export async function POST(req: NextRequest) {
+  if (!AYRSHARE_API_KEY) {
+    console.error("Missing AYRSHARE_API_KEY in environment variables");
+    return NextResponse.json(
+      { error: "Server misconfiguration: missing Ayrshare API key." },
+      { status: 500 }
+    );
+  }
+
   try {
     const body = await req.json();
 
-    // New: support either `platforms` (array) or legacy `channel` (single string)
+    // Supports either:
+    // - platforms: string[] (preferred)
+    // - channel: string (legacy single value)
     const {
       message,
       platforms,
-      channel, // legacy: "facebook" | "instagram" | "linkedin" | "tiktok" | ...
+      channel,
       imageUrl,
+    }: {
+      message?: string;
+      platforms?: string[];
+      channel?: string;
+      imageUrl?: string;
     } = body;
 
-    if (!message || typeof message !== "string") {
+    if (!message || typeof message !== "string" || !message.trim()) {
       return NextResponse.json(
         { error: "message is required" },
         { status: 400 }
@@ -72,6 +83,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Front-end will synthesise per-channel results; we just confirm success
     return NextResponse.json(
       {
         success: true,
