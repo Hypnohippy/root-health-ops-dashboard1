@@ -360,13 +360,19 @@ export default function ConnectPage() {
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
           {providers.map((provider) => (
             <ProviderCard
-              key={provider.id}
-              provider={provider}
-              busy={busyProvider === provider.id}
-              onConnect={() => handleConnectClick(provider)}
-              onDisconnect={() => handleDisconnectClick(provider)}
-              onTest={() => handleTestClick(provider)}
-            />
+  key={provider.id}
+  provider={provider}
+  busy={busyProvider === provider.id}
+  onConnect={() => {
+    if (provider.id === "facebook") {
+      window.location.href = "/api/social/connect/facebook";
+      return;
+    }
+    handleConnectClick(provider);
+  }}
+  onDisconnect={() => handleDisconnectClick(provider)}
+  onTest={() => handleTestClick(provider)}
+/>
           ))}
         </section>
 
