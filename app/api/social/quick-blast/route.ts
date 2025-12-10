@@ -15,9 +15,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    // Supports either:
-    // - platforms: string[] (preferred)
-    // - channel: string (legacy single value)
     const {
       message,
       platforms,
@@ -39,22 +36,28 @@ export async function POST(req: NextRequest) {
 
     let finalPlatforms: string[] = [];
 
+    // Prefer explicit platforms array from the front-end
     if (Array.isArray(platforms) && platforms.length > 0) {
       finalPlatforms = platforms;
-    } else if (typeof channel === "string" && channel.trim().length > 0) {
+    }
+    // Fallback: legacy single channel
+    else if (typeof channel === "string" && channel.trim().length > 0) {
       finalPlatforms = [channel.trim()];
     }
 
+    // 🔐 TEMP SAFETY NET:
+    // If front-end fails to send platforms/channel for any reason,
+    // do NOT 400 – just default to ["facebook"] so the request still works.
     if (finalPlatforms.length === 0) {
-      return NextResponse.json(
-        { error: "At least one platform or channel is required" },
-        { status: 400 }
+      finalPlatforms = ["facebook"];
+      console.warn(
+        "[quick-blast] No platforms/channel provided. Falling back to ['facebook']."
       );
     }
 
     const payload: Record<string, any> = {
       post: message,
-      platforms: finalPlatforms, // e.g. ["facebook"], ["instagram"], ["linkedin"], ["tiktok"]
+      platforms: finalPlatforms,
     };
 
     if (imageUrl && typeof imageUrl === "string" && imageUrl.trim().length > 0) {
@@ -83,10 +86,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Front-end will synthesise per-channel results; we just confirm success
     return NextResponse.json(
       {
         success: true,
+        platforms: finalPlatforms,
         data,
       },
       { status: 200 }
