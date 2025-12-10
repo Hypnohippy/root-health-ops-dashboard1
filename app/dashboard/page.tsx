@@ -49,7 +49,7 @@ export default function DashboardHomePage() {
     return chans;
   };
 
-  const handleQuickBlast = async () => {
+    const handleQuickBlast = async () => {
     setIsPosting(true);
     setStatus(null);
     setError(null);
@@ -69,20 +69,15 @@ export default function DashboardHomePage() {
         throw new Error("Select at least one channel (e.g. Facebook).");
       }
 
-   await fetch("/api/social/quick-blast", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    message,
-    // use the existing `channels` variable that TypeScript knows about
-    platforms: channels,
-    imageUrl,
-  }),
-});
-
-
-
-
+      const res = await fetch("/api/social/quick-blast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          platforms: channels,
+          imageUrl,
+        }),
+      });
 
       let data: any = null;
       try {
@@ -97,14 +92,27 @@ export default function DashboardHomePage() {
         const msg =
           data?.error ||
           "Quick Blast failed for all selected channels. Check your connections.";
+
+        // Mark all selected channels as failed
+        const results: QuickBlastResult[] = channels.map((channel) => ({
+          channel,
+          ok: false,
+          error: msg,
+          status: res.status,
+        }));
+        setLastResults(results);
         setError(msg);
-        if (data?.results) {
-          setLastResults(data.results as QuickBlastResult[]);
-        }
         throw new Error(msg);
       }
 
-      const results: QuickBlastResult[] = data.results || [];
+      // Ayrshare responded OK – treat all selected channels as sent
+      const success = data?.success ?? true;
+
+      const results: QuickBlastResult[] = channels.map((channel) => ({
+        channel,
+        ok: !!success,
+      }));
+
       setLastResults(results);
 
       const successChannels = results
@@ -118,7 +126,9 @@ export default function DashboardHomePage() {
       }
 
       setStatus(
-        `Quick Blast sent via ${successChannels.join(", ")} using Root Health Ops 🎉`
+        `Quick Blast sent via ${successChannels.join(
+          ", "
+        )} using Root Health Ops 🎉`
       );
     } catch (err: any) {
       const msg =
@@ -149,6 +159,7 @@ export default function DashboardHomePage() {
       setIsPosting(false);
     }
   };
+
 
   const isAnyChannelSelected =
     sendToFacebook || sendToInstagram || sendToLinkedIn || sendToTikTok;
