@@ -4,23 +4,15 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body: any = await req.json();
 
-    const {
-      message,
-      platforms,
-      imageUrl,
-      scheduledAt,
-      organisationId,
-    } = body as {
-      message?: string;
-      platforms?: string[];
-      imageUrl?: string;
-      scheduledAt?: string;
-      organisationId?: string;
-    };
+    const message: string | undefined = body.message;
+    const platforms: string[] | undefined = body.platforms;
+    const imageUrl: string | undefined = body.imageUrl;
+    const scheduledAt: string | undefined = body.scheduledAt;
+    const organisationId: string | undefined = body.organisationId;
 
-    // ---- 1) Basic validation ----
+    // 1) Basic validation
     if (!message || typeof message !== "string" || !message.trim()) {
       return NextResponse.json(
         { success: false, error: "Message is required." },
@@ -28,7 +20,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!Array.isArray(platforms) || platforms.length === 0) {
+    if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
       return NextResponse.json(
         { success: false, error: "At least one platform is required." },
         { status: 200 }
@@ -61,11 +53,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ---- 2) Plan & limit checks ----
+    // 2) Simple plan & limit checks (best-effort, but won't crash if they fail)
     let limitInfo: any = null;
 
     try {
-      // Plan gating
+      // Plan gating (TikTok requires Pro+)
       const { data: planRow, error: planErr } = await supabaseAdmin
         .from("organisation_plans")
         .select("plan")
@@ -76,7 +68,7 @@ export async function POST(req: NextRequest) {
         console.error("[schedule] plan lookup error", planErr);
       }
 
-      const plan = planRow?.plan || "basic";
+      const plan: string = (planRow && (planRow as any).plan) || "basic";
       const tiktokRequested = platforms.includes("tiktok");
 
       if (tiktokRequested && plan === "basic") {
@@ -91,7 +83,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Posting limit
+      // Posting limit: count this scheduled post as a “slot”
       const { data, error } = await supabaseAdmin.rpc(
         "increment_org_post_usage",
         {
@@ -119,7 +111,7 @@ export async function POST(req: NextRequest) {
       console.error("[schedule] exception during limits/plan", e);
     }
 
-    // ---- 3) Store scheduled post locally ----
+    // 3) Store scheduled post locally
     const { data: row, error: insertErr } = await supabaseAdmin
       .from("content_items")
       .insert({
