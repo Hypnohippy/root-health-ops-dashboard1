@@ -53,11 +53,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2) Simple plan & limit checks (best-effort, but won't crash if they fail)
+    // 2) (Optional) plan & limit checks
     let limitInfo: any = null;
 
     try {
-      // Plan gating (TikTok requires Pro+)
       const { data: planRow, error: planErr } = await supabaseAdmin
         .from("organisation_plans")
         .select("plan")
@@ -83,7 +82,6 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Posting limit: count this scheduled post as a “slot”
       const { data, error } = await supabaseAdmin.rpc(
         "increment_org_post_usage",
         {
@@ -111,22 +109,22 @@ export async function POST(req: NextRequest) {
       console.error("[schedule] exception during limits/plan", e);
     }
 
-    // 3) Store scheduled post locally
+    // 3) Store into scheduled_posts
     const { data: row, error: insertErr } = await supabaseAdmin
-      .from("content_items")
+      .from("scheduled_posts")
       .insert({
         organisation_id: organisationId,
-        text: message,
+        message,
         platforms,
-        scheduled_for: date.toISOString(),
         image_url: imageUrl || null,
+        scheduled_for: date.toISOString(),
         status: "scheduled",
       })
       .select()
       .single();
 
     if (insertErr || !row) {
-      console.error("[schedule] Failed to insert content item", insertErr);
+      console.error("[schedule] Failed to insert scheduled post", insertErr);
       return NextResponse.json(
         {
           success: false,
