@@ -14,16 +14,16 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const now = new Date().toISOString();
+    const nowIso = new Date().toISOString();
 
-    // 1) Find due scheduled posts (limit to avoid stampede)
+    // 1) Find due scheduled posts
     const { data: items, error } = await supabaseAdmin
       .from("content_items")
       .select(
         "id, organisation_id, text, platforms, image_url, scheduled_for, status"
       )
       .eq("status", "scheduled")
-      .lte("scheduled_for", now)
+      .lte("scheduled_for", nowIso)
       .order("scheduled_for", { ascending: true })
       .limit(20);
 
@@ -45,16 +45,19 @@ export async function GET(req: NextRequest) {
     let dispatchedCount = 0;
     const failures: any[] = [];
 
-    for (const item of items) {
-      const { id, text, platforms, image_url } = item as any;
+    for (const item of items as any[]) {
+      const id = item.id;
+      const text: string = item.text;
+      const platforms: string[] = item.platforms || [];
+      const imageUrl: string | null = item.image_url || null;
 
       const payload: Record<string, any> = {
         post: text,
         platforms,
       };
 
-      if (image_url && typeof image_url === "string") {
-        payload.mediaUrls = [image_url];
+      if (imageUrl && typeof imageUrl === "string") {
+        payload.mediaUrls = [imageUrl];
       }
 
       try {
@@ -71,10 +74,10 @@ export async function GET(req: NextRequest) {
         try {
           data = await res.json();
         } catch {
-          // ignore parse failures, treat as generic error if not ok
+          // ignore parse failures; treat as generic error if not ok
         }
 
-        if (!res.ok || data?.status === "error") {
+        if (!res.ok || (data && data.status === "error")) {
           console.error(
             "[dispatch-scheduled] Ayrshare error for item",
             id,
@@ -108,7 +111,7 @@ export async function GET(req: NextRequest) {
           .eq("id", id);
 
         dispatchedCount += 1;
-      } catch (e) {
+      } catch (e: any) {
         console.error("[dispatch-scheduled] exception posting item", id, e);
         failures.push({ id, error: String(e) });
 
