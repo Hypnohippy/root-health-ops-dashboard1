@@ -47,6 +47,9 @@ export default function DashboardHomePage() {
     null
   );
 
+  // 👇 ADD THIS: hard-coded org for now (replace with your real org ID)
+  const organisationId = "e83aeab8-69bf-4405-b34f-c13c6fa4bfd5";
+
   const buildSelectedChannels = (): ChannelId[] => {
     const chans: ChannelId[] = [];
     if (sendToFacebook) chans.push("facebook");
@@ -106,11 +109,10 @@ export default function DashboardHomePage() {
         throw new Error("Select at least one channel (e.g. Facebook).");
       }
 
-      // For now we are not yet passing organisationId; the API gracefully handles that.
       const results: QuickBlastResult[] = [];
 
       for (const channel of channels) {
-               const res = await fetch("/api/social/quick-blast", {
+        const res = await fetch("/api/social/quick-blast", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -202,7 +204,7 @@ export default function DashboardHomePage() {
 
       const iso = date.toISOString();
 
-           const res = await fetch("/api/social/schedule", {
+      const res = await fetch("/api/social/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -585,7 +587,7 @@ export default function DashboardHomePage() {
                 few posts for the week ahead. Then explore{" "}
                 <span className="font-medium">Connect</span> to wire more
                 channels and <span className="font-medium">Campaigns</span> to
-                turn ideas into sequences.
+                turn the best ideas into sequences.
               </p>
             </div>
 
