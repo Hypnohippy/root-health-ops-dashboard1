@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 3) Store into scheduled_posts
-    const { data: row, error: insertErr } = await supabaseAdmin
+    const { data, error: insertErr } = await supabaseAdmin
       .from("scheduled_posts")
       .insert({
         organisation_id: organisationId,
@@ -120,8 +120,9 @@ export async function POST(req: NextRequest) {
         scheduled_for: date.toISOString(),
         status: "scheduled",
       })
-      .select()
-      .single();
+      .select();
+
+    const row = Array.isArray(data) ? data[0] : data || null;
 
     if (insertErr || !row) {
       console.error("[schedule] Failed to insert scheduled post", insertErr);
@@ -130,6 +131,10 @@ export async function POST(req: NextRequest) {
           success: false,
           error:
             "Could not save your scheduled post. Please try again or contact support.",
+          dbError:
+            insertErr && typeof insertErr === "object"
+              ? (insertErr as any).message || JSON.stringify(insertErr)
+              : insertErr || null,
         },
         { status: 200 }
       );
@@ -147,7 +152,10 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[schedule] error", err);
     return NextResponse.json(
-      { success: false, error: "Internal server error." },
+      {
+        success: false,
+        error: "Internal server error.",
+      },
       { status: 200 }
     );
   }
