@@ -18,9 +18,9 @@ export async function GET(req: NextRequest) {
 
     // 1) Find due scheduled posts
     const { data: items, error } = await supabaseAdmin
-      .from("content_items")
+      .from("scheduled_posts")
       .select(
-        "id, organisation_id, text, platforms, image_url, scheduled_for, status"
+        "id, organisation_id, message, platforms, image_url, scheduled_for, status"
       )
       .eq("status", "scheduled")
       .lte("scheduled_for", nowIso)
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     if (error) {
       console.error("[dispatch-scheduled] fetch error", error);
       return NextResponse.json(
-        { success: false, error: "DB error fetching scheduled items." },
+        { success: false, error: "DB error fetching scheduled posts." },
         { status: 200 }
       );
     }
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
 
     for (const item of items as any[]) {
       const id = item.id;
-      const text: string = item.text;
+      const text: string = item.message;
       const platforms: string[] = item.platforms || [];
       const imageUrl: string | null = item.image_url || null;
 
@@ -89,9 +89,8 @@ export async function GET(req: NextRequest) {
             statusCode: res.status,
           });
 
-          // mark as failed
           await supabaseAdmin
-            .from("content_items")
+            .from("scheduled_posts")
             .update({
               status: "failed",
               error_info: data || { statusCode: res.status },
@@ -101,9 +100,8 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        // mark as sent
         await supabaseAdmin
-          .from("content_items")
+          .from("scheduled_posts")
           .update({
             status: "sent",
             posted_at: new Date().toISOString(),
@@ -116,7 +114,7 @@ export async function GET(req: NextRequest) {
         failures.push({ id, error: String(e) });
 
         await supabaseAdmin
-          .from("content_items")
+          .from("scheduled_posts")
           .update({
             status: "failed",
             error_info: { error: String(e) },
