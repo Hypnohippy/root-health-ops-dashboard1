@@ -1,247 +1,600 @@
 // app/dashboard/stories/new/page.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 
 type ChannelId = "facebook" | "instagram" | "linkedin" | "tiktok" | "reddit";
 
+type GeneratedPost = {
+  title: string;
+  body: string;
+  platformSuggestion?: string;
+  cta?: string;
+  imagePrompt?: string;
+};
+
+type StoryTypeOption =
+  | "Personal journey"
+  | "Professional insight"
+  | "HR director perspective"
+  | "Problem → Solution → Success"
+  | "Client case (anonymous)"
+  | "Educational mini-series"
+  | "Behind the scenes"
+  | "Trauma recovery arc";
+
+type ToneOption =
+  | "Warm & supportive"
+  | "Professional & confident"
+  | "Inspirational & human"
+  | "Strong thought-leader"
+  | "Data-backed but human";
+
+type CtaStyleOption =
+  | "Comment for more / next part"
+  | "Like or share if this resonates"
+  | "DM me to talk privately"
+  | "Follow for the next part"
+  | "Click through to learn more";
+
+type Mode = "now" | "schedule";
+
 const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
 
-export default function NewStoryPage() {
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [platform, setPlatform] = useState<ChannelId>("linkedin");
-  const [imageUrl, setImageUrl] = useState("");
+export default function StorySeriesBuilderPage() {
+  // Generator inputs
+  const [idea, setIdea] = useState("");
+  const [storyType, setStoryType] = useState<StoryTypeOption>(
+    "HR director perspective"
+  );
+  const [tone, setTone] = useState<ToneOption>("Professional & confident");
+  const [targetPlatform, setTargetPlatform] = useState<ChannelId>("linkedin");
+  const [ctaStyle, setCtaStyle] =
+    useState<CtaStyleOption>("Comment for more / next part");
+  const [seriesLength, setSeriesLength] = useState<number>(3);
 
-  const [scheduledAt, setScheduledAt] = useState("");
-  const [isScheduling, setIsScheduling] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Mode + scheduling
+  const [mode, setMode] = useState<Mode>("schedule");
+  const [seriesStart, setSeriesStart] = useState<string>(""); // datetime-local
+  const [dailyCadence, setDailyCadence] = useState<number>(1); // days between episodes (1 = daily)
 
-  const combinedMessage = () => {
-    const t = title.trim();
-    const b = body.trim();
-    if (t && b) return `${t}\n\n${b}`;
-    if (b) return b;
-    return t;
-  };
+  // Output state
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [posts, setPosts] = useState<GeneratedPost[]>([]);
 
-  const handleScheduleStory = async () => {
-    setIsScheduling(true);
-    setStatus(null);
-    setError(null);
+  // Dispatch state
+  const [isDispatching, setIsDispatching] = useState(false);
+  const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+
+  const canGenerate = useMemo(() => !!idea.trim() && !isGenerating, [idea, isGenerating]);
+
+  const normalizeIdea = (raw: string) => raw.replace(/\s+/g, " ").trim();
+
+  const handleGenerate = async () => {
+    setIsGenerating(true);
+    setGenerationError(null);
+    setPosts([]);
+    setDispatchStatus(null);
+    setDispatchError(null);
 
     try {
-      const msg = combinedMessage();
-
-      if (!msg) {
-        throw new Error("Please add a story title or body before scheduling.");
-      }
-
-      if (!scheduledAt) {
-        throw new Error("Choose a date and time for this story to go out.");
-      }
-
-      const date = new Date(scheduledAt);
-      if (isNaN(date.getTime())) {
-        throw new Error("The scheduled date/time is not valid.");
-      }
-
-      const iso = date.toISOString();
-
-      const res = await fetch("/api/social/schedule", {
+      const res = await fetch("/api/ai/story-series", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: msg,
-          platforms: [platform],
-          imageUrl: imageUrl || undefined,
-          scheduledAt: iso,
-          organisationId: ORG_ID,
+          idea: normalizeIdea(idea),
+          storyType,
+          tone,
+          seriesLength,
+          platform: targetPlatform,
+          ctaStyle,
         }),
       });
 
-      let data: any = null;
-      try {
-        data = await res.json();
-      } catch {
-        // ignore parse issue, treat as error if not ok
-      }
+      const data: any = await res.json();
 
       if (!res.ok || !data?.success) {
-        const msgText =
+        throw new Error(
           data?.error ||
-          data?.message ||
-          "Could not schedule this story. Please check your connections or plan.";
-        throw new Error(msgText);
+            "Could not generate the story series. Please refine your idea and try again."
+        );
       }
 
-      setStatus(
-        `Story scheduled for ${date.toLocaleString()} on ${platform}. You can see it in Scheduled Posts.`
-      );
+      if (!Array.isArray(data.posts) || data.posts.length === 0) {
+        throw new Error("AI did not return any posts.");
+      }
+
+      const mapped: GeneratedPost[] = data.posts.map((p: any) => ({
+        title: typeof p.title === "string" ? p.title : "",
+        body: typeof p.body === "string" ? p.body : "",
+        platformSuggestion:
+          typeof p.platformSuggestion === "string" ? p.platformSuggestion : undefined,
+        cta: typeof p.cta === "string" ? p.cta : undefined,
+        imagePrompt:
+          typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
+      }));
+
+      setPosts(mapped);
     } catch (err: any) {
-      const msg =
-        err?.message || "Something went wrong scheduling this story.";
-      setError(msg);
+      console.error("[Stories/New] generate error", err);
+      setGenerationError(err?.message || "Generation failed.");
     } finally {
-      setIsScheduling(false);
+      setIsGenerating(false);
     }
   };
 
-  const canSchedule =
-    !!combinedMessage() && !!scheduledAt && !isScheduling && !!platform;
+  const buildMessage = (p: GeneratedPost) => {
+    const parts: string[] = [];
+    if (p.title?.trim()) parts.push(p.title.trim());
+    if (p.body?.trim()) parts.push(p.body.trim());
+    if (p.cta?.trim()) parts.push(p.cta.trim());
+    return parts.join("\n\n").trim();
+  };
+
+  const updatePost = (index: number, patch: Partial<GeneratedPost>) => {
+    setPosts((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, ...patch } : p))
+    );
+  };
+
+  const handleSendNow = async () => {
+    setIsDispatching(true);
+    setDispatchStatus(null);
+    setDispatchError(null);
+
+    try {
+      if (posts.length === 0) throw new Error("Generate a story first.");
+
+      // Send only the first post in "send now" mode (clean UX)
+      const p = posts[0];
+      const message = buildMessage(p);
+
+      if (!message) throw new Error("The post content is empty.");
+
+      const res = await fetch("/api/social/quick-blast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          platforms: [targetPlatform],
+          // Image URLs for stories can come later; keep simple for now
+          imageUrl: undefined,
+        }),
+      });
+
+      const data: any = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        const msg =
+          data?.error ||
+          data?.message ||
+          "Quick Blast failed. Check connections or plan.";
+        throw new Error(msg);
+      }
+
+      setDispatchStatus(
+        `Sent now to ${targetPlatform}. If you generated a series, you can switch to Schedule to queue the rest.`
+      );
+    } catch (err: any) {
+      setDispatchError(err?.message || "Send now failed.");
+    } finally {
+      setIsDispatching(false);
+    }
+  };
+
+  const handleScheduleSeries = async () => {
+    setIsDispatching(true);
+    setDispatchStatus(null);
+    setDispatchError(null);
+
+    try {
+      if (posts.length === 0) throw new Error("Generate a story/series first.");
+      if (!seriesStart) throw new Error("Choose the first post date/time.");
+
+      const base = new Date(seriesStart);
+      if (isNaN(base.getTime())) throw new Error("Start date/time is not valid.");
+
+      const cadenceDays = Math.max(1, Math.min(14, Number(dailyCadence) || 1));
+
+      let successCount = 0;
+      const failures: { index: number; error: string }[] = [];
+
+      for (let i = 0; i < posts.length; i++) {
+        const scheduledDate = new Date(
+          base.getTime() + i * cadenceDays * 24 * 60 * 60 * 1000
+        );
+
+        const message = buildMessage(posts[i]);
+
+        const res = await fetch("/api/social/schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message,
+            platforms: [targetPlatform],
+            imageUrl: undefined,
+            scheduledAt: scheduledDate.toISOString(),
+            organisationId: ORG_ID,
+          }),
+        });
+
+        const data: any = await res.json().catch(() => null);
+
+        if (!res.ok || !data?.success) {
+          failures.push({
+            index: i,
+            error:
+              data?.error ||
+              data?.message ||
+              `Failed scheduling part ${i + 1}`,
+          });
+        } else {
+          successCount++;
+        }
+      }
+
+      if (successCount === 0) {
+        throw new Error(
+          failures[0]?.error ||
+            "Could not schedule any posts. Check plan/connections."
+        );
+      }
+
+      const msg =
+        failures.length === 0
+          ? `Scheduled ${successCount} post(s). View them in Dashboard → Scheduled.`
+          : `Scheduled ${successCount} post(s), ${failures.length} failed. View Scheduled for details.`;
+
+      setDispatchStatus(msg);
+
+      if (failures.length) {
+        setDispatchError(
+          `Some failed:\n` +
+            failures
+              .slice(0, 5)
+              .map((f) => `Part ${f.index + 1}: ${f.error}`)
+              .join("\n")
+        );
+      }
+    } catch (err: any) {
+      setDispatchError(err?.message || "Scheduling failed.");
+    } finally {
+      setIsDispatching(false);
+    }
+  };
+
+  const isSingle = seriesLength === 1;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
-      <div className="w-full max-w-5xl space-y-8">
-        {/* Header */}
+      <div className="w-full max-w-6xl space-y-8">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold">
-              New Story / Series Post
+              Stories · Advanced Narrative Generator
             </h1>
             <p className="mt-1 text-sm text-slate-300 max-w-xl">
-              Draft a deeper story, then schedule it to go out via your social
-              engine. This now feeds directly into{" "}
-              <span className="font-medium">Scheduled Posts</span>.
+              Create a single post or an episodic series with proper story arcs.
+              Generate → edit → send now or schedule into your unified engine.
             </p>
           </div>
+
+          <span className="inline-flex items-center rounded-full border border-emerald-500/50 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-200">
+            Powered by your private social engine
+          </span>
         </header>
 
-        {/* Story builder */}
-        <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-5">
-          {/* Title */}
-          <div className="space-y-2">
-            <label className="block text-[11px] font-medium text-slate-300">
-              Story title (optional)
-            </label>
-            <input
-              type="text"
-              className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-500"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="E.g. Beneath the Surface"
-            />
-          </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* LEFT: Controls */}
+          <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base md:text-lg font-semibold">1) Create</h2>
 
-          {/* Body */}
-          <div className="space-y-2">
-            <label className="block text-[11px] font-medium text-slate-300">
-              Story body
-            </label>
-            <textarea
-              className="w-full min-h-[200px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="Write the main story you want to share with your audience."
-            />
-          </div>
-
-          {/* Image URL */}
-          <div className="space-y-1">
-            <label className="block text-[11px] font-medium text-slate-300">
-              Image URL (optional)
-            </label>
-            <input
-              type="url"
-              className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-500"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="https://example.com/story-image.jpg"
-            />
-            <p className="text-[10px] text-slate-500">
-              Optional. For image-based posts (esp. Instagram), paste a direct
-              JPG/PNG URL.
-            </p>
-          </div>
-
-          {/* Platform + schedule */}
-          <div className="grid md:grid-cols-2 gap-4">
-            {/* Platform */}
-            <div className="space-y-2">
-              <p className="text-[11px] font-medium text-slate-300">
-                Platform
-              </p>
-              <div className="flex flex-wrap gap-2 text-xs">
-                {(
-                  [
-                    "facebook",
-                    "instagram",
-                    "linkedin",
-                    "reddit",
-                    "tiktok",
-                  ] as ChannelId[]
-                ).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setPlatform(p)}
-                    className={[
-                      "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 transition",
-                      platform === p
-                        ? "border-emerald-500 bg-emerald-500/10 text-emerald-100"
-                        : "border-slate-600 bg-slate-900 text-slate-300 hover:border-slate-500",
-                    ].join(" ")}
-                  >
-                    <span className="capitalize">{p}</span>
-                    {platform === p && (
-                      <span className="text-[10px] text-emerald-300 ml-1">
-                        selected
-                      </span>
-                    )}
-                  </button>
-                ))}
+              <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setMode("now")}
+                  className={[
+                    "px-3 py-1.5",
+                    mode === "now"
+                      ? "bg-emerald-500 text-slate-950"
+                      : "text-slate-300",
+                  ].join(" ")}
+                >
+                  Send now
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("schedule")}
+                  className={[
+                    "px-3 py-1.5",
+                    mode === "schedule"
+                      ? "bg-emerald-500 text-slate-950"
+                      : "text-slate-300",
+                  ].join(" ")}
+                >
+                  Schedule
+                </button>
               </div>
-              <p className="text-[10px] text-slate-500">
-                Stories are usually strongest on LinkedIn and Facebook, but you
-                can still schedule them elsewhere.
-              </p>
             </div>
 
-            {/* Schedule */}
             <div className="space-y-2">
               <label className="block text-[11px] font-medium text-slate-300">
-                When should this story go out?
+                Your idea / brief
               </label>
-              <input
-                type="datetime-local"
-                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-500"
-                value={scheduledAt}
-                onChange={(e) => setScheduledAt(e.target.value)}
+              <textarea
+                className="w-full min-h-[130px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                value={idea}
+                onChange={(e) => setIdea(e.target.value)}
+                placeholder="E.g. 3-part HR story: choosing wellbeing program, finding Root Health, rolling it out, culture change..."
               />
-              <p className="text-[10px] text-slate-500">
-                Root Health Ops will hand this to your social engine at the
-                chosen time.
-              </p>
             </div>
-          </div>
 
-          {/* Actions */}
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handleScheduleStory}
-              disabled={!canSchedule}
-              className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
-            >
-              {isScheduling ? "Scheduling…" : "Schedule Story"}
-            </button>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-slate-300">
+                  Story type
+                </label>
+                <select
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  value={storyType}
+                  onChange={(e) =>
+                    setStoryType(e.target.value as StoryTypeOption)
+                  }
+                >
+                  <option value="HR director perspective">HR director perspective</option>
+                  <option value="Problem → Solution → Success">Problem → Solution → Success</option>
+                  <option value="Professional insight">Professional insight</option>
+                  <option value="Personal journey">Personal journey</option>
+                  <option value="Client case (anonymous)">Client case (anonymous)</option>
+                  <option value="Educational mini-series">Educational mini-series</option>
+                  <option value="Behind the scenes">Behind the scenes</option>
+                  <option value="Trauma recovery arc">Trauma recovery arc</option>
+                </select>
+              </div>
 
-            <p className="text-[11px] text-slate-500">
-              This no longer saves to Airtable. It now creates a scheduled post
-              in your social engine, visible under{" "}
-              <span className="font-medium">Dashboard → Scheduled</span>.
-            </p>
-          </div>
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-slate-300">
+                  Tone
+                </label>
+                <select
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  value={tone}
+                  onChange={(e) => setTone(e.target.value as ToneOption)}
+                >
+                  <option value="Professional & confident">Professional & confident</option>
+                  <option value="Warm & supportive">Warm & supportive</option>
+                  <option value="Inspirational & human">Inspirational & human</option>
+                  <option value="Strong thought-leader">Strong thought-leader</option>
+                  <option value="Data-backed but human">Data-backed but human</option>
+                </select>
+              </div>
+            </div>
 
-          {status && (
-            <div className="mt-2 text-[11px] text-emerald-400">{status}</div>
-          )}
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-slate-300">
+                  Platform
+                </label>
+                <select
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  value={targetPlatform}
+                  onChange={(e) => setTargetPlatform(e.target.value as ChannelId)}
+                >
+                  <option value="linkedin">LinkedIn</option>
+                  <option value="facebook">Facebook</option>
+                  <option value="instagram">Instagram</option>
+                  <option value="reddit">Reddit</option>
+                  <option value="tiktok">TikTok</option>
+                </select>
+                <p className="text-[10px] text-slate-500">
+                  TikTok may require a higher Ayrshare plan.
+                </p>
+              </div>
 
-          {error && (
-            <div className="mt-2 text-[11px] text-red-400">{error}</div>
-          )}
-        </section>
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-slate-300">
+                  Series length
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  value={seriesLength}
+                  onChange={(e) =>
+                    setSeriesLength(
+                      Math.max(1, Math.min(10, Number(e.target.value) || 1))
+                    )
+                  }
+                />
+                <p className="text-[10px] text-slate-500">
+                  1 = single post. 3–5 = proper arc.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-slate-300">
+                  CTA style
+                </label>
+                <select
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  value={ctaStyle}
+                  onChange={(e) =>
+                    setCtaStyle(e.target.value as CtaStyleOption)
+                  }
+                >
+                  <option value="Comment for more / next part">Comment for more / next part</option>
+                  <option value="Follow for the next part">Follow for the next part</option>
+                  <option value="DM me to talk privately">DM me to talk privately</option>
+                  <option value="Like or share if this resonates">Like or share if this resonates</option>
+                  <option value="Click through to learn more">Click through to learn more</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={!canGenerate}
+                className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+              >
+                {isGenerating ? "Generating…" : isSingle ? "Generate story" : "Generate series"}
+              </button>
+
+              <span className="text-[11px] text-slate-400">
+                Generate → edit the episodes → send now or schedule.
+              </span>
+            </div>
+
+            {generationError && (
+              <div className="mt-2 text-[11px] text-red-400">{generationError}</div>
+            )}
+
+            {/* Scheduling controls */}
+            {mode === "schedule" && posts.length > 0 && (
+              <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
+                <div className="text-[11px] font-semibold text-slate-200">
+                  Scheduling options
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-slate-300">
+                      First post date/time
+                    </label>
+                    <input
+                      type="datetime-local"
+                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      value={seriesStart}
+                      onChange={(e) => setSeriesStart(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-slate-300">
+                      Cadence (days between episodes)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={14}
+                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      value={dailyCadence}
+                      onChange={(e) =>
+                        setDailyCadence(
+                          Math.max(1, Math.min(14, Number(e.target.value) || 1))
+                        )
+                      }
+                    />
+                    <p className="text-[10px] text-slate-500">
+                      1 = daily. 2 = every other day. Great for longer arcs.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Dispatch buttons */}
+            {posts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                {mode === "now" ? (
+                  <button
+                    type="button"
+                    onClick={handleSendNow}
+                    disabled={isDispatching}
+                    className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+                  >
+                    {isDispatching ? "Sending…" : `Send now to ${targetPlatform}`}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleScheduleSeries}
+                    disabled={isDispatching || !seriesStart}
+                    className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+                  >
+                    {isDispatching
+                      ? "Scheduling…"
+                      : `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`}
+                  </button>
+                )}
+
+                <span className="text-[11px] text-slate-400">
+                  {mode === "now"
+                    ? "Sends the first episode immediately."
+                    : "Queues into scheduled_posts so /dashboard/scheduled shows them."}
+                </span>
+              </div>
+            )}
+
+            {dispatchStatus && (
+              <div className="mt-2 text-[11px] text-emerald-400">{dispatchStatus}</div>
+            )}
+            {dispatchError && (
+              <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">{dispatchError}</div>
+            )}
+          </section>
+
+          {/* RIGHT: Output + editing */}
+          <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-4">
+            <h2 className="text-base md:text-lg font-semibold">2) Edit & preview</h2>
+
+            {posts.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                Your generated story/series will appear here. You can edit each episode before sending or scheduling.
+              </p>
+            ) : (
+              <div className="space-y-3 max-h-[620px] overflow-y-auto pr-1">
+                {posts.map((p, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-slate-400">
+                        {posts.length > 1 ? `Episode ${idx + 1} / ${posts.length}` : "Single post"}
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        {p.platformSuggestion ? `AI suggests: ${p.platformSuggestion}` : `Target: ${targetPlatform}`}
+                      </div>
+                    </div>
+
+                    <input
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      value={p.title || ""}
+                      onChange={(e) => updatePost(idx, { title: e.target.value })}
+                      placeholder="Title (optional)"
+                    />
+
+                    <textarea
+                      className="w-full min-h-[140px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 whitespace-pre-wrap"
+                      value={p.body || ""}
+                      onChange={(e) => updatePost(idx, { body: e.target.value })}
+                      placeholder="Post body"
+                    />
+
+                    <input
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      value={p.cta || ""}
+                      onChange={(e) => updatePost(idx, { cta: e.target.value })}
+                      placeholder="CTA (optional)"
+                    />
+
+                    {p.imagePrompt && (
+                      <div className="text-[10px] text-slate-400">
+                        Image idea: {p.imagePrompt}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       </div>
     </div>
   );
