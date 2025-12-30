@@ -235,11 +235,14 @@ export default function DashboardScheduledPage() {
                       <p className="mt-2 text-sm text-amber-50 whitespace-pre-wrap">
                         {item.message}
                       </p>
-                      {item.error_info && (
-                        <pre className="mt-2 text-[10px] text-amber-200 bg-black/30 rounded-xl p-2 overflow-x-auto">
-                          {JSON.stringify(item.error_info, null, 2)}
-                        </pre>
-                      )}
+                     {item.error_info && (
+  <p className="mt-2 text-[11px] text-amber-200">
+    {Array.isArray((item.error_info as any).errors) &&
+    (item.error_info as any).errors[0]
+      ? (item.error_info as any).errors[0].message
+      : "The social network rejected this post. Check your plan, content, or connection."}
+  </p>
+)}
                     </div>
                   ))}
                 </div>
