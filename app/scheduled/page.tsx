@@ -1,4 +1,4 @@
-// app/scheduled/page.tsx
+// app/schedule/page.tsx
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -28,10 +28,7 @@ type ApiResponse =
       error: string;
     };
 
-// 👇 same org id we used in dashboard/page.tsx
-const organisationId = "23a054db-7040-40b1-b193-2f43cfa139de";
-
-export default function ScheduledPostsPage() {
+export default function SchedulePage() {
   const [items, setItems] = useState<ScheduledPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,9 +39,8 @@ export default function ScheduledPostsPage() {
       setError(null);
 
       try {
-        const res = await fetch(
-          `/api/social/scheduled?organisationId=${organisationId}`
-        );
+        // 👇 Uses the /api/schedule/list route we just fixed
+        const res = await fetch("/api/schedule/list");
         const data: ApiResponse = await res.json();
 
         if (!data.success) {
@@ -55,7 +51,7 @@ export default function ScheduledPostsPage() {
 
         setItems(data.items);
       } catch (err: any) {
-        console.error("[scheduled page] load error", err);
+        console.error("[SchedulePage] load error", err);
         setError("Something went wrong loading scheduled posts.");
         setItems([]);
       } finally {
@@ -105,18 +101,20 @@ export default function ScheduledPostsPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-8">
+        {/* Header */}
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold">
               Scheduled Posts
             </h1>
             <p className="mt-1 text-sm text-slate-300 max-w-xl">
-              See what Root Health Ops has queued up to go out, what&apos;s
-              already gone, and anything that needs your attention.
+              Everything Root Health Ops has queued, sent, or that needs your
+              attention. Powered by your Ayrshare connection under the hood.
             </p>
           </div>
         </header>
 
+        {/* Loading / error states */}
         {loading && (
           <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 text-sm text-slate-300">
             Loading scheduled posts…
@@ -138,8 +136,9 @@ export default function ScheduledPostsPage() {
               </h2>
               {upcoming.length === 0 ? (
                 <p className="text-sm text-slate-400">
-                  Nothing queued yet. Use Quick Blast &rarr; Schedule to line up
-                  your next posts.
+                  Nothing queued yet. Use{" "}
+                  <span className="font-medium">Quick Blast → Schedule</span> to
+                  line up your next posts.
                 </p>
               ) : (
                 <div className="space-y-3">
