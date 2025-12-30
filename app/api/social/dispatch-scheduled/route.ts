@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
 
     if (!items || items.length === 0) {
       return NextResponse.json(
-        { success: true, dispatched: 0 },
+        { success: true, dispatched: 0, failed: 0 },
         { status: 200 }
       );
     }
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
     const failures: any[] = [];
 
     for (const item of items as any[]) {
-      const id = item.id;
+      const id = item.id as string;
       const text: string = item.message;
       const platforms: string[] = item.platforms || [];
       const imageUrl: string | null = item.image_url || null;
@@ -87,6 +87,7 @@ export async function GET(req: NextRequest) {
           failures.push({
             id,
             statusCode: res.status,
+            error: data,
           });
 
           await supabaseAdmin
