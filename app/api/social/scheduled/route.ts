@@ -2,10 +2,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
+// We’ll default to your Root Health org if none provided
+const DEFAULT_ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
+
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const organisationId = searchParams.get("organisationId");
+    const url = new URL(req.url);
+    const searchParams = url.searchParams;
+
+    const organisationId =
+      searchParams.get("organisationId") || DEFAULT_ORG_ID;
 
     if (!organisationId) {
       return NextResponse.json(
@@ -26,11 +32,11 @@ export async function GET(req: NextRequest) {
       .order("scheduled_for", { ascending: true });
 
     if (error) {
-      console.error("[scheduled list] DB error", error);
+      console.error("[/api/social/scheduled] DB error", error);
       return NextResponse.json(
         {
           success: false,
-          error: "Database error loading scheduled posts",
+          error: "Database error loading scheduled posts.",
         },
         { status: 200 }
       );
@@ -44,7 +50,7 @@ export async function GET(req: NextRequest) {
       { status: 200 }
     );
   } catch (err) {
-    console.error("[scheduled list] unexpected error", err);
+    console.error("[/api/social/scheduled] unexpected error", err);
     return NextResponse.json(
       {
         success: false,
