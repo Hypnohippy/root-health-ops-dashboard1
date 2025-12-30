@@ -18,16 +18,6 @@ type ScheduledPost = {
   created_at: string;
 };
 
-type ApiResponse =
-  | {
-      success: true;
-      items: ScheduledPost[];
-    }
-  | {
-      success: false;
-      error: string;
-    };
-
 export default function DashboardScheduledPage() {
   const [items, setItems] = useState<ScheduledPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,17 +29,38 @@ export default function DashboardScheduledPage() {
       setError(null);
 
       try {
-        // 👇 Uses the /api/schedule/list route we rewired to scheduled_posts
         const res = await fetch("/api/schedule/list");
-        const data: ApiResponse = await res.json();
+        const raw: any = await res.json();
 
-        if (!data.success) {
-          setError(data.error || "Could not load scheduled posts.");
+        if (!res.ok) {
+          setError("Could not load scheduled posts (network error).");
           setItems([]);
           return;
         }
 
-        setItems(data.items);
+        let scheduledItems: ScheduledPost[] = [];
+
+        // Case 1: our newer shape { success, items }
+        if (raw && typeof raw === "object" && "items" in raw) {
+          if (raw.success === false) {
+            setError(raw.error || "Could not load scheduled posts.");
+            setItems([]);
+            return;
+          }
+          if (Array.isArray(raw.items)) {
+            scheduledItems = raw.items as ScheduledPost[];
+          }
+        }
+        // Case 2: API returns a bare array of posts
+        else if (Array.isArray(raw)) {
+          scheduledItems = raw as ScheduledPost[];
+        } else {
+          setError("Could not load scheduled posts.");
+          setItems([]);
+          return;
+        }
+
+        setItems(scheduledItems);
       } catch (err: any) {
         console.error("[DashboardScheduledPage] load error", err);
         setError("Something went wrong loading scheduled posts.");
