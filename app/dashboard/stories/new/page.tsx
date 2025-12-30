@@ -1,693 +1,247 @@
+// app/dashboard/stories/new/page.tsx
 "use client";
 
 import React, { useState } from "react";
 
-type StoryVariant = {
-  title: string;
-  story: string;
-};
+type ChannelId = "facebook" | "instagram" | "linkedin" | "tiktok" | "reddit";
 
-type StoryType =
-  | "personal"
-  | "workplace"
-  | "client"
-  | "founder"
-  | "day_in_life"
-  | "series";
-
-type StoryTone =
-  | "inspirational"
-  | "emotional"
-  | "corporate"
-  | "cinematic"
-  | "conversational"
-  | "raw";
-
-type StoryLength = "short" | "medium" | "long";
-
-type StoryPlatform = "LinkedIn" | "Facebook" | "Instagram";
-
-function HelpTip({ text }: { text: string }) {
-  return (
-    <span
-      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/30 bg-black/40 text-[10px] text-slate-200 cursor-help"
-      title={text}
-    >
-      ?
-    </span>
-  );
-}
+const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
 
 export default function NewStoryPage() {
-  const [storyType, setStoryType] = useState<StoryType>("workplace");
-  const [tone, setTone] = useState<StoryTone>("inspirational");
-  const [length, setLength] = useState<StoryLength>("medium");
-  const [platform, setPlatform] = useState<StoryPlatform>("LinkedIn");
-  const [character, setCharacter] = useState("Sarah");
-  const [scenario, setScenario] = useState(
-    "a professional who looks fine on the outside but is quietly burning out"
-  );
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [platform, setPlatform] = useState<ChannelId>("linkedin");
+  const [imageUrl, setImageUrl] = useState("");
 
-  const [seriesEnabled, setSeriesEnabled] = useState(false);
-  const [seriesEpisode, setSeriesEpisode] = useState(1);
-  const [totalEpisodes, setTotalEpisodes] = useState(3);
-
-  const [variants, setVariants] = useState<StoryVariant[]>([]);
-  const [selectedVariantIndex, setSelectedVariantIndex] =
-    useState<number | null>(null);
-
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isPosting, setIsPosting] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState("");
   const [isScheduling, setIsScheduling] = useState(false);
-
-  const [scheduleDate, setScheduleDate] = useState("");
-  const [scheduleTime, setScheduleTime] = useState("");
-
-  const [message, setMessage] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  function resetNotices() {
-    setMessage(null);
+  const combinedMessage = () => {
+    const t = title.trim();
+    const b = body.trim();
+    if (t && b) return `${t}\n\n${b}`;
+    if (b) return b;
+    return t;
+  };
+
+  const handleScheduleStory = async () => {
+    setIsScheduling(true);
+    setStatus(null);
     setError(null);
-  }
-
-  async function handleGenerateStories() {
-    resetNotices();
-    setIsGenerating(true);
 
     try {
-      const res = await fetch("/api/ai/story", {
+      const msg = combinedMessage();
+
+      if (!msg) {
+        throw new Error("Please add a story title or body before scheduling.");
+      }
+
+      if (!scheduledAt) {
+        throw new Error("Choose a date and time for this story to go out.");
+      }
+
+      const date = new Date(scheduledAt);
+      if (isNaN(date.getTime())) {
+        throw new Error("The scheduled date/time is not valid.");
+      }
+
+      const iso = date.toISOString();
+
+      const res = await fetch("/api/social/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          storyType,
-          tone,
-          length,
-          character,
-          scenario,
-          platform,
-          seriesEpisode: seriesEnabled ? seriesEpisode : undefined,
-          totalEpisodes: seriesEnabled ? totalEpisodes : undefined,
+          message: msg,
+          platforms: [platform],
+          imageUrl: imageUrl || undefined,
+          scheduledAt: iso,
+          organisationId: ORG_ID,
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to generate stories");
-        return;
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        // ignore parse issue, treat as error if not ok
       }
 
-      const got = (data.variants || []) as StoryVariant[];
-      if (!got.length) {
-        setError("AI returned no story variants");
-        return;
+      if (!res.ok || !data?.success) {
+        const msgText =
+          data?.error ||
+          data?.message ||
+          "Could not schedule this story. Please check your connections or plan.";
+        throw new Error(msgText);
       }
 
-      setVariants(got);
-      setSelectedVariantIndex(0);
-      setMessage("Generated 3 story variants.");
-    } catch (e: any) {
-      setError(e?.message || "Error generating stories");
-    } finally {
-      setIsGenerating(false);
-    }
-  }
-
-  async function saveStoryToAirtable(variant: StoryVariant) {
-    const res = await fetch("/api/content", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: variant.title || "Story post",
-        platform,
-        body: variant.story,
-        status: "draft",
-      }),
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || "Failed to save story to Airtable");
-    }
-  }
-
-  async function handleSaveSelected() {
-    resetNotices();
-    if (selectedVariantIndex === null || !variants[selectedVariantIndex]) {
-      setError("No story variant selected");
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      await saveStoryToAirtable(variants[selectedVariantIndex]);
-      setMessage("Story saved to Airtable Content as draft.");
-    } catch (e: any) {
-      setError(e?.message || "Error saving story");
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function handlePostSelectedToLinkedIn() {
-    resetNotices();
-
-    if (selectedVariantIndex === null || !variants[selectedVariantIndex]) {
-      setError("No story variant selected");
-      return;
-    }
-
-    if (platform !== "LinkedIn") {
-      setError("Set platform to LinkedIn to post directly.");
-      return;
-    }
-
-    const variant = variants[selectedVariantIndex];
-    const text = `${variant.title}\n\n${variant.story}`;
-
-    try {
-      setIsPosting(true);
-      const res = await fetch("/api/linkedin/post", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to post story to LinkedIn");
-        return;
-      }
-
-      setMessage("Posted story to LinkedIn successfully 🟢");
-    } catch (e: any) {
-      setError(e?.message || "Error posting story to LinkedIn");
-    } finally {
-      setIsPosting(false);
-    }
-  }
-
-  async function handleScheduleSelected() {
-    resetNotices();
-
-    if (selectedVariantIndex === null || !variants[selectedVariantIndex]) {
-      setError("No story variant selected");
-      return;
-    }
-
-    if (!scheduleDate || !scheduleTime) {
-      setError("Please choose a date and time to schedule.");
-      return;
-    }
-
-    const variant = variants[selectedVariantIndex];
-
-    // Combine date + time into ISO
-    const scheduledISO = new Date(
-      `${scheduleDate}T${scheduleTime}:00`
-    ).toISOString();
-
-    try {
-      setIsScheduling(true);
-      const res = await fetch("/api/schedule/story", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: variant.title || "Story post",
-          body: variant.story,
-          platform,
-          scheduledTime: scheduledISO,
-          seriesName: seriesEnabled ? scenario : undefined,
-          episodeNumber: seriesEnabled ? seriesEpisode : undefined,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to schedule story");
-        return;
-      }
-
-      setMessage("Story scheduled successfully. It will auto-post at that time.");
-    } catch (e: any) {
-      setError(e?.message || "Error scheduling story");
+      setStatus(
+        `Story scheduled for ${date.toLocaleString()} on ${platform}. You can see it in Scheduled Posts.`
+      );
+    } catch (err: any) {
+      const msg =
+        err?.message || "Something went wrong scheduling this story.";
+      setError(msg);
     } finally {
       setIsScheduling(false);
     }
-  }
+  };
 
-  const selectedVariant =
-    selectedVariantIndex !== null ? variants[selectedVariantIndex] : null;
-
-  const canPostToLinkedIn =
-    !!selectedVariant && platform === "LinkedIn" && !isPosting;
-
-  const canSchedule = !!selectedVariant && !isScheduling;
+  const canSchedule =
+    !!combinedMessage() && !!scheduledAt && !isScheduling && !!platform;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-      <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
+    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
+      <div className="w-full max-w-5xl space-y-8">
         {/* Header */}
-        <header className="flex items-center justify-between gap-2">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-50">
-              New Story – Root Health
+            <h1 className="text-2xl md:text-3xl font-semibold">
+              New Story / Series Post
             </h1>
-            <p className="text-sm text-slate-300">
-              Turn real-life stress, burnout and recovery into human stories
-              that build trust, conversation and a loyal audience.
+            <p className="mt-1 text-sm text-slate-300 max-w-xl">
+              Draft a deeper story, then schedule it to go out via your social
+              engine. This now feeds directly into{" "}
+              <span className="font-medium">Scheduled Posts</span>.
             </p>
           </div>
-          <a
-            href="/dashboard"
-            className="rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-white/10"
-          >
-            ← Back to dashboard
-          </a>
         </header>
 
-        {(message || error) && (
+        {/* Story builder */}
+        <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-5">
+          {/* Title */}
           <div className="space-y-2">
-            {message && (
-              <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-                {message}
-              </div>
-            )}
-            {error && (
-              <div className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-                {error}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)]">
-          {/* LEFT: Controls */}
-          <div className="space-y-6">
-            {/* Story Setup */}
-            <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
-              <h2 className="text-sm font-semibold text-slate-50">
-                Story setup
-              </h2>
-
-              {/* Story type + tone */}
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Story type
-                    <HelpTip text="What kind of story you want: workplace scenario, anonymous client, personal founder moment, etc." />
-                  </label>
-                  <select
-                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
-                    value={storyType}
-                    onChange={(e) =>
-                      setStoryType(e.target.value as StoryType)
-                    }
-                  >
-                    <option value="workplace">Workplace burnout</option>
-                    <option value="personal">Personal growth</option>
-                    <option value="client">Anonymous client story</option>
-                    <option value="founder">Founder story</option>
-                    <option value="day_in_life">Day in the life</option>
-                    <option value="series">Series / multi-part</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Tone
-                    <HelpTip text="How the story should feel emotionally. You can experiment with different tones to see what your audience responds to." />
-                  </label>
-                  <select
-                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
-                    value={tone}
-                    onChange={(e) => setTone(e.target.value as StoryTone)}
-                  >
-                    <option value="inspirational">Inspirational</option>
-                    <option value="emotional">Emotional</option>
-                    <option value="conversational">Conversational</option>
-                    <option value="cinematic">Cinematic</option>
-                    <option value="corporate">Corporate / professional</option>
-                    <option value="raw">Raw but safe</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Length + platform */}
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Length
-                    <HelpTip text="Short = punchy. Medium = fuller story. Long = deeper narrative with reflection, better for LinkedIn or carousel posts." />
-                  </label>
-                  <select
-                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
-                    value={length}
-                    onChange={(e) =>
-                      setLength(e.target.value as StoryLength)
-                    }
-                  >
-                    <option value="short">Short (80–120 words)</option>
-                    <option value="medium">
-                      Medium (150–250 words, recommended)
-                    </option>
-                    <option value="long">
-                      Long (300–500 words, episodic)
-                    </option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Platform
-                    <HelpTip text="Where this story will live. The AI adjusts style a little for LinkedIn vs Facebook/Instagram." />
-                  </label>
-                  <select
-                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
-                    value={platform}
-                    onChange={(e) =>
-                      setPlatform(e.target.value as StoryPlatform)
-                    }
-                  >
-                    <option value="LinkedIn">LinkedIn</option>
-                    <option value="Facebook">Facebook</option>
-                    <option value="Instagram">Instagram</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Character + Scenario */}
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Character name (optional)
-                    <HelpTip text="If you want a named character (real or composite). Leave it as-is or change to something that fits the story." />
-                  </label>
-                  <input
-                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
-                    value={character}
-                    onChange={(e) => setCharacter(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Scenario
-                    <HelpTip text="One or two lines describing what's going on for this person – job, stress, situation." />
-                  </label>
-                  <input
-                    className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
-                    value={scenario}
-                    onChange={(e) => setScenario(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Series mode */}
-              <div className="space-y-2 rounded-xl border border-white/15 bg-black/30 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-medium text-slate-200">
-                      Series mode
-                      <HelpTip text="Turn this on if you want the story to feel like part of a multi-episode series (Episode 1 of X, etc.)." />
-                    </p>
-                    <p className="text-[11px] text-slate-300">
-                      Great for “Stay tuned” posts and building ongoing
-                      engagement.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSeriesEnabled((prev) => !prev)}
-                    className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] border ${
-                      seriesEnabled
-                        ? "bg-emerald-400 text-slate-950 border-emerald-300"
-                        : "bg-black/30 text-slate-100 border-white/20"
-                    }`}
-                  >
-                    {seriesEnabled ? "Series on" : "Series off"}
-                  </button>
-                </div>
-
-                {seriesEnabled && (
-                  <div className="grid gap-3 md:grid-cols-2 mt-2">
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-medium text-slate-200">
-                        This episode
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-xs text-slate-50"
-                        value={seriesEpisode}
-                        onChange={(e) =>
-                          setSeriesEpisode(Number(e.target.value) || 1)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-medium text-slate-200">
-                        Total episodes
-                      </label>
-                      <input
-                        type="number"
-                        min={2}
-                        className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-xs text-slate-50"
-                        value={totalEpisodes}
-                        onChange={(e) =>
-                          setTotalEpisodes(Number(e.target.value) || 2)
-                        }
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleGenerateStories}
-                  disabled={isGenerating}
-                  className="rounded-md bg-emerald-400 px-3 py-1.5 text-xs font-medium text-slate-950 shadow-md hover:bg-emerald-300 disabled:opacity-60"
-                >
-                  {isGenerating ? "Generating stories..." : "Generate 3 stories"}
-                </button>
-              </div>
-            </section>
-
-            {/* Variants + actions */}
-            <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold text-slate-50">
-                    Story variants (A/B/C)
-                  </h2>
-                  <p className="text-[11px] text-slate-300">
-                    Try different angles and tones. Pick your favourite, save it
-                    to Airtable, post now, or schedule it to auto-post.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSaveSelected}
-                    disabled={
-                      isSaving ||
-                      selectedVariantIndex === null ||
-                      !variants.length
-                    }
-                    className="rounded-md border border-white/30 bg-black/30 px-3 py-1.5 text-xs text-slate-100 hover:bg-black/40 disabled:opacity-60"
-                  >
-                    {isSaving ? "Saving..." : "Save selected to Airtable"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handlePostSelectedToLinkedIn}
-                    disabled={!canPostToLinkedIn}
-                    className={`rounded-md px-3 py-1.5 text-xs font-medium shadow-md ${
-                      canPostToLinkedIn
-                        ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
-                        : "bg-black/30 text-slate-400 cursor-not-allowed border border-white/15"
-                    }`}
-                  >
-                    {isPosting
-                      ? "Posting to LinkedIn..."
-                      : "Post selected to LinkedIn"}
-                  </button>
-                </div>
-              </div>
-
-              {variants.length > 0 ? (
-                <>
-                  <div className="flex flex-wrap gap-2">
-                    {variants.map((v, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => setSelectedVariantIndex(idx)}
-                        className={`rounded-full px-3 py-1 text-xs border ${
-                          selectedVariantIndex === idx
-                            ? "bg-emerald-400 text-slate-950 border-emerald-300"
-                            : "bg-black/30 text-slate-100 border-white/20"
-                        }`}
-                      >
-                        Story {["A", "B", "C"][idx] || idx + 1}
-                      </button>
-                    ))}
-                  </div>
-
-                  {selectedVariant && (
-                    <>
-                      <div className="rounded-xl border border-white/15 bg-black/30 p-3 space-y-3">
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-300">
-                            Title
-                          </p>
-                          <p className="text-sm font-semibold text-slate-50">
-                            {selectedVariant.title || "Untitled story"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-300">
-                            Story
-                          </p>
-                          <p className="text-sm whitespace-pre-wrap text-slate-50">
-                            {selectedVariant.story}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Scheduler */}
-                      <div className="rounded-xl border border-white/15 bg-black/25 p-3 space-y-2 mt-3">
-                        <p className="text-[11px] font-semibold text-slate-200">
-                          Schedule this story
-                          <HelpTip text="Pick a date and time. The system will automatically post this story to the selected platform when it’s due (currently LinkedIn only)." />
-                        </p>
-                        <div className="grid gap-2 md:grid-cols-2">
-                          <div className="space-y-1">
-                            <label className="text-[11px] text-slate-300">
-                              Date
-                            </label>
-                            <input
-                              type="date"
-                              className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-xs text-slate-50"
-                              value={scheduleDate}
-                              onChange={(e) => setScheduleDate(e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[11px] text-slate-300">
-                              Time
-                            </label>
-                            <input
-                              type="time"
-                              className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-xs text-slate-50"
-                              value={scheduleTime}
-                              onChange={(e) => setScheduleTime(e.target.value)}
-                            />
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleScheduleSelected}
-                          disabled={!canSchedule}
-                          className={`mt-2 rounded-md px-3 py-1.5 text-xs font-medium shadow-md ${
-                            canSchedule
-                              ? "bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-                              : "bg-black/30 text-slate-400 cursor-not-allowed border border-white/15"
-                          }`}
-                        >
-                          {isScheduling
-                            ? "Scheduling..."
-                            : "Schedule story to auto-post"}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </>
-              ) : (
-                <p className="text-xs text-slate-300">
-                  Generate stories to see variants here. You can then save one
-                  as content, post directly to LinkedIn, or schedule it to
-                  auto-post later.
-                </p>
-              )}
-            </section>
+            <label className="block text-[11px] font-medium text-slate-300">
+              Story title (optional)
+            </label>
+            <input
+              type="text"
+              className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-500"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="E.g. Beneath the Surface"
+            />
           </div>
 
-          {/* RIGHT: Guidance / help */}
-          <div className="space-y-4">
-            <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 text-xs text-slate-200 space-y-2 shadow-lg">
-              <h2 className="text-sm font-semibold text-slate-50">
-                How Story Mode works
-              </h2>
-              <p>
-                Story Mode creates narrative posts instead of straight ads. Use
-                these to build trust, start conversations and warm up your
-                audience between more direct campaigns.
+          {/* Body */}
+          <div className="space-y-2">
+            <label className="block text-[11px] font-medium text-slate-300">
+              Story body
+            </label>
+            <textarea
+              className="w-full min-h-[200px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Write the main story you want to share with your audience."
+            />
+          </div>
+
+          {/* Image URL */}
+          <div className="space-y-1">
+            <label className="block text-[11px] font-medium text-slate-300">
+              Image URL (optional)
+            </label>
+            <input
+              type="url"
+              className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-500"
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="https://example.com/story-image.jpg"
+            />
+            <p className="text-[10px] text-slate-500">
+              Optional. For image-based posts (esp. Instagram), paste a direct
+              JPG/PNG URL.
+            </p>
+          </div>
+
+          {/* Platform + schedule */}
+          <div className="grid md:grid-cols-2 gap-4">
+            {/* Platform */}
+            <div className="space-y-2">
+              <p className="text-[11px] font-medium text-slate-300">
+                Platform
               </p>
-              <ul className="list-disc pl-4 space-y-1">
-                <li>
-                  Each story follows a human arc: tension → insight → small
-                  shift / hope.
-                </li>
-                <li>
-                  Every story ends with exactly one gentle invitation to
-                  comment, to start the engagement snowball.
-                </li>
-                <li>
-                  Series mode lets you build multi-part narratives – perfect for
-                  “Stay tuned for Part 2” styles.
-                </li>
-              </ul>
-            </section>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {(
+                  [
+                    "facebook",
+                    "instagram",
+                    "linkedin",
+                    "reddit",
+                    "tiktok",
+                  ] as ChannelId[]
+                ).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPlatform(p)}
+                    className={[
+                      "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 transition",
+                      platform === p
+                        ? "border-emerald-500 bg-emerald-500/10 text-emerald-100"
+                        : "border-slate-600 bg-slate-900 text-slate-300 hover:border-slate-500",
+                    ].join(" ")}
+                  >
+                    <span className="capitalize">{p}</span>
+                    {platform === p && (
+                      <span className="text-[10px] text-emerald-300 ml-1">
+                        selected
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Stories are usually strongest on LinkedIn and Facebook, but you
+                can still schedule them elsewhere.
+              </p>
+            </div>
 
-            <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 text-xs text-slate-200 space-y-2 shadow-lg">
-              <h2 className="text-sm font-semibold text-slate-50">
-                How this connects to Airtable
-              </h2>
-              <ul className="list-disc pl-4 space-y-1">
-                <li>
-                  When you click <strong>Save selected to Airtable</strong>, the
-                  story is saved into the <code>Content</code> table with{" "}
-                  <code>title</code>, <code>platform</code>, <code>body</code>{" "}
-                  and <code>status = draft</code>.
-                </li>
-                <li>
-                  When you click{" "}
-                  <strong>Schedule story to auto-post</strong>, a record is
-                  created in <code>Scheduled_Posts</code> with{" "}
-                  <code>scheduled_time</code> and <code>status = pending</code>.
-                </li>
-                <li>
-                  The cron job then picks up due records and marks them{" "}
-                  <code>posted</code> or <code>failed</code>.
-                </li>
-              </ul>
-            </section>
-
-            <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 text-xs text-slate-200 space-y-2 shadow-lg">
-              <h2 className="text-sm font-semibold text-slate-50">
-                Tips for story success
-              </h2>
-              <ul className="list-disc pl-4 space-y-1">
-                <li>
-                  Alternate between Story posts and direct Ad posts so your feed
-                  feels human, not salesy.
-                </li>
-                <li>
-                  Use workplace stories on LinkedIn, more emotional stories on
-                  Facebook/Instagram.
-                </li>
-                <li>
-                  Reuse strong stories in email, on your website and in
-                  lead-magnets – they&apos;re assets, not one-offs.
-                </li>
-              </ul>
-            </section>
+            {/* Schedule */}
+            <div className="space-y-2">
+              <label className="block text-[11px] font-medium text-slate-300">
+                When should this story go out?
+              </label>
+              <input
+                type="datetime-local"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-500"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+              />
+              <p className="text-[10px] text-slate-500">
+                Root Health Ops will hand this to your social engine at the
+                chosen time.
+              </p>
+            </div>
           </div>
-        </div>
+
+          {/* Actions */}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleScheduleStory}
+              disabled={!canSchedule}
+              className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+            >
+              {isScheduling ? "Scheduling…" : "Schedule Story"}
+            </button>
+
+            <p className="text-[11px] text-slate-500">
+              This no longer saves to Airtable. It now creates a scheduled post
+              in your social engine, visible under{" "}
+              <span className="font-medium">Dashboard → Scheduled</span>.
+            </p>
+          </div>
+
+          {status && (
+            <div className="mt-2 text-[11px] text-emerald-400">{status}</div>
+          )}
+
+          {error && (
+            <div className="mt-2 text-[11px] text-red-400">{error}</div>
+          )}
+        </section>
       </div>
     </div>
   );
