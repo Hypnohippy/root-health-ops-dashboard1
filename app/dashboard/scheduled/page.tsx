@@ -1,489 +1,247 @@
+// app/dashboard/scheduled/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 
-type ScheduledRecord = {
+type ScheduledStatus = "scheduled" | "sent" | "failed";
+
+type ScheduledPost = {
   id: string;
-  title: string;
-  body: string;
-  platform: string;
-  scheduled_time: string | null;
-  status: string;
-  executed_at: string | null;
-  series_name?: string;
-  episode_number?: number | null;
+  organisation_id: string;
+  message: string;
+  platforms: string[];
+  image_url: string | null;
+  scheduled_for: string; // ISO string
+  status: ScheduledStatus;
+  error_info?: any;
+  posted_at?: string | null;
+  created_at: string;
 };
 
-type ViewMode = "table" | "timeline";
-
-function formatDateTime(value: string | null) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return value;
-  return d.toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatDateOnly(value: string | null) {
-  if (!value) return "Unknown date";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return value;
-  return d.toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "2-digit",
-    month: "short",
-  });
-}
-
-function statusClasses(status: string) {
-  const s = status.toLowerCase();
-  if (s === "pending") {
-    return "bg-amber-500/10 text-amber-200 border border-amber-400/40";
-  }
-  if (s === "posted") {
-    return "bg-emerald-500/10 text-emerald-200 border border-emerald-400/40";
-  }
-  if (s === "failed") {
-    return "bg-red-500/10 text-red-200 border border-red-400/40";
-  }
-  if (s === "cancelled") {
-    return "bg-slate-500/10 text-slate-200 border border-slate-400/40";
-  }
-  return "bg-slate-500/10 text-slate-200 border border-slate-400/40";
-}
-
-export default function ScheduledPage() {
-  const [records, setRecords] = useState<ScheduledRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<ViewMode>("table");
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [rescheduleDate, setRescheduleDate] = useState("");
-  const [rescheduleTime, setRescheduleTime] = useState("");
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
-
-  function resetNotices() {
-    setError(null);
-    setMessage(null);
-  }
-
-  async function fetchRecords() {
-    resetNotices();
-    setLoading(true);
-    try {
-      const res = await fetch("/api/schedule/list");
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to load scheduled posts");
-        return;
-      }
-      setRecords(data.records || []);
-    } catch (e: any) {
-      setError(e?.message || "Error loading scheduled posts");
-    } finally {
-      setLoading(false);
+type ApiResponse =
+  | {
+      success: true;
+      items: ScheduledPost[];
     }
-  }
+  | {
+      success: false;
+      error: string;
+    };
+
+export default function DashboardScheduledPage() {
+  const [items, setItems] = useState<ScheduledPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchRecords();
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        // 👇 Uses the /api/schedule/list route we rewired to scheduled_posts
+        const res = await fetch("/api/schedule/list");
+        const data: ApiResponse = await res.json();
+
+        if (!data.success) {
+          setError(data.error || "Could not load scheduled posts.");
+          setItems([]);
+          return;
+        }
+
+        setItems(data.items);
+      } catch (err: any) {
+        console.error("[DashboardScheduledPage] load error", err);
+        setError("Something went wrong loading scheduled posts.");
+        setItems([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
   }, []);
 
-  const selectedRecord = records.find((r) => r.id === selectedId) || null;
+  const now = new Date();
 
-  async function handleAction(
-    id: string,
-    action: "cancel" | "delete" | "reschedule" | "post_now"
-  ) {
-    resetNotices();
-    const record = records.find((r) => r.id === id);
-    if (!record) return;
+  const upcoming = items.filter((item) => {
+    if (item.status !== "scheduled") return false;
+    const d = new Date(item.scheduled_for);
+    return !isNaN(d.getTime()) && d.getTime() >= now.getTime();
+  });
 
-    if (action === "reschedule") {
-      if (!rescheduleDate || !rescheduleTime) {
-        setError("Pick date and time before rescheduling.");
-        return;
-      }
-    }
+  const pastSent = items
+    .filter((item) => item.status === "sent")
+    .sort((a, b) => {
+      const ta = new Date(a.posted_at || a.scheduled_for).getTime();
+      const tb = new Date(b.posted_at || b.scheduled_for).getTime();
+      return tb - ta;
+    });
 
-    setActionLoadingId(id);
-    try {
-      let body: any = { id, action };
+  const pastFailed = items
+    .filter((item) => item.status === "failed")
+    .sort((a, b) => {
+      const ta = new Date(a.scheduled_for).getTime();
+      const tb = new Date(b.scheduled_for).getTime();
+      return tb - ta;
+    });
 
-      if (action === "reschedule") {
-        const scheduledISO = new Date(
-          `${rescheduleDate}T${rescheduleTime}:00`
-        ).toISOString();
-        body.scheduledTime = scheduledISO;
-      }
+  const formatDate = (iso: string | null | undefined) => {
+    if (!iso) return "-";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString();
+  };
 
-      if (action === "post_now") {
-        body.title = record.title;
-        body.content = record.body;
-        body.platform = record.platform;
-      }
-
-      const res = await fetch("/api/schedule/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Action failed");
-        return;
-      }
-
-      setMessage(
-        action === "cancel"
-          ? "Post cancelled."
-          : action === "delete"
-          ? "Post deleted."
-          : action === "reschedule"
-          ? "Post rescheduled."
-          : "Post sent to LinkedIn."
-      );
-      await fetchRecords();
-    } catch (e: any) {
-      setError(e?.message || "Action failed");
-    } finally {
-      setActionLoadingId(null);
-    }
-  }
-
-  const groupedByDay = useMemo(() => {
-    const groups: Record<string, ScheduledRecord[]> = {};
-    for (const r of records) {
-      const key = r.scheduled_time ? r.scheduled_time.slice(0, 10) : "unknown";
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(r);
-    }
-    return Object.entries(groups)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([dateKey, recs]) => ({ dateKey, recs }));
-  }, [records]);
+  const formatPlatforms = (platforms: string[]) => {
+    if (!platforms || platforms.length === 0) return "—";
+    return platforms.join(", ");
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-      <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
+    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
+      <div className="w-full max-w-6xl space-y-8">
         {/* Header */}
-        <header className="flex items-center justify-between gap-2">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-50">
+            <h1 className="text-2xl md:text-3xl font-semibold">
               Scheduled Posts
             </h1>
-            <p className="text-sm text-slate-300">
-              See what&apos;s queued, what fired, and tweak your posting
-              calendar without diving into Airtable.
+            <p className="mt-1 text-sm text-slate-300 max-w-xl">
+              Everything Root Health Ops has queued, sent, or that needs your
+              attention across your connected channels.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={fetchRecords}
-            className="rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-white/10"
-          >
-            Refresh
-          </button>
         </header>
 
-        {(message || error) && (
-          <div className="space-y-2">
-            {message && (
-              <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-                {message}
-              </div>
-            )}
-            {error && (
-              <div className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-                {error}
-              </div>
-            )}
+        {/* Loading / error */}
+        {loading && (
+          <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 text-sm text-slate-300">
+            Loading scheduled posts…
           </div>
         )}
 
-        {/* View toggle */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() => setViewMode("table")}
-              className={`rounded-full px-3 py-1 border ${
-                viewMode === "table"
-                  ? "bg-emerald-400 text-slate-950 border-emerald-300"
-                  : "bg-black/30 text-slate-100 border-white/20"
-              }`}
-            >
-              Table view
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("timeline")}
-              className={`rounded-full px-3 py-1 border ${
-                viewMode === "timeline"
-                  ? "bg-emerald-400 text-slate-950 border-emerald-300"
-                  : "bg-black/30 text-slate-100 border-white/20"
-              }`}
-            >
-              Timeline view
-            </button>
+        {error && !loading && (
+          <div className="rounded-3xl border border-red-500/60 bg-red-950/40 p-4 text-sm text-red-100">
+            {error}
           </div>
-          <p className="text-[11px] text-slate-300">
-            Total scheduled records: {records.length}
-          </p>
-        </div>
+        )}
 
-        {/* Main content */}
-        {loading ? (
-          <p className="text-sm text-slate-300">Loading scheduled posts…</p>
-        ) : records.length === 0 ? (
-          <p className="text-sm text-slate-300">
-            No scheduled posts yet. Use Story Mode or Campaigns to schedule your
-            first post.
-          </p>
-        ) : viewMode === "table" ? (
-          <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg">
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-xs">
-                <thead className="border-b border-white/10 text-[11px] uppercase tracking-wide text-slate-300">
-                  <tr>
-                    <th className="px-2 py-2 text-left">Platform</th>
-                    <th className="px-2 py-2 text-left">Title</th>
-                    <th className="px-2 py-2 text-left">Series</th>
-                    <th className="px-2 py-2 text-left">Scheduled</th>
-                    <th className="px-2 py-2 text-left">Status</th>
-                    <th className="px-2 py-2 text-left">Executed</th>
-                    <th className="px-2 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {records.map((r) => (
-                    <tr
-                      key={r.id}
-                      className={`border-b border-white/5 ${
-                        selectedId === r.id ? "bg-white/10" : "hover:bg-white/5"
-                      }`}
-                      onClick={() => setSelectedId(r.id)}
-                    >
-                      <td className="px-2 py-2 align-top">
-                        <span className="rounded-full bg-black/30 px-2 py-0.5 text-[11px] uppercase tracking-wide text-slate-200 border border-white/15">
-                          {r.platform}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2 align-top">
-                        <div className="max-w-xs truncate text-[11px] font-medium text-slate-50">
-                          {r.title || "Untitled"}
-                        </div>
-                      </td>
-                      <td className="px-2 py-2 align-top text-[11px] text-slate-200">
-                        {r.series_name
-                          ? `${r.series_name}${
-                              r.episode_number
-                                ? ` (Episode ${r.episode_number})`
-                                : ""
-                            }`
-                          : "—"}
-                      </td>
-                      <td className="px-2 py-2 align-top text-[11px] text-slate-200">
-                        {formatDateTime(r.scheduled_time)}
-                      </td>
-                      <td className="px-2 py-2 align-top">
-                        <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] ${statusClasses(
-                            r.status
-                          )}`}
-                        >
-                          {r.status}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2 align-top text-[11px] text-slate-200">
-                        {formatDateTime(r.executed_at)}
-                      </td>
-                      <td className="px-2 py-2 align-top text-right">
-                        <div className="flex flex-wrap justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedId(r.id);
-                              handleAction(r.id, "post_now");
-                            }}
-                            disabled={
-                              actionLoadingId === r.id ||
-                              r.status.toLowerCase() === "posted" ||
-                              r.platform !== "LinkedIn"
-                            }
-                            className="rounded-full border border-white/25 bg-black/30 px-2 py-0.5 text-[10px] text-slate-100 hover:bg-black/50 disabled:opacity-50"
-                          >
-                            {actionLoadingId === r.id
-                              ? "Working…"
-                              : "Post now"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedId(r.id);
-                            }}
-                            className="rounded-full border border-white/25 bg-black/30 px-2 py-0.5 text-[10px] text-slate-100 hover:bg-black/50"
-                          >
-                            Edit time
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAction(r.id, "cancel");
-                            }}
-                            disabled={
-                              actionLoadingId === r.id ||
-                              r.status.toLowerCase() !== "pending"
-                            }
-                            className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-500/20 disabled:opacity-50"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAction(r.id, "delete");
-                            }}
-                            disabled={actionLoadingId === r.id}
-                            className="rounded-full border border-red-400/40 bg-red-500/10 px-2 py-0.5 text-[10px] text-red-100 hover:bg-red-500/20 disabled:opacity-50"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Reschedule panel for selected */}
-            {selectedRecord && (
-              <div className="mt-4 rounded-xl border border-white/15 bg-black/25 p-3 space-y-2">
-                <p className="text-[11px] font-semibold text-slate-200">
-                  Reschedule selected post
+        {!loading && !error && (
+          <div className="space-y-6">
+            {/* Upcoming */}
+            <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 md:p-5">
+              <h2 className="text-base md:text-lg font-semibold mb-3">
+                Upcoming
+              </h2>
+              {upcoming.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  Nothing queued yet. Use{" "}
+                  <span className="font-medium">Quick Blast → Schedule</span> to
+                  line up your next posts.
                 </p>
-                <p className="text-[11px] text-slate-300">
-                  {selectedRecord.title || "Untitled"} — currently{" "}
-                  {formatDateTime(selectedRecord.scheduled_time)}
-                </p>
-                <div className="grid gap-2 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-slate-300">
-                      New date
-                    </label>
-                    <input
-                      type="date"
-                      className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-[11px] text-slate-50"
-                      value={rescheduleDate}
-                      onChange={(e) => setRescheduleDate(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-slate-300">
-                      New time
-                    </label>
-                    <input
-                      type="time"
-                      className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-[11px] text-slate-50"
-                      value={rescheduleTime}
-                      onChange={(e) => setRescheduleTime(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    selectedRecord && handleAction(selectedRecord.id, "reschedule")
-                  }
-                  disabled={!selectedRecord || actionLoadingId === selectedRecord.id}
-                  className={`mt-2 rounded-md px-3 py-1.5 text-[11px] font-medium shadow-md ${
-                    actionLoadingId === selectedRecord?.id
-                      ? "bg-black/30 text-slate-400 cursor-not-allowed border border-white/15"
-                      : "bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-                  }`}
-                >
-                  {actionLoadingId === selectedRecord?.id
-                    ? "Rescheduling..."
-                    : "Reschedule"}
-                </button>
-              </div>
-            )}
-          </section>
-        ) : (
-          // Timeline view
-          <section className="space-y-4">
-            {groupedByDay.map(({ dateKey, recs }) => (
-              <div
-                key={dateKey}
-                className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg"
-              >
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-300 mb-2">
-                  {formatDateOnly(recs[0]?.scheduled_time)}
-                </p>
-                <div className="space-y-2">
-                  {recs.map((r) => (
+              ) : (
+                <div className="space-y-3">
+                  {upcoming.map((item) => (
                     <div
-                      key={r.id}
-                      className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-black/25 p-3 hover:bg-black/40"
+                      key={item.id}
+                      className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-sm"
                     >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="rounded-full bg-black/30 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-200 border border-white/15">
-                            {r.platform}
-                          </span>
-                          <span
-                            className={`inline-flex rounded-full px-2 py-0.5 text-[10px] ${statusClasses(
-                              r.status
-                            )}`}
-                          >
-                            {r.status}
-                          </span>
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        <div className="text-xs uppercase tracking-wide text-slate-400">
+                          Scheduled for {formatDate(item.scheduled_for)}
                         </div>
-                        <p className="text-[11px] font-semibold text-slate-50">
-                          {r.title || "Untitled"}
-                        </p>
-                        {r.series_name && (
-                          <p className="text-[11px] text-slate-300">
-                            {r.series_name}
-                            {r.episode_number
-                              ? ` — Episode ${r.episode_number}`
-                              : ""}
-                          </p>
-                        )}
-                        <p className="text-[11px] text-slate-400">
-                          {formatDateTime(r.scheduled_time)}
-                        </p>
+                        <div className="text-[11px] text-emerald-300">
+                          {formatPlatforms(item.platforms)}
+                        </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedId(r.id);
-                            setViewMode("table");
-                          }}
-                          className="rounded-full border border-white/25 bg-black/30 px-2 py-0.5 text-[10px] text-slate-100 hover:bg-black/50"
-                        >
-                          Manage
-                        </button>
-                      </div>
+                      <p className="mt-2 text-sm text-slate-100 whitespace-pre-wrap">
+                        {item.message}
+                      </p>
+                      {item.image_url && (
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          Image: {item.image_url}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
-              </div>
-            ))}
-          </section>
+              )}
+            </section>
+
+            {/* Sent */}
+            <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 md:p-5">
+              <h2 className="text-base md:text-lg font-semibold mb-3">
+                Recently sent
+              </h2>
+              {pastSent.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  No sent posts recorded yet. As scheduled posts go out, they
+                  will appear here.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {pastSent.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-sm"
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        <div className="text-xs uppercase tracking-wide text-slate-400">
+                          Sent at {formatDate(item.posted_at || item.scheduled_for)}
+                        </div>
+                        <div className="text-[11px] text-emerald-300">
+                          {formatPlatforms(item.platforms)}
+                        </div>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-100 whitespace-pre-wrap">
+                        {item.message}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Failed */}
+            <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 md:p-5">
+              <h2 className="text-base md:text-lg font-semibold mb-3">
+                Needs attention
+              </h2>
+              {pastFailed.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  No failures right now. If Ayrshare or the networks reject a
+                  post, it will appear here with details.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {pastFailed.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-amber-500/60 bg-amber-950/40 p-3 text-sm"
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        <div className="text-xs uppercase tracking-wide text-amber-200">
+                          Failed for {formatDate(item.scheduled_for)}
+                        </div>
+                        <div className="text-[11px] text-amber-200">
+                          {formatPlatforms(item.platforms)}
+                        </div>
+                      </div>
+                      <p className="mt-2 text-sm text-amber-50 whitespace-pre-wrap">
+                        {item.message}
+                      </p>
+                      {item.error_info && (
+                        <pre className="mt-2 text-[10px] text-amber-200 bg-black/30 rounded-xl p-2 overflow-x-auto">
+                          {JSON.stringify(item.error_info, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
         )}
       </div>
     </div>
