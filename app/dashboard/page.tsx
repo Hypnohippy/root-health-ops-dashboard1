@@ -48,7 +48,7 @@ export default function DashboardHomePage() {
   );
 
   // 👇 ADD THIS: hard-coded org for now (replace with your real org ID)
-  const organisationId = "e83aeab8-69bf-4405-b34f-c13c6fa4bfd5";
+  const organisationId = "23a054db-7040-40b1-b193-2f43cfa139de";
 
   const buildSelectedChannels = (): ChannelId[] => {
     const chans: ChannelId[] = [];
