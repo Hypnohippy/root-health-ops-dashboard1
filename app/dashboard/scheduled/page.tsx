@@ -18,6 +18,18 @@ type ScheduledPost = {
   created_at: string;
 };
 
+type ApiResponse =
+  | {
+      success: true;
+      items: ScheduledPost[];
+    }
+  | {
+      success: false;
+      error: string;
+    };
+
+const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
+
 export default function DashboardScheduledPage() {
   const [items, setItems] = useState<ScheduledPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,38 +41,19 @@ export default function DashboardScheduledPage() {
       setError(null);
 
       try {
-        const res = await fetch("/api/schedule/list");
-        const raw: any = await res.json();
+        // 👇 IMPORTANT: now calling the *new* Supabase-backed endpoint
+        const res = await fetch(
+          `/api/social/scheduled?organisationId=${ORG_ID}`
+        );
+        const data: ApiResponse = await res.json();
 
-        if (!res.ok) {
-          setError("Could not load scheduled posts (network error).");
+        if (!data.success) {
+          setError(data.error || "Could not load scheduled posts.");
           setItems([]);
           return;
         }
 
-        let scheduledItems: ScheduledPost[] = [];
-
-        // Case 1: our newer shape { success, items }
-        if (raw && typeof raw === "object" && "items" in raw) {
-          if (raw.success === false) {
-            setError(raw.error || "Could not load scheduled posts.");
-            setItems([]);
-            return;
-          }
-          if (Array.isArray(raw.items)) {
-            scheduledItems = raw.items as ScheduledPost[];
-          }
-        }
-        // Case 2: API returns a bare array of posts
-        else if (Array.isArray(raw)) {
-          scheduledItems = raw as ScheduledPost[];
-        } else {
-          setError("Could not load scheduled posts.");
-          setItems([]);
-          return;
-        }
-
-        setItems(scheduledItems);
+        setItems(data.items);
       } catch (err: any) {
         console.error("[DashboardScheduledPage] load error", err);
         setError("Something went wrong loading scheduled posts.");
