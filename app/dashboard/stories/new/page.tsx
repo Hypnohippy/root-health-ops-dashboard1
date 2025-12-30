@@ -39,6 +39,7 @@ type CtaStyleOption =
 
 type Mode = "now" | "schedule";
 
+// ✅ MUST be organisations.id (not owner_id)
 const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
 
 export default function StorySeriesBuilderPage() {
@@ -56,7 +57,7 @@ export default function StorySeriesBuilderPage() {
   // Mode + scheduling
   const [mode, setMode] = useState<Mode>("schedule");
   const [seriesStart, setSeriesStart] = useState<string>(""); // datetime-local
-  const [dailyCadence, setDailyCadence] = useState<number>(1); // days between episodes (1 = daily)
+  const [dailyCadence, setDailyCadence] = useState<number>(1); // days between episodes
 
   // Output state
   const [isGenerating, setIsGenerating] = useState(false);
@@ -68,10 +69,14 @@ export default function StorySeriesBuilderPage() {
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
 
-  const canGenerate = useMemo(() => !!idea.trim() && !isGenerating, [idea, isGenerating]);
+  const canGenerate = useMemo(
+    () => !!idea.trim() && !isGenerating,
+    [idea, isGenerating]
+  );
 
   const normalizeIdea = (raw: string) => raw.replace(/\s+/g, " ").trim();
 
+  // ✅ This generator retries once automatically (fixes the random JSON fails)
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationError(null);
@@ -79,50 +84,71 @@ export default function StorySeriesBuilderPage() {
     setDispatchStatus(null);
     setDispatchError(null);
 
-    try {
-      const res = await fetch("/api/ai/story-series", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          idea: normalizeIdea(idea),
-          storyType,
-          tone,
-          seriesLength,
-          platform: targetPlatform,
-          ctaStyle,
-        }),
-      });
+    const payload = {
+      idea: normalizeIdea(idea),
+      storyType,
+      tone,
+      seriesLength,
+      platform: targetPlatform,
+      ctaStyle,
+    };
 
-      const data: any = await res.json();
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const res = await fetch("/api/ai/story-series", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-      if (!res.ok || !data?.success) {
-        throw new Error(
-          data?.error ||
-            "Could not generate the story series. Please refine your idea and try again."
-        );
+        const data: any = await res.json().catch(() => null);
+
+        // If server returns an error, retry once
+        if (!res.ok || !data?.success) {
+          console.error("[Stories/New] generate failed", {
+            attempt,
+            status: res.status,
+            data,
+          });
+
+          if (attempt === 1) continue;
+
+          const msg =
+            data?.error ||
+            data?.message ||
+            `AI generation failed (status ${res.status}).`;
+          throw new Error(msg);
+        }
+
+        if (!Array.isArray(data.posts) || data.posts.length === 0) {
+          if (attempt === 1) continue;
+          throw new Error("AI did not return any posts.");
+        }
+
+        const mapped: GeneratedPost[] = data.posts.map((p: any) => ({
+          title: typeof p.title === "string" ? p.title : "",
+          body: typeof p.body === "string" ? p.body : "",
+          platformSuggestion:
+            typeof p.platformSuggestion === "string"
+              ? p.platformSuggestion
+              : undefined,
+          cta: typeof p.cta === "string" ? p.cta : undefined,
+          imagePrompt:
+            typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
+        }));
+
+        setPosts(mapped);
+        setIsGenerating(false);
+        return;
+      } catch (err: any) {
+        console.error("[Stories/New] generate error", err);
+        if (attempt === 2) {
+          setGenerationError(err?.message || "Generation failed.");
+        }
       }
-
-      if (!Array.isArray(data.posts) || data.posts.length === 0) {
-        throw new Error("AI did not return any posts.");
-      }
-
-      const mapped: GeneratedPost[] = data.posts.map((p: any) => ({
-        title: typeof p.title === "string" ? p.title : "",
-        body: typeof p.body === "string" ? p.body : "",
-        platformSuggestion:
-          typeof p.platformSuggestion === "string" ? p.platformSuggestion : undefined,
-        cta: typeof p.cta === "string" ? p.cta : undefined,
-        imagePrompt:
-          typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
-      }));
-
-      setPosts(mapped);
-    } catch (err: any) {
-      console.error("[Stories/New] generate error", err);
-      setGenerationError(err?.message || "Generation failed.");
-    } finally {
-      setIsGenerating(false);
     }
+
+    setIsGenerating(false);
   };
 
   const buildMessage = (p: GeneratedPost) => {
@@ -147,10 +173,8 @@ export default function StorySeriesBuilderPage() {
     try {
       if (posts.length === 0) throw new Error("Generate a story first.");
 
-      // Send only the first post in "send now" mode (clean UX)
       const p = posts[0];
       const message = buildMessage(p);
-
       if (!message) throw new Error("The post content is empty.");
 
       const res = await fetch("/api/social/quick-blast", {
@@ -159,7 +183,6 @@ export default function StorySeriesBuilderPage() {
         body: JSON.stringify({
           message,
           platforms: [targetPlatform],
-          // Image URLs for stories can come later; keep simple for now
           imageUrl: undefined,
         }),
       });
@@ -167,15 +190,13 @@ export default function StorySeriesBuilderPage() {
       const data: any = await res.json().catch(() => null);
 
       if (!res.ok || !data?.success) {
-        const msg =
-          data?.error ||
-          data?.message ||
-          "Quick Blast failed. Check connections or plan.";
-        throw new Error(msg);
+        throw new Error(
+          data?.error || data?.message || "Quick Blast failed."
+        );
       }
 
       setDispatchStatus(
-        `Sent now to ${targetPlatform}. If you generated a series, you can switch to Schedule to queue the rest.`
+        `Sent now to ${targetPlatform}. Switch to Schedule to queue the full series.`
       );
     } catch (err: any) {
       setDispatchError(err?.message || "Send now failed.");
@@ -237,17 +258,15 @@ export default function StorySeriesBuilderPage() {
 
       if (successCount === 0) {
         throw new Error(
-          failures[0]?.error ||
-            "Could not schedule any posts. Check plan/connections."
+          failures[0]?.error || "Could not schedule any posts."
         );
       }
 
-      const msg =
+      setDispatchStatus(
         failures.length === 0
           ? `Scheduled ${successCount} post(s). View them in Dashboard → Scheduled.`
-          : `Scheduled ${successCount} post(s), ${failures.length} failed. View Scheduled for details.`;
-
-      setDispatchStatus(msg);
+          : `Scheduled ${successCount} post(s), ${failures.length} failed. View Scheduled for details.`
+      );
 
       if (failures.length) {
         setDispatchError(
@@ -276,8 +295,8 @@ export default function StorySeriesBuilderPage() {
               Stories · Advanced Narrative Generator
             </h1>
             <p className="mt-1 text-sm text-slate-300 max-w-xl">
-              Create a single post or an episodic series with proper story arcs.
-              Generate → edit → send now or schedule into your unified engine.
+              Create a single post or an episodic series. Generate → edit →
+              send now or schedule.
             </p>
           </div>
 
@@ -287,7 +306,7 @@ export default function StorySeriesBuilderPage() {
         </header>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* LEFT: Controls */}
+          {/* LEFT */}
           <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-5">
             <div className="flex items-center justify-between">
               <h2 className="text-base md:text-lg font-semibold">1) Create</h2>
@@ -328,7 +347,6 @@ export default function StorySeriesBuilderPage() {
                 className="w-full min-h-[130px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
-                placeholder="E.g. 3-part HR story: choosing wellbeing program, finding Root Health, rolling it out, culture change..."
               />
             </div>
 
@@ -389,9 +407,6 @@ export default function StorySeriesBuilderPage() {
                   <option value="reddit">Reddit</option>
                   <option value="tiktok">TikTok</option>
                 </select>
-                <p className="text-[10px] text-slate-500">
-                  TikTok may require a higher Ayrshare plan.
-                </p>
               </div>
 
               <div className="space-y-2">
@@ -410,9 +425,6 @@ export default function StorySeriesBuilderPage() {
                     )
                   }
                 />
-                <p className="text-[10px] text-slate-500">
-                  1 = single post. 3–5 = proper arc.
-                </p>
               </div>
 
               <div className="space-y-2">
@@ -444,17 +456,14 @@ export default function StorySeriesBuilderPage() {
               >
                 {isGenerating ? "Generating…" : isSingle ? "Generate story" : "Generate series"}
               </button>
-
-              <span className="text-[11px] text-slate-400">
-                Generate → edit the episodes → send now or schedule.
-              </span>
             </div>
 
             {generationError && (
-              <div className="mt-2 text-[11px] text-red-400">{generationError}</div>
+              <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">
+                {generationError}
+              </div>
             )}
 
-            {/* Scheduling controls */}
             {mode === "schedule" && posts.length > 0 && (
               <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
                 <div className="text-[11px] font-semibold text-slate-200">
@@ -490,15 +499,11 @@ export default function StorySeriesBuilderPage() {
                         )
                       }
                     />
-                    <p className="text-[10px] text-slate-500">
-                      1 = daily. 2 = every other day. Great for longer arcs.
-                    </p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Dispatch buttons */}
             {posts.length > 0 && (
               <div className="flex flex-wrap items-center gap-3 pt-1">
                 {mode === "now" ? (
@@ -522,12 +527,6 @@ export default function StorySeriesBuilderPage() {
                       : `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`}
                   </button>
                 )}
-
-                <span className="text-[11px] text-slate-400">
-                  {mode === "now"
-                    ? "Sends the first episode immediately."
-                    : "Queues into scheduled_posts so /dashboard/scheduled shows them."}
-                </span>
               </div>
             )}
 
@@ -539,13 +538,13 @@ export default function StorySeriesBuilderPage() {
             )}
           </section>
 
-          {/* RIGHT: Output + editing */}
+          {/* RIGHT */}
           <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-4">
             <h2 className="text-base md:text-lg font-semibold">2) Edit & preview</h2>
 
             {posts.length === 0 ? (
               <p className="text-sm text-slate-400">
-                Your generated story/series will appear here. You can edit each episode before sending or scheduling.
+                Your generated story/series will appear here.
               </p>
             ) : (
               <div className="space-y-3 max-h-[620px] overflow-y-auto pr-1">
@@ -554,13 +553,10 @@ export default function StorySeriesBuilderPage() {
                     key={idx}
                     className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-2"
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-[11px] text-slate-400">
-                        {posts.length > 1 ? `Episode ${idx + 1} / ${posts.length}` : "Single post"}
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        {p.platformSuggestion ? `AI suggests: ${p.platformSuggestion}` : `Target: ${targetPlatform}`}
-                      </div>
+                    <div className="text-[11px] text-slate-400">
+                      {posts.length > 1
+                        ? `Episode ${idx + 1} / ${posts.length}`
+                        : "Single post"}
                     </div>
 
                     <input
@@ -583,12 +579,6 @@ export default function StorySeriesBuilderPage() {
                       onChange={(e) => updatePost(idx, { cta: e.target.value })}
                       placeholder="CTA (optional)"
                     />
-
-                    {p.imagePrompt && (
-                      <div className="text-[10px] text-slate-400">
-                        Image idea: {p.imagePrompt}
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
