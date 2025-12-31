@@ -53,14 +53,9 @@ const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
 
 export default function StorySeriesBuilderPage() {
   // Generator inputs
-  const [idea, setIdea] = useState("");
+   const [idea, setIdea] = useState("");
   const [storyType, setStoryType] = useState<StoryTypeOption>(
     "HR director perspective"
-      // Sequences (group series into a journey)
-  const [sequences, setSequences] = useState<Sequence[]>([]);
-  const [sequenceId, setSequenceId] = useState<string>(""); // optional
-  const [sequencesLoading, setSequencesLoading] = useState(false);
-  
   );
   const [tone, setTone] = useState<ToneOption>("Professional & confident");
   const [targetPlatform, setTargetPlatform] = useState<ChannelId>("linkedin");
@@ -80,6 +75,10 @@ export default function StorySeriesBuilderPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [posts, setPosts] = useState<GeneratedPost[]>([]);
+  // Sequences (group series into a journey)
+  const [sequences, setSequences] = useState<Sequence[]>([]);
+  const [sequenceId, setSequenceId] = useState<string>(""); // optional
+  const [sequencesLoading, setSequencesLoading] = useState(false);
 
   // Dispatch state
   const [isDispatching, setIsDispatching] = useState(false);
