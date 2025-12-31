@@ -313,7 +313,9 @@ export default function StorySeriesBuilderPage() {
             imageUrl: undefined,
             scheduledAt: whenIso,
             organisationId: ORG_ID,
+            
             sequenceId: sequenceId || null,
+            
             meta: {
               series: true,
               part: i + 1,
