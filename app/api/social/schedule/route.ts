@@ -12,6 +12,10 @@ export async function POST(req: NextRequest) {
     const scheduledAt: string | undefined = body.scheduledAt;
     const organisationId: string | undefined = body.organisationId;
 
+    // NEW: optional series / sequence fields
+    const sequenceId: string | undefined = body.sequenceId || body.sequence_id;
+    const meta: any = body.meta;
+
     // 1) Basic validation
     if (!message || typeof message !== "string" || !message.trim()) {
       return NextResponse.json(
@@ -53,17 +57,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2) Insert into scheduled_posts ONLY (no plan checks, no limits – keep it simple)
+    // 2) Insert into scheduled_posts
+    const insertPayload: Record<string, any> = {
+      organisation_id: organisationId,
+      message: message.trim(),
+      platforms,
+      image_url: imageUrl || null,
+      scheduled_for: date.toISOString(),
+      status: "scheduled",
+    };
+
+    // Only set if provided
+    if (sequenceId && typeof sequenceId === "string" && sequenceId.trim()) {
+      insertPayload.sequence_id = sequenceId.trim();
+    }
+
+    // If meta includes series info, store it neatly too
+    if (meta && typeof meta === "object") {
+      insertPayload.meta = meta;
+
+      if (typeof meta.part === "number") insertPayload.series_part = meta.part;
+      if (typeof meta.total === "number") insertPayload.series_total = meta.total;
+    }
+
     const { data, error } = await supabaseAdmin
       .from("scheduled_posts")
-      .insert({
-        organisation_id: organisationId,
-        message,
-        platforms,
-        image_url: imageUrl || null,
-        scheduled_for: date.toISOString(),
-        status: "scheduled",
-      })
+      .insert(insertPayload)
       .select()
       .single();
 
@@ -73,9 +92,7 @@ export async function POST(req: NextRequest) {
         {
           success: false,
           error: `Could not save your scheduled post (DB: ${
-            (error as any)?.message ||
-            JSON.stringify(error) ||
-            "unknown error"
+            (error as any)?.message || JSON.stringify(error) || "unknown error"
           }).`,
         },
         { status: 200 }
