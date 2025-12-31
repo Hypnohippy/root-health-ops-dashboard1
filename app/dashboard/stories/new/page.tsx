@@ -13,6 +13,8 @@ type GeneratedPost = {
   platformSuggestion?: string;
   cta?: string;
   imagePrompt?: string;
+};
+
 type Sequence = {
   id: string;
   name: string;
