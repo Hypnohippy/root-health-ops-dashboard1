@@ -76,6 +76,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 Campaigns
               </Link>
             </li>
+<li>
+  <Link
+    href="/dashboard/sequences"
+    className={linkClasses("/dashboard/sequences")}
+  >
+    Sequences
+  </Link>
+</li>
 
             <li>
               <Link
