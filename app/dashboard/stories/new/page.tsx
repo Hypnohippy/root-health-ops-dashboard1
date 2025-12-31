@@ -1,7 +1,8 @@
 // app/dashboard/stories/new/page.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+
 import { applyAntiDuplicateVariation } from "../../../../lib/socialText";
 
 type ChannelId = "facebook" | "instagram" | "linkedin" | "tiktok" | "reddit";
@@ -12,7 +13,12 @@ type GeneratedPost = {
   platformSuggestion?: string;
   cta?: string;
   imagePrompt?: string;
+type Sequence = {
+  id: string;
+  name: string;
+  status?: string;
 };
+
 
 type StoryTypeOption =
   | "Personal journey"
@@ -48,6 +54,11 @@ export default function StorySeriesBuilderPage() {
   const [idea, setIdea] = useState("");
   const [storyType, setStoryType] = useState<StoryTypeOption>(
     "HR director perspective"
+      // Sequences (group series into a journey)
+  const [sequences, setSequences] = useState<Sequence[]>([]);
+  const [sequenceId, setSequenceId] = useState<string>(""); // optional
+  const [sequencesLoading, setSequencesLoading] = useState(false);
+  
   );
   const [tone, setTone] = useState<ToneOption>("Professional & confident");
   const [targetPlatform, setTargetPlatform] = useState<ChannelId>("linkedin");
@@ -79,6 +90,40 @@ export default function StorySeriesBuilderPage() {
   );
 
   const normalizeIdea = (raw: string) => raw.replace(/\s+/g, " ").trim();
+  // Load sequences for this org (optional feature – silent fail)
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setSequencesLoading(true);
+      try {
+        const res = await fetch(`/api/sequences?organisationId=${ORG_ID}`);
+        const data: any = await res.json().catch(() => null);
+
+        if (!res.ok) throw new Error(data?.error || "Failed to load sequences");
+
+        const list: Sequence[] = Array.isArray(data?.sequences)
+          ? data.sequences.map((s: any) => ({
+              id: String(s.id),
+              name: String(s.name || "Untitled"),
+              status: s.status ? String(s.status) : undefined,
+            }))
+          : [];
+
+        if (!cancelled) setSequences(list);
+      } catch {
+        if (!cancelled) setSequences([]);
+      } finally {
+        if (!cancelled) setSequencesLoading(false);
+      }
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ✅ Generator retries once automatically (reduces random JSON issues)
   const handleGenerate = async () => {
@@ -267,6 +312,7 @@ export default function StorySeriesBuilderPage() {
             imageUrl: undefined,
             scheduledAt: whenIso,
             organisationId: ORG_ID,
+            sequenceId: sequenceId || null,
             meta: {
               series: true,
               part: i + 1,
@@ -506,6 +552,30 @@ export default function StorySeriesBuilderPage() {
             {mode === "schedule" && posts.length > 0 && (
               <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
                 <div className="text-[11px] font-semibold text-slate-200">
+                  <div className="mt-2 space-y-1">
+  <label className="block text-[11px] font-medium text-slate-300">
+    Attach to Sequence (optional)
+  </label>
+
+  <select
+    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+    value={sequenceId}
+    onChange={(e) => setSequenceId(e.target.value)}
+    disabled={sequencesLoading}
+  >
+    <option value="">— No sequence —</option>
+    {sequences.map((s) => (
+      <option key={s.id} value={s.id}>
+        {s.name}
+      </option>
+    ))}
+  </select>
+
+  <p className="text-[10px] text-slate-500">
+    Groups these scheduled posts together so they show up as one narrative journey.
+  </p>
+</div>
+
                   Scheduling options
                 </div>
 
