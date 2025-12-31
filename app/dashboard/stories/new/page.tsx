@@ -1,5 +1,6 @@
 // app/dashboard/stories/new/page.tsx
 "use client";
+import { applyAntiDuplicateVariation } from "@/lib/socialText";
 
 import React, { useMemo, useState } from "react";
 
@@ -68,6 +69,7 @@ export default function StorySeriesBuilderPage() {
   const [isDispatching, setIsDispatching] = useState(false);
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const [autoVariation, setAutoVariation] = useState(true);
 
   const canGenerate = useMemo(
     () => !!idea.trim() && !isGenerating,
@@ -151,19 +153,27 @@ export default function StorySeriesBuilderPage() {
     setIsGenerating(false);
   };
 
-  const buildMessage = (p: GeneratedPost) => {
-    const parts: string[] = [];
-    if (p.title?.trim()) parts.push(p.title.trim());
-    if (p.body?.trim()) parts.push(p.body.trim());
-    if (p.cta?.trim()) parts.push(p.cta.trim());
-    return parts.join("\n\n").trim();
-  };
+ const buildMessage = (p: GeneratedPost, ctx?: { part?: number; total?: number; whenIso?: string }) => {
+  const parts: string[] = [];
+  if (p.title?.trim()) parts.push(p.title.trim());
+  if (p.body?.trim()) parts.push(p.body.trim());
+  if (p.cta?.trim()) parts.push(p.cta.trim());
 
-  const updatePost = (index: number, patch: Partial<GeneratedPost>) => {
-    setPosts((prev) =>
-      prev.map((p, i) => (i === index ? { ...p, ...patch } : p))
-    );
-  };
+  const base = parts.join("\n\n").trim();
+
+  return applyAntiDuplicateVariation(base, {
+    platform: targetPlatform,
+    seriesPart: ctx?.part,
+    seriesTotal: ctx?.total,
+    scheduledAtIso: ctx?.whenIso,
+  }, {
+    enabled: autoVariation,
+    includePartTag: true,
+    includeMicroLine: true,
+    includeCtaRotation: true,
+  });
+};
+
 
   const handleSendNow = async () => {
     setIsDispatching(true);
@@ -227,7 +237,9 @@ export default function StorySeriesBuilderPage() {
           base.getTime() + i * cadenceDays * 24 * 60 * 60 * 1000
         );
 
-        const message = buildMessage(posts[i]);
+        const whenIso = scheduledDate.toISOString();
+const message = buildMessage(posts[i], { part: i + 1, total: posts.length, whenIso });
+
 
         const res = await fetch("/api/social/schedule", {
           method: "POST",
@@ -526,6 +538,18 @@ export default function StorySeriesBuilderPage() {
                       ? "Scheduling…"
                       : `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`}
                   </button>
+                <div className="flex items-center gap-2 text-[11px] text-slate-300">
+  <input
+    id="autoVariation"
+    type="checkbox"
+    checked={autoVariation}
+    onChange={(e) => setAutoVariation(e.target.checked)}
+  />
+  <label htmlFor="autoVariation">
+    Auto-variation (recommended) — prevents “duplicate content” blocks
+  </label>
+</div>
+
                 )}
               </div>
             )}
