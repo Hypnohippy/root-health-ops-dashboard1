@@ -1,10 +1,10 @@
 // lib/socialText.ts
 
 export type VariationContext = {
-  platform?: string; // "facebook" | "linkedin" | ...
-  seriesPart?: number; // 1..N
-  seriesTotal?: number; // N
-  scheduledAtIso?: string; // optional
+  platform?: string;
+  seriesPart?: number;
+  seriesTotal?: number;
+  scheduledAtIso?: string;
 };
 
 const MICRO_LINES = [
@@ -36,7 +36,6 @@ function pickDeterministic<T>(arr: T[], seed: number): T {
 }
 
 function seedFrom(context: VariationContext): number {
-  // deterministic but not “trackable” to users
   const base =
     `${context.platform || ""}|${context.seriesPart || ""}|${context.seriesTotal || ""}|${context.scheduledAtIso || ""}`;
   let h = 0;
@@ -49,7 +48,7 @@ export function applyAntiDuplicateVariation(
   context: VariationContext,
   opts?: {
     enabled?: boolean;
-    includePartTag?: boolean; // adds "Part 1/3" style line
+    includePartTag?: boolean;
     includeMicroLine?: boolean;
     includeCtaRotation?: boolean;
   }
@@ -68,22 +67,21 @@ export function applyAntiDuplicateVariation(
 
   const blocks: string[] = [trimmed];
 
-  // Optional part tag (helps series posts feel intentional + unique)
   if (opts?.includePartTag !== false && context.seriesPart && context.seriesTotal) {
     blocks.push(`Part ${context.seriesPart}/${context.seriesTotal} ${emoji}`);
   } else if (opts?.includePartTag !== false) {
-    // If not series, still add tiny variation without screaming “system”
     blocks.push(`${emoji}`);
   }
 
-  // Optional micro line
   if (opts?.includeMicroLine !== false) blocks.push(micro);
 
-  // Optional CTA rotation (only add if message doesn’t already end with a CTA-ish line)
   if (opts?.includeCtaRotation !== false) {
     const lower = trimmed.toLowerCase();
     const alreadyHasCTA =
-      lower.includes("comment") || lower.includes("dm") || lower.includes("follow") || lower.includes("share");
+      lower.includes("comment") ||
+      lower.includes("dm") ||
+      lower.includes("follow") ||
+      lower.includes("share");
     if (!alreadyHasCTA) blocks.push(cta);
   }
 
