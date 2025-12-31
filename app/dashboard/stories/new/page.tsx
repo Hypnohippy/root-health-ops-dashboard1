@@ -1,8 +1,8 @@
 // app/dashboard/stories/new/page.tsx
 "use client";
-import { applyAntiDuplicateVariation } from "@/lib/socialText";
 
 import React, { useMemo, useState } from "react";
+import { applyAntiDuplicateVariation } from "../../../../lib/socialText";
 
 type ChannelId = "facebook" | "instagram" | "linkedin" | "tiktok" | "reddit";
 
@@ -55,6 +55,9 @@ export default function StorySeriesBuilderPage() {
     useState<CtaStyleOption>("Comment for more / next part");
   const [seriesLength, setSeriesLength] = useState<number>(3);
 
+  // ✅ Anti-duplicate toggle
+  const [autoVariation, setAutoVariation] = useState(true);
+
   // Mode + scheduling
   const [mode, setMode] = useState<Mode>("schedule");
   const [seriesStart, setSeriesStart] = useState<string>(""); // datetime-local
@@ -69,7 +72,6 @@ export default function StorySeriesBuilderPage() {
   const [isDispatching, setIsDispatching] = useState(false);
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
-  const [autoVariation, setAutoVariation] = useState(true);
 
   const canGenerate = useMemo(
     () => !!idea.trim() && !isGenerating,
@@ -78,7 +80,7 @@ export default function StorySeriesBuilderPage() {
 
   const normalizeIdea = (raw: string) => raw.replace(/\s+/g, " ").trim();
 
-  // ✅ This generator retries once automatically (fixes the random JSON fails)
+  // ✅ Generator retries once automatically (reduces random JSON issues)
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationError(null);
@@ -105,7 +107,6 @@ export default function StorySeriesBuilderPage() {
 
         const data: any = await res.json().catch(() => null);
 
-        // If server returns an error, retry once
         if (!res.ok || !data?.success) {
           console.error("[Stories/New] generate failed", {
             attempt,
@@ -153,27 +154,40 @@ export default function StorySeriesBuilderPage() {
     setIsGenerating(false);
   };
 
- const buildMessage = (p: GeneratedPost, ctx?: { part?: number; total?: number; whenIso?: string }) => {
-  const parts: string[] = [];
-  if (p.title?.trim()) parts.push(p.title.trim());
-  if (p.body?.trim()) parts.push(p.body.trim());
-  if (p.cta?.trim()) parts.push(p.cta.trim());
+  // ✅ Build final message (adds anti-duplicate variation)
+  const buildMessage = (
+    p: GeneratedPost,
+    ctx?: { part?: number; total?: number; whenIso?: string }
+  ) => {
+    const parts: string[] = [];
+    if (p.title?.trim()) parts.push(p.title.trim());
+    if (p.body?.trim()) parts.push(p.body.trim());
+    if (p.cta?.trim()) parts.push(p.cta.trim());
 
-  const base = parts.join("\n\n").trim();
+    const base = parts.join("\n\n").trim();
 
-  return applyAntiDuplicateVariation(base, {
-    platform: targetPlatform,
-    seriesPart: ctx?.part,
-    seriesTotal: ctx?.total,
-    scheduledAtIso: ctx?.whenIso,
-  }, {
-    enabled: autoVariation,
-    includePartTag: true,
-    includeMicroLine: true,
-    includeCtaRotation: true,
-  });
-};
+    return applyAntiDuplicateVariation(
+      base,
+      {
+        platform: targetPlatform,
+        seriesPart: ctx?.part,
+        seriesTotal: ctx?.total,
+        scheduledAtIso: ctx?.whenIso,
+      },
+      {
+        enabled: autoVariation,
+        includePartTag: true,
+        includeMicroLine: true,
+        includeCtaRotation: true,
+      }
+    );
+  };
 
+  const updatePost = (index: number, patch: Partial<GeneratedPost>) => {
+    setPosts((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, ...patch } : p))
+    );
+  };
 
   const handleSendNow = async () => {
     setIsDispatching(true);
@@ -184,7 +198,8 @@ export default function StorySeriesBuilderPage() {
       if (posts.length === 0) throw new Error("Generate a story first.");
 
       const p = posts[0];
-      const message = buildMessage(p);
+      const message = buildMessage(p, { part: 1, total: posts.length });
+
       if (!message) throw new Error("The post content is empty.");
 
       const res = await fetch("/api/social/quick-blast", {
@@ -200,9 +215,7 @@ export default function StorySeriesBuilderPage() {
       const data: any = await res.json().catch(() => null);
 
       if (!res.ok || !data?.success) {
-        throw new Error(
-          data?.error || data?.message || "Quick Blast failed."
-        );
+        throw new Error(data?.error || data?.message || "Quick Blast failed.");
       }
 
       setDispatchStatus(
@@ -233,13 +246,17 @@ export default function StorySeriesBuilderPage() {
       const failures: { index: number; error: string }[] = [];
 
       for (let i = 0; i < posts.length; i++) {
+        // ✅ consecutive days (or cadenceDays)
         const scheduledDate = new Date(
           base.getTime() + i * cadenceDays * 24 * 60 * 60 * 1000
         );
 
         const whenIso = scheduledDate.toISOString();
-const message = buildMessage(posts[i], { part: i + 1, total: posts.length, whenIso });
-
+        const message = buildMessage(posts[i], {
+          part: i + 1,
+          total: posts.length,
+          whenIso,
+        });
 
         const res = await fetch("/api/social/schedule", {
           method: "POST",
@@ -248,8 +265,14 @@ const message = buildMessage(posts[i], { part: i + 1, total: posts.length, whenI
             message,
             platforms: [targetPlatform],
             imageUrl: undefined,
-            scheduledAt: scheduledDate.toISOString(),
+            scheduledAt: whenIso,
             organisationId: ORG_ID,
+            meta: {
+              series: true,
+              part: i + 1,
+              total: posts.length,
+              cadenceDays,
+            },
           }),
         });
 
@@ -269,9 +292,7 @@ const message = buildMessage(posts[i], { part: i + 1, total: posts.length, whenI
       }
 
       if (successCount === 0) {
-        throw new Error(
-          failures[0]?.error || "Could not schedule any posts."
-        );
+        throw new Error(failures[0]?.error || "Could not schedule any posts.");
       }
 
       setDispatchStatus(
@@ -307,13 +328,12 @@ const message = buildMessage(posts[i], { part: i + 1, total: posts.length, whenI
               Stories · Advanced Narrative Generator
             </h1>
             <p className="mt-1 text-sm text-slate-300 max-w-xl">
-              Create a single post or an episodic series. Generate → edit →
-              send now or schedule.
+              Generate → edit → send now or schedule. Auto-variation helps prevent duplicate-content blocks.
             </p>
           </div>
 
           <span className="inline-flex items-center rounded-full border border-emerald-500/50 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-200">
-            Powered by your private social engine
+            Private social engine
           </span>
         </header>
 
@@ -446,9 +466,7 @@ const message = buildMessage(posts[i], { part: i + 1, total: posts.length, whenI
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   value={ctaStyle}
-                  onChange={(e) =>
-                    setCtaStyle(e.target.value as CtaStyleOption)
-                  }
+                  onChange={(e) => setCtaStyle(e.target.value as CtaStyleOption)}
                 >
                   <option value="Comment for more / next part">Comment for more / next part</option>
                   <option value="Follow for the next part">Follow for the next part</option>
@@ -468,6 +486,15 @@ const message = buildMessage(posts[i], { part: i + 1, total: posts.length, whenI
               >
                 {isGenerating ? "Generating…" : isSingle ? "Generate story" : "Generate series"}
               </button>
+
+              <label className="flex items-center gap-2 text-[11px] text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={autoVariation}
+                  onChange={(e) => setAutoVariation(e.target.checked)}
+                />
+                Auto-variation (recommended)
+              </label>
             </div>
 
             {generationError && (
@@ -538,18 +565,6 @@ const message = buildMessage(posts[i], { part: i + 1, total: posts.length, whenI
                       ? "Scheduling…"
                       : `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`}
                   </button>
-                <div className="flex items-center gap-2 text-[11px] text-slate-300">
-  <input
-    id="autoVariation"
-    type="checkbox"
-    checked={autoVariation}
-    onChange={(e) => setAutoVariation(e.target.checked)}
-  />
-  <label htmlFor="autoVariation">
-    Auto-variation (recommended) — prevents “duplicate content” blocks
-  </label>
-</div>
-
                 )}
               </div>
             )}
