@@ -1,9 +1,7 @@
 // app/dashboard/scheduled/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
-
-type ScheduledStatus = "scheduled" | "sent" | "failed";
+import React, { useEffect, useMemo, useState } from "react";
 
 type ScheduledPost = {
   id: string;
@@ -11,244 +9,215 @@ type ScheduledPost = {
   message: string;
   platforms: string[];
   image_url: string | null;
-  scheduled_for: string; // ISO string
-  status: ScheduledStatus;
-  error_info?: any;
-  posted_at?: string | null;
-  created_at: string;
+  scheduled_for: string;
+  status: string | null;
+  created_at?: string;
+  sequence_id?: string | null;
+  series_part?: number | null;
+  series_total?: number | null;
+  meta?: any;
 };
 
-type ApiResponse =
-  | {
-      success: true;
-      items: ScheduledPost[];
-    }
-  | {
-      success: false;
-      error: string;
-    };
-
+// ✅ MUST be organisations.id (not owner_id)
 const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
 
-export default function DashboardScheduledPage() {
-  const [items, setItems] = useState<ScheduledPost[]>([]);
+export default function ScheduledPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [records, setRecords] = useState<ScheduledPost[]>([]);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError(null);
+  const fetchList = async () => {
+    setLoading(true);
+    setError(null);
 
-      try {
-        // 👇 IMPORTANT: now calling the *new* Supabase-backed endpoint
-        const res = await fetch(
-          `/api/social/scheduled?organisationId=${ORG_ID}`
-        );
-        const data: ApiResponse = await res.json();
+    try {
+      const res = await fetch(
+        `/api/social/scheduled/list?organisationId=${encodeURIComponent(
+          ORG_ID
+        )}&limit=300`,
+        { cache: "no-store" }
+      );
 
-        if (!data.success) {
-          setError(data.error || "Could not load scheduled posts.");
-          setItems([]);
-          return;
-        }
+      const data = await res.json().catch(() => null);
 
-        setItems(data.items);
-      } catch (err: any) {
-        console.error("[DashboardScheduledPage] load error", err);
-        setError("Something went wrong loading scheduled posts.");
-        setItems([]);
-      } finally {
-        setLoading(false);
+      if (!data?.success) {
+        throw new Error(data?.error || "Could not load scheduled posts.");
       }
-    };
 
-    load();
-  }, []);
-
-  const now = new Date();
-
-  const upcoming = items.filter((item) => {
-    if (item.status !== "scheduled") return false;
-    const d = new Date(item.scheduled_for);
-    return !isNaN(d.getTime()) && d.getTime() >= now.getTime();
-  });
-
-  const pastSent = items
-    .filter((item) => item.status === "sent")
-    .sort((a, b) => {
-      const ta = new Date(a.posted_at || a.scheduled_for).getTime();
-      const tb = new Date(b.posted_at || b.scheduled_for).getTime();
-      return tb - ta;
-    });
-
-  const pastFailed = items
-    .filter((item) => item.status === "failed")
-    .sort((a, b) => {
-      const ta = new Date(a.scheduled_for).getTime();
-      const tb = new Date(b.scheduled_for).getTime();
-      return tb - ta;
-    });
-
-  const formatDate = (iso: string | null | undefined) => {
-    if (!iso) return "-";
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleString();
+      setRecords(Array.isArray(data.records) ? data.records : []);
+    } catch (e: any) {
+      setError(e?.message || "Could not load scheduled posts.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const formatPlatforms = (platforms: string[]) => {
-    if (!platforms || platforms.length === 0) return "—";
-    return platforms.join(", ");
+  useEffect(() => {
+    fetchList();
+  }, []);
+
+  const grouped = useMemo(() => {
+    const withSeq: Record<string, ScheduledPost[]> = {};
+    const singles: ScheduledPost[] = [];
+
+    for (const r of records) {
+      if (r.sequence_id) {
+        withSeq[r.sequence_id] ||= [];
+        withSeq[r.sequence_id].push(r);
+      } else {
+        singles.push(r);
+      }
+    }
+
+    // sort each sequence by scheduled_for ASC so episodes read 1->N
+    Object.values(withSeq).forEach((arr) =>
+      arr.sort(
+        (a, b) =>
+          new Date(a.scheduled_for).getTime() -
+          new Date(b.scheduled_for).getTime()
+      )
+    );
+
+    // singles already pulled DESC; keep as-is
+    return { withSeq, singles };
+  }, [records]);
+
+  const fmt = (iso: string) => {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? iso : d.toLocaleString();
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
-      <div className="w-full max-w-6xl space-y-8">
-        {/* Header */}
-        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="w-full max-w-6xl space-y-6">
+        <header className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold">
-              Scheduled Posts
-            </h1>
-            <p className="mt-1 text-sm text-slate-300 max-w-xl">
-              Everything Root Health Ops has queued, sent, or that needs your
-              attention across your connected channels.
+            <h1 className="text-2xl md:text-3xl font-semibold">Scheduled</h1>
+            <p className="text-sm text-slate-400">
+              Your queued posts from Quick Blast and Stories (Supabase
+              scheduled_posts).
             </p>
           </div>
+
+          <button
+            type="button"
+            onClick={fetchList}
+            className="rounded-full border border-slate-700 bg-slate-900 px-4 py-2 text-sm hover:border-slate-500"
+          >
+            Refresh
+          </button>
         </header>
 
-        {/* Loading / error */}
         {loading && (
-          <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 text-sm text-slate-300">
-            Loading scheduled posts…
-          </div>
+          <div className="text-sm text-slate-400">Loading scheduled posts…</div>
         )}
 
-        {error && !loading && (
-          <div className="rounded-3xl border border-red-500/60 bg-red-950/40 p-4 text-sm text-red-100">
+        {error && (
+          <div className="rounded-2xl border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-200">
             {error}
           </div>
         )}
 
-        {!loading && !error && (
-          <div className="space-y-6">
-            {/* Upcoming */}
-            <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 md:p-5">
-              <h2 className="text-base md:text-lg font-semibold mb-3">
-                Upcoming
-              </h2>
-              {upcoming.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  Nothing queued yet. Use{" "}
-                  <span className="font-medium">Quick Blast → Schedule</span> to
-                  line up your next posts.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {upcoming.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-sm"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                        <div className="text-xs uppercase tracking-wide text-slate-400">
-                          Scheduled for {formatDate(item.scheduled_for)}
-                        </div>
-                        <div className="text-[11px] text-emerald-300">
-                          {formatPlatforms(item.platforms)}
-                        </div>
-                      </div>
-                      <p className="mt-2 text-sm text-slate-100 whitespace-pre-wrap">
-                        {item.message}
-                      </p>
-                      {item.image_url && (
-                        <p className="mt-1 text-[11px] text-slate-400">
-                          Image: {item.image_url}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* Sent */}
-            <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 md:p-5">
-              <h2 className="text-base md:text-lg font-semibold mb-3">
-                Recently sent
-              </h2>
-              {pastSent.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  No sent posts recorded yet. As scheduled posts go out, they
-                  will appear here.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {pastSent.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-sm"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                        <div className="text-xs uppercase tracking-wide text-slate-400">
-                          Sent at {formatDate(item.posted_at || item.scheduled_for)}
-                        </div>
-                        <div className="text-[11px] text-emerald-300">
-                          {formatPlatforms(item.platforms)}
-                        </div>
-                      </div>
-                      <p className="mt-2 text-sm text-slate-100 whitespace-pre-wrap">
-                        {item.message}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* Failed */}
-            <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 md:p-5">
-              <h2 className="text-base md:text-lg font-semibold mb-3">
-                Needs attention
-              </h2>
-              {pastFailed.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  No failures right now. If Ayrshare or the networks reject a
-                  post, it will appear here with details.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {pastFailed.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-amber-500/60 bg-amber-950/40 p-3 text-sm"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                        <div className="text-xs uppercase tracking-wide text-amber-200">
-                          Failed for {formatDate(item.scheduled_for)}
-                        </div>
-                        <div className="text-[11px] text-amber-200">
-                          {formatPlatforms(item.platforms)}
-                        </div>
-                      </div>
-                      <p className="mt-2 text-sm text-amber-50 whitespace-pre-wrap">
-                        {item.message}
-                      </p>
-                     {item.error_info && (
-  <p className="mt-2 text-[11px] text-amber-200">
-    {Array.isArray((item.error_info as any).errors) &&
-    (item.error_info as any).errors[0]
-      ? (item.error_info as any).errors[0].message
-      : "The social network rejected this post. Check your plan, content, or connection."}
-  </p>
-)}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+        {!loading && !error && records.length === 0 && (
+          <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4 text-sm text-slate-300">
+            No scheduled posts found for this organisation yet.
           </div>
+        )}
+
+        {/* SERIES (sequence_id) */}
+        {Object.keys(grouped.withSeq).length > 0 && (
+          <section className="space-y-3">
+            <div className="text-[11px] uppercase tracking-wide text-slate-500">
+              Story series
+            </div>
+
+            <div className="grid gap-4">
+              {Object.entries(grouped.withSeq).map(([seqId, arr]) => {
+                const first = arr[0];
+                const total = first?.series_total || arr.length;
+
+                return (
+                  <div
+                    key={seqId}
+                    className="rounded-3xl border border-slate-700 bg-slate-900/60 p-4 space-y-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-slate-100">
+                        Series {seqId.slice(0, 8)}…{" "}
+                        <span className="text-slate-400 font-normal">
+                          ({arr.length}/{total})
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        {arr[0]?.meta?.storyType
+                          ? `Type: ${arr[0].meta.storyType}`
+                          : null}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {arr.map((r) => (
+                        <div
+                          key={r.id}
+                          className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-[11px] text-slate-400">
+                              {r.series_part ? `Episode ${r.series_part}` : ""}
+                              {r.series_total
+                                ? ` / ${r.series_total}`
+                                : ""}
+                              {" · "}
+                              {fmt(r.scheduled_for)}
+                            </div>
+                            <div className="text-[11px] text-slate-400">
+                              {r.platforms?.join(", ")}{" "}
+                              {r.status ? `· ${r.status}` : ""}
+                            </div>
+                          </div>
+
+                          <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap line-clamp-3">
+                            {r.message}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* SINGLES */}
+        {grouped.singles.length > 0 && (
+          <section className="space-y-3">
+            <div className="text-[11px] uppercase tracking-wide text-slate-500">
+              Single scheduled posts
+            </div>
+
+            <div className="grid gap-3">
+              {grouped.singles.map((r) => (
+                <div
+                  key={r.id}
+                  className="rounded-3xl border border-slate-700 bg-slate-900/60 p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[11px] text-slate-400">
+                      {fmt(r.scheduled_for)}
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      {r.platforms?.join(", ")} {r.status ? `· ${r.status}` : ""}
+                    </div>
+                  </div>
+
+                  <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap line-clamp-4">
+                    {r.message}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
       </div>
     </div>
