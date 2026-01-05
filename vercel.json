@@ -1,8 +1,5 @@
 {
   "crons": [
-    {
-      "path": "/api/social/dispatch?secret=${DISPATCH_SECRET}",
-      "schedule": "* * * * *"
-    }
+    { "path": "/api/social/dispatch", "schedule": "* * * * *" }
   ]
 }
