@@ -31,10 +31,8 @@ export default function ScheduledPage() {
     setError(null);
 
     try {
-      const res = await fetch(
-        `/api/social/scheduled/list?organisationId=${encodeURIComponent(
-          ORG_ID
-        )}&limit=300`,
+      const res = await fetch(`/api/schedule/list?organisationId=23a054db-7040-40b1-b193-2f43cfa139de`)
+}&limit=300`,
         { cache: "no-store" }
       );
 
