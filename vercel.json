@@ -1,8 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/cron/linkedin-stories",
-      "schedule": "*/10 * * * *"
+      "path": "/api/social/dispatch?secret=${DISPATCH_SECRET}",
+      "schedule": "* * * * *"
     }
   ]
 }
