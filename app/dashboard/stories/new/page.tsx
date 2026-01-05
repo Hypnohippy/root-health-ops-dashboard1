@@ -1,8 +1,7 @@
 // app/dashboard/stories/new/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-
+import React, { useMemo, useState } from "react";
 import { applyAntiDuplicateVariation } from "../../../../lib/socialText";
 
 type ChannelId = "facebook" | "instagram" | "linkedin" | "tiktok" | "reddit";
@@ -14,13 +13,6 @@ type GeneratedPost = {
   cta?: string;
   imagePrompt?: string;
 };
-
-type Sequence = {
-  id: string;
-  name: string;
-  status?: string;
-};
-
 
 type StoryTypeOption =
   | "Personal journey"
@@ -52,8 +44,7 @@ type Mode = "now" | "schedule";
 const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
 
 export default function StorySeriesBuilderPage() {
-  // Generator inputs
-   const [idea, setIdea] = useState("");
+  const [idea, setIdea] = useState("");
   const [storyType, setStoryType] = useState<StoryTypeOption>(
     "HR director perspective"
   );
@@ -63,24 +54,16 @@ export default function StorySeriesBuilderPage() {
     useState<CtaStyleOption>("Comment for more / next part");
   const [seriesLength, setSeriesLength] = useState<number>(3);
 
-  // ✅ Anti-duplicate toggle
   const [autoVariation, setAutoVariation] = useState(true);
 
-  // Mode + scheduling
   const [mode, setMode] = useState<Mode>("schedule");
-  const [seriesStart, setSeriesStart] = useState<string>(""); // datetime-local
-  const [dailyCadence, setDailyCadence] = useState<number>(1); // days between episodes
+  const [seriesStart, setSeriesStart] = useState<string>("");
+  const [dailyCadence, setDailyCadence] = useState<number>(1);
 
-  // Output state
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [posts, setPosts] = useState<GeneratedPost[]>([]);
-  // Sequences (group series into a journey)
-  const [sequences, setSequences] = useState<Sequence[]>([]);
-  const [sequenceId, setSequenceId] = useState<string>(""); // optional
-  const [sequencesLoading, setSequencesLoading] = useState(false);
 
-  // Dispatch state
   const [isDispatching, setIsDispatching] = useState(false);
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
@@ -91,42 +74,7 @@ export default function StorySeriesBuilderPage() {
   );
 
   const normalizeIdea = (raw: string) => raw.replace(/\s+/g, " ").trim();
-  // Load sequences for this org (optional feature – silent fail)
-  useEffect(() => {
-    let cancelled = false;
 
-    const load = async () => {
-      setSequencesLoading(true);
-      try {
-        const res = await fetch(`/api/sequences?organisationId=${ORG_ID}`);
-        const data: any = await res.json().catch(() => null);
-
-        if (!res.ok) throw new Error(data?.error || "Failed to load sequences");
-
-        const list: Sequence[] = Array.isArray(data?.sequences)
-          ? data.sequences.map((s: any) => ({
-              id: String(s.id),
-              name: String(s.name || "Untitled"),
-              status: s.status ? String(s.status) : undefined,
-            }))
-          : [];
-
-        if (!cancelled) setSequences(list);
-      } catch {
-        if (!cancelled) setSequences([]);
-      } finally {
-        if (!cancelled) setSequencesLoading(false);
-      }
-    };
-
-    load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // ✅ Generator retries once automatically (reduces random JSON issues)
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationError(null);
@@ -154,14 +102,7 @@ export default function StorySeriesBuilderPage() {
         const data: any = await res.json().catch(() => null);
 
         if (!res.ok || !data?.success) {
-          console.error("[Stories/New] generate failed", {
-            attempt,
-            status: res.status,
-            data,
-          });
-
           if (attempt === 1) continue;
-
           const msg =
             data?.error ||
             data?.message ||
@@ -190,7 +131,6 @@ export default function StorySeriesBuilderPage() {
         setIsGenerating(false);
         return;
       } catch (err: any) {
-        console.error("[Stories/New] generate error", err);
         if (attempt === 2) {
           setGenerationError(err?.message || "Generation failed.");
         }
@@ -200,7 +140,6 @@ export default function StorySeriesBuilderPage() {
     setIsGenerating(false);
   };
 
-  // ✅ Build final message (adds anti-duplicate variation)
   const buildMessage = (
     p: GeneratedPost,
     ctx?: { part?: number; total?: number; whenIso?: string }
@@ -245,7 +184,6 @@ export default function StorySeriesBuilderPage() {
 
       const p = posts[0];
       const message = buildMessage(p, { part: 1, total: posts.length });
-
       if (!message) throw new Error("The post content is empty.");
 
       const res = await fetch("/api/social/quick-blast", {
@@ -254,12 +192,10 @@ export default function StorySeriesBuilderPage() {
         body: JSON.stringify({
           message,
           platforms: [targetPlatform],
-          imageUrl: undefined,
         }),
       });
 
       const data: any = await res.json().catch(() => null);
-
       if (!res.ok || !data?.success) {
         throw new Error(data?.error || data?.message || "Quick Blast failed.");
       }
@@ -292,7 +228,6 @@ export default function StorySeriesBuilderPage() {
       const failures: { index: number; error: string }[] = [];
 
       for (let i = 0; i < posts.length; i++) {
-        // ✅ consecutive days (or cadenceDays)
         const scheduledDate = new Date(
           base.getTime() + i * cadenceDays * 24 * 60 * 60 * 1000
         );
@@ -310,14 +245,10 @@ export default function StorySeriesBuilderPage() {
           body: JSON.stringify({
             message,
             platforms: [targetPlatform],
-            imageUrl: undefined,
             scheduledAt: whenIso,
             organisationId: ORG_ID,
-            
-            sequenceId: sequenceId || null,
-            
             meta: {
-              series: true,
+              series: posts.length > 1,
               part: i + 1,
               total: posts.length,
               cadenceDays,
@@ -380,14 +311,9 @@ export default function StorySeriesBuilderPage() {
               Generate → edit → send now or schedule. Auto-variation helps prevent duplicate-content blocks.
             </p>
           </div>
-
-          <span className="inline-flex items-center rounded-full border border-emerald-500/50 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-200">
-            Private social engine
-          </span>
         </header>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* LEFT */}
           <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-5">
             <div className="flex items-center justify-between">
               <h2 className="text-base md:text-lg font-semibold">1) Create</h2>
@@ -425,7 +351,7 @@ export default function StorySeriesBuilderPage() {
                 Your idea / brief
               </label>
               <textarea
-                className="w-full min-h-[130px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                className="w-full min-h-[130px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
               />
@@ -437,7 +363,7 @@ export default function StorySeriesBuilderPage() {
                   Story type
                 </label>
                 <select
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={storyType}
                   onChange={(e) =>
                     setStoryType(e.target.value as StoryTypeOption)
@@ -459,7 +385,7 @@ export default function StorySeriesBuilderPage() {
                   Tone
                 </label>
                 <select
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={tone}
                   onChange={(e) => setTone(e.target.value as ToneOption)}
                 >
@@ -478,7 +404,7 @@ export default function StorySeriesBuilderPage() {
                   Platform
                 </label>
                 <select
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={targetPlatform}
                   onChange={(e) => setTargetPlatform(e.target.value as ChannelId)}
                 >
@@ -498,7 +424,7 @@ export default function StorySeriesBuilderPage() {
                   type="number"
                   min={1}
                   max={10}
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={seriesLength}
                   onChange={(e) =>
                     setSeriesLength(
@@ -513,7 +439,7 @@ export default function StorySeriesBuilderPage() {
                   CTA style
                 </label>
                 <select
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={ctaStyle}
                   onChange={(e) => setCtaStyle(e.target.value as CtaStyleOption)}
                 >
@@ -531,7 +457,7 @@ export default function StorySeriesBuilderPage() {
                 type="button"
                 onClick={handleGenerate}
                 disabled={!canGenerate}
-                className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+                className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
               >
                 {isGenerating ? "Generating…" : isSingle ? "Generate story" : "Generate series"}
               </button>
@@ -555,30 +481,6 @@ export default function StorySeriesBuilderPage() {
             {mode === "schedule" && posts.length > 0 && (
               <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
                 <div className="text-[11px] font-semibold text-slate-200">
-                  <div className="mt-2 space-y-1">
-  <label className="block text-[11px] font-medium text-slate-300">
-    Attach to Sequence (optional)
-  </label>
-
-  <select
-    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-    value={sequenceId}
-    onChange={(e) => setSequenceId(e.target.value)}
-    disabled={sequencesLoading}
-  >
-    <option value="">— No sequence —</option>
-    {sequences.map((s) => (
-      <option key={s.id} value={s.id}>
-        {s.name}
-      </option>
-    ))}
-  </select>
-
-  <p className="text-[10px] text-slate-500">
-    Groups these scheduled posts together so they show up as one narrative journey.
-  </p>
-</div>
-
                   Scheduling options
                 </div>
 
@@ -589,7 +491,7 @@ export default function StorySeriesBuilderPage() {
                     </label>
                     <input
                       type="datetime-local"
-                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={seriesStart}
                       onChange={(e) => setSeriesStart(e.target.value)}
                     />
@@ -603,7 +505,7 @@ export default function StorySeriesBuilderPage() {
                       type="number"
                       min={1}
                       max={14}
-                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={dailyCadence}
                       onChange={(e) =>
                         setDailyCadence(
@@ -623,7 +525,7 @@ export default function StorySeriesBuilderPage() {
                     type="button"
                     onClick={handleSendNow}
                     disabled={isDispatching}
-                    className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+                    className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
                   >
                     {isDispatching ? "Sending…" : `Send now to ${targetPlatform}`}
                   </button>
@@ -632,11 +534,9 @@ export default function StorySeriesBuilderPage() {
                     type="button"
                     onClick={handleScheduleSeries}
                     disabled={isDispatching || !seriesStart}
-                    className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+                    className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
                   >
-                    {isDispatching
-                      ? "Scheduling…"
-                      : `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`}
+                    {isDispatching ? "Scheduling…" : `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`}
                   </button>
                 )}
               </div>
@@ -650,7 +550,6 @@ export default function StorySeriesBuilderPage() {
             )}
           </section>
 
-          {/* RIGHT */}
           <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-4">
             <h2 className="text-base md:text-lg font-semibold">2) Edit & preview</h2>
 
@@ -672,21 +571,21 @@ export default function StorySeriesBuilderPage() {
                     </div>
 
                     <input
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={p.title || ""}
                       onChange={(e) => updatePost(idx, { title: e.target.value })}
                       placeholder="Title (optional)"
                     />
 
                     <textarea
-                      className="w-full min-h-[140px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 whitespace-pre-wrap"
+                      className="w-full min-h-[140px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none whitespace-pre-wrap"
                       value={p.body || ""}
                       onChange={(e) => updatePost(idx, { body: e.target.value })}
                       placeholder="Post body"
                     />
 
                     <input
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={p.cta || ""}
                       onChange={(e) => updatePost(idx, { cta: e.target.value })}
                       placeholder="CTA (optional)"
