@@ -16,14 +16,24 @@ type ScheduledRow = {
   meta: any;
 };
 
+function isAuthorized(req: NextRequest) {
+  // ✅ Vercel Cron sets this header
+  const isVercelCron = req.headers.get("x-vercel-cron") === "1";
+  if (isVercelCron) return true;
+
+  // ✅ Manual trigger via secret
+  const secret = req.nextUrl.searchParams.get("secret") || "";
+  if (DISPATCH_SECRET && secret === DISPATCH_SECRET) return true;
+
+  return false;
+}
+
 async function postViaAyrshare(args: {
   message: string;
   platforms: string[];
   imageUrl?: string | null;
 }) {
-  if (!AYRSHARE_API_KEY) {
-    throw new Error("Missing AYRSHARE_API_KEY");
-  }
+  if (!AYRSHARE_API_KEY) throw new Error("Missing AYRSHARE_API_KEY");
 
   const payload: Record<string, any> = {
     post: args.message,
@@ -48,7 +58,7 @@ async function postViaAyrshare(args: {
   try {
     json = JSON.parse(txt);
   } catch {
-    // not JSON
+    // non-json response
   }
 
   return { ok: res.ok, status: res.status, json, raw: txt };
@@ -56,20 +66,15 @@ async function postViaAyrshare(args: {
 
 export async function GET(req: NextRequest) {
   try {
-    // simple protection so random people can't hit it
-    const secret = req.nextUrl.searchParams.get("secret") || "";
-    if (!DISPATCH_SECRET || secret !== DISPATCH_SECRET) {
+    if (!isAuthorized(req)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // find due scheduled posts
     const nowIso = new Date().toISOString();
 
     const { data, error } = await supabaseAdmin
       .from("scheduled_posts")
-      .select(
-        "id, organisation_id, message, platforms, image_url, scheduled_for, status, meta"
-      )
+      .select("id, organisation_id, message, platforms, image_url, scheduled_for, status, meta")
       .eq("status", "scheduled")
       .lte("scheduled_for", nowIso)
       .order("scheduled_for", { ascending: true })
@@ -93,11 +98,8 @@ export async function GET(req: NextRequest) {
     const failures: any[] = [];
 
     for (const row of rows) {
-      // mark as "processing" to avoid double-posts
-      await supabaseAdmin
-        .from("scheduled_posts")
-        .update({ status: "processing" })
-        .eq("id", row.id);
+      // mark processing first (avoid double posts)
+      await supabaseAdmin.from("scheduled_posts").update({ status: "processing" }).eq("id", row.id);
 
       try {
         const result = await postViaAyrshare({
@@ -132,10 +134,7 @@ export async function GET(req: NextRequest) {
           .update({
             status: "posted",
             posted_at: new Date().toISOString(),
-            meta: {
-              ...(row.meta || {}),
-              ayrshare: result.json || { raw: result.raw },
-            },
+            meta: { ...(row.meta || {}), ayrshare: result.json || { raw: result.raw } },
           })
           .eq("id", row.id);
       } catch (e: any) {
@@ -158,9 +157,6 @@ export async function GET(req: NextRequest) {
     );
   } catch (err: any) {
     console.error("[dispatch] unexpected error", err);
-    return NextResponse.json(
-      { error: "Internal server error in dispatch" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
