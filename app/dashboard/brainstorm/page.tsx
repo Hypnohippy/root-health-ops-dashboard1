@@ -1,341 +1,296 @@
+// app/dashboard/brainstorm/page.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 
-type Platform = "LinkedIn" | "Facebook";
+type Mode = "direct" | "story_series";
+type ChannelId = "linkedin" | "facebook" | "instagram" | "reddit" | "tiktok";
+
+type DirectPost = {
+  title?: string;
+  body: string;
+  cta?: string;
+  hashtags?: string[];
+};
+
+type StoryPost = {
+  title: string;
+  body: string;
+  platformSuggestion?: string;
+  cta?: string;
+  imagePrompt?: string;
+};
 
 export default function BrainstormPage() {
-  const [idea, setIdea] = useState(
-    "I want to tell a vulnerable story about why I built Root Health, how burnout and anxiety pushed me to the edge, and how the app helps people feel less alone."
+  const [mode, setMode] = useState<Mode>("direct");
+
+  const [platform, setPlatform] = useState<ChannelId>("linkedin");
+  const [tone, setTone] = useState<string>("Professional & confident");
+
+  const [brief, setBrief] = useState<string>(
+    "New year, new projects — I’m offering a free consultation to help HR/leadership pick a wellbeing programme that actually works. Make it confident, direct, and friendly."
   );
 
-  const [platform, setPlatform] = useState<Platform>("LinkedIn");
-  const [draft, setDraft] = useState("");
-  const [isThinking, setIsThinking] = useState(false);
+  const [seriesLength, setSeriesLength] = useState<number>(3);
+  const [storyType, setStoryType] = useState<string>("HR director perspective");
+  const [ctaStyle, setCtaStyle] = useState<string>("Comment for more / next part");
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [isPostingLinkedIn, setIsPostingLinkedIn] = useState(false);
-  const [isPostingFacebook, setIsPostingFacebook] = useState(false);
-
-  const [message, setMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function resetNotices() {
-    setMessage(null);
+  const [directPost, setDirectPost] = useState<DirectPost | null>(null);
+  const [seriesPosts, setSeriesPosts] = useState<StoryPost[]>([]);
+
+  const canGenerate = useMemo(() => !!brief.trim() && !loading, [brief, loading]);
+
+  const handleGenerate = async () => {
+    setLoading(true);
     setError(null);
-  }
+    setDirectPost(null);
+    setSeriesPosts([]);
 
-  async function handleGenerateDraft() {
-    resetNotices();
-
-    if (!idea.trim()) {
-      setError("Give the AI at least a rough idea to work with.");
-      return;
-    }
-
-    setIsThinking(true);
     try {
-      const res = await fetch("/api/ai/story", {
+      if (!brief.trim()) throw new Error("Write a brief first.");
+
+      if (mode === "direct") {
+        const res = await fetch("/api/ai/brainstorm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: brief.trim(),
+            platform,
+            tone,
+            goal: "Direct post to my audience",
+          }),
+        });
+
+        const data: any = await res.json().catch(() => null);
+        if (!data?.success) {
+          throw new Error(data?.error || "Brainstorm failed.");
+        }
+
+        const post = data?.post;
+        if (!post?.body) throw new Error("AI returned an empty post.");
+        setDirectPost(post);
+        return;
+      }
+
+      // story_series
+      const res = await fetch("/api/ai/story-series", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          storyType: "founder",
-          tone: "conversational",
-          length: "medium",
-          character: "David",
-          scenario: idea,
+          idea: brief.trim(),
+          storyType,
+          tone,
+          seriesLength,
           platform,
+          ctaStyle,
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to generate draft");
-        return;
+      const data: any = await res.json().catch(() => null);
+      if (!data?.success || !Array.isArray(data?.posts)) {
+        throw new Error(data?.error || "Story series generation failed.");
       }
 
-      const variants = (data.variants || []) as { title: string; story: string }[];
-      if (!variants.length) {
-        setError("AI returned no variants");
-        return;
-      }
-
-      // Take the first variant as the working draft
-      const first = variants[0];
-      const combined = `${first.title}\n\n${first.story}`;
-      setDraft(combined);
-      setMessage("Draft generated. Tweak it freely before posting.");
+      setSeriesPosts(data.posts);
     } catch (e: any) {
-      setError(e?.message || "Error talking to AI");
+      setError(e?.message || "Something went wrong.");
     } finally {
-      setIsThinking(false);
+      setLoading(false);
     }
-  }
+  };
 
-  async function handleSaveToAirtable() {
-    resetNotices();
-
-    if (!draft.trim()) {
-      setError("Nothing to save yet. Generate or write a draft first.");
-      return;
-    }
-
-    setIsSaving(true);
+  const copyToClipboard = async (text: string) => {
     try {
-      const lines = draft.split("\n").filter((l) => l.trim().length > 0);
-      const title = lines[0]?.slice(0, 80) || "Brainstormed post";
-
-      const res = await fetch("/api/content", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          platform,
-          body: draft,
-          status: "draft",
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to save to Airtable");
-        return;
-      }
-
-      setMessage("Saved to Airtable Content as draft.");
-    } catch (e: any) {
-      setError(e?.message || "Error saving to Airtable");
-    } finally {
-      setIsSaving(false);
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // ignore
     }
-  }
+  };
 
-  async function handlePostLinkedInNow() {
-    resetNotices();
+  const renderDirect = () => {
+    if (!directPost) return null;
 
-    if (!draft.trim()) {
-      setError("Write or generate a draft before posting.");
-      return;
-    }
+    const composed = [
+      directPost.title?.trim() ? directPost.title.trim() : null,
+      directPost.body?.trim() ? directPost.body.trim() : null,
+      directPost.cta?.trim() ? directPost.cta.trim() : null,
+      directPost.hashtags?.length ? directPost.hashtags.join(" ") : null,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
 
-    setIsPostingLinkedIn(true);
-    try {
-      const res = await fetch("/api/linkedin/post", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: draft }),
-      });
+    return (
+      <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Result · Direct Post</h2>
+          <button
+            className="text-xs rounded-full border border-slate-600 px-3 py-1 hover:bg-white/10"
+            onClick={() => copyToClipboard(composed)}
+            type="button"
+          >
+            Copy
+          </button>
+        </div>
 
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to post to LinkedIn");
-        return;
-      }
+        <pre className="whitespace-pre-wrap text-sm text-slate-100 bg-slate-950/60 border border-slate-700 rounded-2xl p-3">
+          {composed}
+        </pre>
 
-      setMessage("Posted to LinkedIn successfully 🟢");
-    } catch (e: any) {
-      setError(e?.message || "Error posting to LinkedIn");
-    } finally {
-      setIsPostingLinkedIn(false);
-    }
-  }
+        <p className="text-[11px] text-slate-400">
+          Tip: If you hit duplicate-content rules on platforms, tweak the opening line or CTA slightly.
+        </p>
+      </div>
+    );
+  };
 
-  async function handlePostFacebookNow() {
-    resetNotices();
+  const renderSeries = () => {
+    if (!seriesPosts.length) return null;
 
-    if (!draft.trim()) {
-      setError("Write or generate a draft before posting.");
-      return;
-    }
+    return (
+      <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Result · Story Series ({seriesPosts.length})</h2>
+          <button
+            className="text-xs rounded-full border border-slate-600 px-3 py-1 hover:bg-white/10"
+            onClick={() =>
+              copyToClipboard(
+                seriesPosts
+                  .map((p, i) => `Part ${i + 1}/${seriesPosts.length}\n\n${p.title}\n\n${p.body}\n\n${p.cta || ""}`.trim())
+                  .join("\n\n---\n\n")
+              )
+            }
+            type="button"
+          >
+            Copy all
+          </button>
+        </div>
 
-    setIsPostingFacebook(true);
-    try {
-      const res = await fetch("/api/facebook/post", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // Assumes /api/facebook/post expects { text }. Change to { message: draft }
-        // if your route is using a different property.
-        body: JSON.stringify({ text: draft }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to post to Facebook");
-        return;
-      }
-
-      setMessage("Posted to Facebook page (Fuel Geist) successfully 🟢");
-    } catch (e: any) {
-      setError(e?.message || "Error posting to Facebook");
-    } finally {
-      setIsPostingFacebook(false);
-    }
-  }
-
-  const canPost = !!draft.trim();
+        <div className="space-y-3">
+          {seriesPosts.map((p, i) => (
+            <div key={i} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-2">
+              <div className="text-[11px] text-slate-400">Part {i + 1}/{seriesPosts.length}</div>
+              <div className="text-sm font-semibold">{p.title}</div>
+              <pre className="whitespace-pre-wrap text-sm text-slate-100">{p.body}</pre>
+              {p.cta ? <div className="text-sm text-emerald-200">{p.cta}</div> : null}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-      <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
-        {/* Header */}
-        <header className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-50">
-              🧠 Brainstorm Studio
-            </h1>
-            <p className="text-sm text-slate-300">
-              Chat with AI to shape vulnerable, human posts – then post straight
-              to LinkedIn or your Fuel Geist Facebook page.
-            </p>
-          </div>
-          <a
-            href="/dashboard"
-            className="rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-white/10"
-          >
-            ← Back to dashboard
-          </a>
+    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
+      <div className="w-full max-w-6xl space-y-6">
+        <header className="space-y-1">
+          <h1 className="text-2xl md:text-3xl font-semibold">🧠 Brainstorm</h1>
+          <p className="text-sm text-slate-300 max-w-2xl">
+            Choose what you’re creating (direct post vs story series). This stops the “always story mode” behaviour.
+          </p>
         </header>
 
-        {(message || error) && (
-          <div className="space-y-2">
-            {message && (
-              <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-                {message}
-              </div>
-            )}
-            {error && (
-              <div className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-                {error}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)]">
-          {/* LEFT: Idea + generate */}
-          <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-50">
-                  Start the brainstorm
-                </h2>
-                <p className="text-[11px] text-slate-300">
-                  Talk to the AI like you talk to me here. Describe the angle,
-                  feelings, and what you want the reader to do.
-                </p>
-              </div>
-              <div className="space-y-1 text-right">
-                <label className="text-[11px] font-medium text-slate-200">
-                  Target platform
-                </label>
-                <select
-                  className="rounded-md border border-white/20 bg-black/40 px-2 py-1 text-xs text-slate-50"
-                  value={platform}
-                  onChange={(e) => setPlatform(e.target.value as Platform)}
-                >
-                  <option value="LinkedIn">LinkedIn</option>
-                  <option value="Facebook">Facebook (Fuel Geist)</option>
-                </select>
-              </div>
+        <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-4">
+          <div className="grid md:grid-cols-4 gap-3">
+            <div className="space-y-1">
+              <label className="text-[11px] text-slate-300">Create</label>
+              <select
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                value={mode}
+                onChange={(e) => setMode(e.target.value as Mode)}
+              >
+                <option value="direct">Direct Post</option>
+                <option value="story_series">Story Series</option>
+              </select>
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-200">
-                Your idea / riff
-              </label>
-              <textarea
-                rows={6}
-                className="w-full rounded-xl border border-white/20 bg-black/40 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-400"
-                value={idea}
-                onChange={(e) => setIdea(e.target.value)}
-                placeholder="e.g. I want to tell the honest story of how burnout nearly ended my career and why Root Health exists..."
-              />
-              <p className="text-[11px] text-slate-400">
-                You can keep tweaking this and regenerate. Think of it as you
-                and the AI riffing until the story feels right.
-              </p>
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={handleGenerateDraft}
-                disabled={isThinking}
-                className="rounded-md bg-emerald-400 px-3 py-1.5 text-xs font-medium text-slate-950 shadow-md hover:bg-emerald-300 disabled:opacity-60"
+              <label className="text-[11px] text-slate-300">Platform</label>
+              <select
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                value={platform}
+                onChange={(e) => setPlatform(e.target.value as ChannelId)}
               >
-                {isThinking ? "Thinking..." : "Generate / refresh draft"}
-              </button>
+                <option value="linkedin">LinkedIn</option>
+                <option value="facebook">Facebook</option>
+                <option value="instagram">Instagram</option>
+                <option value="reddit">Reddit</option>
+                <option value="tiktok">TikTok</option>
+              </select>
             </div>
-          </section>
 
-          {/* RIGHT: Working draft + actions */}
-          <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-50">
-                  Working draft
-                </h2>
-                <p className="text-[11px] text-slate-300">
-                  Edit anything you like – wording, pacing, call to action.
-                  This is what will be posted.
-                </p>
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-[11px] text-slate-300">Tone</label>
+              <input
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                value={tone}
+                onChange={(e) => setTone(e.target.value)}
+                placeholder="Professional & confident"
+              />
+            </div>
+          </div>
+
+          {mode === "story_series" && (
+            <div className="grid md:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300">Story type</label>
+                <input
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  value={storyType}
+                  onChange={(e) => setStoryType(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300">Series length</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  value={seriesLength}
+                  onChange={(e) => setSeriesLength(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300">CTA style</label>
+                <input
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  value={ctaStyle}
+                  onChange={(e) => setCtaStyle(e.target.value)}
+                />
               </div>
             </div>
+          )}
 
+          <div className="space-y-1">
+            <label className="text-[11px] text-slate-300">Brief</label>
             <textarea
-              rows={16}
-              className="w-full rounded-xl border border-white/20 bg-black/40 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-400"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Your draft will appear here after you click “Generate / refresh draft”, or you can write from scratch."
+              className="w-full min-h-[140px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+              value={brief}
+              onChange={(e) => setBrief(e.target.value)}
+              placeholder="Tell the AI exactly what you want to post."
             />
+          </div>
 
-            <div className="flex flex-wrap gap-2 justify-between items-center">
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={handleSaveToAirtable}
-                  disabled={isSaving || !canPost}
-                  className="rounded-md border border-white/30 bg-black/30 px-3 py-1.5 text-xs text-slate-100 hover:bg-black/40 disabled:opacity-60"
-                >
-                  {isSaving ? "Saving..." : "Save as draft to Airtable"}
-                </button>
-              </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={!canGenerate}
+              className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+            >
+              {loading ? "Generating…" : "Generate"}
+            </button>
 
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={handlePostLinkedInNow}
-                  disabled={!canPost || isPostingLinkedIn}
-                  className={`rounded-md px-3 py-1.5 text-xs font-medium shadow-md ${
-                    canPost && !isPostingLinkedIn
-                      ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
-                      : "bg-black/30 text-slate-400 cursor-not-allowed border border-white/15"
-                  }`}
-                >
-                  {isPostingLinkedIn
-                    ? "Posting to LinkedIn..."
-                    : "Post now to LinkedIn"}
-                </button>
+            {error ? <div className="text-sm text-red-400">{error}</div> : null}
+          </div>
+        </section>
 
-                <button
-                  type="button"
-                  onClick={handlePostFacebookNow}
-                  disabled={!canPost || isPostingFacebook}
-                  className={`rounded-md px-3 py-1.5 text-xs font-medium shadow-md ${
-                    canPost && !isPostingFacebook
-                      ? "bg-blue-500 text-slate-950 hover:bg-blue-400"
-                      : "bg-black/30 text-slate-400 cursor-not-allowed border border-white/15"
-                  }`}
-                >
-                  {isPostingFacebook
-                    ? "Posting to Facebook..."
-                    : "Post now to Facebook"}
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
+        {mode === "direct" ? renderDirect() : renderSeries()}
       </div>
     </div>
   );
