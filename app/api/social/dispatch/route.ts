@@ -170,5 +170,5 @@ export async function GET(req: NextRequest) {
         error_info: { message: e?.message || "Unknown error" },
       })
       .eq("id", row.id);
-  }
+}
 }
