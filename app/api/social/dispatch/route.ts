@@ -74,7 +74,9 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from("scheduled_posts")
-      .select("id, organisation_id, message, platforms, image_url, scheduled_for, status, meta")
+      .select(
+        "id, organisation_id, message, platforms, image_url, scheduled_for, status, meta"
+      )
       .eq("status", "scheduled")
       .lte("scheduled_for", nowIso)
       .order("scheduled_for", { ascending: true })
@@ -98,77 +100,85 @@ export async function GET(req: NextRequest) {
     const failures: any[] = [];
 
     for (const row of rows) {
-  // ✅ Atomic lock: only grab it if it's still scheduled
-  const { data: locked, error: lockErr } = await supabaseAdmin
-    .from("scheduled_posts")
-    .update({ status: "processing" })
-    .eq("id", row.id)
-    .eq("status", "scheduled")
-    .select("id")
-    .maybeSingle();
-
-  if (lockErr) {
-    failed++;
-    failures.push({ id: row.id, error: `Lock error: ${lockErr.message}` });
-    continue;
-  }
-
-  // If it's null, someone else already grabbed it
-  if (!locked?.id) {
-    continue;
-  }
-
-  try {
-    const result = await postViaAyrshare({
-      message: row.message,
-      platforms: row.platforms,
-      imageUrl: row.image_url,
-      // 👇 Optional (only if your postViaAyrshare supports it)
-      // profileKey: row?.meta?.ayrshareProfileKey,
-    });
-
-    if (!result.ok) {
-      failed++;
-      failures.push({
-        id: row.id,
-        statusCode: result.status,
-        error: result.json || result.raw,
-      });
-
-      await supabaseAdmin
+      // ✅ Atomic lock: only grab it if it's still scheduled
+      const { data: locked, error: lockErr } = await supabaseAdmin
         .from("scheduled_posts")
-        .update({
-          status: "failed",
-          error_info: result.json || { raw: result.raw },
-        })
-        .eq("id", row.id);
+        .update({ status: "processing" })
+        .eq("id", row.id)
+        .eq("status", "scheduled")
+        .select("id")
+        .maybeSingle();
 
-      continue;
+      if (lockErr) {
+        failed++;
+        failures.push({ id: row.id, error: `Lock error: ${lockErr.message}` });
+        continue;
+      }
+
+      // If it's null, someone else already grabbed it
+      if (!locked?.id) {
+        continue;
+      }
+
+      try {
+        const result = await postViaAyrshare({
+          message: row.message,
+          platforms: row.platforms,
+          imageUrl: row.image_url,
+        });
+
+        if (!result.ok) {
+          failed++;
+          failures.push({
+            id: row.id,
+            statusCode: result.status,
+            error: result.json || result.raw,
+          });
+
+          await supabaseAdmin
+            .from("scheduled_posts")
+            .update({
+              status: "failed",
+              error_info: result.json || { raw: result.raw },
+            })
+            .eq("id", row.id);
+
+          continue;
+        }
+
+        dispatched++;
+
+        await supabaseAdmin
+          .from("scheduled_posts")
+          .update({
+            status: "posted",
+            posted_at: new Date().toISOString(),
+            meta: {
+              ...(row.meta || {}),
+              ayrshare: result.json || { raw: result.raw },
+            },
+          })
+          .eq("id", row.id);
+      } catch (e: any) {
+        failed++;
+        failures.push({ id: row.id, error: e?.message || "Unknown error" });
+
+        await supabaseAdmin
+          .from("scheduled_posts")
+          .update({
+            status: "failed",
+            error_info: { message: e?.message || "Unknown error" },
+          })
+          .eq("id", row.id);
+      }
     }
 
-    dispatched++;
-
-    await supabaseAdmin
-      .from("scheduled_posts")
-      .update({
-        status: "posted",
-        posted_at: new Date().toISOString(),
-        meta: {
-          ...(row.meta || {}),
-          ayrshare: result.json || { raw: result.raw },
-        },
-      })
-      .eq("id", row.id);
-  } catch (e: any) {
-    failed++;
-    failures.push({ id: row.id, error: e?.message || "Unknown error" });
-
-    await supabaseAdmin
-      .from("scheduled_posts")
-      .update({
-        status: "failed",
-        error_info: { message: e?.message || "Unknown error" },
-      })
-      .eq("id", row.id);
-}
+    return NextResponse.json(
+      { success: true, dispatched, failed, failures },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error("[dispatch] unexpected error", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
