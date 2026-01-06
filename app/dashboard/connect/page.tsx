@@ -8,6 +8,7 @@ type ProviderId =
   | "instagram"
   | "tiktok"
   | "linkedin"
+  | "threads"
   | "google"
   | "email"
   | "whatsapp";
@@ -66,6 +67,14 @@ const initialProviders: Provider[] = [
     status: "disconnected",
   },
   {
+  id: "threads",
+  name: "Threads",
+  label: "Threads",
+  description: "Short thought-leadership updates and story-driven posts.",
+  hint: "Connect Threads inside Ayrshare, then enable it here.",
+  status: "disconnected",
+},
+
     id: "email",
     name: "Email",
     label: "Email newsletter",
@@ -89,6 +98,7 @@ const connectUrls: Record<ProviderId, string> = {
   instagram: "/api/oauth/instagram/start",
   tiktok: "/api/oauth/tiktok/start",
   linkedin: "/api/oauth/linkedin/start",
+  threads: "#",
   google: "/api/oauth/google/start",
   email: "/dashboard/connect/email/setup",
   whatsapp: "/api/oauth/whatsapp/start",
