@@ -74,7 +74,7 @@ const initialProviders: Provider[] = [
   hint: "Connect Threads inside Ayrshare, then enable it here.",
   status: "disconnected",
 },
-
+{
     id: "email",
     name: "Email",
     label: "Email newsletter",
