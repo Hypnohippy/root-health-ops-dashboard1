@@ -1,67 +1,52 @@
 // app/api/social/connections/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const AYRSHARE_API_KEY = process.env.AYRSHARE_API_KEY;
 
-export async function GET() {
-  if (!AYRSHARE_API_KEY) {
-    return NextResponse.json(
-      { success: false, error: "Missing AYRSHARE_API_KEY" },
-      { status: 500 }
-    );
-  }
-
+export async function GET(_req: NextRequest) {
   try {
-    const res = await fetch("https://app.ayrshare.com/api/accounts", {
+    if (!AYRSHARE_API_KEY) {
+      return NextResponse.json(
+        { success: false, error: "Missing AYRSHARE_API_KEY" },
+        { status: 500 }
+      );
+    }
+
+    // ✅ Correct Ayrshare endpoint
+    const r = await fetch("https://api.ayrshare.com/api/user", {
       method: "GET",
       headers: {
         Authorization: `Bearer ${AYRSHARE_API_KEY}`,
       },
-      // avoid caching surprises in serverless
       cache: "no-store",
     });
 
-    const data = await res.json().catch(() => null);
+    const data = await r.json();
 
-    if (!res.ok) {
+    if (!r.ok) {
       return NextResponse.json(
         {
           success: false,
-          error: "Ayrshare accounts fetch failed",
-          status: res.status,
+          error: "Ayrshare fetch failed",
           details: data,
         },
-        { status: res.status }
+        { status: 200 }
       );
     }
-
-    const rawAccounts: any[] = Array.isArray(data?.accounts) ? data.accounts : [];
-
-    const platforms = Array.from(
-      new Set(
-        rawAccounts
-          .map((a) => String(a?.platform || "").toLowerCase().trim())
-          .filter(Boolean)
-      )
-    );
 
     return NextResponse.json(
       {
         success: true,
-        platforms,
-        accounts: rawAccounts.map((a) => ({
-          platform: String(a?.platform || "").toLowerCase().trim(),
-          username: a?.username ?? a?.user ?? a?.handle ?? null,
-          displayName: a?.displayName ?? a?.name ?? null,
-          profileUrl: a?.profileUrl ?? a?.url ?? null,
-        })),
+        activeSocialAccounts: data.activeSocialAccounts || [],
+        accounts: data.displayNames || [],
+        monthlyPostCount: data.monthlyPostCount ?? null,
+        monthlyPostQuota: data.monthlyPostQuota ?? null,
       },
       { status: 200 }
     );
-  } catch (err: any) {
-    console.error("[api/social/connections] error", err);
+  } catch (e: any) {
     return NextResponse.json(
-      { success: false, error: "Failed to fetch Ayrshare accounts" },
+      { success: false, error: e?.message || "Server error" },
       { status: 500 }
     );
   }
