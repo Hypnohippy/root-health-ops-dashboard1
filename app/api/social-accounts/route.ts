@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomUUID } from "crypto";
 
+function getOrganisationIdFromRequest(req: Request) {
+  const url = new URL(req.url);
+  return url.searchParams.get("organisationId");
+}
+
 // Single-tenant beta mode: use the first organisation row as "the current org".
 async function getSingleTenantOrganisationId() {
   const { data, error } = await supabaseAdmin
@@ -23,9 +28,11 @@ async function getSingleTenantOrganisationId() {
 }
 
 // GET /api/social-accounts
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const organisationId = await getSingleTenantOrganisationId();
+    const organisationId =
+  getOrganisationIdFromRequest(req) || (await getSingleTenantOrganisationId());
+
 
     if (!organisationId) {
       return NextResponse.json({
@@ -72,7 +79,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const organisationId = await getSingleTenantOrganisationId();
+    const organisationId =
+  getOrganisationIdFromRequest(req) || (await getSingleTenantOrganisationId());
 
     if (!organisationId) {
       return NextResponse.json(
@@ -190,7 +198,8 @@ export async function DELETE(req: Request) {
       );
     }
 
-    const organisationId = await getSingleTenantOrganisationId();
+    const organisationId =
+  getOrganisationIdFromRequest(req) || (await getSingleTenantOrganisationId());
 
     if (!organisationId) {
       return NextResponse.json(
