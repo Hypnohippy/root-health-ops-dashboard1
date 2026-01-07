@@ -81,6 +81,14 @@ const initialProviders: Provider[] = [
     hint: "Requires a WhatsApp Business or approved messaging provider.",
     status: "disconnected",
   },
+  {
+  id: "threads",
+  name: "Threads",
+  label: "Threads",
+  description: "Text-first posts that ride Instagram/Meta momentum.",
+  hint: "Connect via Meta (often linked to Instagram).",
+  status: "disconnected",
+},
 ];
 
 // For now, Facebook "Connect" is not a real OAuth URL, so we show a message instead of 404.
