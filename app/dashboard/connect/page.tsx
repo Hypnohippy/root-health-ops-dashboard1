@@ -378,14 +378,17 @@ export default function DashboardConnectPage() {
     }
   };
 
-  const handleTestClick = (provider: Provider) => {
-    if (provider.id === "facebook") {
-      void sendFacebookTestPost();
-      return;
-    }
+ const handleTestClick = (provider: Provider) => {
+  if (provider.id === "facebook") {
+    void sendFacebookTestPost();
+    return;
+  }
 
-    alert(`We’ll add a real connection test for ${provider.label} here later.`);
-  };
+  // ✅ For all other providers: just refresh from Supabase
+  setBusyProvider(provider.id);
+  void loadSocialAccounts().finally(() => setBusyProvider(null));
+};
+
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
