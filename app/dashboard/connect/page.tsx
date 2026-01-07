@@ -259,8 +259,13 @@ export default function DashboardConnectPage() {
 
     if (!url || url === "#") {
       alert(
-        `We’ll soon add a one-click auth flow for ${provider.label}.\n\nFor now, use the Facebook Test Post panel below to verify your connection.`
-      );
+  `Connection setup for ${provider.label} is currently guided.\n\n` +
+  `What to do:\n` +
+  `1) Connect the channel inside your Social Engine (admin).\n` +
+  `2) Come back here and press “Refresh status” / “Test connection”.\n\n` +
+  `This avoids messy OAuth setups and keeps your data secure.\n`
+);
+
       return;
     }
 
