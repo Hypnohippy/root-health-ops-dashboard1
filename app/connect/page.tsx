@@ -10,7 +10,9 @@ type ProviderId =
   | "linkedin"
   | "google"
   | "email"
-  | "whatsapp";
+  | "whatsapp"
+  | "threads";
+
 
 type ConnectionStatus = "connected" | "disconnected" | "pending";
 
