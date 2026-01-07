@@ -94,7 +94,7 @@ const initialProviders: Provider[] = [
 
 // For now, Facebook "Connect" is not a real OAuth URL, so we show a message instead of 404.
 const connectUrls: Record<ProviderId, string> = {
-  facebook: "#",     // handled by test post panel
+  facebook: "#",
   instagram: "#",
   tiktok: "#",
   linkedin: "#",
