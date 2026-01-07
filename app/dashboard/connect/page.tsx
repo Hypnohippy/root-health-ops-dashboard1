@@ -94,14 +94,14 @@ const initialProviders: Provider[] = [
 
 // For now, Facebook "Connect" is not a real OAuth URL, so we show a message instead of 404.
 const connectUrls: Record<ProviderId, string> = {
-  facebook: "#",
-  instagram: "/api/oauth/instagram/start",
-  tiktok: "/api/oauth/tiktok/start",
-  linkedin: "/api/oauth/linkedin/start",
-  threads: "#",
-  google: "/api/oauth/google/start",
+  facebook: "#",     // handled by test post panel
+  instagram: "#",
+  tiktok: "#",
+  linkedin: "#",
+  google: "#",
   email: "/dashboard/connect/email/setup",
-  whatsapp: "/api/oauth/whatsapp/start",
+  whatsapp: "#",
+  threads: "#",
 };
 
 type SocialAccountRow = {
