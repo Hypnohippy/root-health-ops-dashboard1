@@ -83,13 +83,14 @@ const initialProviders: Provider[] = [
 
 // For now, Facebook "Connect" is not a real OAuth URL, so we show a message instead of 404.
 const connectUrls: Record<ProviderId, string> = {
-  facebook: "#",
-  instagram: "#",
-  tiktok: "#",
-  linkedin: "#",
-  google: "#",
-  email: "#",
-  whatsapp: "#",
+  facebook: "#", // still handled by your existing test flow
+  instagram: "/api/social/connect/start?provider=instagram",
+  tiktok: "/api/social/connect/start?provider=tiktok",
+  linkedin: "/api/social/connect/start?provider=linkedin",
+  google: "/api/social/connect/start?provider=google",
+  email: "/dashboard/connect/email/setup",
+  whatsapp: "/api/social/connect/start?provider=whatsapp",
+  threads: "/api/social/connect/start?provider=threads",
 };
 
 
