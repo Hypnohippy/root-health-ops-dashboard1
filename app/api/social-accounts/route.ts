@@ -2,11 +2,6 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomUUID } from "crypto";
 
-function getOrganisationIdFromRequest(req: Request) {
-  const url = new URL(req.url);
-  return url.searchParams.get("organisationId");
-}
-
 // Single-tenant beta mode: use the first organisation row as "the current org".
 async function getSingleTenantOrganisationId() {
   const { data, error } = await supabaseAdmin
@@ -27,12 +22,27 @@ async function getSingleTenantOrganisationId() {
   return data[0].id as string;
 }
 
-// GET /api/social-accounts
+/**
+ * Multi-tenant ready:
+ * - If caller passes ?organisationId=..., use that
+ * - otherwise fall back to single-tenant default
+ */
+async function resolveOrganisationId(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const orgFromQuery = url.searchParams.get("organisationId");
+    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
+  } catch {
+    // ignore URL parse issues (shouldn't happen)
+  }
+
+  return await getSingleTenantOrganisationId();
+}
+
+// GET /api/social-accounts?organisationId=...
 export async function GET(req: Request) {
   try {
-    const organisationId =
-  getOrganisationIdFromRequest(req) || (await getSingleTenantOrganisationId());
-
+    const organisationId = await resolveOrganisationId(req);
 
     if (!organisationId) {
       return NextResponse.json({
@@ -67,7 +77,7 @@ export async function GET(req: Request) {
   }
 }
 
-// POST /api/social-accounts
+// POST /api/social-accounts?organisationId=...
 export async function POST(req: Request) {
   try {
     const { platform, pageId, pageName } = await req.json();
@@ -79,8 +89,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const organisationId =
-  getOrganisationIdFromRequest(req) || (await getSingleTenantOrganisationId());
+    const organisationId = await resolveOrganisationId(req);
 
     if (!organisationId) {
       return NextResponse.json(
@@ -108,8 +117,6 @@ export async function POST(req: Request) {
       const id = existingRows[0].id;
 
       // Respect NOT NULL on page_id:
-      // - Only update it if caller actually sends a pageId
-      // - Otherwise leave it as whatever non-null value it already has
       const updatePayload: any = {
         page_name: pageName ?? null,
       };
@@ -139,9 +146,6 @@ export async function POST(req: Request) {
       const newId = randomUUID();
 
       // Respect NOT NULL on page_id:
-      // We don't know the real FB page ID yet (no OAuth), so we store
-      // a placeholder that we can overwrite later when we implement
-      // real page selection.
       const safePageId =
         (typeof pageId === "string" && pageId.trim().length > 0
           ? pageId
@@ -155,9 +159,6 @@ export async function POST(req: Request) {
           platform,
           page_id: safePageId, // NOT NULL
           page_name: pageName ?? null,
-          // connection_type defaults to 'make_webhook'
-          // is_active defaults to true
-          // created_at defaults to now()
         })
         .select()
         .single();
@@ -186,7 +187,7 @@ export async function POST(req: Request) {
   }
 }
 
-// DELETE /api/social-accounts
+// DELETE /api/social-accounts?organisationId=...
 export async function DELETE(req: Request) {
   try {
     const { platform } = await req.json();
@@ -198,8 +199,7 @@ export async function DELETE(req: Request) {
       );
     }
 
-    const organisationId =
-  getOrganisationIdFromRequest(req) || (await getSingleTenantOrganisationId());
+    const organisationId = await resolveOrganisationId(req);
 
     if (!organisationId) {
       return NextResponse.json(
