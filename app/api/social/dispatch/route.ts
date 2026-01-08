@@ -15,6 +15,21 @@ type ScheduledRow = {
   status: string;
   meta: any;
 };
+const AYRSHARE_ALLOWED = new Set([
+  "facebook",
+  "instagram",
+  "linkedin",
+  "threads",
+  "tiktok",
+  "reddit",
+  "gmb",
+]);
+
+function mapPlatformsToAyrshare(input: string[]) {
+  return (input || [])
+    .map((p) => (p === "google" ? "gmb" : p)) // <- important
+    .filter((p) => AYRSHARE_ALLOWED.has(p));
+}
 
 function isAuthorized(req: NextRequest) {
   // ✅ Vercel Cron sets this header
@@ -123,7 +138,8 @@ export async function GET(req: NextRequest) {
       try {
         const result = await postViaAyrshare({
           message: row.message,
-          platforms: row.platforms,
+          platforms: mapPlatformsToAyrshare(row.platforms),
+
           imageUrl: row.image_url,
         });
 
