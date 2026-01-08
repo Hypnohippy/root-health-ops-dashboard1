@@ -260,23 +260,23 @@ export default function DashboardConnectPage() {
   };
 
   const handleConnectClick = (provider: Provider) => {
-    const url = connectUrls[provider.id];
+  const url = connectUrls[provider.id];
 
-    if (!url || url === "#") {
-      alert(
-  `Connection setup for ${provider.label} is currently guided.\n\n` +
-  `What to do:\n` +
-  `1) Connect the channel inside your Social Engine (admin).\n` +
-  `2) Come back here and press “Refresh status” / “Test connection”.\n\n` +
-  `This avoids messy OAuth setups and keeps your data secure.\n`
-);
+  if (!url || url === "#") {
+    alert(
+      `Connection setup for ${provider.label} is currently guided.\n\n` +
+        `What to do:\n` +
+        `1) Connect the channel inside your Social Engine (admin).\n` +
+        `2) Come back here and press “Refresh status” / “Test connection”.\n\n` +
+        `This avoids messy OAuth setups and keeps your data secure.\n`
+    );
+    return;
+  }
 
-      return;
-    }
+  setBusyProvider(provider.id);
+  window.location.href = url;
+};
 
-    setBusyProvider(provider.id);
-    window.location.href = url;
-  };
 
   const handleDisconnectClick = (provider: Provider) => {
     if (
