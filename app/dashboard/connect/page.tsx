@@ -33,6 +33,7 @@ type SocialAccountRow = {
 };
 
 const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
+
 const STORAGE_KEY = "rh_connect_providers";
 
 const initialProviders: Provider[] = [
@@ -127,8 +128,9 @@ export default function DashboardConnectPage() {
   const loadSocialAccounts = async () => {
     try {
       const res = await fetch(
-        `/api/social-accounts?organisationId=${encodeURIComponent(ORG_ID)}`
-      );
+  `/api/social-accounts?organisationId=${encodeURIComponent(ORG_ID)}`
+);
+
 
       if (!res.ok) {
         console.warn("[dashboard/connect] /api/social-accounts not ok", res.status);
