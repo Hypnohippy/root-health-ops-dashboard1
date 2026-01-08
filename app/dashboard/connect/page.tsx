@@ -127,11 +127,10 @@ export default function DashboardConnectPage() {
 
   // 🔹 Helper: load social_accounts from the backend and sync providers
   const loadSocialAccounts = async () => {
-    try {
-      const res = await fetch(
-  ``/api/social-accounts?organisationId=${encodeURIComponent(ORG_ID)}`
-
+    try {const res = await fetch(
+  `/api/social-accounts?organisationId=${encodeURIComponent(ORG_ID)}`
 );
+`
 
       if (!res.ok) {
         console.warn(
