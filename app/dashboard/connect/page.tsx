@@ -278,28 +278,24 @@ const handleConnectClick = (provider: Provider) => {
 };
 
 
-  const handleDisconnectClick = (provider: Provider) => {
-  const ok = confirm(
-    `Disconnect ${provider.label}? Root Health will stop posting to it.`
-  );
+ const handleConnectClick = (provider: Provider) => {
+  const url = connectUrls[provider.id];
 
-  if (!ok) return;
+  if (!url || url === "#") {
+    alert(
+      `Connection setup for ${provider.label} is currently guided.\n\n` +
+        `What to do:\n` +
+        `1) Connect the channel inside your Social Engine (admin).\n` +
+        `2) Come back here and press "Refresh status" / "Test connection".\n\n` +
+        `This avoids messy OAuth setups and keeps your data secure.\n`
+    );
+    return;
+  }
 
-  setProviders((prev) =>
-    prev.map((p) =>
-      p.id === provider.id
-        ? {
-            ...p,
-            status: "disconnected",
-            accountName: undefined,
-            lastSync: undefined,
-          }
-        : p
-    )
-  );
-
-  void deleteSocialAccount(provider.id);
+  setBusyProvider(provider.id);
+  window.location.href = url;
 };
+
 
   const sendFacebookTestPost = async () => {
     setTestIsLoading(true);
