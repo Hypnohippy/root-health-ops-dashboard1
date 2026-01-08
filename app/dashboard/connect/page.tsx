@@ -259,7 +259,7 @@ export default function DashboardConnectPage() {
     }
   };
 
-  const handleConnectClick = (provider: Provider) => {
+const handleConnectClick = (provider: Provider) => {
   const url = connectUrls[provider.id];
 
   if (!url || url === "#") {
