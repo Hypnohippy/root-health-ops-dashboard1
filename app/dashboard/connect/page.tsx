@@ -279,29 +279,27 @@ const handleConnectClick = (provider: Provider) => {
 
 
   const handleDisconnectClick = (provider: Provider) => {
-    if (
-      !confirm(
-        `Disconnect ${provider.label}? Root Health will stop posting to it.`
-      )
-    ) {
-      return;
-    }
+  const ok = confirm(
+    `Disconnect ${provider.label}? Root Health will stop posting to it.`
+  );
 
-    setProviders((prev) =>
-      prev.map((p) =>
-        p.id === provider.id
-          ? {
-              ...p,
-              status: "disconnected",
-              accountName: undefined,
-              lastSync: undefined,
-            }
-          : p
-      )
-    );
+  if (!ok) return;
 
-    void deleteSocialAccount(provider.id);
-  };
+  setProviders((prev) =>
+    prev.map((p) =>
+      p.id === provider.id
+        ? {
+            ...p,
+            status: "disconnected",
+            accountName: undefined,
+            lastSync: undefined,
+          }
+        : p
+    )
+  );
+
+  void deleteSocialAccount(provider.id);
+};
 
   const sendFacebookTestPost = async () => {
     setTestIsLoading(true);
