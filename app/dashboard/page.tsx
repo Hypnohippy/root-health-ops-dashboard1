@@ -25,6 +25,20 @@ function safeJson(v: any) {
     return String(v);
   }
 }
+function userSafeHeadlineFromApiError(apiError: string | undefined) {
+  const e = (apiError || "").toLowerCase();
+
+  // Hide vendor-y / infra-y phrases
+  if (e.includes("ayrshare")) return "One or more channels couldn’t be posted right now.";
+  if (e.includes("post failed")) return "One or more channels couldn’t be posted right now.";
+  if (e.includes("openai")) return "Help assistant is unavailable right now.";
+  return apiError || "Something didn’t go through.";
+}
+
+function stripVendors(text: string) {
+  if (!text) return text;
+  return text.replace(/ayrshare/gi, "the social engine");
+}
 
 function detectConnectedPlatformsFromSocialAccountsPayload(payload: any) {
   const connected: Record<ChannelId, boolean> = {
@@ -76,40 +90,63 @@ function loadImageDimensions(url: string): Promise<{ width: number; height: numb
  * (AI will also speak, but this guarantees a friendly message even if AI is down.)
  */
 function plainEnglishFromQuickBlastFailure(payload: any): string {
-  // Example payload:
-  // { success:false, error:"Ayrshare post failed", details:{ errors:[{platform, code, message}] } }
-  const base = payload?.error || payload?.message || "Something didn’t work.";
+  // We NEVER show vendor/infrastructure words to end users.
+  const rawBase = String(payload?.error || payload?.message || "").trim();
+  const baseLower = rawBase.toLowerCase();
+
+  // Replace any vendor-ish headline with a friendly, product-owned headline.
+  const safeBase =
+    !rawBase
+      ? "Something didn’t go through."
+      : baseLower.includes("ayrshare") || baseLower.includes("post failed")
+      ? "One or more channels couldn’t be posted right now."
+      : rawBase;
 
   const errs = payload?.details?.errors;
+
   if (Array.isArray(errs) && errs.length > 0) {
-    // prioritize Instagram because it’s usually the fussiest
-    const ig = errs.find((e: any) => String(e?.platform).toLowerCase() === "instagram");
+    // Prefer Instagram because it’s usually the strictest
+    const ig = errs.find(
+      (e: any) => String(e?.platform).toLowerCase() === "instagram"
+    );
     const e = ig || errs[0];
 
-    const platform = String(e?.platform || "a platform");
+    const platform = String(e?.platform || "a channel");
     const code = e?.code;
+    const msg = String(e?.message || "").trim();
 
-    // Instagram aspect ratio (you hit this already)
-    if (platform.toLowerCase() === "instagram" && (code === 140 || String(e?.message || "").includes("aspect ratio"))) {
+    // Instagram image format/shape issue
+    if (
+      platform.toLowerCase() === "instagram" &&
+      (code === 140 ||
+        msg.toLowerCase().includes("aspect ratio") ||
+        msg.toLowerCase().includes("image"))
+    ) {
       return (
-        "Instagram is picky about image shape. This image is just outside Instagram’s allowed format.\n\n" +
-        "Fix: use a square image (1:1 like 1080×1080) or a portrait image (4:5 like 1080×1350), then retry Instagram."
+        "You’re all good — nothing is broken.\n\n" +
+        "This image is just outside Instagram’s preferred shape.\n\n" +
+        "Swap it for a square or portrait image, then retry Instagram. If you want momentum now, send to the other channels and we’ll post to Instagram next."
       );
     }
 
-    // Missing platform selection
-    if (String(e?.message || "").toLowerCase().includes("choose at least one platform")) {
-      return "It looks like no platforms were actually sent to the server. Please select at least one channel and try again.";
+    // No platform selected / empty platforms
+    if (msg.toLowerCase().includes("choose at least one platform")) {
+      return (
+        "No worries — this one is quick.\n\n" +
+        "It looks like no channels were selected for that send.\n\n" +
+        "Select one or more channels and try again."
+      );
     }
 
-    // Generic but gentle
+    // Generic per-platform message (still user-safe, no vendor words)
     return (
-      `${base}\n\n` +
-      `${platform} said: ${String(e?.message || "There was an issue.")}`
+      `${safeBase}\n\n` +
+      `${platform} needs a small tweak: ${msg || "Please try again."}`
     );
   }
 
-  return String(base);
+  // No detailed errors — return safe headline only
+  return safeBase;
 }
 
 /**
