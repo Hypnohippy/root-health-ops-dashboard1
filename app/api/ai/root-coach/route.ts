@@ -1,12 +1,13 @@
+// app/api/ai/root-coach/route.ts
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
 /**
- * Enterprise-safe Root Coach.
+ * Enterprise-safe Root Coach (conversational).
  * - No vendor/infrastructure mentions
  * - No technical debugging steps
- * - Focus: reassurance + what happened + next best in-app action + optional choice
+ * - Focus: reassurance + plain-English explanation + best next action + 2 options
  */
 
 const SYSTEM_PROMPT = `
@@ -20,12 +21,12 @@ ENTERPRISE DISCLOSURE RULES (critical):
 - Never say words like: Ayrshare, Make, Zapier, webhook, API, API key, token, OAuth, rate limit, dashboard, environment variables, logs.
 - Do NOT ask the user to do technical troubleshooting or leave the app to fix things.
 - Do NOT provide debugging steps. Do NOT “hand back” the problem.
+- Do NOT include links.
 
 STYLE:
 - Conversational, friendly, reassuring.
 - Short. No long explanations.
 - Avoid jargon. Use everyday language.
-- Do not include links.
 - Do not mention internal systems.
 
 OUTPUT FORMAT (must follow):
@@ -35,8 +36,8 @@ OUTPUT FORMAT (must follow):
 4) Two button-like choices the user can take in the app (exactly 2 options).
 
 Do not ask questions. Instead present choices like:
-“Option A: …”
-“Option B: …”
+Option A: ...
+Option B: ...
 
 SELF-HEAL ACTIONS YOU MAY OFFER (only these):
 - Retry failed channels only
@@ -52,14 +53,13 @@ If the error suggests the image format/shape is rejected:
 - Recommend: swap image then retry Instagram.
 - Do NOT mention aspect ratios, error codes, or documentation.
 
-SPECIAL CASE: posting allowance reached (quota)
+SPECIAL CASE: posting allowance reached
 If the error suggests posting allowance is exceeded:
 - Say: “You’ve reached this month’s posting allowance for that channel.”
-- Recommend: post to other channels now + save Instagram for later.
+- Recommend: post to other channels now + save for later.
 - Do NOT mention vendors, pricing pages, or quotas by provider.
 
-Return ONLY the message shown to the user.
- No bullet lists longer than 3 lines. No metadata.
+Return ONLY the message shown to the user. No metadata. Keep it short.
 `.trim();
 
 function sanitize(text: string) {
@@ -80,6 +80,9 @@ function sanitize(text: string) {
     "env var",
     "logs",
     "integration",
+    "pricing",
+    "upgrade plans",
+    "openai",
   ];
 
   let out = (text || "").trim();
@@ -88,6 +91,7 @@ function sanitize(text: string) {
     out = out.replace(new RegExp(term, "gi"), "your setup");
   }
 
+  // Keep it tidy
   return out.trim();
 }
 
@@ -105,20 +109,55 @@ function isInstagramImageIssue(msg: string) {
   );
 }
 
-function deterministicFallback(errorMessage: string) {
+function isQuotaIssue(msg: string) {
+  const s = (msg || "").toLowerCase();
+  return (
+    s.includes("quota") ||
+    s.includes("exceeded") ||
+    s.includes("allowance") ||
+    s.includes("too many") ||
+    s.includes("limit for the month")
+  );
+}
+
+function deterministicFallback(input: {
+  errorMessage: string;
+  outcome?: string;
+  failedPlatforms?: unknown;
+  successPlatforms?: unknown;
+}) {
+  const errorMessage = input.errorMessage || "";
+
+  // Instagram image shape issues
   if (isInstagramImageIssue(errorMessage)) {
     return (
-      "You’re doing great — nothing is broken.\n\n" +
-      "This image is just outside Instagram’s preferred shape.\n\n" +
-      "Swap it for a square or portrait image, then tap **Retry Instagram**. If you want momentum now, send to the other channels and we’ll post to Instagram next."
+      "Got you — nothing’s broken.\n" +
+      "Instagram is just picky about image shape, and this one is slightly outside what it accepts.\n" +
+      "Swap the image for a square or portrait one, then retry Instagram.\n" +
+      "Option A: Retry Instagram after swapping the image\n" +
+      "Option B: Post to the other channels now and save Instagram for later"
     );
   }
 
-  if ((errorMessage || "").toLowerCase().includes("choose at least one platform")) {
+  // Posting allowance / quota issues (429 / monthly cap etc.)
+  if (isQuotaIssue(errorMessage)) {
     return (
-      "No worries — this one is quick.\n\n" +
-      "It looks like no channel was actually selected for that send.\n\n" +
-      "Pick one or more channels and try again. If you’re unsure, start with Facebook and LinkedIn."
+      "All good — you didn’t do anything wrong.\n" +
+      "You’ve reached this month’s posting allowance for that channel.\n" +
+      "Let’s keep momentum by posting to the channels that are ready.\n" +
+      "Option A: Post to other channels now (skip this one for now)\n" +
+      "Option B: Save for later and we’ll resume when posting is available again"
+    );
+  }
+
+  // No platforms selected
+  if (errorMessage.toLowerCase().includes("choose at least one platform")) {
+    return (
+      "No stress — easy fix.\n" +
+      "It looks like nothing was selected to send to.\n" +
+      "Select one or more channels and try again.\n" +
+      "Option A: Retry failed channels only\n" +
+      "Option B: Save for later"
     );
   }
 
@@ -127,21 +166,37 @@ function deterministicFallback(errorMessage: string) {
 
 export async function POST(req: Request) {
   try {
-    const { context, errorMessage = "", userAction = "", outcome = "", failedPlatforms = [], successPlatforms = [] } =
-      await req.json();
+    const {
+      context,
+      errorMessage = "",
+      userAction = "",
+      outcome = "",
+      failedPlatforms = [],
+      successPlatforms = [],
+    } = await req.json();
 
-    // 1) Perfect deterministic responses for common cases (fast + safe)
-    const fallback = deterministicFallback(errorMessage);
+    // 1) Deterministic responses for common cases (fast + safe)
+    const fallback = deterministicFallback({
+      errorMessage,
+      outcome,
+      failedPlatforms,
+      successPlatforms,
+    });
+
     if (fallback) {
       return NextResponse.json({ coachMessage: fallback });
     }
 
     const openaiKey = process.env.OPENAI_API_KEY;
     if (!openaiKey) {
-      // Still return a calm message (don’t leak infra detail to user)
+      // Still return a calm message (don’t leak infra detail)
       return NextResponse.json({
         coachMessage:
-          "You’re doing fine — let’s keep it simple.\n\nTry **Retry failed only** once. If it still won’t go through, send to the channels that are ready and we’ll circle back to the remaining one next.",
+          "I’ve got you — we’ll keep this simple.\n" +
+          "Something didn’t go through this time.\n" +
+          "Try a quick retry for the failed channels.\n" +
+          "Option A: Retry failed channels only\n" +
+          "Option B: Save for later",
       });
     }
 
@@ -169,22 +224,25 @@ What happened (raw): ${String(errorMessage || "No details provided")}
           { role: "user", content: safeContext },
         ],
         max_tokens: 220,
-        temperature: 0.4,
+        temperature: 0.55, // conversational but still controlled
       }),
     });
 
     if (!completionRes.ok) {
-      // Don’t expose technical failure to user
       return NextResponse.json({
         coachMessage:
-          "You’re doing fine — this looks like a temporary hiccup.\n\nTry **Retry failed only** once. If it still won’t go through, send to the channels that are ready and we’ll come back to the remaining one next.",
+          "No worries — we’ll keep moving.\n" +
+          "That one didn’t go through this time.\n" +
+          "Try a quick retry for the channels that failed.\n" +
+          "Option A: Retry failed channels only\n" +
+          "Option B: Save for later",
       });
     }
 
     const completionJson = await completionRes.json();
     const raw =
       completionJson.choices?.[0]?.message?.content ??
-      "You’re doing great — try **Retry failed only** once, or send to the channels that are ready and we’ll post the remaining one next.";
+      "I’ve got you.\nSomething didn’t go through.\nLet’s retry what failed.\nOption A: Retry failed channels only\nOption B: Save for later";
 
     const coachMessage = sanitize(raw);
 
@@ -192,12 +250,16 @@ What happened (raw): ${String(errorMessage || "No details provided")}
       coachMessage:
         coachMessage.length > 10
           ? coachMessage
-          : "You’re doing great — try **Retry failed only** once, or send to the channels that are ready and we’ll post the remaining one next.",
+          : "I’ve got you.\nSomething didn’t go through.\nLet’s retry what failed.\nOption A: Retry failed channels only\nOption B: Save for later",
     });
   } catch (error: any) {
     return NextResponse.json({
       coachMessage:
-        "You’re doing fine — let’s keep it simple.\n\nTry **Retry failed only** once. If it still won’t go through, send to the channels that are ready and we’ll circle back to the remaining one next.",
+        "I’ve got you — no stress.\n" +
+        "Something didn’t go through this time.\n" +
+        "Let’s try again in the simplest way.\n" +
+        "Option A: Retry failed channels only\n" +
+        "Option B: Save for later",
     });
   }
 }
