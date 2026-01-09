@@ -34,11 +34,7 @@ function safeJson(v: any) {
   }
 }
 
-/**
- * Robustly detect "connected" platforms from ANY reasonable response shape.
- * We don't assume a schema. We look for platform hints anywhere.
- */
-function detectConnectedPlatforms(payload: any): Record<ChannelId, boolean> {
+function detectConnectedPlatformsFromSocialAccountsPayload(payload: any) {
   const connected: Record<ChannelId, boolean> = {
     facebook: false,
     linkedin: false,
@@ -48,95 +44,28 @@ function detectConnectedPlatforms(payload: any): Record<ChannelId, boolean> {
     reddit: false,
   };
 
-  const markFromString = (s: string) => {
-    const v = s.toLowerCase();
-    if (v.includes("facebook")) connected.facebook = true;
-    if (v.includes("linkedin")) connected.linkedin = true;
-    if (v.includes("instagram")) connected.instagram = true;
-    if (v.includes("threads")) connected.threads = true;
-    if (v.includes("tiktok")) connected.tiktok = true;
-    if (v.includes("reddit")) connected.reddit = true;
-  };
+  // Your payload shape (confirmed):
+  // { organisationId, socialAccounts: [{ platform, is_active, ... }]}
+  const rows = Array.isArray(payload?.socialAccounts)
+    ? payload.socialAccounts
+    : Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload)
+    ? payload
+    : [];
 
-  // Common array-wrapped shapes
-  const candidates: any[] = [];
-  if (Array.isArray(payload)) candidates.push(payload);
-  if (Array.isArray(payload?.data)) candidates.push(payload.data);
-  if (Array.isArray(payload?.accounts)) candidates.push(payload.accounts);
-  if (Array.isArray(payload?.socialAccounts)) candidates.push(payload.socialAccounts);
-  if (Array.isArray(payload?.social_accounts)) candidates.push(payload.social_accounts);
-  if (Array.isArray(payload?.platforms)) candidates.push(payload.platforms);
+  for (const r of rows) {
+    if (!r || typeof r !== "object") continue;
+    if (r.is_active === false) continue;
 
-  // Boolean-map shapes
-  const boolMaps = [
-    payload?.connected,
-    payload?.connections,
-    payload?.status,
-    payload?.platformStatus,
-    payload?.platformsConnected,
-  ].filter(Boolean);
-
-  for (const bm of boolMaps) {
-    if (bm && typeof bm === "object") {
-      for (const key of Object.keys(bm)) {
-        const val = (bm as any)[key];
-        if (val === true) markFromString(key);
-        if (typeof val === "string") markFromString(val);
-      }
-    }
+    const p = String(r.platform || "").toLowerCase();
+    if (p === "facebook") connected.facebook = true;
+    if (p === "linkedin") connected.linkedin = true;
+    if (p === "instagram") connected.instagram = true;
+    if (p === "threads") connected.threads = true;
+    if (p === "tiktok") connected.tiktok = true;
+    if (p === "reddit") connected.reddit = true;
   }
-
-  // Row-array shapes
-  for (const arr of candidates) {
-    if (!Array.isArray(arr)) continue;
-
-    for (const row of arr) {
-      if (typeof row === "string") {
-        markFromString(row);
-        continue;
-      }
-
-      if (!row || typeof row !== "object") continue;
-      if (row?.is_active === false) continue;
-
-      const fields = [
-        row.platform,
-        row.platform_name,
-        row.platformName,
-        row.channel,
-        row.provider,
-        row.network,
-        row.name,
-        row.account_name,
-      ].filter(Boolean);
-
-      for (const f of fields) {
-        if (typeof f === "string") markFromString(f);
-      }
-    }
-  }
-
-  // Deep scan fallback
-  const seen = new Set<any>();
-  const walk = (node: any) => {
-    if (!node) return;
-    if (seen.has(node)) return;
-
-    if (typeof node === "string") {
-      markFromString(node);
-      return;
-    }
-    if (typeof node !== "object") return;
-
-    seen.add(node);
-
-    for (const [k, v] of Object.entries(node)) {
-      markFromString(String(k));
-      if (typeof v === "string") markFromString(v);
-      else walk(v);
-    }
-  };
-  walk(payload);
 
   return connected;
 }
@@ -164,6 +93,9 @@ export default function DashboardHomePage() {
   const [connectedHint, setConnectedHint] = useState<string>("Loading…");
   const [rawSocialAccounts, setRawSocialAccounts] = useState<any>(null);
 
+  // ✅ SOURCE OF TRUTH orgId (from /api/social-accounts)
+  const [organisationId, setOrganisationId] = useState<string | null>(null);
+
   // Selected channels (UI)
   const [selected, setSelected] = useState<Record<ChannelId, boolean>>({
     facebook: true,
@@ -173,9 +105,6 @@ export default function DashboardHomePage() {
     tiktok: false,
     reddit: false,
   });
-
-  // single-tenant beta org
-  const organisationId = "23a054db-7040-40b1-b193-2f43cfa139de";
 
   useEffect(() => {
     let cancelled = false;
@@ -195,7 +124,14 @@ export default function DashboardHomePage() {
           setConnectedHint("Loaded from /api/social-accounts");
         }
 
-        const detected = detectConnectedPlatforms(data);
+        // ✅ Set orgId from payload if present
+        const orgIdFromPayload =
+          typeof data?.organisationId === "string" ? data.organisationId : null;
+
+        setOrganisationId(orgIdFromPayload);
+
+        // ✅ Detect connected platforms using your confirmed payload shape
+        const detected = detectConnectedPlatformsFromSocialAccountsPayload(data);
         setConnected(detected);
       } catch (e: any) {
         if (cancelled) return;
@@ -229,6 +165,12 @@ export default function DashboardHomePage() {
       const trimmed = message.trim();
       if (!trimmed) throw new Error("Message is required.");
 
+      if (!organisationId) {
+        throw new Error(
+          "No organisationId returned from /api/social-accounts. This must be fixed before posting."
+        );
+      }
+
       if (selectedChannels.length === 0) {
         const detected = Object.entries(connected)
           .filter(([, v]) => v)
@@ -252,7 +194,7 @@ export default function DashboardHomePage() {
             channel,
             message: trimmed,
             imageUrl,
-            organisationId,
+            organisationId, // ✅ now correct org
           }),
         });
 
@@ -297,12 +239,12 @@ export default function DashboardHomePage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <h1 className="text-2xl font-semibold mb-4">Root Health Ops Dashboard</h1>
 
-      {/* Connected platforms panel */}
       <div className="max-w-3xl mb-4 rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
         <div className="text-[11px] uppercase tracking-wide text-slate-400">
           Connected platforms (from /api/social-accounts)
         </div>
         <div className="text-xs text-slate-300 mt-1">{connectedHint}</div>
+
         <div className="text-xs text-slate-200 mt-2">
           Detected connected:{" "}
           <span className="text-slate-50 font-medium">
@@ -310,7 +252,13 @@ export default function DashboardHomePage() {
           </span>
         </div>
 
-        {/* THIS is what "expand" means: click this line to open the box */}
+        <div className="text-xs text-slate-200 mt-2">
+          organisationId used for Quick Blast:{" "}
+          <span className="text-slate-50 font-medium">
+            {organisationId || "(missing from /api/social-accounts)"}
+          </span>
+        </div>
+
         <details className="mt-3">
           <summary className="text-xs text-slate-400 cursor-pointer">
             Show raw /api/social-accounts response
