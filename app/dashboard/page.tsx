@@ -11,11 +11,11 @@ type ChannelId =
   | "tiktok"
   | "reddit";
 
+// Step 1 type (ONLY what we actually recommend right now)
 type RecommendedAction =
   | "retry_failed"
   | "retry_instagram"
   | "skip_instagram"
-  | "save_for_later"
   | null;
 
 const ALL_CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
@@ -327,16 +327,9 @@ export default function DashboardHomePage() {
   }, [error]);
 
   const recommendedAction: RecommendedAction = useMemo(() => {
-    // 1) Posting allowance reached → keep momentum, post elsewhere
     if (quotaMessage) return "skip_instagram";
-
-    // 2) Instagram image issue → retry IG after swapping image
     if (isInstagramImageProblem) return "retry_instagram";
-
-    // 3) Partial success → retry failed only
     if (hadPartialSuccess && failedPlatforms.length > 0) return "retry_failed";
-
-    // 4) Otherwise no recommendation
     return null;
   }, [quotaMessage, isInstagramImageProblem, hadPartialSuccess, failedPlatforms.length]);
 
@@ -348,8 +341,6 @@ export default function DashboardHomePage() {
         return "Retry Instagram after swapping image";
       case "retry_failed":
         return "Retry failed only";
-      case "save_for_later":
-        return "Save for later";
       default:
         return null;
     }
@@ -375,17 +366,13 @@ export default function DashboardHomePage() {
 
   useEffect(() => {
     void refreshConnections();
-
-    // Load any existing draft timestamp (if present)
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (raw) {
         const d = JSON.parse(raw) as DraftPayload;
         if (d?.savedAt) setLastDraftSavedAt(d.savedAt);
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -410,19 +397,14 @@ export default function DashboardHomePage() {
 
       const data = await res.json().catch(() => null);
       if (data?.coachMessage) setCoachMessage(String(data.coachMessage));
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  /**
-   * Save / load draft (localStorage)
-   */
   const saveDraft = () => {
     try {
       const payload: DraftPayload = {
-        message: message,
-        imageUrl: imageUrl,
+        message,
+        imageUrl,
         selected,
         savedAt: new Date().toISOString(),
       };
@@ -477,10 +459,6 @@ export default function DashboardHomePage() {
     }
   };
 
-  /**
-   * IG guard: only blocks when clearly invalid.
-   * Otherwise lets the backend validate and respond.
-   */
   const instagramImageGuard = async (platforms: ChannelId[]) => {
     if (!platforms.includes("instagram")) return;
 
@@ -501,7 +479,6 @@ export default function DashboardHomePage() {
         );
       }
     } catch (e: any) {
-      // If we can’t read dimensions (CORS/CDN), don’t block — backend will tell us.
       console.warn("[QuickBlast] image check skipped:", e?.message);
     }
   };
@@ -539,9 +516,7 @@ export default function DashboardHomePage() {
         userAction: `Quick Blast failed for: ${platforms.join(", ")}`,
         errorMessage: friendly,
         outcome:
-          succeeded.length > 0 && failed.length > 0
-            ? "partial_success"
-            : "failed",
+          succeeded.length > 0 && failed.length > 0 ? "partial_success" : "failed",
         failedPlatforms: failed,
         successPlatforms: succeeded,
       });
@@ -587,7 +562,6 @@ export default function DashboardHomePage() {
     }
   };
 
-  // Self-heal actions
   const retryFailedOnly = async () => {
     if (!failedPlatforms.length) return;
 
@@ -678,7 +652,6 @@ export default function DashboardHomePage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <h1 className="text-2xl font-semibold mb-4">Root Health Ops Dashboard</h1>
 
-      {/* Connections */}
       <div className="max-w-3xl mb-4 rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
         <div className="text-[11px] uppercase tracking-wide text-slate-400">
           Connected platforms
@@ -749,7 +722,6 @@ export default function DashboardHomePage() {
         </div>
       </div>
 
-      {/* Composer */}
       <div className="max-w-3xl space-y-4">
         <textarea
           className="w-full rounded-xl bg-slate-900 border border-slate-700 p-3 min-h-[140px]"
@@ -766,7 +738,6 @@ export default function DashboardHomePage() {
           onChange={(e) => setImageUrl(e.target.value)}
         />
 
-        {/* Channels */}
         <div className="space-y-2">
           <div className="text-sm font-medium text-slate-200">Channels</div>
 
@@ -806,7 +777,6 @@ export default function DashboardHomePage() {
           </div>
         </div>
 
-        {/* Send */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleSend}
@@ -825,13 +795,11 @@ export default function DashboardHomePage() {
           </button>
         </div>
 
-        {/* Status */}
         {status && <div className="text-emerald-400 text-sm">{status}</div>}
         {error && (
           <div className="text-red-300 text-sm whitespace-pre-wrap">{error}</div>
         )}
 
-        {/* Self-heal actions */}
         {anyFailure && (
           <div className="rounded-2xl border border-amber-500/40 bg-amber-950/20 p-4 space-y-3">
             <div className="text-[11px] uppercase tracking-wide text-amber-200">
@@ -896,28 +864,9 @@ export default function DashboardHomePage() {
                 Refresh connections
               </button>
             </div>
-
-            <div className="text-[11px] text-amber-100/80">
-              If a channel shows “not connected” but you know it’s connected,
-              you can sync the record:
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {ALL_CHANNELS.map((c) => (
-                <button
-                  key={`sync-${c.id}`}
-                  type="button"
-                  onClick={() => syncConnectionRecord(c.id)}
-                  className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-[11px] text-slate-200 hover:border-slate-500"
-                >
-                  Sync {c.id}
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
-        {/* Root Coach */}
         {coachMessage && (
           <div className="rounded-2xl border border-sky-500/40 bg-sky-950/25 p-4 space-y-3">
             <div className="text-[11px] uppercase tracking-wide text-sky-200">
@@ -926,40 +875,9 @@ export default function DashboardHomePage() {
             <div className="text-sm text-sky-50 whitespace-pre-wrap">
               {coachMessage}
             </div>
-
-            <div className="flex flex-wrap gap-2">
-              {anyFailure && failedPlatforms.length > 0 && (
-                <button
-                  type="button"
-                  onClick={retryFailedOnly}
-                  className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
-                >
-                  Retry failed only
-                </button>
-              )}
-
-              {anyFailure && selectedChannels.includes("instagram") && (
-                <button
-                  type="button"
-                  onClick={retryWithoutInstagram}
-                  className="rounded-full border border-sky-500/60 bg-sky-500/10 px-4 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-500/20"
-                >
-                  Post to other channels now
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={saveDraft}
-                className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
-              >
-                Save for later
-              </button>
-            </div>
           </div>
         )}
 
-        {/* Technical details panel (SAFE ONLY — no raw admin output) */}
         {lastResponse && (
           <div className="text-xs bg-slate-900 border border-slate-700 rounded-xl p-3 space-y-2">
             <div className="text-[11px] uppercase tracking-wide text-slate-400">
@@ -978,8 +896,9 @@ export default function DashboardHomePage() {
           </div>
         )}
 
-        {/* NOTE: Step 1 logic exists (recommendedAction / recommendedLabel),
-            but we do NOT display it yet. Step 2 will highlight buttons. */}
+        {/* Step 1 is now safe + compiling:
+            recommendedAction / recommendedLabel exist, but not shown yet.
+            Step 2 will use them to highlight the right button. */}
       </div>
     </div>
   );
