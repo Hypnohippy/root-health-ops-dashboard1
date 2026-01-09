@@ -18,6 +18,8 @@ const ALL_CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
   { id: "threads", label: "Threads", dotClass: "bg-white" },
 ];
 
+const DRAFT_KEY = "rh_ops_quick_blast_draft_v1";
+
 function safeJson(v: any) {
   try {
     return JSON.stringify(v, null, 2);
@@ -96,7 +98,9 @@ function detectConnectedPlatformsFromSocialAccountsPayload(payload: any) {
   return connected;
 }
 
-function loadImageDimensions(url: string): Promise<{ width: number; height: number }> {
+function loadImageDimensions(
+  url: string
+): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () =>
@@ -140,11 +144,8 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
       ? "One or more channels couldn’t be posted right now."
       : rawBase;
 
-  // Quota gets a special message
   const quota = userSafeQuotaMessage(payload);
-  if (quota) {
-    return quota;
-  }
+  if (quota) return quota;
 
   const errs = payload?.details?.errors;
 
@@ -224,6 +225,13 @@ function getSucceededPlatformsFromResponse(payload: any): ChannelId[] {
   return Array.from(ok);
 }
 
+type DraftPayload = {
+  message: string;
+  imageUrl: string;
+  selected: Record<ChannelId, boolean>;
+  savedAt: string; // ISO
+};
+
 export default function DashboardHomePage() {
   const [message, setMessage] = useState(
     "Quick check-in from Root Health Ops Dashboard ✅"
@@ -263,6 +271,9 @@ export default function DashboardHomePage() {
   // Root Coach
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
+  // Draft state
+  const [lastDraftSavedAt, setLastDraftSavedAt] = useState<string | null>(null);
+
   const detectedConnectedList = useMemo(() => {
     return Object.entries(connected)
       .filter(([, v]) => v)
@@ -289,6 +300,11 @@ export default function DashboardHomePage() {
   const hadPartialSuccess =
     succeededPlatforms.length > 0 && failedPlatforms.length > 0;
 
+  const quotaMessage = useMemo(
+    () => userSafeQuotaMessage(lastResponse),
+    [lastResponse]
+  );
+
   const refreshConnections = async () => {
     try {
       const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -309,6 +325,17 @@ export default function DashboardHomePage() {
 
   useEffect(() => {
     void refreshConnections();
+
+    // Load any existing draft timestamp (if present)
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const d = JSON.parse(raw) as DraftPayload;
+        if (d?.savedAt) setLastDraftSavedAt(d.savedAt);
+      }
+    } catch {
+      // ignore
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -339,8 +366,70 @@ export default function DashboardHomePage() {
   };
 
   /**
-   * IG guard: only blocks when clearly invalid (ratio outside 0.5–1.91),
-   * otherwise lets the backend validate and respond.
+   * Save / load draft (localStorage)
+   */
+  const saveDraft = () => {
+    try {
+      const payload: DraftPayload = {
+        message: message,
+        imageUrl: imageUrl,
+        selected,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+      setLastDraftSavedAt(payload.savedAt);
+      setStatus("Saved. You can come back to this anytime.");
+      setError(null);
+
+      void callRootCoach({
+        context: "quick_blast",
+        userAction: "Saved draft",
+        outcome: "success",
+      });
+    } catch {
+      setError("Couldn’t save the draft on this device. Please copy the text for now.");
+    }
+  };
+
+  const loadDraft = () => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) {
+        setError("No saved draft found yet.");
+        return;
+      }
+      const d = JSON.parse(raw) as DraftPayload;
+      if (!d?.message) {
+        setError("Saved draft looks incomplete.");
+        return;
+      }
+      setMessage(d.message);
+      setImageUrl(d.imageUrl || "");
+      if (d.selected) setSelected(d.selected);
+      setLastDraftSavedAt(d.savedAt || null);
+      setStatus("Draft loaded.");
+      setError(null);
+    } catch {
+      setError("Couldn’t load the saved draft.");
+    }
+  };
+
+  const clearDraft = () => {
+    const ok = confirm("Clear the saved draft on this device?");
+    if (!ok) return;
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+      setLastDraftSavedAt(null);
+      setStatus("Saved draft cleared.");
+      setError(null);
+    } catch {
+      setError("Couldn’t clear the saved draft.");
+    }
+  };
+
+  /**
+   * IG guard: only blocks when clearly invalid.
+   * Otherwise lets the backend validate and respond.
    */
   const instagramImageGuard = async (platforms: ChannelId[]) => {
     if (!platforms.includes("instagram")) return;
@@ -535,8 +624,6 @@ export default function DashboardHomePage() {
     }
   };
 
-  const quotaMessage = useMemo(() => userSafeQuotaMessage(lastResponse), [lastResponse]);
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <h1 className="text-2xl font-semibold mb-4">Root Health Ops Dashboard</h1>
@@ -562,7 +649,7 @@ export default function DashboardHomePage() {
           </span>
         </div>
 
-        <div className="mt-3 flex gap-2 flex-wrap">
+        <div className="mt-3 flex gap-2 flex-wrap items-center">
           <button
             type="button"
             onClick={refreshConnections}
@@ -570,6 +657,36 @@ export default function DashboardHomePage() {
           >
             Refresh connections
           </button>
+
+          <button
+            type="button"
+            onClick={loadDraft}
+            className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
+          >
+            Load saved draft
+          </button>
+
+          <button
+            type="button"
+            onClick={saveDraft}
+            className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-100 hover:bg-emerald-500/20"
+          >
+            Save draft
+          </button>
+
+          <button
+            type="button"
+            onClick={clearDraft}
+            className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
+          >
+            Clear draft
+          </button>
+
+          {lastDraftSavedAt && (
+            <span className="text-[11px] text-slate-400 ml-1">
+              Draft saved: {new Date(lastDraftSavedAt).toLocaleString()}
+            </span>
+          )}
 
           <details className="ml-auto">
             <summary className="text-xs text-slate-500 cursor-pointer">
@@ -640,13 +757,23 @@ export default function DashboardHomePage() {
         </div>
 
         {/* Send */}
-        <button
-          onClick={handleSend}
-          disabled={isPosting}
-          className="rounded-full bg-emerald-500 px-5 py-2 text-slate-950 font-semibold disabled:opacity-60"
-        >
-          {isPosting ? "Sending…" : "Send Quick Blast"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleSend}
+            disabled={isPosting}
+            className="rounded-full bg-emerald-500 px-5 py-2 text-slate-950 font-semibold disabled:opacity-60"
+          >
+            {isPosting ? "Sending…" : "Send Quick Blast"}
+          </button>
+
+          <button
+            type="button"
+            onClick={saveDraft}
+            className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-100 hover:bg-emerald-500/20"
+          >
+            Save for later
+          </button>
+        </div>
 
         {/* Status */}
         {status && <div className="text-emerald-400 text-sm">{status}</div>}
@@ -704,6 +831,14 @@ export default function DashboardHomePage() {
 
               <button
                 type="button"
+                onClick={saveDraft}
+                className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-100 hover:bg-emerald-500/20"
+              >
+                Save draft and continue later
+              </button>
+
+              <button
+                type="button"
                 onClick={refreshConnections}
                 disabled={isPosting}
                 className="rounded-full border border-slate-600 bg-slate-900/80 px-4 py-2 text-xs text-slate-200 disabled:opacity-60"
@@ -734,17 +869,48 @@ export default function DashboardHomePage() {
 
         {/* Root Coach */}
         {coachMessage && (
-          <div className="rounded-2xl border border-sky-500/40 bg-sky-950/25 p-4 space-y-2">
+          <div className="rounded-2xl border border-sky-500/40 bg-sky-950/25 p-4 space-y-3">
             <div className="text-[11px] uppercase tracking-wide text-sky-200">
               Root Coach
             </div>
             <div className="text-sm text-sky-50 whitespace-pre-wrap">
               {coachMessage}
             </div>
+
+            {/* Quick actions so users can respond to coach immediately */}
+            <div className="flex flex-wrap gap-2">
+              {anyFailure && failedPlatforms.length > 0 && (
+                <button
+                  type="button"
+                  onClick={retryFailedOnly}
+                  className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
+                >
+                  Retry failed only
+                </button>
+              )}
+
+              {anyFailure && selectedChannels.includes("instagram") && (
+                <button
+                  type="button"
+                  onClick={retryWithoutInstagram}
+                  className="rounded-full border border-sky-500/60 bg-sky-500/10 px-4 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-500/20"
+                >
+                  Post to other channels now
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={saveDraft}
+                className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+              >
+                Save for later
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Technical details panel (enterprise-safe) */}
+        {/* Technical details panel (SAFE ONLY — no raw admin output) */}
         {lastResponse && (
           <div className="text-xs bg-slate-900 border border-slate-700 rounded-xl p-3 space-y-2">
             <div className="text-[11px] uppercase tracking-wide text-slate-400">
@@ -758,23 +924,10 @@ export default function DashboardHomePage() {
               </div>
             )}
 
-            <details>
-              <summary className="text-xs text-slate-400 cursor-pointer">
-                Show safe technical view
-              </summary>
-              <pre className="mt-2 whitespace-pre-wrap text-[10px] text-slate-200 bg-black/30 border border-slate-800 rounded-lg p-2 overflow-auto">
-                {safeJson(redactVendorsDeep(lastResponse))}
-              </pre>
-            </details>
-
-            <details>
-              <summary className="text-xs text-slate-500 cursor-pointer">
-                Show raw response (admin)
-              </summary>
-              <pre className="mt-2 whitespace-pre-wrap text-[10px] text-slate-300 bg-black/40 border border-slate-800 rounded-lg p-2 overflow-auto">
-                {safeJson(lastResponse)}
-              </pre>
-            </details>
+            {/* Safe technical view ONLY */}
+            <pre className="mt-1 whitespace-pre-wrap text-[10px] text-slate-200 bg-black/30 border border-slate-800 rounded-lg p-2 overflow-auto">
+              {safeJson(redactVendorsDeep(lastResponse))}
+            </pre>
           </div>
         )}
       </div>
