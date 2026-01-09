@@ -36,16 +36,9 @@ function safeJson(v: any) {
 
 /**
  * Robustly detect "connected" platforms from ANY reasonable response shape.
- * We do NOT assume a schema. We look for:
- * - arrays of rows containing `platform` (or similar)
- * - objects containing booleans like { linkedin: true }
- * - nested shapes
- * - string occurrences like "instagram_business" / "linkedin_company" etc.
+ * We don't assume a schema. We look for platform hints anywhere.
  */
-function detectConnectedPlatforms(payload: any): {
-  connected: Record<ChannelId, boolean>;
-  sourceHint: string;
-} {
+function detectConnectedPlatforms(payload: any): Record<ChannelId, boolean> {
   const connected: Record<ChannelId, boolean> = {
     facebook: false,
     linkedin: false,
@@ -65,9 +58,8 @@ function detectConnectedPlatforms(payload: any): {
     if (v.includes("reddit")) connected.reddit = true;
   };
 
-  // Common shapes first
+  // Common array-wrapped shapes
   const candidates: any[] = [];
-
   if (Array.isArray(payload)) candidates.push(payload);
   if (Array.isArray(payload?.data)) candidates.push(payload.data);
   if (Array.isArray(payload?.accounts)) candidates.push(payload.accounts);
@@ -75,7 +67,7 @@ function detectConnectedPlatforms(payload: any): {
   if (Array.isArray(payload?.social_accounts)) candidates.push(payload.social_accounts);
   if (Array.isArray(payload?.platforms)) candidates.push(payload.platforms);
 
-  // Boolean-map shapes (very common)
+  // Boolean-map shapes
   const boolMaps = [
     payload?.connected,
     payload?.connections,
@@ -99,18 +91,14 @@ function detectConnectedPlatforms(payload: any): {
     if (!Array.isArray(arr)) continue;
 
     for (const row of arr) {
-      // If it's a string list like ["facebook","instagram_business"]
       if (typeof row === "string") {
         markFromString(row);
         continue;
       }
 
       if (!row || typeof row !== "object") continue;
-
-      // Respect is_active if present, otherwise treat as connected record
       if (row?.is_active === false) continue;
 
-      // Most likely field names
       const fields = [
         row.platform,
         row.platform_name,
@@ -128,11 +116,12 @@ function detectConnectedPlatforms(payload: any): {
     }
   }
 
-  // Deep scan fallback: walk the object and collect keys/strings
+  // Deep scan fallback
   const seen = new Set<any>();
   const walk = (node: any) => {
     if (!node) return;
     if (seen.has(node)) return;
+
     if (typeof node === "string") {
       markFromString(node);
       return;
@@ -147,21 +136,9 @@ function detectConnectedPlatforms(payload: any): {
       else walk(v);
     }
   };
-
   walk(payload);
 
-  const any =
-    connected.facebook ||
-    connected.linkedin ||
-    connected.instagram ||
-    connected.threads ||
-    connected.tiktok ||
-    connected.reddit;
-
-  return {
-    connected,
-    sourceHint: any ? "Detected from /api/social-accounts payload" : "No platforms detected in payload",
-  };
+  return connected;
 }
 
 export default function DashboardHomePage() {
@@ -175,7 +152,6 @@ export default function DashboardHomePage() {
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<QuickBlastResult[] | null>(null);
 
-  // Connected state derived from /api/social-accounts (robust detection)
   const [connected, setConnected] = useState<Record<ChannelId, boolean>>({
     facebook: false,
     linkedin: false,
@@ -213,13 +189,14 @@ export default function DashboardHomePage() {
 
         setRawSocialAccounts(data);
 
+        if (!res.ok) {
+          setConnectedHint(`HTTP ${res.status} from /api/social-accounts`);
+        } else {
+          setConnectedHint("Loaded from /api/social-accounts");
+        }
+
         const detected = detectConnectedPlatforms(data);
-        setConnected(detected.connected);
-        setConnectedHint(
-          res.ok
-            ? detected.sourceHint
-            : `HTTP ${res.status} from /api/social-accounts`
-        );
+        setConnected(detected);
       } catch (e: any) {
         if (cancelled) return;
         setConnectedHint(e?.message || "Failed to load /api/social-accounts");
@@ -239,8 +216,6 @@ export default function DashboardHomePage() {
   }, [selected, connected]);
 
   const toggle = (c: ChannelId) => {
-    // allow toggling even if disconnected so user can see intent,
-    // but we will block sending unless connected[c] is true
     setSelected((s) => ({ ...s, [c]: !s[c] }));
   };
 
@@ -254,16 +229,16 @@ export default function DashboardHomePage() {
       const trimmed = message.trim();
       if (!trimmed) throw new Error("Message is required.");
 
-      // Guard: only send to channels we believe are connected
       if (selectedChannels.length === 0) {
-        // Give a helpful message with current connected flags
+        const detected = Object.entries(connected)
+          .filter(([, v]) => v)
+          .map(([k]) => k)
+          .join(", ");
+
         throw new Error(
-          `No connected channels selected.\n\nDetected connected: ${Object.entries(
-            connected
-          )
-            .filter(([, v]) => v)
-            .map(([k]) => k)
-            .join(", ") || "(none)"}`
+          `Select at least one connected channel.\n\nDetected connected: ${
+            detected || "(none)"
+          }`
         );
       }
 
@@ -303,9 +278,7 @@ export default function DashboardHomePage() {
       setResults(out);
 
       const ok = out.filter((r) => r.ok).map((r) => r.channel);
-      if (!ok.length) {
-        throw new Error("All selected channels failed — see details below.");
-      }
+      if (!ok.length) throw new Error("All selected channels failed — see details below.");
 
       setStatus(`Sent via ${ok.join(", ")}`);
     } catch (e: any) {
@@ -315,37 +288,40 @@ export default function DashboardHomePage() {
     }
   };
 
+  const detectedConnectedList = Object.entries(connected)
+    .filter(([, v]) => v)
+    .map(([k]) => k)
+    .join(", ");
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <h1 className="text-2xl font-semibold mb-4">Root Health Ops Dashboard</h1>
 
-      <div className="max-w-3xl space-y-4">
-        <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
-          <div className="text-[11px] uppercase tracking-wide text-slate-400">
-            Connected platforms (from /api/social-accounts)
-          </div>
-          <div className="text-xs text-slate-200 mt-1">{connectedHint}</div>
-          <div className="text-xs text-slate-400 mt-2">
-            Detected connected:{" "}
-            <span className="text-slate-100">
-              {Object.entries(connected)
-                .filter(([, v]) => v)
-                .map(([k]) => k)
-                .join(", ") || "(none detected)"}
-            </span>
-          </div>
-
-          {/* Keep this small and helpful; remove later once stable */}
-          <details className="mt-3">
-            <summary className="text-xs text-slate-400 cursor-pointer">
-              Show raw /api/social-accounts response
-            </summary>
-            <pre className="mt-2 text-[10px] whitespace-pre-wrap bg-black/40 border border-slate-800 rounded-xl p-2 max-h-[260px] overflow-auto text-slate-300">
-              {safeJson(rawSocialAccounts)}
-            </pre>
-          </details>
+      {/* Connected platforms panel */}
+      <div className="max-w-3xl mb-4 rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-slate-400">
+          Connected platforms (from /api/social-accounts)
+        </div>
+        <div className="text-xs text-slate-300 mt-1">{connectedHint}</div>
+        <div className="text-xs text-slate-200 mt-2">
+          Detected connected:{" "}
+          <span className="text-slate-50 font-medium">
+            {detectedConnectedList || "(none detected)"}
+          </span>
         </div>
 
+        {/* THIS is what "expand" means: click this line to open the box */}
+        <details className="mt-3">
+          <summary className="text-xs text-slate-400 cursor-pointer">
+            Show raw /api/social-accounts response
+          </summary>
+          <pre className="mt-2 text-[10px] whitespace-pre-wrap bg-black/40 border border-slate-800 rounded-xl p-2 max-h-[260px] overflow-auto text-slate-300">
+            {safeJson(rawSocialAccounts)}
+          </pre>
+        </details>
+      </div>
+
+      <div className="max-w-3xl space-y-4">
         <textarea
           className="w-full rounded-xl bg-slate-900 border border-slate-700 p-3 min-h-[140px]"
           value={message}
@@ -363,6 +339,7 @@ export default function DashboardHomePage() {
 
         <div className="space-y-2">
           <div className="text-sm font-medium text-slate-200">Channels</div>
+
           <div className="flex flex-wrap gap-2">
             {ALL_CHANNELS.map((c) => {
               const isConnected = connected[c.id];
@@ -380,20 +357,23 @@ export default function DashboardHomePage() {
                       : "border-slate-600 bg-slate-900 text-slate-300 hover:border-slate-500",
                   ].join(" ")}
                 >
-                  <span className={["h-2 w-2 rounded-full", c.dotClass].join(" ")} />
+                  <span
+                    className={["h-2 w-2 rounded-full", c.dotClass].join(" ")}
+                  />
                   {c.label}
                   {!isConnected && (
                     <span className="ml-1 text-[10px] text-amber-300">
-                      not connected
+                      (not connected)
                     </span>
                   )}
                 </button>
               );
             })}
           </div>
+
           <div className="text-[11px] text-slate-500">
-            Quick Blast will only send to channels detected as connected from /api/social-accounts.
-            If something is posting elsewhere (e.g. Stories) but shows not connected here, expand the raw response above — it will reveal the mismatch.
+            Quick Blast sends only to channels detected as connected from
+            /api/social-accounts.
           </div>
         </div>
 
