@@ -301,6 +301,57 @@ export default function DashboardHomePage() {
     succeededPlatforms.length > 0 && failedPlatforms.length > 0;
 
   const quotaMessage = useMemo(
+      // -----------------------------
+  // Step 1: Recommended action logic (no UI yet)
+  // -----------------------------
+  type RecommendedAction =
+    | "retry_failed"
+    | "retry_instagram"
+    | "skip_instagram"
+    | "save_for_later"
+    | null;
+
+  const isInstagramImageProblem = useMemo(() => {
+    const msg = String(error || "").toLowerCase();
+    // We intentionally keep this broad + human (no vendor strings)
+    return (
+      msg.includes("instagram") &&
+      (msg.includes("image") ||
+        msg.includes("shape") ||
+        msg.includes("format") ||
+        msg.includes("preferred"))
+    );
+  }, [error]);
+
+  const recommendedAction: RecommendedAction = useMemo(() => {
+    // 1) Quota / allowance reached → keep momentum, post elsewhere
+    if (quotaMessage) return "skip_instagram";
+
+    // 2) Instagram image issue → swap image then retry IG (we'll guide with UI next)
+    if (isInstagramImageProblem) return "retry_instagram";
+
+    // 3) Partial success (some succeeded, some failed) → retry failed only
+    if (hadPartialSuccess && failedPlatforms.length > 0) return "retry_failed";
+
+    // 4) Otherwise no recommendation
+    return null;
+  }, [quotaMessage, isInstagramImageProblem, hadPartialSuccess, failedPlatforms.length]);
+
+  const recommendedLabel = useMemo(() => {
+    switch (recommendedAction) {
+      case "skip_instagram":
+        return "Post to other channels now";
+      case "retry_instagram":
+        return "Retry Instagram after swapping image";
+      case "retry_failed":
+        return "Retry failed only";
+      case "save_for_later":
+        return "Save for later";
+      default:
+        return null;
+    }
+  }, [recommendedAction]);
+
     () => userSafeQuotaMessage(lastResponse),
     [lastResponse]
   );
