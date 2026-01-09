@@ -13,7 +13,6 @@ type ProviderId =
   | "whatsapp"
   | "threads";
 
-
 type ConnectionStatus = "connected" | "disconnected" | "pending";
 
 type Provider = {
@@ -82,18 +81,17 @@ const initialProviders: Provider[] = [
     status: "disconnected",
   },
   {
-  id: "threads",
-  name: "Threads",
-  label: "Threads",
-  description: "Text-first posts that ride Instagram/Meta momentum.",
-  hint: "Connect via Meta (often linked to Instagram).",
-  status: "disconnected",
-},
+    id: "threads",
+    name: "Threads",
+    label: "Threads",
+    description: "Text-first posts that ride Instagram/Meta momentum.",
+    hint: "Connect via Meta (often linked to Instagram).",
+    status: "disconnected",
+  },
 ];
 
-// For now, Facebook "Connect" is not a real OAuth URL, so we show a message instead of 404.
 const connectUrls: Record<ProviderId, string> = {
-  facebook: "#", // still handled by your existing test flow
+  facebook: "#",
   instagram: "/api/social/connect/start?provider=instagram",
   tiktok: "/api/social/connect/start?provider=tiktok",
   linkedin: "/api/social/connect/start?provider=linkedin",
@@ -103,12 +101,31 @@ const connectUrls: Record<ProviderId, string> = {
   threads: "/api/social/connect/start?provider=threads",
 };
 
-
 type SocialAccountRow = {
   platform: ProviderId;
   page_id: string | null;
   page_name: string | null;
 };
+
+function asProviderId(v: string | null): ProviderId | null {
+  const s = String(v || "").toLowerCase().trim();
+  const allowed: ProviderId[] = [
+    "facebook",
+    "instagram",
+    "tiktok",
+    "linkedin",
+    "google",
+    "email",
+    "whatsapp",
+    "threads",
+  ];
+  return allowed.includes(s as ProviderId) ? (s as ProviderId) : null;
+}
+
+function truthyParam(v: string | null): boolean {
+  const s = String(v || "").toLowerCase().trim();
+  return s === "1" || s === "true" || s === "yes" || s === "connected" || s === "success";
+}
 
 export default function ConnectPage() {
   const [providers, setProviders] = useState<Provider[]>(initialProviders);
@@ -123,24 +140,28 @@ export default function ConnectPage() {
   const [testError, setTestError] = useState<string | null>(null);
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
-  // 🔹 Helper: load social_accounts from the backend and sync providers
   const loadSocialAccounts = async () => {
     try {
       const res = await fetch("/api/social-accounts");
-      if (!res.ok) {
-        return;
-      }
+      if (!res.ok) return;
+
       const data = await res.json();
       const rows: SocialAccountRow[] = data.socialAccounts ?? [];
 
       setProviders((prev) =>
         prev.map((p) => {
           const row = rows.find((r) => r.platform === p.id);
-          if (!row) return p;
+          if (!row) {
+            return {
+              ...p,
+              status: "disconnected",
+              accountName: undefined,
+            };
+          }
 
           return {
             ...p,
-            status: "connected" as ConnectionStatus,
+            status: "connected",
             accountName: row.page_name ?? p.accountName,
           };
         })
@@ -150,28 +171,27 @@ export default function ConnectPage() {
     }
   };
 
-  // 🔹 Initial load of social_accounts
-  useEffect(() => {
-    void loadSocialAccounts();
-  }, []);
-
   const saveSocialAccount = async (
     providerId: ProviderId,
     pageId?: string,
     pageName?: string
   ) => {
     try {
-      await fetch("/api/social-accounts", {
+      const res = await fetch("/api/social-accounts", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           platform: providerId,
           pageId: pageId ?? null,
           pageName: pageName ?? null,
         }),
       });
+
+      if (!res.ok) {
+        // Don’t crash UI; log it so we can see in Vercel logs if needed
+        const t = await res.text().catch(() => "");
+        console.error("[connect] saveSocialAccount failed", res.status, t);
+      }
     } catch (err) {
       console.error("[connect] failed to save social account", err);
     }
@@ -181,17 +201,112 @@ export default function ConnectPage() {
     try {
       await fetch("/api/social-accounts", {
         method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          platform: providerId,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: providerId }),
       });
     } catch (err) {
       console.error("[connect] failed to delete social account", err);
     }
   };
+
+  /**
+   * ✅ NEW: handle return from /api/social/connect/start flow
+   * Many auth flows redirect back to /connect with query params.
+   * We detect success and then write the row into social_accounts.
+   */
+  const handleReturnFromConnectFlow = async () => {
+    try {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+
+      // common param names across flows
+      const provider =
+        asProviderId(params.get("provider")) ||
+        asProviderId(params.get("platform")) ||
+        asProviderId(params.get("channel"));
+
+      // common “success” indicators
+      const success =
+        truthyParam(params.get("success")) ||
+        truthyParam(params.get("connected")) ||
+        truthyParam(params.get("ok")) ||
+        truthyParam(params.get("status"));
+
+      const errorParam = params.get("error") || params.get("message");
+
+      // If no provider in URL, nothing to do.
+      if (!provider) return;
+
+      // If an error came back, show it and clean the URL.
+      if (errorParam && !success) {
+        alert(`Connect failed for ${provider}:\n\n${errorParam}`);
+        params.delete("provider");
+        params.delete("platform");
+        params.delete("channel");
+        params.delete("success");
+        params.delete("connected");
+        params.delete("ok");
+        params.delete("status");
+        params.delete("error");
+        params.delete("message");
+        window.history.replaceState({}, "", `${url.pathname}?${params.toString()}`.replace(/\?$/, ""));
+        return;
+      }
+
+      // If success is indicated, save the row.
+      if (success) {
+        // Optional hints for display name
+        const accountName =
+          params.get("pageName") ||
+          params.get("page_name") ||
+          params.get("accountName") ||
+          params.get("account_name") ||
+          undefined;
+
+        setBusyProvider(provider);
+        setProviders((prev) =>
+          prev.map((p) =>
+            p.id === provider
+              ? { ...p, status: "pending", accountName: accountName ?? p.accountName }
+              : p
+          )
+        );
+
+        await saveSocialAccount(provider, undefined, accountName);
+        await loadSocialAccounts();
+
+        // Clean URL so it doesn’t re-run on refresh
+        params.delete("provider");
+        params.delete("platform");
+        params.delete("channel");
+        params.delete("success");
+        params.delete("connected");
+        params.delete("ok");
+        params.delete("status");
+        params.delete("error");
+        params.delete("message");
+        params.delete("pageName");
+        params.delete("page_name");
+        params.delete("accountName");
+        params.delete("account_name");
+
+        window.history.replaceState({}, "", `${url.pathname}?${params.toString()}`.replace(/\?$/, ""));
+
+        setBusyProvider(null);
+      }
+    } catch (err) {
+      console.error("[connect] handleReturnFromConnectFlow failed", err);
+    }
+  };
+
+  // Initial load + return-handler
+  useEffect(() => {
+    void (async () => {
+      await handleReturnFromConnectFlow();
+      await loadSocialAccounts();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleConnectClick = (provider: Provider) => {
     const url = connectUrls[provider.id];
@@ -204,27 +319,26 @@ export default function ConnectPage() {
     }
 
     setBusyProvider(provider.id);
+
+    // Mark as pending immediately (UX)
+    setProviders((prev) =>
+      prev.map((p) =>
+        p.id === provider.id ? { ...p, status: "pending" } : p
+      )
+    );
+
     window.location.href = url;
   };
 
   const handleDisconnectClick = (provider: Provider) => {
-    if (
-      !confirm(
-        `Disconnect ${provider.label}? Root Health will stop posting to it.`
-      )
-    ) {
+    if (!confirm(`Disconnect ${provider.label}? Root Health will stop posting to it.`)) {
       return;
     }
 
     setProviders((prev) =>
       prev.map((p) =>
         p.id === provider.id
-          ? {
-              ...p,
-              status: "disconnected",
-              accountName: undefined,
-              lastSync: undefined,
-            }
+          ? { ...p, status: "disconnected", accountName: undefined, lastSync: undefined }
           : p
       )
     );
@@ -241,18 +355,14 @@ export default function ConnectPage() {
     try {
       const res = await fetch("/api/facebook-test-post", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: testMessage,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: testMessage }),
       });
 
       let data: any = null;
       try {
         data = await res.json();
-      } catch (err) {
+      } catch {
         throw new Error(
           "Server did not return valid JSON. Check the /api/facebook-test-post route."
         );
@@ -264,7 +374,6 @@ export default function ConnectPage() {
 
       setTestStatus("Test post sent successfully to Facebook via Make 🎉");
 
-      // Mark Facebook as connected locally
       const now = new Date().toISOString();
 
       setProviders((prev) =>
@@ -272,7 +381,7 @@ export default function ConnectPage() {
           p.id === "facebook"
             ? {
                 ...p,
-                status: "connected" as ConnectionStatus,
+                status: "connected",
                 lastSync: now,
                 accountName: p.accountName ?? "Your Facebook Page",
               }
@@ -280,7 +389,6 @@ export default function ConnectPage() {
         )
       );
 
-      // Persist to social_accounts and then reload from Supabase
       await saveSocialAccount("facebook", undefined, "Your Facebook Page");
       await loadSocialAccounts();
     } catch (err: any) {
@@ -290,21 +398,16 @@ export default function ConnectPage() {
 
       fetch("/api/ai/root-coach", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           context: "facebook_test_post",
           errorMessage: message,
-          userAction:
-            "Clicked Test connection / Facebook Test Post in app/connect/page.tsx",
+          userAction: "Clicked Test connection / Facebook Test Post in app/connect/page.tsx",
         }),
       })
         .then((res) => res.json())
         .then((data) => {
-          if (data && data.coachMessage) {
-            setCoachMessage(data.coachMessage);
-          }
+          if (data && data.coachMessage) setCoachMessage(data.coachMessage);
         })
         .catch(() => {});
     } finally {
@@ -371,15 +474,14 @@ export default function ConnectPage() {
         {/* Providers grid */}
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
           {providers.map((provider) => (
-  <ProviderCard
-  key={provider.id}
-  provider={provider}
-  busy={busyProvider === provider.id}
-  onConnect={() => handleConnectClick(provider)}
-  onDisconnect={() => handleDisconnectClick(provider)}
-  onTest={() => handleTestClick(provider)}
-/>
-
+            <ProviderCard
+              key={provider.id}
+              provider={provider}
+              busy={busyProvider === provider.id}
+              onConnect={() => handleConnectClick(provider)}
+              onDisconnect={() => handleDisconnectClick(provider)}
+              onTest={() => handleTestClick(provider)}
+            />
           ))}
         </section>
 
@@ -429,15 +531,11 @@ export default function ConnectPage() {
           </div>
 
           {testStatus && (
-            <div className="mt-2 text-[11px] text-emerald-400">
-              {testStatus}
-            </div>
+            <div className="mt-2 text-[11px] text-emerald-400">{testStatus}</div>
           )}
 
           {testError && (
-            <div className="mt-2 text-[11px] text-red-400">
-              {testError}
-            </div>
+            <div className="mt-2 text-[11px] text-red-400">{testError}</div>
           )}
 
           {coachMessage && (
@@ -452,7 +550,6 @@ export default function ConnectPage() {
           )}
         </section>
 
-        {/* Footer */}
         <footer className="mt-8 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs text-slate-400">
           <p>
             Need help connecting something? Your Root Health Ops workspace can
@@ -512,11 +609,6 @@ function ProviderCard({
             <p className="mt-2 text-[11px] text-emerald-300">
               Connected as{" "}
               <span className="font-medium">{provider.accountName}</span>
-            </p>
-          )}
-          {provider.lastSync && (
-            <p className="mt-0.5 text-[11px] text-slate-500">
-              Last sync: {provider.lastSync}
             </p>
           )}
         </div>
