@@ -11,14 +11,6 @@ type ChannelId =
   | "tiktok"
   | "reddit";
 
-type QuickBlastResult = {
-  channel: ChannelId;
-  ok: boolean;
-  error?: string;
-  details?: any;
-  sent?: any;
-};
-
 const ALL_CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
   { id: "facebook", label: "Facebook Page", dotClass: "bg-[#1877F2]" },
   { id: "linkedin", label: "LinkedIn", dotClass: "bg-sky-500" },
@@ -44,8 +36,6 @@ function detectConnectedPlatformsFromSocialAccountsPayload(payload: any) {
     reddit: false,
   };
 
-  // Your payload shape (confirmed):
-  // { organisationId, socialAccounts: [{ platform, is_active, ... }]}
   const rows = Array.isArray(payload?.socialAccounts)
     ? payload.socialAccounts
     : Array.isArray(payload?.data)
@@ -79,8 +69,10 @@ export default function DashboardHomePage() {
   const [isPosting, setIsPosting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<QuickBlastResult[] | null>(null);
 
+  // raw response + connected + orgId from /api/social-accounts
+  const [rawSocialAccounts, setRawSocialAccounts] = useState<any>(null);
+  const [connectedHint, setConnectedHint] = useState<string>("Loading…");
   const [connected, setConnected] = useState<Record<ChannelId, boolean>>({
     facebook: false,
     linkedin: false,
@@ -89,14 +81,9 @@ export default function DashboardHomePage() {
     tiktok: false,
     reddit: false,
   });
-
-  const [connectedHint, setConnectedHint] = useState<string>("Loading…");
-  const [rawSocialAccounts, setRawSocialAccounts] = useState<any>(null);
-
-  // ✅ SOURCE OF TRUTH orgId (from /api/social-accounts)
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
-  // Selected channels (UI)
+  // Selected channels
   const [selected, setSelected] = useState<Record<ChannelId, boolean>>({
     facebook: true,
     linkedin: false,
@@ -105,6 +92,9 @@ export default function DashboardHomePage() {
     tiktok: false,
     reddit: false,
   });
+
+  // Result payload from /api/social/quick-blast (one call)
+  const [lastResponse, setLastResponse] = useState<any>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,22 +107,9 @@ export default function DashboardHomePage() {
         if (cancelled) return;
 
         setRawSocialAccounts(data);
-
-        if (!res.ok) {
-          setConnectedHint(`HTTP ${res.status} from /api/social-accounts`);
-        } else {
-          setConnectedHint("Loaded from /api/social-accounts");
-        }
-
-        // ✅ Set orgId from payload if present
-        const orgIdFromPayload =
-          typeof data?.organisationId === "string" ? data.organisationId : null;
-
-        setOrganisationId(orgIdFromPayload);
-
-        // ✅ Detect connected platforms using your confirmed payload shape
-        const detected = detectConnectedPlatformsFromSocialAccountsPayload(data);
-        setConnected(detected);
+        setConnectedHint(res.ok ? "Loaded from /api/social-accounts" : `HTTP ${res.status}`);
+        setOrganisationId(typeof data?.organisationId === "string" ? data.organisationId : null);
+        setConnected(detectConnectedPlatformsFromSocialAccountsPayload(data));
       } catch (e: any) {
         if (cancelled) return;
         setConnectedHint(e?.message || "Failed to load /api/social-accounts");
@@ -159,7 +136,7 @@ export default function DashboardHomePage() {
     setIsPosting(true);
     setError(null);
     setStatus(null);
-    setResults(null);
+    setLastResponse(null);
 
     try {
       const trimmed = message.trim();
@@ -167,7 +144,7 @@ export default function DashboardHomePage() {
 
       if (!organisationId) {
         throw new Error(
-          "No organisationId returned from /api/social-accounts. This must be fixed before posting."
+          "No organisationId returned from /api/social-accounts. Cannot post."
         );
       }
 
@@ -176,7 +153,6 @@ export default function DashboardHomePage() {
           .filter(([, v]) => v)
           .map(([k]) => k)
           .join(", ");
-
         throw new Error(
           `Select at least one connected channel.\n\nDetected connected: ${
             detected || "(none)"
@@ -184,45 +160,31 @@ export default function DashboardHomePage() {
         );
       }
 
-      const out: QuickBlastResult[] = [];
+      // ✅ IMPORTANT: send PLATFORMS ARRAY (backend expects this)
+      const res = await fetch("/api/social/quick-blast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: trimmed,
+          platforms: selectedChannels,
+          imageUrl,
+          organisationId,
+        }),
+      });
 
-      for (const channel of selectedChannels) {
-        const res = await fetch("/api/social/quick-blast", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            channel,
-            message: trimmed,
-            imageUrl,
-            organisationId, // ✅ now correct org
-          }),
-        });
+      const data = await res.json().catch(() => ({}));
+      setLastResponse(data);
 
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok || data?.success === false) {
-          out.push({
-            channel,
-            ok: false,
-            error: data?.error || data?.message || `HTTP ${res.status}`,
-            details: data?.details,
-            sent: data?.sent,
-          });
-        } else {
-          out.push({
-            channel,
-            ok: true,
-            sent: data?.sent,
-          });
-        }
+      if (!res.ok || data?.success === false) {
+        const msg =
+          data?.error ||
+          data?.message ||
+          `Quick Blast failed (HTTP ${res.status})`;
+        throw new Error(msg);
       }
 
-      setResults(out);
-
-      const ok = out.filter((r) => r.ok).map((r) => r.channel);
-      if (!ok.length) throw new Error("All selected channels failed — see details below.");
-
-      setStatus(`Sent via ${ok.join(", ")}`);
+      // If backend returns a "sent" list or details, keep it visible.
+      setStatus(`Quick Blast submitted for: ${selectedChannels.join(", ")}`);
     } catch (e: any) {
       setError(e?.message || "Quick Blast failed.");
     } finally {
@@ -255,7 +217,7 @@ export default function DashboardHomePage() {
         <div className="text-xs text-slate-200 mt-2">
           organisationId used for Quick Blast:{" "}
           <span className="text-slate-50 font-medium">
-            {organisationId || "(missing from /api/social-accounts)"}
+            {organisationId || "(missing)"}
           </span>
         </div>
 
@@ -305,9 +267,7 @@ export default function DashboardHomePage() {
                       : "border-slate-600 bg-slate-900 text-slate-300 hover:border-slate-500",
                   ].join(" ")}
                 >
-                  <span
-                    className={["h-2 w-2 rounded-full", c.dotClass].join(" ")}
-                  />
+                  <span className={["h-2 w-2 rounded-full", c.dotClass].join(" ")} />
                   {c.label}
                   {!isConnected && (
                     <span className="ml-1 text-[10px] text-amber-300">
@@ -320,8 +280,7 @@ export default function DashboardHomePage() {
           </div>
 
           <div className="text-[11px] text-slate-500">
-            Quick Blast sends only to channels detected as connected from
-            /api/social-accounts.
+            Quick Blast sends one request with <code>platforms: [...]</code> (array) to match the backend.
           </div>
         </div>
 
@@ -338,33 +297,14 @@ export default function DashboardHomePage() {
           <div className="text-red-400 text-sm whitespace-pre-wrap">{error}</div>
         )}
 
-        {results && (
+        {lastResponse && (
           <div className="text-xs bg-slate-900 border border-slate-700 rounded-xl p-3 space-y-2">
             <div className="text-[11px] uppercase tracking-wide text-slate-400">
-              Results (Ayrshare response surfaced)
+              API response (/api/social/quick-blast)
             </div>
-            {results.map((r) => (
-              <div
-                key={r.channel}
-                className="rounded-lg border border-slate-800 bg-slate-950/60 p-2"
-              >
-                <div className={r.ok ? "text-emerald-300" : "text-amber-300"}>
-                  {r.ok ? "✓" : "⚠"} {r.channel}
-                </div>
-
-                {!r.ok && (
-                  <pre className="mt-2 whitespace-pre-wrap text-[10px] text-slate-200 bg-black/30 border border-slate-800 rounded-lg p-2 overflow-auto">
-{safeJson({ error: r.error, details: r.details, sent: r.sent })}
-                  </pre>
-                )}
-
-                {r.ok && r.sent != null && (
-                  <pre className="mt-2 whitespace-pre-wrap text-[10px] text-slate-200 bg-black/30 border border-slate-800 rounded-lg p-2 overflow-auto">
-{safeJson({ sent: r.sent })}
-                  </pre>
-                )}
-              </div>
-            ))}
+            <pre className="whitespace-pre-wrap text-[10px] text-slate-200 bg-black/30 border border-slate-800 rounded-lg p-2 overflow-auto">
+{safeJson(lastResponse)}
+            </pre>
           </div>
         )}
       </div>
