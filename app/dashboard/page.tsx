@@ -11,7 +11,7 @@ type ChannelId =
   | "tiktok"
   | "reddit";
 
-// Step 1 type (ONLY what we actually recommend right now)
+// Step 1 type (ONLY what we recommend right now)
 type RecommendedAction =
   | "retry_failed"
   | "retry_instagram"
@@ -313,7 +313,7 @@ export default function DashboardHomePage() {
   );
 
   // -----------------------------
-  // Step 1: Recommended action logic (no UI yet)
+  // Step 1: Recommended action logic
   // -----------------------------
   const isInstagramImageProblem = useMemo(() => {
     const msg = String(error || "").toLowerCase();
@@ -331,7 +331,12 @@ export default function DashboardHomePage() {
     if (isInstagramImageProblem) return "retry_instagram";
     if (hadPartialSuccess && failedPlatforms.length > 0) return "retry_failed";
     return null;
-  }, [quotaMessage, isInstagramImageProblem, hadPartialSuccess, failedPlatforms.length]);
+  }, [
+    quotaMessage,
+    isInstagramImageProblem,
+    hadPartialSuccess,
+    failedPlatforms.length,
+  ]);
 
   const recommendedLabel = useMemo(() => {
     switch (recommendedAction) {
@@ -345,6 +350,25 @@ export default function DashboardHomePage() {
         return null;
     }
   }, [recommendedAction]);
+
+  // -----------------------------
+  // Step 2 helpers (highlight + ordering)
+  // -----------------------------
+  const buttonClass = (isRecommended: boolean, tone: "primary" | "secondary") =>
+    [
+      "relative rounded-full px-4 py-2 text-xs font-semibold transition disabled:opacity-60 disabled:cursor-not-allowed",
+      isRecommended
+        ? "border border-emerald-400/70 bg-emerald-400/15 text-emerald-50 shadow-[0_0_0_1px_rgba(52,211,153,0.25)]"
+        : tone === "primary"
+        ? "bg-amber-400 text-slate-950"
+        : "border border-slate-600 bg-slate-900/80 text-slate-200 hover:border-slate-500",
+    ].join(" ");
+
+  const RecommendedPill = () => (
+    <span className="ml-2 inline-flex items-center rounded-full border border-emerald-400/60 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
+      Recommended
+    </span>
+  );
 
   const refreshConnections = async () => {
     try {
@@ -419,7 +443,9 @@ export default function DashboardHomePage() {
         outcome: "success",
       });
     } catch {
-      setError("Couldn’t save the draft on this device. Please copy the text for now.");
+      setError(
+        "Couldn’t save the draft on this device. Please copy the text for now."
+      );
     }
   };
 
@@ -516,7 +542,9 @@ export default function DashboardHomePage() {
         userAction: `Quick Blast failed for: ${platforms.join(", ")}`,
         errorMessage: friendly,
         outcome:
-          succeeded.length > 0 && failed.length > 0 ? "partial_success" : "failed",
+          succeeded.length > 0 && failed.length > 0
+            ? "partial_success"
+            : "failed",
         failedPlatforms: failed,
         successPlatforms: succeeded,
       });
@@ -562,6 +590,7 @@ export default function DashboardHomePage() {
     }
   };
 
+  // Self-heal actions
   const retryFailedOnly = async () => {
     if (!failedPlatforms.length) return;
 
@@ -589,9 +618,7 @@ export default function DashboardHomePage() {
     try {
       const platforms = selectedChannels.filter((p) => p !== "instagram");
       if (!platforms.length) {
-        throw new Error(
-          "If we skip Instagram, there are no channels left selected."
-        );
+        throw new Error("If we skip Instagram, there are no channels left selected.");
       }
       await postQuickBlast(platforms);
     } catch (e: any) {
@@ -647,6 +674,88 @@ export default function DashboardHomePage() {
       setError((e?.message || "Could not sync connection record.").toString());
     }
   };
+
+  // Build self-heal buttons in recommended order (Step 2)
+  const selfHealButtons = useMemo(() => {
+    const items: {
+      key: RecommendedAction | "other";
+      show: boolean;
+      label: string;
+      onClick: () => void;
+      tone: "primary" | "secondary";
+      recommended: boolean;
+    }[] = [];
+
+    const showRetryFailed = failedPlatforms.length > 0;
+    const showRetryIg = selectedChannels.includes("instagram");
+    const showSkipIg = selectedChannels.includes("instagram");
+
+    if (showRetryFailed) {
+      items.push({
+        key: "retry_failed",
+        show: true,
+        label: `Retry failed only (${failedPlatforms.join(", ")})`,
+        onClick: retryFailedOnly,
+        tone: "primary",
+        recommended: recommendedAction === "retry_failed",
+      });
+    }
+
+    if (showRetryIg) {
+      items.push({
+        key: "retry_instagram",
+        show: true,
+        label: "Retry Instagram only",
+        onClick: retryInstagramOnly,
+        tone: "secondary",
+        recommended: recommendedAction === "retry_instagram",
+      });
+    }
+
+    if (showSkipIg) {
+      items.push({
+        key: "skip_instagram",
+        show: true,
+        label: "Post to other channels now (skip Instagram)",
+        onClick: retryWithoutInstagram,
+        tone: "secondary",
+        recommended: recommendedAction === "skip_instagram",
+      });
+    }
+
+    // Always available (not part of recommendedAction yet)
+    items.push({
+      key: "other",
+      show: true,
+      label: "Save draft and continue later",
+      onClick: saveDraft,
+      tone: "secondary",
+      recommended: false,
+    });
+
+    items.push({
+      key: "other",
+      show: true,
+      label: "Refresh connections",
+      onClick: refreshConnections,
+      tone: "secondary",
+      recommended: false,
+    });
+
+    // Recommended first, then the rest
+    items.sort((a, b) => Number(b.recommended) - Number(a.recommended));
+    return items;
+  }, [
+    failedPlatforms,
+    selectedChannels,
+    recommendedAction,
+    // stable references
+    retryFailedOnly,
+    retryInstagramOnly,
+    retryWithoutInstagram,
+    saveDraft,
+    refreshConnections,
+  ]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
@@ -802,79 +911,156 @@ export default function DashboardHomePage() {
 
         {anyFailure && (
           <div className="rounded-2xl border border-amber-500/40 bg-amber-950/20 p-4 space-y-3">
-            <div className="text-[11px] uppercase tracking-wide text-amber-200">
-              Self-heal actions
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] uppercase tracking-wide text-amber-200">
+                Self-heal actions
+              </div>
+
+              {recommendedLabel && (
+                <div className="text-[11px] text-slate-200">
+                  <span className="text-slate-400">Recommended:</span>{" "}
+                  <span className="font-medium text-slate-50">
+                    {recommendedLabel}
+                  </span>
+                </div>
+              )}
             </div>
 
             {hadPartialSuccess && (
               <div className="text-sm text-amber-100">
-                Good news: some channels succeeded. We can retry only what
-                failed.
+                Good news: some channels succeeded. We can retry only what failed.
               </div>
             )}
 
             <div className="flex flex-wrap gap-2">
-              {failedPlatforms.length > 0 && (
+              {selfHealButtons
+                .filter((b) => b.show)
+                .map((b, idx) => (
+                  <button
+                    key={`${b.label}-${idx}`}
+                    type="button"
+                    onClick={b.onClick}
+                    disabled={isPosting}
+                    className={buttonClass(b.recommended, b.tone)}
+                  >
+                    {b.label}
+                    {b.recommended && <RecommendedPill />}
+                  </button>
+                ))}
+            </div>
+
+            <div className="text-[11px] text-amber-100/80">
+              If a channel shows “not connected” but you know it’s connected, you can sync the record:
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {ALL_CHANNELS.map((c) => (
                 <button
+                  key={`sync-${c.id}`}
                   type="button"
-                  onClick={retryFailedOnly}
-                  disabled={isPosting}
-                  className="rounded-full bg-amber-400 px-4 py-2 text-xs font-semibold text-slate-950 disabled:opacity-60"
+                  onClick={() => syncConnectionRecord(c.id)}
+                  className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-[11px] text-slate-200 hover:border-slate-500"
                 >
-                  Retry failed only ({failedPlatforms.join(", ")})
+                  Sync {c.id}
                 </button>
-              )}
-
-              {selectedChannels.includes("instagram") && (
-                <button
-                  type="button"
-                  onClick={retryInstagramOnly}
-                  disabled={isPosting}
-                  className="rounded-full border border-amber-400/60 bg-amber-400/10 px-4 py-2 text-xs font-semibold text-amber-100 disabled:opacity-60"
-                >
-                  Retry Instagram only
-                </button>
-              )}
-
-              {selectedChannels.includes("instagram") && (
-                <button
-                  type="button"
-                  onClick={retryWithoutInstagram}
-                  disabled={isPosting}
-                  className="rounded-full border border-slate-600 bg-slate-900/80 px-4 py-2 text-xs text-slate-200 disabled:opacity-60"
-                >
-                  Post to other channels now (skip Instagram)
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={saveDraft}
-                className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-100 hover:bg-emerald-500/20"
-              >
-                Save draft and continue later
-              </button>
-
-              <button
-                type="button"
-                onClick={refreshConnections}
-                disabled={isPosting}
-                className="rounded-full border border-slate-600 bg-slate-900/80 px-4 py-2 text-xs text-slate-200 disabled:opacity-60"
-              >
-                Refresh connections
-              </button>
+              ))}
             </div>
           </div>
         )}
 
         {coachMessage && (
           <div className="rounded-2xl border border-sky-500/40 bg-sky-950/25 p-4 space-y-3">
-            <div className="text-[11px] uppercase tracking-wide text-sky-200">
-              Root Coach
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] uppercase tracking-wide text-sky-200">
+                Root Coach
+              </div>
+
+              {recommendedLabel && (
+                <div className="text-[11px] text-slate-200">
+                  <span className="text-slate-400">Recommended:</span>{" "}
+                  <span className="font-medium text-slate-50">
+                    {recommendedLabel}
+                  </span>
+                </div>
+              )}
             </div>
+
             <div className="text-sm text-sky-50 whitespace-pre-wrap">
               {coachMessage}
             </div>
+
+            {/* Root Coach action row (also ordered + highlighted) */}
+            {anyFailure && (
+              <div className="flex flex-wrap gap-2">
+                {recommendedAction === "retry_failed" && failedPlatforms.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={retryFailedOnly}
+                    disabled={isPosting}
+                    className={buttonClass(true, "secondary")}
+                  >
+                    Retry failed only <RecommendedPill />
+                  </button>
+                )}
+
+                {recommendedAction === "retry_instagram" &&
+                  selectedChannels.includes("instagram") && (
+                    <button
+                      type="button"
+                      onClick={retryInstagramOnly}
+                      disabled={isPosting}
+                      className={buttonClass(true, "secondary")}
+                    >
+                      Retry Instagram only <RecommendedPill />
+                    </button>
+                  )}
+
+                {recommendedAction === "skip_instagram" &&
+                  selectedChannels.includes("instagram") && (
+                    <button
+                      type="button"
+                      onClick={retryWithoutInstagram}
+                      disabled={isPosting}
+                      className={buttonClass(true, "secondary")}
+                    >
+                      Post to other channels now <RecommendedPill />
+                    </button>
+                  )}
+
+                {/* Always-available choices */}
+                {failedPlatforms.length > 0 &&
+                  recommendedAction !== "retry_failed" && (
+                    <button
+                      type="button"
+                      onClick={retryFailedOnly}
+                      disabled={isPosting}
+                      className={buttonClass(false, "secondary")}
+                    >
+                      Retry failed only
+                    </button>
+                  )}
+
+                {selectedChannels.includes("instagram") &&
+                  recommendedAction !== "skip_instagram" && (
+                    <button
+                      type="button"
+                      onClick={retryWithoutInstagram}
+                      disabled={isPosting}
+                      className={buttonClass(false, "secondary")}
+                    >
+                      Post to other channels now
+                    </button>
+                  )}
+
+                <button
+                  type="button"
+                  onClick={saveDraft}
+                  className={buttonClass(false, "secondary")}
+                >
+                  Save for later
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -895,10 +1081,6 @@ export default function DashboardHomePage() {
             </pre>
           </div>
         )}
-
-        {/* Step 1 is now safe + compiling:
-            recommendedAction / recommendedLabel exist, but not shown yet.
-            Step 2 will use them to highlight the right button. */}
       </div>
     </div>
   );
