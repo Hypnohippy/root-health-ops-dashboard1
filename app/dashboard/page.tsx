@@ -46,13 +46,22 @@ function extractConnectedPlatforms(payload: any): string[] {
     [];
 
   const platforms: string[] = [];
+
   for (const r of rows) {
-    const p = String(r?.platform || "").toLowerCase().trim();
+    const raw = String(r?.platform || "").toLowerCase();
     const active = r?.is_active;
-    if (!p) continue;
+    if (!raw) continue;
     if (active === false) continue;
-    platforms.push(p);
+
+    // 🔑 NORMALISE platform names coming from Supabase / Ayrshare
+    if (raw.includes("facebook")) platforms.push("facebook");
+    else if (raw.includes("linkedin")) platforms.push("linkedin");
+    else if (raw.includes("instagram")) platforms.push("instagram");
+    else if (raw.includes("threads")) platforms.push("threads");
+    else if (raw.includes("tiktok")) platforms.push("tiktok");
+    else if (raw.includes("reddit")) platforms.push("reddit");
   }
+
   return Array.from(new Set(platforms));
 }
 
