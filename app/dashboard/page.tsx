@@ -11,6 +11,13 @@ type ChannelId =
   | "tiktok"
   | "reddit";
 
+type RecommendedAction =
+  | "retry_failed"
+  | "retry_instagram"
+  | "skip_instagram"
+  | "save_for_later"
+  | null;
+
 const ALL_CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
   { id: "facebook", label: "Facebook Page", dotClass: "bg-[#1877F2]" },
   { id: "linkedin", label: "LinkedIn", dotClass: "bg-sky-500" },
@@ -301,19 +308,15 @@ export default function DashboardHomePage() {
     succeededPlatforms.length > 0 && failedPlatforms.length > 0;
 
   const quotaMessage = useMemo(
-      // -----------------------------
+    () => userSafeQuotaMessage(lastResponse),
+    [lastResponse]
+  );
+
+  // -----------------------------
   // Step 1: Recommended action logic (no UI yet)
   // -----------------------------
-  type RecommendedAction =
-    | "retry_failed"
-    | "retry_instagram"
-    | "skip_instagram"
-    | "save_for_later"
-    | null;
-
   const isInstagramImageProblem = useMemo(() => {
     const msg = String(error || "").toLowerCase();
-    // We intentionally keep this broad + human (no vendor strings)
     return (
       msg.includes("instagram") &&
       (msg.includes("image") ||
@@ -324,13 +327,13 @@ export default function DashboardHomePage() {
   }, [error]);
 
   const recommendedAction: RecommendedAction = useMemo(() => {
-    // 1) Quota / allowance reached → keep momentum, post elsewhere
+    // 1) Posting allowance reached → keep momentum, post elsewhere
     if (quotaMessage) return "skip_instagram";
 
-    // 2) Instagram image issue → swap image then retry IG (we'll guide with UI next)
+    // 2) Instagram image issue → retry IG after swapping image
     if (isInstagramImageProblem) return "retry_instagram";
 
-    // 3) Partial success (some succeeded, some failed) → retry failed only
+    // 3) Partial success → retry failed only
     if (hadPartialSuccess && failedPlatforms.length > 0) return "retry_failed";
 
     // 4) Otherwise no recommendation
@@ -351,10 +354,6 @@ export default function DashboardHomePage() {
         return null;
     }
   }, [recommendedAction]);
-
-    () => userSafeQuotaMessage(lastResponse),
-    [lastResponse]
-  );
 
   const refreshConnections = async () => {
     try {
@@ -876,7 +875,7 @@ export default function DashboardHomePage() {
                   disabled={isPosting}
                   className="rounded-full border border-slate-600 bg-slate-900/80 px-4 py-2 text-xs text-slate-200 disabled:opacity-60"
                 >
-                  Send without Instagram for now
+                  Post to other channels now (skip Instagram)
                 </button>
               )}
 
@@ -928,7 +927,6 @@ export default function DashboardHomePage() {
               {coachMessage}
             </div>
 
-            {/* Quick actions so users can respond to coach immediately */}
             <div className="flex flex-wrap gap-2">
               {anyFailure && failedPlatforms.length > 0 && (
                 <button
@@ -968,19 +966,20 @@ export default function DashboardHomePage() {
               Technical details
             </div>
 
-            {/* Friendly quota interpretation */}
             {quotaMessage && (
               <div className="text-sm text-amber-200 whitespace-pre-wrap border border-amber-500/30 bg-amber-950/20 rounded-lg p-3">
                 {quotaMessage}
               </div>
             )}
 
-            {/* Safe technical view ONLY */}
             <pre className="mt-1 whitespace-pre-wrap text-[10px] text-slate-200 bg-black/30 border border-slate-800 rounded-lg p-2 overflow-auto">
               {safeJson(redactVendorsDeep(lastResponse))}
             </pre>
           </div>
         )}
+
+        {/* NOTE: Step 1 logic exists (recommendedAction / recommendedLabel),
+            but we do NOT display it yet. Step 2 will highlight buttons. */}
       </div>
     </div>
   );
