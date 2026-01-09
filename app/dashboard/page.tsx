@@ -60,6 +60,17 @@ function detectConnectedPlatformsFromSocialAccountsPayload(payload: any) {
   return connected;
 }
 
+function loadImageDimensions(url: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => reject(new Error("Could not load image from URL."));
+    // helps with some CDNs; if CORS blocks, load may still fail (we handle)
+    img.crossOrigin = "anonymous";
+    img.src = url;
+  });
+}
+
 export default function DashboardHomePage() {
   const [message, setMessage] = useState(
     "Quick check-in from Root Health Ops Dashboard ✅"
@@ -70,7 +81,6 @@ export default function DashboardHomePage() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // raw response + connected + orgId from /api/social-accounts
   const [rawSocialAccounts, setRawSocialAccounts] = useState<any>(null);
   const [connectedHint, setConnectedHint] = useState<string>("Loading…");
   const [connected, setConnected] = useState<Record<ChannelId, boolean>>({
@@ -83,7 +93,6 @@ export default function DashboardHomePage() {
   });
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
-  // Selected channels
   const [selected, setSelected] = useState<Record<ChannelId, boolean>>({
     facebook: true,
     linkedin: false,
@@ -93,7 +102,6 @@ export default function DashboardHomePage() {
     reddit: false,
   });
 
-  // Result payload from /api/social/quick-blast (one call)
   const [lastResponse, setLastResponse] = useState<any>(null);
 
   useEffect(() => {
@@ -143,9 +151,7 @@ export default function DashboardHomePage() {
       if (!trimmed) throw new Error("Message is required.");
 
       if (!organisationId) {
-        throw new Error(
-          "No organisationId returned from /api/social-accounts. Cannot post."
-        );
+        throw new Error("No organisationId returned from /api/social-accounts. Cannot post.");
       }
 
       if (selectedChannels.length === 0) {
@@ -160,14 +166,42 @@ export default function DashboardHomePage() {
         );
       }
 
-      // ✅ IMPORTANT: send PLATFORMS ARRAY (backend expects this)
+      // ✅ Instagram media guard
+      if (selectedChannels.includes("instagram")) {
+        const url = imageUrl.trim();
+        if (!url) {
+          throw new Error(
+            "Instagram requires an image URL in this setup. Add a direct JPG/PNG image link, then try again."
+          );
+        }
+
+        // Check aspect ratio before posting to avoid Ayrshare 400
+        try {
+          const { width, height } = await loadImageDimensions(url);
+          const ratio = width / height;
+
+          // Ayrshare/IG limits: 0.5 to 1.91
+          if (ratio < 0.5 || ratio > 1.91) {
+            throw new Error(
+              `Instagram image aspect ratio must be between 0.5 and 1.91.\n\nYour image is ${width}×${height} (${ratio.toFixed(
+                2
+              )}).\n\nTip: Use 1080×1080 (1:1) or 1080×1350 (4:5) or keep landscape ≤ 1.91:1 (e.g., 1200×628).`
+            );
+          }
+        } catch (e: any) {
+          // If we can't load dimensions (CORS/CDN), don't block completely — but warn.
+          // If you prefer to block, change this to: throw e;
+          console.warn("[QuickBlast] image dimension check skipped:", e?.message);
+        }
+      }
+
       const res = await fetch("/api/social/quick-blast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: trimmed,
           platforms: selectedChannels,
-          imageUrl,
+          imageUrl: imageUrl.trim() || null,
           organisationId,
         }),
       });
@@ -183,7 +217,6 @@ export default function DashboardHomePage() {
         throw new Error(msg);
       }
 
-      // If backend returns a "sent" list or details, keep it visible.
       setStatus(`Quick Blast submitted for: ${selectedChannels.join(", ")}`);
     } catch (e: any) {
       setError(e?.message || "Quick Blast failed.");
@@ -241,7 +274,7 @@ export default function DashboardHomePage() {
 
         <input
           type="url"
-          placeholder="Image URL (optional)"
+          placeholder="Image URL (optional — required for Instagram)"
           className="w-full rounded-xl bg-slate-900 border border-slate-700 p-2"
           value={imageUrl}
           onChange={(e) => setImageUrl(e.target.value)}
@@ -280,7 +313,7 @@ export default function DashboardHomePage() {
           </div>
 
           <div className="text-[11px] text-slate-500">
-            Quick Blast sends one request with <code>platforms: [...]</code> (array) to match the backend.
+            Instagram guard: image aspect ratio must be 0.5–1.91.
           </div>
         </div>
 
