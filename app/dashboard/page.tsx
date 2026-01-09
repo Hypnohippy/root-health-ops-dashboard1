@@ -119,7 +119,7 @@ function loadImageDimensions(
 }
 
 /**
- * Friendly enterprise messaging for quota hits (429 / code 106).
+ * Friendly enterprise messaging for allowance hits (429 / code 106).
  */
 function userSafeQuotaMessage(payload: any) {
   const status = payload?.status;
@@ -239,6 +239,13 @@ type DraftPayload = {
   savedAt: string; // ISO
 };
 
+type RecoveryMeta = {
+  kind: "self_heal" | "send";
+  actionKey: RecommendedAction;
+  actionLabel: string;
+  wasRecommended: boolean;
+} | null;
+
 export default function DashboardHomePage() {
   const [message, setMessage] = useState(
     "Quick check-in from Root Health Ops Dashboard ✅"
@@ -247,6 +254,7 @@ export default function DashboardHomePage() {
 
   const [isPosting, setIsPosting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [celebration, setCelebration] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Connections
@@ -280,6 +288,9 @@ export default function DashboardHomePage() {
 
   // Draft state
   const [lastDraftSavedAt, setLastDraftSavedAt] = useState<string | null>(null);
+
+  // Step 3: track the last action (so we can celebrate success)
+  const [lastAction, setLastAction] = useState<RecoveryMeta>(null);
 
   const detectedConnectedList = useMemo(() => {
     return Object.entries(connected)
@@ -370,6 +381,13 @@ export default function DashboardHomePage() {
     </span>
   );
 
+  // Step 3: auto-clear celebration after a short moment (calm, not flashy)
+  useEffect(() => {
+    if (!celebration) return;
+    const t = setTimeout(() => setCelebration(null), 6500);
+    return () => clearTimeout(t);
+  }, [celebration]);
+
   const refreshConnections = async () => {
     try {
       const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -435,6 +453,7 @@ export default function DashboardHomePage() {
       localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
       setLastDraftSavedAt(payload.savedAt);
       setStatus("Saved. You can come back to this anytime.");
+      setCelebration(null);
       setError(null);
 
       void callRootCoach({
@@ -466,6 +485,7 @@ export default function DashboardHomePage() {
       if (d.selected) setSelected(d.selected);
       setLastDraftSavedAt(d.savedAt || null);
       setStatus("Draft loaded.");
+      setCelebration(null);
       setError(null);
     } catch {
       setError("Couldn’t load the saved draft.");
@@ -479,6 +499,7 @@ export default function DashboardHomePage() {
       localStorage.removeItem(DRAFT_KEY);
       setLastDraftSavedAt(null);
       setStatus("Saved draft cleared.");
+      setCelebration(null);
       setError(null);
     } catch {
       setError("Couldn’t clear the saved draft.");
@@ -552,15 +573,35 @@ export default function DashboardHomePage() {
       throw new Error(friendly);
     }
 
+    // ✅ Success
     setError(null);
     setStatus(`Posted successfully to: ${platforms.join(", ")}`);
 
-    void callRootCoach({
-      context: "quick_blast",
-      userAction: `Quick Blast succeeded for: ${platforms.join(", ")}`,
-      outcome: "success",
-      successPlatforms: platforms,
-    });
+    // -----------------------------
+    // Step 3: celebration + reinforcement on recovery success
+    // -----------------------------
+    if (lastAction?.kind === "self_heal") {
+      const msg = lastAction.wasRecommended
+        ? "Momentum restored — great call. Keep going."
+        : "Nice — you’re back on track.";
+      setCelebration(msg);
+
+      void callRootCoach({
+        context: "quick_blast_recovery_success",
+        userAction: `Recovered successfully: ${lastAction.actionLabel}`,
+        outcome: "success",
+        successPlatforms: platforms,
+      });
+    } else {
+      // normal send success (no special celebration)
+      setCelebration(null);
+      void callRootCoach({
+        context: "quick_blast",
+        userAction: `Quick Blast succeeded for: ${platforms.join(", ")}`,
+        outcome: "success",
+        successPlatforms: platforms,
+      });
+    }
 
     return data;
   };
@@ -568,9 +609,18 @@ export default function DashboardHomePage() {
   const handleSend = async () => {
     setIsPosting(true);
     setStatus(null);
+    setCelebration(null);
     setError(null);
     setCoachMessage(null);
     setLastResponse(null);
+
+    // Step 3: mark this as a normal send (not a recovery)
+    setLastAction({
+      kind: "send",
+      actionKey: null,
+      actionLabel: "Send Quick Blast",
+      wasRecommended: false,
+    });
 
     try {
       if (selectedChannels.length === 0) {
@@ -596,8 +646,17 @@ export default function DashboardHomePage() {
 
     setIsPosting(true);
     setStatus(null);
+    setCelebration(null);
     setError(null);
     setCoachMessage(null);
+
+    const label = "Retry failed only";
+    setLastAction({
+      kind: "self_heal",
+      actionKey: "retry_failed",
+      actionLabel: label,
+      wasRecommended: recommendedAction === "retry_failed",
+    });
 
     try {
       await instagramImageGuard(failedPlatforms);
@@ -612,8 +671,17 @@ export default function DashboardHomePage() {
   const retryWithoutInstagram = async () => {
     setIsPosting(true);
     setStatus(null);
+    setCelebration(null);
     setError(null);
     setCoachMessage(null);
+
+    const label = "Post to other channels now";
+    setLastAction({
+      kind: "self_heal",
+      actionKey: "skip_instagram",
+      actionLabel: label,
+      wasRecommended: recommendedAction === "skip_instagram",
+    });
 
     try {
       const platforms = selectedChannels.filter((p) => p !== "instagram");
@@ -631,8 +699,17 @@ export default function DashboardHomePage() {
   const retryInstagramOnly = async () => {
     setIsPosting(true);
     setStatus(null);
+    setCelebration(null);
     setError(null);
     setCoachMessage(null);
+
+    const label = "Retry Instagram";
+    setLastAction({
+      kind: "self_heal",
+      actionKey: "retry_instagram",
+      actionLabel: label,
+      wasRecommended: recommendedAction === "retry_instagram",
+    });
 
     try {
       await instagramImageGuard(["instagram"]);
@@ -670,6 +747,7 @@ export default function DashboardHomePage() {
 
       await refreshConnections();
       setStatus(`Synced connection record for ${platform}.`);
+      setCelebration(null);
     } catch (e: any) {
       setError((e?.message || "Could not sync connection record.").toString());
     }
@@ -749,12 +827,6 @@ export default function DashboardHomePage() {
     failedPlatforms,
     selectedChannels,
     recommendedAction,
-    // stable references
-    retryFailedOnly,
-    retryInstagramOnly,
-    retryWithoutInstagram,
-    saveDraft,
-    refreshConnections,
   ]);
 
   return (
@@ -808,7 +880,10 @@ export default function DashboardHomePage() {
 
           <button
             type="button"
-            onClick={clearDraft}
+            onClick={() => {
+              const ok = confirm("Clear the saved draft on this device?");
+              if (ok) clearDraft();
+            }}
             className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
           >
             Clear draft
@@ -905,6 +980,13 @@ export default function DashboardHomePage() {
         </div>
 
         {status && <div className="text-emerald-400 text-sm">{status}</div>}
+
+        {celebration && (
+          <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/25 px-4 py-3 text-sm text-emerald-100">
+            <span className="font-semibold">✓</span> {celebration}
+          </div>
+        )}
+
         {error && (
           <div className="text-red-300 text-sm whitespace-pre-wrap">{error}</div>
         )}
@@ -988,79 +1070,6 @@ export default function DashboardHomePage() {
             <div className="text-sm text-sky-50 whitespace-pre-wrap">
               {coachMessage}
             </div>
-
-            {/* Root Coach action row (also ordered + highlighted) */}
-            {anyFailure && (
-              <div className="flex flex-wrap gap-2">
-                {recommendedAction === "retry_failed" && failedPlatforms.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={retryFailedOnly}
-                    disabled={isPosting}
-                    className={buttonClass(true, "secondary")}
-                  >
-                    Retry failed only <RecommendedPill />
-                  </button>
-                )}
-
-                {recommendedAction === "retry_instagram" &&
-                  selectedChannels.includes("instagram") && (
-                    <button
-                      type="button"
-                      onClick={retryInstagramOnly}
-                      disabled={isPosting}
-                      className={buttonClass(true, "secondary")}
-                    >
-                      Retry Instagram only <RecommendedPill />
-                    </button>
-                  )}
-
-                {recommendedAction === "skip_instagram" &&
-                  selectedChannels.includes("instagram") && (
-                    <button
-                      type="button"
-                      onClick={retryWithoutInstagram}
-                      disabled={isPosting}
-                      className={buttonClass(true, "secondary")}
-                    >
-                      Post to other channels now <RecommendedPill />
-                    </button>
-                  )}
-
-                {/* Always-available choices */}
-                {failedPlatforms.length > 0 &&
-                  recommendedAction !== "retry_failed" && (
-                    <button
-                      type="button"
-                      onClick={retryFailedOnly}
-                      disabled={isPosting}
-                      className={buttonClass(false, "secondary")}
-                    >
-                      Retry failed only
-                    </button>
-                  )}
-
-                {selectedChannels.includes("instagram") &&
-                  recommendedAction !== "skip_instagram" && (
-                    <button
-                      type="button"
-                      onClick={retryWithoutInstagram}
-                      disabled={isPosting}
-                      className={buttonClass(false, "secondary")}
-                    >
-                      Post to other channels now
-                    </button>
-                  )}
-
-                <button
-                  type="button"
-                  onClick={saveDraft}
-                  className={buttonClass(false, "secondary")}
-                >
-                  Save for later
-                </button>
-              </div>
-            )}
           </div>
         )}
 
