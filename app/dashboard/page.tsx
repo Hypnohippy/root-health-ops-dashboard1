@@ -25,19 +25,41 @@ function safeJson(v: any) {
     return String(v);
   }
 }
-function userSafeHeadlineFromApiError(apiError: string | undefined) {
-  const e = (apiError || "").toLowerCase();
 
-  // Hide vendor-y / infra-y phrases
-  if (e.includes("ayrshare")) return "One or more channels couldn’t be posted right now.";
-  if (e.includes("post failed")) return "One or more channels couldn’t be posted right now.";
-  if (e.includes("openai")) return "Help assistant is unavailable right now.";
-  return apiError || "Something didn’t go through.";
-}
+/**
+ * Scrub vendor/infrastructure mentions from any object,
+ * so enterprise users never see third-party names or pricing/docs links.
+ */
+function redactVendorsDeep(input: any) {
+  const vendorRegex = /ayrshare/gi;
+  const pricingRegex = /https?:\/\/www\.ayrshare\.com\/pricing\/?/gi;
+  const docsRegex = /https?:\/\/www\.ayrshare\.com\/docs\/[^\s"]+/gi;
 
-function stripVendors(text: string) {
-  if (!text) return text;
-  return text.replace(/ayrshare/gi, "the social engine");
+  const walk = (v: any): any => {
+    if (v == null) return v;
+
+    if (typeof v === "string") {
+      return v
+        .replace(vendorRegex, "Social posting service")
+        .replace(pricingRegex, "[link hidden]")
+        .replace(docsRegex, "[link hidden]");
+    }
+
+    if (Array.isArray(v)) return v.map(walk);
+
+    if (typeof v === "object") {
+      const out: any = {};
+      for (const [k, val] of Object.entries(v)) {
+        const safeKey = String(k).replace(vendorRegex, "service");
+        out[safeKey] = walk(val);
+      }
+      return out;
+    }
+
+    return v;
+  };
+
+  return walk(input);
 }
 
 function detectConnectedPlatformsFromSocialAccountsPayload(payload: any) {
@@ -86,15 +108,31 @@ function loadImageDimensions(url: string): Promise<{ width: number; height: numb
 }
 
 /**
- * Turn technical errors into plain English.
- * (AI will also speak, but this guarantees a friendly message even if AI is down.)
+ * Friendly enterprise messaging for quota hits (429 / code 106).
+ */
+function userSafeQuotaMessage(payload: any) {
+  const status = payload?.status;
+  const code = payload?.details?.code;
+  const msg = String(payload?.details?.message || "").toLowerCase();
+
+  if (status === 429 || code === 106 || msg.includes("quota")) {
+    return (
+      "You’ve reached this month’s posting allowance for this channel.\n\n" +
+      "You can still draft content and schedule ideas — posting will resume when the allowance resets, or you can increase capacity in your workspace plan."
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Enterprise-safe human translation for Quick Blast failures.
+ * Never repeats vendor names.
  */
 function plainEnglishFromQuickBlastFailure(payload: any): string {
-  // We NEVER show vendor/infrastructure words to end users.
   const rawBase = String(payload?.error || payload?.message || "").trim();
   const baseLower = rawBase.toLowerCase();
 
-  // Replace any vendor-ish headline with a friendly, product-owned headline.
   const safeBase =
     !rawBase
       ? "Something didn’t go through."
@@ -102,10 +140,15 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
       ? "One or more channels couldn’t be posted right now."
       : rawBase;
 
+  // Quota gets a special message
+  const quota = userSafeQuotaMessage(payload);
+  if (quota) {
+    return quota;
+  }
+
   const errs = payload?.details?.errors;
 
   if (Array.isArray(errs) && errs.length > 0) {
-    // Prefer Instagram because it’s usually the strictest
     const ig = errs.find(
       (e: any) => String(e?.platform).toLowerCase() === "instagram"
     );
@@ -115,7 +158,6 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
     const code = e?.code;
     const msg = String(e?.message || "").trim();
 
-    // Instagram image format/shape issue
     if (
       platform.toLowerCase() === "instagram" &&
       (code === 140 ||
@@ -129,7 +171,6 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
       );
     }
 
-    // No platform selected / empty platforms
     if (msg.toLowerCase().includes("choose at least one platform")) {
       return (
         "No worries — this one is quick.\n\n" +
@@ -138,20 +179,15 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
       );
     }
 
-    // Generic per-platform message (still user-safe, no vendor words)
     return (
       `${safeBase}\n\n` +
       `${platform} needs a small tweak: ${msg || "Please try again."}`
     );
   }
 
-  // No detailed errors — return safe headline only
   return safeBase;
 }
 
-/**
- * Extract per-platform failures from the quick-blast response
- */
 function getFailedPlatformsFromResponse(payload: any): ChannelId[] {
   const errs = payload?.details?.errors;
   if (!Array.isArray(errs)) return [];
@@ -170,9 +206,6 @@ function getFailedPlatformsFromResponse(payload: any): ChannelId[] {
   return Array.from(failed);
 }
 
-/**
- * Extract successes (best effort) — if postIds exist, those platforms likely succeeded.
- */
 function getSucceededPlatformsFromResponse(payload: any): ChannelId[] {
   const postIds = payload?.result?.postIds || payload?.details?.postIds;
   if (!Array.isArray(postIds)) return [];
@@ -201,7 +234,7 @@ export default function DashboardHomePage() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // connected platforms + orgId from /api/social-accounts
+  // Connections
   const [rawSocialAccounts, setRawSocialAccounts] = useState<any>(null);
   const [connectedHint, setConnectedHint] = useState<string>("Loading…");
   const [connected, setConnected] = useState<Record<ChannelId, boolean>>({
@@ -224,21 +257,11 @@ export default function DashboardHomePage() {
     reddit: false,
   });
 
-  // Response from /api/social/quick-blast
+  // Last Quick Blast response
   const [lastResponse, setLastResponse] = useState<any>(null);
 
   // Root Coach
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
-
-  // Derived info from lastResponse
-  const failedPlatforms = useMemo(() => getFailedPlatformsFromResponse(lastResponse), [lastResponse]);
-  const succeededPlatforms = useMemo(() => getSucceededPlatformsFromResponse(lastResponse), [lastResponse]);
-
-  const selectedChannels = useMemo(() => {
-    return (Object.keys(selected) as ChannelId[]).filter(
-      (c) => selected[c] && connected[c]
-    );
-  }, [selected, connected]);
 
   const detectedConnectedList = useMemo(() => {
     return Object.entries(connected)
@@ -247,13 +270,37 @@ export default function DashboardHomePage() {
       .join(", ");
   }, [connected]);
 
+  const selectedChannels = useMemo(() => {
+    return (Object.keys(selected) as ChannelId[]).filter(
+      (c) => selected[c] && connected[c]
+    );
+  }, [selected, connected]);
+
+  const failedPlatforms = useMemo(
+    () => getFailedPlatformsFromResponse(lastResponse),
+    [lastResponse]
+  );
+  const succeededPlatforms = useMemo(
+    () => getSucceededPlatformsFromResponse(lastResponse),
+    [lastResponse]
+  );
+
+  const anyFailure = Boolean(lastResponse && lastResponse?.success === false);
+  const hadPartialSuccess =
+    succeededPlatforms.length > 0 && failedPlatforms.length > 0;
+
   const refreshConnections = async () => {
     try {
       const res = await fetch("/api/social-accounts", { method: "GET" });
       const data = await res.json().catch(() => null);
+
       setRawSocialAccounts(data);
-      setConnectedHint(res.ok ? "Loaded from /api/social-accounts" : `HTTP ${res.status}`);
-      setOrganisationId(typeof data?.organisationId === "string" ? data.organisationId : null);
+      setConnectedHint(
+        res.ok ? "Loaded from /api/social-accounts" : `HTTP ${res.status}`
+      );
+      setOrganisationId(
+        typeof data?.organisationId === "string" ? data.organisationId : null
+      );
       setConnected(detectConnectedPlatformsFromSocialAccountsPayload(data));
     } catch (e: any) {
       setConnectedHint(e?.message || "Failed to load /api/social-accounts");
@@ -273,7 +320,9 @@ export default function DashboardHomePage() {
     context: string;
     userAction: string;
     errorMessage?: string;
-    raw?: any;
+    outcome?: "success" | "failed" | "partial_success";
+    failedPlatforms?: ChannelId[];
+    successPlatforms?: ChannelId[];
   }) => {
     try {
       const res = await fetch("/api/ai/root-coach", {
@@ -281,41 +330,39 @@ export default function DashboardHomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
       const data = await res.json().catch(() => null);
       if (data?.coachMessage) setCoachMessage(String(data.coachMessage));
     } catch {
-      // if AI fails, we still show plain English fallback
+      // ignore
     }
   };
 
   /**
-   * Instagram guard (only blocks when we can confidently detect an invalid ratio)
+   * IG guard: only blocks when clearly invalid (ratio outside 0.5–1.91),
+   * otherwise lets the backend validate and respond.
    */
-  const instagramImageGuard = async () => {
-    if (!selectedChannels.includes("instagram")) return;
+  const instagramImageGuard = async (platforms: ChannelId[]) => {
+    if (!platforms.includes("instagram")) return;
 
     const url = imageUrl.trim();
     if (!url) {
       throw new Error(
-        "Instagram needs an image.\n\nAdd an image URL (JPG/PNG), or deselect Instagram and send to the other channels."
+        "Instagram needs an image.\n\nAdd an image URL, or deselect Instagram and send to the other channels."
       );
     }
 
     try {
       const { width, height } = await loadImageDimensions(url);
       const ratio = width / height;
-
-      // Ayrshare/IG: 0.5 to 1.91
       if (ratio < 0.5 || ratio > 1.91) {
         throw new Error(
-          `Instagram can’t use this image shape.\n\n` +
-            `Your image is ${width}×${height} (${ratio.toFixed(2)}).\n\n` +
-            `Fix: use a square (1:1 like 1080×1080) or portrait (4:5 like 1080×1350) image, then retry Instagram.`
+          "This image is just outside Instagram’s preferred shape.\n\n" +
+            "Swap it for a square or portrait image, then retry Instagram. If you want momentum now, send to the other channels and we’ll post to Instagram next."
         );
       }
     } catch (e: any) {
-      // If dimensions can't be loaded (CORS/CDN), we don't hard-block;
-      // Ayrshare will validate and give a clear error like before.
+      // If we can’t read dimensions (CORS/CDN), don’t block — backend will tell us.
       console.warn("[QuickBlast] image check skipped:", e?.message);
     }
   };
@@ -323,8 +370,9 @@ export default function DashboardHomePage() {
   const postQuickBlast = async (platforms: ChannelId[]) => {
     const trimmed = message.trim();
     if (!trimmed) throw new Error("Message is required.");
-    if (!organisationId) throw new Error("No organisationId loaded. Refresh the page and try again.");
-    if (!platforms.length) throw new Error("Please select at least one channel.");
+    if (!organisationId)
+      throw new Error("Workspace not loaded yet. Refresh and try again.");
+    if (!platforms.length) throw new Error("Select at least one channel.");
 
     const res = await fetch("/api/social/quick-blast", {
       method: "POST",
@@ -341,29 +389,35 @@ export default function DashboardHomePage() {
     setLastResponse(data);
 
     if (!res.ok || data?.success === false) {
-      // Friendly fallback + AI coach
       const friendly = plainEnglishFromQuickBlastFailure(data);
       setError(friendly);
 
+      const failed = getFailedPlatformsFromResponse(data);
+      const succeeded = getSucceededPlatformsFromResponse(data);
+
       void callRootCoach({
-        context: "quick_blast_self_heal",
-        userAction: `Quick Blast failed for platforms: ${platforms.join(", ")}`,
+        context: "quick_blast",
+        userAction: `Quick Blast failed for: ${platforms.join(", ")}`,
         errorMessage: friendly,
-        raw: {
-          platformsTried: platforms,
-          response: data,
-        },
+        outcome:
+          succeeded.length > 0 && failed.length > 0
+            ? "partial_success"
+            : "failed",
+        failedPlatforms: failed,
+        successPlatforms: succeeded,
       });
 
       throw new Error(friendly);
     }
 
-    setStatus(`Posted successfully to: ${platforms.join(", ")}`);
     setError(null);
+    setStatus(`Posted successfully to: ${platforms.join(", ")}`);
+
     void callRootCoach({
-      context: "quick_blast_success",
-      userAction: `Quick Blast succeeded for platforms: ${platforms.join(", ")}`,
-      raw: { platforms, response: data },
+      context: "quick_blast",
+      userAction: `Quick Blast succeeded for: ${platforms.join(", ")}`,
+      outcome: "success",
+      successPlatforms: platforms,
     });
 
     return data;
@@ -385,20 +439,16 @@ export default function DashboardHomePage() {
         );
       }
 
-      // Prevent common IG failure up front when possible
-      await instagramImageGuard();
-
+      await instagramImageGuard(selectedChannels);
       await postQuickBlast(selectedChannels);
-    } catch {
-      // error already set
+    } catch (e: any) {
+      setError((e?.message || "Something didn’t go through.").toString());
     } finally {
       setIsPosting(false);
     }
   };
 
-  /**
-   * Self-heal actions
-   */
+  // Self-heal actions
   const retryFailedOnly = async () => {
     if (!failedPlatforms.length) return;
 
@@ -408,16 +458,10 @@ export default function DashboardHomePage() {
     setCoachMessage(null);
 
     try {
-      const platforms = failedPlatforms;
-
-      // If retry includes Instagram, run guard first
-      if (platforms.includes("instagram")) {
-        await instagramImageGuard();
-      }
-
-      await postQuickBlast(platforms);
-    } catch {
-      // error already set
+      await instagramImageGuard(failedPlatforms);
+      await postQuickBlast(failedPlatforms);
+    } catch (e: any) {
+      setError((e?.message || "Retry failed.").toString());
     } finally {
       setIsPosting(false);
     }
@@ -432,11 +476,13 @@ export default function DashboardHomePage() {
     try {
       const platforms = selectedChannels.filter((p) => p !== "instagram");
       if (!platforms.length) {
-        throw new Error("If you remove Instagram, there are no platforms left selected to send to.");
+        throw new Error(
+          "If we skip Instagram, there are no channels left selected."
+        );
       }
       await postQuickBlast(platforms);
     } catch (e: any) {
-      setError(e?.message || "Retry failed.");
+      setError((e?.message || "Retry failed.").toString());
     } finally {
       setIsPosting(false);
     }
@@ -449,26 +495,20 @@ export default function DashboardHomePage() {
     setCoachMessage(null);
 
     try {
-      // Only IG
-      await instagramImageGuard();
+      await instagramImageGuard(["instagram"]);
       await postQuickBlast(["instagram"]);
-    } catch {
-      // error already set
+    } catch (e: any) {
+      setError((e?.message || "Retry failed.").toString());
     } finally {
       setIsPosting(false);
     }
   };
 
-  /**
-   * Optional “self-heal” for connection drift:
-   * If user *knows* a platform is connected in Ayrshare but it's missing in our DB,
-   * we can write a placeholder row via /api/social-accounts POST.
-   * (Safe + reversible: it just creates the record your app needs to treat it as connected.)
-   */
   const syncConnectionRecord = async (platform: ChannelId) => {
-    if (!confirm(`Add/refresh the connection record for ${platform}?\n\nThis does NOT change Ayrshare — it only updates your Root Health database so the UI stays consistent.`)) {
-      return;
-    }
+    const ok = confirm(
+      `Sync connection record for ${platform}?\n\nThis only updates your Root Health workspace so the UI stays consistent.`
+    );
+    if (!ok) return;
 
     try {
       await fetch("/api/social-accounts", {
@@ -477,36 +517,34 @@ export default function DashboardHomePage() {
         body: JSON.stringify({
           platform,
           pageId: "pending_page_id",
-          pageName: platform === "linkedin" ? "LinkedIn" : platform === "instagram" ? "Instagram" : platform === "threads" ? "Threads" : platform,
+          pageName:
+            platform === "linkedin"
+              ? "LinkedIn"
+              : platform === "instagram"
+              ? "Instagram"
+              : platform === "threads"
+              ? "Threads"
+              : platform,
         }),
       });
 
       await refreshConnections();
-
       setStatus(`Synced connection record for ${platform}.`);
-      setError(null);
-
-      void callRootCoach({
-        context: "connection_sync",
-        userAction: `Synced social_accounts record for ${platform}`,
-        raw: { platform },
-      });
     } catch (e: any) {
-      setError(e?.message || "Could not sync connection record.");
+      setError((e?.message || "Could not sync connection record.").toString());
     }
   };
 
-  const anyFailure = Boolean(lastResponse && lastResponse?.success === false);
-  const hadPartialSuccess = succeededPlatforms.length > 0 && failedPlatforms.length > 0;
+  const quotaMessage = useMemo(() => userSafeQuotaMessage(lastResponse), [lastResponse]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <h1 className="text-2xl font-semibold mb-4">Root Health Ops Dashboard</h1>
 
-      {/* Connected platforms panel */}
+      {/* Connections */}
       <div className="max-w-3xl mb-4 rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
         <div className="text-[11px] uppercase tracking-wide text-slate-400">
-          Connected platforms (from /api/social-accounts)
+          Connected platforms
         </div>
         <div className="text-xs text-slate-300 mt-1">{connectedHint}</div>
 
@@ -518,9 +556,9 @@ export default function DashboardHomePage() {
         </div>
 
         <div className="text-xs text-slate-200 mt-2">
-          organisationId:{" "}
+          Workspace ID:{" "}
           <span className="text-slate-50 font-medium">
-            {organisationId || "(missing)"}
+            {organisationId || "(loading…)"}
           </span>
         </div>
 
@@ -532,16 +570,16 @@ export default function DashboardHomePage() {
           >
             Refresh connections
           </button>
-        </div>
 
-        <details className="mt-3">
-          <summary className="text-xs text-slate-400 cursor-pointer">
-            Show raw /api/social-accounts response
-          </summary>
-          <pre className="mt-2 text-[10px] whitespace-pre-wrap bg-black/40 border border-slate-800 rounded-xl p-2 max-h-[260px] overflow-auto text-slate-300">
-            {safeJson(rawSocialAccounts)}
-          </pre>
-        </details>
+          <details className="ml-auto">
+            <summary className="text-xs text-slate-500 cursor-pointer">
+              Show raw connections (admin)
+            </summary>
+            <pre className="mt-2 text-[10px] whitespace-pre-wrap bg-black/40 border border-slate-800 rounded-xl p-2 max-h-[260px] overflow-auto text-slate-300">
+              {safeJson(rawSocialAccounts)}
+            </pre>
+          </details>
+        </div>
       </div>
 
       {/* Composer */}
@@ -597,8 +635,7 @@ export default function DashboardHomePage() {
           </div>
 
           <div className="text-[11px] text-slate-500">
-            Tip: If Instagram is selected, use a square (1:1) or portrait (4:5)
-            image to avoid posting errors.
+            Tip: Instagram prefers square or portrait images.
           </div>
         </div>
 
@@ -614,12 +651,10 @@ export default function DashboardHomePage() {
         {/* Status */}
         {status && <div className="text-emerald-400 text-sm">{status}</div>}
         {error && (
-          <div className="text-red-300 text-sm whitespace-pre-wrap">
-            {error}
-          </div>
+          <div className="text-red-300 text-sm whitespace-pre-wrap">{error}</div>
         )}
 
-        {/* Self-heal panel */}
+        {/* Self-heal actions */}
         {anyFailure && (
           <div className="rounded-2xl border border-amber-500/40 bg-amber-950/20 p-4 space-y-3">
             <div className="text-[11px] uppercase tracking-wide text-amber-200">
@@ -628,8 +663,8 @@ export default function DashboardHomePage() {
 
             {hadPartialSuccess && (
               <div className="text-sm text-amber-100">
-                Good news: some platforms succeeded. We can calmly retry only the
-                ones that failed.
+                Good news: some channels succeeded. We can retry only what
+                failed.
               </div>
             )}
 
@@ -652,7 +687,7 @@ export default function DashboardHomePage() {
                   disabled={isPosting}
                   className="rounded-full border border-amber-400/60 bg-amber-400/10 px-4 py-2 text-xs font-semibold text-amber-100 disabled:opacity-60"
                 >
-                  Retry Instagram only (with image check)
+                  Retry Instagram only
                 </button>
               )}
 
@@ -666,11 +701,20 @@ export default function DashboardHomePage() {
                   Send without Instagram for now
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={refreshConnections}
+                disabled={isPosting}
+                className="rounded-full border border-slate-600 bg-slate-900/80 px-4 py-2 text-xs text-slate-200 disabled:opacity-60"
+              >
+                Refresh connections
+              </button>
             </div>
 
             <div className="text-[11px] text-amber-100/80">
-              If something says “not connected” but you know it is connected at
-              source, you can sync the record here:
+              If a channel shows “not connected” but you know it’s connected,
+              you can sync the record:
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -688,28 +732,49 @@ export default function DashboardHomePage() {
           </div>
         )}
 
-        {/* Root Coach panel */}
-        {(coachMessage || anyFailure) && (
+        {/* Root Coach */}
+        {coachMessage && (
           <div className="rounded-2xl border border-sky-500/40 bg-sky-950/25 p-4 space-y-2">
             <div className="text-[11px] uppercase tracking-wide text-sky-200">
               Root Coach
             </div>
             <div className="text-sm text-sky-50 whitespace-pre-wrap">
-              {coachMessage ||
-                "I’m here with you. If something failed, use the buttons above — we’ll get it out without stress."}
+              {coachMessage}
             </div>
           </div>
         )}
 
-        {/* Raw quick-blast API response */}
+        {/* Technical details panel (enterprise-safe) */}
         {lastResponse && (
           <div className="text-xs bg-slate-900 border border-slate-700 rounded-xl p-3 space-y-2">
             <div className="text-[11px] uppercase tracking-wide text-slate-400">
-              API response (/api/social/quick-blast)
+              Technical details
             </div>
-            <pre className="whitespace-pre-wrap text-[10px] text-slate-200 bg-black/30 border border-slate-800 rounded-lg p-2 overflow-auto">
-{safeJson(lastResponse)}
-            </pre>
+
+            {/* Friendly quota interpretation */}
+            {quotaMessage && (
+              <div className="text-sm text-amber-200 whitespace-pre-wrap border border-amber-500/30 bg-amber-950/20 rounded-lg p-3">
+                {quotaMessage}
+              </div>
+            )}
+
+            <details>
+              <summary className="text-xs text-slate-400 cursor-pointer">
+                Show safe technical view
+              </summary>
+              <pre className="mt-2 whitespace-pre-wrap text-[10px] text-slate-200 bg-black/30 border border-slate-800 rounded-lg p-2 overflow-auto">
+                {safeJson(redactVendorsDeep(lastResponse))}
+              </pre>
+            </details>
+
+            <details>
+              <summary className="text-xs text-slate-500 cursor-pointer">
+                Show raw response (admin)
+              </summary>
+              <pre className="mt-2 whitespace-pre-wrap text-[10px] text-slate-300 bg-black/40 border border-slate-800 rounded-lg p-2 overflow-auto">
+                {safeJson(lastResponse)}
+              </pre>
+            </details>
           </div>
         )}
       </div>
