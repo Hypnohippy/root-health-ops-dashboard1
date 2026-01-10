@@ -775,7 +775,8 @@ export default function DashboardHomePage() {
     );
   }, [error]);
 
-  const recommendedAction: RecommendedAction = useMemo(() => {
+  const recommendedAction = useMemo<RecommendedAction>(() => {
+
     if (quotaMessage) return "save_for_later";
     if (isInstagramImageProblem) return "retry_instagram";
     if (hadPartialSuccess && failedPlatforms.length > 0) return "retry_failed";
