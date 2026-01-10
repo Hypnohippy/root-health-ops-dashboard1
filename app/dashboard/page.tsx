@@ -5,23 +5,14 @@ import React, { useEffect, useMemo, useState } from "react";
 
 /**
  * Root Health Ops — Dashboard Quick Blast
- * Phase 1:
- *  Step 1: Save for later ✅
- *  Step 2: Recommended action highlighting ✅
- *  Step 3: Polish ✅
- *    - Saved drafts library (multiple drafts on this device)
- *    - Coach choices always become real buttons (even if model forgets Option A/B)
- *    - Recommended CTA stays top and obvious
+ * Phase 1: ✅ complete
+ * Phase 2 Step 1: Premium UI + clarity (glass cards, improved layout)
  *
- * NOTE:
- * Some build environments aggressively narrow unions inside memo/switch blocks.
- * We intentionally widen a couple of comparisons/switches using `as any`
- * at the exact points TypeScript previously rejected "skip_instagram".
+ * IMPORTANT:
+ * - No engine changes
+ * - No API changes
+ * - No re-architecture
  */
-
-/* ----------------------------- */
-/* Types */
-/* ----------------------------- */
 
 type ChannelId =
   | "facebook"
@@ -58,12 +49,8 @@ type CoachOption = {
   action: RecommendedAction | "refresh_connections";
 };
 
-/* ----------------------------- */
-/* Constants */
-/* ----------------------------- */
-
 const DRAFTS_KEY = "rh_ops_quick_blast_drafts_v2";
-const LEGACY_DRAFT_KEY = "rh_ops_quick_blast_draft_v1"; // migrate if present
+const LEGACY_DRAFT_KEY = "rh_ops_quick_blast_draft_v1";
 const MAX_DRAFTS = 25;
 
 const CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
@@ -72,10 +59,6 @@ const CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
   { id: "instagram", label: "Instagram", dotClass: "bg-pink-500" },
   { id: "threads", label: "Threads", dotClass: "bg-white" },
 ];
-
-/* ----------------------------- */
-/* Helpers */
-/* ----------------------------- */
 
 function safeJson(v: any) {
   try {
@@ -332,7 +315,15 @@ function createDraftId() {
 function formatDraftTitle(msg: string) {
   const t = (msg || "").trim().replace(/\s+/g, " ");
   if (!t) return "Untitled draft";
-  return t.length > 52 ? t.slice(0, 52) + "…" : t;
+  return t.length > 56 ? t.slice(0, 56) + "…" : t;
+}
+
+function niceDate(iso: string) {
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
 }
 
 /* ----------------------------- */
@@ -432,14 +423,14 @@ export default function DashboardHomePage() {
 
       setRawSocialAccounts(data);
       setConnectedHint(
-        res.ok ? "Loaded from /api/social-accounts" : `HTTP ${res.status}`
+        res.ok ? "Loaded from connections" : `HTTP ${res.status}`
       );
       setOrganisationId(
         typeof data?.organisationId === "string" ? data.organisationId : null
       );
       setConnected(detectConnectedPlatforms(data));
     } catch (e: any) {
-      setConnectedHint(e?.message || "Failed to load /api/social-accounts");
+      setConnectedHint(e?.message || "Failed to load connections");
     }
   };
 
@@ -462,9 +453,7 @@ export default function DashboardHomePage() {
   const saveDraftsToStorage = (next: DraftItem[]) => {
     try {
       localStorage.setItem(DRAFTS_KEY, JSON.stringify(next));
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
   const migrateLegacyDraftIfNeeded = () => {
@@ -472,7 +461,6 @@ export default function DashboardHomePage() {
       const legacy = localStorage.getItem(LEGACY_DRAFT_KEY);
       if (!legacy) return;
 
-      // If new drafts already exist, do nothing — we assume migration already happened.
       const existing = localStorage.getItem(DRAFTS_KEY);
       if (existing) {
         localStorage.removeItem(LEGACY_DRAFT_KEY);
@@ -503,9 +491,7 @@ export default function DashboardHomePage() {
 
       localStorage.setItem(DRAFTS_KEY, JSON.stringify([migrated]));
       localStorage.removeItem(LEGACY_DRAFT_KEY);
-    } catch {
-      // ignore migration errors
-    }
+    } catch {}
   };
 
   useEffect(() => {
@@ -539,7 +525,7 @@ export default function DashboardHomePage() {
   };
 
   /* ----------------------------- */
-  /* Drafts (library) */
+  /* Drafts */
   /* ----------------------------- */
 
   const saveDraft = (reason?: string) => {
@@ -557,11 +543,10 @@ export default function DashboardHomePage() {
       saveDraftsToStorage(next);
 
       setDraftsOpen(true);
-
       setLastResponse(null);
       setError(null);
-      setStatus("Saved for later — your draft is safe and ready when you are.");
-      setCelebration("Nice — progress saved. You’re still in control.");
+      setStatus("Saved for later — your draft is safe.");
+      setCelebration("Saved. You’re still in control.");
 
       void callRootCoach({
         context: "save_for_later_success",
@@ -569,9 +554,7 @@ export default function DashboardHomePage() {
         outcome: "success",
       });
     } catch {
-      setError(
-        "Couldn’t save the draft on this device. Please copy the text for now."
-      );
+      setError("Couldn’t save the draft on this device. Copy the text for now.");
     }
   };
 
@@ -585,6 +568,7 @@ export default function DashboardHomePage() {
     setMessage(d.message || "");
     setImageUrl(d.imageUrl || "");
     setSelected(d.selected);
+
     setStatus("Draft loaded.");
     setCelebration(null);
     setError(null);
@@ -621,7 +605,7 @@ export default function DashboardHomePage() {
   };
 
   /* ----------------------------- */
-  /* Recommended action logic */
+  /* Recommended action */
   /* ----------------------------- */
 
   const isInstagramImageProblem = useMemo(() => {
@@ -655,7 +639,7 @@ export default function DashboardHomePage() {
       case "save_for_later":
         return "Save for later";
       case "retry_instagram":
-        return "Retry Instagram after swapping image";
+        return "Retry Instagram after swapping the image";
       case "retry_failed":
         return "Retry failed only";
       case "skip_instagram":
@@ -928,16 +912,17 @@ export default function DashboardHomePage() {
   };
 
   /* ----------------------------- */
-  /* Coach parsing + fallback (polish) */
+  /* Coach parsing + fallback (enterprise-safe polish) */
   /* ----------------------------- */
 
-  const coachParsed = useMemo(() => parseCoachMessage(coachMessage), [coachMessage]);
+  const coachParsed = useMemo(
+    () => parseCoachMessage(coachMessage),
+    [coachMessage]
+  );
 
   const coachOptionsFinal: CoachOption[] = useMemo(() => {
-    // If the model followed the spec: use those options.
     if (coachParsed.options.length === 2) return coachParsed.options;
 
-    // Otherwise: ALWAYS give 2 real buttons so user can act.
     const optionA: CoachOption = {
       label: recommendedLabel ? recommendedLabel : "Save for later",
       action: (recommendedAction as any) || "save_for_later",
@@ -952,436 +937,619 @@ export default function DashboardHomePage() {
   }, [coachParsed.options, recommendedLabel, recommendedAction]);
 
   /* ----------------------------- */
-  /* UI styles */
+  /* Premium UI helpers */
   /* ----------------------------- */
 
-  const buttonClass = (isRecommended: boolean, tone: "primary" | "secondary") =>
-    [
-      "relative rounded-full px-4 py-2 text-xs font-semibold transition disabled:opacity-60 disabled:cursor-not-allowed",
-      isRecommended
-        ? "border border-emerald-400/70 bg-emerald-400/15 text-emerald-50 shadow-[0_0_0_1px_rgba(52,211,153,0.25)]"
-        : tone === "primary"
-        ? "bg-amber-400 text-slate-950"
-        : "border border-slate-600 bg-slate-900/80 text-slate-200 hover:border-slate-500",
-    ].join(" ");
+  const GlassCard = ({
+    children,
+    className = "",
+  }: {
+    children: React.ReactNode;
+    className?: string;
+  }) => (
+    <div
+      className={[
+        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </div>
+  );
 
-  const RecommendedPill = () => (
-    <span className="ml-2 inline-flex items-center rounded-full border border-emerald-400/60 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
+  const Pill = ({
+    children,
+    tone = "neutral",
+  }: {
+    children: React.ReactNode;
+    tone?: "neutral" | "good" | "warn";
+  }) => {
+    const cls =
+      tone === "good"
+        ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+        : tone === "warn"
+        ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+        : "border-white/10 bg-white/5 text-slate-200";
+    return (
+      <span
+        className={[
+          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold",
+          cls,
+        ].join(" ")}
+      >
+        {children}
+      </span>
+    );
+  };
+
+  const PrimaryBtn = ({
+    children,
+    onClick,
+    disabled,
+  }: {
+    children: React.ReactNode;
+    onClick: () => void;
+    disabled?: boolean;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
+    >
+      {children}
+    </button>
+  );
+
+  const SoftBtn = ({
+    children,
+    onClick,
+    disabled,
+  }: {
+    children: React.ReactNode;
+    onClick: () => void;
+    disabled?: boolean;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+    >
+      {children}
+    </button>
+  );
+
+  const RecommendedBadge = () => (
+    <span className="ml-2 inline-flex items-center rounded-full border border-emerald-300/40 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
       Recommended
     </span>
   );
+
+  const canSend = !isPosting && message.trim().length > 0;
+
+  const connectedCount = useMemo(() => {
+    return Object.values(connected).filter(Boolean).length;
+  }, [connected]);
+
+  const selectedConnectedCount = selectedChannels.length;
+
+  const charCount = message.length;
+  const charHint =
+    charCount < 20
+      ? "Short and punchy"
+      : charCount < 140
+      ? "Great length"
+      : charCount < 300
+      ? "A bit longer — still fine"
+      : "Long — consider tightening";
 
   /* ----------------------------- */
   /* Render */
   /* ----------------------------- */
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
-      <h1 className="text-2xl font-semibold mb-4">Root Health Ops Dashboard</h1>
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      {/* Premium backdrop */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
+        <div className="absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-sky-500/10 blur-3xl" />
+        <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-pink-500/10 blur-3xl" />
+      </div>
 
-      {/* Connections + Drafts panel */}
-      <div className="max-w-3xl mb-4 rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-3">
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-slate-400">
-            Connected platforms
+      <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+                Root Health Ops
+              </h1>
+              <Pill tone="good">Enterprise Beta</Pill>
+            </div>
+            <p className="mt-2 text-sm text-slate-300 max-w-2xl">
+              A calm, premium cockpit for social momentum. Send fast. Recover
+              cleanly. Keep going.
+            </p>
           </div>
-          <div className="text-xs text-slate-300 mt-1">{connectedHint}</div>
 
-          <div className="text-xs text-slate-200 mt-2">
-            Detected connected:{" "}
-            <span className="text-slate-50 font-medium">
-              {detectedConnectedList || "(none detected)"}
-            </span>
-          </div>
-
-          <div className="text-xs text-slate-200 mt-2">
-            Workspace ID:{" "}
-            <span className="text-slate-50 font-medium">
-              {organisationId || "(loading…)"}
-            </span>
-          </div>
-
-          <div className="mt-3 flex gap-2 flex-wrap items-center">
-            <button
-              type="button"
-              onClick={refreshConnections}
-              className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
-            >
-              Refresh connections
-            </button>
-
-            <details className="ml-auto">
-              <summary className="text-xs text-slate-500 cursor-pointer">
-                Show raw connections (admin)
-              </summary>
-              <pre className="mt-2 text-[10px] whitespace-pre-wrap bg-black/40 border border-slate-800 rounded-xl p-2 max-h-[260px] overflow-auto text-slate-300">
-                {safeJson(redactVendorsDeep(rawSocialAccounts))}
-              </pre>
-            </details>
+          <div className="flex flex-wrap gap-2">
+            <Pill>
+              Connected:{" "}
+              <span className="ml-1 text-slate-50 font-semibold">
+                {connectedCount}
+              </span>
+            </Pill>
+            <Pill>
+              Selected:{" "}
+              <span className="ml-1 text-slate-50 font-semibold">
+                {selectedConnectedCount}
+              </span>
+            </Pill>
+            <Pill tone="neutral">{connectedHint}</Pill>
           </div>
         </div>
 
-        {/* Drafts Library */}
-        <div className="rounded-2xl border border-slate-700 bg-slate-950/30 p-3">
-          <div className="flex items-center justify-between">
-            <div className="text-[11px] uppercase tracking-wide text-slate-400">
-              Saved drafts (this device)
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setDraftsOpen((v) => !v)}
-              className="text-xs text-slate-300 hover:text-slate-100"
-            >
-              {draftsOpen ? "Hide" : "Show"} ({drafts.length})
-            </button>
-          </div>
-
-          <div className="mt-2 flex gap-2 flex-wrap items-center">
-            <button
-              type="button"
-              onClick={() => saveDraft("drafts panel")}
-              className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-100 hover:bg-emerald-500/20"
-            >
-              Save current draft
-            </button>
-
-            <button
-              type="button"
-              onClick={loadMostRecentDraft}
-              className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
-            >
-              Load most recent
-            </button>
-
-            <button
-              type="button"
-              onClick={clearAllDrafts}
-              className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
-            >
-              Clear all
-            </button>
-          </div>
-
-          {draftsOpen && (
-            <div className="mt-3 space-y-2">
-              {!drafts.length ? (
-                <div className="text-xs text-slate-400">
-                  No drafts yet. Save one and it will appear here.
+        {/* Main grid */}
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Left: Composer */}
+          <div className="lg:col-span-2 space-y-6">
+            <GlassCard className="p-6 md:p-7">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Quick Blast</h2>
+                  <p className="mt-1 text-xs text-slate-300">
+                    Write once, choose channels, send. If anything fails, the
+                    next step is highlighted.
+                  </p>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {drafts.map((d) => (
-                    <div
-                      key={d.id}
-                      className="rounded-xl border border-slate-800 bg-black/20 p-3"
+
+                <div className="flex flex-col items-end gap-2">
+                  <Pill tone="neutral">
+                    {charCount} chars · {charHint}
+                  </Pill>
+                  {organisationId ? (
+                    <span className="text-[10px] text-slate-500">
+                      Workspace loaded
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-amber-200">
+                      Loading workspace…
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Message */}
+              <div className="mt-5">
+                <label className="text-[11px] uppercase tracking-wide text-slate-400">
+                  Message
+                </label>
+                <textarea
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30 min-h-[160px]"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Write your Quick Blast…"
+                />
+                <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                  <span>Keep it simple. One clear idea.</span>
+                  <span>{charCount}</span>
+                </div>
+              </div>
+
+              {/* Media */}
+              <div className="mt-6">
+                <label className="text-[11px] uppercase tracking-wide text-slate-400">
+                  Image (optional, recommended for Instagram)
+                </label>
+                <input
+                  type="url"
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
+                  placeholder="Paste a direct image URL (JPG/PNG)…"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                />
+                <div className="mt-2 text-[11px] text-slate-400">
+                  Tip: square or portrait images work best.
+                </div>
+              </div>
+
+              {/* Channels */}
+              <div className="mt-6">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-[11px] uppercase tracking-wide text-slate-400">
+                    Channels
+                  </label>
+                  <button
+                    type="button"
+                    onClick={refreshConnections}
+                    className="text-xs text-slate-300 hover:text-slate-50"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {CHANNELS.map((c) => {
+                    const isConnected = connected[c.id];
+                    const isSelected = selected[c.id];
+
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => toggle(c.id)}
+                        className={[
+                          "group inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-xs font-semibold transition",
+                          isSelected
+                            ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-50"
+                            : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                        ].join(" ")}
+                      >
+                        <span
+                          className={[
+                            "h-2 w-2 rounded-full",
+                            c.dotClass,
+                            "shadow-[0_0_0_4px_rgba(255,255,255,0.06)]",
+                          ].join(" ")}
+                        />
+                        <span>{c.label}</span>
+                        {!isConnected ? (
+                          <span className="ml-1 text-[10px] text-amber-200">
+                            not connected
+                          </span>
+                        ) : (
+                          <span className="ml-1 text-[10px] text-slate-400">
+                            connected
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3 text-[11px] text-slate-400">
+                  Only connected channels will actually send.
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-6 flex flex-col sm:flex-row gap-3">
+                <PrimaryBtn
+                  onClick={handleSend}
+                  disabled={!canSend || !selectedChannels.length || !organisationId}
+                >
+                  {isPosting ? "Sending…" : "Send Quick Blast"}
+                </PrimaryBtn>
+
+                <SoftBtn onClick={() => saveDraft("manual")} disabled={!canSend}>
+                  Save for later
+                </SoftBtn>
+
+                <SoftBtn onClick={loadMostRecentDraft} disabled={!drafts.length}>
+                  Load last draft
+                </SoftBtn>
+              </div>
+
+              {!selectedChannels.length && (
+                <div className="mt-3 text-[11px] text-amber-200">
+                  Select at least one connected channel to enable sending.
+                </div>
+              )}
+
+              {/* Feedback */}
+              {status && (
+                <div className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-50">
+                  {status}
+                </div>
+              )}
+
+              {celebration && (
+                <div className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-50">
+                  <span className="font-semibold">✓</span> {celebration}
+                </div>
+              )}
+
+              {error && (
+                <div className="mt-4 rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100 whitespace-pre-wrap">
+                  {error}
+                </div>
+              )}
+            </GlassCard>
+
+            {/* Self-heal panel */}
+            {anyFailure && (
+              <GlassCard className="p-6 md:p-7">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-base font-semibold">Recovery</h3>
+                    <p className="mt-1 text-xs text-slate-300">
+                      One-click next step, plus alternatives if you want control.
+                    </p>
+                  </div>
+
+                  {recommendedLabel && (
+                    <div className="text-right">
+                      <div className="text-[11px] text-slate-400">
+                        Recommended
+                      </div>
+                      <div className="text-sm font-semibold text-slate-50">
+                        {recommendedLabel}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {recommendedAction && recommendedLabel && (
+                  <button
+                    type="button"
+                    onClick={runRecommendedAction}
+                    disabled={isPosting}
+                    className="mt-5 w-full rounded-3xl border border-emerald-300/30 bg-emerald-300/10 p-5 text-left hover:bg-emerald-300/15 transition disabled:opacity-60"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] uppercase tracking-wide text-emerald-200">
+                          Recommended next step
+                        </div>
+                        <div className="mt-1 text-base font-semibold text-emerald-50">
+                          {recommendedLabel}
+                          <RecommendedBadge />
+                        </div>
+                        <div className="mt-2 text-[11px] text-slate-200/90">
+                          Fastest way back to momentum.
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-[0_10px_25px_rgba(16,185,129,0.25)]">
+                        Do it
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {failedPlatforms.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={retryFailedOnly}
+                      disabled={isPosting}
+                      className={[
+                        "rounded-2xl border px-4 py-3 text-xs font-semibold transition disabled:opacity-60",
+                        (recommendedAction as any) === "retry_failed"
+                          ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-50"
+                          : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                      ].join(" ")}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm text-slate-100 font-medium">
-                            {formatDraftTitle(d.message)}
-                          </div>
-                          <div className="text-[11px] text-slate-400 mt-1">
-                            Saved: {new Date(d.savedAt).toLocaleString()}
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-1">
-                            Channels:{" "}
-                            {Object.entries(d.selected)
-                              .filter(([, v]) => v)
-                              .map(([k]) => k)
-                              .join(", ") || "(none)"}
-                          </div>
+                      Retry failed only ({failedPlatforms.join(", ")})
+                      {(recommendedAction as any) === "retry_failed" && (
+                        <RecommendedBadge />
+                      )}
+                    </button>
+                  )}
+
+                  {selectedChannels.includes("instagram") && (
+                    <button
+                      type="button"
+                      onClick={retryInstagramOnly}
+                      disabled={isPosting}
+                      className={[
+                        "rounded-2xl border px-4 py-3 text-xs font-semibold transition disabled:opacity-60",
+                        (recommendedAction as any) === "retry_instagram"
+                          ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-50"
+                          : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                      ].join(" ")}
+                    >
+                      Retry Instagram only
+                      {(recommendedAction as any) === "retry_instagram" && (
+                        <RecommendedBadge />
+                      )}
+                    </button>
+                  )}
+
+                  {selectedChannels.includes("instagram") && (
+                    <button
+                      type="button"
+                      onClick={postOtherChannelsNow}
+                      disabled={isPosting}
+                      className={[
+                        "rounded-2xl border px-4 py-3 text-xs font-semibold transition disabled:opacity-60",
+                        (recommendedAction as any) === "skip_instagram"
+                          ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-50"
+                          : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                      ].join(" ")}
+                    >
+                      Post to other channels now (skip Instagram)
+                      {(recommendedAction as any) === "skip_instagram" && (
+                        <RecommendedBadge />
+                      )}
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => saveDraft("from recovery")}
+                    disabled={isPosting}
+                    className={[
+                      "rounded-2xl border px-4 py-3 text-xs font-semibold transition disabled:opacity-60",
+                      (recommendedAction as any) === "save_for_later"
+                        ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-50"
+                        : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                    ].join(" ")}
+                  >
+                    Save for later
+                    {(recommendedAction as any) === "save_for_later" && (
+                      <RecommendedBadge />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={refreshConnections}
+                    disabled={isPosting}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs font-semibold text-slate-200 hover:bg-white/10 transition disabled:opacity-60"
+                  >
+                    Refresh connections
+                  </button>
+                </div>
+              </GlassCard>
+            )}
+          </div>
+
+          {/* Right: Drafts + Coach + Admin */}
+          <div className="space-y-6">
+            {/* Drafts */}
+            <GlassCard className="p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold">Saved drafts</h3>
+                  <p className="mt-1 text-xs text-slate-300">
+                    Stored on this device for now.
+                  </p>
+                </div>
+                <Pill>{drafts.length} saved</Pill>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <SoftBtn onClick={() => saveDraft("drafts card")} disabled={!message.trim()}>
+                  Save current
+                </SoftBtn>
+                <SoftBtn onClick={loadMostRecentDraft} disabled={!drafts.length}>
+                  Load most recent
+                </SoftBtn>
+                <SoftBtn onClick={() => setDraftsOpen((v) => !v)} disabled={!drafts.length}>
+                  {draftsOpen ? "Hide list" : "Show list"}
+                </SoftBtn>
+                <SoftBtn onClick={clearAllDrafts} disabled={!drafts.length}>
+                  Clear all
+                </SoftBtn>
+              </div>
+
+              {draftsOpen && (
+                <div className="mt-4 space-y-2">
+                  {drafts.length === 0 ? (
+                    <div className="text-xs text-slate-400">
+                      No drafts yet.
+                    </div>
+                  ) : (
+                    drafts.map((d) => (
+                      <div
+                        key={d.id}
+                        className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                      >
+                        <div className="text-sm font-semibold text-slate-50">
+                          {formatDraftTitle(d.message)}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-400">
+                          Saved: {niceDate(d.savedAt)}
                         </div>
 
-                        <div className="flex gap-2 flex-wrap justify-end">
+                        <div className="mt-3 flex gap-2">
                           <button
                             type="button"
                             onClick={() => loadDraft(d.id)}
-                            className="rounded-full bg-slate-100 text-slate-950 px-3 py-1.5 text-xs font-semibold hover:bg-white"
+                            className="flex-1 rounded-2xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-white transition"
                           >
                             Load
                           </button>
                           <button
                             type="button"
                             onClick={() => deleteDraft(d.id)}
-                            className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
+                            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
                           >
                             Delete
                           </button>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               )}
-            </div>
-          )}
-        </div>
-      </div>
+            </GlassCard>
 
-      {/* Composer */}
-      <div className="max-w-3xl space-y-4">
-        <textarea
-          className="w-full rounded-xl bg-slate-900 border border-slate-700 p-3 min-h-[140px]"
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Write your Quick Blast message…"
-        />
-
-        <input
-          type="url"
-          placeholder="Image URL (required for Instagram)"
-          className="w-full rounded-xl bg-slate-900 border border-slate-700 p-2"
-          value={imageUrl}
-          onChange={(e) => setImageUrl(e.target.value)}
-        />
-
-        {/* Channels */}
-        <div className="space-y-2">
-          <div className="text-sm font-medium text-slate-200">Channels</div>
-
-          <div className="flex flex-wrap gap-2">
-            {CHANNELS.map((c) => {
-              const isConnected = connected[c.id];
-              const isSelected = selected[c.id];
-
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => toggle(c.id)}
-                  className={[
-                    "px-3 py-1.5 rounded-full border text-xs flex items-center gap-1 transition",
-                    isSelected
-                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-100"
-                      : "border-slate-600 bg-slate-900 text-slate-300 hover:border-slate-500",
-                  ].join(" ")}
-                >
-                  <span
-                    className={["h-2 w-2 rounded-full", c.dotClass].join(" ")}
-                  />
-                  {c.label}
-                  {!isConnected && (
-                    <span className="ml-1 text-[10px] text-amber-300">
-                      (not connected)
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="text-[11px] text-slate-500">
-            Tip: Instagram prefers square or portrait images.
-          </div>
-        </div>
-
-        {/* Primary actions */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={isPosting}
-            className="rounded-full bg-emerald-500 px-5 py-2 text-slate-950 font-semibold disabled:opacity-60"
-          >
-            {isPosting ? "Sending…" : "Send Quick Blast"}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => saveDraft("top action row")}
-            className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-100 hover:bg-emerald-500/20"
-          >
-            Save for later
-          </button>
-        </div>
-
-        {/* Feedback */}
-        {status && <div className="text-emerald-400 text-sm">{status}</div>}
-
-        {celebration && (
-          <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/25 px-4 py-3 text-sm text-emerald-100">
-            <span className="font-semibold">✓</span> {celebration}
-          </div>
-        )}
-
-        {error && (
-          <div className="text-red-300 text-sm whitespace-pre-wrap">{error}</div>
-        )}
-
-        {/* Self-heal panel */}
-        {anyFailure && (
-          <div className="rounded-2xl border border-amber-500/40 bg-amber-950/20 p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] uppercase tracking-wide text-amber-200">
-                Self-heal actions
-              </div>
-
-              {recommendedLabel && (
-                <div className="text-[11px] text-slate-200">
-                  <span className="text-slate-400">Recommended:</span>{" "}
-                  <span className="font-medium text-slate-50">
-                    {recommendedLabel}
-                  </span>
+            {/* Coach */}
+            {coachMessage && (
+              <GlassCard className="p-6">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold">Root Coach</h3>
+                    <p className="mt-1 text-xs text-slate-300">
+                      Calm, plain-English guidance with two actions.
+                    </p>
+                  </div>
+                  <Pill tone="good">Guided</Pill>
                 </div>
-              )}
-            </div>
 
-            {/* Big recommended CTA */}
-            {recommendedAction && recommendedLabel && (
-              <button
-                type="button"
-                onClick={runRecommendedAction}
-                disabled={isPosting}
-                className="w-full rounded-2xl border border-emerald-400/60 bg-emerald-500/15 px-4 py-3 text-left text-sm text-emerald-50 hover:bg-emerald-500/20 disabled:opacity-60"
-              >
-                <div className="text-[11px] uppercase tracking-wide text-emerald-200">
-                  Recommended next step
-                </div>
-                <div className="mt-1 font-semibold">{recommendedLabel}</div>
-                <div className="mt-1 text-[11px] text-emerald-100/90">
-                  One-click recovery — we’ll do the sensible thing first.
-                </div>
-              </button>
-            )}
-
-            {hadPartialSuccess && (
-              <div className="text-sm text-amber-100">
-                Good news: some channels succeeded. We can retry only what
-                failed.
-              </div>
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              {/* Keep small set - recommended pill highlights */}
-              {failedPlatforms.length > 0 && (
-                <button
-                  type="button"
-                  onClick={retryFailedOnly}
-                  disabled={isPosting}
-                  className={buttonClass(
-                    (recommendedAction as any) === "retry_failed",
-                    "primary"
-                  )}
-                >
-                  Retry failed only ({failedPlatforms.join(", ")})
-                  {(recommendedAction as any) === "retry_failed" && (
-                    <RecommendedPill />
-                  )}
-                </button>
-              )}
-
-              {selectedChannels.includes("instagram") && (
-                <button
-                  type="button"
-                  onClick={retryInstagramOnly}
-                  disabled={isPosting}
-                  className={buttonClass(
-                    (recommendedAction as any) === "retry_instagram",
-                    "secondary"
-                  )}
-                >
-                  Retry Instagram only
-                  {(recommendedAction as any) === "retry_instagram" && (
-                    <RecommendedPill />
-                  )}
-                </button>
-              )}
-
-              {selectedChannels.includes("instagram") && (
-                <button
-                  type="button"
-                  onClick={postOtherChannelsNow}
-                  disabled={isPosting}
-                  className={buttonClass(
-                    (recommendedAction as any) === "skip_instagram",
-                    "secondary"
-                  )}
-                >
-                  Post to other channels now (skip Instagram)
-                  {(recommendedAction as any) === "skip_instagram" && (
-                    <RecommendedPill />
-                  )}
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => saveDraft("from self-heal panel")}
-                disabled={isPosting}
-                className={buttonClass(
-                  (recommendedAction as any) === "save_for_later",
-                  "secondary"
+                {coachParsed.body && (
+                  <div className="mt-4 text-sm text-slate-100 whitespace-pre-wrap">
+                    {coachParsed.body}
+                  </div>
                 )}
-              >
-                Save for later
-                {(recommendedAction as any) === "save_for_later" && (
-                  <RecommendedPill />
+
+                {coachOptionsFinal.length === 2 && (
+                  <div className="mt-4 grid gap-2">
+                    {coachOptionsFinal.map((opt, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => runCoachOption(opt)}
+                        disabled={isPosting}
+                        className="rounded-2xl border border-sky-300/20 bg-sky-300/10 px-4 py-3 text-left text-sm font-semibold text-sky-50 hover:bg-sky-300/15 transition disabled:opacity-60"
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </button>
-
-              <button
-                type="button"
-                onClick={refreshConnections}
-                disabled={isPosting}
-                className={buttonClass(false, "secondary")}
-              >
-                Refresh connections
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Coach */}
-        {coachMessage && (
-          <div className="rounded-2xl border border-sky-500/40 bg-sky-950/25 p-4 space-y-3">
-            <div className="text-[11px] uppercase tracking-wide text-sky-200">
-              Root Coach
-            </div>
-
-            {coachParsed.body && (
-              <div className="text-sm text-sky-50 whitespace-pre-wrap">
-                {coachParsed.body}
-              </div>
+              </GlassCard>
             )}
 
-            {/* Always 2 buttons now */}
-            {coachOptionsFinal.length === 2 && (
-              <div className="flex flex-col sm:flex-row gap-2">
-                {coachOptionsFinal.map((opt, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => runCoachOption(opt)}
-                    disabled={isPosting}
-                    className="flex-1 rounded-2xl border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-left text-sm text-sky-50 hover:bg-sky-500/15 disabled:opacity-60"
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+            {/* Admin / Technical */}
+            <GlassCard className="p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold">Admin view</h3>
+                  <p className="mt-1 text-xs text-slate-300">
+                    Safe technical details (redacted).
+                  </p>
+                </div>
+                <Pill tone={quotaMessage ? "warn" : "neutral"}>
+                  {quotaMessage ? "Limited" : "Normal"}
+                </Pill>
               </div>
-            )}
+
+              {quotaMessage && (
+                <div className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm text-amber-50 whitespace-pre-wrap">
+                  {quotaMessage}
+                </div>
+              )}
+
+              {lastResponse ? (
+                <details className="mt-4">
+                  <summary className="cursor-pointer text-sm text-slate-200 hover:text-slate-50">
+                    Show last response (redacted)
+                  </summary>
+                  <pre className="mt-3 max-h-[320px] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-[10px] text-slate-200 whitespace-pre-wrap">
+                    {safeJson(redactVendorsDeep(lastResponse))}
+                  </pre>
+                </details>
+              ) : (
+                <div className="mt-4 text-sm text-slate-400">
+                  No response yet — send a Quick Blast to see details here.
+                </div>
+              )}
+
+              <details className="mt-4">
+                <summary className="cursor-pointer text-sm text-slate-200 hover:text-slate-50">
+                  Show connections (redacted)
+                </summary>
+                <pre className="mt-3 max-h-[320px] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-[10px] text-slate-200 whitespace-pre-wrap">
+                  {safeJson(redactVendorsDeep(rawSocialAccounts))}
+                </pre>
+              </details>
+            </GlassCard>
           </div>
-        )}
-
-        {/* Technical details */}
-        {lastResponse && (
-          <div className="text-xs bg-slate-900 border border-slate-700 rounded-xl p-3 space-y-2">
-            <div className="text-[11px] uppercase tracking-wide text-slate-400">
-              Technical details
-            </div>
-
-            {quotaMessage && (
-              <div className="text-sm text-amber-200 whitespace-pre-wrap border border-amber-500/30 bg-amber-950/20 rounded-lg p-3">
-                {quotaMessage}
-              </div>
-            )}
-
-            <pre className="mt-1 whitespace-pre-wrap text-[10px] text-slate-200 bg-black/30 border border-slate-800 rounded-lg p-2 overflow-auto">
-              {safeJson(redactVendorsDeep(lastResponse))}
-            </pre>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );
