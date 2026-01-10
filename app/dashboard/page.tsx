@@ -3,6 +3,17 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
+/**
+ * Root Health Ops — Dashboard Quick Blast
+ * - Full UI (connections panel, channel pills, self-heal panel, coach, technical details)
+ * - Phase 1 Step 1: Save for later (real action, treated as success)
+ * - Enterprise-safe: redact vendor names & links in admin/technical views
+ */
+
+/* ----------------------------- */
+/* Types */
+/* ----------------------------- */
+
 type ChannelId =
   | "facebook"
   | "linkedin"
@@ -18,14 +29,36 @@ type RecommendedAction =
   | "save_for_later"
   | null;
 
-const ALL_CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
+type DraftPayload = {
+  message: string;
+  imageUrl: string;
+  selected: Record<ChannelId, boolean>;
+  savedAt: string; // ISO
+};
+
+type RecoveryMeta = {
+  kind: "self_heal" | "send";
+  actionKey: RecommendedAction;
+  actionLabel: string;
+  wasRecommended: boolean;
+} | null;
+
+/* ----------------------------- */
+/* Constants */
+/* ----------------------------- */
+
+const DRAFT_KEY = "rh_ops_quick_blast_draft_v1";
+
+const CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
   { id: "facebook", label: "Facebook Page", dotClass: "bg-[#1877F2]" },
   { id: "linkedin", label: "LinkedIn", dotClass: "bg-sky-500" },
   { id: "instagram", label: "Instagram", dotClass: "bg-pink-500" },
   { id: "threads", label: "Threads", dotClass: "bg-white" },
 ];
 
-const DRAFT_KEY = "rh_ops_quick_blast_draft_v1";
+/* ----------------------------- */
+/* Helpers */
+/* ----------------------------- */
 
 function safeJson(v: any) {
   try {
@@ -35,11 +68,11 @@ function safeJson(v: any) {
   }
 }
 
-// Enterprise: remove vendor names + links from the admin block
 function redactVendorsDeep(input: any) {
   const vendorRegex = /ayrshare/gi;
-  const pricingRegex = /https?:\/\/www\.ayrshare\.com\/pricing\/?/gi;
-  const docsRegex = /https?:\/\/www\.ayrshare\.com\/docs\/[^\s"]+/gi;
+  const makeRegex = /make(\.com)?/gi;
+  const pricingRegex = /https?:\/\/[^\s"]*pricing[^\s"]*/gi;
+  const docsRegex = /https?:\/\/[^\s"]*docs[^\s"]*/gi;
 
   const walk = (v: any): any => {
     if (v == null) return v;
@@ -47,6 +80,7 @@ function redactVendorsDeep(input: any) {
     if (typeof v === "string") {
       return v
         .replace(vendorRegex, "Social posting service")
+        .replace(makeRegex, "Social posting service")
         .replace(pricingRegex, "[link hidden]")
         .replace(docsRegex, "[link hidden]");
     }
@@ -68,7 +102,7 @@ function redactVendorsDeep(input: any) {
   return walk(input);
 }
 
-function detectConnectedPlatformsFromSocialAccountsPayload(payload: any) {
+function detectConnectedPlatforms(payload: any) {
   const connected: Record<ChannelId, boolean> = {
     facebook: false,
     linkedin: false,
@@ -105,14 +139,15 @@ function detectConnectedPlatformsFromSocialAccountsPayload(payload: any) {
 function loadImageDimensions(url: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onload = () =>
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
     img.onerror = () => reject(new Error("Could not load image from that URL."));
     img.crossOrigin = "anonymous";
     img.src = url;
   });
 }
 
-function userSafeQuotaMessage(payload: any) {
+function userSafeQuotaMessage(payload: any): string | null {
   const status = payload?.status;
   const code = payload?.details?.code;
   const msg = String(payload?.details?.message || "").toLowerCase();
@@ -124,6 +159,42 @@ function userSafeQuotaMessage(payload: any) {
     );
   }
   return null;
+}
+
+function getFailedPlatformsFromResponse(payload: any): ChannelId[] {
+  const errs = payload?.details?.errors;
+  if (!Array.isArray(errs)) return [];
+  const failed = new Set<ChannelId>();
+
+  for (const e of errs) {
+    const p = String(e?.platform || "").toLowerCase().trim();
+    if (p === "facebook") failed.add("facebook");
+    if (p === "linkedin") failed.add("linkedin");
+    if (p === "instagram") failed.add("instagram");
+    if (p === "threads") failed.add("threads");
+    if (p === "tiktok") failed.add("tiktok");
+    if (p === "reddit") failed.add("reddit");
+  }
+
+  return Array.from(failed);
+}
+
+function getSucceededPlatformsFromResponse(payload: any): ChannelId[] {
+  const postIds = payload?.result?.postIds || payload?.details?.postIds;
+  if (!Array.isArray(postIds)) return [];
+  const ok = new Set<ChannelId>();
+
+  for (const p of postIds) {
+    const platform = String(p?.platform || "").toLowerCase().trim();
+    if (platform === "facebook") ok.add("facebook");
+    if (platform === "linkedin") ok.add("linkedin");
+    if (platform === "instagram") ok.add("instagram");
+    if (platform === "threads") ok.add("threads");
+    if (platform === "tiktok") ok.add("tiktok");
+    if (platform === "reddit") ok.add("reddit");
+  }
+
+  return Array.from(ok);
 }
 
 function plainEnglishFromQuickBlastFailure(payload: any): string {
@@ -143,18 +214,23 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
   const errs = payload?.details?.errors;
 
   if (Array.isArray(errs) && errs.length > 0) {
-    const ig = errs.find((e: any) => String(e?.platform).toLowerCase() === "instagram");
+    const ig = errs.find(
+      (e: any) => String(e?.platform || "").toLowerCase() === "instagram"
+    );
     const e = ig || errs[0];
 
     const platform = String(e?.platform || "a channel");
     const code = e?.code;
     const msg = String(e?.message || "").trim();
 
+    // Instagram image shape / aspect ratio
     if (
       platform.toLowerCase() === "instagram" &&
       (code === 140 ||
         msg.toLowerCase().includes("aspect ratio") ||
-        msg.toLowerCase().includes("image"))
+        msg.toLowerCase().includes("image") ||
+        msg.toLowerCase().includes("shape") ||
+        msg.toLowerCase().includes("format"))
     ) {
       return (
         "You’re all good — nothing is broken.\n\n" +
@@ -171,64 +247,26 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
       );
     }
 
-    return `${safeBase}\n\n${platform} needs a small tweak: ${msg || "Please try again."}`;
+    return `${safeBase}\n\n${platform} needs a small tweak: ${
+      msg || "Please try again."
+    }`;
   }
 
   return safeBase;
 }
 
-function getFailedPlatformsFromResponse(payload: any): ChannelId[] {
-  const errs = payload?.details?.errors;
-  if (!Array.isArray(errs)) return [];
-  const failed = new Set<ChannelId>();
-
-  for (const e of errs) {
-    const p = String(e?.platform || "").toLowerCase().trim();
-    if (p === "facebook") failed.add("facebook");
-    if (p === "linkedin") failed.add("linkedin");
-    if (p === "instagram") failed.add("instagram");
-    if (p === "threads") failed.add("threads");
-    if (p === "tiktok") failed.add("tiktok");
-    if (p === "reddit") failed.add("reddit");
-  }
-  return Array.from(failed);
-}
-
-function getSucceededPlatformsFromResponse(payload: any): ChannelId[] {
-  const postIds = payload?.result?.postIds || payload?.details?.postIds;
-  if (!Array.isArray(postIds)) return [];
-  const ok = new Set<ChannelId>();
-
-  for (const p of postIds) {
-    const platform = String(p?.platform || "").toLowerCase().trim();
-    if (platform === "facebook") ok.add("facebook");
-    if (platform === "linkedin") ok.add("linkedin");
-    if (platform === "instagram") ok.add("instagram");
-    if (platform === "threads") ok.add("threads");
-    if (platform === "tiktok") ok.add("tiktok");
-    if (platform === "reddit") ok.add("reddit");
-  }
-  return Array.from(ok);
-}
-
-type DraftPayload = {
-  message: string;
-  imageUrl: string;
-  selected: Record<ChannelId, boolean>;
-  savedAt: string; // ISO
-};
-
-type RecoveryMeta = {
-  kind: "self_heal" | "send";
-  actionKey: RecommendedAction;
-  actionLabel: string;
-  wasRecommended: boolean;
-} | null;
+/* ----------------------------- */
+/* Component */
+/* ----------------------------- */
 
 export default function DashboardHomePage() {
-  const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
+  // Composer
+  const [message, setMessage] = useState(
+    "Quick check-in from Root Health Ops Dashboard ✅"
+  );
   const [imageUrl, setImageUrl] = useState("");
 
+  // State
   const [isPosting, setIsPosting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [celebration, setCelebration] = useState<string | null>(null);
@@ -237,6 +275,7 @@ export default function DashboardHomePage() {
   // Connections
   const [rawSocialAccounts, setRawSocialAccounts] = useState<any>(null);
   const [connectedHint, setConnectedHint] = useState<string>("Loading…");
+  const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [connected, setConnected] = useState<Record<ChannelId, boolean>>({
     facebook: false,
     linkedin: false,
@@ -245,9 +284,8 @@ export default function DashboardHomePage() {
     tiktok: false,
     reddit: false,
   });
-  const [organisationId, setOrganisationId] = useState<string | null>(null);
 
-  // Selected channels
+  // Channel selection
   const [selected, setSelected] = useState<Record<ChannelId, boolean>>({
     facebook: true,
     linkedin: false,
@@ -257,16 +295,16 @@ export default function DashboardHomePage() {
     reddit: false,
   });
 
-  // Last Quick Blast response
+  // Last API response
   const [lastResponse, setLastResponse] = useState<any>(null);
 
   // Root Coach
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
-  // Draft state
+  // Draft
   const [lastDraftSavedAt, setLastDraftSavedAt] = useState<string | null>(null);
 
-  // Track last action for celebration copy
+  // Last action (for celebration tone)
   const [lastAction, setLastAction] = useState<RecoveryMeta>(null);
 
   const detectedConnectedList = useMemo(() => {
@@ -277,27 +315,176 @@ export default function DashboardHomePage() {
   }, [connected]);
 
   const selectedChannels = useMemo(() => {
-    // Only send to channels that are BOTH selected + connected
-    return (Object.keys(selected) as ChannelId[]).filter((c) => selected[c] && connected[c]);
+    // Only send to channels selected + connected
+    return (Object.keys(selected) as ChannelId[]).filter(
+      (c) => selected[c] && connected[c]
+    );
   }, [selected, connected]);
 
-  const failedPlatforms = useMemo(() => getFailedPlatformsFromResponse(lastResponse), [lastResponse]);
+  const failedPlatforms = useMemo(
+    () => getFailedPlatformsFromResponse(lastResponse),
+    [lastResponse]
+  );
   const succeededPlatforms = useMemo(
     () => getSucceededPlatformsFromResponse(lastResponse),
     [lastResponse]
   );
 
   const anyFailure = Boolean(lastResponse && lastResponse?.success === false);
-  const hadPartialSuccess = succeededPlatforms.length > 0 && failedPlatforms.length > 0;
+  const hadPartialSuccess =
+    succeededPlatforms.length > 0 && failedPlatforms.length > 0;
 
-  const quotaMessage = useMemo(() => userSafeQuotaMessage(lastResponse), [lastResponse]);
+  const quotaMessage = useMemo(
+    () => userSafeQuotaMessage(lastResponse),
+    [lastResponse]
+  );
 
-  // Step 1: recommended action (Phase 1 uses this for clarity)
+  useEffect(() => {
+    if (!celebration) return;
+    const t = setTimeout(() => setCelebration(null), 6500);
+    return () => clearTimeout(t);
+  }, [celebration]);
+
+  const refreshConnections = async () => {
+    try {
+      const res = await fetch("/api/social-accounts", { method: "GET" });
+      const data = await res.json().catch(() => null);
+
+      setRawSocialAccounts(data);
+      setConnectedHint(
+        res.ok ? "Loaded from /api/social-accounts" : `HTTP ${res.status}`
+      );
+      setOrganisationId(typeof data?.organisationId === "string" ? data.organisationId : null);
+      setConnected(detectConnectedPlatforms(data));
+    } catch (e: any) {
+      setConnectedHint(e?.message || "Failed to load /api/social-accounts");
+    }
+  };
+
+  useEffect(() => {
+    void refreshConnections();
+
+    // Load saved draft timestamp (if present)
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const d = JSON.parse(raw) as DraftPayload;
+        if (d?.savedAt) setLastDraftSavedAt(d.savedAt);
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggle = (c: ChannelId) => {
+    setSelected((s) => ({ ...s, [c]: !s[c] }));
+  };
+
+  const callRootCoach = async (payload: {
+    context: string;
+    userAction: string;
+    errorMessage?: string;
+    outcome?: "success" | "failed" | "partial_success";
+    failedPlatforms?: ChannelId[];
+    successPlatforms?: ChannelId[];
+  }) => {
+    try {
+      const res = await fetch("/api/ai/root-coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => null);
+      if (data?.coachMessage) setCoachMessage(String(data.coachMessage));
+    } catch {
+      // ignore
+    }
+  };
+
+  /* ----------------------------- */
+  /* Phase 1 Step 1: Save for later */
+  /* ----------------------------- */
+  const saveDraft = (reason?: string) => {
+    try {
+      const payload: DraftPayload = {
+        message,
+        imageUrl,
+        selected,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+      setLastDraftSavedAt(payload.savedAt);
+
+      // Treat as success (calm reset)
+      setLastResponse(null);
+      setError(null);
+      setStatus("Saved for later — your draft is safe and ready when you are.");
+      setCelebration("Nice — progress saved. You’re still in control.");
+
+      void callRootCoach({
+        context: "save_for_later_success",
+        userAction: reason ? `Saved draft (${reason})` : "Saved draft",
+        outcome: "success",
+      });
+    } catch {
+      setError(
+        "Couldn’t save the draft on this device. Please copy the text for now."
+      );
+    }
+  };
+
+  const loadDraft = () => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) {
+        setError("No saved draft found yet.");
+        return;
+      }
+      const d = JSON.parse(raw) as DraftPayload;
+      if (!d?.message) {
+        setError("Saved draft looks incomplete.");
+        return;
+      }
+      setMessage(d.message);
+      setImageUrl(d.imageUrl || "");
+      if (d.selected) setSelected(d.selected);
+      setLastDraftSavedAt(d.savedAt || null);
+      setStatus("Draft loaded.");
+      setCelebration(null);
+      setError(null);
+    } catch {
+      setError("Couldn’t load the saved draft.");
+    }
+  };
+
+  const clearDraft = () => {
+    const ok = confirm("Clear the saved draft on this device?");
+    if (!ok) return;
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+      setLastDraftSavedAt(null);
+      setStatus("Saved draft cleared.");
+      setCelebration(null);
+      setError(null);
+    } catch {
+      setError("Couldn’t clear the saved draft.");
+    }
+  };
+
+  /* ----------------------------- */
+  /* Recommended action logic */
+  /* ----------------------------- */
+
   const isInstagramImageProblem = useMemo(() => {
-    const msg = String(error || "").toLowerCase();
+    const s = String(error || "").toLowerCase();
     return (
-      msg.includes("instagram") &&
-      (msg.includes("image") || msg.includes("shape") || msg.includes("format") || msg.includes("preferred"))
+      s.includes("instagram") &&
+      (s.includes("image") ||
+        s.includes("shape") ||
+        s.includes("format") ||
+        s.includes("preferred") ||
+        s.includes("aspect ratio"))
     );
   }, [error]);
 
@@ -340,126 +527,9 @@ export default function DashboardHomePage() {
     </span>
   );
 
-  useEffect(() => {
-    if (!celebration) return;
-    const t = setTimeout(() => setCelebration(null), 6500);
-    return () => clearTimeout(t);
-  }, [celebration]);
-
-  const refreshConnections = async () => {
-    try {
-      const res = await fetch("/api/social-accounts", { method: "GET" });
-      const data = await res.json().catch(() => null);
-
-      setRawSocialAccounts(data);
-      setConnectedHint(res.ok ? "Loaded from /api/social-accounts" : `HTTP ${res.status}`);
-      setOrganisationId(typeof data?.organisationId === "string" ? data.organisationId : null);
-      setConnected(detectConnectedPlatformsFromSocialAccountsPayload(data));
-    } catch (e: any) {
-      setConnectedHint(e?.message || "Failed to load /api/social-accounts");
-    }
-  };
-
-  useEffect(() => {
-    void refreshConnections();
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (raw) {
-        const d = JSON.parse(raw) as DraftPayload;
-        if (d?.savedAt) setLastDraftSavedAt(d.savedAt);
-      }
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const toggle = (c: ChannelId) => {
-    setSelected((s) => ({ ...s, [c]: !s[c] }));
-  };
-
-  const callRootCoach = async (payload: {
-    context: string;
-    userAction: string;
-    errorMessage?: string;
-    outcome?: "success" | "failed" | "partial_success";
-    failedPlatforms?: ChannelId[];
-    successPlatforms?: ChannelId[];
-  }) => {
-    try {
-      const res = await fetch("/api/ai/root-coach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => null);
-      if (data?.coachMessage) setCoachMessage(String(data.coachMessage));
-    } catch {}
-  };
-
-  // ✅ Phase 1 Step 1: Save for later (real action)
-  const saveDraft = (reason?: string) => {
-    try {
-      const payload: DraftPayload = {
-        message,
-        imageUrl,
-        selected,
-        savedAt: new Date().toISOString(),
-      };
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
-      setLastDraftSavedAt(payload.savedAt);
-
-      // Treat as success: clear failure vibe
-      setLastResponse(null);
-      setError(null);
-      setStatus("Saved for later — your draft is safe and ready when you are.");
-      setCelebration("Nice — progress saved. You’re still in control.");
-
-      void callRootCoach({
-        context: "save_for_later_success",
-        userAction: reason ? `Saved draft (${reason})` : "Saved draft",
-        outcome: "success",
-      });
-    } catch {
-      setError("Couldn’t save the draft on this device. Please copy the text for now.");
-    }
-  };
-
-  const loadDraft = () => {
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (!raw) {
-        setError("No saved draft found yet.");
-        return;
-      }
-      const d = JSON.parse(raw) as DraftPayload;
-      if (!d?.message) {
-        setError("Saved draft looks incomplete.");
-        return;
-      }
-      setMessage(d.message);
-      setImageUrl(d.imageUrl || "");
-      if (d.selected) setSelected(d.selected);
-      setLastDraftSavedAt(d.savedAt || null);
-      setStatus("Draft loaded.");
-      setCelebration(null);
-      setError(null);
-    } catch {
-      setError("Couldn’t load the saved draft.");
-    }
-  };
-
-  const clearDraft = () => {
-    const ok = confirm("Clear the saved draft on this device?");
-    if (!ok) return;
-    try {
-      localStorage.removeItem(DRAFT_KEY);
-      setLastDraftSavedAt(null);
-      setStatus("Saved draft cleared.");
-      setCelebration(null);
-      setError(null);
-    } catch {
-      setError("Couldn’t clear the saved draft.");
-    }
-  };
+  /* ----------------------------- */
+  /* Posting logic */
+  /* ----------------------------- */
 
   const instagramImageGuard = async (platforms: ChannelId[]) => {
     if (!platforms.includes("instagram")) return;
@@ -471,6 +541,7 @@ export default function DashboardHomePage() {
       );
     }
 
+    // Best-effort local check to reduce user frustration
     try {
       const { width, height } = await loadImageDimensions(url);
       const ratio = width / height;
@@ -481,6 +552,8 @@ export default function DashboardHomePage() {
         );
       }
     } catch (e: any) {
+      // If the browser can’t load the image (CORS), we don’t block posting;
+      // The backend will still validate.
       console.warn("[QuickBlast] image check skipped:", e?.message);
     }
   };
@@ -488,7 +561,8 @@ export default function DashboardHomePage() {
   const postQuickBlast = async (platforms: ChannelId[]) => {
     const trimmed = message.trim();
     if (!trimmed) throw new Error("Message is required.");
-    if (!organisationId) throw new Error("Workspace not loaded yet. Refresh and try again.");
+    if (!organisationId)
+      throw new Error("Workspace not loaded yet. Refresh and try again.");
     if (!platforms.length) throw new Error("Select at least one channel.");
 
     const res = await fetch("/api/social/quick-blast", {
@@ -516,7 +590,8 @@ export default function DashboardHomePage() {
         context: "quick_blast_failed",
         userAction: `Quick Blast failed for: ${platforms.join(", ")}`,
         errorMessage: friendly,
-        outcome: succeeded.length > 0 && failed.length > 0 ? "partial_success" : "failed",
+        outcome:
+          succeeded.length > 0 && failed.length > 0 ? "partial_success" : "failed",
         failedPlatforms: failed,
         successPlatforms: succeeded,
       });
@@ -571,19 +646,26 @@ export default function DashboardHomePage() {
     try {
       if (selectedChannels.length === 0) {
         throw new Error(
-          `Select at least one connected channel.\n\nDetected connected: ${detectedConnectedList || "(none)"}`
+          `Select at least one connected channel.\n\nDetected connected: ${
+            detectedConnectedList || "(none)"
+          }`
         );
       }
+
       await instagramImageGuard(selectedChannels);
       await postQuickBlast(selectedChannels);
     } catch (e: any) {
       setError((e?.message || "Something didn’t go through.").toString());
+      // keep lastResponse if present
     } finally {
       setIsPosting(false);
     }
   };
 
-  // Self-heal actions
+  /* ----------------------------- */
+  /* Self-heal actions */
+  /* ----------------------------- */
+
   const retryFailedOnly = async () => {
     if (!failedPlatforms.length) return;
 
@@ -611,7 +693,7 @@ export default function DashboardHomePage() {
     }
   };
 
-  const retryWithoutInstagram = async () => {
+  const postOtherChannelsNow = async () => {
     setIsPosting(true);
     setStatus(null);
     setCelebration(null);
@@ -629,7 +711,9 @@ export default function DashboardHomePage() {
     try {
       const platforms = selectedChannels.filter((p) => p !== "instagram");
       if (!platforms.length) {
-        throw new Error("If we skip Instagram, there are no channels left selected.");
+        throw new Error(
+          "If we skip Instagram, there are no other connected channels selected."
+        );
       }
       await postQuickBlast(platforms);
     } catch (e: any) {
@@ -664,42 +748,13 @@ export default function DashboardHomePage() {
     }
   };
 
-  const syncConnectionRecord = async (platform: ChannelId) => {
-    const ok = confirm(
-      `Sync connection record for ${platform}?\n\nThis only updates your Root Health workspace so the UI stays consistent.`
-    );
-    if (!ok) return;
+  /* ----------------------------- */
+  /* Self-heal buttons (recommended first) */
+  /* ----------------------------- */
 
-    try {
-      await fetch("/api/social-accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform,
-          pageId: "pending_page_id",
-          pageName:
-            platform === "linkedin"
-              ? "LinkedIn"
-              : platform === "instagram"
-              ? "Instagram"
-              : platform === "threads"
-              ? "Threads"
-              : platform,
-        }),
-      });
-
-      await refreshConnections();
-      setStatus(`Synced connection record for ${platform}.`);
-      setCelebration(null);
-    } catch (e: any) {
-      setError((e?.message || "Could not sync connection record.").toString());
-    }
-  };
-
-  // Buttons ordered with recommended first (Phase 1 polish)
   const selfHealButtons = useMemo(() => {
     const items: {
-      key: RecommendedAction | "other";
+      key: Exclude<RecommendedAction, null> | "refresh";
       show: boolean;
       label: string;
       onClick: () => void;
@@ -708,8 +763,8 @@ export default function DashboardHomePage() {
     }[] = [];
 
     const showRetryFailed = failedPlatforms.length > 0;
-    const showRetryIg = selectedChannels.includes("instagram");
-    const showSkipIg = selectedChannels.includes("instagram");
+    const igSelectedAndConnected = selectedChannels.includes("instagram");
+    const canSkipIg = selectedChannels.includes("instagram");
 
     if (showRetryFailed) {
       items.push({
@@ -722,7 +777,7 @@ export default function DashboardHomePage() {
       });
     }
 
-    if (showRetryIg) {
+    if (igSelectedAndConnected) {
       items.push({
         key: "retry_instagram",
         show: true,
@@ -733,18 +788,18 @@ export default function DashboardHomePage() {
       });
     }
 
-    if (showSkipIg) {
+    if (canSkipIg) {
       items.push({
         key: "skip_instagram",
         show: true,
         label: "Post to other channels now (skip Instagram)",
-        onClick: retryWithoutInstagram,
+        onClick: postOtherChannelsNow,
         tone: "secondary",
         recommended: recommendedAction === "skip_instagram",
       });
     }
 
-    // ✅ Phase 1 Step 1: Save for later (always available on failure)
+    // ✅ Phase 1 Step 1: Save for later always available on failure
     items.push({
       key: "save_for_later",
       show: true,
@@ -755,7 +810,7 @@ export default function DashboardHomePage() {
     });
 
     items.push({
-      key: "other",
+      key: "refresh",
       show: true,
       label: "Refresh connections",
       onClick: refreshConnections,
@@ -766,6 +821,10 @@ export default function DashboardHomePage() {
     items.sort((a, b) => Number(b.recommended) - Number(a.recommended));
     return items;
   }, [failedPlatforms, selectedChannels, recommendedAction]);
+
+  /* ----------------------------- */
+  /* Render */
+  /* ----------------------------- */
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
@@ -836,7 +895,7 @@ export default function DashboardHomePage() {
               Show raw connections (admin)
             </summary>
             <pre className="mt-2 text-[10px] whitespace-pre-wrap bg-black/40 border border-slate-800 rounded-xl p-2 max-h-[260px] overflow-auto text-slate-300">
-              {safeJson(rawSocialAccounts)}
+              {safeJson(redactVendorsDeep(rawSocialAccounts))}
             </pre>
           </details>
         </div>
@@ -864,7 +923,7 @@ export default function DashboardHomePage() {
           <div className="text-sm font-medium text-slate-200">Channels</div>
 
           <div className="flex flex-wrap gap-2">
-            {ALL_CHANNELS.map((c) => {
+            {CHANNELS.map((c) => {
               const isConnected = connected[c.id];
               const isSelected = selected[c.id];
 
@@ -880,10 +939,14 @@ export default function DashboardHomePage() {
                       : "border-slate-600 bg-slate-900 text-slate-300 hover:border-slate-500",
                   ].join(" ")}
                 >
-                  <span className={["h-2 w-2 rounded-full", c.dotClass].join(" ")} />
+                  <span
+                    className={["h-2 w-2 rounded-full", c.dotClass].join(" ")}
+                  />
                   {c.label}
                   {!isConnected && (
-                    <span className="ml-1 text-[10px] text-amber-300">(not connected)</span>
+                    <span className="ml-1 text-[10px] text-amber-300">
+                      (not connected)
+                    </span>
                   )}
                 </button>
               );
@@ -898,6 +961,7 @@ export default function DashboardHomePage() {
         {/* Primary actions */}
         <div className="flex flex-wrap items-center gap-2">
           <button
+            type="button"
             onClick={handleSend}
             disabled={isPosting}
             className="rounded-full bg-emerald-500 px-5 py-2 text-slate-950 font-semibold disabled:opacity-60"
@@ -938,23 +1002,26 @@ export default function DashboardHomePage() {
               {recommendedLabel && (
                 <div className="text-[11px] text-slate-200">
                   <span className="text-slate-400">Recommended:</span>{" "}
-                  <span className="font-medium text-slate-50">{recommendedLabel}</span>
+                  <span className="font-medium text-slate-50">
+                    {recommendedLabel}
+                  </span>
                 </div>
               )}
             </div>
 
             {hadPartialSuccess && (
               <div className="text-sm text-amber-100">
-                Good news: some channels succeeded. We can retry only what failed.
+                Good news: some channels succeeded. We can retry only what
+                failed.
               </div>
             )}
 
             <div className="flex flex-wrap gap-2">
               {selfHealButtons
                 .filter((b) => b.show)
-                .map((b, idx) => (
+                .map((b) => (
                   <button
-                    key={`${b.label}-${idx}`}
+                    key={b.key}
                     type="button"
                     onClick={b.onClick}
                     disabled={isPosting}
@@ -965,23 +1032,6 @@ export default function DashboardHomePage() {
                   </button>
                 ))}
             </div>
-
-            <div className="text-[11px] text-amber-100/80">
-              If a channel shows “not connected” but you know it’s connected, you can sync the record:
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {ALL_CHANNELS.map((c) => (
-                <button
-                  key={`sync-${c.id}`}
-                  type="button"
-                  onClick={() => syncConnectionRecord(c.id)}
-                  className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-[11px] text-slate-200 hover:border-slate-500"
-                >
-                  Sync {c.id}
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
@@ -991,7 +1041,9 @@ export default function DashboardHomePage() {
             <div className="text-[11px] uppercase tracking-wide text-sky-200">
               Root Coach
             </div>
-            <div className="text-sm text-sky-50 whitespace-pre-wrap">{coachMessage}</div>
+            <div className="text-sm text-sky-50 whitespace-pre-wrap">
+              {coachMessage}
+            </div>
           </div>
         )}
 
