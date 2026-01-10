@@ -6,7 +6,9 @@ import React, { useEffect, useMemo, useState } from "react";
 /**
  * Root Health Ops — Dashboard Quick Blast
  * Phase 1: ✅ complete
- * Phase 2 Step 1: Premium UI + clarity (glass cards, improved layout)
+ * Phase 2:
+ *  Step 1: Premium UI + clarity ✅
+ *  Step 2: Drafts feel enterprise ✅ (search, rename, duplicate, pin, new draft)
  *
  * IMPORTANT:
  * - No engine changes
@@ -31,10 +33,12 @@ type RecommendedAction =
 
 type DraftItem = {
   id: string;
+  title?: string; // Phase 2 Step 2 (optional for migration)
   message: string;
   imageUrl: string;
   selected: Record<ChannelId, boolean>;
   savedAt: string; // ISO
+  pinned?: boolean; // Phase 2 Step 2 (optional for migration)
 };
 
 type RecoveryMeta = {
@@ -59,6 +63,15 @@ const CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
   { id: "instagram", label: "Instagram", dotClass: "bg-pink-500" },
   { id: "threads", label: "Threads", dotClass: "bg-white" },
 ];
+
+const DEFAULT_SELECTED: Record<ChannelId, boolean> = {
+  facebook: true,
+  linkedin: false,
+  instagram: false,
+  threads: false,
+  tiktok: false,
+  reddit: false,
+};
 
 function safeJson(v: any) {
   try {
@@ -326,6 +339,43 @@ function niceDate(iso: string) {
   }
 }
 
+function normalizeDraft(d: any): DraftItem | null {
+  try {
+    if (!d || typeof d !== "object") return null;
+
+    const id = String(d.id || "").trim();
+    if (!id) return null;
+
+    const savedAt = String(d.savedAt || new Date().toISOString());
+    const message = String(d.message || "");
+    const imageUrl = String(d.imageUrl || "");
+
+    const selected: Record<ChannelId, boolean> = {
+      ...DEFAULT_SELECTED,
+      ...(typeof d.selected === "object" && d.selected ? d.selected : {}),
+    };
+
+    const title =
+      typeof d.title === "string" && d.title.trim()
+        ? d.title.trim()
+        : formatDraftTitle(message);
+
+    const pinned = Boolean(d.pinned);
+
+    return {
+      id,
+      title,
+      message,
+      imageUrl,
+      selected,
+      savedAt,
+      pinned,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /* ----------------------------- */
 /* Component */
 /* ----------------------------- */
@@ -358,12 +408,7 @@ export default function DashboardHomePage() {
 
   // Channel selection
   const [selected, setSelected] = useState<Record<ChannelId, boolean>>({
-    facebook: true,
-    linkedin: false,
-    instagram: false,
-    threads: false,
-    tiktok: false,
-    reddit: false,
+    ...DEFAULT_SELECTED,
   });
 
   // Last API response
@@ -375,6 +420,12 @@ export default function DashboardHomePage() {
   // Drafts library (local device)
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
   const [draftsOpen, setDraftsOpen] = useState(false);
+
+  // Phase 2 Step 2: Draft UX
+  const [draftSearch, setDraftSearch] = useState("");
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
 
   // Last action
   const [lastAction, setLastAction] = useState<RecoveryMeta>(null);
@@ -434,26 +485,34 @@ export default function DashboardHomePage() {
     }
   };
 
-  const loadDraftsFromStorage = () => {
-    try {
-      const raw = localStorage.getItem(DRAFTS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setDrafts(parsed);
-          return;
-        }
-      }
-      setDrafts([]);
-    } catch {
-      setDrafts([]);
-    }
-  };
-
   const saveDraftsToStorage = (next: DraftItem[]) => {
     try {
       localStorage.setItem(DRAFTS_KEY, JSON.stringify(next));
     } catch {}
+  };
+
+  const loadDraftsFromStorage = () => {
+    try {
+      const raw = localStorage.getItem(DRAFTS_KEY);
+      if (!raw) {
+        setDrafts([]);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        setDrafts([]);
+        return;
+      }
+      const normalized = parsed
+        .map(normalizeDraft)
+        .filter(Boolean) as DraftItem[];
+
+      setDrafts(normalized);
+      // write back normalized so older drafts gain title/pin fields
+      saveDraftsToStorage(normalized);
+    } catch {
+      setDrafts([]);
+    }
   };
 
   const migrateLegacyDraftIfNeeded = () => {
@@ -473,23 +532,18 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const migrated: DraftItem = {
+      const migrated = normalizeDraft({
         id: createDraftId(),
+        title: formatDraftTitle(String(d.message || "")),
         message: String(d.message || ""),
         imageUrl: String(d.imageUrl || ""),
-        selected: (d.selected ||
-          ({
-            facebook: true,
-            linkedin: false,
-            instagram: false,
-            threads: false,
-            tiktok: false,
-            reddit: false,
-          } as any)) as Record<ChannelId, boolean>,
+        selected: d.selected || { ...DEFAULT_SELECTED },
         savedAt: String(d.savedAt || new Date().toISOString()),
-      };
+        pinned: false,
+      });
 
-      localStorage.setItem(DRAFTS_KEY, JSON.stringify([migrated]));
+      const next = migrated ? [migrated] : [];
+      localStorage.setItem(DRAFTS_KEY, JSON.stringify(next));
       localStorage.removeItem(LEGACY_DRAFT_KEY);
     } catch {}
   };
@@ -525,22 +579,28 @@ export default function DashboardHomePage() {
   };
 
   /* ----------------------------- */
-  /* Drafts */
+  /* Drafts (enterprise UX) */
   /* ----------------------------- */
+
+  const commitDrafts = (next: DraftItem[]) => {
+    setDrafts(next);
+    saveDraftsToStorage(next);
+  };
 
   const saveDraft = (reason?: string) => {
     try {
       const item: DraftItem = {
         id: createDraftId(),
+        title: formatDraftTitle(message),
         message,
         imageUrl,
         selected,
         savedAt: new Date().toISOString(),
+        pinned: false,
       };
 
       const next = [item, ...drafts].slice(0, MAX_DRAFTS);
-      setDrafts(next);
-      saveDraftsToStorage(next);
+      commitDrafts(next);
 
       setDraftsOpen(true);
       setLastResponse(null);
@@ -558,6 +618,16 @@ export default function DashboardHomePage() {
     }
   };
 
+  const newDraft = () => {
+    setActiveDraftId(null);
+    setMessage("");
+    setImageUrl("");
+    setSelected({ ...DEFAULT_SELECTED });
+    setStatus("New draft ready.");
+    setCelebration(null);
+    setError(null);
+  };
+
   const loadDraft = (id: string) => {
     const d = drafts.find((x) => x.id === id);
     if (!d) {
@@ -565,6 +635,7 @@ export default function DashboardHomePage() {
       return;
     }
 
+    setActiveDraftId(d.id);
     setMessage(d.message || "");
     setImageUrl(d.imageUrl || "");
     setSelected(d.selected);
@@ -580,8 +651,10 @@ export default function DashboardHomePage() {
     if (!ok) return;
 
     const next = drafts.filter((d) => d.id !== id);
-    setDrafts(next);
-    saveDraftsToStorage(next);
+    commitDrafts(next);
+
+    if (activeDraftId === id) setActiveDraftId(null);
+
     setStatus("Draft deleted.");
     setCelebration(null);
   };
@@ -590,8 +663,9 @@ export default function DashboardHomePage() {
     const ok = confirm("Clear ALL saved drafts on this device?");
     if (!ok) return;
 
-    setDrafts([]);
-    saveDraftsToStorage([]);
+    commitDrafts([]);
+    setActiveDraftId(null);
+
     setStatus("All drafts cleared.");
     setCelebration(null);
   };
@@ -603,6 +677,87 @@ export default function DashboardHomePage() {
     }
     loadDraft(drafts[0].id);
   };
+
+  const togglePin = (id: string) => {
+    const next = drafts.map((d) =>
+      d.id === id ? { ...d, pinned: !d.pinned } : d
+    );
+    commitDrafts(next);
+  };
+
+  const duplicateDraft = (id: string) => {
+    const d = drafts.find((x) => x.id === id);
+    if (!d) return;
+
+    const copy: DraftItem = {
+      ...d,
+      id: createDraftId(),
+      title: `${(d.title || "Draft").trim()} (copy)`,
+      savedAt: new Date().toISOString(),
+      pinned: false,
+    };
+
+    const next = [copy, ...drafts].slice(0, MAX_DRAFTS);
+    commitDrafts(next);
+    setStatus("Draft duplicated.");
+    setCelebration(null);
+  };
+
+  const startRenameDraft = (id: string) => {
+    const d = drafts.find((x) => x.id === id);
+    if (!d) return;
+    setRenameId(id);
+    setRenameValue((d.title || formatDraftTitle(d.message)).trim());
+  };
+
+  const cancelRename = () => {
+    setRenameId(null);
+    setRenameValue("");
+  };
+
+  const commitRename = () => {
+    if (!renameId) return;
+    const name = renameValue.trim();
+    if (!name) {
+      setError("Draft name can’t be blank.");
+      return;
+    }
+
+    const next = drafts.map((d) =>
+      d.id === renameId ? { ...d, title: name } : d
+    );
+    commitDrafts(next);
+
+    setStatus("Draft renamed.");
+    setCelebration(null);
+    setError(null);
+
+    cancelRename();
+  };
+
+  const sortedFilteredDrafts = useMemo(() => {
+    const q = draftSearch.trim().toLowerCase();
+
+    const filtered = !q
+      ? drafts
+      : drafts.filter((d) => {
+          const hay = `${d.title || ""} ${d.message || ""}`.toLowerCase();
+          return hay.includes(q);
+        });
+
+    const sorted = [...filtered].sort((a, b) => {
+      const ap = a.pinned ? 1 : 0;
+      const bp = b.pinned ? 1 : 0;
+      if (bp !== ap) return bp - ap;
+
+      // newest first
+      const at = new Date(a.savedAt).getTime();
+      const bt = new Date(b.savedAt).getTime();
+      return bt - at;
+    });
+
+    return sorted;
+  }, [drafts, draftSearch]);
 
   /* ----------------------------- */
   /* Recommended action */
@@ -940,23 +1095,6 @@ export default function DashboardHomePage() {
   /* Premium UI helpers */
   /* ----------------------------- */
 
-  const GlassCard = ({
-    children,
-    className = "",
-  }: {
-    children: React.ReactNode;
-    className?: string;
-  }) => (
-    <div
-      className={[
-        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </div>
-  );
-
   const Pill = ({
     children,
     tone = "neutral",
@@ -981,6 +1119,23 @@ export default function DashboardHomePage() {
       </span>
     );
   };
+
+  const GlassCard = ({
+    children,
+    className = "",
+  }: {
+    children: React.ReactNode;
+    className?: string;
+  }) => (
+    <div
+      className={[
+        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </div>
+  );
 
   const PrimaryBtn = ({
     children,
@@ -1090,6 +1245,43 @@ export default function DashboardHomePage() {
           </div>
         </div>
 
+        {/* Rename modal */}
+        {renameId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+            <div className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-950/80 backdrop-blur-xl p-5 shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
+              <div className="text-lg font-semibold">Rename draft</div>
+              <div className="mt-2 text-xs text-slate-300">
+                Give it a name you’ll recognise later.
+              </div>
+
+              <input
+                className="mt-4 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                placeholder="e.g. Monday motivation post"
+                autoFocus
+              />
+
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  onClick={cancelRename}
+                  className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={commitRename}
+                  className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
+                >
+                  Save name
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Main grid */}
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Left: Composer */}
@@ -1115,6 +1307,11 @@ export default function DashboardHomePage() {
                   ) : (
                     <span className="text-[10px] text-amber-200">
                       Loading workspace…
+                    </span>
+                  )}
+                  {activeDraftId && (
+                    <span className="text-[10px] text-emerald-200">
+                      Editing a saved draft
                     </span>
                   )}
                 </div>
@@ -1217,7 +1414,9 @@ export default function DashboardHomePage() {
               <div className="mt-6 flex flex-col sm:flex-row gap-3">
                 <PrimaryBtn
                   onClick={handleSend}
-                  disabled={!canSend || !selectedChannels.length || !organisationId}
+                  disabled={
+                    !canSend || !selectedChannels.length || !organisationId
+                  }
                 >
                   {isPosting ? "Sending…" : "Send Quick Blast"}
                 </PrimaryBtn>
@@ -1226,8 +1425,8 @@ export default function DashboardHomePage() {
                   Save for later
                 </SoftBtn>
 
-                <SoftBtn onClick={loadMostRecentDraft} disabled={!drafts.length}>
-                  Load last draft
+                <SoftBtn onClick={newDraft} disabled={isPosting}>
+                  New draft
                 </SoftBtn>
               </div>
 
@@ -1404,7 +1603,7 @@ export default function DashboardHomePage() {
                 <div>
                   <h3 className="text-base font-semibold">Saved drafts</h3>
                   <p className="mt-1 text-xs text-slate-300">
-                    Stored on this device for now.
+                    Search, pin, rename, duplicate — fast creation loops.
                   </p>
                 </div>
                 <Pill>{drafts.length} saved</Pill>
@@ -1417,31 +1616,87 @@ export default function DashboardHomePage() {
                 <SoftBtn onClick={loadMostRecentDraft} disabled={!drafts.length}>
                   Load most recent
                 </SoftBtn>
+                <SoftBtn onClick={newDraft} disabled={isPosting}>
+                  New draft
+                </SoftBtn>
                 <SoftBtn onClick={() => setDraftsOpen((v) => !v)} disabled={!drafts.length}>
                   {draftsOpen ? "Hide list" : "Show list"}
                 </SoftBtn>
-                <SoftBtn onClick={clearAllDrafts} disabled={!drafts.length}>
-                  Clear all
-                </SoftBtn>
+              </div>
+
+              {/* Search */}
+              <div className="mt-4">
+                <input
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
+                  placeholder="Search drafts…"
+                  value={draftSearch}
+                  onChange={(e) => setDraftSearch(e.target.value)}
+                />
+                <div className="mt-2 text-[11px] text-slate-400">
+                  Pinned drafts stay at the top.
+                </div>
               </div>
 
               {draftsOpen && (
                 <div className="mt-4 space-y-2">
-                  {drafts.length === 0 ? (
+                  {sortedFilteredDrafts.length === 0 ? (
                     <div className="text-xs text-slate-400">
-                      No drafts yet.
+                      No drafts match that search.
                     </div>
                   ) : (
-                    drafts.map((d) => (
+                    sortedFilteredDrafts.map((d) => (
                       <div
                         key={d.id}
-                        className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                        className={[
+                          "rounded-2xl border bg-white/5 p-4 transition",
+                          d.id === activeDraftId
+                            ? "border-emerald-300/30"
+                            : "border-white/10",
+                        ].join(" ")}
                       >
-                        <div className="text-sm font-semibold text-slate-50">
-                          {formatDraftTitle(d.message)}
-                        </div>
-                        <div className="mt-1 text-[11px] text-slate-400">
-                          Saved: {niceDate(d.savedAt)}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <div className="truncate text-sm font-semibold text-slate-50">
+                                {d.title || formatDraftTitle(d.message)}
+                              </div>
+                              {d.pinned && <Pill tone="good">Pinned</Pill>}
+                            </div>
+
+                            <div className="mt-1 text-[11px] text-slate-400">
+                              Saved: {niceDate(d.savedAt)}
+                            </div>
+
+                            <div className="mt-2 text-[11px] text-slate-400 truncate">
+                              {d.message?.trim() ? d.message.trim() : "(empty)"}
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2 flex-wrap justify-end">
+                            <button
+                              type="button"
+                              onClick={() => togglePin(d.id)}
+                              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
+                            >
+                              {d.pinned ? "Unpin" : "Pin"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => startRenameDraft(d.id)}
+                              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
+                            >
+                              Rename
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => duplicateDraft(d.id)}
+                              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
+                            >
+                              Duplicate
+                            </button>
+                          </div>
                         </div>
 
                         <div className="mt-3 flex gap-2">
@@ -1465,6 +1720,20 @@ export default function DashboardHomePage() {
                   )}
                 </div>
               )}
+
+              <div className="mt-4 flex items-center justify-between">
+                <div className="text-[11px] text-slate-400">
+                  Drafts are stored on this device for now.
+                </div>
+                <button
+                  type="button"
+                  onClick={clearAllDrafts}
+                  disabled={!drafts.length}
+                  className="text-xs text-slate-300 hover:text-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Clear all
+                </button>
+              </div>
             </GlassCard>
 
             {/* Coach */}
