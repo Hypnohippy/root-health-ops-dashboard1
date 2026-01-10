@@ -5,14 +5,15 @@ import React, { useEffect, useMemo, useState } from "react";
 
 /**
  * Root Health Ops — Dashboard Quick Blast
- * - Full UI (connections panel, channel pills, self-heal panel, coach, technical details)
- * - Phase 1 Step 1: Save for later (real action, treated as success)
- * - Enterprise-safe: redact vendor names & links in admin/technical views
+ * Phase 1:
+ *  Step 1: Save for later ✅
+ *  Step 2: Recommended action highlighting ✅ (big CTA)
+ *  Step 3: Coach choices wired to real buttons ✅ (two option buttons)
  *
  * NOTE:
- * Some build environments can aggressively narrow unions inside memo/switch blocks.
- * To prevent recurring build failures, we deliberately widen a couple of comparisons/switches
- * using `as any` at the exact points TypeScript was rejecting "skip_instagram".
+ * Some build environments aggressively narrow unions inside memo/switch blocks.
+ * We intentionally widen a couple of comparisons/switches using `as any`
+ * at the exact points TypeScript was previously rejecting "skip_instagram".
  */
 
 /* ----------------------------- */
@@ -47,6 +48,11 @@ type RecoveryMeta = {
   actionLabel: string;
   wasRecommended: boolean;
 } | null;
+
+type CoachOption = {
+  label: string;
+  action: RecommendedAction | "refresh_connections";
+};
 
 /* ----------------------------- */
 /* Constants */
@@ -127,7 +133,7 @@ function detectConnectedPlatforms(payload: any) {
 
   for (const r of rows) {
     if (!r || typeof r !== "object") continue;
-    if (r.is_active === false) continue;
+    if ((r as any).is_active === false) continue;
 
     const p = String((r as any).platform || "").toLowerCase();
     if (p === "facebook") connected.facebook = true;
@@ -257,6 +263,52 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
   }
 
   return safeBase;
+}
+
+function deriveActionFromText(text: string): CoachOption["action"] {
+  const s = (text || "").toLowerCase();
+
+  // strongest matches first
+  if (s.includes("save")) return "save_for_later";
+  if (s.includes("refresh")) return "refresh_connections";
+  if (s.includes("retry") && s.includes("failed")) return "retry_failed";
+  if (s.includes("retry") && s.includes("instagram")) return "retry_instagram";
+  if (s.includes("other channels") || (s.includes("skip") && s.includes("instagram")))
+    return "skip_instagram";
+
+  // fallback if unclear
+  return "save_for_later";
+}
+
+function parseCoachMessage(input: string | null): { body: string; options: CoachOption[] } {
+  const raw = (input || "").trim();
+  if (!raw) return { body: "", options: [] };
+
+  const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  const options: CoachOption[] = [];
+  const bodyLines: string[] = [];
+
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+
+    if (lower.startsWith("option a:")) {
+      const label = line.slice("Option A:".length).trim() || "Do this";
+      options.push({ label, action: deriveActionFromText(label) });
+      continue;
+    }
+
+    if (lower.startsWith("option b:")) {
+      const label = line.slice("Option B:".length).trim() || "Or this";
+      options.push({ label, action: deriveActionFromText(label) });
+      continue;
+    }
+
+    bodyLines.push(line);
+  }
+
+  // Keep exactly 2 if more appear for any reason
+  return { body: bodyLines.join("\n"), options: options.slice(0, 2) };
 }
 
 /* ----------------------------- */
@@ -427,7 +479,9 @@ export default function DashboardHomePage() {
         outcome: "success",
       });
     } catch {
-      setError("Couldn’t save the draft on this device. Please copy the text for now.");
+      setError(
+        "Couldn’t save the draft on this device. Please copy the text for now."
+      );
     }
   };
 
@@ -485,7 +539,6 @@ export default function DashboardHomePage() {
     );
   }, [error]);
 
-  // Keep as explicit RecommendedAction
   const recommendedAction: RecommendedAction = useMemo(() => {
     if (quotaMessage) return "save_for_later";
     if (isInstagramImageProblem) return "retry_instagram";
@@ -500,7 +553,7 @@ export default function DashboardHomePage() {
     anyFailure,
   ]);
 
-  // BUILD-SAFE: widen in the switch to prevent over-narrowing in some toolchains
+  // Build-safe switch (prevents toolchain over-narrowing)
   const recommendedLabel = useMemo(() => {
     switch (recommendedAction as any) {
       case "save_for_later":
@@ -748,6 +801,51 @@ export default function DashboardHomePage() {
     }
   };
 
+  const runRecommendedAction = async () => {
+    const a = recommendedAction as any;
+
+    // Always safe: if recommended is "save_for_later"
+    if (a === "save_for_later") {
+      saveDraft("recommended action");
+      return;
+    }
+    if (a === "retry_failed") {
+      await retryFailedOnly();
+      return;
+    }
+    if (a === "retry_instagram") {
+      await retryInstagramOnly();
+      return;
+    }
+    if (a === "skip_instagram") {
+      await postOtherChannelsNow();
+      return;
+    }
+  };
+
+  const runCoachOption = async (opt: CoachOption) => {
+    if (opt.action === "refresh_connections") {
+      await refreshConnections();
+      return;
+    }
+    if (opt.action === "save_for_later") {
+      saveDraft("coach option");
+      return;
+    }
+    if (opt.action === "retry_failed") {
+      await retryFailedOnly();
+      return;
+    }
+    if (opt.action === "retry_instagram") {
+      await retryInstagramOnly();
+      return;
+    }
+    if (opt.action === "skip_instagram") {
+      await postOtherChannelsNow();
+      return;
+    }
+  };
+
   /* ----------------------------- */
   /* Self-heal buttons */
   /* ----------------------------- */
@@ -820,6 +918,12 @@ export default function DashboardHomePage() {
     items.sort((a, b) => Number(b.recommended) - Number(a.recommended));
     return items;
   }, [failedPlatforms, selectedChannels, recommendedAction]);
+
+  /* ----------------------------- */
+  /* Coach parsing (buttons) */
+  /* ----------------------------- */
+
+  const coachParsed = useMemo(() => parseCoachMessage(coachMessage), [coachMessage]);
 
   /* ----------------------------- */
   /* Render */
@@ -938,7 +1042,9 @@ export default function DashboardHomePage() {
                       : "border-slate-600 bg-slate-900 text-slate-300 hover:border-slate-500",
                   ].join(" ")}
                 >
-                  <span className={["h-2 w-2 rounded-full", c.dotClass].join(" ")} />
+                  <span
+                    className={["h-2 w-2 rounded-full", c.dotClass].join(" ")}
+                  />
                   {c.label}
                   {!isConnected && (
                     <span className="ml-1 text-[10px] text-amber-300">
@@ -999,14 +1105,35 @@ export default function DashboardHomePage() {
               {recommendedLabel && (
                 <div className="text-[11px] text-slate-200">
                   <span className="text-slate-400">Recommended:</span>{" "}
-                  <span className="font-medium text-slate-50">{recommendedLabel}</span>
+                  <span className="font-medium text-slate-50">
+                    {recommendedLabel}
+                  </span>
                 </div>
               )}
             </div>
 
+            {/* ✅ Step 2: Big recommended CTA */}
+            {recommendedAction && recommendedLabel && (
+              <button
+                type="button"
+                onClick={runRecommendedAction}
+                disabled={isPosting}
+                className="w-full rounded-2xl border border-emerald-400/60 bg-emerald-500/15 px-4 py-3 text-left text-sm text-emerald-50 hover:bg-emerald-500/20 disabled:opacity-60"
+              >
+                <div className="text-[11px] uppercase tracking-wide text-emerald-200">
+                  Recommended next step
+                </div>
+                <div className="mt-1 font-semibold">{recommendedLabel}</div>
+                <div className="mt-1 text-[11px] text-emerald-100/90">
+                  One-click recovery — we’ll do the sensible thing first.
+                </div>
+              </button>
+            )}
+
             {hadPartialSuccess && (
               <div className="text-sm text-amber-100">
-                Good news: some channels succeeded. We can retry only what failed.
+                Good news: some channels succeeded. We can retry only what
+                failed.
               </div>
             )}
 
@@ -1035,9 +1162,30 @@ export default function DashboardHomePage() {
             <div className="text-[11px] uppercase tracking-wide text-sky-200">
               Root Coach
             </div>
-            <div className="text-sm text-sky-50 whitespace-pre-wrap">
-              {coachMessage}
-            </div>
+
+            {/* Body */}
+            {coachParsed.body && (
+              <div className="text-sm text-sky-50 whitespace-pre-wrap">
+                {coachParsed.body}
+              </div>
+            )}
+
+            {/* ✅ Step 3: two real choice buttons */}
+            {coachParsed.options.length === 2 && (
+              <div className="flex flex-col sm:flex-row gap-2">
+                {coachParsed.options.map((opt, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => runCoachOption(opt)}
+                    disabled={isPosting}
+                    className="flex-1 rounded-2xl border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-left text-sm text-sky-50 hover:bg-sky-500/15 disabled:opacity-60"
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
