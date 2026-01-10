@@ -5,10 +5,12 @@ import React, { useEffect, useMemo, useState } from "react";
 
 /**
  * Root Health Ops — Dashboard Quick Blast
+ *
  * Phase 1: ✅ complete
  * Phase 2:
  *  Step 1: Premium UI + clarity ✅
- *  Step 2: Drafts feel enterprise ✅ (search, rename, duplicate, pin, new draft)
+ *  Step 2: Drafts feel enterprise ✅
+ *  Step 3: Enterprise-safe feedback surfaces ✅ (plain-English outcome + safe admin view)
  *
  * IMPORTANT:
  * - No engine changes
@@ -33,12 +35,12 @@ type RecommendedAction =
 
 type DraftItem = {
   id: string;
-  title?: string; // Phase 2 Step 2 (optional for migration)
+  title?: string;
   message: string;
   imageUrl: string;
   selected: Record<ChannelId, boolean>;
   savedAt: string; // ISO
-  pinned?: boolean; // Phase 2 Step 2 (optional for migration)
+  pinned?: boolean;
 };
 
 type RecoveryMeta = {
@@ -51,6 +53,15 @@ type RecoveryMeta = {
 type CoachOption = {
   label: string;
   action: RecommendedAction | "refresh_connections";
+};
+
+type OutcomeTone = "good" | "warn" | "bad" | "neutral";
+
+type OutcomeCard = {
+  tone: OutcomeTone;
+  title: string;
+  body: string;
+  meta?: string;
 };
 
 const DRAFTS_KEY = "rh_ops_quick_blast_drafts_v2";
@@ -376,9 +387,18 @@ function normalizeDraft(d: any): DraftItem | null {
   }
 }
 
-/* ----------------------------- */
-/* Component */
-/* ----------------------------- */
+function toneStyles(tone: OutcomeTone) {
+  switch (tone) {
+    case "good":
+      return "border-emerald-300/20 bg-emerald-300/10 text-emerald-50";
+    case "warn":
+      return "border-amber-300/20 bg-amber-300/10 text-amber-50";
+    case "bad":
+      return "border-red-300/20 bg-red-300/10 text-red-100";
+    default:
+      return "border-white/10 bg-white/5 text-slate-100";
+  }
+}
 
 export default function DashboardHomePage() {
   // Composer
@@ -387,11 +407,14 @@ export default function DashboardHomePage() {
   );
   const [imageUrl, setImageUrl] = useState("");
 
-  // State
+  // UI state
   const [isPosting, setIsPosting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [celebration, setCelebration] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Step 3: Unified enterprise outcome panel
+  const [outcome, setOutcome] = useState<OutcomeCard | null>(null);
 
   // Connections
   const [rawSocialAccounts, setRawSocialAccounts] = useState<any>(null);
@@ -406,22 +429,22 @@ export default function DashboardHomePage() {
     reddit: false,
   });
 
-  // Channel selection
+  // Selection
   const [selected, setSelected] = useState<Record<ChannelId, boolean>>({
     ...DEFAULT_SELECTED,
   });
 
-  // Last API response
+  // Last response
   const [lastResponse, setLastResponse] = useState<any>(null);
 
   // Root Coach
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
-  // Drafts library (local device)
+  // Drafts
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
   const [draftsOpen, setDraftsOpen] = useState(false);
 
-  // Phase 2 Step 2: Draft UX
+  // Draft UX
   const [draftSearch, setDraftSearch] = useState("");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -508,7 +531,6 @@ export default function DashboardHomePage() {
         .filter(Boolean) as DraftItem[];
 
       setDrafts(normalized);
-      // write back normalized so older drafts gain title/pin fields
       saveDraftsToStorage(normalized);
     } catch {
       setDrafts([]);
@@ -579,7 +601,7 @@ export default function DashboardHomePage() {
   };
 
   /* ----------------------------- */
-  /* Drafts (enterprise UX) */
+  /* Drafts */
   /* ----------------------------- */
 
   const commitDrafts = (next: DraftItem[]) => {
@@ -603,6 +625,15 @@ export default function DashboardHomePage() {
       commitDrafts(next);
 
       setDraftsOpen(true);
+
+      // Step 3: unified outcome
+      setOutcome({
+        tone: "good",
+        title: "Saved for later",
+        body: "Your draft is safely stored on this device. You can load it anytime and send when you’re ready.",
+        meta: "Tip: pin your best templates to keep them at the top.",
+      });
+
       setLastResponse(null);
       setError(null);
       setStatus("Saved for later — your draft is safe.");
@@ -614,6 +645,11 @@ export default function DashboardHomePage() {
         outcome: "success",
       });
     } catch {
+      setOutcome({
+        tone: "bad",
+        title: "Couldn’t save that draft",
+        body: "Your text is still here — copy it somewhere safe, then try saving again.",
+      });
       setError("Couldn’t save the draft on this device. Copy the text for now.");
     }
   };
@@ -623,14 +659,26 @@ export default function DashboardHomePage() {
     setMessage("");
     setImageUrl("");
     setSelected({ ...DEFAULT_SELECTED });
+
     setStatus("New draft ready.");
     setCelebration(null);
     setError(null);
+
+    setOutcome({
+      tone: "neutral",
+      title: "New draft",
+      body: "Fresh canvas ready. Pick channels and send when you like.",
+    });
   };
 
   const loadDraft = (id: string) => {
     const d = drafts.find((x) => x.id === id);
     if (!d) {
+      setOutcome({
+        tone: "bad",
+        title: "Draft not found",
+        body: "That saved draft isn’t available anymore on this device.",
+      });
       setError("That draft could not be found.");
       return;
     }
@@ -644,6 +692,12 @@ export default function DashboardHomePage() {
     setCelebration(null);
     setError(null);
     setDraftsOpen(false);
+
+    setOutcome({
+      tone: "good",
+      title: "Draft loaded",
+      body: "You’re back in control — tweak it, then send when ready.",
+    });
   };
 
   const deleteDraft = (id: string) => {
@@ -657,6 +711,12 @@ export default function DashboardHomePage() {
 
     setStatus("Draft deleted.");
     setCelebration(null);
+
+    setOutcome({
+      tone: "neutral",
+      title: "Draft deleted",
+      body: "That draft has been removed from this device.",
+    });
   };
 
   const clearAllDrafts = () => {
@@ -668,10 +728,21 @@ export default function DashboardHomePage() {
 
     setStatus("All drafts cleared.");
     setCelebration(null);
+
+    setOutcome({
+      tone: "neutral",
+      title: "Drafts cleared",
+      body: "All saved drafts have been removed from this device.",
+    });
   };
 
   const loadMostRecentDraft = () => {
     if (!drafts.length) {
+      setOutcome({
+        tone: "warn",
+        title: "No saved drafts yet",
+        body: "Save your current message first, then you can load drafts here anytime.",
+      });
       setError("No saved drafts yet.");
       return;
     }
@@ -699,6 +770,13 @@ export default function DashboardHomePage() {
 
     const next = [copy, ...drafts].slice(0, MAX_DRAFTS);
     commitDrafts(next);
+
+    setOutcome({
+      tone: "good",
+      title: "Draft duplicated",
+      body: "Perfect — now you can make a variation without losing the original.",
+    });
+
     setStatus("Draft duplicated.");
     setCelebration(null);
   };
@@ -719,6 +797,11 @@ export default function DashboardHomePage() {
     if (!renameId) return;
     const name = renameValue.trim();
     if (!name) {
+      setOutcome({
+        tone: "warn",
+        title: "Draft name needed",
+        body: "Give the draft a short name so you can find it later.",
+      });
       setError("Draft name can’t be blank.");
       return;
     }
@@ -727,6 +810,12 @@ export default function DashboardHomePage() {
       d.id === renameId ? { ...d, title: name } : d
     );
     commitDrafts(next);
+
+    setOutcome({
+      tone: "good",
+      title: "Draft renamed",
+      body: "Nice — that will be much easier to find later.",
+    });
 
     setStatus("Draft renamed.");
     setCelebration(null);
@@ -750,7 +839,6 @@ export default function DashboardHomePage() {
       const bp = b.pinned ? 1 : 0;
       if (bp !== ap) return bp - ap;
 
-      // newest first
       const at = new Date(a.savedAt).getTime();
       const bt = new Date(b.savedAt).getTime();
       return bt - at;
@@ -790,7 +878,7 @@ export default function DashboardHomePage() {
   ]);
 
   const recommendedLabel = useMemo(() => {
-    switch (recommendedAction as any) {
+    switch (recommendedAction) {
       case "save_for_later":
         return "Save for later";
       case "retry_instagram":
@@ -805,7 +893,7 @@ export default function DashboardHomePage() {
   }, [recommendedAction]);
 
   /* ----------------------------- */
-  /* Posting logic */
+  /* Posting */
   /* ----------------------------- */
 
   const instagramImageGuard = async (platforms: ChannelId[]) => {
@@ -860,9 +948,29 @@ export default function DashboardHomePage() {
       const failed = getFailedPlatformsFromResponse(data);
       const succeeded = getSucceededPlatformsFromResponse(data);
 
+      // Step 3: unified outcome card
+      if (succeeded.length > 0 && failed.length > 0) {
+        setOutcome({
+          tone: "warn",
+          title: "Partially posted",
+          body:
+            `Some channels went through, and some need a quick follow-up.\n\n` +
+            `Posted: ${succeeded.join(", ")}\n` +
+            `Needs action: ${failed.join(", ")}`,
+          meta: "Use the recommended next step to finish cleanly.",
+        });
+      } else {
+        setOutcome({
+          tone: quotaMessage ? "warn" : "bad",
+          title: "Not posted yet",
+          body: friendly,
+          meta: "Use the recommended next step below to get back to momentum.",
+        });
+      }
+
       void callRootCoach({
         context: "quick_blast_failed",
-        userAction: `Quick Blast failed for: ${platforms.join(", ")}`,
+        userAction: `Quick Blast attempted: ${platforms.join(", ")}`,
         errorMessage: friendly,
         outcome:
           succeeded.length > 0 && failed.length > 0
@@ -877,6 +985,14 @@ export default function DashboardHomePage() {
 
     setError(null);
     setStatus(`Posted successfully to: ${platforms.join(", ")}`);
+
+    // Step 3: unified outcome
+    setOutcome({
+      tone: "good",
+      title: "Posted",
+      body: `Your message was sent to: ${platforms.join(", ")}.`,
+      meta: "Nice — keep the streak going.",
+    });
 
     if (lastAction?.kind === "self_heal") {
       const msg = lastAction.wasRecommended
@@ -894,7 +1010,7 @@ export default function DashboardHomePage() {
       setCelebration(null);
       void callRootCoach({
         context: "quick_blast_success",
-        userAction: `Quick Blast succeeded for: ${platforms.join(", ")}`,
+        userAction: `Quick Blast succeeded: ${platforms.join(", ")}`,
         outcome: "success",
         successPlatforms: platforms,
       });
@@ -905,11 +1021,18 @@ export default function DashboardHomePage() {
 
   const handleSend = async () => {
     setIsPosting(true);
+
     setStatus(null);
     setCelebration(null);
     setError(null);
     setCoachMessage(null);
     setLastResponse(null);
+
+    setOutcome({
+      tone: "neutral",
+      title: "Sending…",
+      body: "Hang tight — pushing your message out now.",
+    });
 
     setLastAction({
       kind: "send",
@@ -930,7 +1053,19 @@ export default function DashboardHomePage() {
       await instagramImageGuard(selectedChannels);
       await postQuickBlast(selectedChannels);
     } catch (e: any) {
-      setError((e?.message || "Something didn’t go through.").toString());
+      const msg = (e?.message || "Something didn’t go through.").toString();
+      setError(msg);
+
+      setOutcome((prev) => {
+        // if postQuickBlast already set an outcome, don’t overwrite it with a generic one
+        if (prev && prev.title !== "Sending…") return prev;
+        return {
+          tone: "bad",
+          title: "Not posted yet",
+          body: msg,
+          meta: "Use the recommended next step to recover cleanly.",
+        };
+      });
     } finally {
       setIsPosting(false);
     }
@@ -949,19 +1084,32 @@ export default function DashboardHomePage() {
     setError(null);
     setCoachMessage(null);
 
+    setOutcome({
+      tone: "neutral",
+      title: "Retrying…",
+      body: `Trying again for: ${failedPlatforms.join(", ")}.`,
+    });
+
     const label = "Retry failed only";
     setLastAction({
       kind: "self_heal",
       actionKey: "retry_failed",
       actionLabel: label,
-      wasRecommended: (recommendedAction as any) === "retry_failed",
+      wasRecommended: recommendedAction === "retry_failed",
     });
 
     try {
       await instagramImageGuard(failedPlatforms);
       await postQuickBlast(failedPlatforms);
     } catch (e: any) {
-      setError((e?.message || "Retry failed.").toString());
+      const msg = (e?.message || "Retry failed.").toString();
+      setError(msg);
+      setOutcome({
+        tone: "bad",
+        title: "Still not posted",
+        body: msg,
+        meta: "Try the recommended next step, or save for later.",
+      });
     } finally {
       setIsPosting(false);
     }
@@ -974,12 +1122,18 @@ export default function DashboardHomePage() {
     setError(null);
     setCoachMessage(null);
 
+    setOutcome({
+      tone: "neutral",
+      title: "Sending to other channels…",
+      body: "Skipping Instagram for now to keep momentum.",
+    });
+
     const label = "Post to other channels now";
     setLastAction({
       kind: "self_heal",
       actionKey: "skip_instagram",
       actionLabel: label,
-      wasRecommended: (recommendedAction as any) === "skip_instagram",
+      wasRecommended: recommendedAction === "skip_instagram",
     });
 
     try {
@@ -991,7 +1145,13 @@ export default function DashboardHomePage() {
       }
       await postQuickBlast(platforms);
     } catch (e: any) {
-      setError((e?.message || "Retry failed.").toString());
+      const msg = (e?.message || "Retry failed.").toString();
+      setError(msg);
+      setOutcome({
+        tone: "bad",
+        title: "Not posted yet",
+        body: msg,
+      });
     } finally {
       setIsPosting(false);
     }
@@ -1004,40 +1164,51 @@ export default function DashboardHomePage() {
     setError(null);
     setCoachMessage(null);
 
+    setOutcome({
+      tone: "neutral",
+      title: "Retrying Instagram…",
+      body: "If the image is the issue, swapping it usually fixes this.",
+    });
+
     const label = "Retry Instagram";
     setLastAction({
       kind: "self_heal",
       actionKey: "retry_instagram",
       actionLabel: label,
-      wasRecommended: (recommendedAction as any) === "retry_instagram",
+      wasRecommended: recommendedAction === "retry_instagram",
     });
 
     try {
       await instagramImageGuard(["instagram"]);
       await postQuickBlast(["instagram"]);
     } catch (e: any) {
-      setError((e?.message || "Retry failed.").toString());
+      const msg = (e?.message || "Retry failed.").toString();
+      setError(msg);
+      setOutcome({
+        tone: "bad",
+        title: "Instagram still needs a tweak",
+        body: msg,
+        meta: "Swap the image, then retry Instagram.",
+      });
     } finally {
       setIsPosting(false);
     }
   };
 
   const runRecommendedAction = async () => {
-    const a = recommendedAction as any;
-
-    if (a === "save_for_later") {
+    if (recommendedAction === "save_for_later") {
       saveDraft("recommended action");
       return;
     }
-    if (a === "retry_failed") {
+    if (recommendedAction === "retry_failed") {
       await retryFailedOnly();
       return;
     }
-    if (a === "retry_instagram") {
+    if (recommendedAction === "retry_instagram") {
       await retryInstagramOnly();
       return;
     }
-    if (a === "skip_instagram") {
+    if (recommendedAction === "skip_instagram") {
       await postOtherChannelsNow();
       return;
     }
@@ -1067,7 +1238,7 @@ export default function DashboardHomePage() {
   };
 
   /* ----------------------------- */
-  /* Coach parsing + fallback (enterprise-safe polish) */
+  /* Coach parsing + options */
   /* ----------------------------- */
 
   const coachParsed = useMemo(
@@ -1080,7 +1251,7 @@ export default function DashboardHomePage() {
 
     const optionA: CoachOption = {
       label: recommendedLabel ? recommendedLabel : "Save for later",
-      action: (recommendedAction as any) || "save_for_later",
+      action: recommendedAction || "save_for_later",
     };
 
     const optionB: CoachOption = {
@@ -1092,7 +1263,7 @@ export default function DashboardHomePage() {
   }, [coachParsed.options, recommendedLabel, recommendedAction]);
 
   /* ----------------------------- */
-  /* Premium UI helpers */
+  /* Premium UI components */
   /* ----------------------------- */
 
   const Pill = ({
@@ -1187,8 +1358,6 @@ export default function DashboardHomePage() {
     return Object.values(connected).filter(Boolean).length;
   }, [connected]);
 
-  const selectedConnectedCount = selectedChannels.length;
-
   const charCount = message.length;
   const charHint =
     charCount < 20
@@ -1235,13 +1404,8 @@ export default function DashboardHomePage() {
                 {connectedCount}
               </span>
             </Pill>
-            <Pill>
-              Selected:{" "}
-              <span className="ml-1 text-slate-50 font-semibold">
-                {selectedConnectedCount}
-              </span>
-            </Pill>
-            <Pill tone="neutral">{connectedHint}</Pill>
+            <Pill>{connectedHint}</Pill>
+            <Pill tone="neutral">{charHint}</Pill>
           </div>
         </div>
 
@@ -1284,7 +1448,7 @@ export default function DashboardHomePage() {
 
         {/* Main grid */}
         <div className="grid gap-6 lg:grid-cols-3">
-          {/* Left: Composer */}
+          {/* Left: Composer + Recovery */}
           <div className="lg:col-span-2 space-y-6">
             <GlassCard className="p-6 md:p-7">
               <div className="flex items-start justify-between gap-4">
@@ -1297,9 +1461,7 @@ export default function DashboardHomePage() {
                 </div>
 
                 <div className="flex flex-col items-end gap-2">
-                  <Pill tone="neutral">
-                    {charCount} chars · {charHint}
-                  </Pill>
+                  <Pill tone="neutral">{charCount} chars</Pill>
                   {organisationId ? (
                     <span className="text-[10px] text-slate-500">
                       Workspace loaded
@@ -1328,10 +1490,6 @@ export default function DashboardHomePage() {
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Write your Quick Blast…"
                 />
-                <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
-                  <span>Keep it simple. One clear idea.</span>
-                  <span>{charCount}</span>
-                </div>
               </div>
 
               {/* Media */}
@@ -1414,9 +1572,7 @@ export default function DashboardHomePage() {
               <div className="mt-6 flex flex-col sm:flex-row gap-3">
                 <PrimaryBtn
                   onClick={handleSend}
-                  disabled={
-                    !canSend || !selectedChannels.length || !organisationId
-                  }
+                  disabled={!canSend || !selectedChannels.length || !organisationId}
                 >
                   {isPosting ? "Sending…" : "Send Quick Blast"}
                 </PrimaryBtn>
@@ -1425,61 +1581,59 @@ export default function DashboardHomePage() {
                   Save for later
                 </SoftBtn>
 
-                <SoftBtn onClick={newDraft} disabled={isPosting}>
+                <SoftBtn onClick={() => {
+                  setMessage("");
+                  setImageUrl("");
+                  setSelected({ ...DEFAULT_SELECTED });
+                  setActiveDraftId(null);
+                  setOutcome({
+                    tone: "neutral",
+                    title: "New draft",
+                    body: "Fresh canvas ready. Pick channels and send when you like.",
+                  });
+                }} disabled={isPosting}>
                   New draft
                 </SoftBtn>
               </div>
-
-              {!selectedChannels.length && (
-                <div className="mt-3 text-[11px] text-amber-200">
-                  Select at least one connected channel to enable sending.
-                </div>
-              )}
-
-              {/* Feedback */}
-              {status && (
-                <div className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-50">
-                  {status}
-                </div>
-              )}
-
-              {celebration && (
-                <div className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-50">
-                  <span className="font-semibold">✓</span> {celebration}
-                </div>
-              )}
-
-              {error && (
-                <div className="mt-4 rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100 whitespace-pre-wrap">
-                  {error}
-                </div>
-              )}
             </GlassCard>
 
-            {/* Self-heal panel */}
-            {anyFailure && (
-              <GlassCard className="p-6 md:p-7">
+            {/* Step 3: Unified Outcome */}
+            {outcome && (
+              <div
+                className={[
+                  "rounded-3xl border p-6 md:p-7 whitespace-pre-wrap",
+                  toneStyles(outcome.tone),
+                ].join(" ")}
+              >
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h3 className="text-base font-semibold">Recovery</h3>
-                    <p className="mt-1 text-xs text-slate-300">
-                      One-click next step, plus alternatives if you want control.
-                    </p>
+                    <div className="text-base md:text-lg font-semibold">
+                      {outcome.title}
+                    </div>
+                    <div className="mt-2 text-sm leading-relaxed">
+                      {outcome.body}
+                    </div>
+                    {outcome.meta && (
+                      <div className="mt-3 text-xs text-slate-200/90">
+                        {outcome.meta}
+                      </div>
+                    )}
                   </div>
 
-                  {recommendedLabel && (
+                  {recommendedLabel && anyFailure && (
                     <div className="text-right">
-                      <div className="text-[11px] text-slate-400">
+                      <div className="text-[11px] text-slate-200/70">
                         Recommended
                       </div>
-                      <div className="text-sm font-semibold text-slate-50">
+                      <div className="mt-1 text-sm font-semibold text-slate-50">
                         {recommendedLabel}
                       </div>
                     </div>
                   )}
                 </div>
 
-                {recommendedAction && recommendedLabel && (
+                {/* Recommended action CTA */}
+                {anyFailure && recommendedAction && recommendedLabel && (
                   <button
                     type="button"
                     onClick={runRecommendedAction}
@@ -1506,6 +1660,20 @@ export default function DashboardHomePage() {
                     </div>
                   </button>
                 )}
+              </div>
+            )}
+
+            {/* Recovery buttons (still available) */}
+            {anyFailure && (
+              <GlassCard className="p-6 md:p-7">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-base font-semibold">Recovery</h3>
+                    <p className="mt-1 text-xs text-slate-300">
+                      One-click options if you want manual control.
+                    </p>
+                  </div>
+                </div>
 
                 <div className="mt-5 flex flex-wrap gap-2">
                   {failedPlatforms.length > 0 && (
@@ -1515,15 +1683,13 @@ export default function DashboardHomePage() {
                       disabled={isPosting}
                       className={[
                         "rounded-2xl border px-4 py-3 text-xs font-semibold transition disabled:opacity-60",
-                        (recommendedAction as any) === "retry_failed"
+                        recommendedAction === "retry_failed"
                           ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-50"
                           : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
                       ].join(" ")}
                     >
                       Retry failed only ({failedPlatforms.join(", ")})
-                      {(recommendedAction as any) === "retry_failed" && (
-                        <RecommendedBadge />
-                      )}
+                      {recommendedAction === "retry_failed" && <RecommendedBadge />}
                     </button>
                   )}
 
@@ -1534,15 +1700,13 @@ export default function DashboardHomePage() {
                       disabled={isPosting}
                       className={[
                         "rounded-2xl border px-4 py-3 text-xs font-semibold transition disabled:opacity-60",
-                        (recommendedAction as any) === "retry_instagram"
+                        recommendedAction === "retry_instagram"
                           ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-50"
                           : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
                       ].join(" ")}
                     >
                       Retry Instagram only
-                      {(recommendedAction as any) === "retry_instagram" && (
-                        <RecommendedBadge />
-                      )}
+                      {recommendedAction === "retry_instagram" && <RecommendedBadge />}
                     </button>
                   )}
 
@@ -1553,15 +1717,13 @@ export default function DashboardHomePage() {
                       disabled={isPosting}
                       className={[
                         "rounded-2xl border px-4 py-3 text-xs font-semibold transition disabled:opacity-60",
-                        (recommendedAction as any) === "skip_instagram"
+                        recommendedAction === "skip_instagram"
                           ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-50"
                           : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
                       ].join(" ")}
                     >
                       Post to other channels now (skip Instagram)
-                      {(recommendedAction as any) === "skip_instagram" && (
-                        <RecommendedBadge />
-                      )}
+                      {recommendedAction === "skip_instagram" && <RecommendedBadge />}
                     </button>
                   )}
 
@@ -1571,15 +1733,13 @@ export default function DashboardHomePage() {
                     disabled={isPosting}
                     className={[
                       "rounded-2xl border px-4 py-3 text-xs font-semibold transition disabled:opacity-60",
-                      (recommendedAction as any) === "save_for_later"
+                      recommendedAction === "save_for_later"
                         ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-50"
                         : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
                     ].join(" ")}
                   >
                     Save for later
-                    {(recommendedAction as any) === "save_for_later" && (
-                      <RecommendedBadge />
-                    )}
+                    {recommendedAction === "save_for_later" && <RecommendedBadge />}
                   </button>
 
                   <button
@@ -1610,21 +1770,32 @@ export default function DashboardHomePage() {
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <SoftBtn onClick={() => saveDraft("drafts card")} disabled={!message.trim()}>
+                <SoftBtn
+                  onClick={() => saveDraft("drafts card")}
+                  disabled={!message.trim()}
+                >
                   Save current
                 </SoftBtn>
                 <SoftBtn onClick={loadMostRecentDraft} disabled={!drafts.length}>
                   Load most recent
                 </SoftBtn>
-                <SoftBtn onClick={newDraft} disabled={isPosting}>
-                  New draft
-                </SoftBtn>
-                <SoftBtn onClick={() => setDraftsOpen((v) => !v)} disabled={!drafts.length}>
+                <SoftBtn
+                  onClick={() => {
+                    setDraftsOpen((v) => !v);
+                    setOutcome({
+                      tone: "neutral",
+                      title: "Draft library",
+                      body: draftsOpen
+                        ? "Draft list hidden."
+                        : "Draft list shown. Load a draft or duplicate to create variations fast.",
+                    });
+                  }}
+                  disabled={!drafts.length}
+                >
                   {draftsOpen ? "Hide list" : "Show list"}
                 </SoftBtn>
               </div>
 
-              {/* Search */}
               <div className="mt-4">
                 <input
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
@@ -1632,9 +1803,6 @@ export default function DashboardHomePage() {
                   value={draftSearch}
                   onChange={(e) => setDraftSearch(e.target.value)}
                 />
-                <div className="mt-2 text-[11px] text-slate-400">
-                  Pinned drafts stay at the top.
-                </div>
               </div>
 
               {draftsOpen && (
@@ -1720,20 +1888,6 @@ export default function DashboardHomePage() {
                   )}
                 </div>
               )}
-
-              <div className="mt-4 flex items-center justify-between">
-                <div className="text-[11px] text-slate-400">
-                  Drafts are stored on this device for now.
-                </div>
-                <button
-                  type="button"
-                  onClick={clearAllDrafts}
-                  disabled={!drafts.length}
-                  className="text-xs text-slate-300 hover:text-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Clear all
-                </button>
-              </div>
             </GlassCard>
 
             {/* Coach */}
@@ -1743,7 +1897,7 @@ export default function DashboardHomePage() {
                   <div>
                     <h3 className="text-base font-semibold">Root Coach</h3>
                     <p className="mt-1 text-xs text-slate-300">
-                      Calm, plain-English guidance with two actions.
+                      Calm guidance with two in-app choices.
                     </p>
                   </div>
                   <Pill tone="good">Guided</Pill>
@@ -1773,7 +1927,7 @@ export default function DashboardHomePage() {
               </GlassCard>
             )}
 
-            {/* Admin / Technical */}
+            {/* Admin */}
             <GlassCard className="p-6">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1786,12 +1940,6 @@ export default function DashboardHomePage() {
                   {quotaMessage ? "Limited" : "Normal"}
                 </Pill>
               </div>
-
-              {quotaMessage && (
-                <div className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm text-amber-50 whitespace-pre-wrap">
-                  {quotaMessage}
-                </div>
-              )}
 
               {lastResponse ? (
                 <details className="mt-4">
