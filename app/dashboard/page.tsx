@@ -7,13 +7,16 @@ import React, { useEffect, useMemo, useState } from "react";
  * Root Health Ops — Dashboard Quick Blast
  * Phase 1:
  *  Step 1: Save for later ✅
- *  Step 2: Recommended action highlighting ✅ (big CTA)
- *  Step 3: Coach choices wired to real buttons ✅ (two option buttons)
+ *  Step 2: Recommended action highlighting ✅
+ *  Step 3: Polish ✅
+ *    - Saved drafts library (multiple drafts on this device)
+ *    - Coach choices always become real buttons (even if model forgets Option A/B)
+ *    - Recommended CTA stays top and obvious
  *
  * NOTE:
  * Some build environments aggressively narrow unions inside memo/switch blocks.
  * We intentionally widen a couple of comparisons/switches using `as any`
- * at the exact points TypeScript was previously rejecting "skip_instagram".
+ * at the exact points TypeScript previously rejected "skip_instagram".
  */
 
 /* ----------------------------- */
@@ -35,7 +38,8 @@ type RecommendedAction =
   | "save_for_later"
   | null;
 
-type DraftPayload = {
+type DraftItem = {
+  id: string;
   message: string;
   imageUrl: string;
   selected: Record<ChannelId, boolean>;
@@ -58,7 +62,9 @@ type CoachOption = {
 /* Constants */
 /* ----------------------------- */
 
-const DRAFT_KEY = "rh_ops_quick_blast_draft_v1";
+const DRAFTS_KEY = "rh_ops_quick_blast_drafts_v2";
+const LEGACY_DRAFT_KEY = "rh_ops_quick_blast_draft_v1"; // migrate if present
+const MAX_DRAFTS = 25;
 
 const CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
   { id: "facebook", label: "Facebook Page", dotClass: "bg-[#1877F2]" },
@@ -147,7 +153,9 @@ function detectConnectedPlatforms(payload: any) {
   return connected;
 }
 
-function loadImageDimensions(url: string): Promise<{ width: number; height: number }> {
+function loadImageDimensions(
+  url: string
+): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () =>
@@ -268,23 +276,30 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
 function deriveActionFromText(text: string): CoachOption["action"] {
   const s = (text || "").toLowerCase();
 
-  // strongest matches first
   if (s.includes("save")) return "save_for_later";
   if (s.includes("refresh")) return "refresh_connections";
   if (s.includes("retry") && s.includes("failed")) return "retry_failed";
   if (s.includes("retry") && s.includes("instagram")) return "retry_instagram";
-  if (s.includes("other channels") || (s.includes("skip") && s.includes("instagram")))
+  if (
+    s.includes("other channels") ||
+    (s.includes("skip") && s.includes("instagram"))
+  )
     return "skip_instagram";
 
-  // fallback if unclear
   return "save_for_later";
 }
 
-function parseCoachMessage(input: string | null): { body: string; options: CoachOption[] } {
+function parseCoachMessage(input: string | null): {
+  body: string;
+  options: CoachOption[];
+} {
   const raw = (input || "").trim();
   if (!raw) return { body: "", options: [] };
 
-  const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
 
   const options: CoachOption[] = [];
   const bodyLines: string[] = [];
@@ -307,8 +322,17 @@ function parseCoachMessage(input: string | null): { body: string; options: Coach
     bodyLines.push(line);
   }
 
-  // Keep exactly 2 if more appear for any reason
   return { body: bodyLines.join("\n"), options: options.slice(0, 2) };
+}
+
+function createDraftId() {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function formatDraftTitle(msg: string) {
+  const t = (msg || "").trim().replace(/\s+/g, " ");
+  if (!t) return "Untitled draft";
+  return t.length > 52 ? t.slice(0, 52) + "…" : t;
 }
 
 /* ----------------------------- */
@@ -357,8 +381,9 @@ export default function DashboardHomePage() {
   // Root Coach
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
-  // Draft
-  const [lastDraftSavedAt, setLastDraftSavedAt] = useState<string | null>(null);
+  // Drafts library (local device)
+  const [drafts, setDrafts] = useState<DraftItem[]>([]);
+  const [draftsOpen, setDraftsOpen] = useState(false);
 
   // Last action
   const [lastAction, setLastAction] = useState<RecoveryMeta>(null);
@@ -418,16 +443,75 @@ export default function DashboardHomePage() {
     }
   };
 
+  const loadDraftsFromStorage = () => {
+    try {
+      const raw = localStorage.getItem(DRAFTS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setDrafts(parsed);
+          return;
+        }
+      }
+      setDrafts([]);
+    } catch {
+      setDrafts([]);
+    }
+  };
+
+  const saveDraftsToStorage = (next: DraftItem[]) => {
+    try {
+      localStorage.setItem(DRAFTS_KEY, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  };
+
+  const migrateLegacyDraftIfNeeded = () => {
+    try {
+      const legacy = localStorage.getItem(LEGACY_DRAFT_KEY);
+      if (!legacy) return;
+
+      // If new drafts already exist, do nothing — we assume migration already happened.
+      const existing = localStorage.getItem(DRAFTS_KEY);
+      if (existing) {
+        localStorage.removeItem(LEGACY_DRAFT_KEY);
+        return;
+      }
+
+      const d = JSON.parse(legacy);
+      if (!d?.message) {
+        localStorage.removeItem(LEGACY_DRAFT_KEY);
+        return;
+      }
+
+      const migrated: DraftItem = {
+        id: createDraftId(),
+        message: String(d.message || ""),
+        imageUrl: String(d.imageUrl || ""),
+        selected: (d.selected ||
+          ({
+            facebook: true,
+            linkedin: false,
+            instagram: false,
+            threads: false,
+            tiktok: false,
+            reddit: false,
+          } as any)) as Record<ChannelId, boolean>,
+        savedAt: String(d.savedAt || new Date().toISOString()),
+      };
+
+      localStorage.setItem(DRAFTS_KEY, JSON.stringify([migrated]));
+      localStorage.removeItem(LEGACY_DRAFT_KEY);
+    } catch {
+      // ignore migration errors
+    }
+  };
+
   useEffect(() => {
     void refreshConnections();
-
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (raw) {
-        const d = JSON.parse(raw) as DraftPayload;
-        if (d?.savedAt) setLastDraftSavedAt(d.savedAt);
-      }
-    } catch {}
+    migrateLegacyDraftIfNeeded();
+    loadDraftsFromStorage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -455,18 +539,24 @@ export default function DashboardHomePage() {
   };
 
   /* ----------------------------- */
-  /* Phase 1 Step 1: Save for later */
+  /* Drafts (library) */
   /* ----------------------------- */
+
   const saveDraft = (reason?: string) => {
     try {
-      const payload: DraftPayload = {
+      const item: DraftItem = {
+        id: createDraftId(),
         message,
         imageUrl,
         selected,
         savedAt: new Date().toISOString(),
       };
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
-      setLastDraftSavedAt(payload.savedAt);
+
+      const next = [item, ...drafts].slice(0, MAX_DRAFTS);
+      setDrafts(next);
+      saveDraftsToStorage(next);
+
+      setDraftsOpen(true);
 
       setLastResponse(null);
       setError(null);
@@ -485,42 +575,49 @@ export default function DashboardHomePage() {
     }
   };
 
-  const loadDraft = () => {
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (!raw) {
-        setError("No saved draft found yet.");
-        return;
-      }
-      const d = JSON.parse(raw) as DraftPayload;
-      if (!d?.message) {
-        setError("Saved draft looks incomplete.");
-        return;
-      }
-      setMessage(d.message);
-      setImageUrl(d.imageUrl || "");
-      if (d.selected) setSelected(d.selected);
-      setLastDraftSavedAt(d.savedAt || null);
-      setStatus("Draft loaded.");
-      setCelebration(null);
-      setError(null);
-    } catch {
-      setError("Couldn’t load the saved draft.");
+  const loadDraft = (id: string) => {
+    const d = drafts.find((x) => x.id === id);
+    if (!d) {
+      setError("That draft could not be found.");
+      return;
     }
+
+    setMessage(d.message || "");
+    setImageUrl(d.imageUrl || "");
+    setSelected(d.selected);
+    setStatus("Draft loaded.");
+    setCelebration(null);
+    setError(null);
+    setDraftsOpen(false);
   };
 
-  const clearDraft = () => {
-    const ok = confirm("Clear the saved draft on this device?");
+  const deleteDraft = (id: string) => {
+    const ok = confirm("Delete this saved draft from this device?");
     if (!ok) return;
-    try {
-      localStorage.removeItem(DRAFT_KEY);
-      setLastDraftSavedAt(null);
-      setStatus("Saved draft cleared.");
-      setCelebration(null);
-      setError(null);
-    } catch {
-      setError("Couldn’t clear the saved draft.");
+
+    const next = drafts.filter((d) => d.id !== id);
+    setDrafts(next);
+    saveDraftsToStorage(next);
+    setStatus("Draft deleted.");
+    setCelebration(null);
+  };
+
+  const clearAllDrafts = () => {
+    const ok = confirm("Clear ALL saved drafts on this device?");
+    if (!ok) return;
+
+    setDrafts([]);
+    saveDraftsToStorage([]);
+    setStatus("All drafts cleared.");
+    setCelebration(null);
+  };
+
+  const loadMostRecentDraft = () => {
+    if (!drafts.length) {
+      setError("No saved drafts yet.");
+      return;
     }
+    loadDraft(drafts[0].id);
   };
 
   /* ----------------------------- */
@@ -553,7 +650,6 @@ export default function DashboardHomePage() {
     anyFailure,
   ]);
 
-  // Build-safe switch (prevents toolchain over-narrowing)
   const recommendedLabel = useMemo(() => {
     switch (recommendedAction as any) {
       case "save_for_later":
@@ -568,22 +664,6 @@ export default function DashboardHomePage() {
         return null;
     }
   }, [recommendedAction]);
-
-  const buttonClass = (isRecommended: boolean, tone: "primary" | "secondary") =>
-    [
-      "relative rounded-full px-4 py-2 text-xs font-semibold transition disabled:opacity-60 disabled:cursor-not-allowed",
-      isRecommended
-        ? "border border-emerald-400/70 bg-emerald-400/15 text-emerald-50 shadow-[0_0_0_1px_rgba(52,211,153,0.25)]"
-        : tone === "primary"
-        ? "bg-amber-400 text-slate-950"
-        : "border border-slate-600 bg-slate-900/80 text-slate-200 hover:border-slate-500",
-    ].join(" ");
-
-  const RecommendedPill = () => (
-    <span className="ml-2 inline-flex items-center rounded-full border border-emerald-400/60 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
-      Recommended
-    </span>
-  );
 
   /* ----------------------------- */
   /* Posting logic */
@@ -646,7 +726,9 @@ export default function DashboardHomePage() {
         userAction: `Quick Blast failed for: ${platforms.join(", ")}`,
         errorMessage: friendly,
         outcome:
-          succeeded.length > 0 && failed.length > 0 ? "partial_success" : "failed",
+          succeeded.length > 0 && failed.length > 0
+            ? "partial_success"
+            : "failed",
         failedPlatforms: failed,
         successPlatforms: succeeded,
       });
@@ -804,7 +886,6 @@ export default function DashboardHomePage() {
   const runRecommendedAction = async () => {
     const a = recommendedAction as any;
 
-    // Always safe: if recommended is "save_for_later"
     if (a === "save_for_later") {
       saveDraft("recommended action");
       return;
@@ -847,83 +928,48 @@ export default function DashboardHomePage() {
   };
 
   /* ----------------------------- */
-  /* Self-heal buttons */
-  /* ----------------------------- */
-
-  const selfHealButtons = useMemo(() => {
-    const items: {
-      key: string;
-      show: boolean;
-      label: string;
-      onClick: () => void;
-      tone: "primary" | "secondary";
-      recommended: boolean;
-    }[] = [];
-
-    const showRetryFailed = failedPlatforms.length > 0;
-    const igSelectedAndConnected = selectedChannels.includes("instagram");
-    const canSkipIg = selectedChannels.includes("instagram");
-
-    if (showRetryFailed) {
-      items.push({
-        key: "retry_failed",
-        show: true,
-        label: `Retry failed only (${failedPlatforms.join(", ")})`,
-        onClick: retryFailedOnly,
-        tone: "primary",
-        recommended: (recommendedAction as any) === "retry_failed",
-      });
-    }
-
-    if (igSelectedAndConnected) {
-      items.push({
-        key: "retry_instagram",
-        show: true,
-        label: "Retry Instagram only",
-        onClick: retryInstagramOnly,
-        tone: "secondary",
-        recommended: (recommendedAction as any) === "retry_instagram",
-      });
-    }
-
-    if (canSkipIg) {
-      items.push({
-        key: "skip_instagram",
-        show: true,
-        label: "Post to other channels now (skip Instagram)",
-        onClick: postOtherChannelsNow,
-        tone: "secondary",
-        recommended: (recommendedAction as any) === "skip_instagram",
-      });
-    }
-
-    items.push({
-      key: "save_for_later",
-      show: true,
-      label: "Save for later",
-      onClick: () => saveDraft("from self-heal panel"),
-      tone: "secondary",
-      recommended: (recommendedAction as any) === "save_for_later",
-    });
-
-    items.push({
-      key: "refresh",
-      show: true,
-      label: "Refresh connections",
-      onClick: refreshConnections,
-      tone: "secondary",
-      recommended: false,
-    });
-
-    items.sort((a, b) => Number(b.recommended) - Number(a.recommended));
-    return items;
-  }, [failedPlatforms, selectedChannels, recommendedAction]);
-
-  /* ----------------------------- */
-  /* Coach parsing (buttons) */
+  /* Coach parsing + fallback (polish) */
   /* ----------------------------- */
 
   const coachParsed = useMemo(() => parseCoachMessage(coachMessage), [coachMessage]);
+
+  const coachOptionsFinal: CoachOption[] = useMemo(() => {
+    // If the model followed the spec: use those options.
+    if (coachParsed.options.length === 2) return coachParsed.options;
+
+    // Otherwise: ALWAYS give 2 real buttons so user can act.
+    const optionA: CoachOption = {
+      label: recommendedLabel ? recommendedLabel : "Save for later",
+      action: (recommendedAction as any) || "save_for_later",
+    };
+
+    const optionB: CoachOption = {
+      label: "Refresh connections",
+      action: "refresh_connections",
+    };
+
+    return [optionA, optionB];
+  }, [coachParsed.options, recommendedLabel, recommendedAction]);
+
+  /* ----------------------------- */
+  /* UI styles */
+  /* ----------------------------- */
+
+  const buttonClass = (isRecommended: boolean, tone: "primary" | "secondary") =>
+    [
+      "relative rounded-full px-4 py-2 text-xs font-semibold transition disabled:opacity-60 disabled:cursor-not-allowed",
+      isRecommended
+        ? "border border-emerald-400/70 bg-emerald-400/15 text-emerald-50 shadow-[0_0_0_1px_rgba(52,211,153,0.25)]"
+        : tone === "primary"
+        ? "bg-amber-400 text-slate-950"
+        : "border border-slate-600 bg-slate-900/80 text-slate-200 hover:border-slate-500",
+    ].join(" ");
+
+  const RecommendedPill = () => (
+    <span className="ml-2 inline-flex items-center rounded-full border border-emerald-400/60 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
+      Recommended
+    </span>
+  );
 
   /* ----------------------------- */
   /* Render */
@@ -933,74 +979,143 @@ export default function DashboardHomePage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <h1 className="text-2xl font-semibold mb-4">Root Health Ops Dashboard</h1>
 
-      {/* Connections panel */}
-      <div className="max-w-3xl mb-4 rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
-        <div className="text-[11px] uppercase tracking-wide text-slate-400">
-          Connected platforms
-        </div>
-        <div className="text-xs text-slate-300 mt-1">{connectedHint}</div>
+      {/* Connections + Drafts panel */}
+      <div className="max-w-3xl mb-4 rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-slate-400">
+            Connected platforms
+          </div>
+          <div className="text-xs text-slate-300 mt-1">{connectedHint}</div>
 
-        <div className="text-xs text-slate-200 mt-2">
-          Detected connected:{" "}
-          <span className="text-slate-50 font-medium">
-            {detectedConnectedList || "(none detected)"}
-          </span>
-        </div>
-
-        <div className="text-xs text-slate-200 mt-2">
-          Workspace ID:{" "}
-          <span className="text-slate-50 font-medium">
-            {organisationId || "(loading…)"}
-          </span>
-        </div>
-
-        <div className="mt-3 flex gap-2 flex-wrap items-center">
-          <button
-            type="button"
-            onClick={refreshConnections}
-            className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
-          >
-            Refresh connections
-          </button>
-
-          <button
-            type="button"
-            onClick={loadDraft}
-            className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
-          >
-            Load saved draft
-          </button>
-
-          <button
-            type="button"
-            onClick={() => saveDraft("manual save")}
-            className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-100 hover:bg-emerald-500/20"
-          >
-            Save draft
-          </button>
-
-          <button
-            type="button"
-            onClick={clearDraft}
-            className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
-          >
-            Clear draft
-          </button>
-
-          {lastDraftSavedAt && (
-            <span className="text-[11px] text-slate-400 ml-1">
-              Draft saved: {new Date(lastDraftSavedAt).toLocaleString()}
+          <div className="text-xs text-slate-200 mt-2">
+            Detected connected:{" "}
+            <span className="text-slate-50 font-medium">
+              {detectedConnectedList || "(none detected)"}
             </span>
-          )}
+          </div>
 
-          <details className="ml-auto">
-            <summary className="text-xs text-slate-500 cursor-pointer">
-              Show raw connections (admin)
-            </summary>
-            <pre className="mt-2 text-[10px] whitespace-pre-wrap bg-black/40 border border-slate-800 rounded-xl p-2 max-h-[260px] overflow-auto text-slate-300">
-              {safeJson(redactVendorsDeep(rawSocialAccounts))}
-            </pre>
-          </details>
+          <div className="text-xs text-slate-200 mt-2">
+            Workspace ID:{" "}
+            <span className="text-slate-50 font-medium">
+              {organisationId || "(loading…)"}
+            </span>
+          </div>
+
+          <div className="mt-3 flex gap-2 flex-wrap items-center">
+            <button
+              type="button"
+              onClick={refreshConnections}
+              className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
+            >
+              Refresh connections
+            </button>
+
+            <details className="ml-auto">
+              <summary className="text-xs text-slate-500 cursor-pointer">
+                Show raw connections (admin)
+              </summary>
+              <pre className="mt-2 text-[10px] whitespace-pre-wrap bg-black/40 border border-slate-800 rounded-xl p-2 max-h-[260px] overflow-auto text-slate-300">
+                {safeJson(redactVendorsDeep(rawSocialAccounts))}
+              </pre>
+            </details>
+          </div>
+        </div>
+
+        {/* Drafts Library */}
+        <div className="rounded-2xl border border-slate-700 bg-slate-950/30 p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-[11px] uppercase tracking-wide text-slate-400">
+              Saved drafts (this device)
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setDraftsOpen((v) => !v)}
+              className="text-xs text-slate-300 hover:text-slate-100"
+            >
+              {draftsOpen ? "Hide" : "Show"} ({drafts.length})
+            </button>
+          </div>
+
+          <div className="mt-2 flex gap-2 flex-wrap items-center">
+            <button
+              type="button"
+              onClick={() => saveDraft("drafts panel")}
+              className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-100 hover:bg-emerald-500/20"
+            >
+              Save current draft
+            </button>
+
+            <button
+              type="button"
+              onClick={loadMostRecentDraft}
+              className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
+            >
+              Load most recent
+            </button>
+
+            <button
+              type="button"
+              onClick={clearAllDrafts}
+              className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
+            >
+              Clear all
+            </button>
+          </div>
+
+          {draftsOpen && (
+            <div className="mt-3 space-y-2">
+              {!drafts.length ? (
+                <div className="text-xs text-slate-400">
+                  No drafts yet. Save one and it will appear here.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {drafts.map((d) => (
+                    <div
+                      key={d.id}
+                      className="rounded-xl border border-slate-800 bg-black/20 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm text-slate-100 font-medium">
+                            {formatDraftTitle(d.message)}
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-1">
+                            Saved: {new Date(d.savedAt).toLocaleString()}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1">
+                            Channels:{" "}
+                            {Object.entries(d.selected)
+                              .filter(([, v]) => v)
+                              .map(([k]) => k)
+                              .join(", ") || "(none)"}
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 flex-wrap justify-end">
+                          <button
+                            type="button"
+                            onClick={() => loadDraft(d.id)}
+                            className="rounded-full bg-slate-100 text-slate-950 px-3 py-1.5 text-xs font-semibold hover:bg-white"
+                          >
+                            Load
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteDraft(d.id)}
+                            className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1112,7 +1227,7 @@ export default function DashboardHomePage() {
               )}
             </div>
 
-            {/* ✅ Step 2: Big recommended CTA */}
+            {/* Big recommended CTA */}
             {recommendedAction && recommendedLabel && (
               <button
                 type="button"
@@ -1138,20 +1253,81 @@ export default function DashboardHomePage() {
             )}
 
             <div className="flex flex-wrap gap-2">
-              {selfHealButtons
-                .filter((b) => b.show)
-                .map((b) => (
-                  <button
-                    key={b.key}
-                    type="button"
-                    onClick={b.onClick}
-                    disabled={isPosting}
-                    className={buttonClass(b.recommended, b.tone)}
-                  >
-                    {b.label}
-                    {b.recommended && <RecommendedPill />}
-                  </button>
-                ))}
+              {/* Keep small set - recommended pill highlights */}
+              {failedPlatforms.length > 0 && (
+                <button
+                  type="button"
+                  onClick={retryFailedOnly}
+                  disabled={isPosting}
+                  className={buttonClass(
+                    (recommendedAction as any) === "retry_failed",
+                    "primary"
+                  )}
+                >
+                  Retry failed only ({failedPlatforms.join(", ")})
+                  {(recommendedAction as any) === "retry_failed" && (
+                    <RecommendedPill />
+                  )}
+                </button>
+              )}
+
+              {selectedChannels.includes("instagram") && (
+                <button
+                  type="button"
+                  onClick={retryInstagramOnly}
+                  disabled={isPosting}
+                  className={buttonClass(
+                    (recommendedAction as any) === "retry_instagram",
+                    "secondary"
+                  )}
+                >
+                  Retry Instagram only
+                  {(recommendedAction as any) === "retry_instagram" && (
+                    <RecommendedPill />
+                  )}
+                </button>
+              )}
+
+              {selectedChannels.includes("instagram") && (
+                <button
+                  type="button"
+                  onClick={postOtherChannelsNow}
+                  disabled={isPosting}
+                  className={buttonClass(
+                    (recommendedAction as any) === "skip_instagram",
+                    "secondary"
+                  )}
+                >
+                  Post to other channels now (skip Instagram)
+                  {(recommendedAction as any) === "skip_instagram" && (
+                    <RecommendedPill />
+                  )}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => saveDraft("from self-heal panel")}
+                disabled={isPosting}
+                className={buttonClass(
+                  (recommendedAction as any) === "save_for_later",
+                  "secondary"
+                )}
+              >
+                Save for later
+                {(recommendedAction as any) === "save_for_later" && (
+                  <RecommendedPill />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={refreshConnections}
+                disabled={isPosting}
+                className={buttonClass(false, "secondary")}
+              >
+                Refresh connections
+              </button>
             </div>
           </div>
         )}
@@ -1163,17 +1339,16 @@ export default function DashboardHomePage() {
               Root Coach
             </div>
 
-            {/* Body */}
             {coachParsed.body && (
               <div className="text-sm text-sky-50 whitespace-pre-wrap">
                 {coachParsed.body}
               </div>
             )}
 
-            {/* ✅ Step 3: two real choice buttons */}
-            {coachParsed.options.length === 2 && (
+            {/* Always 2 buttons now */}
+            {coachOptionsFinal.length === 2 && (
               <div className="flex flex-col sm:flex-row gap-2">
-                {coachParsed.options.map((opt, idx) => (
+                {coachOptionsFinal.map((opt, idx) => (
                   <button
                     key={idx}
                     type="button"
