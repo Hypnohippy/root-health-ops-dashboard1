@@ -66,6 +66,10 @@ const PLATFORM_DOT: Record<InboxPlatform, string> = {
   unknown: "bg-slate-500",
 };
 
+// ✅ Internal only. We do NOT display this anywhere in the UI.
+// This matches the org you said is the correct legacy org.
+const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
+
 function safeDate(iso: string) {
   try {
     return new Date(iso).toLocaleString();
@@ -83,6 +87,7 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [pulling, setPulling] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -92,7 +97,9 @@ export default function ResponsesPage() {
 
   // UX controls
   const [query, setQuery] = useState("");
-  const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">("all");
+  const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">(
+    "all"
+  );
   const [statusFilter, setStatusFilter] = useState<InboxStatus | "all">("all");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -102,14 +109,30 @@ export default function ResponsesPage() {
     setError(null);
 
     try {
-      const res = await fetch("/api/responses/list", { method: "GET" });
-      const data: ApiResponse = await res.json().catch(() => ({ success: false }));
+      // We pass organisationId in case the API requires it later.
+      // If your current API ignores it, it won’t hurt anything.
+      const res = await fetch(
+        `/api/responses/list?organisationId=${encodeURIComponent(ORG_ID)}`,
+        { method: "GET" }
+      );
+      const data: ApiResponse = await res.json().catch(() => ({
+        success: false,
+      }));
 
       if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || `Failed to load inbox (HTTP ${res.status}).`);
+        throw new Error(
+          data?.error || `Failed to load inbox (HTTP ${res.status}).`
+        );
       }
 
-      setItems(Array.isArray(data?.items) ? data.items : []);
+      const nextItems = Array.isArray(data?.items) ? data.items : [];
+      setItems(nextItems);
+
+      // If the previously selected item no longer exists, deselect it.
+      if (selectedId && !nextItems.some((x) => x.id === selectedId)) {
+        setSelectedId(null);
+      }
+
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
     } catch (e: any) {
@@ -117,6 +140,7 @@ export default function ResponsesPage() {
       setItems([]);
       setNote(null);
       setConfigured(false);
+      setSelectedId(null);
     } finally {
       setLoading(false);
     }
@@ -131,15 +155,65 @@ export default function ResponsesPage() {
     }
   };
 
+  const pullLatest = async () => {
+    setPulling(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/responses/pull", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId: ORG_ID,
+          lastDays: 14,
+          limit: 50,
+        }),
+      });
+
+      const data: any = await res.json().catch(() => ({}));
+
+      if (!res.ok || data?.success === false) {
+        const details =
+          data?.error ||
+          data?.message ||
+          `Pull failed (HTTP ${res.status}).`;
+        throw new Error(
+          typeof details === "string" ? details : "Pull failed."
+        );
+      }
+
+      // Friendly note for user feedback
+      const pulled = Number(data?.totalUpserts || 0);
+      const pc = data?.platformCounts ? JSON.stringify(data.platformCounts) : "";
+      setNote(
+        pulled > 0
+          ? `Pulled ${pulled} new inbox item(s). ${pc ? `\n\nBreakdown: ${pc}` : ""}`
+          : "Pull complete — no new comments found (yet)."
+      );
+
+      // Reload list so items appear immediately
+      await load();
+    } catch (e: any) {
+      setError(
+        e?.message ||
+          "Could not pull latest comments. (If this keeps happening, it means the pull endpoint isn’t deployed yet.)"
+      );
+    } finally {
+      setPulling(false);
+    }
+  };
+
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
 
     return items.filter((it) => {
-      if (platformFilter !== "all" && it.platform !== platformFilter) return false;
+      if (platformFilter !== "all" && it.platform !== platformFilter)
+        return false;
       if (statusFilter !== "all" && it.status !== statusFilter) return false;
 
       if (!q) return true;
@@ -231,7 +305,9 @@ export default function ResponsesPage() {
         onClick={() => setSelectedId(it.id)}
         className={[
           "w-full text-left rounded-2xl border p-4 transition",
-          isSelected ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
+          isSelected
+            ? "border-emerald-300/30 bg-emerald-300/5"
+            : "border-white/10 bg-black/20 hover:bg-white/5",
         ].join(" ")}
       >
         <div className="flex items-center justify-between gap-3">
@@ -298,7 +374,8 @@ export default function ResponsesPage() {
               Responses
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              This is your inbox for comments, mentions, and messages — separate from Scheduled so we don’t mix planning with community management.
+              This is your inbox for comments, mentions, and messages — separate
+              from Scheduled so we don’t mix planning with community management.
             </p>
           </div>
 
@@ -310,8 +387,17 @@ export default function ResponsesPage() {
 
             <button
               type="button"
+              onClick={pullLatest}
+              disabled={pulling || loading || refreshing}
+              className="rounded-2xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
+            >
+              {pulling ? "Pulling…" : "Pull latest"}
+            </button>
+
+            <button
+              type="button"
               onClick={refresh}
-              disabled={refreshing}
+              disabled={refreshing || loading || pulling}
               className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
             >
               {refreshing ? "Refreshing…" : "Refresh"}
@@ -324,7 +410,8 @@ export default function ResponsesPage() {
             <div>
               <div className="text-base font-semibold">Search & filters</div>
               <div className="mt-1 text-xs text-slate-300">
-                Keep it simple for non-technical staff: find what needs action fast.
+                Keep it simple for non-technical staff: find what needs action
+                fast.
               </div>
             </div>
 
@@ -398,7 +485,8 @@ export default function ResponsesPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Reply</div>
               <div className="mt-1 text-xs text-slate-300">
-                We’ll enable sending replies once we wire the provider inbox endpoints. For now, this shows the selected item.
+                Next we enable sending replies. For now, this shows the selected
+                item.
               </div>
 
               {!selected ? (
@@ -413,7 +501,8 @@ export default function ResponsesPage() {
                         <span
                           className={[
                             "h-2 w-2 rounded-full",
-                            PLATFORM_DOT[selected.platform] || PLATFORM_DOT.unknown,
+                            PLATFORM_DOT[selected.platform] ||
+                              PLATFORM_DOT.unknown,
                             "shadow-[0_0_0_4px_rgba(255,255,255,0.06)]",
                           ].join(" ")}
                         />
@@ -421,7 +510,9 @@ export default function ResponsesPage() {
                           {PLATFORM_LABEL[selected.platform] || "Unknown"}
                         </div>
                       </div>
-                      <Pill tone={statusTone(selected.status)}>{selected.status}</Pill>
+                      <Pill tone={statusTone(selected.status)}>
+                        {selected.status}
+                      </Pill>
                     </div>
 
                     <div className="mt-2 text-[11px] text-slate-400">
@@ -443,7 +534,9 @@ export default function ResponsesPage() {
 
                     {selected.postText ? (
                       <div className="mt-3 text-[11px] text-slate-400 whitespace-pre-wrap">
-                        <span className="text-slate-300 font-semibold">Post context:</span>{" "}
+                        <span className="text-slate-300 font-semibold">
+                          Post context:
+                        </span>{" "}
                         {selected.postText}
                       </div>
                     ) : null}
@@ -478,7 +571,8 @@ export default function ResponsesPage() {
 
                   {!configured && (
                     <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100 whitespace-pre-wrap">
-                      Inbox is not connected yet. Next we’ll wire real inbox sources so items appear here and replies can be sent.
+                      Inbox is not connected yet. Use “Pull latest” to sync once
+                      the pull endpoint is deployed and wired.
                     </div>
                   )}
                 </div>
@@ -488,9 +582,9 @@ export default function ResponsesPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • No organisation IDs are shown.\n
-                • This is a separate inbox so staff don’t confuse “planning posts” with “responding”.\n
-                • Next step: permissions + audit trail (who replied, when).
+                • No organisation IDs are shown.{"\n"}• This is a separate inbox so
+                staff don’t confuse “planning posts” with “responding”.{"\n"}• Next
+                step: permissions + audit trail (who replied, when).
               </div>
             </GlassCard>
           </div>
