@@ -85,6 +85,26 @@ function nextSuggestedStatus(s: InboxStatus): InboxStatus {
   return "unread";
 }
 
+function normalizeExternalUrl(input: string | null | undefined): string | null {
+  const raw = typeof input === "string" ? input.trim() : "";
+  if (!raw) return null;
+
+  // Already absolute
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  // Protocol-relative
+  if (raw.startsWith("//")) return `https:${raw}`;
+
+  // Common “www.” or domain-only pastes
+  // e.g. "www.linkedin.com/..." or "linkedin.com/..." or "lnkd.in/..."
+  if (/^(www\.)/i.test(raw) || /^[a-z0-9.-]+\.[a-z]{2,}\/?/i.test(raw)) {
+    return `https://${raw}`;
+  }
+
+  // Otherwise, treat as invalid (prevents accidental navigation to your own site)
+  return null;
+}
+
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -258,6 +278,54 @@ export default function ResponsesPage() {
     </div>
   );
 
+  const PrimaryBtn = ({
+    children,
+    onClick,
+    disabled,
+    className = "",
+  }: {
+    children: React.ReactNode;
+    onClick: () => void;
+    disabled?: boolean;
+    className?: string;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        "inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow-[0_12px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+
+  const SoftBtn = ({
+    children,
+    onClick,
+    disabled,
+    className = "",
+  }: {
+    children: React.ReactNode;
+    onClick: () => void;
+    disabled?: boolean;
+    className?: string;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        "inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+
   const Row = ({ it }: { it: InboxItem }) => {
     const isSelected = it.id === selectedId;
     return (
@@ -331,6 +399,8 @@ export default function ResponsesPage() {
       const text = addText.trim();
       if (!text) throw new Error("Please paste the comment text.");
 
+      const permalinkNormalized = normalizeExternalUrl(addPermalink);
+
       const res = await fetch("/api/responses/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -339,11 +409,12 @@ export default function ResponsesPage() {
           platform: addPlatform,
           status: addStatus,
           authorName: addAuthor.trim() || null,
-          permalink: addPermalink.trim() || null,
+          permalink: permalinkNormalized,
           text,
           createdAt: new Date().toISOString(),
           raw: {
             source: "manual_capture",
+            permalinkOriginal: addPermalink.trim() || null,
           },
         }),
       });
@@ -358,7 +429,11 @@ export default function ResponsesPage() {
       setAddPermalink("");
       setAddOpen(false);
 
-      setNote("Saved to inbox. (Manual capture — provider sync is plan-gated.)");
+      setNote(
+        permalinkNormalized
+          ? "Saved to inbox."
+          : "Saved to inbox. (Tip: paste a full link like https://… so ‘Open on platform’ works.)"
+      );
       await load();
     } catch (e: any) {
       setError(e?.message || "Could not add inbox item.");
@@ -367,7 +442,10 @@ export default function ResponsesPage() {
     }
   };
 
-  const updateStatus = async (id: string, status: Exclude<InboxStatus, "unknown">) => {
+  const updateStatus = async (
+    id: string,
+    status: Exclude<InboxStatus, "unknown">
+  ) => {
     setError(null);
     setNote(null);
 
@@ -384,7 +462,9 @@ export default function ResponsesPage() {
 
       const data: any = await res.json().catch(() => ({}));
       if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || `Failed to update status (HTTP ${res.status}).`);
+        throw new Error(
+          data?.error || `Failed to update status (HTTP ${res.status}).`
+        );
       }
 
       setNote(`Updated status to: ${status}`);
@@ -394,53 +474,7 @@ export default function ResponsesPage() {
     }
   };
 
-  const PrimaryBtn = ({
-    children,
-    onClick,
-    disabled,
-    className = "",
-  }: {
-    children: React.ReactNode;
-    onClick: () => void;
-    disabled?: boolean;
-    className?: string;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={[
-        "inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow-[0_12px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </button>
-  );
-
-  const SoftBtn = ({
-    children,
-    onClick,
-    disabled,
-    className = "",
-  }: {
-    children: React.ReactNode;
-    onClick: () => void;
-    disabled?: boolean;
-    className?: string;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={[
-        "inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </button>
-  );
+  const selectedPermalink = normalizeExternalUrl(selected?.permalink || null);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -458,7 +492,8 @@ export default function ResponsesPage() {
               <div>
                 <div className="text-lg font-semibold">Add inbox item</div>
                 <div className="mt-1 text-xs text-slate-300">
-                  Manual capture (because provider responses are plan-gated). Paste the comment and optional link.
+                  Manual capture (provider responses are plan-gated). Paste the
+                  comment and (ideally) the direct link.
                 </div>
               </div>
               <SoftBtn onClick={() => setAddOpen(false)}>Close</SoftBtn>
@@ -516,14 +551,18 @@ export default function ResponsesPage() {
 
               <div>
                 <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                  Permalink (optional)
+                  Permalink (optional but recommended)
                 </div>
                 <input
                   className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none"
-                  placeholder="Paste the LinkedIn comment URL…"
+                  placeholder="Paste full link e.g. https://www.linkedin.com/…"
                   value={addPermalink}
                   onChange={(e) => setAddPermalink(e.target.value)}
                 />
+                <div className="mt-2 text-[11px] text-slate-400">
+                  If you paste “www.linkedin.com/…” we’ll auto-fix it to
+                  “https://…”.
+                </div>
               </div>
             </div>
 
@@ -540,10 +579,18 @@ export default function ResponsesPage() {
             </div>
 
             <div className="mt-4 flex gap-2">
-              <SoftBtn onClick={() => setAddOpen(false)} disabled={adding} className="flex-1">
+              <SoftBtn
+                onClick={() => setAddOpen(false)}
+                disabled={adding}
+                className="flex-1"
+              >
                 Cancel
               </SoftBtn>
-              <PrimaryBtn onClick={createManualItem} disabled={adding || !addText.trim()} className="flex-1">
+              <PrimaryBtn
+                onClick={createManualItem}
+                disabled={adding || !addText.trim()}
+                className="flex-1"
+              >
                 {adding ? "Saving…" : "Save to inbox"}
               </PrimaryBtn>
             </div>
@@ -558,8 +605,8 @@ export default function ResponsesPage() {
               Responses
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              This is your inbox for comments, mentions, and messages — separate
-              from Scheduled so we don’t mix planning with community management.
+              Inbox for comments and messages — separate from Scheduled so staff
+              don’t confuse “planning” with “responding”.
             </p>
           </div>
 
@@ -569,7 +616,10 @@ export default function ResponsesPage() {
             <Pill tone="warn">Needs reply: {counts.needs_reply}</Pill>
             <Pill tone="good">Replied: {counts.replied}</Pill>
 
-            <PrimaryBtn onClick={() => setAddOpen(true)} disabled={loading || refreshing}>
+            <PrimaryBtn
+              onClick={() => setAddOpen(true)}
+              disabled={loading || refreshing}
+            >
               Add item
             </PrimaryBtn>
 
@@ -584,7 +634,7 @@ export default function ResponsesPage() {
             <div>
               <div className="text-base font-semibold">Search & filters</div>
               <div className="mt-1 text-xs text-slate-300">
-                Find what needs action fast. (Provider sync will come later on paid plan.)
+                Provider inbox is plan-gated — manual capture keeps this enterprise-ready now.
               </div>
             </div>
 
@@ -618,7 +668,7 @@ export default function ResponsesPage() {
                 <option value="all">All statuses</option>
                 <option value="unread">Unread</option>
                 <option value="needs_reply">Needs reply</option>
-                <option value="replied">Replied</option>
+                <option value="replied">Replied</n</option>
                 <option value="archived">Archived</option>
               </select>
             </div>
@@ -658,7 +708,7 @@ export default function ResponsesPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Triage</div>
               <div className="mt-1 text-xs text-slate-300">
-                This is the enterprise-safe workflow: track what needs a reply, and what’s done.
+                Track what needs a reply, and what’s done.
               </div>
 
               {!selected ? (
@@ -681,7 +731,9 @@ export default function ResponsesPage() {
                           {PLATFORM_LABEL[selected.platform] || "Unknown"}
                         </div>
                       </div>
-                      <Pill tone={statusTone(selected.status)}>{selected.status}</Pill>
+                      <Pill tone={statusTone(selected.status)}>
+                        {selected.status}
+                      </Pill>
                     </div>
 
                     <div className="mt-2 text-[11px] text-slate-400">
@@ -698,16 +750,20 @@ export default function ResponsesPage() {
                       {selected.text}
                     </div>
 
-                    {selected.permalink ? (
+                    {selectedPermalink ? (
                       <div className="mt-3 text-[11px]">
                         <a
-                          href={selected.permalink}
+                          href={selectedPermalink}
                           target="_blank"
                           rel="noreferrer"
                           className="text-sky-300 hover:text-sky-200 underline"
                         >
                           Open on platform
                         </a>
+                      </div>
+                    ) : selected.permalink ? (
+                      <div className="mt-3 text-[11px] text-amber-200">
+                        Link looks incomplete. Edit the item and paste a full link starting with https://
                       </div>
                     ) : null}
                   </div>
@@ -729,13 +785,17 @@ export default function ResponsesPage() {
                       <SoftBtn onClick={() => updateStatus(selected.id, "unread")}>
                         Unread
                       </SoftBtn>
-                      <SoftBtn onClick={() => updateStatus(selected.id, "needs_reply")}>
+                      <SoftBtn
+                        onClick={() => updateStatus(selected.id, "needs_reply")}
+                      >
                         Needs reply
                       </SoftBtn>
                       <SoftBtn onClick={() => updateStatus(selected.id, "replied")}>
                         Replied
                       </SoftBtn>
-                      <SoftBtn onClick={() => updateStatus(selected.id, "archived")}>
+                      <SoftBtn
+                        onClick={() => updateStatus(selected.id, "archived")}
+                      >
                         Archived
                       </SoftBtn>
                     </div>
@@ -743,7 +803,7 @@ export default function ResponsesPage() {
 
                   {!configured && (
                     <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100 whitespace-pre-wrap">
-                      Provider responses are plan-gated. This inbox works today via manual capture, and later we can turn on automatic sync when you upgrade.
+                      Provider responses are plan-gated. This inbox works today via manual capture.
                     </div>
                   )}
                 </div>
