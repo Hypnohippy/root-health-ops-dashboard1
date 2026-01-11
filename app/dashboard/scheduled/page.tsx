@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 type ChannelId =
   | "facebook"
@@ -42,8 +41,7 @@ const DEFAULT_SELECTED: Record<ChannelId, boolean> = {
   reddit: false,
 };
 
-// ✅ Your confirmed correct org.
-// This stays INTERNAL and is not shown to customers.
+// ✅ Your confirmed correct org (internal only, never displayed to customers)
 const LEGACY_ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
 
 function detectConnectedPlatforms(payload: any) {
@@ -96,20 +94,14 @@ function prettyPlatforms(list: any) {
 }
 
 export default function ScheduledPage() {
-  const searchParams = useSearchParams();
-  const debug = searchParams?.get("debug") === "1";
-
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // Connections / org (internal)
+  // Connections (safe UI info, no org ids shown)
   const [connectedHint, setConnectedHint] = useState<string>("Loading connections…");
-  const [rawSocialAccounts, setRawSocialAccounts] = useState<any>(null);
-  const [organisationIdFromApi, setOrganisationIdFromApi] = useState<string | null>(null);
-
   const [connected, setConnected] = useState<Record<ChannelId, boolean>>({
     facebook: false,
     linkedin: false,
@@ -130,10 +122,6 @@ export default function ScheduledPage() {
     ...DEFAULT_SELECTED,
   });
 
-  // ✅ We now treat LEGACY_ORG_ID as the current org for this workspace UI,
-  // and we DO NOT show org IDs to customers.
-  const orgForThisWorkspace = LEGACY_ORG_ID;
-
   const connectedCount = useMemo(
     () => Object.values(connected).filter(Boolean).length,
     [connected]
@@ -150,26 +138,20 @@ export default function ScheduledPage() {
       const res = await fetch("/api/social-accounts", { method: "GET" });
       const data = await res.json().catch(() => null);
 
-      setRawSocialAccounts(data);
       setConnectedHint(res.ok ? "Loaded from connections" : `HTTP ${res.status}`);
-
-      setOrganisationIdFromApi(
-        typeof data?.organisationId === "string" ? data.organisationId : null
-      );
-
       setConnected(detectConnectedPlatforms(data));
     } catch (e: any) {
       setConnectedHint(e?.message || "Failed to load connections");
     }
   };
 
-  const loadScheduled = async (orgId: string) => {
+  const loadScheduled = async () => {
     setLoading(true);
     setError(null);
 
     try {
       const res = await fetch(
-        `/api/schedule/list?organisationId=${encodeURIComponent(orgId)}`,
+        `/api/schedule/list?organisationId=${encodeURIComponent(LEGACY_ORG_ID)}`,
         { cache: "no-store" }
       );
 
@@ -197,7 +179,7 @@ export default function ScheduledPage() {
     const boot = async () => {
       await refreshConnections();
       if (cancelled) return;
-      await loadScheduled(orgForThisWorkspace);
+      await loadScheduled();
     };
 
     void boot();
@@ -239,16 +221,17 @@ export default function ScheduledPage() {
     try {
       const trimmed = message.trim();
       if (!trimmed) throw new Error("Message is required.");
-      if (selectedChannels.length === 0) throw new Error("Select at least one connected channel.");
+      if (selectedChannels.length === 0) {
+        throw new Error("Select at least one connected channel.");
+      }
 
       const when = new Date(scheduledForLocal);
       if (Number.isNaN(when.getTime())) {
         throw new Error("Scheduled time is invalid. Please pick a valid date/time.");
       }
 
-      // ✅ Always schedule into the confirmed workspace org.
       const payload: any = {
-        organisationId: orgForThisWorkspace,
+        organisationId: LEGACY_ORG_ID,
         message: trimmed,
         platforms: selectedChannels,
         imageUrl: imageUrl.trim() || null,
@@ -275,7 +258,7 @@ export default function ScheduledPage() {
 
       setMessage("");
       setImageUrl("");
-      await loadScheduled(orgForThisWorkspace);
+      await loadScheduled();
     } catch (e: any) {
       setError(e?.message || "Could not schedule post.");
     } finally {
@@ -340,7 +323,7 @@ export default function ScheduledPage() {
               Scheduled
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Queue posts into Supabase with the same platform selector behaviour as Quick Blast.
+              Queue posts with the same platform selector behaviour as Quick Blast.
             </p>
           </div>
 
@@ -356,7 +339,7 @@ export default function ScheduledPage() {
               type="button"
               onClick={async () => {
                 await refreshConnections();
-                await loadScheduled(orgForThisWorkspace);
+                await loadScheduled();
               }}
               className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
             >
@@ -367,13 +350,11 @@ export default function ScheduledPage() {
 
         {/* Composer */}
         <GlassCard className="p-6 md:p-7">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold">Schedule a post</h2>
-              <p className="mt-1 text-xs text-slate-300">
-                Select channels (connected-aware). Only connected channels will dispatch.
-              </p>
-            </div>
+          <div>
+            <h2 className="text-lg font-semibold">Schedule a post</h2>
+            <p className="mt-1 text-xs text-slate-300">
+              Select channels (connected-aware). Only connected channels will dispatch.
+            </p>
           </div>
 
           <div className="mt-5 grid gap-5 lg:grid-cols-2">
@@ -581,41 +562,6 @@ export default function ScheduledPage() {
             )}
           </section>
         </div>
-
-        {/* Debug panel (only when you explicitly enable it) */}
-        {debug && (
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-base font-semibold">Debug (internal)</div>
-                <div className="mt-1 text-xs text-slate-300">
-                  Visible only with <span className="text-slate-200">?debug=1</span>
-                </div>
-              </div>
-              <Pill tone="warn">Do not demo</Pill>
-            </div>
-
-            <div className="mt-4 space-y-2 text-xs text-slate-300">
-              <div>
-                <span className="text-slate-200 font-semibold">orgForThisWorkspace:</span>{" "}
-                {orgForThisWorkspace}
-              </div>
-              <div>
-                <span className="text-slate-200 font-semibold">organisationIdFromApi:</span>{" "}
-                {organisationIdFromApi || "(none)"}
-              </div>
-            </div>
-
-            <details className="mt-4">
-              <summary className="cursor-pointer text-sm text-slate-200 hover:text-slate-50">
-                Show connections payload
-              </summary>
-              <pre className="mt-3 max-h-[320px] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-[10px] text-slate-200 whitespace-pre-wrap">
-                {JSON.stringify(rawSocialAccounts, null, 2)}
-              </pre>
-            </details>
-          </div>
-        )}
       </div>
     </div>
   );
