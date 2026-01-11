@@ -1458,6 +1458,144 @@ export default function DashboardHomePage() {
                   Save for later
                 </SoftBtn>
               </div>
+              {/* Saved Drafts (Phase 2 – Step 3) */}
+<div className="mt-5">
+  <div className="flex items-center justify-between gap-3">
+    <div>
+      <div className="text-[11px] uppercase tracking-wide text-slate-400">
+        Saved drafts
+      </div>
+      <div className="mt-1 text-xs text-slate-300">
+        Save ideas now, reuse them later. (Stored on this device.)
+      </div>
+    </div>
+
+    <div className="flex items-center gap-2">
+      <Pill>{drafts.length} saved</Pill>
+
+      <button
+        type="button"
+        onClick={() => setDraftsOpen((v) => !v)}
+        disabled={drafts.length === 0}
+        className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+      >
+        {draftsOpen ? "Hide" : "Show"}
+      </button>
+    </div>
+  </div>
+
+  {/* Search */}
+  <div className="mt-3">
+    <input
+      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
+      placeholder="Search drafts…"
+      value={draftSearch}
+      onChange={(e) => setDraftSearch(e.target.value)}
+    />
+  </div>
+
+  {/* Draft list */}
+  {draftsOpen && (
+    <div className="mt-3 space-y-2">
+      {sortedFilteredDrafts.length === 0 ? (
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+          No drafts found.
+        </div>
+      ) : (
+        sortedFilteredDrafts.map((d) => (
+          <div
+            key={d.id}
+            className={[
+              "rounded-2xl border bg-white/5 p-4 transition",
+              d.id === activeDraftId
+                ? "border-emerald-300/30"
+                : "border-white/10",
+            ].join(" ")}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <div className="truncate text-sm font-semibold text-slate-50">
+                    {d.title}
+                  </div>
+                  {d.pinned && <Pill tone="good">Pinned</Pill>}
+                </div>
+
+                <div className="mt-1 text-[11px] text-slate-400">
+                  Saved: {niceDate(d.savedAt)}
+                </div>
+
+                <div className="mt-2 text-[11px] text-slate-400 truncate">
+                  {(d.message || "").trim() || "(empty)"}
+                </div>
+
+                {/* Channel chips */}
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {(Object.keys(d.selected) as ChannelId[])
+                    .filter((k) => d.selected[k])
+                    .slice(0, 6)
+                    .map((k) => (
+                      <span
+                        key={k}
+                        className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-slate-200"
+                      >
+                        {k}
+                      </span>
+                    ))}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => togglePin(d.id)}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
+                >
+                  {d.pinned ? "Unpin" : "Pin"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => startRenameDraft(d.id)}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
+                >
+                  Rename
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => duplicateDraft(d.id)}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
+                >
+                  Duplicate
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => loadDraft(d.id)}
+                className="flex-1 rounded-2xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-white transition"
+              >
+                Load
+              </button>
+
+              <button
+                type="button"
+                onClick={() => deleteDraft(d.id)}
+                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  )}
+</div>
+
             </GlassCard>
 
             {/* Outcome card */}
