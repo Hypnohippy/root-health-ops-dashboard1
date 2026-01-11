@@ -78,24 +78,41 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
   return "neutral";
 }
 
+function nextSuggestedStatus(s: InboxStatus): InboxStatus {
+  if (s === "unread") return "needs_reply";
+  if (s === "needs_reply") return "replied";
+  if (s === "replied") return "archived";
+  return "unread";
+}
+
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [pulling, setPulling] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [configured, setConfigured] = useState<boolean>(false);
 
   const [items, setItems] = useState<InboxItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // UX controls
   const [query, setQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">(
     "all"
   );
   const [statusFilter, setStatusFilter] = useState<InboxStatus | "all">("all");
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Manual add form
+  const [addOpen, setAddOpen] = useState(false);
+  const [addPlatform, setAddPlatform] = useState<InboxPlatform>("linkedin");
+  const [addStatus, setAddStatus] = useState<Exclude<InboxStatus, "unknown">>(
+    "needs_reply"
+  );
+  const [addAuthor, setAddAuthor] = useState("");
+  const [addPermalink, setAddPermalink] = useState("");
+  const [addText, setAddText] = useState("");
+  const [adding, setAdding] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -145,52 +162,6 @@ export default function ResponsesPage() {
     }
   };
 
-  const pullLatest = async () => {
-    setPulling(true);
-    setError(null);
-
-    try {
-      const res = await fetch("/api/responses/pull", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          organisationId: ORG_ID,
-          lastDays: 60,
-          limit: 200,
-        }),
-      });
-
-      const data: any = await res.json().catch(() => ({}));
-
-      if (!res.ok || data?.success === false) {
-        const details =
-          data?.error ||
-          data?.message ||
-          `Pull failed (HTTP ${res.status}).`;
-        throw new Error(
-          typeof details === "string" ? details : "Pull failed."
-        );
-      }
-
-      const pulled = Number(data?.totalUpserts || 0);
-      const pc = data?.platformCounts ? JSON.stringify(data.platformCounts) : "";
-      setNote(
-        pulled > 0
-          ? `Pulled ${pulled} new inbox item(s). ${pc ? `\n\nBreakdown: ${pc}` : ""}`
-          : "Pull complete — no comments found in the last 60 days."
-      );
-
-      await load();
-    } catch (e: any) {
-      setError(
-        e?.message ||
-          "Could not pull latest comments. (If this keeps happening, it means the pull endpoint isn’t deployed yet.)"
-      );
-    } finally {
-      setPulling(false);
-    }
-  };
-
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -228,12 +199,14 @@ export default function ResponsesPage() {
       unread: 0,
       needs_reply: 0,
       replied: 0,
+      archived: 0,
     };
 
     for (const it of items) {
       if (it.status === "unread") c.unread++;
       if (it.status === "needs_reply") c.needs_reply++;
       if (it.status === "replied") c.replied++;
+      if (it.status === "archived") c.archived++;
     }
     return c;
   }, [items]);
@@ -322,6 +295,8 @@ export default function ResponsesPage() {
               ? "unread"
               : it.status === "replied"
               ? "replied"
+              : it.status === "archived"
+              ? "archived"
               : it.status}
           </Pill>
         </div>
@@ -347,6 +322,126 @@ export default function ResponsesPage() {
     );
   };
 
+  const createManualItem = async () => {
+    setAdding(true);
+    setError(null);
+    setNote(null);
+
+    try {
+      const text = addText.trim();
+      if (!text) throw new Error("Please paste the comment text.");
+
+      const res = await fetch("/api/responses/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId: ORG_ID,
+          platform: addPlatform,
+          status: addStatus,
+          authorName: addAuthor.trim() || null,
+          permalink: addPermalink.trim() || null,
+          text,
+          createdAt: new Date().toISOString(),
+          raw: {
+            source: "manual_capture",
+          },
+        }),
+      });
+
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.error || `Failed to add item (HTTP ${res.status}).`);
+      }
+
+      setAddText("");
+      setAddAuthor("");
+      setAddPermalink("");
+      setAddOpen(false);
+
+      setNote("Saved to inbox. (Manual capture — provider sync is plan-gated.)");
+      await load();
+    } catch (e: any) {
+      setError(e?.message || "Could not add inbox item.");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const updateStatus = async (id: string, status: Exclude<InboxStatus, "unknown">) => {
+    setError(null);
+    setNote(null);
+
+    try {
+      const res = await fetch("/api/responses/update-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId: ORG_ID,
+          id,
+          status,
+        }),
+      });
+
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.error || `Failed to update status (HTTP ${res.status}).`);
+      }
+
+      setNote(`Updated status to: ${status}`);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || "Could not update status.");
+    }
+  };
+
+  const PrimaryBtn = ({
+    children,
+    onClick,
+    disabled,
+    className = "",
+  }: {
+    children: React.ReactNode;
+    onClick: () => void;
+    disabled?: boolean;
+    className?: string;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        "inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow-[0_12px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+
+  const SoftBtn = ({
+    children,
+    onClick,
+    disabled,
+    className = "",
+  }: {
+    children: React.ReactNode;
+    onClick: () => void;
+    disabled?: boolean;
+    className?: string;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        "inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -354,6 +449,107 @@ export default function ResponsesPage() {
         <div className="absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-sky-500/10 blur-3xl" />
         <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-pink-500/10 blur-3xl" />
       </div>
+
+      {/* Manual add modal */}
+      {addOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-slate-950/80 backdrop-blur-xl p-5 shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">Add inbox item</div>
+                <div className="mt-1 text-xs text-slate-300">
+                  Manual capture (because provider responses are plan-gated). Paste the comment and optional link.
+                </div>
+              </div>
+              <SoftBtn onClick={() => setAddOpen(false)}>Close</SoftBtn>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                  Platform
+                </div>
+                <select
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none"
+                  value={addPlatform}
+                  onChange={(e) => setAddPlatform(e.target.value as any)}
+                >
+                  <option value="linkedin">LinkedIn</option>
+                  <option value="facebook">Facebook</option>
+                  <option value="instagram">Instagram</option>
+                  <option value="threads">Threads</option>
+                  <option value="tiktok">TikTok</option>
+                  <option value="reddit">Reddit</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                  Status
+                </div>
+                <select
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none"
+                  value={addStatus}
+                  onChange={(e) => setAddStatus(e.target.value as any)}
+                >
+                  <option value="unread">Unread</option>
+                  <option value="needs_reply">Needs reply</option>
+                  <option value="replied">Replied</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                  Author (optional)
+                </div>
+                <input
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none"
+                  placeholder="e.g. Jane Smith"
+                  value={addAuthor}
+                  onChange={(e) => setAddAuthor(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                  Permalink (optional)
+                </div>
+                <input
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none"
+                  placeholder="Paste the LinkedIn comment URL…"
+                  value={addPermalink}
+                  onChange={(e) => setAddPermalink(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                Comment text (required)
+              </div>
+              <textarea
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none min-h-[140px]"
+                placeholder="Paste the comment here…"
+                value={addText}
+                onChange={(e) => setAddText(e.target.value)}
+              />
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <SoftBtn onClick={() => setAddOpen(false)} disabled={adding} className="flex-1">
+                Cancel
+              </SoftBtn>
+              <PrimaryBtn onClick={createManualItem} disabled={adding || !addText.trim()} className="flex-1">
+                {adding ? "Saving…" : "Save to inbox"}
+              </PrimaryBtn>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
@@ -373,23 +569,13 @@ export default function ResponsesPage() {
             <Pill tone="warn">Needs reply: {counts.needs_reply}</Pill>
             <Pill tone="good">Replied: {counts.replied}</Pill>
 
-            <button
-              type="button"
-              onClick={pullLatest}
-              disabled={pulling || loading || refreshing}
-              className="rounded-2xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
-            >
-              {pulling ? "Pulling…" : "Pull latest (60d)"}
-            </button>
+            <PrimaryBtn onClick={() => setAddOpen(true)} disabled={loading || refreshing}>
+              Add item
+            </PrimaryBtn>
 
-            <button
-              type="button"
-              onClick={refresh}
-              disabled={refreshing || loading || pulling}
-              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
-            >
+            <SoftBtn onClick={refresh} disabled={refreshing || loading}>
               {refreshing ? "Refreshing…" : "Refresh"}
-            </button>
+            </SoftBtn>
           </div>
         </div>
 
@@ -398,8 +584,7 @@ export default function ResponsesPage() {
             <div>
               <div className="text-base font-semibold">Search & filters</div>
               <div className="mt-1 text-xs text-slate-300">
-                Keep it simple for non-technical staff: find what needs action
-                fast.
+                Find what needs action fast. (Provider sync will come later on paid plan.)
               </div>
             </div>
 
@@ -471,21 +656,96 @@ export default function ResponsesPage() {
 
           <div className="space-y-6">
             <GlassCard className="p-6">
-              <div className="text-base font-semibold">Reply</div>
+              <div className="text-base font-semibold">Triage</div>
               <div className="mt-1 text-xs text-slate-300">
-                Next we enable sending replies. For now, this shows the selected
-                item.
+                This is the enterprise-safe workflow: track what needs a reply, and what’s done.
               </div>
 
-              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                Select an item from the left to see details here.
-              </div>
+              {!selected ? (
+                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+                  Select an item from the left to see actions here.
+                </div>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={[
+                            "h-2 w-2 rounded-full",
+                            PLATFORM_DOT[selected.platform] || PLATFORM_DOT.unknown,
+                            "shadow-[0_0_0_4px_rgba(255,255,255,0.06)]",
+                          ].join(" ")}
+                        />
+                        <div className="text-sm font-semibold">
+                          {PLATFORM_LABEL[selected.platform] || "Unknown"}
+                        </div>
+                      </div>
+                      <Pill tone={statusTone(selected.status)}>{selected.status}</Pill>
+                    </div>
 
-              {!configured && (
-                <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100 whitespace-pre-wrap">
-                  Inbox is not connected yet. Use “Pull latest” to sync once the
-                  pull endpoint is deployed and your provider supports comment
-                  retrieval for your channels.
+                    <div className="mt-2 text-[11px] text-slate-400">
+                      {safeDate(selected.createdAt)}
+                      {selected.authorName ? (
+                        <>
+                          {" "}
+                          · <span className="text-slate-300">{selected.authorName}</span>
+                        </>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-3 text-sm whitespace-pre-wrap">
+                      {selected.text}
+                    </div>
+
+                    {selected.permalink ? (
+                      <div className="mt-3 text-[11px]">
+                        <a
+                          href={selected.permalink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sky-300 hover:text-sky-200 underline"
+                        >
+                          Open on platform
+                        </a>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-2">
+                    <PrimaryBtn
+                      onClick={() =>
+                        updateStatus(
+                          selected.id,
+                          nextSuggestedStatus(selected.status) as any
+                        )
+                      }
+                      disabled={selected.status === "unknown"}
+                    >
+                      Mark as: {nextSuggestedStatus(selected.status)}
+                    </PrimaryBtn>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <SoftBtn onClick={() => updateStatus(selected.id, "unread")}>
+                        Unread
+                      </SoftBtn>
+                      <SoftBtn onClick={() => updateStatus(selected.id, "needs_reply")}>
+                        Needs reply
+                      </SoftBtn>
+                      <SoftBtn onClick={() => updateStatus(selected.id, "replied")}>
+                        Replied
+                      </SoftBtn>
+                      <SoftBtn onClick={() => updateStatus(selected.id, "archived")}>
+                        Archived
+                      </SoftBtn>
+                    </div>
+                  </div>
+
+                  {!configured && (
+                    <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100 whitespace-pre-wrap">
+                      Provider responses are plan-gated. This inbox works today via manual capture, and later we can turn on automatic sync when you upgrade.
+                    </div>
+                  )}
                 </div>
               )}
             </GlassCard>
@@ -493,9 +753,7 @@ export default function ResponsesPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • No organisation IDs are shown.{"\n"}• This is a separate inbox so
-                staff don’t confuse “planning posts” with “responding”.{"\n"}• Next
-                step: permissions + audit trail (who replied, when).
+                • No organisation IDs are shown.{"\n"}• Inbox is separate from Scheduled (planning vs responding).{"\n"}• Next step: permissions + audit trail (who replied, when).
               </div>
             </GlassCard>
           </div>
