@@ -2,10 +2,15 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 /**
  * Root Health Ops — Dashboard Quick Blast
- * Phase 2 – Step 3: Enterprise-safe outcome panel + redacted admin view
+ * Phase 3: Enterprise readiness
+ * - Admin vs User view separation (dashboard-only via ?admin=1)
+ * - Calm status visibility (no scary details)
+ * - Graceful degradation under limits
+ * - Admin-only "Copy support details" (redacted)
  */
 
 type ChannelId =
@@ -58,6 +63,8 @@ type OutcomeCard = {
 const DRAFTS_KEY = "rh_ops_quick_blast_drafts_v2";
 const LEGACY_DRAFT_KEY = "rh_ops_quick_blast_draft_v1";
 const MAX_DRAFTS = 25;
+
+const EVER_POSTED_KEY = "rh_ops_quick_blast_ever_posted_v1";
 
 const CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
   { id: "facebook", label: "Facebook Page", dotClass: "bg-[#1877F2]" },
@@ -278,7 +285,10 @@ function deriveActionFromText(text: string): CoachOption["action"] {
   if (s.includes("refresh")) return "refresh_connections";
   if (s.includes("retry") && s.includes("failed")) return "retry_failed";
   if (s.includes("retry") && s.includes("instagram")) return "retry_instagram";
-  if (s.includes("other channels") || (s.includes("skip") && s.includes("instagram")))
+  if (
+    s.includes("other channels") ||
+    (s.includes("skip") && s.includes("instagram"))
+  )
     return "skip_instagram";
 
   return "save_for_later";
@@ -380,7 +390,25 @@ function toneStyles(tone: OutcomeTone) {
   }
 }
 
+async function copyToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      // fallback
+      (window as any).prompt("Copy this:", text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 export default function DashboardHomePage() {
+  const searchParams = useSearchParams();
+  const isAdmin = searchParams?.get("admin") === "1";
+
   const [message, setMessage] = useState(
     "Quick check-in from Root Health Ops Dashboard ✅"
   );
@@ -424,6 +452,8 @@ export default function DashboardHomePage() {
 
   const [lastAction, setLastAction] = useState<RecoveryMeta>(null);
 
+  const [everPosted, setEverPosted] = useState(false);
+
   const detectedConnectedList = useMemo(() => {
     return Object.entries(connected)
       .filter(([, v]) => v)
@@ -454,6 +484,15 @@ export default function DashboardHomePage() {
     () => userSafeQuotaMessage(lastResponse),
     [lastResponse]
   );
+
+  const limitedMode = Boolean(quotaMessage);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(EVER_POSTED_KEY);
+      setEverPosted(raw === "1");
+    } catch {}
+  }, []);
 
   useEffect(() => {
     if (!celebration) return;
@@ -670,7 +709,9 @@ export default function DashboardHomePage() {
   };
 
   const togglePin = (id: string) => {
-    const next = drafts.map((d) => (d.id === id ? { ...d, pinned: !d.pinned } : d));
+    const next = drafts.map((d) =>
+      d.id === id ? { ...d, pinned: !d.pinned } : d
+    );
     commitDrafts(next);
   };
 
@@ -724,7 +765,9 @@ export default function DashboardHomePage() {
       return;
     }
 
-    const next = drafts.map((d) => (d.id === renameId ? { ...d, title: name } : d));
+    const next = drafts.map((d) =>
+      d.id === renameId ? { ...d, title: name } : d
+    );
     commitDrafts(next);
 
     setOutcome({
@@ -776,7 +819,6 @@ export default function DashboardHomePage() {
   }, [error]);
 
   const recommendedAction = useMemo<RecommendedAction>(() => {
-
     if (quotaMessage) return "save_for_later";
     if (isInstagramImageProblem) return "retry_instagram";
     if (hadPartialSuccess && failedPlatforms.length > 0) return "retry_failed";
@@ -832,7 +874,8 @@ export default function DashboardHomePage() {
   const postQuickBlast = async (platforms: ChannelId[]) => {
     const trimmed = message.trim();
     if (!trimmed) throw new Error("Message is required.");
-    if (!organisationId) throw new Error("Workspace not loaded yet. Refresh and try again.");
+    if (!organisationId)
+      throw new Error("Workspace not loaded yet. Refresh and try again.");
     if (!platforms.length) throw new Error("Select at least one channel.");
 
     const res = await fetch("/api/social/quick-blast", {
@@ -880,7 +923,9 @@ export default function DashboardHomePage() {
         userAction: `Quick Blast attempted: ${platforms.join(", ")}`,
         errorMessage: friendly,
         outcome:
-          succeeded.length > 0 && failed.length > 0 ? "partial_success" : "failed",
+          succeeded.length > 0 && failed.length > 0
+            ? "partial_success"
+            : "failed",
         failedPlatforms: failed,
         successPlatforms: succeeded,
       });
@@ -888,6 +933,7 @@ export default function DashboardHomePage() {
       throw new Error(friendly);
     }
 
+    // success
     setError(null);
     setStatus(`Posted successfully to: ${platforms.join(", ")}`);
 
@@ -897,6 +943,11 @@ export default function DashboardHomePage() {
       body: `Your message was sent to: ${platforms.join(", ")}.`,
       meta: "Nice — keep the streak going.",
     });
+
+    try {
+      localStorage.setItem(EVER_POSTED_KEY, "1");
+      setEverPosted(true);
+    } catch {}
 
     if (lastAction?.kind === "self_heal") {
       const msg = lastAction.wasRecommended
@@ -1136,7 +1187,10 @@ export default function DashboardHomePage() {
     }
   };
 
-  const coachParsed = useMemo(() => parseCoachMessage(coachMessage), [coachMessage]);
+  const coachParsed = useMemo(
+    () => parseCoachMessage(coachMessage),
+    [coachMessage]
+  );
 
   const coachOptionsFinal: CoachOption[] = useMemo(() => {
     if (coachParsed.options.length === 2) return coachParsed.options;
@@ -1256,6 +1310,70 @@ export default function DashboardHomePage() {
       ? "A bit longer — still fine"
       : "Long — consider tightening";
 
+  // Phase 3 – Step 2: Calm status visibility
+  const statusTone: "good" | "warn" | "neutral" = limitedMode
+    ? "warn"
+    : connectedCount > 0
+    ? "good"
+    : "neutral";
+
+  const statusHeadline = limitedMode
+    ? "Limited right now"
+    : connectedCount > 0
+    ? "Ready to post"
+    : "Not ready yet";
+
+  const statusCopy = limitedMode
+    ? "You can keep working — save drafts now and post later when this clears."
+    : connectedCount > 0
+    ? "Pick channels, send a post, and keep your momentum going."
+    : "Connect at least one channel to start posting.";
+
+  // Phase 3 – Step 4: Admin support pack (redacted)
+  const supportPack = useMemo(() => {
+    const pack = {
+      timestamp: new Date().toISOString(),
+      organisationId,
+      connected,
+      selected,
+      selectedChannels,
+      limitedMode,
+      outcome,
+      error,
+      lastAction,
+      lastResponse: lastResponse ? redactVendorsDeep(lastResponse) : null,
+      connections: rawSocialAccounts ? redactVendorsDeep(rawSocialAccounts) : null,
+    };
+    return pack;
+  }, [
+    organisationId,
+    connected,
+    selected,
+    selectedChannels,
+    limitedMode,
+    outcome,
+    error,
+    lastAction,
+    lastResponse,
+    rawSocialAccounts,
+  ]);
+
+  // Phase 3 – Step 3: Graceful degradation for the main call-to-action
+  // If limitedMode is on, we gently steer people to "Save for later" instead of hammering send.
+  const primaryActionLabel = limitedMode
+    ? "Save for later (recommended)"
+    : isPosting
+    ? "Sending…"
+    : "Send Quick Blast";
+
+  const primaryActionClick = async () => {
+    if (limitedMode) {
+      saveDraft("limited mode");
+      return;
+    }
+    await handleSend();
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -1272,6 +1390,7 @@ export default function DashboardHomePage() {
                 Root Health Ops
               </h1>
               <Pill tone="good">Enterprise Beta</Pill>
+              {isAdmin && <Pill tone="warn">Admin mode</Pill>}
             </div>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               A calm, premium cockpit for social momentum. Send fast. Recover
@@ -1290,6 +1409,44 @@ export default function DashboardHomePage() {
             <Pill tone="neutral">{charHint}</Pill>
           </div>
         </div>
+
+        {/* Phase 3 – Status strip */}
+        <GlassCard className="p-5 md:p-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="text-lg font-semibold">{statusHeadline}</div>
+                <Pill tone={statusTone}>
+                  {limitedMode ? "Limited" : connectedCount > 0 ? "Ready" : "Setup"}
+                </Pill>
+              </div>
+              <div className="mt-2 text-sm text-slate-200/90 whitespace-pre-wrap">
+                {statusCopy}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Pill tone={drafts.length > 0 ? "good" : "neutral"}>
+                Drafts:{" "}
+                <span className="ml-1 text-slate-50 font-semibold">
+                  {drafts.length}
+                </span>
+              </Pill>
+              <Pill tone={everPosted ? "good" : "neutral"}>
+                First post:{" "}
+                <span className="ml-1 text-slate-50 font-semibold">
+                  {everPosted ? "Done" : "Not yet"}
+                </span>
+              </Pill>
+              <Pill tone={connectedCount > 0 ? "good" : "neutral"}>
+                Posting:{" "}
+                <span className="ml-1 text-slate-50 font-semibold">
+                  {limitedMode ? "Paused" : connectedCount > 0 ? "Available" : "Not ready"}
+                </span>
+              </Pill>
+            </div>
+          </div>
+        </GlassCard>
 
         {/* Rename modal */}
         {renameId && (
@@ -1448,154 +1605,153 @@ export default function DashboardHomePage() {
 
               <div className="mt-6 flex flex-col sm:flex-row gap-3">
                 <PrimaryBtn
-                  onClick={handleSend}
-                  disabled={!canSend || !selectedChannels.length || !organisationId}
+                  onClick={primaryActionClick}
+                  disabled={
+                    !canSend || !selectedChannels.length || !organisationId
+                  }
                 >
-                  {isPosting ? "Sending…" : "Send Quick Blast"}
+                  {primaryActionLabel}
                 </PrimaryBtn>
 
                 <SoftBtn onClick={() => saveDraft("manual")} disabled={!canSend}>
                   Save for later
                 </SoftBtn>
               </div>
-              {/* Saved Drafts (Phase 2 – Step 3) */}
-<div className="mt-5">
-  <div className="flex items-center justify-between gap-3">
-    <div>
-      <div className="text-[11px] uppercase tracking-wide text-slate-400">
-        Saved drafts
-      </div>
-      <div className="mt-1 text-xs text-slate-300">
-        Save ideas now, reuse them later. (Stored on this device.)
-      </div>
-    </div>
 
-    <div className="flex items-center gap-2">
-      <Pill>{drafts.length} saved</Pill>
-
-      <button
-        type="button"
-        onClick={() => setDraftsOpen((v) => !v)}
-        disabled={drafts.length === 0}
-        className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
-      >
-        {draftsOpen ? "Hide" : "Show"}
-      </button>
-    </div>
-  </div>
-
-  {/* Search */}
-  <div className="mt-3">
-    <input
-      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
-      placeholder="Search drafts…"
-      value={draftSearch}
-      onChange={(e) => setDraftSearch(e.target.value)}
-    />
-  </div>
-
-  {/* Draft list */}
-  {draftsOpen && (
-    <div className="mt-3 space-y-2">
-      {sortedFilteredDrafts.length === 0 ? (
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-          No drafts found.
-        </div>
-      ) : (
-        sortedFilteredDrafts.map((d) => (
-          <div
-            key={d.id}
-            className={[
-              "rounded-2xl border bg-white/5 p-4 transition",
-              d.id === activeDraftId
-                ? "border-emerald-300/30"
-                : "border-white/10",
-            ].join(" ")}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <div className="truncate text-sm font-semibold text-slate-50">
-                    {d.title}
+              {/* Saved drafts (inline) */}
+              <div className="mt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                      Saved drafts
+                    </div>
+                    <div className="mt-1 text-xs text-slate-300">
+                      Save ideas now, reuse them later. (Stored on this device.)
+                    </div>
                   </div>
-                  {d.pinned && <Pill tone="good">Pinned</Pill>}
+
+                  <div className="flex items-center gap-2">
+                    <Pill>{drafts.length} saved</Pill>
+
+                    <button
+                      type="button"
+                      onClick={() => setDraftsOpen((v) => !v)}
+                      disabled={drafts.length === 0}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                    >
+                      {draftsOpen ? "Hide" : "Show"}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="mt-1 text-[11px] text-slate-400">
-                  Saved: {niceDate(d.savedAt)}
+                <div className="mt-3">
+                  <input
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
+                    placeholder="Search drafts…"
+                    value={draftSearch}
+                    onChange={(e) => setDraftSearch(e.target.value)}
+                  />
                 </div>
 
-                <div className="mt-2 text-[11px] text-slate-400 truncate">
-                  {(d.message || "").trim() || "(empty)"}
-                </div>
+                {draftsOpen && (
+                  <div className="mt-3 space-y-2">
+                    {sortedFilteredDrafts.length === 0 ? (
+                      <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                        No drafts found.
+                      </div>
+                    ) : (
+                      sortedFilteredDrafts.map((d) => (
+                        <div
+                          key={d.id}
+                          className={[
+                            "rounded-2xl border bg-white/5 p-4 transition",
+                            d.id === activeDraftId
+                              ? "border-emerald-300/30"
+                              : "border-white/10",
+                          ].join(" ")}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <div className="truncate text-sm font-semibold text-slate-50">
+                                  {d.title}
+                                </div>
+                                {d.pinned && <Pill tone="good">Pinned</Pill>}
+                              </div>
 
-                {/* Channel chips */}
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {(Object.keys(d.selected) as ChannelId[])
-                    .filter((k) => d.selected[k])
-                    .slice(0, 6)
-                    .map((k) => (
-                      <span
-                        key={k}
-                        className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-slate-200"
-                      >
-                        {k}
-                      </span>
-                    ))}
-                </div>
+                              <div className="mt-1 text-[11px] text-slate-400">
+                                Saved: {niceDate(d.savedAt)}
+                              </div>
+
+                              <div className="mt-2 text-[11px] text-slate-400 truncate">
+                                {(d.message || "").trim() || "(empty)"}
+                              </div>
+
+                              <div className="mt-3 flex flex-wrap gap-1.5">
+                                {(Object.keys(d.selected) as ChannelId[])
+                                  .filter((k) => d.selected[k])
+                                  .slice(0, 6)
+                                  .map((k) => (
+                                    <span
+                                      key={k}
+                                      className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-slate-200"
+                                    >
+                                      {k}
+                                    </span>
+                                  ))}
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 justify-end">
+                              <button
+                                type="button"
+                                onClick={() => togglePin(d.id)}
+                                className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
+                              >
+                                {d.pinned ? "Unpin" : "Pin"}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => startRenameDraft(d.id)}
+                                className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
+                              >
+                                Rename
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => duplicateDraft(d.id)}
+                                className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
+                              >
+                                Duplicate
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => loadDraft(d.id)}
+                              className="flex-1 rounded-2xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-white transition"
+                            >
+                              Load
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => deleteDraft(d.id)}
+                              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
-
-              <div className="flex flex-wrap gap-2 justify-end">
-                <button
-                  type="button"
-                  onClick={() => togglePin(d.id)}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-                >
-                  {d.pinned ? "Unpin" : "Pin"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => startRenameDraft(d.id)}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-                >
-                  Rename
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => duplicateDraft(d.id)}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-                >
-                  Duplicate
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                onClick={() => loadDraft(d.id)}
-                className="flex-1 rounded-2xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-white transition"
-              >
-                Load
-              </button>
-
-              <button
-                type="button"
-                onClick={() => deleteDraft(d.id)}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        ))
-      )}
-    </div>
-  )}
-</div>
-
             </GlassCard>
 
             {/* Outcome card */}
@@ -1663,44 +1819,64 @@ export default function DashboardHomePage() {
               </div>
             )}
 
-            {/* Admin view */}
-            <GlassCard className="p-6">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-base font-semibold">Admin view</h3>
-                  <p className="mt-1 text-xs text-slate-300">
-                    Safe technical details (redacted).
-                  </p>
-                </div>
-                <Pill tone={quotaMessage ? "warn" : "neutral"}>
-                  {quotaMessage ? "Limited" : "Normal"}
-                </Pill>
-              </div>
+            {/* Admin view — ONLY in admin mode */}
+            {isAdmin && (
+              <GlassCard className="p-6">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold">Admin view</h3>
+                    <p className="mt-1 text-xs text-slate-300">
+                      Safe details (redacted). Normal users never see this.
+                    </p>
+                  </div>
 
-              {lastResponse ? (
+                  <div className="flex items-center gap-2">
+                    <Pill tone={quotaMessage ? "warn" : "neutral"}>
+                      {quotaMessage ? "Limited" : "Normal"}
+                    </Pill>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await copyToClipboard(
+                          safeJson(redactVendorsDeep(supportPack))
+                        );
+                        setStatus(
+                          ok ? "Support details copied." : "Couldn’t copy details."
+                        );
+                      }}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
+                    >
+                      Copy support details
+                    </button>
+                  </div>
+                </div>
+
+                {lastResponse ? (
+                  <details className="mt-4">
+                    <summary className="cursor-pointer text-sm text-slate-200 hover:text-slate-50">
+                      Show last response (redacted)
+                    </summary>
+                    <pre className="mt-3 max-h-[320px] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-[10px] text-slate-200 whitespace-pre-wrap">
+                      {safeJson(redactVendorsDeep(lastResponse))}
+                    </pre>
+                  </details>
+                ) : (
+                  <div className="mt-4 text-sm text-slate-400">
+                    No response yet — send a Quick Blast to see details here.
+                  </div>
+                )}
+
                 <details className="mt-4">
                   <summary className="cursor-pointer text-sm text-slate-200 hover:text-slate-50">
-                    Show last response (redacted)
+                    Show connections (redacted)
                   </summary>
                   <pre className="mt-3 max-h-[320px] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-[10px] text-slate-200 whitespace-pre-wrap">
-                    {safeJson(redactVendorsDeep(lastResponse))}
+                    {safeJson(redactVendorsDeep(rawSocialAccounts))}
                   </pre>
                 </details>
-              ) : (
-                <div className="mt-4 text-sm text-slate-400">
-                  No response yet — send a Quick Blast to see details here.
-                </div>
-              )}
-
-              <details className="mt-4">
-                <summary className="cursor-pointer text-sm text-slate-200 hover:text-slate-50">
-                  Show connections (redacted)
-                </summary>
-                <pre className="mt-3 max-h-[320px] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-[10px] text-slate-200 whitespace-pre-wrap">
-                  {safeJson(redactVendorsDeep(rawSocialAccounts))}
-                </pre>
-              </details>
-            </GlassCard>
+              </GlassCard>
+            )}
 
             {/* Coach */}
             {coachMessage && (
@@ -1730,8 +1906,47 @@ export default function DashboardHomePage() {
             )}
           </div>
 
-          {/* Right column (draft library) */}
+          {/* Right column */}
           <div className="space-y-6">
+            {/* Getting started checklist (quiet, enterprise-friendly) */}
+            <GlassCard className="p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold">Getting started</h3>
+                  <p className="mt-1 text-xs text-slate-300">
+                    Two minutes to feel fully set up.
+                  </p>
+                </div>
+                <Pill tone={connectedCount > 0 ? "good" : "neutral"}>
+                  {connectedCount > 0 ? "On track" : "Start here"}
+                </Pill>
+              </div>
+
+              <div className="mt-4 space-y-2 text-sm">
+                <ChecklistRow
+                  done={connectedCount > 0}
+                  label="Connect a channel"
+                  hint="Use Connect, then come back here."
+                />
+                <ChecklistRow
+                  done={drafts.length > 0}
+                  label="Save a draft"
+                  hint="Save a template you can reuse."
+                />
+                <ChecklistRow
+                  done={everPosted}
+                  label="Send your first post"
+                  hint="Start with one channel to build confidence."
+                />
+                <ChecklistRow
+                  done={Boolean(outcome && outcome.title === "Posted")}
+                  label="Build a small streak"
+                  hint="A few gentle posts beats perfection."
+                />
+              </div>
+            </GlassCard>
+
+            {/* Draft library card */}
             <GlassCard className="p-6">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1850,13 +2065,38 @@ export default function DashboardHomePage() {
                   )}
                 </div>
               )}
-
-              <div className="mt-4 text-[11px] text-slate-400">
-                Drafts are stored on this device. (Later we can add synced drafts per org.)
-              </div>
             </GlassCard>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ChecklistRow({
+  done,
+  label,
+  hint,
+}: {
+  done: boolean;
+  label: string;
+  hint: string;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/5 p-3">
+      <div
+        className={[
+          "mt-0.5 h-5 w-5 rounded-full border flex items-center justify-center text-[11px] font-bold",
+          done
+            ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
+            : "border-white/10 bg-white/5 text-slate-300",
+        ].join(" ")}
+      >
+        {done ? "✓" : "○"}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-slate-50">{label}</div>
+        <div className="mt-0.5 text-xs text-slate-300">{hint}</div>
       </div>
     </div>
   );
