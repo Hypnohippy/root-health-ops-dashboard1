@@ -5,10 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 
 /**
  * Root Health Ops — Dashboard Quick Blast
- * Phase 3 – Quota-aware enterprise UX polish:
- * - When quota hit (429 / code 106), do NOT suggest posting to other channels
- * - Clear “Monthly quota reached” messaging
- * - Disable Send while quota is active (Save remains available)
+ * Phase 2 – Step 3: Enterprise-safe outcome panel + redacted admin view
  */
 
 type ChannelId =
@@ -167,10 +164,6 @@ function loadImageDimensions(
   });
 }
 
-/**
- * ✅ QUOTA DETECTION (429 / code 106)
- * IMPORTANT: Quota blocks ALL posting, so do NOT suggest “try other channels”.
- */
 function userSafeQuotaMessage(payload: any): string | null {
   const status = payload?.status;
   const code = payload?.details?.code;
@@ -179,8 +172,7 @@ function userSafeQuotaMessage(payload: any): string | null {
   if (status === 429 || code === 106 || msg.includes("quota")) {
     return (
       "Posting is paused for this workspace right now.\n\n" +
-      "It looks like you’ve hit your monthly posting quota.\n\n" +
-      "Your draft is safe — save it for later, and you can send as soon as quota resets or your plan changes."
+      "Your draft is safe — save it for later, or post to the channels that are currently available."
     );
   }
   return null;
@@ -259,7 +251,7 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
       return (
         "You’re all good — nothing is broken.\n\n" +
         "This image is just outside Instagram’s preferred shape.\n\n" +
-        "Swap it for a square or portrait image, then retry Instagram."
+        "Swap it for a square or portrait image, then retry Instagram. If you want momentum now, send to the other channels and we’ll post to Instagram next."
       );
     }
 
@@ -425,193 +417,6 @@ export default function DashboardHomePage() {
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
   const [draftsOpen, setDraftsOpen] = useState(false);
 
-  const [draftSearch, setDraftSearch] = useState("");
-  const [renameId, setRenameId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [draftSearch, setDraftSearch] = useState("
 
-  const [lastAction, setLastAction] = useState<RecoveryMeta>(null);
-
-  const detectedConnectedList = useMemo(() => {
-    return Object.entries(connected)
-      .filter(([, v]) => v)
-      .map(([k]) => k)
-      .join(", ");
-  }, [connected]);
-
-  const selectedChannels = useMemo(() => {
-    return (Object.keys(selected) as ChannelId[]).filter(
-      (c) => selected[c] && connected[c]
-    );
-  }, [selected, connected]);
-
-  const failedPlatforms = useMemo(
-    () => getFailedPlatformsFromResponse(lastResponse),
-    [lastResponse]
-  );
-  const succeededPlatforms = useMemo(
-    () => getSucceededPlatformsFromResponse(lastResponse),
-    [lastResponse]
-  );
-
-  const anyFailure = Boolean(lastResponse && lastResponse?.success === false);
-  const hadPartialSuccess =
-    succeededPlatforms.length > 0 && failedPlatforms.length > 0;
-
-  const quotaMessage = useMemo(
-    () => userSafeQuotaMessage(lastResponse),
-    [lastResponse]
-  );
-
-  const quotaLocked = Boolean(quotaMessage);
-
-  useEffect(() => {
-    if (!celebration) return;
-    const t = setTimeout(() => setCelebration(null), 6500);
-    return () => clearTimeout(t);
-  }, [celebration]);
-
-  const refreshConnections = async () => {
-    try {
-      const res = await fetch("/api/social-accounts", { method: "GET" });
-      const data = await res.json().catch(() => null);
-
-      setRawSocialAccounts(data);
-      setConnectedHint(res.ok ? "Loaded from connections" : `HTTP ${res.status}`);
-
-      setOrganisationId(
-        typeof data?.organisationId === "string" ? data.organisationId : null
-      );
-
-      setConnected(detectConnectedPlatforms(data));
-    } catch (e: any) {
-      setConnectedHint(e?.message || "Failed to load connections");
-    }
-  };
-
-  const saveDraftsToStorage = (next: DraftItem[]) => {
-    try {
-      localStorage.setItem(DRAFTS_KEY, JSON.stringify(next));
-    } catch {}
-  };
-
-  const commitDrafts = (next: DraftItem[]) => {
-    setDrafts(next);
-    saveDraftsToStorage(next);
-  };
-
-  const loadDraftsFromStorage = () => {
-    try {
-      const raw = localStorage.getItem(DRAFTS_KEY);
-      if (!raw) {
-        setDrafts([]);
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        setDrafts([]);
-        return;
-      }
-      const normalized = parsed
-        .map(normalizeDraft)
-        .filter(Boolean) as DraftItem[];
-
-      setDrafts(normalized);
-      saveDraftsToStorage(normalized);
-    } catch {
-      setDrafts([]);
-    }
-  };
-
-  const migrateLegacyDraftIfNeeded = () => {
-    try {
-      const legacy = localStorage.getItem(LEGACY_DRAFT_KEY);
-      if (!legacy) return;
-
-      const existing = localStorage.getItem(DRAFTS_KEY);
-      if (existing) {
-        localStorage.removeItem(LEGACY_DRAFT_KEY);
-        return;
-      }
-
-      const d = JSON.parse(legacy);
-      if (!d?.message) {
-        localStorage.removeItem(LEGACY_DRAFT_KEY);
-        return;
-      }
-
-      const migrated = normalizeDraft({
-        id: createDraftId(),
-        title: formatDraftTitle(String(d.message || "")),
-        message: String(d.message || ""),
-        imageUrl: String(d.imageUrl || ""),
-        selected: d.selected || { ...DEFAULT_SELECTED },
-        savedAt: String(d.savedAt || new Date().toISOString()),
-        pinned: false,
-      });
-
-      const next = migrated ? [migrated] : [];
-      localStorage.setItem(DRAFTS_KEY, JSON.stringify(next));
-      localStorage.removeItem(LEGACY_DRAFT_KEY);
-    } catch {}
-  };
-
-  useEffect(() => {
-    void refreshConnections();
-    migrateLegacyDraftIfNeeded();
-    loadDraftsFromStorage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const toggle = (c: ChannelId) => {
-    setSelected((s) => ({ ...s, [c]: !s[c] }));
-  };
-
-  const callRootCoach = async (payload: {
-    context: string;
-    userAction: string;
-    errorMessage?: string;
-    outcome?: "success" | "failed" | "partial_success";
-    failedPlatforms?: ChannelId[];
-    successPlatforms?: ChannelId[];
-  }) => {
-    try {
-      const res = await fetch("/api/ai/root-coach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => null);
-      if (data?.coachMessage) setCoachMessage(String(data.coachMessage));
-    } catch {}
-  };
-
-  const saveDraft = (reason?: string) => {
-    try {
-      const item: DraftItem = {
-        id: createDraftId(),
-        title: formatDraftTitle(message),
-        message,
-        imageUrl,
-        selected,
-        savedAt: new Date().toISOString(),
-        pinned: false,
-      };
-
-      const next = [item, ...drafts].slice(0, MAX_DRAFTS);
-      commitDrafts(next);
-
-      setDraftsOpen(true);
-
-      setOutcome({
-        tone: "good",
-        title: "Saved for later",
-        body:
-          "Your draft is safely stored on this device. You can load it anytime and send when you’re ready.",
-        meta: "Tip: pin your best templates to keep them at the top.",
-      });
-
-      setLastResponse(null);
-      setError(null);
-      setStatus("Saved for later — your draft is safe.");
-      setCelebration("S
+                                                
