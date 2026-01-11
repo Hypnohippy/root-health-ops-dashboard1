@@ -19,21 +19,16 @@ type InboxItem = {
   platform: InboxPlatform;
   status: InboxStatus;
 
-  // Who/what
   authorName?: string | null;
   authorHandle?: string | null;
 
-  // What happened
   kind?: "comment" | "dm" | "mention" | "reaction" | "unknown";
   text: string;
 
-  // Link back to the native platform post/comment (if available)
   permalink?: string | null;
 
-  // Time
   createdAt: string;
 
-  // Optional context
   postText?: string | null;
   postId?: string | null;
 };
@@ -66,8 +61,7 @@ const PLATFORM_DOT: Record<InboxPlatform, string> = {
   unknown: "bg-slate-500",
 };
 
-// ✅ Internal only. We do NOT display this anywhere in the UI.
-// This matches the org you said is the correct legacy org.
+// Internal only. Not shown in UI.
 const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
 
 function safeDate(iso: string) {
@@ -95,7 +89,6 @@ export default function ResponsesPage() {
 
   const [items, setItems] = useState<InboxItem[]>([]);
 
-  // UX controls
   const [query, setQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">(
     "all"
@@ -109,8 +102,6 @@ export default function ResponsesPage() {
     setError(null);
 
     try {
-      // We pass organisationId in case the API requires it later.
-      // If your current API ignores it, it won’t hurt anything.
       const res = await fetch(
         `/api/responses/list?organisationId=${encodeURIComponent(ORG_ID)}`,
         { method: "GET" }
@@ -128,7 +119,6 @@ export default function ResponsesPage() {
       const nextItems = Array.isArray(data?.items) ? data.items : [];
       setItems(nextItems);
 
-      // If the previously selected item no longer exists, deselect it.
       if (selectedId && !nextItems.some((x) => x.id === selectedId)) {
         setSelectedId(null);
       }
@@ -165,8 +155,8 @@ export default function ResponsesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           organisationId: ORG_ID,
-          lastDays: 14,
-          limit: 50,
+          lastDays: 60,
+          limit: 200,
         }),
       });
 
@@ -182,16 +172,14 @@ export default function ResponsesPage() {
         );
       }
 
-      // Friendly note for user feedback
       const pulled = Number(data?.totalUpserts || 0);
       const pc = data?.platformCounts ? JSON.stringify(data.platformCounts) : "";
       setNote(
         pulled > 0
           ? `Pulled ${pulled} new inbox item(s). ${pc ? `\n\nBreakdown: ${pc}` : ""}`
-          : "Pull complete — no new comments found (yet)."
+          : "Pull complete — no comments found in the last 60 days."
       );
 
-      // Reload list so items appear immediately
       await load();
     } catch (e: any) {
       setError(
@@ -391,7 +379,7 @@ export default function ResponsesPage() {
               disabled={pulling || loading || refreshing}
               className="rounded-2xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
             >
-              {pulling ? "Pulling…" : "Pull latest"}
+              {pulling ? "Pulling…" : "Pull latest (60d)"}
             </button>
 
             <button
@@ -489,92 +477,15 @@ export default function ResponsesPage() {
                 item.
               </div>
 
-              {!selected ? (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                  Select an item from the left to see details here.
-                </div>
-              ) : (
-                <div className="mt-4 space-y-4">
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={[
-                            "h-2 w-2 rounded-full",
-                            PLATFORM_DOT[selected.platform] ||
-                              PLATFORM_DOT.unknown,
-                            "shadow-[0_0_0_4px_rgba(255,255,255,0.06)]",
-                          ].join(" ")}
-                        />
-                        <div className="text-sm font-semibold">
-                          {PLATFORM_LABEL[selected.platform] || "Unknown"}
-                        </div>
-                      </div>
-                      <Pill tone={statusTone(selected.status)}>
-                        {selected.status}
-                      </Pill>
-                    </div>
+              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+                Select an item from the left to see details here.
+              </div>
 
-                    <div className="mt-2 text-[11px] text-slate-400">
-                      {safeDate(selected.createdAt)}
-                      {selected.authorName || selected.authorHandle ? (
-                        <>
-                          {" "}
-                          ·{" "}
-                          <span className="text-slate-300">
-                            {selected.authorName || selected.authorHandle}
-                          </span>
-                        </>
-                      ) : null}
-                    </div>
-
-                    <div className="mt-3 text-sm whitespace-pre-wrap">
-                      {selected.text}
-                    </div>
-
-                    {selected.postText ? (
-                      <div className="mt-3 text-[11px] text-slate-400 whitespace-pre-wrap">
-                        <span className="text-slate-300 font-semibold">
-                          Post context:
-                        </span>{" "}
-                        {selected.postText}
-                      </div>
-                    ) : null}
-
-                    {selected.permalink ? (
-                      <div className="mt-3 text-[11px]">
-                        <a
-                          href={selected.permalink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sky-300 hover:text-sky-200 underline"
-                        >
-                          Open on platform
-                        </a>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <textarea
-                    disabled
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 placeholder:text-slate-500 outline-none opacity-70"
-                    placeholder="Reply sending is not enabled yet…"
-                  />
-
-                  <button
-                    type="button"
-                    disabled
-                    className="w-full rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 opacity-60 cursor-not-allowed"
-                  >
-                    Send reply (coming next)
-                  </button>
-
-                  {!configured && (
-                    <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100 whitespace-pre-wrap">
-                      Inbox is not connected yet. Use “Pull latest” to sync once
-                      the pull endpoint is deployed and wired.
-                    </div>
-                  )}
+              {!configured && (
+                <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100 whitespace-pre-wrap">
+                  Inbox is not connected yet. Use “Pull latest” to sync once the
+                  pull endpoint is deployed and your provider supports comment
+                  retrieval for your channels.
                 </div>
               )}
             </GlassCard>
