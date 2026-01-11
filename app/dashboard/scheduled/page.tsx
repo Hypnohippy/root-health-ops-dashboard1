@@ -41,6 +41,9 @@ const DEFAULT_SELECTED: Record<ChannelId, boolean> = {
   reddit: false,
 };
 
+// Your previous hardcoded org for safety / continuity (optional override)
+const LEGACY_ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
+
 function detectConnectedPlatforms(payload: any) {
   const connected: Record<ChannelId, boolean> = {
     facebook: false,
@@ -76,7 +79,6 @@ function detectConnectedPlatforms(payload: any) {
 }
 
 function toLocalInputValue(d: Date) {
-  // yyyy-MM-ddTHH:mm (local)
   const pad = (n: number) => String(n).padStart(2, "0");
   const yyyy = d.getFullYear();
   const mm = pad(d.getMonth() + 1);
@@ -103,6 +105,9 @@ export default function ScheduledPage() {
   const [rawSocialAccounts, setRawSocialAccounts] = useState<any>(null);
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
+  // IMPORTANT: org to VIEW (can override)
+  const [orgToView, setOrgToView] = useState<string>(""); // filled after connections load
+
   const [connected, setConnected] = useState<Record<ChannelId, boolean>>({
     facebook: false,
     linkedin: false,
@@ -116,7 +121,7 @@ export default function ScheduledPage() {
   const [message, setMessage] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [scheduledForLocal, setScheduledForLocal] = useState<string>(() => {
-    const d = new Date(Date.now() + 60 * 60 * 1000); // +1 hour
+    const d = new Date(Date.now() + 60 * 60 * 1000);
     return toLocalInputValue(d);
   });
   const [selected, setSelected] = useState<Record<ChannelId, boolean>>({
@@ -142,13 +147,26 @@ export default function ScheduledPage() {
       setRawSocialAccounts(data);
       setConnectedHint(res.ok ? "Loaded from connections" : `HTTP ${res.status}`);
 
-      setOrganisationId(
-        typeof data?.organisationId === "string" ? data.organisationId : null
-      );
+      const orgId =
+        typeof data?.organisationId === "string" ? data.organisationId : null;
 
+      setOrganisationId(orgId);
       setConnected(detectConnectedPlatforms(data));
+
+      // Set default orgToView if not set yet
+      setOrgToView((prev) => {
+        const trimmed = (prev || "").trim();
+        if (trimmed) return trimmed;
+        if (orgId) return orgId;
+        return LEGACY_ORG_ID; // fallback so you can still view legacy data immediately
+      });
+
+      return orgId;
     } catch (e: any) {
       setConnectedHint(e?.message || "Failed to load connections");
+      // fallback if connections fail
+      setOrgToView((prev) => (prev?.trim() ? prev : LEGACY_ORG_ID));
+      return null;
     }
   };
 
@@ -174,6 +192,7 @@ export default function ScheduledPage() {
       setRows(items);
     } catch (e: any) {
       setError(e?.message || "Could not load scheduled posts.");
+      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -183,35 +202,16 @@ export default function ScheduledPage() {
     let cancelled = false;
 
     const boot = async () => {
-      await refreshConnections();
+      const orgId = await refreshConnections();
+      const initialOrg = (orgId || orgToView || LEGACY_ORG_ID).trim();
 
-      // After refreshConnections, organisationId state may not be set yet (async).
-      // So we read from the response again by calling /api/social-accounts once more safely.
-      // This keeps behaviour deterministic for non-coders.
-      try {
-        const res = await fetch("/api/social-accounts", { method: "GET" });
-        const data = await res.json().catch(() => null);
-        const orgId =
-          typeof data?.organisationId === "string" ? data.organisationId : null;
+      if (cancelled) return;
 
-        if (!cancelled) {
-          setRawSocialAccounts(data);
-          setOrganisationId(orgId);
-          setConnected(detectConnectedPlatforms(data));
-          setConnectedHint(res.ok ? "Loaded from connections" : `HTTP ${res.status}`);
-        }
-
-        if (orgId && !cancelled) {
-          await loadScheduled(orgId);
-        } else if (!cancelled) {
-          setLoading(false);
-          setError("Workspace not loaded yet. Please refresh connections.");
-        }
-      } catch (e: any) {
-        if (!cancelled) {
-          setLoading(false);
-          setError(e?.message || "Workspace not loaded yet.");
-        }
+      if (initialOrg) {
+        await loadScheduled(initialOrg);
+      } else {
+        setLoading(false);
+        setError("Workspace not loaded yet. Please refresh connections.");
       }
     };
 
@@ -254,15 +254,15 @@ export default function ScheduledPage() {
     try {
       const trimmed = message.trim();
       if (!trimmed) throw new Error("Message is required.");
-      if (!organisationId) throw new Error("Workspace not loaded yet. Refresh connections.");
+
+      // For scheduling, we still use the authenticated org (organisationId) if available.
+      // This is the enterprise-safe behaviour.
+      if (!organisationId) {
+        throw new Error("Workspace not loaded yet. Refresh connections.");
+      }
+
       if (selectedChannels.length === 0) {
-        throw new Error(
-          "Select at least one connected channel.\n\n" +
-            `Detected connected: ${Object.entries(connected)
-              .filter(([, v]) => v)
-              .map(([k]) => k)
-              .join(", ") || "(none)"}`
-        );
+        throw new Error("Select at least one connected channel.");
       }
 
       const when = new Date(scheduledForLocal);
@@ -276,13 +276,10 @@ export default function ScheduledPage() {
         platforms: selectedChannels,
         imageUrl: imageUrl.trim() || null,
         scheduledFor: when.toISOString(),
-        // also include snake_case to be compatible with older handlers
         scheduled_for: when.toISOString(),
         image_url: imageUrl.trim() || null,
       };
 
-      // Assumption: you already have /api/schedule/create to insert into scheduled_posts.
-      // If it returns an error, we show it cleanly.
       const res = await fetch("/api/schedule/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -299,12 +296,12 @@ export default function ScheduledPage() {
         );
       }
 
-      // Reset composer (keep channels as-is for speed)
       setMessage("");
       setImageUrl("");
 
-      // Reload list
-      await loadScheduled(organisationId);
+      // After scheduling, refresh the list for whatever org you are viewing
+      const viewOrg = orgToView.trim() || organisationId;
+      await loadScheduled(viewOrg);
     } catch (e: any) {
       setError(e?.message || "Could not schedule post.");
     } finally {
@@ -354,31 +351,12 @@ export default function ScheduledPage() {
     );
   };
 
-  const PrimaryBtn = ({
-    children,
-    onClick,
-    disabled,
-  }: {
-    children: React.ReactNode;
-    onClick: () => void;
-    disabled?: boolean;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
-    >
-      {children}
-    </button>
-  );
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
         <div className="absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-sky-500/10 blur-3xl" />
-        <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-pink-500/10 blur-3xl" />
+        <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-sky-500/10 blur-3xl" />
       </div>
 
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
@@ -406,20 +384,68 @@ export default function ScheduledPage() {
           </div>
         </div>
 
+        {/* Org viewer control */}
+        <GlassCard className="p-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <div className="text-base font-semibold">Viewing scheduled posts for Org</div>
+              <div className="mt-1 text-xs text-slate-300">
+                If your list looks empty, it usually means we’re viewing a different org than where posts were created.
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+              <input
+                className="w-full sm:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
+                value={orgToView}
+                onChange={(e) => setOrgToView(e.target.value)}
+                placeholder="organisationId to view"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  await refreshConnections();
+                  const viewOrg = orgToView.trim() || organisationId || LEGACY_ORG_ID;
+                  await loadScheduled(viewOrg);
+                }}
+                className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
+              >
+                Reload
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setOrgToView(LEGACY_ORG_ID);
+                  await loadScheduled(LEGACY_ORG_ID);
+                }}
+                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
+              >
+                Use legacy org
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Pill tone="neutral">Auth org: {organisationId ? organisationId : "(none)"}</Pill>
+            <Pill tone="neutral">Viewing org: {orgToView.trim() ? orgToView.trim() : "(none)"}</Pill>
+          </div>
+        </GlassCard>
+
         {/* Composer */}
         <GlassCard className="p-6 md:p-7">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold">Schedule a post</h2>
               <p className="mt-1 text-xs text-slate-300">
-                Same channel picker rules as Quick Blast: select channels, only connected channels send.
+                Channels behave like Quick Blast. Scheduling uses the authenticated org (enterprise-safe).
               </p>
             </div>
             <button
               type="button"
               onClick={async () => {
                 await refreshConnections();
-                if (organisationId) await loadScheduled(organisationId);
+                const viewOrg = orgToView.trim() || organisationId || LEGACY_ORG_ID;
+                await loadScheduled(viewOrg);
               }}
               className="text-xs text-slate-300 hover:text-slate-50"
             >
@@ -493,7 +519,7 @@ export default function ScheduledPage() {
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => toggle(c.id)}
+                    onClick={() => setSelected((s) => ({ ...s, [c.id]: !s[c.id] }))}
                     className={[
                       "group inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-xs font-semibold transition",
                       isSelected
@@ -529,7 +555,8 @@ export default function ScheduledPage() {
           </div>
 
           <div className="mt-6 flex flex-col sm:flex-row gap-3">
-            <PrimaryBtn
+            <button
+              type="button"
               onClick={schedulePost}
               disabled={
                 saving ||
@@ -537,9 +564,10 @@ export default function ScheduledPage() {
                 message.trim().length === 0 ||
                 selectedChannels.length === 0
               }
+              className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
             >
               {saving ? "Scheduling…" : "Schedule post"}
-            </PrimaryBtn>
+            </button>
 
             <button
               type="button"
@@ -642,7 +670,7 @@ export default function ScheduledPage() {
               </div>
             </div>
             <Pill tone={organisationId ? "good" : "warn"}>
-              Org: {organisationId ? organisationId : "none"}
+              Auth org: {organisationId ? organisationId : "none"}
             </Pill>
           </div>
 
