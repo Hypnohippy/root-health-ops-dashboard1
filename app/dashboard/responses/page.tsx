@@ -89,19 +89,13 @@ function normalizeExternalUrl(input: string | null | undefined): string | null {
   const raw = typeof input === "string" ? input.trim() : "";
   if (!raw) return null;
 
-  // Already absolute
   if (/^https?:\/\//i.test(raw)) return raw;
-
-  // Protocol-relative
   if (raw.startsWith("//")) return `https:${raw}`;
 
-  // Common “www.” or domain-only pastes
-  // e.g. "www.linkedin.com/..." or "linkedin.com/..." or "lnkd.in/..."
   if (/^(www\.)/i.test(raw) || /^[a-z0-9.-]+\.[a-z]{2,}\/?/i.test(raw)) {
     return `https://${raw}`;
   }
 
-  // Otherwise, treat as invalid (prevents accidental navigation to your own site)
   return null;
 }
 
@@ -484,7 +478,6 @@ export default function ResponsesPage() {
         <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-pink-500/10 blur-3xl" />
       </div>
 
-      {/* Manual add modal */}
       {addOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-slate-950/80 backdrop-blur-xl p-5 shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
@@ -668,7 +661,7 @@ export default function ResponsesPage() {
                 <option value="all">All statuses</option>
                 <option value="unread">Unread</option>
                 <option value="needs_reply">Needs reply</option>
-                <option value="replied">Replied</n</option>
+                <option value="replied">Replied</option>
                 <option value="archived">Archived</option>
               </select>
             </div>
@@ -761,9 +754,10 @@ export default function ResponsesPage() {
                           Open on platform
                         </a>
                       </div>
-                    ) : selected.permalink ? (
+                    ) : selected?.permalink ? (
                       <div className="mt-3 text-[11px] text-amber-200">
-                        Link looks incomplete. Edit the item and paste a full link starting with https://
+                        Link looks incomplete. Paste a full link starting with
+                        https://
                       </div>
                     ) : null}
                   </div>
@@ -785,17 +779,13 @@ export default function ResponsesPage() {
                       <SoftBtn onClick={() => updateStatus(selected.id, "unread")}>
                         Unread
                       </SoftBtn>
-                      <SoftBtn
-                        onClick={() => updateStatus(selected.id, "needs_reply")}
-                      >
+                      <SoftBtn onClick={() => updateStatus(selected.id, "needs_reply")}>
                         Needs reply
                       </SoftBtn>
                       <SoftBtn onClick={() => updateStatus(selected.id, "replied")}>
                         Replied
                       </SoftBtn>
-                      <SoftBtn
-                        onClick={() => updateStatus(selected.id, "archived")}
-                      >
+                      <SoftBtn onClick={() => updateStatus(selected.id, "archived")}>
                         Archived
                       </SoftBtn>
                     </div>
