@@ -16,13 +16,6 @@ type ChannelId =
   | "tiktok"
   | "reddit";
 
-type RecommendedAction =
-  | "retry_failed"
-  | "retry_instagram"
-  | "skip_instagram"
-  | "save_for_later"
-  | null;
-
 type DraftItem = {
   id: string;
   title?: string;
@@ -31,18 +24,6 @@ type DraftItem = {
   selected: Record<ChannelId, boolean>;
   savedAt: string;
   pinned?: boolean;
-};
-
-type RecoveryMeta = {
-  kind: "self_heal" | "send";
-  actionKey: RecommendedAction;
-  actionLabel: string;
-  wasRecommended: boolean;
-} | null;
-
-type CoachOption = {
-  label: string;
-  action: RecommendedAction | "refresh_connections";
 };
 
 type OutcomeTone = "good" | "warn" | "bad" | "neutral";
@@ -347,10 +328,6 @@ export default function DashboardHomePage() {
     [lastResponse]
   );
 
-  const anyFailure = Boolean(lastResponse && lastResponse?.success === false);
-  const hadPartialSuccess =
-    succeededPlatforms.length > 0 && failedPlatforms.length > 0;
-
   const quotaMessage = useMemo(
     () => userSafeQuotaMessage(lastResponse),
     [lastResponse]
@@ -608,13 +585,6 @@ export default function DashboardHomePage() {
       tone: "neutral",
       title: "Sending…",
       body: "Hang tight — pushing your message out now.",
-    });
-
-    setLastAction({
-      kind: "send",
-      actionKey: null,
-      actionLabel: "Send Quick Blast",
-      wasRecommended: false,
     });
 
     try {
