@@ -19,26 +19,18 @@ type InboxItem = {
   platform: InboxPlatform;
   status: InboxStatus;
 
-  // Who/what
   authorName?: string | null;
   authorHandle?: string | null;
 
-  // What happened
   kind?: "comment" | "dm" | "mention" | "reaction" | "unknown";
   text: string;
 
-  // Link back to the native platform post/comment (if available)
   permalink?: string | null;
 
-  // Time
   createdAt: string;
 
-  // Optional context
   postText?: string | null;
   postId?: string | null;
-
-  // Optional reply link (if different from permalink)
-  replyUrl?: string | null;
 };
 
 type ApiResponse = {
@@ -83,6 +75,117 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
   return "neutral";
 }
 
+/**
+ * Lightweight “AI-style” reply drafter:
+ * - no paid provider inbox required
+ * - generates calm, brand-safe responses
+ * - avoids medical claims / personal data
+ */
+function draftReply({
+  platform,
+  authorName,
+  text,
+  postText,
+}: {
+  platform: InboxPlatform;
+  authorName?: string | null;
+  text: string;
+  postText?: string | null;
+}) {
+  const name = (authorName || "").trim();
+  const greeting = name ? `Hi ${name} — ` : "Thanks for this — ";
+
+  const t = (text || "").trim();
+  const tl = t.toLowerCase();
+
+  const isPraise =
+    tl.includes("love") ||
+    tl.includes("great") ||
+    tl.includes("amazing") ||
+    tl.includes("thank") ||
+    tl.includes("helpful") ||
+    tl.includes("brilliant");
+
+  const isQuestion = tl.includes("?") || tl.startsWith("how") || tl.startsWith("what") || tl.startsWith("why");
+
+  const isConcern =
+    tl.includes("struggle") ||
+    tl.includes("anxious") ||
+    tl.includes("anxiety") ||
+    tl.includes("panic") ||
+    tl.includes("depress") ||
+    tl.includes("ptsd") ||
+    tl.includes("stress") ||
+    tl.includes("overwhelm") ||
+    tl.includes("burnout");
+
+  const isNegative =
+    tl.includes("hate") ||
+    tl.includes("bad") ||
+    tl.includes("terrible") ||
+    tl.includes("worst") ||
+    tl.includes("scam") ||
+    tl.includes("fake") ||
+    tl.includes("useless");
+
+  const platformLine =
+    platform === "linkedin"
+      ? "If you’d like, I can share a quick example you can try this week."
+      : platform === "instagram" || platform === "threads"
+      ? "If you want, drop a “yes” and I’ll send a simple next step."
+      : "If you want, tell me a bit more and I’ll point you to a simple next step.";
+
+  const contextHint =
+    postText && postText.trim()
+      ? `\n\n(For context: this was in reply to your post about “${postText.trim().slice(0, 120)}${postText.trim().length > 120 ? "…" : ""}”)`
+      : "";
+
+  // Guardrails: no clinical advice, no diagnosis, no promises
+  if (isConcern) {
+    return (
+      `${greeting}I really appreciate you sharing that.\n\n` +
+      `A gentle next step is to pick one small thing you can do today — something you can repeat without pressure.\n\n` +
+      `${platformLine}\n\n` +
+      `If this feels urgent or you’re not safe, please reach out to local support services right away.` +
+      contextHint
+    );
+  }
+
+  if (isNegative) {
+    return (
+      `${greeting}I hear you.\n\n` +
+      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work for you and I’ll try to make it clearer or point you to something more useful.\n\n` +
+      `No pressure either way.` +
+      contextHint
+    );
+  }
+
+  if (isPraise) {
+    return (
+      `${greeting}that means a lot — thank you.\n\n` +
+      `What part resonated most for you? I’m shaping the next posts around what people find genuinely useful.\n\n` +
+      `${platformLine}` +
+      contextHint
+    );
+  }
+
+  if (isQuestion) {
+    return (
+      `${greeting}good question.\n\n` +
+      `A simple way to start is: choose one clear outcome (e.g., “feel calmer in 2 minutes”), then pick one repeatable action you can do daily.\n\n` +
+      `If you tell me your situation (work / study / home), I’ll tailor a short, practical version.` +
+      contextHint
+    );
+  }
+
+  // Neutral default
+  return (
+    `${greeting}thanks for taking the time to comment.\n\n` +
+    `If you tell me what you’re aiming for right now (more energy, less stress, better routine), I’ll suggest one small next step you can try.` +
+    contextHint
+  );
+}
+
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -93,10 +196,6 @@ export default function ResponsesPage() {
 
   const [items, setItems] = useState<InboxItem[]>([]);
 
-  // ✅ Enterprise-safe: orgId comes from the system, never hardcoded, never displayed
-  const [organisationId, setOrganisationId] = useState<string | null>(null);
-  const [workspaceHint, setWorkspaceHint] = useState<string>("Loading workspace…");
-
   // UX controls
   const [query, setQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">("all");
@@ -104,41 +203,24 @@ export default function ResponsesPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const resolveOrganisationId = async (): Promise<string> => {
-    const res = await fetch("/api/social-accounts", { method: "GET" });
-    const data: any = await res.json().catch(() => null);
+  // Reply drafting
+  const [replyDraft, setReplyDraft] = useState("");
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-    const org =
-      typeof data?.organisationId === "string" && data.organisationId.trim()
-        ? data.organisationId.trim()
-        : "";
-
-    if (!res.ok || !org) {
-      throw new Error("Workspace not loaded yet. Please refresh and try again.");
-    }
-
-    return org;
-  };
-
-  const loadInbox = async (orgId: string) => {
+  const load = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(
-        `/api/responses/list?organisationId=${encodeURIComponent(orgId)}`,
-        { method: "GET", cache: "no-store" }
-      );
-
+      const res = await fetch("/api/responses/list", { method: "GET" });
       const data: ApiResponse = await res.json().catch(() => ({ success: false }));
 
       if (!res.ok || data?.success === false) {
         throw new Error(data?.error || `Failed to load inbox (HTTP ${res.status}).`);
       }
 
-      const list = Array.isArray(data?.items) ? data.items : [];
-      setItems(list);
-
+      setItems(Array.isArray(data?.items) ? data.items : []);
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
     } catch (e: any) {
@@ -151,43 +233,17 @@ export default function ResponsesPage() {
     }
   };
 
-  const boot = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      setWorkspaceHint("Loading workspace…");
-      const orgId = await resolveOrganisationId();
-      setOrganisationId(orgId);
-      setWorkspaceHint("Workspace loaded");
-      await loadInbox(orgId);
-    } catch (e: any) {
-      setOrganisationId(null);
-      setItems([]);
-      setNote(null);
-      setConfigured(false);
-      setWorkspaceHint("Workspace not ready");
-      setError(e?.message || "Workspace not loaded yet. Please refresh and try again.");
-      setLoading(false);
-    }
-  };
-
   const refresh = async () => {
     setRefreshing(true);
     try {
-      if (organisationId) {
-        await loadInbox(organisationId);
-      } else {
-        await boot();
-      }
+      await load();
     } finally {
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    void boot();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void load();
   }, []);
 
   const filtered = useMemo(() => {
@@ -234,6 +290,13 @@ export default function ResponsesPage() {
   const selected = useMemo(() => {
     return filtered.find((x) => x.id === selectedId) || null;
   }, [filtered, selectedId]);
+
+  useEffect(() => {
+    // When you select a different item, reset drafting UI to avoid confusion.
+    setReplyDraft("");
+    setAiStatus(null);
+    setCopied(false);
+  }, [selectedId]);
 
   const Pill = ({
     children,
@@ -340,9 +403,34 @@ export default function ResponsesPage() {
     );
   };
 
-  const bestLinkForSelected = (it: InboxItem) => {
-    const u = (it.replyUrl || it.permalink || "").trim();
-    return u || null;
+  const runAiSuggest = () => {
+    if (!selected) return;
+    setAiStatus("Drafting reply…");
+    setCopied(false);
+
+    // fast + deterministic (no API dependency)
+    const reply = draftReply({
+      platform: selected.platform,
+      authorName: selected.authorName,
+      text: selected.text,
+      postText: selected.postText,
+    });
+
+    setReplyDraft(reply);
+    setAiStatus("Reply drafted. You can edit before using it.");
+    setTimeout(() => setAiStatus(null), 4500);
+  };
+
+  const copyDraft = async () => {
+    try {
+      if (!replyDraft.trim()) return;
+      await navigator.clipboard.writeText(replyDraft);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // fallback: do nothing (user can manual copy)
+      setCopied(false);
+    }
   };
 
   return (
@@ -360,7 +448,7 @@ export default function ResponsesPage() {
               Responses
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Your inbox for comments, mentions, and messages — separate from Scheduled so we don’t mix planning with community management.
+              Your inbox for comments and messages — separate from Scheduled so staff don’t confuse “planning posts” with “responding”.
             </p>
           </div>
 
@@ -369,7 +457,6 @@ export default function ResponsesPage() {
             <Pill tone="warn">Unread: {counts.unread}</Pill>
             <Pill tone="warn">Needs reply: {counts.needs_reply}</Pill>
             <Pill tone="good">Replied: {counts.replied}</Pill>
-            <Pill tone={organisationId ? "good" : "warn"}>{workspaceHint}</Pill>
 
             <button
               type="button"
@@ -387,7 +474,7 @@ export default function ResponsesPage() {
             <div>
               <div className="text-base font-semibold">Search & filters</div>
               <div className="mt-1 text-xs text-slate-300">
-                Find what needs action fast.
+                Find what needs action fast. (Enterprise-safe.)
               </div>
             </div>
 
@@ -444,6 +531,12 @@ export default function ResponsesPage() {
               Loading inbox…
             </div>
           )}
+
+          {!configured && !loading && !error && (
+            <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100 whitespace-pre-wrap">
+              Inbox provider features are limited on your current plan. This page still works as your internal queue, and AI drafts still work.
+            </div>
+          )}
         </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -459,15 +552,18 @@ export default function ResponsesPage() {
 
           <div className="space-y-6">
             <GlassCard className="p-6">
-              <div className="text-base font-semibold">Reply</div>
-              <div className="mt-1 text-xs text-slate-300">
-                Reply sending will be enabled once the provider inbox endpoints are available on your plan.
-                For now, open the item on the platform to respond.
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-base font-semibold">Reply assistant</div>
+                  <div className="mt-1 text-xs text-slate-300">
+                    Select an item, generate a draft, edit it, then copy/paste to reply (posting replies will be wired next).
+                  </div>
+                </div>
               </div>
 
               {!selected ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                  Select an item from the left to see details here.
+                  Select an item from the left to draft a reply.
                 </div>
               ) : (
                 <div className="mt-4 space-y-4">
@@ -512,60 +608,62 @@ export default function ResponsesPage() {
                       </div>
                     ) : null}
 
-                    {bestLinkForSelected(selected) ? (
+                    {selected.permalink ? (
                       <div className="mt-3 text-[11px]">
                         <a
-                          href={bestLinkForSelected(selected)!}
+                          href={selected.permalink}
                           target="_blank"
                           rel="noreferrer"
                           className="text-sky-300 hover:text-sky-200 underline"
                         >
-                          Open on platform (reply there)
+                          Open on platform
                         </a>
                       </div>
-                    ) : (
-                      <div className="mt-3 text-[11px] text-slate-400">
-                        No direct link available for this item.
-                      </div>
-                    )}
+                    ) : null}
                   </div>
 
-                  <textarea
-                    disabled
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 placeholder:text-slate-500 outline-none opacity-70"
-                    placeholder="Reply sending is not enabled yet…"
-                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={runAiSuggest}
+                      className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
+                    >
+                      AI Suggest Reply
+                    </button>
 
-                  <button
-                    type="button"
-                    disabled
-                    className="w-full rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 opacity-60 cursor-not-allowed"
-                  >
-                    Send reply (coming next)
-                  </button>
+                    <button
+                      type="button"
+                      onClick={copyDraft}
+                      disabled={!replyDraft.trim()}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                    >
+                      {copied ? "Copied" : "Copy"}
+                    </button>
+                  </div>
 
-                  {!configured && (
-                    <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100 whitespace-pre-wrap">
-                      Inbox is not connected yet. Next we’ll wire real inbox sources so items appear here and replies can be sent.
+                  {aiStatus && (
+                    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300 whitespace-pre-wrap">
+                      {aiStatus}
                     </div>
                   )}
+
+                  <textarea
+                    className="w-full min-h-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
+                    placeholder="Your reply draft will appear here…"
+                    value={replyDraft}
+                    onChange={(e) => setReplyDraft(e.target.value)}
+                  />
+
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-xs text-slate-300 whitespace-pre-wrap">
+                    Enterprise guardrails:\n
+                    • Drafts avoid medical claims / diagnosis.\n
+                    • You stay in control — edit before using.\n
+                    • Reply sending will be enabled once the provider inbox/reply endpoints are available.
+                  </div>
                 </div>
               )}
             </GlassCard>
-
-            <GlassCard className="p-6">
-              <div className="text-base font-semibold">Enterprise safety</div>
-              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • No organisation IDs are shown.\n
-                • This is a separate inbox so staff don’t confuse “planning posts” with “responding”.\n
-                • Next step: permissions + audit trail (who replied, when).
-              </div>
-            </GlassCard>
           </div>
-        </div>
-
-        <div className="text-[11px] text-slate-500">
-          Note: internal identifiers are intentionally hidden from users.
         </div>
       </div>
     </div>
