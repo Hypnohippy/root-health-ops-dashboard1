@@ -15,6 +15,9 @@ type ScheduledPost = {
   meta?: any;
 };
 
+// ✅ Confirmed correct org (internal only, never displayed)
+const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
+
 function prettyPlatforms(list: any) {
   if (!Array.isArray(list) || list.length === 0) return "(none)";
   return list.map((x) => String(x)).join(", ");
@@ -43,55 +46,30 @@ export default function ScheduledPage() {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  const [workspaceHint, setWorkspaceHint] = useState<string>("Loading workspace…");
-
+  // Queue UX controls
   const [query, setQuery] = useState("");
   const [showPastCount, setShowPastCount] = useState(25);
-
-  const resolveOrganisationId = async (): Promise<string> => {
-    const res = await fetch("/api/social-accounts", { method: "GET" });
-    const data: any = await res.json().catch(() => null);
-
-    const org =
-      typeof data?.organisationId === "string" && data.organisationId.trim()
-        ? data.organisationId.trim()
-        : "";
-
-    if (!res.ok || !org) {
-      throw new Error("Workspace not loaded yet. Please refresh and try again.");
-    }
-
-    return org;
-  };
-
-  const fetchScheduled = async (orgId: string): Promise<ScheduledPost[]> => {
-    const res = await fetch(
-      `/api/schedule/list?organisationId=${encodeURIComponent(orgId)}`,
-      { cache: "no-store" }
-    );
-
-    const data: any = await res.json().catch(() => null);
-
-    if (!res.ok) {
-      throw new Error(data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
-    }
-
-    return Array.isArray(data?.items) ? data.items : [];
-  };
 
   const load = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      setWorkspaceHint("Loading workspace…");
-      const orgId = await resolveOrganisationId();
-      setWorkspaceHint("Workspace loaded");
+      const res = await fetch(
+        `/api/schedule/list?organisationId=${encodeURIComponent(ORG_ID)}`,
+        { cache: "no-store" }
+      );
 
-      const items = await fetchScheduled(orgId);
-      setRows(items);
+      const data: any = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(
+          data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`
+        );
+      }
+
+      setRows(Array.isArray(data?.items) ? data.items : []);
     } catch (e: any) {
-      setWorkspaceHint("Workspace not ready");
       setRows([]);
       setError(e?.message || "Could not load scheduled posts.");
     } finally {
@@ -206,7 +184,7 @@ export default function ScheduledPage() {
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-              Scheduled <span className="text-xs text-slate-400">(v3)</span>
+              Scheduled <span className="text-xs text-slate-400">(v4)</span>
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               Read-only queue of everything scheduled from elsewhere (Stories, Campaigns, Sequences, etc.).
@@ -216,7 +194,6 @@ export default function ScheduledPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Pill>Upcoming: {upcoming.length}</Pill>
             <Pill>Past: {past.length}</Pill>
-            <Pill tone={workspaceHint === "Workspace loaded" ? "good" : "warn"}>{workspaceHint}</Pill>
 
             <button
               type="button"
@@ -313,6 +290,10 @@ export default function ScheduledPage() {
               </div>
             )}
           </section>
+        </div>
+
+        <div className="text-[11px] text-slate-500">
+          Note: internal identifiers are intentionally hidden from users.
         </div>
       </div>
     </div>
