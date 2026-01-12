@@ -559,7 +559,8 @@ function looksTooGeneric(ai: string, original: string) {
       const msgRaw = typeof data?.coachMessage === "string" ? data.coachMessage : "";
       const msg = msgRaw.trim();
 
-      if (!res.ok || !msg || looksLikeStatusMessage(msg)) {
+      if (!res.ok || !msg || looksLikeStatusMessage(msg) || looksTooGeneric(msg, selected.text)) {
+
         setReplyDraft(fallback);
         setAiStatus("AI returned a status message — using safe fallback reply. (Edit it.)");
         setTimeout(() => setAiStatus(null), 5000);
