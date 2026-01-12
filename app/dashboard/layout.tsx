@@ -1,7 +1,7 @@
 // app/dashboard/layout.tsx
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -15,11 +15,8 @@ function isTypingTarget(target: EventTarget | null) {
 
   const tag = (el.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || tag === "select") return true;
-
-  // Covers rich text / editable divs if we add them later
   if ((el as any).isContentEditable) return true;
 
-  // Also guard against nested elements inside inputs (rare, but safe)
   const closest = el.closest?.("input, textarea, select, [contenteditable='true']");
   return Boolean(closest);
 }
@@ -38,20 +35,32 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   };
 
   /**
-   * ✅ GLOBAL INPUT FIX
-   * If any page has parent components that accidentally intercept key presses,
-   * we stop the key events bubbling when the user is typing in an input/textarea.
-   *
-   * This fixes the “I can only type one letter” problem across the dashboard.
+   * ✅ HARD FIX: stop key hijacking globally while typing.
+   * If any script/component attaches window/document key listeners (often for shortcuts),
+   * they can break typing. This prevents that by stopping propagation in CAPTURE phase.
    */
-  const stopKeyHijackWhileTyping = (e: React.SyntheticEvent) => {
-    const nativeEvent = e.nativeEvent as any;
-    const target = nativeEvent?.target || (e as any).target;
+  useEffect(() => {
+    const stopHijack = (e: KeyboardEvent) => {
+      if (!isTypingTarget(e.target)) return;
 
-    if (isTypingTarget(target)) {
+      // If user is typing in an input/textarea/select, do NOT let global shortcuts interfere.
+      // stopImmediatePropagation beats other listeners on the same element too.
+      (e as any).stopImmediatePropagation?.();
       e.stopPropagation();
-    }
-  };
+      // Important: do NOT preventDefault, or typing/backspace may break.
+    };
+
+    // Capture phase = runs before most other handlers.
+    window.addEventListener("keydown", stopHijack, true);
+    window.addEventListener("keyup", stopHijack, true);
+    window.addEventListener("keypress", stopHijack, true);
+
+    return () => {
+      window.removeEventListener("keydown", stopHijack, true);
+      window.removeEventListener("keyup", stopHijack, true);
+      window.removeEventListener("keypress", stopHijack, true);
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
@@ -61,8 +70,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-emerald-400/80 shadow-lg shadow-emerald-500/40" />
             <div className="flex flex-col leading-tight">
-              <span className="text-sm font-semibold text-slate-50">Root Health Ops</span>
-              <span className="text-[11px] text-slate-300">Your cockpit for growth</span>
+              <span className="text-sm font-semibold text-slate-50">
+                Root Health Ops
+              </span>
+              <span className="text-[11px] text-slate-300">
+                Your cockpit for growth
+              </span>
             </div>
           </div>
 
@@ -75,49 +88,73 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </li>
 
             <li>
-              <Link href="/dashboard/connect" className={linkClasses("/dashboard/connect")}>
+              <Link
+                href="/dashboard/connect"
+                className={linkClasses("/dashboard/connect")}
+              >
                 Connect
               </Link>
             </li>
 
             <li>
-              <Link href="/dashboard/metrics" className={linkClasses("/dashboard/metrics")}>
+              <Link
+                href="/dashboard/metrics"
+                className={linkClasses("/dashboard/metrics")}
+              >
                 Metrics
               </Link>
             </li>
 
             <li>
-              <Link href="/dashboard/campaigns" className={linkClasses("/dashboard/campaigns")}>
+              <Link
+                href="/dashboard/campaigns"
+                className={linkClasses("/dashboard/campaigns")}
+              >
                 Campaigns
               </Link>
             </li>
 
             <li>
-              <Link href="/dashboard/sequences" className={linkClasses("/dashboard/sequences")}>
+              <Link
+                href="/dashboard/sequences"
+                className={linkClasses("/dashboard/sequences")}
+              >
                 Sequences
               </Link>
             </li>
 
             <li>
-              <Link href="/dashboard/stories/new" className={linkClasses("/dashboard/stories/new")}>
+              <Link
+                href="/dashboard/stories/new"
+                className={linkClasses("/dashboard/stories/new")}
+              >
                 Stories
               </Link>
             </li>
 
             <li>
-              <Link href="/dashboard/scheduled" className={linkClasses("/dashboard/scheduled")}>
+              <Link
+                href="/dashboard/scheduled"
+                className={linkClasses("/dashboard/scheduled")}
+              >
                 Scheduled
               </Link>
             </li>
 
             <li>
-              <Link href="/dashboard/responses" className={linkClasses("/dashboard/responses")}>
+              <Link
+                href="/dashboard/responses"
+                className={linkClasses("/dashboard/responses")}
+              >
                 Responses
               </Link>
             </li>
 
             <li>
-              <Link href="/dashboard/brainstorm" className={linkClasses("/dashboard/brainstorm")}>
+              <Link
+                href="/dashboard/brainstorm"
+                className={linkClasses("/dashboard/brainstorm")}
+              >
                 🧠 Brainstorm
               </Link>
             </li>
@@ -126,14 +163,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       </header>
 
       {/* Page Content */}
-      <main
-        className="p-6"
-        onKeyDownCapture={stopKeyHijackWhileTyping}
-        onKeyUpCapture={stopKeyHijackWhileTyping}
-        onKeyPressCapture={stopKeyHijackWhileTyping}
-      >
-        {children}
-      </main>
+      <main className="p-6">{children}</main>
     </div>
   );
 }
