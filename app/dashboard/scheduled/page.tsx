@@ -15,6 +15,10 @@ type ScheduledPost = {
   meta?: any;
 };
 
+// ✅ Internal-only legacy org id (never displayed)
+// This is only used as a fallback while your data is still in the legacy org.
+const LEGACY_ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
+
 function prettyPlatforms(list: any) {
   if (!Array.isArray(list) || list.length === 0) return "(none)";
   return list.map((x) => String(x)).join(", ");
@@ -43,9 +47,12 @@ export default function ScheduledPage() {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // ✅ Enterprise-safe: load orgId from the system (do NOT hardcode)
+  // ✅ Enterprise-safe: orgId comes from the system, never displayed
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [workspaceHint, setWorkspaceHint] = useState<string>("Loading workspace…");
+
+  // ✅ If we had to fall back to legacy org data, we show a gentle note (no IDs)
+  const [usingLegacyFallback, setUsingLegacyFallback] = useState(false);
 
   // Queue UX controls
   const [query, setQuery] = useState("");
@@ -67,49 +74,56 @@ export default function ScheduledPage() {
     return org;
   };
 
-  const loadScheduled = async (orgId: string) => {
-    setLoading(true);
-    setError(null);
+  const fetchScheduled = async (orgId: string): Promise<ScheduledPost[]> => {
+    const res = await fetch(
+      `/api/schedule/list?organisationId=${encodeURIComponent(orgId)}`,
+      { cache: "no-store" }
+    );
 
-    try {
-      const res = await fetch(
-        `/api/schedule/list?organisationId=${encodeURIComponent(orgId)}`,
-        { cache: "no-store" }
-      );
+    const data: any = await res.json().catch(() => null);
 
-      const data: any = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        throw new Error(
-          data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`
-        );
-      }
-
-      const items = Array.isArray(data?.items) ? data.items : [];
-      setRows(items);
-    } catch (e: any) {
-      setError(e?.message || "Could not load scheduled posts.");
-      setRows([]);
-    } finally {
-      setLoading(false);
+    if (!res.ok) {
+      throw new Error(data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
     }
+
+    return Array.isArray(data?.items) ? data.items : [];
+  };
+
+  const loadScheduledForOrg = async (orgId: string) => {
+    const items = await fetchScheduled(orgId);
+    setRows(items);
+    return items;
   };
 
   const boot = async () => {
     setLoading(true);
     setError(null);
+    setUsingLegacyFallback(false);
 
     try {
       setWorkspaceHint("Loading workspace…");
       const orgId = await resolveOrganisationId();
       setOrganisationId(orgId);
       setWorkspaceHint("Workspace loaded");
-      await loadScheduled(orgId);
+
+      // 1) Try current workspace
+      const items = await loadScheduledForOrg(orgId);
+
+      // 2) If nothing exists there, silently fall back to legacy data (internal-only)
+      if (items.length === 0) {
+        const legacyItems = await loadScheduledForOrg(LEGACY_ORG_ID);
+
+        if (legacyItems.length > 0) {
+          setUsingLegacyFallback(true);
+          setWorkspaceHint("Showing legacy scheduled posts (migration needed)");
+        }
+      }
     } catch (e: any) {
       setOrganisationId(null);
       setRows([]);
       setWorkspaceHint("Workspace not ready");
       setError(e?.message || "Workspace not loaded yet. Please refresh and try again.");
+    } finally {
       setLoading(false);
     }
   };
@@ -117,30 +131,14 @@ export default function ScheduledPage() {
   const refresh = async () => {
     setRefreshing(true);
     try {
-      // If orgId is known, just reload scheduled. If not, boot again.
-      if (organisationId) {
-        await loadScheduled(organisationId);
-      } else {
-        await boot();
-      }
+      await boot();
     } finally {
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      if (cancelled) return;
-      await boot();
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-    };
+    void boot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -263,9 +261,7 @@ export default function ScheduledPage() {
               Scheduled
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              This page is a read-only queue of everything scheduled from elsewhere
-              (Stories, Campaigns, Sequences, etc.). We keep it read-only to avoid
-              duplicated workflows.
+              Read-only queue of everything scheduled from elsewhere (Stories, Campaigns, Sequences, etc.).
             </p>
           </div>
 
@@ -284,12 +280,20 @@ export default function ScheduledPage() {
           </div>
         </div>
 
+        {usingLegacyFallback && (
+          <div className="rounded-3xl border border-amber-400/30 bg-amber-400/10 p-5 text-sm text-amber-100 whitespace-pre-wrap">
+            You’re seeing scheduled posts from the legacy workspace.\n
+            This is normal during migration — nothing is lost.\n
+            Later we’ll move all scheduled_posts into the new workspace so this banner disappears.
+          </div>
+        )}
+
         <GlassCard className="p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search the queue</div>
               <div className="mt-1 text-xs text-slate-300">
-                Search by message text, platforms, status, or date.
+                Search by message, platforms, status, or date.
               </div>
             </div>
 
