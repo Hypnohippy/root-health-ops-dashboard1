@@ -76,10 +76,8 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
 }
 
 /**
- * Lightweight “AI-style” reply drafter:
- * - no paid provider inbox required
- * - generates calm, brand-safe responses
- * - avoids medical claims / personal data
+ * Lightweight “AI-style” reply drafter (no external API required).
+ * Enterprise-safe: avoids medical claims / diagnosis / promises.
  */
 function draftReply({
   platform,
@@ -106,7 +104,11 @@ function draftReply({
     tl.includes("helpful") ||
     tl.includes("brilliant");
 
-  const isQuestion = tl.includes("?") || tl.startsWith("how") || tl.startsWith("what") || tl.startsWith("why");
+  const isQuestion =
+    tl.includes("?") ||
+    tl.startsWith("how") ||
+    tl.startsWith("what") ||
+    tl.startsWith("why");
 
   const isConcern =
     tl.includes("struggle") ||
@@ -137,10 +139,11 @@ function draftReply({
 
   const contextHint =
     postText && postText.trim()
-      ? `\n\n(For context: this was in reply to your post about “${postText.trim().slice(0, 120)}${postText.trim().length > 120 ? "…" : ""}”)`
+      ? `\n\n(For context: this was in reply to your post about “${postText
+          .trim()
+          .slice(0, 120)}${postText.trim().length > 120 ? "…" : ""}”)`
       : "";
 
-  // Guardrails: no clinical advice, no diagnosis, no promises
   if (isConcern) {
     return (
       `${greeting}I really appreciate you sharing that.\n\n` +
@@ -178,7 +181,6 @@ function draftReply({
     );
   }
 
-  // Neutral default
   return (
     `${greeting}thanks for taking the time to comment.\n\n` +
     `If you tell me what you’re aiming for right now (more energy, less stress, better routine), I’ll suggest one small next step you can try.` +
@@ -196,6 +198,9 @@ export default function ResponsesPage() {
 
   const [items, setItems] = useState<InboxItem[]>([]);
 
+  // ✅ Resolve org via /api/social-accounts (single-tenant safe)
+  const [organisationId, setOrganisationId] = useState<string | null>(null);
+
   // UX controls
   const [query, setQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">("all");
@@ -208,12 +213,33 @@ export default function ResponsesPage() {
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const resolveOrg = async () => {
+    const res = await fetch("/api/social-accounts", { method: "GET" });
+    const data: any = await res.json().catch(() => null);
+
+    const org =
+      typeof data?.organisationId === "string"
+        ? data.organisationId
+        : typeof data?.organisation_id === "string"
+        ? data.organisation_id
+        : null;
+
+    if (!org) throw new Error("Workspace not loaded yet. Please refresh and try again.");
+    setOrganisationId(org);
+    return org;
+  };
+
   const load = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch("/api/responses/list", { method: "GET" });
+      const org = organisationId || (await resolveOrg());
+
+      const res = await fetch(
+        `/api/responses/list?organisationId=${encodeURIComponent(org)}`,
+        { method: "GET" }
+      );
       const data: ApiResponse = await res.json().catch(() => ({ success: false }));
 
       if (!res.ok || data?.success === false) {
@@ -244,6 +270,7 @@ export default function ResponsesPage() {
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {
@@ -292,7 +319,6 @@ export default function ResponsesPage() {
   }, [filtered, selectedId]);
 
   useEffect(() => {
-    // When you select a different item, reset drafting UI to avoid confusion.
     setReplyDraft("");
     setAiStatus(null);
     setCopied(false);
@@ -408,7 +434,6 @@ export default function ResponsesPage() {
     setAiStatus("Drafting reply…");
     setCopied(false);
 
-    // fast + deterministic (no API dependency)
     const reply = draftReply({
       platform: selected.platform,
       authorName: selected.authorName,
@@ -417,7 +442,7 @@ export default function ResponsesPage() {
     });
 
     setReplyDraft(reply);
-    setAiStatus("Reply drafted. You can edit before using it.");
+    setAiStatus("Reply drafted. Edit it before using it.");
     setTimeout(() => setAiStatus(null), 4500);
   };
 
@@ -428,7 +453,6 @@ export default function ResponsesPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
-      // fallback: do nothing (user can manual copy)
       setCopied(false);
     }
   };
@@ -532,9 +556,13 @@ export default function ResponsesPage() {
             </div>
           )}
 
-          {!configured && !loading && !error && (
-            <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100 whitespace-pre-wrap">
-              Inbox provider features are limited on your current plan. This page still works as your internal queue, and AI drafts still work.
+          {organisationId ? (
+            <div className="mt-4 text-[11px] text-slate-400">
+              Workspace loaded.
+            </div>
+          ) : (
+            <div className="mt-4 text-[11px] text-slate-400">
+              Loading workspace…
             </div>
           )}
         </GlassCard>
@@ -552,12 +580,10 @@ export default function ResponsesPage() {
 
           <div className="space-y-6">
             <GlassCard className="p-6">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="text-base font-semibold">Reply assistant</div>
-                  <div className="mt-1 text-xs text-slate-300">
-                    Select an item, generate a draft, edit it, then copy/paste to reply (posting replies will be wired next).
-                  </div>
+              <div>
+                <div className="text-base font-semibold">Reply assistant</div>
+                <div className="mt-1 text-xs text-slate-300">
+                  Select an item, generate a draft, edit it, then copy/paste to reply (sending replies will be wired later).
                 </div>
               </div>
 
@@ -600,13 +626,6 @@ export default function ResponsesPage() {
                     <div className="mt-3 text-sm whitespace-pre-wrap">
                       {selected.text}
                     </div>
-
-                    {selected.postText ? (
-                      <div className="mt-3 text-[11px] text-slate-400 whitespace-pre-wrap">
-                        <span className="text-slate-300 font-semibold">Post context:</span>{" "}
-                        {selected.postText}
-                      </div>
-                    ) : null}
 
                     {selected.permalink ? (
                       <div className="mt-3 text-[11px]">
@@ -653,13 +672,6 @@ export default function ResponsesPage() {
                     value={replyDraft}
                     onChange={(e) => setReplyDraft(e.target.value)}
                   />
-
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-xs text-slate-300 whitespace-pre-wrap">
-                    Enterprise guardrails:\n
-                    • Drafts avoid medical claims / diagnosis.\n
-                    • You stay in control — edit before using.\n
-                    • Reply sending will be enabled once the provider inbox/reply endpoints are available.
-                  </div>
                 </div>
               )}
             </GlassCard>
