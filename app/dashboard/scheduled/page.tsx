@@ -15,10 +15,6 @@ type ScheduledPost = {
   meta?: any;
 };
 
-// ✅ Internal-only legacy org id (never displayed)
-// This is only used as a fallback while your data is still in the legacy org.
-const LEGACY_ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
-
 function prettyPlatforms(list: any) {
   if (!Array.isArray(list) || list.length === 0) return "(none)";
   return list.map((x) => String(x)).join(", ");
@@ -47,14 +43,8 @@ export default function ScheduledPage() {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // ✅ Enterprise-safe: orgId comes from the system, never displayed
-  const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [workspaceHint, setWorkspaceHint] = useState<string>("Loading workspace…");
 
-  // ✅ If we had to fall back to legacy org data, we show a gentle note (no IDs)
-  const [usingLegacyFallback, setUsingLegacyFallback] = useState(false);
-
-  // Queue UX controls
   const [query, setQuery] = useState("");
   const [showPastCount, setShowPastCount] = useState(25);
 
@@ -89,40 +79,21 @@ export default function ScheduledPage() {
     return Array.isArray(data?.items) ? data.items : [];
   };
 
-  const loadScheduledForOrg = async (orgId: string) => {
-    const items = await fetchScheduled(orgId);
-    setRows(items);
-    return items;
-  };
-
-  const boot = async () => {
+  const load = async () => {
     setLoading(true);
     setError(null);
-    setUsingLegacyFallback(false);
 
     try {
       setWorkspaceHint("Loading workspace…");
       const orgId = await resolveOrganisationId();
-      setOrganisationId(orgId);
       setWorkspaceHint("Workspace loaded");
 
-      // 1) Try current workspace
-      const items = await loadScheduledForOrg(orgId);
-
-      // 2) If nothing exists there, silently fall back to legacy data (internal-only)
-      if (items.length === 0) {
-        const legacyItems = await loadScheduledForOrg(LEGACY_ORG_ID);
-
-        if (legacyItems.length > 0) {
-          setUsingLegacyFallback(true);
-          setWorkspaceHint("Showing legacy scheduled posts (migration needed)");
-        }
-      }
+      const items = await fetchScheduled(orgId);
+      setRows(items);
     } catch (e: any) {
-      setOrganisationId(null);
-      setRows([]);
       setWorkspaceHint("Workspace not ready");
-      setError(e?.message || "Workspace not loaded yet. Please refresh and try again.");
+      setRows([]);
+      setError(e?.message || "Could not load scheduled posts.");
     } finally {
       setLoading(false);
     }
@@ -131,14 +102,14 @@ export default function ScheduledPage() {
   const refresh = async () => {
     setRefreshing(true);
     try {
-      await boot();
+      await load();
     } finally {
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    void boot();
+    void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -202,23 +173,6 @@ export default function ScheduledPage() {
     );
   };
 
-  const GlassCard = ({
-    children,
-    className = "",
-  }: {
-    children: React.ReactNode;
-    className?: string;
-  }) => (
-    <div
-      className={[
-        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </div>
-  );
-
   const RowCard = ({ p }: { p: ScheduledPost }) => {
     const tone = statusTone(p.status);
     return (
@@ -248,17 +202,11 @@ export default function ScheduledPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
-        <div className="absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-sky-500/10 blur-3xl" />
-        <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-pink-500/10 blur-3xl" />
-      </div>
-
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-              Scheduled
+              Scheduled <span className="text-xs text-slate-400">(v3)</span>
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               Read-only queue of everything scheduled from elsewhere (Stories, Campaigns, Sequences, etc.).
@@ -268,7 +216,8 @@ export default function ScheduledPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Pill>Upcoming: {upcoming.length}</Pill>
             <Pill>Past: {past.length}</Pill>
-            <Pill tone={organisationId ? "good" : "warn"}>{workspaceHint}</Pill>
+            <Pill tone={workspaceHint === "Workspace loaded" ? "good" : "warn"}>{workspaceHint}</Pill>
+
             <button
               type="button"
               onClick={refresh}
@@ -280,15 +229,7 @@ export default function ScheduledPage() {
           </div>
         </div>
 
-        {usingLegacyFallback && (
-          <div className="rounded-3xl border border-amber-400/30 bg-amber-400/10 p-5 text-sm text-amber-100 whitespace-pre-wrap">
-            You’re seeing scheduled posts from the legacy workspace.\n
-            This is normal during migration — nothing is lost.\n
-            Later we’ll move all scheduled_posts into the new workspace so this banner disappears.
-          </div>
-        )}
-
-        <GlassCard className="p-6">
+        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search the queue</div>
@@ -316,7 +257,7 @@ export default function ScheduledPage() {
               Loading scheduled posts…
             </div>
           )}
-        </GlassCard>
+        </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="rounded-3xl border border-white/10 bg-white/5 p-5 space-y-3">
@@ -372,10 +313,6 @@ export default function ScheduledPage() {
               </div>
             )}
           </section>
-        </div>
-
-        <div className="text-[11px] text-slate-500">
-          Note: internal identifiers are intentionally hidden from users.
         </div>
       </div>
     </div>
