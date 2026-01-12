@@ -1,248 +1,352 @@
-// app/schedule/page.tsx
+// app/dashboard/scheduled/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
-
-type ScheduledStatus = "scheduled" | "sent" | "failed";
+import React, { useEffect, useMemo, useState } from "react";
 
 type ScheduledPost = {
   id: string;
   organisation_id: string;
   message: string;
   platforms: string[];
-  image_url: string | null;
-  scheduled_for: string; // ISO string
-  status: ScheduledStatus;
-  error_info?: any;
-  posted_at?: string | null;
-  created_at: string;
+  image_url?: string | null;
+  scheduled_for: string;
+  status: string;
+  created_at?: string;
+  meta?: any;
 };
 
-type ApiResponse =
-  | {
-      success: true;
-      items: ScheduledPost[];
-    }
-  | {
-      success: false;
-      error: string;
-    };
+function prettyPlatforms(list: any) {
+  if (!Array.isArray(list) || list.length === 0) return "(none)";
+  return list.map((x) => String(x)).join(", ");
+}
 
-export default function SchedulePage() {
-  const [items, setItems] = useState<ScheduledPost[]>([]);
+function safeDate(iso: string) {
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
+function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
+  const s = String(status || "").toLowerCase();
+  if (s.includes("sent") || s.includes("posted") || s.includes("success")) return "good";
+  if (s.includes("failed") || s.includes("error")) return "bad";
+  if (s.includes("pending") || s.includes("scheduled") || s.includes("queued"))
+    return "warn";
+  return "neutral";
+}
+
+export default function ScheduledPage() {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
+  const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError(null);
+  // Enterprise-safe: show status, not internal IDs
+  const [workspaceHint, setWorkspaceHint] = useState<string>("Loading workspace…");
+  const [organisationId, setOrganisationId] = useState<string | null>(null);
 
-      try {
-        // 👇 Uses the /api/schedule/list route we just fixed
-        const res = await fetch("/api/schedule/list");
-        const data: ApiResponse = await res.json();
+  // Queue UX controls
+  const [query, setQuery] = useState("");
+  const [showPastCount, setShowPastCount] = useState(25);
 
-        if (!data.success) {
-          setError(data.error || "Could not load scheduled posts.");
-          setItems([]);
-          return;
-        }
+  const resolveOrganisationId = async (): Promise<string> => {
+    const res = await fetch("/api/social-accounts", { method: "GET" });
+    const data: any = await res.json().catch(() => null);
 
-        setItems(data.items);
-      } catch (err: any) {
-        console.error("[SchedulePage] load error", err);
-        setError("Something went wrong loading scheduled posts.");
-        setItems([]);
-      } finally {
-        setLoading(false);
-      }
-    };
+    const org =
+      typeof data?.organisationId === "string" && data.organisationId.trim()
+        ? data.organisationId.trim()
+        : "";
 
-    load();
-  }, []);
+    if (!res.ok || !org) {
+      throw new Error("Workspace not loaded yet. Please refresh and try again.");
+    }
 
-  const now = new Date();
-
-  const upcoming = items.filter((item) => {
-    if (item.status !== "scheduled") return false;
-    const d = new Date(item.scheduled_for);
-    return !isNaN(d.getTime()) && d.getTime() >= now.getTime();
-  });
-
-  const pastSent = items
-    .filter((item) => item.status === "sent")
-    .sort((a, b) => {
-      const ta = new Date(a.posted_at || a.scheduled_for).getTime();
-      const tb = new Date(b.posted_at || b.scheduled_for).getTime();
-      return tb - ta;
-    });
-
-  const pastFailed = items
-    .filter((item) => item.status === "failed")
-    .sort((a, b) => {
-      const ta = new Date(a.scheduled_for).getTime();
-      const tb = new Date(b.scheduled_for).getTime();
-      return tb - ta;
-    });
-
-  const formatDate = (iso: string | null | undefined) => {
-    if (!iso) return "-";
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleString();
+    return org;
   };
 
-  const formatPlatforms = (platforms: string[]) => {
-    if (!platforms || platforms.length === 0) return "—";
-    return platforms.join(", ");
+  const fetchScheduled = async (orgId: string): Promise<ScheduledPost[]> => {
+    const res = await fetch(
+      `/api/schedule/list?organisationId=${encodeURIComponent(orgId)}`,
+      { cache: "no-store" }
+    );
+
+    const data: any = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
+    }
+
+    return Array.isArray(data?.items) ? data.items : [];
+  };
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      setWorkspaceHint("Loading workspace…");
+      const orgId = await resolveOrganisationId();
+      setOrganisationId(orgId);
+      setWorkspaceHint("Workspace loaded");
+
+      const items = await fetchScheduled(orgId);
+      setRows(items);
+    } catch (e: any) {
+      setOrganisationId(null);
+      setRows([]);
+      setWorkspaceHint("Workspace not ready");
+      setError(e?.message || "Could not load scheduled posts.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+
+    return rows.filter((r) => {
+      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.status || ""} ${
+        r.scheduled_for || ""
+      }`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [rows, query]);
+
+  const upcoming = useMemo(() => {
+    const now = Date.now();
+    return filtered
+      .filter((r) => new Date(r.scheduled_for).getTime() >= now)
+      .sort(
+        (a, b) =>
+          new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime()
+      );
+  }, [filtered]);
+
+  const past = useMemo(() => {
+    const now = Date.now();
+    return filtered
+      .filter((r) => new Date(r.scheduled_for).getTime() < now)
+      .sort(
+        (a, b) =>
+          new Date(b.scheduled_for).getTime() - new Date(a.scheduled_for).getTime()
+      );
+  }, [filtered]);
+
+  const Pill = ({
+    children,
+    tone = "neutral",
+  }: {
+    children: React.ReactNode;
+    tone?: "neutral" | "good" | "warn" | "bad";
+  }) => {
+    const cls =
+      tone === "good"
+        ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+        : tone === "warn"
+        ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+        : tone === "bad"
+        ? "border-red-400/30 bg-red-400/10 text-red-100"
+        : "border-white/10 bg-white/5 text-slate-200";
+
+    return (
+      <span
+        className={[
+          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold",
+          cls,
+        ].join(" ")}
+      >
+        {children}
+      </span>
+    );
+  };
+
+  const GlassCard = ({
+    children,
+    className = "",
+  }: {
+    children: React.ReactNode;
+    className?: string;
+  }) => (
+    <div
+      className={[
+        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </div>
+  );
+
+  const RowCard = ({ p }: { p: ScheduledPost }) => {
+    const tone = statusTone(p.status);
+    return (
+      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-[11px] text-slate-300">
+            {safeDate(p.scheduled_for)} ·{" "}
+            <span className="text-slate-100 font-semibold">
+              {prettyPlatforms(p.platforms)}
+            </span>
+          </div>
+          <Pill tone={tone}>{p.status || "unknown"}</Pill>
+        </div>
+
+        <div className="mt-3 text-sm whitespace-pre-wrap text-slate-100">
+          {p.message || "(empty message)"}
+        </div>
+
+        {p.image_url ? (
+          <div className="mt-3 text-[11px] text-slate-400 truncate">
+            Image: <span className="text-slate-300">{p.image_url}</span>
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
-      <div className="w-full max-w-6xl space-y-8">
-        {/* Header */}
-        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
+        <div className="absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-sky-500/10 blur-3xl" />
+        <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-pink-500/10 blur-3xl" />
+      </div>
+
+      <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold">
-              Scheduled Posts
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+              Scheduled
             </h1>
-            <p className="mt-1 text-sm text-slate-300 max-w-xl">
-              Everything Root Health Ops has queued, sent, or that needs your
-              attention. Powered by your Ayrshare connection under the hood.
+            <p className="mt-2 text-sm text-slate-300 max-w-2xl">
+              Read-only queue of everything scheduled from elsewhere (Stories, Campaigns, Sequences, etc.).
             </p>
           </div>
-        </header>
 
-        {/* Loading / error states */}
-        {loading && (
-          <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 text-sm text-slate-300">
-            Loading scheduled posts…
+          <div className="flex flex-wrap items-center gap-2">
+            <Pill>Upcoming: {upcoming.length}</Pill>
+            <Pill>Past: {past.length}</Pill>
+            <Pill tone={organisationId ? "good" : "warn"}>{workspaceHint}</Pill>
+
+            <button
+              type="button"
+              onClick={refresh}
+              disabled={refreshing}
+              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+            >
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
           </div>
-        )}
+        </div>
 
-        {error && !loading && (
-          <div className="rounded-3xl border border-red-500/60 bg-red-950/40 p-4 text-sm text-red-100">
-            {error}
+        <GlassCard className="p-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <div className="text-base font-semibold">Search the queue</div>
+              <div className="mt-1 text-xs text-slate-300">
+                Search by message, platforms, status, or date.
+              </div>
+            </div>
+
+            <input
+              className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
+              placeholder="Search…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
           </div>
-        )}
 
-        {!loading && !error && (
-          <div className="space-y-6">
-            {/* Upcoming */}
-            <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 md:p-5">
-              <h2 className="text-base md:text-lg font-semibold mb-3">
-                Upcoming
-              </h2>
-              {upcoming.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  Nothing queued yet. Use{" "}
-                  <span className="font-medium">Quick Blast → Schedule</span> to
-                  line up your next posts.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {upcoming.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-sm"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                        <div className="text-xs uppercase tracking-wide text-slate-400">
-                          Scheduled for {formatDate(item.scheduled_for)}
-                        </div>
-                        <div className="text-[11px] text-emerald-300">
-                          {formatPlatforms(item.platforms)}
-                        </div>
-                      </div>
-                      <p className="mt-2 text-sm text-slate-100 whitespace-pre-wrap">
-                        {item.message}
-                      </p>
-                      {item.image_url && (
-                        <p className="mt-1 text-[11px] text-slate-400">
-                          Image: {item.image_url}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+          {error && (
+            <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/40 p-4 text-sm text-red-200 whitespace-pre-wrap">
+              {error}
+            </div>
+          )}
 
-            {/* Sent */}
-            <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 md:p-5">
-              <h2 className="text-base md:text-lg font-semibold mb-3">
-                Recently sent
-              </h2>
-              {pastSent.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  No sent posts recorded yet. As scheduled posts go out, they
-                  will appear here.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {pastSent.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-sm"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                        <div className="text-xs uppercase tracking-wide text-slate-400">
-                          Sent at {formatDate(item.posted_at || item.scheduled_for)}
-                        </div>
-                        <div className="text-[11px] text-emerald-300">
-                          {formatPlatforms(item.platforms)}
-                        </div>
-                      </div>
-                      <p className="mt-2 text-sm text-slate-100 whitespace-pre-wrap">
-                        {item.message}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+          {loading && (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+              Loading scheduled posts…
+            </div>
+          )}
+        </GlassCard>
 
-            {/* Failed */}
-            <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-4 md:p-5">
-              <h2 className="text-base md:text-lg font-semibold mb-3">
-                Needs attention
-              </h2>
-              {pastFailed.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  No failures right now. If Ayrshare or the networks reject a
-                  post, it will appear here with details.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {pastFailed.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-amber-500/60 bg-amber-950/40 p-3 text-sm"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                        <div className="text-xs uppercase tracking-wide text-amber-200">
-                          Failed for {formatDate(item.scheduled_for)}
-                        </div>
-                        <div className="text-[11px] text-amber-200">
-                          {formatPlatforms(item.platforms)}
-                        </div>
-                      </div>
-                      <p className="mt-2 text-sm text-amber-50 whitespace-pre-wrap">
-                        {item.message}
-                      </p>
-                      {item.error_info && (
-                        <pre className="mt-2 text-[10px] text-amber-200 bg-black/30 rounded-xl p-2 overflow-x-auto">
-                          {JSON.stringify(item.error_info, null, 2)}
-                        </pre>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-        )}
+        <div className="grid gap-6 lg:grid-cols-2">
+          <section className="rounded-3xl border border-white/10 bg-white/5 p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Upcoming</h2>
+              <Pill tone="neutral">{upcoming.length}</Pill>
+            </div>
+
+            {!loading && upcoming.length === 0 ? (
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+                No upcoming posts.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {upcoming.map((p) => (
+                  <RowCard key={p.id} p={p} />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-3xl border border-white/10 bg-white/5 p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Past</h2>
+              <div className="flex items-center gap-2">
+                <Pill tone="neutral">{past.length}</Pill>
+                <button
+                  type="button"
+                  onClick={() => setShowPastCount((n) => Math.min(n + 25, 250))}
+                  disabled={past.length <= showPastCount}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                >
+                  Show more
+                </button>
+              </div>
+            </div>
+
+            {!loading && past.length === 0 ? (
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+                No past posts.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {past.slice(0, showPastCount).map((p) => (
+                  <RowCard key={p.id} p={p} />
+                ))}
+              </div>
+            )}
+
+            {past.length > showPastCount && (
+              <div className="pt-1 text-[11px] text-slate-400">
+                Showing {showPastCount} of {past.length}. Use “Show more” to load more.
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div className="text-[11px] text-slate-500">
+          Note: internal identifiers are intentionally hidden from users.
+        </div>
       </div>
     </div>
   );
