@@ -9,20 +9,27 @@ type DashboardLayoutProps = {
   children: React.ReactNode;
 };
 
-function isTypingElement(el: Element | null) {
-  if (!el) return false;
-  const tag = (el as HTMLElement).tagName?.toLowerCase?.() || "";
-  if (tag === "input" || tag === "textarea" || tag === "select") return true;
-  if ((el as any).isContentEditable) return true;
-  return false;
+function getTypingElementFromTarget(target: EventTarget | null): HTMLElement | null {
+  const el = target as HTMLElement | null;
+  if (!el) return null;
+
+  const tag = (el.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return el;
+  if ((el as any).isContentEditable) return el;
+
+  const closest = el.closest?.("input, textarea, select, [contenteditable='true']");
+  return (closest as HTMLElement | null) || null;
 }
 
-function isTypingTarget(target: EventTarget | null) {
-  const el = target as Element | null;
-  if (!el) return false;
-  if (isTypingElement(el)) return true;
-  const closest = (el as any).closest?.("input, textarea, select, [contenteditable='true']");
-  return Boolean(closest);
+function placeCursorAtEnd(el: HTMLElement) {
+  try {
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      const len = el.value?.length ?? 0;
+      el.setSelectionRange(len, len);
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
@@ -39,60 +46,62 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   };
 
   /**
-   * ✅ Bulletproof “focus guard” for dashboard inputs
-   * Symptom: you can type 1 character then typing stops (focus gets stolen).
-   * Fix: remember the last focused input/textarea, and re-focus it if something steals focus.
+   * ✅ FIX: "One letter then stops" = focus is being stolen after each keystroke.
+   * This focus-lock returns focus back to the active input/textarea while typing.
+   *
+   * It’s global (covers every page under /dashboard).
    */
   const lastTypingElRef = useRef<HTMLElement | null>(null);
-  const lastKeyTimeRef = useRef<number>(0);
+  const lastTypingTimeRef = useRef<number>(0);
 
   useEffect(() => {
-    const onFocusIn = (e: FocusEvent) => {
-      const target = e.target as Element | null;
-      if (!target) return;
-
-      const el =
-        (isTypingElement(target) ? (target as HTMLElement) : null) ||
-        ((target as any).closest?.("input, textarea, select, [contenteditable='true']") as
-          | HTMLElement
-          | null);
-
-      if (el) {
-        lastTypingElRef.current = el;
-      }
+    const markTyping = (target: EventTarget | null) => {
+      const el = getTypingElementFromTarget(target);
+      if (!el) return;
+      lastTypingElRef.current = el;
+      lastTypingTimeRef.current = Date.now();
     };
 
-    const onKeyDownCapture = (e: KeyboardEvent) => {
-      // Only care when the user is typing in a field
-      if (!isTypingTarget(e.target)) return;
+    const onFocusIn = (e: FocusEvent) => {
+      markTyping(e.target);
+    };
 
-      lastKeyTimeRef.current = Date.now();
-
-      // Stop other shortcut handlers from interfering (but do NOT preventDefault)
-      (e as any).stopImmediatePropagation?.();
-      e.stopPropagation();
-
-      // If something steals focus right after this keypress, force focus back
-      const el = lastTypingElRef.current;
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Only track if typing in a field
+      const el = getTypingElementFromTarget(e.target);
       if (!el) return;
 
-      // Re-focus on next tick (after any rogue handler runs)
-      setTimeout(() => {
-        // Only do this if focus moved away during typing
-        const active = document.activeElement as HTMLElement | null;
-        if (active && (active === el || el.contains(active))) return;
+      lastTypingElRef.current = el;
+      lastTypingTimeRef.current = Date.now();
+    };
 
-        // If user is still actively typing (recent keystroke), reclaim focus
-        if (Date.now() - lastKeyTimeRef.current > 1200) return;
+    const onInput = (e: Event) => {
+      // Fires when the input value changes
+      markTyping(e.target);
+    };
+
+    const onFocusOut = (e: FocusEvent) => {
+      const el = getTypingElementFromTarget(e.target);
+      if (!el) return;
+
+      // If focus is leaving a typing field right after a keystroke, pull it back.
+      const recentlyTyping = Date.now() - lastTypingTimeRef.current < 1500;
+      if (!recentlyTyping) return;
+
+      // Re-focus on next tick after whatever stole it runs.
+      setTimeout(() => {
+        const last = lastTypingElRef.current;
+        if (!last) return;
+
+        const active = document.activeElement as HTMLElement | null;
+
+        // If focus is already back in an input/textarea, do nothing
+        const activeTyping = getTypingElementFromTarget(active);
+        if (activeTyping) return;
 
         try {
-          el.focus({ preventScroll: true } as any);
-
-          // Place cursor at end for inputs/textareas (safe default)
-          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-            const len = el.value?.length ?? 0;
-            el.setSelectionRange(len, len);
-          }
+          last.focus({ preventScroll: true } as any);
+          placeCursorAtEnd(last);
         } catch {
           // ignore
         }
@@ -100,11 +109,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     };
 
     document.addEventListener("focusin", onFocusIn, true);
-    window.addEventListener("keydown", onKeyDownCapture, true);
+    document.addEventListener("focusout", onFocusOut, true);
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("input", onInput, true);
 
     return () => {
       document.removeEventListener("focusin", onFocusIn, true);
-      window.removeEventListener("keydown", onKeyDownCapture, true);
+      document.removeEventListener("focusout", onFocusOut, true);
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("input", onInput, true);
     };
   }, []);
 
@@ -128,49 +141,41 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 Home
               </Link>
             </li>
-
             <li>
               <Link href="/dashboard/connect" className={linkClasses("/dashboard/connect")}>
                 Connect
               </Link>
             </li>
-
             <li>
               <Link href="/dashboard/metrics" className={linkClasses("/dashboard/metrics")}>
                 Metrics
               </Link>
             </li>
-
             <li>
               <Link href="/dashboard/campaigns" className={linkClasses("/dashboard/campaigns")}>
                 Campaigns
               </Link>
             </li>
-
             <li>
               <Link href="/dashboard/sequences" className={linkClasses("/dashboard/sequences")}>
                 Sequences
               </Link>
             </li>
-
             <li>
               <Link href="/dashboard/stories/new" className={linkClasses("/dashboard/stories/new")}>
                 Stories
               </Link>
             </li>
-
             <li>
               <Link href="/dashboard/scheduled" className={linkClasses("/dashboard/scheduled")}>
                 Scheduled
               </Link>
             </li>
-
             <li>
               <Link href="/dashboard/responses" className={linkClasses("/dashboard/responses")}>
                 Responses
               </Link>
             </li>
-
             <li>
               <Link href="/dashboard/brainstorm" className={linkClasses("/dashboard/brainstorm")}>
                 🧠 Brainstorm
