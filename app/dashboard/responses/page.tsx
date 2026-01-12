@@ -1,4 +1,3 @@
-// app/dashboard/responses/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -76,10 +75,10 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
 }
 
 /**
- * Lightweight “AI-style” reply drafter (no external API required).
+ * Local fallback drafter (used if AI endpoint is unavailable).
  * Enterprise-safe: avoids medical claims / diagnosis / promises.
  */
-function draftReply({
+function draftReplyLocal({
   platform,
   authorName,
   text,
@@ -192,7 +191,6 @@ function newSeedItem(): InboxItem {
   const now = new Date();
   const id = `seed_${now.getTime()}_${Math.random().toString(16).slice(2)}`;
 
-  // Rotate platforms to help demo filtering
   const platforms: InboxPlatform[] = ["linkedin", "instagram", "threads", "facebook"];
   const platform = platforms[Math.floor(Math.random() * platforms.length)] || "linkedin";
 
@@ -224,6 +222,12 @@ function newSeedItem(): InboxItem {
   };
 }
 
+function clampText(s: string, max = 900) {
+  const t = (s || "").trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max) + "…";
+}
+
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -234,7 +238,7 @@ export default function ResponsesPage() {
 
   const [items, setItems] = useState<InboxItem[]>([]);
 
-  // ✅ Resolve org via /api/social-accounts (single-tenant safe)
+  // Resolve org via /api/social-accounts (single-tenant safe)
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
   // UX controls
@@ -468,23 +472,72 @@ export default function ResponsesPage() {
     );
   };
 
-  const runAiSuggest = () => {
+  async function runAiSuggest() {
     if (!selected) return;
+
     setAiStatus("Drafting reply…");
     setCopied(false);
 
-    const reply = draftReply({
+    // Always keep a safe fallback ready
+    const fallback = draftReplyLocal({
       platform: selected.platform,
       authorName: selected.authorName,
       text: selected.text,
       postText: selected.postText,
     });
 
-    // ✅ Editable draft goes into textarea
-    setReplyDraft(reply);
-    setAiStatus("Draft ready — edit it, then copy/paste.");
-    setTimeout(() => setAiStatus(null), 4500);
-  };
+    try {
+      // ✅ Use your real enterprise AI endpoint (already in the project)
+      const res = await fetch("/api/ai/root-coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          context: "responses_reply_draft",
+          userAction:
+            "Draft a short, friendly, enterprise-safe reply to this social comment/message.",
+          outcome: "success",
+          // Give the model enough context to draft safely
+          platform: selected.platform,
+          item: {
+            kind: selected.kind || "comment",
+            text: clampText(selected.text, 900),
+            authorName: selected.authorName || null,
+            authorHandle: selected.authorHandle || null,
+            createdAt: selected.createdAt,
+            postText: selected.postText ? clampText(selected.postText, 300) : null,
+            permalink: selected.permalink || null,
+          },
+          // Helpful house rules
+          rules: [
+            "Be warm, concise, and respectful.",
+            "No medical claims or diagnosis. No promises or guarantees.",
+            "If the person expresses distress or urgency, suggest seeking local support services.",
+            "Ask one simple clarifying question when appropriate.",
+            "Keep it suitable for a public reply (no private/sensitive details).",
+          ],
+        }),
+      });
+
+      const data: any = await res.json().catch(() => null);
+      const msg = typeof data?.coachMessage === "string" ? data.coachMessage.trim() : "";
+
+      if (!res.ok || !msg) {
+        setReplyDraft(fallback);
+        setAiStatus("AI draft unavailable — using safe fallback. (You can edit it.)");
+        setTimeout(() => setAiStatus(null), 5000);
+        return;
+      }
+
+      // Put the AI draft into the editable textarea
+      setReplyDraft(msg);
+      setAiStatus("Draft ready — edit it, then copy/paste.");
+      setTimeout(() => setAiStatus(null), 4500);
+    } catch {
+      setReplyDraft(fallback);
+      setAiStatus("AI draft failed — using safe fallback. (You can edit it.)");
+      setTimeout(() => setAiStatus(null), 5000);
+    }
+  }
 
   const copyDraft = async () => {
     try {
@@ -498,7 +551,6 @@ export default function ResponsesPage() {
   };
 
   const seedOne = () => {
-    // Insert at top so it’s obvious it worked
     const seed = newSeedItem();
     setItems((prev) => [seed, ...prev]);
     setSelectedId(seed.id);
@@ -753,8 +805,8 @@ export default function ResponsesPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • Seed mode is for demos only (not real comments).\n
-                • Replies are edited by staff before posting.\n
+                • AI drafts are editable by staff before posting.\n
+                • If AI is unavailable, the system falls back to a safe template draft.\n
                 • Next step: permissions + audit trail (who replied, when).
               </div>
             </GlassCard>
