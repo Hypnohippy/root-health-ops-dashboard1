@@ -2,7 +2,6 @@
 import "./globals.css";
 import React from "react";
 import type { Metadata } from "next";
-import Script from "next/script";
 
 export const metadata: Metadata = {
   title: "Root Health Ops",
@@ -14,47 +13,90 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <head>
         {/* 
-          ✅ Keyboard Hijack Guard (runs before everything)
-          Fixes: “can only type 1 character” in inputs/search/reply boxes.
+          ✅ Bulletproof Keyboard Guard
+          Fixes: “only 1 letter then stops” in inputs/textareas.
+          We use a raw <script> so it ALWAYS runs (more reliable than next/script here).
         */}
-        <Script id="rh-ops-keyboard-guard" strategy="beforeInteractive">
-          {`
-            (function () {
-              function isTypingTarget(t) {
-                if (!t) return false;
-                var el = t;
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+(function () {
+  function typingEl(target) {
+    if (!target) return null;
+    var el = target;
 
-                if (el && el.closest) {
-                  var c = el.closest("input, textarea, select, [contenteditable='true']");
-                  if (c) el = c;
-                }
+    // If they click on a span inside a button, etc.
+    if (el && el.closest) {
+      var c = el.closest("input, textarea, select, [contenteditable='true']");
+      if (c) el = c;
+    }
 
-                if (!el || !el.tagName) return false;
-                var tag = (el.tagName || "").toLowerCase();
-                if (tag === "input" || tag === "textarea" || tag === "select") return true;
-                if (el.isContentEditable) return true;
-                return false;
-              }
+    if (!el || !el.tagName) return null;
 
-              function guard(e) {
-                if (!isTypingTarget(e.target)) return;
+    var tag = (el.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return el;
+    if (el.isContentEditable) return el;
 
-                if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-                e.stopPropagation();
-                // Do NOT preventDefault – we want typing to still work.
-              }
+    return null;
+  }
 
-              document.addEventListener("keydown", guard, true);
-              document.addEventListener("keypress", guard, true);
-              document.addEventListener("keyup", guard, true);
-            })();
-          `}
-        </Script>
+  // Track the last real typing element
+  var last = null;
+  var lastTime = 0;
+
+  document.addEventListener("focusin", function (e) {
+    var el = typingEl(e.target);
+    if (el) { last = el; }
+  }, true);
+
+  // The key fix: stop ANY global key listeners while typing
+  function guardKey(e) {
+    var el = typingEl(e.target);
+    if (!el) return;
+
+    last = el;
+    lastTime = Date.now();
+
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    e.stopPropagation();
+    // DO NOT preventDefault (we want typing to work normally)
+  }
+
+  // Also: if something steals focus right after a keypress, grab it back
+  document.addEventListener("focusout", function () {
+    if (!last) return;
+    if (Date.now() - lastTime > 1500) return;
+
+    setTimeout(function () {
+      var active = document.activeElement;
+      // If focus is already in an input/textarea, don't interfere
+      if (active && typingEl(active)) return;
+
+      try {
+        last.focus({ preventScroll: true });
+
+        // Put cursor at end for inputs/textareas
+        if (last && (last.tagName || "").toLowerCase() === "input") {
+          var len = last.value ? last.value.length : 0;
+          last.setSelectionRange(len, len);
+        }
+        if (last && (last.tagName || "").toLowerCase() === "textarea") {
+          var len2 = last.value ? last.value.length : 0;
+          last.setSelectionRange(len2, len2);
+        }
+      } catch (_) {}
+    }, 0);
+  }, true);
+
+  document.addEventListener("keydown", guardKey, true);
+  document.addEventListener("keypress", guardKey, true);
+  document.addEventListener("keyup", guardKey, true);
+})();`,
+          }}
+        />
       </head>
 
-      <body className="min-h-screen bg-slate-950 text-slate-50">
-        {children}
-      </body>
+      <body className="min-h-screen bg-slate-950 text-slate-50">{children}</body>
     </html>
   );
 }
