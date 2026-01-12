@@ -43,15 +43,12 @@ export default function ScheduledPage() {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // Enterprise-safe: show status, not internal IDs
   const [workspaceHint, setWorkspaceHint] = useState<string>("Loading workspace…");
 
-  // Queue UX controls
   const [query, setQuery] = useState("");
   const [showPastCount, setShowPastCount] = useState(25);
 
   const resolveOrganisationId = async (): Promise<string> => {
-    // Your API chooses the single-tenant org automatically (first organisations row)
     const res = await fetch("/api/social-accounts", { method: "GET" });
     const data: any = await res.json().catch(() => null);
 
@@ -176,23 +173,6 @@ export default function ScheduledPage() {
     );
   };
 
-  const GlassCard = ({
-    children,
-    className = "",
-  }: {
-    children: React.ReactNode;
-    className?: string;
-  }) => (
-    <div
-      className={[
-        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </div>
-  );
-
   const RowCard = ({ p }: { p: ScheduledPost }) => {
     const tone = statusTone(p.status);
     return (
@@ -222,17 +202,11 @@ export default function ScheduledPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
-        <div className="absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-sky-500/10 blur-3xl" />
-        <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-pink-500/10 blur-3xl" />
-      </div>
-
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-              Scheduled
+              Scheduled <span className="text-xs text-slate-400">(v3)</span>
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               Read-only queue of everything scheduled from elsewhere (Stories, Campaigns, Sequences, etc.).
@@ -255,7 +229,7 @@ export default function ScheduledPage() {
           </div>
         </div>
 
-        <GlassCard className="p-6">
+        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search the queue</div>
@@ -283,7 +257,7 @@ export default function ScheduledPage() {
               Loading scheduled posts…
             </div>
           )}
-        </GlassCard>
+        </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="rounded-3xl border border-white/10 bg-white/5 p-5 space-y-3">
@@ -339,10 +313,6 @@ export default function ScheduledPage() {
               </div>
             )}
           </section>
-        </div>
-
-        <div className="text-[11px] text-slate-500">
-          Note: internal identifiers are intentionally hidden from users.
         </div>
       </div>
     </div>
