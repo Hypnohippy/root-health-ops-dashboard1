@@ -151,19 +151,6 @@ function detectConnectedPlatforms(payload: any) {
   return connected;
 }
 
-function loadImageDimensions(
-  url: string
-): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () =>
-      resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    img.onerror = () => reject(new Error("Could not load image from that URL."));
-    img.crossOrigin = "anonymous";
-    img.src = url;
-  });
-}
-
 function userSafeQuotaMessage(payload: any): string | null {
   const status = payload?.status;
   const code = payload?.details?.code;
@@ -231,29 +218,9 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
   const errs = payload?.details?.errors;
 
   if (Array.isArray(errs) && errs.length > 0) {
-    const ig = errs.find(
-      (e: any) => String(e?.platform || "").toLowerCase() === "instagram"
-    );
-    const e = ig || errs[0];
-
+    const e = errs[0];
     const platform = String(e?.platform || "a channel");
-    const code = e?.code;
     const msg = String(e?.message || "").trim();
-
-    if (
-      platform.toLowerCase() === "instagram" &&
-      (code === 140 ||
-        msg.toLowerCase().includes("aspect ratio") ||
-        msg.toLowerCase().includes("image") ||
-        msg.toLowerCase().includes("shape") ||
-        msg.toLowerCase().includes("format"))
-    ) {
-      return (
-        "You’re all good — nothing is broken.\n\n" +
-        "This image is just outside Instagram’s preferred shape.\n\n" +
-        "Swap it for a square or portrait image, then retry Instagram. If you want momentum now, send to the other channels and we’ll post to Instagram next."
-      );
-    }
 
     if (msg.toLowerCase().includes("choose at least one platform")) {
       return (
@@ -271,58 +238,6 @@ function plainEnglishFromQuickBlastFailure(payload: any): string {
   return safeBase;
 }
 
-function deriveActionFromText(text: string): CoachOption["action"] {
-  const s = (text || "").toLowerCase();
-
-  if (s.includes("save")) return "save_for_later";
-  if (s.includes("refresh")) return "refresh_connections";
-  if (s.includes("retry") && s.includes("failed")) return "retry_failed";
-  if (s.includes("retry") && s.includes("instagram")) return "retry_instagram";
-  if (
-    s.includes("other channels") ||
-    (s.includes("skip") && s.includes("instagram"))
-  )
-    return "skip_instagram";
-
-  return "save_for_later";
-}
-
-function parseCoachMessage(input: string | null): {
-  body: string;
-  options: CoachOption[];
-} {
-  const raw = (input || "").trim();
-  if (!raw) return { body: "", options: [] };
-
-  const lines = raw
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const options: CoachOption[] = [];
-  const bodyLines: string[] = [];
-
-  for (const line of lines) {
-    const lower = line.toLowerCase();
-
-    if (lower.startsWith("option a:")) {
-      const label = line.slice("Option A:".length).trim() || "Do this";
-      options.push({ label, action: deriveActionFromText(label) });
-      continue;
-    }
-
-    if (lower.startsWith("option b:")) {
-      const label = line.slice("Option B:".length).trim() || "Or this";
-      options.push({ label, action: deriveActionFromText(label) });
-      continue;
-    }
-
-    bodyLines.push(line);
-  }
-
-  return { body: bodyLines.join("\n"), options: options.slice(0, 2) };
-}
-
 function createDraftId() {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
@@ -331,14 +246,6 @@ function formatDraftTitle(msg: string) {
   const t = (msg || "").trim().replace(/\s+/g, " ");
   if (!t) return "Untitled draft";
   return t.length > 56 ? t.slice(0, 56) + "…" : t;
-}
-
-function niceDate(iso: string) {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
 }
 
 function normalizeDraft(d: any): DraftItem | null {
@@ -417,14 +324,6 @@ export default function DashboardHomePage() {
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
-  const [draftsOpen, setDraftsOpen] = useState(false);
-
-  const [draftSearch, setDraftSearch] = useState("");
-  const [renameId, setRenameId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
-
-  const [lastAction, setLastAction] = useState<RecoveryMeta>(null);
 
   const detectedConnectedList = useMemo(() => {
     return Object.entries(connected)
@@ -593,14 +492,11 @@ export default function DashboardHomePage() {
       const next = [item, ...drafts].slice(0, MAX_DRAFTS);
       commitDrafts(next);
 
-      setDraftsOpen(true);
-
       setOutcome({
         tone: "good",
         title: "Saved for later",
         body:
           "Your draft is safely stored on this device. You can load it anytime and send when you’re ready.",
-        meta: "Tip: pin your best templates to keep them at the top.",
       });
 
       setLastResponse(null);
@@ -622,172 +518,6 @@ export default function DashboardHomePage() {
       setError("Couldn’t save the draft on this device. Copy the text for now.");
     }
   };
-
-  const loadDraft = (id: string) => {
-    const d = drafts.find((x) => x.id === id);
-    if (!d) {
-      setOutcome({
-        tone: "bad",
-        title: "Draft not found",
-        body: "That saved draft isn’t available anymore on this device.",
-      });
-      setError("That draft could not be found.");
-      return;
-    }
-
-    setActiveDraftId(d.id);
-    setMessage(d.message || "");
-    setImageUrl(d.imageUrl || "");
-    setSelected(d.selected);
-
-    setStatus("Draft loaded.");
-    setCelebration(null);
-    setError(null);
-    setDraftsOpen(false);
-
-    setOutcome({
-      tone: "good",
-      title: "Draft loaded",
-      body: "You’re back in control — tweak it, then send when ready.",
-    });
-  };
-
-  const deleteDraft = (id: string) => {
-    const ok = confirm("Delete this saved draft from this device?");
-    if (!ok) return;
-
-    const next = drafts.filter((d) => d.id !== id);
-    commitDrafts(next);
-
-    if (activeDraftId === id) setActiveDraftId(null);
-
-    setStatus("Draft deleted.");
-    setCelebration(null);
-
-    setOutcome({
-      tone: "neutral",
-      title: "Draft deleted",
-      body: "That draft has been removed from this device.",
-    });
-  };
-
-  const togglePin = (id: string) => {
-    const next = drafts.map((d) =>
-      d.id === id ? { ...d, pinned: !d.pinned } : d
-    );
-    commitDrafts(next);
-  };
-
-  const duplicateDraft = (id: string) => {
-    const d = drafts.find((x) => x.id === id);
-    if (!d) return;
-
-    const copy: DraftItem = {
-      ...d,
-      id: createDraftId(),
-      title: `${(d.title || "Draft").trim()} (copy)`,
-      savedAt: new Date().toISOString(),
-      pinned: false,
-    };
-
-    const next = [copy, ...drafts].slice(0, MAX_DRAFTS);
-    commitDrafts(next);
-
-    setOutcome({
-      tone: "good",
-      title: "Draft duplicated",
-      body: "Perfect — now you can make a variation without losing the original.",
-    });
-
-    setStatus("Draft duplicated.");
-    setCelebration(null);
-  };
-
-  const startRenameDraft = (id: string) => {
-    const d = drafts.find((x) => x.id === id);
-    if (!d) return;
-    setRenameId(id);
-    setRenameValue((d.title || formatDraftTitle(d.message)).trim());
-  };
-
-  const cancelRename = () => {
-    setRenameId(null);
-    setRenameValue("");
-  };
-
-  const commitRename = () => {
-    if (!renameId) return;
-    const name = renameValue.trim();
-    if (!name) {
-      setOutcome({
-        tone: "warn",
-        title: "Draft name needed",
-        body: "Give the draft a short name so you can find it later.",
-      });
-      setError("Draft name can’t be blank.");
-      return;
-    }
-
-    const next = drafts.map((d) =>
-      d.id === renameId ? { ...d, title: name } : d
-    );
-    commitDrafts(next);
-
-    setOutcome({
-      tone: "good",
-      title: "Draft renamed",
-      body: "Nice — that will be much easier to find later.",
-    });
-
-    setStatus("Draft renamed.");
-    setCelebration(null);
-    setError(null);
-
-    cancelRename();
-  };
-
-  const sortedFilteredDrafts = useMemo(() => {
-    const q = draftSearch.trim().toLowerCase();
-
-    const filtered = !q
-      ? drafts
-      : drafts.filter((d) => {
-          const hay = `${d.title || ""} ${d.message || ""}`.toLowerCase();
-          return hay.includes(q);
-        });
-
-    const sorted = [...filtered].sort((a, b) => {
-      const ap = a.pinned ? 1 : 0;
-      const bp = b.pinned ? 1 : 0;
-      if (bp !== ap) return bp - ap;
-
-      const at = new Date(a.savedAt).getTime();
-      const bt = new Date(b.savedAt).getTime();
-      return bt - at;
-    });
-
-    return sorted;
-  }, [drafts, draftSearch]);
-
-  const recommendedAction = useMemo<RecommendedAction>(() => {
-    if (quotaMessage) return "save_for_later";
-    if (hadPartialSuccess && failedPlatforms.length > 0) return "retry_failed";
-    if (anyFailure) return "save_for_later";
-    return null;
-  }, [quotaMessage, hadPartialSuccess, failedPlatforms.length, anyFailure]);
-
-  const recommendedLabel = useMemo(() => {
-    switch (recommendedAction) {
-      case "save_for_later":
-        return "Save for later";
-      case "retry_failed":
-        return "Retry failed only";
-      case "skip_instagram":
-        return "Post to other channels now";
-      default:
-        return null;
-    }
-  }, [recommendedAction]);
 
   const postQuickBlast = async (platforms: ChannelId[]) => {
     const trimmed = message.trim();
@@ -825,14 +555,12 @@ export default function DashboardHomePage() {
             `Some channels went through, and some need a quick follow-up.\n\n` +
             `Posted: ${succeeded.join(", ")}\n` +
             `Needs action: ${failed.join(", ")}`,
-          meta: "Use the next step below to finish cleanly.",
         });
       } else {
         setOutcome({
           tone: quotaMessage ? "warn" : "bad",
           title: "Not posted yet",
           body: friendly,
-          meta: "Use the next step below to recover cleanly.",
         });
       }
 
@@ -856,7 +584,6 @@ export default function DashboardHomePage() {
       tone: "good",
       title: "Posted",
       body: `Your message was sent to: ${platforms.join(", ")}.`,
-      meta: "Nice — keep the streak going.",
     });
 
     void callRootCoach({
@@ -1115,6 +842,11 @@ export default function DashboardHomePage() {
                   {error}
                 </div>
               )}
+              {celebration && (
+                <div className="mt-3 text-xs text-emerald-200 whitespace-pre-wrap">
+                  {celebration}
+                </div>
+              )}
             </div>
 
             {outcome && (
@@ -1178,20 +910,7 @@ export default function DashboardHomePage() {
               <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
                 <div className="text-base font-semibold">Root Coach</div>
                 <div className="mt-3 text-sm whitespace-pre-wrap">
-                  {coachParsed.body || coachMessage}
-                </div>
-                <div className="mt-4 grid gap-2">
-                  {coachOptionsFinal.map((opt, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => runCoachOption(opt)}
-                      disabled={isPosting}
-                      className="rounded-2xl border border-sky-300/20 bg-sky-300/10 px-4 py-3 text-left text-sm font-semibold text-sky-50 hover:bg-sky-300/15 transition disabled:opacity-60"
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                  {coachMessage}
                 </div>
               </div>
             )}
@@ -1204,31 +923,10 @@ export default function DashboardHomePage() {
                 Drafts are stored on this device. (Later we can sync per org.)
               </div>
               <div className="mt-3 text-xs text-slate-400">
-                Draft library is available in the expanded version. If you want it back
-                on the right panel too, say so and I’ll restore it.
+                Use “Save for later” and we’ll restore the full draft library panel
+                when you want it.
               </div>
             </div>
-
-            {recommendedLabel && anyFailure && (
-              <div className="rounded-3xl border border-emerald-300/30 bg-emerald-300/10 p-6">
-                <div className="text-[11px] uppercase tracking-wide text-emerald-200">
-                  Recommended next step
-                </div>
-                <div className="mt-1 text-base font-semibold text-emerald-50">
-                  {recommendedLabel}
-                </div>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (recommendedAction === "save_for_later") saveDraft("recommended");
-                  }}
-                  disabled={isPosting}
-                  className="mt-4 w-full rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
-                >
-                  Do it
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>
