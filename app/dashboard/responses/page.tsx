@@ -19,18 +19,26 @@ type InboxItem = {
   platform: InboxPlatform;
   status: InboxStatus;
 
+  // Who/what
   authorName?: string | null;
   authorHandle?: string | null;
 
+  // What happened
   kind?: "comment" | "dm" | "mention" | "reaction" | "unknown";
   text: string;
 
+  // Link back to the native platform post/comment (if available)
   permalink?: string | null;
 
+  // Time
   createdAt: string;
 
+  // Optional context
   postText?: string | null;
   postId?: string | null;
+
+  // Optional reply link (if different from permalink)
+  replyUrl?: string | null;
 };
 
 type ApiResponse = {
@@ -61,9 +69,6 @@ const PLATFORM_DOT: Record<InboxPlatform, string> = {
   unknown: "bg-slate-500",
 };
 
-// Internal only. Not shown in UI.
-const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
-
 function safeDate(iso: string) {
   try {
     return new Date(iso).toLocaleString();
@@ -78,27 +83,6 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
   return "neutral";
 }
 
-function nextSuggestedStatus(s: InboxStatus): InboxStatus {
-  if (s === "unread") return "needs_reply";
-  if (s === "needs_reply") return "replied";
-  if (s === "replied") return "archived";
-  return "unread";
-}
-
-function normalizeExternalUrl(input: string | null | undefined): string | null {
-  const raw = typeof input === "string" ? input.trim() : "";
-  if (!raw) return null;
-
-  if (/^https?:\/\//i.test(raw)) return raw;
-  if (raw.startsWith("//")) return `https:${raw}`;
-
-  if (/^(www\.)/i.test(raw) || /^[a-z0-9.-]+\.[a-z]{2,}\/?/i.test(raw)) {
-    return `https://${raw}`;
-  }
-
-  return null;
-}
-
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -108,51 +92,52 @@ export default function ResponsesPage() {
   const [configured, setConfigured] = useState<boolean>(false);
 
   const [items, setItems] = useState<InboxItem[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // ✅ Enterprise-safe: orgId comes from the system, never hardcoded, never displayed
+  const [organisationId, setOrganisationId] = useState<string | null>(null);
+  const [workspaceHint, setWorkspaceHint] = useState<string>("Loading workspace…");
 
   // UX controls
   const [query, setQuery] = useState("");
-  const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">(
-    "all"
-  );
+  const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">("all");
   const [statusFilter, setStatusFilter] = useState<InboxStatus | "all">("all");
 
-  // Manual add form
-  const [addOpen, setAddOpen] = useState(false);
-  const [addPlatform, setAddPlatform] = useState<InboxPlatform>("linkedin");
-  const [addStatus, setAddStatus] = useState<Exclude<InboxStatus, "unknown">>(
-    "needs_reply"
-  );
-  const [addAuthor, setAddAuthor] = useState("");
-  const [addPermalink, setAddPermalink] = useState("");
-  const [addText, setAddText] = useState("");
-  const [adding, setAdding] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const load = async () => {
+  const resolveOrganisationId = async (): Promise<string> => {
+    const res = await fetch("/api/social-accounts", { method: "GET" });
+    const data: any = await res.json().catch(() => null);
+
+    const org =
+      typeof data?.organisationId === "string" && data.organisationId.trim()
+        ? data.organisationId.trim()
+        : "";
+
+    if (!res.ok || !org) {
+      throw new Error("Workspace not loaded yet. Please refresh and try again.");
+    }
+
+    return org;
+  };
+
+  const loadInbox = async (orgId: string) => {
     setLoading(true);
     setError(null);
 
     try {
       const res = await fetch(
-        `/api/responses/list?organisationId=${encodeURIComponent(ORG_ID)}`,
-        { method: "GET" }
+        `/api/responses/list?organisationId=${encodeURIComponent(orgId)}`,
+        { method: "GET", cache: "no-store" }
       );
-      const data: ApiResponse = await res.json().catch(() => ({
-        success: false,
-      }));
+
+      const data: ApiResponse = await res.json().catch(() => ({ success: false }));
 
       if (!res.ok || data?.success === false) {
-        throw new Error(
-          data?.error || `Failed to load inbox (HTTP ${res.status}).`
-        );
+        throw new Error(data?.error || `Failed to load inbox (HTTP ${res.status}).`);
       }
 
-      const nextItems = Array.isArray(data?.items) ? data.items : [];
-      setItems(nextItems);
-
-      if (selectedId && !nextItems.some((x) => x.id === selectedId)) {
-        setSelectedId(null);
-      }
+      const list = Array.isArray(data?.items) ? data.items : [];
+      setItems(list);
 
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
@@ -161,8 +146,28 @@ export default function ResponsesPage() {
       setItems([]);
       setNote(null);
       setConfigured(false);
-      setSelectedId(null);
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const boot = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      setWorkspaceHint("Loading workspace…");
+      const orgId = await resolveOrganisationId();
+      setOrganisationId(orgId);
+      setWorkspaceHint("Workspace loaded");
+      await loadInbox(orgId);
+    } catch (e: any) {
+      setOrganisationId(null);
+      setItems([]);
+      setNote(null);
+      setConfigured(false);
+      setWorkspaceHint("Workspace not ready");
+      setError(e?.message || "Workspace not loaded yet. Please refresh and try again.");
       setLoading(false);
     }
   };
@@ -170,14 +175,18 @@ export default function ResponsesPage() {
   const refresh = async () => {
     setRefreshing(true);
     try {
-      await load();
+      if (organisationId) {
+        await loadInbox(organisationId);
+      } else {
+        await boot();
+      }
     } finally {
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    void load();
+    void boot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -185,8 +194,7 @@ export default function ResponsesPage() {
     const q = query.trim().toLowerCase();
 
     return items.filter((it) => {
-      if (platformFilter !== "all" && it.platform !== platformFilter)
-        return false;
+      if (platformFilter !== "all" && it.platform !== platformFilter) return false;
       if (statusFilter !== "all" && it.status !== statusFilter) return false;
 
       if (!q) return true;
@@ -213,14 +221,12 @@ export default function ResponsesPage() {
       unread: 0,
       needs_reply: 0,
       replied: 0,
-      archived: 0,
     };
 
     for (const it of items) {
       if (it.status === "unread") c.unread++;
       if (it.status === "needs_reply") c.needs_reply++;
       if (it.status === "replied") c.replied++;
-      if (it.status === "archived") c.archived++;
     }
     return c;
   }, [items]);
@@ -272,54 +278,6 @@ export default function ResponsesPage() {
     </div>
   );
 
-  const PrimaryBtn = ({
-    children,
-    onClick,
-    disabled,
-    className = "",
-  }: {
-    children: React.ReactNode;
-    onClick: () => void;
-    disabled?: boolean;
-    className?: string;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={[
-        "inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow-[0_12px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </button>
-  );
-
-  const SoftBtn = ({
-    children,
-    onClick,
-    disabled,
-    className = "",
-  }: {
-    children: React.ReactNode;
-    onClick: () => void;
-    disabled?: boolean;
-    className?: string;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={[
-        "inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </button>
-  );
-
   const Row = ({ it }: { it: InboxItem }) => {
     const isSelected = it.id === selectedId;
     return (
@@ -357,8 +315,6 @@ export default function ResponsesPage() {
               ? "unread"
               : it.status === "replied"
               ? "replied"
-              : it.status === "archived"
-              ? "archived"
               : it.status}
           </Pill>
         </div>
@@ -384,91 +340,10 @@ export default function ResponsesPage() {
     );
   };
 
-  const createManualItem = async () => {
-    setAdding(true);
-    setError(null);
-    setNote(null);
-
-    try {
-      const text = addText.trim();
-      if (!text) throw new Error("Please paste the comment text.");
-
-      const permalinkNormalized = normalizeExternalUrl(addPermalink);
-
-      const res = await fetch("/api/responses/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          organisationId: ORG_ID,
-          platform: addPlatform,
-          status: addStatus,
-          authorName: addAuthor.trim() || null,
-          permalink: permalinkNormalized,
-          text,
-          createdAt: new Date().toISOString(),
-          raw: {
-            source: "manual_capture",
-            permalinkOriginal: addPermalink.trim() || null,
-          },
-        }),
-      });
-
-      const data: any = await res.json().catch(() => ({}));
-      if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || `Failed to add item (HTTP ${res.status}).`);
-      }
-
-      setAddText("");
-      setAddAuthor("");
-      setAddPermalink("");
-      setAddOpen(false);
-
-      setNote(
-        permalinkNormalized
-          ? "Saved to inbox."
-          : "Saved to inbox. (Tip: paste a full link like https://… so ‘Open on platform’ works.)"
-      );
-      await load();
-    } catch (e: any) {
-      setError(e?.message || "Could not add inbox item.");
-    } finally {
-      setAdding(false);
-    }
+  const bestLinkForSelected = (it: InboxItem) => {
+    const u = (it.replyUrl || it.permalink || "").trim();
+    return u || null;
   };
-
-  const updateStatus = async (
-    id: string,
-    status: Exclude<InboxStatus, "unknown">
-  ) => {
-    setError(null);
-    setNote(null);
-
-    try {
-      const res = await fetch("/api/responses/update-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          organisationId: ORG_ID,
-          id,
-          status,
-        }),
-      });
-
-      const data: any = await res.json().catch(() => ({}));
-      if (!res.ok || data?.success === false) {
-        throw new Error(
-          data?.error || `Failed to update status (HTTP ${res.status}).`
-        );
-      }
-
-      setNote(`Updated status to: ${status}`);
-      await load();
-    } catch (e: any) {
-      setError(e?.message || "Could not update status.");
-    }
-  };
-
-  const selectedPermalink = normalizeExternalUrl(selected?.permalink || null);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -478,119 +353,6 @@ export default function ResponsesPage() {
         <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-pink-500/10 blur-3xl" />
       </div>
 
-      {addOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-slate-950/80 backdrop-blur-xl p-5 shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-lg font-semibold">Add inbox item</div>
-                <div className="mt-1 text-xs text-slate-300">
-                  Manual capture (provider responses are plan-gated). Paste the
-                  comment and (ideally) the direct link.
-                </div>
-              </div>
-              <SoftBtn onClick={() => setAddOpen(false)}>Close</SoftBtn>
-            </div>
-
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <div>
-                <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                  Platform
-                </div>
-                <select
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none"
-                  value={addPlatform}
-                  onChange={(e) => setAddPlatform(e.target.value as any)}
-                >
-                  <option value="linkedin">LinkedIn</option>
-                  <option value="facebook">Facebook</option>
-                  <option value="instagram">Instagram</option>
-                  <option value="threads">Threads</option>
-                  <option value="tiktok">TikTok</option>
-                  <option value="reddit">Reddit</option>
-                  <option value="unknown">Unknown</option>
-                </select>
-              </div>
-
-              <div>
-                <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                  Status
-                </div>
-                <select
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none"
-                  value={addStatus}
-                  onChange={(e) => setAddStatus(e.target.value as any)}
-                >
-                  <option value="unread">Unread</option>
-                  <option value="needs_reply">Needs reply</option>
-                  <option value="replied">Replied</option>
-                  <option value="archived">Archived</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <div>
-                <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                  Author (optional)
-                </div>
-                <input
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none"
-                  placeholder="e.g. Jane Smith"
-                  value={addAuthor}
-                  onChange={(e) => setAddAuthor(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                  Permalink (optional but recommended)
-                </div>
-                <input
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none"
-                  placeholder="Paste full link e.g. https://www.linkedin.com/…"
-                  value={addPermalink}
-                  onChange={(e) => setAddPermalink(e.target.value)}
-                />
-                <div className="mt-2 text-[11px] text-slate-400">
-                  If you paste “www.linkedin.com/…” we’ll auto-fix it to
-                  “https://…”.
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                Comment text (required)
-              </div>
-              <textarea
-                className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none min-h-[140px]"
-                placeholder="Paste the comment here…"
-                value={addText}
-                onChange={(e) => setAddText(e.target.value)}
-              />
-            </div>
-
-            <div className="mt-4 flex gap-2">
-              <SoftBtn
-                onClick={() => setAddOpen(false)}
-                disabled={adding}
-                className="flex-1"
-              >
-                Cancel
-              </SoftBtn>
-              <PrimaryBtn
-                onClick={createManualItem}
-                disabled={adding || !addText.trim()}
-                className="flex-1"
-              >
-                {adding ? "Saving…" : "Save to inbox"}
-              </PrimaryBtn>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
@@ -598,8 +360,7 @@ export default function ResponsesPage() {
               Responses
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Inbox for comments and messages — separate from Scheduled so staff
-              don’t confuse “planning” with “responding”.
+              Your inbox for comments, mentions, and messages — separate from Scheduled so we don’t mix planning with community management.
             </p>
           </div>
 
@@ -608,17 +369,16 @@ export default function ResponsesPage() {
             <Pill tone="warn">Unread: {counts.unread}</Pill>
             <Pill tone="warn">Needs reply: {counts.needs_reply}</Pill>
             <Pill tone="good">Replied: {counts.replied}</Pill>
+            <Pill tone={organisationId ? "good" : "warn"}>{workspaceHint}</Pill>
 
-            <PrimaryBtn
-              onClick={() => setAddOpen(true)}
-              disabled={loading || refreshing}
+            <button
+              type="button"
+              onClick={refresh}
+              disabled={refreshing}
+              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
             >
-              Add item
-            </PrimaryBtn>
-
-            <SoftBtn onClick={refresh} disabled={refreshing || loading}>
               {refreshing ? "Refreshing…" : "Refresh"}
-            </SoftBtn>
+            </button>
           </div>
         </div>
 
@@ -627,7 +387,7 @@ export default function ResponsesPage() {
             <div>
               <div className="text-base font-semibold">Search & filters</div>
               <div className="mt-1 text-xs text-slate-300">
-                Provider inbox is plan-gated — manual capture keeps this enterprise-ready now.
+                Find what needs action fast.
               </div>
             </div>
 
@@ -699,17 +459,18 @@ export default function ResponsesPage() {
 
           <div className="space-y-6">
             <GlassCard className="p-6">
-              <div className="text-base font-semibold">Triage</div>
+              <div className="text-base font-semibold">Reply</div>
               <div className="mt-1 text-xs text-slate-300">
-                Track what needs a reply, and what’s done.
+                Reply sending will be enabled once the provider inbox endpoints are available on your plan.
+                For now, open the item on the platform to respond.
               </div>
 
               {!selected ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                  Select an item from the left to see actions here.
+                  Select an item from the left to see details here.
                 </div>
               ) : (
-                <div className="mt-4 space-y-3">
+                <div className="mt-4 space-y-4">
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
@@ -724,17 +485,18 @@ export default function ResponsesPage() {
                           {PLATFORM_LABEL[selected.platform] || "Unknown"}
                         </div>
                       </div>
-                      <Pill tone={statusTone(selected.status)}>
-                        {selected.status}
-                      </Pill>
+                      <Pill tone={statusTone(selected.status)}>{selected.status}</Pill>
                     </div>
 
                     <div className="mt-2 text-[11px] text-slate-400">
                       {safeDate(selected.createdAt)}
-                      {selected.authorName ? (
+                      {selected.authorName || selected.authorHandle ? (
                         <>
                           {" "}
-                          · <span className="text-slate-300">{selected.authorName}</span>
+                          ·{" "}
+                          <span className="text-slate-300">
+                            {selected.authorName || selected.authorHandle}
+                          </span>
                         </>
                       ) : null}
                     </div>
@@ -743,57 +505,48 @@ export default function ResponsesPage() {
                       {selected.text}
                     </div>
 
-                    {selectedPermalink ? (
+                    {selected.postText ? (
+                      <div className="mt-3 text-[11px] text-slate-400 whitespace-pre-wrap">
+                        <span className="text-slate-300 font-semibold">Post context:</span>{" "}
+                        {selected.postText}
+                      </div>
+                    ) : null}
+
+                    {bestLinkForSelected(selected) ? (
                       <div className="mt-3 text-[11px]">
                         <a
-                          href={selectedPermalink}
+                          href={bestLinkForSelected(selected)!}
                           target="_blank"
                           rel="noreferrer"
                           className="text-sky-300 hover:text-sky-200 underline"
                         >
-                          Open on platform
+                          Open on platform (reply there)
                         </a>
                       </div>
-                    ) : selected?.permalink ? (
-                      <div className="mt-3 text-[11px] text-amber-200">
-                        Link looks incomplete. Paste a full link starting with
-                        https://
+                    ) : (
+                      <div className="mt-3 text-[11px] text-slate-400">
+                        No direct link available for this item.
                       </div>
-                    ) : null}
+                    )}
                   </div>
 
-                  <div className="grid gap-2">
-                    <PrimaryBtn
-                      onClick={() =>
-                        updateStatus(
-                          selected.id,
-                          nextSuggestedStatus(selected.status) as any
-                        )
-                      }
-                      disabled={selected.status === "unknown"}
-                    >
-                      Mark as: {nextSuggestedStatus(selected.status)}
-                    </PrimaryBtn>
+                  <textarea
+                    disabled
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 placeholder:text-slate-500 outline-none opacity-70"
+                    placeholder="Reply sending is not enabled yet…"
+                  />
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <SoftBtn onClick={() => updateStatus(selected.id, "unread")}>
-                        Unread
-                      </SoftBtn>
-                      <SoftBtn onClick={() => updateStatus(selected.id, "needs_reply")}>
-                        Needs reply
-                      </SoftBtn>
-                      <SoftBtn onClick={() => updateStatus(selected.id, "replied")}>
-                        Replied
-                      </SoftBtn>
-                      <SoftBtn onClick={() => updateStatus(selected.id, "archived")}>
-                        Archived
-                      </SoftBtn>
-                    </div>
-                  </div>
+                  <button
+                    type="button"
+                    disabled
+                    className="w-full rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 opacity-60 cursor-not-allowed"
+                  >
+                    Send reply (coming next)
+                  </button>
 
                   {!configured && (
                     <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100 whitespace-pre-wrap">
-                      Provider responses are plan-gated. This inbox works today via manual capture.
+                      Inbox is not connected yet. Next we’ll wire real inbox sources so items appear here and replies can be sent.
                     </div>
                   )}
                 </div>
@@ -803,10 +556,16 @@ export default function ResponsesPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • No organisation IDs are shown.{"\n"}• Inbox is separate from Scheduled (planning vs responding).{"\n"}• Next step: permissions + audit trail (who replied, when).
+                • No organisation IDs are shown.\n
+                • This is a separate inbox so staff don’t confuse “planning posts” with “responding”.\n
+                • Next step: permissions + audit trail (who replied, when).
               </div>
             </GlassCard>
           </div>
+        </div>
+
+        <div className="text-[11px] text-slate-500">
+          Note: internal identifiers are intentionally hidden from users.
         </div>
       </div>
     </div>
