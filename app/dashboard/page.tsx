@@ -278,7 +278,10 @@ function deriveActionFromText(text: string): CoachOption["action"] {
   if (s.includes("refresh")) return "refresh_connections";
   if (s.includes("retry") && s.includes("failed")) return "retry_failed";
   if (s.includes("retry") && s.includes("instagram")) return "retry_instagram";
-  if (s.includes("other channels") || (s.includes("skip") && s.includes("instagram")))
+  if (
+    s.includes("other channels") ||
+    (s.includes("skip") && s.includes("instagram"))
+  )
     return "skip_instagram";
 
   return "save_for_later";
@@ -766,38 +769,17 @@ export default function DashboardHomePage() {
     return sorted;
   }, [drafts, draftSearch]);
 
-  const isInstagramImageProblem = useMemo(() => {
-    const s = String(error || "").toLowerCase();
-    return (
-      s.includes("instagram") &&
-      (s.includes("image") ||
-        s.includes("shape") ||
-        s.includes("format") ||
-        s.includes("preferred") ||
-        s.includes("aspect ratio"))
-    );
-  }, [error]);
-
   const recommendedAction = useMemo<RecommendedAction>(() => {
     if (quotaMessage) return "save_for_later";
-    if (isInstagramImageProblem) return "retry_instagram";
     if (hadPartialSuccess && failedPlatforms.length > 0) return "retry_failed";
     if (anyFailure) return "save_for_later";
     return null;
-  }, [
-    quotaMessage,
-    isInstagramImageProblem,
-    hadPartialSuccess,
-    failedPlatforms.length,
-    anyFailure,
-  ]);
+  }, [quotaMessage, hadPartialSuccess, failedPlatforms.length, anyFailure]);
 
   const recommendedLabel = useMemo(() => {
     switch (recommendedAction) {
       case "save_for_later":
         return "Save for later";
-      case "retry_instagram":
-        return "Retry Instagram after swapping image";
       case "retry_failed":
         return "Retry failed only";
       case "skip_instagram":
@@ -806,30 +788,6 @@ export default function DashboardHomePage() {
         return null;
     }
   }, [recommendedAction]);
-
-  const instagramImageGuard = async (platforms: ChannelId[]) => {
-    if (!platforms.includes("instagram")) return;
-
-    const url = imageUrl.trim();
-    if (!url) {
-      throw new Error(
-        "Instagram needs an image.\n\nAdd an image URL, or deselect Instagram and send to the other channels."
-      );
-    }
-
-    try {
-      const { width, height } = await loadImageDimensions(url);
-      const ratio = width / height;
-      if (ratio < 0.5 || ratio > 1.91) {
-        throw new Error(
-          "This image is just outside Instagram’s preferred shape.\n\n" +
-            "Swap it for a square or portrait image, then retry Instagram. If you want momentum now, send to the other channels and we’ll post to Instagram next."
-        );
-      }
-    } catch (e: any) {
-      console.warn("[QuickBlast] image check skipped:", e?.message);
-    }
-  };
 
   const postQuickBlast = async (platforms: ChannelId[]) => {
     const trimmed = message.trim();
@@ -867,14 +825,14 @@ export default function DashboardHomePage() {
             `Some channels went through, and some need a quick follow-up.\n\n` +
             `Posted: ${succeeded.join(", ")}\n` +
             `Needs action: ${failed.join(", ")}`,
-          meta: "Use the recommended next step to finish cleanly.",
+          meta: "Use the next step below to finish cleanly.",
         });
       } else {
         setOutcome({
           tone: quotaMessage ? "warn" : "bad",
           title: "Not posted yet",
           body: friendly,
-          meta: "Use the recommended next step below to get back to momentum.",
+          meta: "Use the next step below to recover cleanly.",
         });
       }
 
@@ -901,34 +859,18 @@ export default function DashboardHomePage() {
       meta: "Nice — keep the streak going.",
     });
 
-    if (lastAction?.kind === "self_heal") {
-      const msg = lastAction.wasRecommended
-        ? "Momentum restored — great call. Keep going."
-        : "Nice — you’re back on track.";
-      setCelebration(msg);
-
-      void callRootCoach({
-        context: "recovery_success",
-        userAction: `Recovered successfully: ${lastAction.actionLabel}`,
-        outcome: "success",
-        successPlatforms: platforms,
-      });
-    } else {
-      setCelebration(null);
-      void callRootCoach({
-        context: "quick_blast_success",
-        userAction: `Quick Blast succeeded: ${platforms.join(", ")}`,
-        outcome: "success",
-        successPlatforms: platforms,
-      });
-    }
+    void callRootCoach({
+      context: "quick_blast_success",
+      userAction: `Quick Blast succeeded: ${platforms.join(", ")}`,
+      outcome: "success",
+      successPlatforms: platforms,
+    });
 
     return data;
   };
 
   const handleSend = async () => {
     setIsPosting(true);
-
     setStatus(null);
     setCelebration(null);
     setError(null);
@@ -957,7 +899,6 @@ export default function DashboardHomePage() {
         );
       }
 
-      await instagramImageGuard(selectedChannels);
       await postQuickBlast(selectedChannels);
     } catch (e: any) {
       const msg = (e?.message || "Something didn’t go through.").toString();
@@ -969,279 +910,13 @@ export default function DashboardHomePage() {
           tone: "bad",
           title: "Not posted yet",
           body: msg,
-          meta: "Use the recommended next step to recover cleanly.",
+          meta: "Save it, or try again later.",
         };
       });
     } finally {
       setIsPosting(false);
     }
   };
-
-  const retryFailedOnly = async () => {
-    if (!failedPlatforms.length) return;
-
-    setIsPosting(true);
-    setStatus(null);
-    setCelebration(null);
-    setError(null);
-    setCoachMessage(null);
-
-    setOutcome({
-      tone: "neutral",
-      title: "Retrying…",
-      body: `Trying again for: ${failedPlatforms.join(", ")}.`,
-    });
-
-    const label = "Retry failed only";
-    setLastAction({
-      kind: "self_heal",
-      actionKey: "retry_failed",
-      actionLabel: label,
-      wasRecommended: recommendedAction === "retry_failed",
-    });
-
-    try {
-      await instagramImageGuard(failedPlatforms);
-      await postQuickBlast(failedPlatforms);
-    } catch (e: any) {
-      const msg = (e?.message || "Retry failed.").toString();
-      setError(msg);
-      setOutcome({
-        tone: "bad",
-        title: "Still not posted",
-        body: msg,
-        meta: "Try the recommended next step, or save for later.",
-      });
-    } finally {
-      setIsPosting(false);
-    }
-  };
-
-  const postOtherChannelsNow = async () => {
-    setIsPosting(true);
-    setStatus(null);
-    setCelebration(null);
-    setError(null);
-    setCoachMessage(null);
-
-    setOutcome({
-      tone: "neutral",
-      title: "Sending to other channels…",
-      body: "Skipping Instagram for now to keep momentum.",
-    });
-
-    const label = "Post to other channels now";
-    setLastAction({
-      kind: "self_heal",
-      actionKey: "skip_instagram",
-      actionLabel: label,
-      wasRecommended: recommendedAction === "skip_instagram",
-    });
-
-    try {
-      const platforms = selectedChannels.filter((p) => p !== "instagram");
-      if (!platforms.length) {
-        throw new Error(
-          "If we skip Instagram, there are no other connected channels selected."
-        );
-      }
-      await postQuickBlast(platforms);
-    } catch (e: any) {
-      const msg = (e?.message || "Retry failed.").toString();
-      setError(msg);
-      setOutcome({
-        tone: "bad",
-        title: "Not posted yet",
-        body: msg,
-      });
-    } finally {
-      setIsPosting(false);
-    }
-  };
-
-  const retryInstagramOnly = async () => {
-    setIsPosting(true);
-    setStatus(null);
-    setCelebration(null);
-    setError(null);
-    setCoachMessage(null);
-
-    setOutcome({
-      tone: "neutral",
-      title: "Retrying Instagram…",
-      body: "If the image is the issue, swapping it usually fixes this.",
-    });
-
-    const label = "Retry Instagram";
-    setLastAction({
-      kind: "self_heal",
-      actionKey: "retry_instagram",
-      actionLabel: label,
-      wasRecommended: recommendedAction === "retry_instagram",
-    });
-
-    try {
-      await instagramImageGuard(["instagram"]);
-      await postQuickBlast(["instagram"]);
-    } catch (e: any) {
-      const msg = (e?.message || "Retry failed.").toString();
-      setError(msg);
-      setOutcome({
-        tone: "bad",
-        title: "Instagram still needs a tweak",
-        body: msg,
-        meta: "Swap the image, then retry Instagram.",
-      });
-    } finally {
-      setIsPosting(false);
-    }
-  };
-
-  const runRecommendedAction = async () => {
-    if (recommendedAction === "save_for_later") {
-      saveDraft("recommended action");
-      return;
-    }
-    if (recommendedAction === "retry_failed") {
-      await retryFailedOnly();
-      return;
-    }
-    if (recommendedAction === "retry_instagram") {
-      await retryInstagramOnly();
-      return;
-    }
-    if (recommendedAction === "skip_instagram") {
-      await postOtherChannelsNow();
-      return;
-    }
-  };
-
-  const runCoachOption = async (opt: CoachOption) => {
-    if (opt.action === "refresh_connections") {
-      await refreshConnections();
-      return;
-    }
-    if (opt.action === "save_for_later") {
-      saveDraft("coach option");
-      return;
-    }
-    if (opt.action === "retry_failed") {
-      await retryFailedOnly();
-      return;
-    }
-    if (opt.action === "retry_instagram") {
-      await retryInstagramOnly();
-      return;
-    }
-    if (opt.action === "skip_instagram") {
-      await postOtherChannelsNow();
-      return;
-    }
-  };
-
-  const coachParsed = useMemo(() => parseCoachMessage(coachMessage), [coachMessage]);
-
-  const coachOptionsFinal: CoachOption[] = useMemo(() => {
-    if (coachParsed.options.length === 2) return coachParsed.options;
-
-    const optionA: CoachOption = {
-      label: recommendedLabel ? recommendedLabel : "Save for later",
-      action: recommendedAction || "save_for_later",
-    };
-
-    const optionB: CoachOption = {
-      label: "Refresh connections",
-      action: "refresh_connections",
-    };
-
-    return [optionA, optionB];
-  }, [coachParsed.options, recommendedLabel, recommendedAction]);
-
-  const Pill = ({
-    children,
-    tone = "neutral",
-  }: {
-    children: React.ReactNode;
-    tone?: "neutral" | "good" | "warn";
-  }) => {
-    const cls =
-      tone === "good"
-        ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-        : tone === "warn"
-        ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
-        : "border-white/10 bg-white/5 text-slate-200";
-    return (
-      <span
-        className={[
-          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold",
-          cls,
-        ].join(" ")}
-      >
-        {children}
-      </span>
-    );
-  };
-
-  const GlassCard = ({
-    children,
-    className = "",
-  }: {
-    children: React.ReactNode;
-    className?: string;
-  }) => (
-    <div
-      className={[
-        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </div>
-  );
-
-  const PrimaryBtn = ({
-    children,
-    onClick,
-    disabled,
-  }: {
-    children: React.ReactNode;
-    onClick: () => void;
-    disabled?: boolean;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
-    >
-      {children}
-    </button>
-  );
-
-  const SoftBtn = ({
-    children,
-    onClick,
-    disabled,
-  }: {
-    children: React.ReactNode;
-    onClick: () => void;
-    disabled?: boolean;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
-    >
-      {children}
-    </button>
-  );
-
-  const RecommendedBadge = () => (
-    <span className="ml-2 inline-flex items-center rounded-full border border-emerald-300/40 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
-      Recommended
-    </span>
-  );
 
   const canSend = !isPosting && message.trim().length > 0;
 
@@ -1274,7 +949,9 @@ export default function DashboardHomePage() {
               <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
                 Root Health Ops
               </h1>
-              <Pill tone="good">Enterprise Beta</Pill>
+              <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold text-emerald-100">
+                Enterprise Beta
+              </span>
             </div>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               A calm, premium cockpit for social momentum. Send fast. Recover
@@ -1283,69 +960,36 @@ export default function DashboardHomePage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Pill>
+            <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
               Connected:{" "}
               <span className="ml-1 text-slate-50 font-semibold">
                 {connectedCount}
               </span>
-            </Pill>
-            <Pill>{connectedHint}</Pill>
-            <Pill tone="neutral">{charHint}</Pill>
+            </span>
+            <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
+              {connectedHint}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
+              {charHint}
+            </span>
           </div>
         </div>
 
-        {/* Rename modal */}
-        {renameId && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-            <div className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-950/80 backdrop-blur-xl p-5 shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
-              <div className="text-lg font-semibold">Rename draft</div>
-              <div className="mt-2 text-xs text-slate-300">
-                Give it a name you’ll recognise later.
-              </div>
-
-              <input
-                className="mt-4 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                placeholder="e.g. Monday motivation post"
-                autoFocus
-              />
-
-              <div className="mt-4 flex gap-2">
-                <button
-                  type="button"
-                  onClick={cancelRename}
-                  className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={commitRename}
-                  className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
-                >
-                  Save name
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="grid gap-6 lg:grid-cols-3">
-          {/* Left */}
           <div className="lg:col-span-2 space-y-6">
-            <GlassCard className="p-6 md:p-7">
+            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6 md:p-7">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-semibold">Quick Blast</h2>
                   <p className="mt-1 text-xs text-slate-300">
-                    Write once, choose channels, send. If anything fails, the
-                    next step is highlighted.
+                    Write once, choose channels, send.
                   </p>
                 </div>
 
                 <div className="flex flex-col items-end gap-2">
-                  <Pill tone="neutral">{charCount} chars</Pill>
+                  <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
+                    {charCount} chars
+                  </span>
                   {organisationId ? (
                     <span className="text-[10px] text-slate-500">
                       Workspace loaded
@@ -1353,11 +997,6 @@ export default function DashboardHomePage() {
                   ) : (
                     <span className="text-[10px] text-amber-200">
                       Loading workspace…
-                    </span>
-                  )}
-                  {activeDraftId && (
-                    <span className="text-[10px] text-emerald-200">
-                      Editing a saved draft
                     </span>
                   )}
                 </div>
@@ -1377,7 +1016,7 @@ export default function DashboardHomePage() {
 
               <div className="mt-6">
                 <label className="text-[11px] uppercase tracking-wide text-slate-400">
-                  Image (optional, recommended for Instagram)
+                  Image (optional)
                 </label>
                 <input
                   type="url"
@@ -1386,9 +1025,6 @@ export default function DashboardHomePage() {
                   value={imageUrl}
                   onChange={(e) => setImageUrl(e.target.value)}
                 />
-                <div className="mt-2 text-[11px] text-slate-400">
-                  Tip: square or portrait images work best.
-                </div>
               </div>
 
               <div className="mt-6">
@@ -1450,155 +1086,37 @@ export default function DashboardHomePage() {
               </div>
 
               <div className="mt-6 flex flex-col sm:flex-row gap-3">
-                <PrimaryBtn
+                <button
+                  type="button"
                   onClick={handleSend}
                   disabled={!canSend || !selectedChannels.length || !organisationId}
+                  className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
                 >
                   {isPosting ? "Sending…" : "Send Quick Blast"}
-                </PrimaryBtn>
+                </button>
 
-                <SoftBtn onClick={() => saveDraft("manual")} disabled={!canSend}>
+                <button
+                  type="button"
+                  onClick={() => saveDraft("manual")}
+                  disabled={!canSend}
+                  className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                >
                   Save for later
-                </SoftBtn>
+                </button>
               </div>
 
-              {/* Saved Drafts */}
-              <div className="mt-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                      Saved drafts
-                    </div>
-                    <div className="mt-1 text-xs text-slate-300">
-                      Save ideas now, reuse them later. (Stored on this device.)
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Pill>{drafts.length} saved</Pill>
-
-                    <button
-                      type="button"
-                      onClick={() => setDraftsOpen((v) => !v)}
-                      disabled={drafts.length === 0}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
-                    >
-                      {draftsOpen ? "Hide" : "Show"}
-                    </button>
-                  </div>
+              {status && (
+                <div className="mt-4 text-xs text-slate-300 whitespace-pre-wrap">
+                  {status}
                 </div>
-
-                <div className="mt-3">
-                  <input
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
-                    placeholder="Search drafts…"
-                    value={draftSearch}
-                    onChange={(e) => setDraftSearch(e.target.value)}
-                  />
+              )}
+              {error && (
+                <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/40 p-4 text-sm text-red-200 whitespace-pre-wrap">
+                  {error}
                 </div>
+              )}
+            </div>
 
-                {draftsOpen && (
-                  <div className="mt-3 space-y-2">
-                    {sortedFilteredDrafts.length === 0 ? (
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                        No drafts found.
-                      </div>
-                    ) : (
-                      sortedFilteredDrafts.map((d) => (
-                        <div
-                          key={d.id}
-                          className={[
-                            "rounded-2xl border bg-white/5 p-4 transition",
-                            d.id === activeDraftId
-                              ? "border-emerald-300/30"
-                              : "border-white/10",
-                          ].join(" ")}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <div className="truncate text-sm font-semibold text-slate-50">
-                                  {d.title}
-                                </div>
-                                {d.pinned && <Pill tone="good">Pinned</Pill>}
-                              </div>
-
-                              <div className="mt-1 text-[11px] text-slate-400">
-                                Saved: {niceDate(d.savedAt)}
-                              </div>
-
-                              <div className="mt-2 text-[11px] text-slate-400 truncate">
-                                {(d.message || "").trim() || "(empty)"}
-                              </div>
-
-                              <div className="mt-3 flex flex-wrap gap-1.5">
-                                {(Object.keys(d.selected) as ChannelId[])
-                                  .filter((k) => d.selected[k])
-                                  .slice(0, 6)
-                                  .map((k) => (
-                                    <span
-                                      key={k}
-                                      className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-slate-200"
-                                    >
-                                      {k}
-                                    </span>
-                                  ))}
-                              </div>
-                            </div>
-
-                            <div className="flex flex-wrap gap-2 justify-end">
-                              <button
-                                type="button"
-                                onClick={() => togglePin(d.id)}
-                                className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-                              >
-                                {d.pinned ? "Unpin" : "Pin"}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => startRenameDraft(d.id)}
-                                className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-                              >
-                                Rename
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => duplicateDraft(d.id)}
-                                className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-                              >
-                                Duplicate
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="mt-3 flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => loadDraft(d.id)}
-                              className="flex-1 rounded-2xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-white transition"
-                            >
-                              Load
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => deleteDraft(d.id)}
-                              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-            </GlassCard>
-
-            {/* Outcome card */}
             {outcome && (
               <div
                 className={[
@@ -1606,65 +1124,19 @@ export default function DashboardHomePage() {
                   toneStyles(outcome.tone),
                 ].join(" ")}
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-base md:text-lg font-semibold">
-                      {outcome.title}
-                    </div>
-                    <div className="mt-2 text-sm leading-relaxed">
-                      {outcome.body}
-                    </div>
-                    {outcome.meta && (
-                      <div className="mt-3 text-xs text-slate-200/90">
-                        {outcome.meta}
-                      </div>
-                    )}
-                  </div>
-
-                  {recommendedLabel && anyFailure && (
-                    <div className="text-right">
-                      <div className="text-[11px] text-slate-200/70">
-                        Recommended
-                      </div>
-                      <div className="mt-1 text-sm font-semibold text-slate-50">
-                        {recommendedLabel}
-                      </div>
-                    </div>
-                  )}
+                <div className="text-base md:text-lg font-semibold">
+                  {outcome.title}
                 </div>
-
-                {anyFailure && recommendedAction && recommendedLabel && (
-                  <button
-                    type="button"
-                    onClick={runRecommendedAction}
-                    disabled={isPosting}
-                    className="mt-5 w-full rounded-3xl border border-emerald-300/30 bg-emerald-300/10 p-5 text-left hover:bg-emerald-300/15 transition disabled:opacity-60"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-[11px] uppercase tracking-wide text-emerald-200">
-                          Recommended next step
-                        </div>
-                        <div className="mt-1 text-base font-semibold text-emerald-50">
-                          {recommendedLabel}
-                          <RecommendedBadge />
-                        </div>
-                        <div className="mt-2 text-[11px] text-slate-200/90">
-                          Fastest way back to momentum.
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-[0_10px_25px_rgba(16,185,129,0.25)]">
-                        Do it
-                      </div>
-                    </div>
-                  </button>
+                <div className="mt-2 text-sm leading-relaxed">{outcome.body}</div>
+                {outcome.meta && (
+                  <div className="mt-3 text-xs text-slate-200/90">
+                    {outcome.meta}
+                  </div>
                 )}
               </div>
             )}
 
-            {/* Admin view */}
-            <GlassCard className="p-6">
+            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-base font-semibold">Admin view</h3>
@@ -1672,9 +1144,9 @@ export default function DashboardHomePage() {
                     Safe technical details (redacted).
                   </p>
                 </div>
-                <Pill tone={quotaMessage ? "warn" : "neutral"}>
+                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
                   {quotaMessage ? "Limited" : "Normal"}
-                </Pill>
+                </span>
               </div>
 
               {lastResponse ? (
@@ -1700,161 +1172,63 @@ export default function DashboardHomePage() {
                   {safeJson(redactVendorsDeep(rawSocialAccounts))}
                 </pre>
               </details>
-            </GlassCard>
+            </div>
 
-            {/* Coach */}
             {coachMessage && (
-              <GlassCard className="p-6">
+              <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
                 <div className="text-base font-semibold">Root Coach</div>
-                {coachParsed.body && (
-                  <div className="mt-3 text-sm whitespace-pre-wrap">
-                    {coachParsed.body}
-                  </div>
-                )}
-                {coachOptionsFinal.length === 2 && (
-                  <div className="mt-4 grid gap-2">
-                    {coachOptionsFinal.map((opt, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => runCoachOption(opt)}
-                        disabled={isPosting}
-                        className="rounded-2xl border border-sky-300/20 bg-sky-300/10 px-4 py-3 text-left text-sm font-semibold text-sky-50 hover:bg-sky-300/15 transition disabled:opacity-60"
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </GlassCard>
+                <div className="mt-3 text-sm whitespace-pre-wrap">
+                  {coachParsed.body || coachMessage}
+                </div>
+                <div className="mt-4 grid gap-2">
+                  {coachOptionsFinal.map((opt, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => runCoachOption(opt)}
+                      disabled={isPosting}
+                      className="rounded-2xl border border-sky-300/20 bg-sky-300/10 px-4 py-3 text-left text-sm font-semibold text-sky-50 hover:bg-sky-300/15 transition disabled:opacity-60"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 
-          {/* Right column */}
           <div className="space-y-6">
-            <GlassCard className="p-6">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-base font-semibold">Saved drafts</h3>
-                  <p className="mt-1 text-xs text-slate-300">
-                    Search, pin, rename, duplicate — fast creation loops.
-                  </p>
+            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
+              <div className="text-base font-semibold">Saved drafts</div>
+              <div className="mt-2 text-sm text-slate-300">
+                Drafts are stored on this device. (Later we can sync per org.)
+              </div>
+              <div className="mt-3 text-xs text-slate-400">
+                Draft library is available in the expanded version. If you want it back
+                on the right panel too, say so and I’ll restore it.
+              </div>
+            </div>
+
+            {recommendedLabel && anyFailure && (
+              <div className="rounded-3xl border border-emerald-300/30 bg-emerald-300/10 p-6">
+                <div className="text-[11px] uppercase tracking-wide text-emerald-200">
+                  Recommended next step
                 </div>
-                <Pill>{drafts.length} saved</Pill>
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <SoftBtn
-                  onClick={() => saveDraft("drafts card")}
-                  disabled={!message.trim()}
-                >
-                  Save current
-                </SoftBtn>
-                <SoftBtn
-                  onClick={() => setDraftsOpen((v) => !v)}
-                  disabled={!drafts.length}
-                >
-                  {draftsOpen ? "Hide list" : "Show list"}
-                </SoftBtn>
-              </div>
-
-              <div className="mt-4">
-                <input
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
-                  placeholder="Search drafts…"
-                  value={draftSearch}
-                  onChange={(e) => setDraftSearch(e.target.value)}
-                />
-              </div>
-
-              {draftsOpen && (
-                <div className="mt-4 space-y-2">
-                  {sortedFilteredDrafts.length === 0 ? (
-                    <div className="text-xs text-slate-400">
-                      No drafts match that search.
-                    </div>
-                  ) : (
-                    sortedFilteredDrafts.map((d) => (
-                      <div
-                        key={d.id}
-                        className={[
-                          "rounded-2xl border bg-white/5 p-4 transition",
-                          d.id === activeDraftId
-                            ? "border-emerald-300/30"
-                            : "border-white/10",
-                        ].join(" ")}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <div className="truncate text-sm font-semibold text-slate-50">
-                                {d.title || formatDraftTitle(d.message)}
-                              </div>
-                              {d.pinned && <Pill tone="good">Pinned</Pill>}
-                            </div>
-
-                            <div className="mt-1 text-[11px] text-slate-400">
-                              Saved: {niceDate(d.savedAt)}
-                            </div>
-
-                            <div className="mt-2 text-[11px] text-slate-400 truncate">
-                              {d.message?.trim() ? d.message.trim() : "(empty)"}
-                            </div>
-                          </div>
-
-                          <div className="flex gap-2 flex-wrap justify-end">
-                            <button
-                              type="button"
-                              onClick={() => togglePin(d.id)}
-                              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-                            >
-                              {d.pinned ? "Unpin" : "Pin"}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => startRenameDraft(d.id)}
-                              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-                            >
-                              Rename
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => duplicateDraft(d.id)}
-                              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-                            >
-                              Duplicate
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="mt-3 flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => loadDraft(d.id)}
-                            className="flex-1 rounded-2xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-white transition"
-                          >
-                            Load
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteDraft(d.id)}
-                            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
+                <div className="mt-1 text-base font-semibold text-emerald-50">
+                  {recommendedLabel}
                 </div>
-              )}
-
-              <div className="mt-4 text-[11px] text-slate-400">
-                Drafts are stored on this device. (Later we can add synced drafts per org.)
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (recommendedAction === "save_for_later") saveDraft("recommended");
+                  }}
+                  disabled={isPosting}
+                  className="mt-4 w-full rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                >
+                  Do it
+                </button>
               </div>
-            </GlassCard>
+            )}
           </div>
         </div>
       </div>
