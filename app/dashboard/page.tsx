@@ -1,8 +1,9 @@
 // app/layout.tsx
 import "./globals.css";
 import React from "react";
+import type { Metadata } from "next";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "Root Health Ops",
   description: "Root Health Ops Dashboard",
 };
