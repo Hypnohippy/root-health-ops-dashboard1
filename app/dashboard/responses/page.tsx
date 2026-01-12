@@ -481,6 +481,35 @@ export default function ResponsesPage() {
       t
     );
   }
+function looksTooGeneric(ai: string, original: string) {
+  const a = (ai || "").trim().toLowerCase();
+  const o = (original || "").trim().toLowerCase();
+
+  // Common “PR / customer service” filler we do NOT want
+  const genericPhrases = [
+    "thanks so much for reaching out",
+    "we really appreciate your",
+    "we appreciate your comment",
+    "here if you need anything else",
+    "have a great day",
+    "happy to help",
+    "we're here to help",
+  ];
+
+  if (genericPhrases.some((p) => a.includes(p))) return true;
+
+  // If the person expresses overwhelm/stress, the reply MUST acknowledge it
+  const distressSignals = ["overwhelm", "overwhelmed", "stress", "anxious", "anxiety", "panic", "burnout"];
+  const originalHasDistress = distressSignals.some((w) => o.includes(w));
+  const aiMentionsDistress = distressSignals.some((w) => a.includes(w));
+
+  if (originalHasDistress && !aiMentionsDistress) return true;
+
+  // Too short / non-specific
+  if (a.length < 80) return true;
+
+  return false;
+}
 
   async function runAiSuggest() {
     if (!selected) return;
