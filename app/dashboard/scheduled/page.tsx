@@ -15,9 +15,6 @@ type ScheduledPost = {
   meta?: any;
 };
 
-// ✅ Confirmed correct org (internal only, never displayed)
-const LEGACY_ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
-
 function prettyPlatforms(list: any) {
   if (!Array.isArray(list) || list.length === 0) return "(none)";
   return list.map((x) => String(x)).join(", ");
@@ -46,17 +43,37 @@ export default function ScheduledPage() {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
+  // ✅ Enterprise-safe: load orgId from the system (do NOT hardcode)
+  const [organisationId, setOrganisationId] = useState<string | null>(null);
+  const [workspaceHint, setWorkspaceHint] = useState<string>("Loading workspace…");
+
   // Queue UX controls
   const [query, setQuery] = useState("");
   const [showPastCount, setShowPastCount] = useState(25);
 
-  const loadScheduled = async () => {
+  const resolveOrganisationId = async (): Promise<string> => {
+    const res = await fetch("/api/social-accounts", { method: "GET" });
+    const data: any = await res.json().catch(() => null);
+
+    const org =
+      typeof data?.organisationId === "string" && data.organisationId.trim()
+        ? data.organisationId.trim()
+        : "";
+
+    if (!res.ok || !org) {
+      throw new Error("Workspace not loaded yet. Please refresh and try again.");
+    }
+
+    return org;
+  };
+
+  const loadScheduled = async (orgId: string) => {
     setLoading(true);
     setError(null);
 
     try {
       const res = await fetch(
-        `/api/schedule/list?organisationId=${encodeURIComponent(LEGACY_ORG_ID)}`,
+        `/api/schedule/list?organisationId=${encodeURIComponent(orgId)}`,
         { cache: "no-store" }
       );
 
@@ -78,10 +95,34 @@ export default function ScheduledPage() {
     }
   };
 
+  const boot = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      setWorkspaceHint("Loading workspace…");
+      const orgId = await resolveOrganisationId();
+      setOrganisationId(orgId);
+      setWorkspaceHint("Workspace loaded");
+      await loadScheduled(orgId);
+    } catch (e: any) {
+      setOrganisationId(null);
+      setRows([]);
+      setWorkspaceHint("Workspace not ready");
+      setError(e?.message || "Workspace not loaded yet. Please refresh and try again.");
+      setLoading(false);
+    }
+  };
+
   const refresh = async () => {
     setRefreshing(true);
     try {
-      await loadScheduled();
+      // If orgId is known, just reload scheduled. If not, boot again.
+      if (organisationId) {
+        await loadScheduled(organisationId);
+      } else {
+        await boot();
+      }
     } finally {
       setRefreshing(false);
     }
@@ -90,16 +131,17 @@ export default function ScheduledPage() {
   useEffect(() => {
     let cancelled = false;
 
-    const boot = async () => {
+    const run = async () => {
       if (cancelled) return;
-      await loadScheduled();
+      await boot();
     };
 
-    void boot();
+    void run();
 
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {
@@ -230,6 +272,7 @@ export default function ScheduledPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Pill>Upcoming: {upcoming.length}</Pill>
             <Pill>Past: {past.length}</Pill>
+            <Pill tone={organisationId ? "good" : "warn"}>{workspaceHint}</Pill>
             <button
               type="button"
               onClick={refresh}
@@ -328,7 +371,7 @@ export default function ScheduledPage() {
         </div>
 
         <div className="text-[11px] text-slate-500">
-          Note: organisation IDs are internal and intentionally hidden from users.
+          Note: internal identifiers are intentionally hidden from users.
         </div>
       </div>
     </div>
