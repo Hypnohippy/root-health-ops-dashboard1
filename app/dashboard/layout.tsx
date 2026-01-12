@@ -76,14 +76,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 Campaigns
               </Link>
             </li>
-<li>
-  <Link
-    href="/dashboard/sequences"
-    className={linkClasses("/dashboard/sequences")}
-  >
-    Sequences
-  </Link>
-</li>
+
+            <li>
+              <Link
+                href="/dashboard/sequences"
+                className={linkClasses("/dashboard/sequences")}
+              >
+                Sequences
+              </Link>
+            </li>
 
             <li>
               <Link
@@ -103,7 +104,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               </Link>
             </li>
 
-            {/* 🧠 Brainstorm Studio – same style as the others */}
+            {/* ✅ Responses */}
+            <li>
+              <Link
+                href="/dashboard/responses"
+                className={linkClasses("/dashboard/responses")}
+              >
+                Responses
+              </Link>
+            </li>
+
             <li>
               <Link
                 href="/dashboard/brainstorm"
@@ -116,8 +126,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </nav>
       </header>
 
-      {/* Page Content */}
-      <main className="p-6">{children}</main>
+      {/* Always render page content */}
+      <main className="mx-auto w-full max-w-6xl p-6">{children}</main>
     </div>
   );
 }
