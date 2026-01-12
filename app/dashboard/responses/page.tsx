@@ -1,3 +1,4 @@
+// app/dashboard/responses/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -472,6 +473,15 @@ export default function ResponsesPage() {
     );
   };
 
+  // ✅ Guardrail: reject workflow/status-y AI outputs
+  function looksLikeStatusMessage(s: string) {
+    const t = (s || "").trim();
+    if (t.length < 20) return true;
+    return /option\s*a|option\s*b|save\s+for\s+later|post\s+now|sent\s+smoothly|drafted\s+and\s+ready/i.test(
+      t
+    );
+  }
+
   async function runAiSuggest() {
     if (!selected) return;
 
@@ -487,16 +497,14 @@ export default function ResponsesPage() {
     });
 
     try {
-      // ✅ Use your real enterprise AI endpoint (already in the project)
       const res = await fetch("/api/ai/root-coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           context: "responses_reply_draft",
           userAction:
-            "Draft a short, friendly, enterprise-safe reply to this social comment/message.",
+            "Draft a short, friendly, enterprise-safe public reply to this social comment/message. Output ONLY the reply text. No options, no status updates.",
           outcome: "success",
-          // Give the model enough context to draft safely
           platform: selected.platform,
           item: {
             kind: selected.kind || "comment",
@@ -507,28 +515,28 @@ export default function ResponsesPage() {
             postText: selected.postText ? clampText(selected.postText, 300) : null,
             permalink: selected.permalink || null,
           },
-          // Helpful house rules
           rules: [
             "Be warm, concise, and respectful.",
             "No medical claims or diagnosis. No promises or guarantees.",
             "If the person expresses distress or urgency, suggest seeking local support services.",
             "Ask one simple clarifying question when appropriate.",
             "Keep it suitable for a public reply (no private/sensitive details).",
+            "Return ONLY the reply. Do not include 'Option A/Option B' or meta commentary.",
           ],
         }),
       });
 
       const data: any = await res.json().catch(() => null);
-      const msg = typeof data?.coachMessage === "string" ? data.coachMessage.trim() : "";
+      const msgRaw = typeof data?.coachMessage === "string" ? data.coachMessage : "";
+      const msg = msgRaw.trim();
 
-      if (!res.ok || !msg) {
+      if (!res.ok || !msg || looksLikeStatusMessage(msg)) {
         setReplyDraft(fallback);
-        setAiStatus("AI draft unavailable — using safe fallback. (You can edit it.)");
+        setAiStatus("AI returned a status message — using safe fallback reply. (Edit it.)");
         setTimeout(() => setAiStatus(null), 5000);
         return;
       }
 
-      // Put the AI draft into the editable textarea
       setReplyDraft(msg);
       setAiStatus("Draft ready — edit it, then copy/paste.");
       setTimeout(() => setAiStatus(null), 4500);
@@ -664,9 +672,7 @@ export default function ResponsesPage() {
             </button>
 
             {seedCount > 0 && (
-              <span className="text-[11px] text-slate-400">
-                Seeded: {seedCount}
-              </span>
+              <span className="text-[11px] text-slate-400">Seeded: {seedCount}</span>
             )}
           </div>
 
@@ -805,8 +811,8 @@ export default function ResponsesPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • AI drafts are editable by staff before posting.\n
-                • If AI is unavailable, the system falls back to a safe template draft.\n
+                • AI drafts are editable by staff before posting.{"\n"}
+                • If AI is unavailable (or returns a “status” message), we fall back to a safe template draft.{"\n"}
                 • Next step: permissions + audit trail (who replied, when).
               </div>
             </GlassCard>
