@@ -1,4 +1,3 @@
-// app/dashboard/responses/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -257,6 +256,12 @@ export default function ResponsesPage() {
   // Seed box
   const [seedCount, setSeedCount] = useState(0);
 
+  // UI-only “last action” for undo
+  const [lastMarked, setLastMarked] = useState<{
+    id: string;
+    prevStatus: InboxStatus;
+  } | null>(null);
+
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
     const data: any = await res.json().catch(() => null);
@@ -473,43 +478,27 @@ export default function ResponsesPage() {
     );
   };
 
-  // ✅ Guardrail: reject workflow/status-y AI outputs
-  function looksLikeStatusMessage(s: string) {
-    const t = (s || "").trim();
-    if (t.length < 20) return true;
-    return /option\s*a|option\s*b|save\s+for\s+later|post\s+now|sent\s+smoothly|drafted\s+and\s+ready/i.test(
-      t
-    );
+  function markItemStatus(id: string, status: InboxStatus) {
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status } : x)));
   }
-function looksTooGeneric(ai: string, original: string) {
-  const a = (ai || "").trim().toLowerCase();
-  const o = (original || "").trim().toLowerCase();
 
-  // Common “PR / customer service” filler we do NOT want
-  const genericPhrases = [
-    "thanks so much for reaching out",
-    "we really appreciate your",
-    "we appreciate your comment",
-    "here if you need anything else",
-    "have a great day",
-    "happy to help",
-    "we're here to help",
-  ];
+  function markSelectedReplied() {
+    if (!selected) return;
+    const current = selected.status || "unknown";
+    if (current === "replied") return;
 
-  if (genericPhrases.some((p) => a.includes(p))) return true;
+    // keep undo info
+    setLastMarked({ id: selected.id, prevStatus: current });
+    markItemStatus(selected.id, "replied");
+  }
 
-  // If the person expresses overwhelm/stress, the reply MUST acknowledge it
-  const distressSignals = ["overwhelm", "overwhelmed", "stress", "anxious", "anxiety", "panic", "burnout"];
-  const originalHasDistress = distressSignals.some((w) => o.includes(w));
-  const aiMentionsDistress = distressSignals.some((w) => a.includes(w));
-
-  if (originalHasDistress && !aiMentionsDistress) return true;
-
-  // Too short / non-specific
-  if (a.length < 80) return true;
-
-  return false;
-}
+  function undoLastMark() {
+    if (!lastMarked) return;
+    markItemStatus(lastMarked.id, lastMarked.prevStatus);
+    setLastMarked(null);
+    setAiStatus("Undone.");
+    setTimeout(() => setAiStatus(null), 2000);
+  }
 
   async function runAiSuggest() {
     if (!selected) return;
@@ -517,7 +506,6 @@ function looksTooGeneric(ai: string, original: string) {
     setAiStatus("Drafting reply…");
     setCopied(false);
 
-    // Always keep a safe fallback ready
     const fallback = draftReplyLocal({
       platform: selected.platform,
       authorName: selected.authorName,
@@ -532,7 +520,7 @@ function looksTooGeneric(ai: string, original: string) {
         body: JSON.stringify({
           context: "responses_reply_draft",
           userAction:
-            "Draft a short, friendly, enterprise-safe public reply to this social comment/message. Output ONLY the reply text. No options, no status updates.",
+            "Draft a short, friendly, enterprise-safe reply to this social comment/message.",
           outcome: "success",
           platform: selected.platform,
           item: {
@@ -550,19 +538,16 @@ function looksTooGeneric(ai: string, original: string) {
             "If the person expresses distress or urgency, suggest seeking local support services.",
             "Ask one simple clarifying question when appropriate.",
             "Keep it suitable for a public reply (no private/sensitive details).",
-            "Return ONLY the reply. Do not include 'Option A/Option B' or meta commentary.",
           ],
         }),
       });
 
       const data: any = await res.json().catch(() => null);
-      const msgRaw = typeof data?.coachMessage === "string" ? data.coachMessage : "";
-      const msg = msgRaw.trim();
+      const msg = typeof data?.coachMessage === "string" ? data.coachMessage.trim() : "";
 
-      if (!res.ok || !msg || looksLikeStatusMessage(msg) || looksTooGeneric(msg, selected.text)) {
-
+      if (!res.ok || !msg) {
         setReplyDraft(fallback);
-        setAiStatus("AI returned a status message — using safe fallback reply. (Edit it.)");
+        setAiStatus("AI draft unavailable — using safe fallback. (You can edit it.)");
         setTimeout(() => setAiStatus(null), 5000);
         return;
       }
@@ -580,9 +565,21 @@ function looksTooGeneric(ai: string, original: string) {
   const copyDraft = async () => {
     try {
       if (!replyDraft.trim()) return;
+
       await navigator.clipboard.writeText(replyDraft);
+
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
+
+      // ✅ Option 1: Mark as replied on copy (UI-only)
+      if (selected) {
+        const prev = selected.status || "unknown";
+        setLastMarked({ id: selected.id, prevStatus: prev });
+        markItemStatus(selected.id, "replied");
+      }
+
+      setAiStatus("Copied. Marked as replied.");
+      setTimeout(() => setAiStatus(null), 2500);
     } catch {
       setCopied(false);
     }
@@ -822,6 +819,26 @@ function looksTooGeneric(ai: string, original: string) {
                     </button>
                   </div>
 
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={markSelectedReplied}
+                      disabled={!selected || selected.status === "replied"}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                    >
+                      Mark as replied
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={undoLastMark}
+                      disabled={!lastMarked}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                    >
+                      Undo
+                    </button>
+                  </div>
+
                   {aiStatus && (
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300 whitespace-pre-wrap">
                       {aiStatus}
@@ -842,7 +859,7 @@ function looksTooGeneric(ai: string, original: string) {
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
                 • AI drafts are editable by staff before posting.{"\n"}
-                • If AI is unavailable (or returns a “status” message), we fall back to a safe template draft.{"\n"}
+                • Copy marks the item as “replied” (UI-only) so staff can keep momentum.{"\n"}
                 • Next step: permissions + audit trail (who replied, when).
               </div>
             </GlassCard>
