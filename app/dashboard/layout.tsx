@@ -9,20 +9,48 @@ type DashboardLayoutProps = {
   children: React.ReactNode;
 };
 
+function isTypingTarget(target: EventTarget | null) {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+
+  const tag = (el.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return true;
+
+  // Covers rich text / editable divs if we add them later
+  if ((el as any).isContentEditable) return true;
+
+  // Also guard against nested elements inside inputs (rare, but safe)
+  const closest = el.closest?.("input, textarea, select, [contenteditable='true']");
+  return Boolean(closest);
+}
+
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
 
   const linkClasses = (href: string) => {
     const isActive =
-      pathname === href ||
-      (href !== "/dashboard" && pathname.startsWith(href));
+      pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
 
     return [
       "block rounded-md px-3 py-1.5 text-sm transition-colors",
-      isActive
-        ? "bg-emerald-400 text-slate-950"
-        : "text-slate-100 hover:bg-white/10",
+      isActive ? "bg-emerald-400 text-slate-950" : "text-slate-100 hover:bg-white/10",
     ].join(" ");
+  };
+
+  /**
+   * ✅ GLOBAL INPUT FIX
+   * If any page has parent components that accidentally intercept key presses,
+   * we stop the key events bubbling when the user is typing in an input/textarea.
+   *
+   * This fixes the “I can only type one letter” problem across the dashboard.
+   */
+  const stopKeyHijackWhileTyping = (e: React.SyntheticEvent) => {
+    const nativeEvent = e.nativeEvent as any;
+    const target = nativeEvent?.target || (e as any).target;
+
+    if (isTypingTarget(target)) {
+      e.stopPropagation();
+    }
   };
 
   return (
@@ -33,12 +61,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-emerald-400/80 shadow-lg shadow-emerald-500/40" />
             <div className="flex flex-col leading-tight">
-              <span className="text-sm font-semibold text-slate-50">
-                Root Health Ops
-              </span>
-              <span className="text-[11px] text-slate-300">
-                Your cockpit for growth
-              </span>
+              <span className="text-sm font-semibold text-slate-50">Root Health Ops</span>
+              <span className="text-[11px] text-slate-300">Your cockpit for growth</span>
             </div>
           </div>
 
@@ -51,74 +75,49 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </li>
 
             <li>
-              <Link
-                href="/dashboard/connect"
-                className={linkClasses("/dashboard/connect")}
-              >
+              <Link href="/dashboard/connect" className={linkClasses("/dashboard/connect")}>
                 Connect
               </Link>
             </li>
 
             <li>
-              <Link
-                href="/dashboard/metrics"
-                className={linkClasses("/dashboard/metrics")}
-              >
+              <Link href="/dashboard/metrics" className={linkClasses("/dashboard/metrics")}>
                 Metrics
               </Link>
             </li>
 
             <li>
-              <Link
-                href="/dashboard/campaigns"
-                className={linkClasses("/dashboard/campaigns")}
-              >
+              <Link href="/dashboard/campaigns" className={linkClasses("/dashboard/campaigns")}>
                 Campaigns
               </Link>
             </li>
 
             <li>
-              <Link
-                href="/dashboard/sequences"
-                className={linkClasses("/dashboard/sequences")}
-              >
+              <Link href="/dashboard/sequences" className={linkClasses("/dashboard/sequences")}>
                 Sequences
               </Link>
             </li>
 
             <li>
-              <Link
-                href="/dashboard/stories/new"
-                className={linkClasses("/dashboard/stories/new")}
-              >
+              <Link href="/dashboard/stories/new" className={linkClasses("/dashboard/stories/new")}>
                 Stories
               </Link>
             </li>
 
             <li>
-              <Link
-                href="/dashboard/scheduled"
-                className={linkClasses("/dashboard/scheduled")}
-              >
+              <Link href="/dashboard/scheduled" className={linkClasses("/dashboard/scheduled")}>
                 Scheduled
               </Link>
             </li>
 
-            {/* ✅ Responses */}
             <li>
-              <Link
-                href="/dashboard/responses"
-                className={linkClasses("/dashboard/responses")}
-              >
+              <Link href="/dashboard/responses" className={linkClasses("/dashboard/responses")}>
                 Responses
               </Link>
             </li>
 
             <li>
-              <Link
-                href="/dashboard/brainstorm"
-                className={linkClasses("/dashboard/brainstorm")}
-              >
+              <Link href="/dashboard/brainstorm" className={linkClasses("/dashboard/brainstorm")}>
                 🧠 Brainstorm
               </Link>
             </li>
@@ -126,8 +125,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </nav>
       </header>
 
-      {/* Always render page content */}
-      <main className="mx-auto w-full max-w-6xl p-6">{children}</main>
+      {/* Page Content */}
+      <main
+        className="p-6"
+        onKeyDownCapture={stopKeyHijackWhileTyping}
+        onKeyUpCapture={stopKeyHijackWhileTyping}
+        onKeyPressCapture={stopKeyHijackWhileTyping}
+      >
+        {children}
+      </main>
     </div>
   );
 }
