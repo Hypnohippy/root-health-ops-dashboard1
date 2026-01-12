@@ -188,6 +188,42 @@ function draftReply({
   );
 }
 
+function newSeedItem(): InboxItem {
+  const now = new Date();
+  const id = `seed_${now.getTime()}_${Math.random().toString(16).slice(2)}`;
+
+  // Rotate platforms to help demo filtering
+  const platforms: InboxPlatform[] = ["linkedin", "instagram", "threads", "facebook"];
+  const platform = platforms[Math.floor(Math.random() * platforms.length)] || "linkedin";
+
+  const authorNames = ["Alex", "Sam", "Jordan", "Taylor", "Jamie"];
+  const authorName = authorNames[Math.floor(Math.random() * authorNames.length)] || "Alex";
+
+  const samples = [
+    "This really helped — thank you for sharing.",
+    "How do you stay consistent when motivation drops?",
+    "I’ve been feeling overwhelmed lately. Any small first step?",
+    "Love this. Can you share an example routine?",
+    "Not sure I agree — what’s the evidence for this approach?",
+  ];
+
+  const text = samples[Math.floor(Math.random() * samples.length)] || samples[0];
+
+  return {
+    id,
+    platform,
+    status: "needs_reply",
+    kind: "comment",
+    authorName,
+    authorHandle: null,
+    text,
+    permalink: null,
+    createdAt: now.toISOString(),
+    postText: "a quick check-in post",
+    postId: null,
+  };
+}
+
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -208,10 +244,13 @@ export default function ResponsesPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Reply drafting
+  // Reply drafting (EDITABLE)
   const [replyDraft, setReplyDraft] = useState("");
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Seed box
+  const [seedCount, setSeedCount] = useState(0);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -441,8 +480,9 @@ export default function ResponsesPage() {
       postText: selected.postText,
     });
 
+    // ✅ Editable draft goes into textarea
     setReplyDraft(reply);
-    setAiStatus("Reply drafted. Edit it before using it.");
+    setAiStatus("Draft ready — edit it, then copy/paste.");
     setTimeout(() => setAiStatus(null), 4500);
   };
 
@@ -455,6 +495,22 @@ export default function ResponsesPage() {
     } catch {
       setCopied(false);
     }
+  };
+
+  const seedOne = () => {
+    // Insert at top so it’s obvious it worked
+    const seed = newSeedItem();
+    setItems((prev) => [seed, ...prev]);
+    setSelectedId(seed.id);
+    setSeedCount((n) => n + 1);
+    setError(null);
+    setNote(
+      "Seed mode: These are demo items (not real platform comments). Use this to demo the inbox and the reply workflow."
+    );
+  };
+
+  const seedFive = () => {
+    for (let i = 0; i < 5; i++) seedOne();
   };
 
   return (
@@ -538,6 +594,30 @@ export default function ResponsesPage() {
             </div>
           </div>
 
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={seedOne}
+              className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-50 hover:bg-emerald-300/15 transition"
+            >
+              Seed test item
+            </button>
+
+            <button
+              type="button"
+              onClick={seedFive}
+              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
+            >
+              Seed 5
+            </button>
+
+            {seedCount > 0 && (
+              <span className="text-[11px] text-slate-400">
+                Seeded: {seedCount}
+              </span>
+            )}
+          </div>
+
           {note && (
             <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300 whitespace-pre-wrap">
               {note}
@@ -557,13 +637,9 @@ export default function ResponsesPage() {
           )}
 
           {organisationId ? (
-            <div className="mt-4 text-[11px] text-slate-400">
-              Workspace loaded.
-            </div>
+            <div className="mt-4 text-[11px] text-slate-400">Workspace loaded.</div>
           ) : (
-            <div className="mt-4 text-[11px] text-slate-400">
-              Loading workspace…
-            </div>
+            <div className="mt-4 text-[11px] text-slate-400">Loading workspace…</div>
           )}
         </GlassCard>
 
@@ -583,7 +659,7 @@ export default function ResponsesPage() {
               <div>
                 <div className="text-base font-semibold">Reply assistant</div>
                 <div className="mt-1 text-xs text-slate-300">
-                  Select an item, generate a draft, edit it, then copy/paste to reply (sending replies will be wired later).
+                  Generate a draft, edit it, then copy/paste to reply on the platform.
                 </div>
               </div>
 
@@ -623,9 +699,7 @@ export default function ResponsesPage() {
                       ) : null}
                     </div>
 
-                    <div className="mt-3 text-sm whitespace-pre-wrap">
-                      {selected.text}
-                    </div>
+                    <div className="mt-3 text-sm whitespace-pre-wrap">{selected.text}</div>
 
                     {selected.permalink ? (
                       <div className="mt-3 text-[11px]">
@@ -674,6 +748,15 @@ export default function ResponsesPage() {
                   />
                 </div>
               )}
+            </GlassCard>
+
+            <GlassCard className="p-6">
+              <div className="text-base font-semibold">Enterprise safety</div>
+              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+                • Seed mode is for demos only (not real comments).\n
+                • Replies are edited by staff before posting.\n
+                • Next step: permissions + audit trail (who replied, when).
+              </div>
             </GlassCard>
           </div>
         </div>
