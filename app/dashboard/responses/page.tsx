@@ -338,7 +338,6 @@ export default function ResponsesPage() {
       }
 
       setItems(Array.isArray(data
-::contentReference[oaicite:0]{index=0}
 ?.items) ? data.items : []);
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
