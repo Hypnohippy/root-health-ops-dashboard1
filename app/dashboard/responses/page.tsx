@@ -31,7 +31,6 @@ type InboxItem = {
   postText?: string | null;
   postId?: string | null;
 
-  // enterprise additions (from /api/responses/list)
   draftText?: string | null;
   draftUpdatedAt?: string | null;
 };
@@ -78,10 +77,6 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
   return "neutral";
 }
 
-/**
- * Local fallback drafter (used if AI endpoint is unavailable).
- * Enterprise-safe: avoids medical claims / diagnosis / promises.
- */
 function draftReplyLocal({
   platform,
   authorName,
@@ -188,47 +183,53 @@ function draftReplyLocal({
   );
 }
 
-function newSeedItem(): InboxItem {
-  const now = new Date();
-  const id = `seed_${now.getTime()}_${Math.random().toString(16).slice(2)}`;
-
-  const platforms: InboxPlatform[] = ["linkedin", "instagram", "threads", "facebook"];
-  const platform = platforms[Math.floor(Math.random() * platforms.length)] || "linkedin";
-
-  const authorNames = ["Alex", "Sam", "Jordan", "Taylor", "Jamie"];
-  const authorName = authorNames[Math.floor(Math.random() * authorNames.length)] || "Alex";
-
-  const samples = [
-    "This really helped — thank you for sharing.",
-    "How do you stay consistent when motivation drops?",
-    "I’ve been feeling overwhelmed lately. Any small first step?",
-    "Love this. Can you share an example routine?",
-    "Not sure I agree — what’s the evidence for this approach?",
-  ];
-
-  const text = samples[Math.floor(Math.random() * samples.length)] || samples[0];
-
-  return {
-    id,
-    platform,
-    status: "needs_reply",
-    kind: "comment",
-    authorName,
-    authorHandle: null,
-    text,
-    permalink: null,
-    createdAt: now.toISOString(),
-    postText: "a quick check-in post",
-    postId: null,
-    draftText: null,
-    draftUpdatedAt: null,
-  };
-}
-
 function clampText(s: string, max = 900) {
   const t = (s || "").trim();
   if (t.length <= max) return t;
   return t.slice(0, max) + "…";
+}
+
+/** ✅ Remove “Option A/B” and other meta helper junk if it appears */
+function sanitizeAiReply(raw: string) {
+  const t = (raw || "").trim();
+  if (!t) return "";
+
+  const badSignals = [
+    "option a",
+    "option b",
+    "post reply now",
+    "save reply for later",
+    "great news!",
+    "drafted successfully",
+    "you can either post it now",
+    "sent smoothly",
+  ];
+
+  const lower = t.toLowerCase();
+  const looksBad = badSignals.some((x) => lower.includes(x));
+  if (!looksBad) return t;
+
+  // Try strip lines containing "Option A/B" or obvious meta phrases
+  const lines = t.split("\n").map((l) => l.trimEnd());
+  const cleaned = lines
+    .filter((l) => {
+      const ll = l.toLowerCase().trim();
+      if (!ll) return true;
+      if (ll.startsWith("option a")) return false;
+      if (ll.startsWith("option b")) return false;
+      if (ll.includes("post reply")) return false;
+      if (ll.includes("save") && ll.includes("later")) return false;
+      if (ll.includes("great news")) return false;
+      if (ll.includes("drafted successfully")) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+
+  // If it’s still meta-ish, just return empty and force fallback
+  const cleanedLower = cleaned.toLowerCase();
+  const stillBad = badSignals.some((x) => cleanedLower.includes(x));
+  return stillBad ? "" : cleaned;
 }
 
 export default function ResponsesPage() {
@@ -240,29 +241,19 @@ export default function ResponsesPage() {
   const [configured, setConfigured] = useState<boolean>(false);
 
   const [items, setItems] = useState<InboxItem[]>([]);
-
-  // Resolve org via /api/social-accounts (single-tenant safe)
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
-  // UX controls
   const [query, setQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">("all");
   const [statusFilter, setStatusFilter] = useState<InboxStatus | "all">("all");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Reply drafting (EDITABLE)
   const [replyDraft, setReplyDraft] = useState("");
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Enterprise: lock once replied (with override)
-  const [forceEdit, setForceEdit] = useState(false);
-
-  // Seed
-  const [seedCount, setSeedCount] = useState(0);
-
-  // Draft autosave debounce
+  // Debounced draft saving (keep your current endpoints if already added)
   const saveTimer = useRef<any>(null);
   const lastSaved = useRef<string>("");
 
@@ -292,7 +283,6 @@ export default function ResponsesPage() {
       const res = await fetch(`/api/responses/list?organisationId=${encodeURIComponent(org)}`, {
         method: "GET",
       });
-
       const data: ApiResponse = await res.json().catch(() => ({ success: false }));
 
       if (!res.ok || data?.success === false) {
@@ -303,11 +293,6 @@ export default function ResponsesPage() {
       setItems(list);
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
-
-      // Keep selection stable if possible
-      if (selectedId && !list.find((x) => x.id === selectedId)) {
-        setSelectedId(null);
-      }
     } catch (e: any) {
       setError(e?.message || "Could not load responses inbox.");
       setItems([]);
@@ -370,11 +355,10 @@ export default function ResponsesPage() {
     return filtered.find((x) => x.id === selectedId) || null;
   }, [filtered, selectedId]);
 
-  // When selection changes: load saved draft if present
+  // Load any saved draft into textarea when selecting
   useEffect(() => {
-    setAiStatus(null);
     setCopied(false);
-    setForceEdit(false);
+    setAiStatus(null);
 
     if (!selected) {
       setReplyDraft("");
@@ -435,13 +419,12 @@ export default function ResponsesPage() {
     return (
       <button
         type="button"
-        onClick={() => {
-          // prevent “jump to top” issues from accidental focus behaviors
-          setSelectedId(it.id);
-        }}
+        onClick={() => setSelectedId(it.id)}
         className={[
           "w-full text-left rounded-2xl border p-4 transition",
-          isSelected ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
+          isSelected
+            ? "border-emerald-300/30 bg-emerald-300/5"
+            : "border-white/10 bg-black/20 hover:bg-white/5",
         ].join(" ")}
       >
         <div className="flex items-center justify-between gap-3">
@@ -455,7 +438,9 @@ export default function ResponsesPage() {
             />
             <div className="text-xs font-semibold text-slate-100 truncate">
               {PLATFORM_LABEL[it.platform] || "Unknown"}
-              <span className="ml-2 text-[11px] font-normal text-slate-400">{it.kind || "activity"}</span>
+              <span className="ml-2 text-[11px] font-normal text-slate-400">
+                {it.kind || "activity"}
+              </span>
             </div>
           </div>
 
@@ -478,29 +463,21 @@ export default function ResponsesPage() {
               ·{" "}
               <span className="text-slate-300">
                 {it.authorName || it.authorHandle}
-                {it.authorHandle && it.authorName ? ` (${it.authorHandle})` : ""}
               </span>
             </>
           ) : null}
         </div>
 
-        <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{it.text || "(empty)"}</div>
-
-        {it.draftText ? (
-          <div className="mt-3 text-[11px] text-emerald-200/80">
-            Draft saved {it.draftUpdatedAt ? `· ${safeDate(it.draftUpdatedAt)}` : ""}
-          </div>
-        ) : null}
+        <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">
+          {it.text || "(empty)"}
+        </div>
       </button>
     );
   };
 
-  // Save draft to Supabase (debounced)
   const scheduleSaveDraft = (text: string) => {
     if (!selected || !organisationId) return;
-
-    const trimmed = text; // keep exact draft (including formatting)
-    if (trimmed === lastSaved.current) return;
+    if (text === lastSaved.current) return;
 
     if (saveTimer.current) clearTimeout(saveTimer.current);
 
@@ -512,24 +489,18 @@ export default function ResponsesPage() {
           body: JSON.stringify({
             organisationId,
             inboxItemId: selected.id,
-            draftText: trimmed,
-            updatedBy: "staff", // later: real user id/email
+            draftText: text,
+            updatedBy: "staff",
           }),
         });
 
         const data: any = await res.json().catch(() => null);
-        if (!res.ok || data?.success === false) {
-          throw new Error(data?.error || "Failed to save draft");
-        }
+        if (!res.ok || data?.success === false) throw new Error(data?.error || "Failed to save draft");
 
-        lastSaved.current = trimmed;
-
-        // update local list so it shows “Draft saved”
+        lastSaved.current = text;
         setItems((prev) =>
           prev.map((x) =>
-            x.id === selected.id
-              ? { ...x, draftText: trimmed, draftUpdatedAt: new Date().toISOString() }
-              : x
+            x.id === selected.id ? { ...x, draftText: text, draftUpdatedAt: new Date().toISOString() } : x
           )
         );
       } catch (e: any) {
@@ -539,43 +510,8 @@ export default function ResponsesPage() {
     }, 650);
   };
 
-  // Status update helper (with audit)
-  const setStatus = async (status: InboxStatus) => {
-    if (!selected || !organisationId) return;
-
-    try {
-      const res = await fetch("/api/responses/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          organisationId,
-          inboxItemId: selected.id,
-          status,
-          updatedBy: "staff",
-        }),
-      });
-
-      const data: any = await res.json().catch(() => null);
-      if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || "Failed to update inbox item");
-      }
-
-      setItems((prev) => prev.map((x) => (x.id === selected.id ? { ...x, status } : x)));
-    } catch (e: any) {
-      setAiStatus(e?.message || "Failed to update inbox item.");
-      setTimeout(() => setAiStatus(null), 4000);
-    }
-  };
-
   async function runAiSuggest() {
     if (!selected) return;
-
-    // enterprise lock: if replied, don’t keep rewriting
-    if (selected.status === "replied" && !forceEdit) {
-      setAiStatus("This item is marked replied. Toggle “Edit anyway” to change the draft.");
-      setTimeout(() => setAiStatus(null), 4500);
-      return;
-    }
 
     setAiStatus("Drafting reply…");
     setCopied(false);
@@ -592,9 +528,9 @@ export default function ResponsesPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          context: "responses_reply_draft",
-          userAction: "Draft a short, friendly, enterprise-safe reply to this social comment/message.",
-          outcome: "success",
+          context: "responses_reply_draft_reply_only",
+          userAction:
+            "Write ONLY the final public reply text. No headings. No options. No meta commentary. No 'Option A/B'.",
           platform: selected.platform,
           item: {
             kind: selected.kind || "comment",
@@ -606,29 +542,30 @@ export default function ResponsesPage() {
             permalink: selected.permalink || null,
           },
           rules: [
-            "Return ONLY the reply text. No headings, no options, no meta commentary.",
-            "Be warm, concise, and respectful.",
+            "Output MUST be ONLY the reply text.",
+            "Do NOT include 'Option A' or 'Option B'.",
+            "Do NOT mention posting, saving, or workflows.",
+            "Warm, concise, respectful.",
             "No medical claims or diagnosis. No promises or guarantees.",
-            "If the person expresses distress/urgency, suggest seeking local support services.",
-            "Ask one simple clarifying question when appropriate.",
-            "Keep it suitable for a public reply (no private/sensitive details).",
+            "If distress/urgency: suggest local support services.",
           ],
         }),
       });
 
       const data: any = await res.json().catch(() => null);
-      const msg = typeof data?.coachMessage === "string" ? data.coachMessage.trim() : "";
+      const raw = typeof data?.coachMessage === "string" ? data.coachMessage : "";
+      const cleaned = sanitizeAiReply(raw);
 
-      if (!res.ok || !msg) {
+      if (!res.ok || !cleaned) {
         setReplyDraft(fallback);
         scheduleSaveDraft(fallback);
-        setAiStatus("AI draft unavailable — using safe fallback. (You can edit it.)");
+        setAiStatus("AI returned helper/meta text — using safe fallback. (You can edit it.)");
         setTimeout(() => setAiStatus(null), 5000);
         return;
       }
 
-      setReplyDraft(msg);
-      scheduleSaveDraft(msg);
+      setReplyDraft(cleaned);
+      scheduleSaveDraft(cleaned);
       setAiStatus("Draft ready — edit it, then copy/paste.");
       setTimeout(() => setAiStatus(null), 4500);
     } catch {
@@ -649,21 +586,6 @@ export default function ResponsesPage() {
       setCopied(false);
     }
   };
-
-  const seedOne = () => {
-    const seed = newSeedItem();
-    setItems((prev) => [seed, ...prev]);
-    setSelectedId(seed.id);
-    setSeedCount((n) => n + 1);
-    setError(null);
-    setNote("Seed mode: These are demo items (not real platform comments). Use this to demo the inbox and the reply workflow.");
-  };
-
-  const seedFive = () => {
-    for (let i = 0; i < 5; i++) seedOne();
-  };
-
-  const isLocked = selected?.status === "replied" && !forceEdit;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -703,7 +625,7 @@ export default function ResponsesPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search & filters</div>
-              <div className="mt-1 text-xs text-slate-300">Enterprise mode: drafts persist + status changes are logged.</div>
+              <div className="mt-1 text-xs text-slate-300">Find what needs action fast.</div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
@@ -742,32 +664,6 @@ export default function ResponsesPage() {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={seedOne}
-              className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-50 hover:bg-emerald-300/15 transition"
-            >
-              Seed test item
-            </button>
-
-            <button
-              type="button"
-              onClick={seedFive}
-              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
-            >
-              Seed 5
-            </button>
-
-            {seedCount > 0 && <span className="text-[11px] text-slate-400">Seeded: {seedCount}</span>}
-          </div>
-
-          {note && (
-            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300 whitespace-pre-wrap">
-              {note}
-            </div>
-          )}
-
           {error && (
             <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/40 p-4 text-sm text-red-200 whitespace-pre-wrap">
               {error}
@@ -778,12 +674,6 @@ export default function ResponsesPage() {
             <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
               Loading inbox…
             </div>
-          )}
-
-          {organisationId ? (
-            <div className="mt-4 text-[11px] text-slate-400">Workspace loaded.</div>
-          ) : (
-            <div className="mt-4 text-[11px] text-slate-400">Loading workspace…</div>
           )}
         </GlassCard>
 
@@ -803,7 +693,7 @@ export default function ResponsesPage() {
               <div>
                 <div className="text-base font-semibold">Reply assistant</div>
                 <div className="mt-1 text-xs text-slate-300">
-                  Drafts persist to Supabase. Mark replied/archived for clean enterprise workflow.
+                  Generate a draft, edit it, then copy/paste to reply on the platform.
                 </div>
               </div>
 
@@ -859,53 +749,11 @@ export default function ResponsesPage() {
                     ) : null}
                   </div>
 
-                  {/* Status controls */}
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setStatus("needs_reply")}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
-                    >
-                      Needs reply
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStatus("archived")}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
-                    >
-                      Archive
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStatus("replied")}
-                      className="rounded-2xl bg-emerald-500 px-3 py-3 text-xs font-semibold text-slate-950 hover:bg-emerald-400 transition"
-                    >
-                      Mark replied
-                    </button>
-                  </div>
-
-                  {selected.status === "replied" && (
-                    <label className="flex items-center gap-2 text-xs text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={forceEdit}
-                        onChange={(e) => setForceEdit(e.target.checked)}
-                      />
-                      Edit anyway (override lock)
-                    </label>
-                  )}
-
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={runAiSuggest}
-                      disabled={isLocked}
-                      className={[
-                        "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition",
-                        isLocked
-                          ? "bg-emerald-500/40 text-slate-200 cursor-not-allowed"
-                          : "bg-emerald-500 text-slate-950 hover:bg-emerald-400",
-                      ].join(" ")}
+                      className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
                     >
                       AI Suggest Reply
                     </button>
@@ -927,35 +775,17 @@ export default function ResponsesPage() {
                   )}
 
                   <textarea
-                    className={[
-                      "w-full min-h-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30",
-                      isLocked ? "opacity-70" : "",
-                    ].join(" ")}
+                    className="w-full min-h-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Your reply draft will appear here…"
                     value={replyDraft}
-                    readOnly={isLocked}
                     onChange={(e) => {
                       const v = e.target.value;
                       setReplyDraft(v);
                       scheduleSaveDraft(v);
                     }}
                   />
-
-                  <div className="text-[11px] text-slate-400">
-                    {selected.draftUpdatedAt ? `Saved: ${safeDate(selected.draftUpdatedAt)}` : "Draft not saved yet."}
-                  </div>
                 </div>
               )}
-            </GlassCard>
-
-            <GlassCard className="p-6">
-              <div className="text-base font-semibold">Enterprise safety</div>
-              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • Drafts persist in Supabase (no loss).\n
-                • Status workflow prevents double replies.\n
-                • Audit trail logs draft saves + status changes.\n
-                • Next step: permissions + “who replied” identity.
-              </div>
             </GlassCard>
           </div>
         </div>
