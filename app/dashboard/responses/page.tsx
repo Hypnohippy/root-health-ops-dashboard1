@@ -1,6 +1,7 @@
+// app/dashboard/responses/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type InboxPlatform =
   | "facebook"
@@ -25,17 +26,14 @@ type InboxItem = {
   text: string;
 
   permalink?: string | null;
-
   createdAt: string;
 
   postText?: string | null;
   postId?: string | null;
 
-  // Enterprise fields (from Supabase if present)
-  replyDraft?: string;
-  replyFinal?: string;
-  repliedAt?: string | null;
-  repliedBy?: string | null;
+  // enterprise additions (from /api/responses/list)
+  draftText?: string | null;
+  draftUpdatedAt?: string | null;
 };
 
 type ApiResponse = {
@@ -81,7 +79,8 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
 }
 
 /**
- * Local fallback drafter (enterprise-safe).
+ * Local fallback drafter (used if AI endpoint is unavailable).
+ * Enterprise-safe: avoids medical claims / diagnosis / promises.
  */
 function draftReplyLocal({
   platform,
@@ -109,10 +108,7 @@ function draftReplyLocal({
     tl.includes("brilliant");
 
   const isQuestion =
-    tl.includes("?") ||
-    tl.startsWith("how") ||
-    tl.startsWith("what") ||
-    tl.startsWith("why");
+    tl.includes("?") || tl.startsWith("how") || tl.startsWith("what") || tl.startsWith("why");
 
   const isConcern =
     tl.includes("struggle") ||
@@ -151,10 +147,9 @@ function draftReplyLocal({
   if (isConcern) {
     return (
       `${greeting}I really appreciate you sharing that.\n\n` +
-      `A gentle first step: pause and do one tiny thing that reduces pressure right now (even 60 seconds).\n\n` +
-      `For example: 4 slow breaths, a glass of water, or stepping outside for fresh air.\n\n` +
+      `A gentle next step is to pick one small thing you can do today — something you can repeat without pressure.\n\n` +
       `${platformLine}\n\n` +
-      `If you’re not feeling safe or this feels urgent, please reach out to local support services right away.` +
+      `If this feels urgent or you’re not safe, please reach out to local support services right away.` +
       contextHint
     );
   }
@@ -162,7 +157,7 @@ function draftReplyLocal({
   if (isNegative) {
     return (
       `${greeting}I hear you.\n\n` +
-      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work and I’ll try to make it clearer or point you somewhere more useful.\n\n` +
+      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work for you and I’ll try to make it clearer or point you to something more useful.\n\n` +
       `No pressure either way.` +
       contextHint
     );
@@ -171,7 +166,7 @@ function draftReplyLocal({
   if (isPraise) {
     return (
       `${greeting}that means a lot — thank you.\n\n` +
-      `What part resonated most? I’m shaping the next posts around what people find genuinely useful.\n\n` +
+      `What part resonated most for you? I’m shaping the next posts around what people find genuinely useful.\n\n` +
       `${platformLine}` +
       contextHint
     );
@@ -180,8 +175,8 @@ function draftReplyLocal({
   if (isQuestion) {
     return (
       `${greeting}good question.\n\n` +
-      `A simple way to start: pick one small outcome (e.g., “feel calmer in 2 minutes”), then choose one action you can repeat daily.\n\n` +
-      `If you tell me your situation (work / study / home), I’ll tailor a short practical version.` +
+      `A simple way to start is: choose one clear outcome (e.g., “feel calmer in 2 minutes”), then pick one repeatable action you can do daily.\n\n` +
+      `If you tell me your situation (work / study / home), I’ll tailor a short, practical version.` +
       contextHint
     );
   }
@@ -225,10 +220,8 @@ function newSeedItem(): InboxItem {
     createdAt: now.toISOString(),
     postText: "a quick check-in post",
     postId: null,
-    replyDraft: "",
-    replyFinal: "",
-    repliedAt: null,
-    repliedBy: null,
+    draftText: null,
+    draftUpdatedAt: null,
   };
 }
 
@@ -236,28 +229,6 @@ function clampText(s: string, max = 900) {
   const t = (s || "").trim();
   if (t.length <= max) return t;
   return t.slice(0, max) + "…";
-}
-
-function isSeedId(id: string) {
-  return String(id || "").startsWith("seed_");
-}
-
-/**
- * Detect the “Option A / Option B” junk and other non-reply UI output.
- * If we see it, we ignore it and use fallback.
- */
-function looksLikeUiJunk(s: string) {
-  const t = (s || "").toLowerCase();
-  return (
-    t.includes("option a") ||
-    t.includes("option b") ||
-    t.includes("post the reply now") ||
-    t.includes("save the reply for later") ||
-    t.includes("great news") ||
-    t.includes("drafted successfully") ||
-    t.includes("everything looks good") ||
-    t.includes("sent smoothly")
-  );
 }
 
 export default function ResponsesPage() {
@@ -284,10 +255,16 @@ export default function ResponsesPage() {
   const [replyDraft, setReplyDraft] = useState("");
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [saving, setSaving] = useState(false);
 
-  // Seed box
+  // Enterprise: lock once replied (with override)
+  const [forceEdit, setForceEdit] = useState(false);
+
+  // Seed
   const [seedCount, setSeedCount] = useState(0);
+
+  // Draft autosave debounce
+  const saveTimer = useRef<any>(null);
+  const lastSaved = useRef<string>("");
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -312,24 +289,31 @@ export default function ResponsesPage() {
     try {
       const org = organisationId || (await resolveOrg());
 
-      const res = await fetch(
-        `/api/responses/list?organisationId=${encodeURIComponent(org)}`,
-        { method: "GET" }
-      );
+      const res = await fetch(`/api/responses/list?organisationId=${encodeURIComponent(org)}`, {
+        method: "GET",
+      });
+
       const data: ApiResponse = await res.json().catch(() => ({ success: false }));
 
       if (!res.ok || data?.success === false) {
         throw new Error(data?.error || `Failed to load inbox (HTTP ${res.status}).`);
       }
 
-      setItems(Array.isArray(data?.items) ? data.items : []);
+      const list = Array.isArray(data?.items) ? data.items : [];
+      setItems(list);
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
+
+      // Keep selection stable if possible
+      if (selectedId && !list.find((x) => x.id === selectedId)) {
+        setSelectedId(null);
+      }
     } catch (e: any) {
       setError(e?.message || "Could not load responses inbox.");
       setItems([]);
       setNote(null);
       setConfigured(false);
+      setSelectedId(null);
     } finally {
       setLoading(false);
     }
@@ -351,11 +335,9 @@ export default function ResponsesPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-
     return items.filter((it) => {
       if (platformFilter !== "all" && it.platform !== platformFilter) return false;
       if (statusFilter !== "all" && it.status !== statusFilter) return false;
-
       if (!q) return true;
 
       const hay = [
@@ -366,8 +348,6 @@ export default function ResponsesPage() {
         it.authorHandle || "",
         it.text || "",
         it.postText || "",
-        it.replyDraft || "",
-        it.replyFinal || "",
       ]
         .join(" ")
         .toLowerCase();
@@ -377,13 +357,7 @@ export default function ResponsesPage() {
   }, [items, query, platformFilter, statusFilter]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = {
-      total: items.length,
-      unread: 0,
-      needs_reply: 0,
-      replied: 0,
-    };
-
+    const c: Record<string, number> = { total: items.length, unread: 0, needs_reply: 0, replied: 0 };
     for (const it of items) {
       if (it.status === "unread") c.unread++;
       if (it.status === "needs_reply") c.needs_reply++;
@@ -396,23 +370,21 @@ export default function ResponsesPage() {
     return filtered.find((x) => x.id === selectedId) || null;
   }, [filtered, selectedId]);
 
+  // When selection changes: load saved draft if present
   useEffect(() => {
-    // When selecting a new item, load its saved draft/final into the editor
-    setCopied(false);
     setAiStatus(null);
+    setCopied(false);
+    setForceEdit(false);
 
     if (!selected) {
       setReplyDraft("");
+      lastSaved.current = "";
       return;
     }
 
-    setReplyDraft(selected.replyDraft || selected.replyFinal || "");
-
-    // Seed items are demo-only: make it explicit so it feels “not glitchy”
-    if (isSeedId(selected.id)) {
-      setAiStatus("Demo item (seed) — drafts/replied state won’t be saved to Supabase.");
-      setTimeout(() => setAiStatus(null), 4000);
-    }
+    const d = (selected.draftText || "").trim();
+    setReplyDraft(d);
+    lastSaved.current = d;
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const Pill = ({
@@ -463,15 +435,13 @@ export default function ResponsesPage() {
     return (
       <button
         type="button"
-        onMouseDown={(e) => {
-  e.preventDefault();
-  setSelectedId(it.id);
-}}
+        onClick={() => {
+          // prevent “jump to top” issues from accidental focus behaviors
+          setSelectedId(it.id);
+        }}
         className={[
           "w-full text-left rounded-2xl border p-4 transition",
-          isSelected
-            ? "border-emerald-300/30 bg-emerald-300/5"
-            : "border-white/10 bg-black/20 hover:bg-white/5",
+          isSelected ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
         ].join(" ")}
       >
         <div className="flex items-center justify-between gap-3">
@@ -485,9 +455,7 @@ export default function ResponsesPage() {
             />
             <div className="text-xs font-semibold text-slate-100 truncate">
               {PLATFORM_LABEL[it.platform] || "Unknown"}
-              <span className="ml-2 text-[11px] font-normal text-slate-400">
-                {it.kind || "activity"}
-              </span>
+              <span className="ml-2 text-[11px] font-normal text-slate-400">{it.kind || "activity"}</span>
             </div>
           </div>
 
@@ -516,133 +484,101 @@ export default function ResponsesPage() {
           ) : null}
         </div>
 
-        <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">
-          {it.text || "(empty)"}
-        </div>
+        <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{it.text || "(empty)"}</div>
 
-        {isSeedId(it.id) ? (
-          <div className="mt-2 text-[11px] text-slate-400">Demo item (seed)</div>
+        {it.draftText ? (
+          <div className="mt-3 text-[11px] text-emerald-200/80">
+            Draft saved {it.draftUpdatedAt ? `· ${safeDate(it.draftUpdatedAt)}` : ""}
+          </div>
         ) : null}
       </button>
     );
   };
 
-  function updateLocalItem(id: string, patch: Partial<InboxItem>) {
-    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-  }
+  // Save draft to Supabase (debounced)
+  const scheduleSaveDraft = (text: string) => {
+    if (!selected || !organisationId) return;
 
-  async function persistUpdate(payload: any) {
-    const res = await fetch("/api/responses/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data: any = await res.json().catch(() => null);
-    if (!res.ok || data?.success === false) {
-      throw new Error(data?.error || `Failed to update (HTTP ${res.status})`);
-    }
-    return data;
-  }
+    const trimmed = text; // keep exact draft (including formatting)
+    if (trimmed === lastSaved.current) return;
 
-  async function saveDraft() {
-    if (!selected) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
 
-    // ✅ Seed items are demo-only, no saving attempts
-    if (isSeedId(selected.id)) {
-      setAiStatus("Demo item — draft saved locally (not sent to Supabase).");
-      updateLocalItem(selected.id, { replyDraft });
-      setTimeout(() => setAiStatus(null), 3500);
-      return;
-    }
+    saveTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/responses/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            organisationId,
+            inboxItemId: selected.id,
+            draftText: trimmed,
+            updatedBy: "staff", // later: real user id/email
+          }),
+        });
 
-    if (!organisationId) {
-      setError("Workspace not loaded yet. Please refresh.");
-      return;
-    }
+        const data: any = await res.json().catch(() => null);
+        if (!res.ok || data?.success === false) {
+          throw new Error(data?.error || "Failed to save draft");
+        }
 
-    setSaving(true);
-    setAiStatus("Saving draft…");
-    setError(null);
+        lastSaved.current = trimmed;
 
-    try {
-      updateLocalItem(selected.id, { replyDraft });
+        // update local list so it shows “Draft saved”
+        setItems((prev) =>
+          prev.map((x) =>
+            x.id === selected.id
+              ? { ...x, draftText: trimmed, draftUpdatedAt: new Date().toISOString() }
+              : x
+          )
+        );
+      } catch (e: any) {
+        setAiStatus(e?.message || "Failed to save draft.");
+        setTimeout(() => setAiStatus(null), 3500);
+      }
+    }, 650);
+  };
 
-      await persistUpdate({
-        organisationId,
-        id: selected.id,
-        reply_draft: replyDraft,
-      });
-
-      setAiStatus("Draft saved.");
-      setTimeout(() => setAiStatus(null), 2500);
-    } catch (e: any) {
-      setAiStatus(null);
-      setError(e?.message || "Failed to update inbox item.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function markReplied(finalText?: string) {
-    if (!selected) return;
-
-    // ✅ Seed items are demo-only, no saving attempts
-    if (isSeedId(selected.id)) {
-      updateLocalItem(selected.id, {
-        status: "replied",
-        repliedAt: new Date().toISOString(),
-        repliedBy: "staff",
-        replyFinal: finalText ?? replyDraft,
-        replyDraft,
-      });
-      setAiStatus("Demo item — marked replied locally (not saved to Supabase).");
-      setTimeout(() => setAiStatus(null), 3500);
-      return;
-    }
-
-    if (!organisationId) {
-      setError("Workspace not loaded yet. Please refresh.");
-      return;
-    }
-
-    const nowIso = new Date().toISOString();
-
-    setAiStatus("Marking as replied…");
-    setError(null);
+  // Status update helper (with audit)
+  const setStatus = async (status: InboxStatus) => {
+    if (!selected || !organisationId) return;
 
     try {
-      updateLocalItem(selected.id, {
-        status: "replied",
-        repliedAt: nowIso,
-        repliedBy: "staff",
-        replyFinal: finalText ?? replyDraft,
-        replyDraft,
+      const res = await fetch("/api/responses/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId,
+          inboxItemId: selected.id,
+          status,
+          updatedBy: "staff",
+        }),
       });
 
-      await persistUpdate({
-        organisationId,
-        id: selected.id,
-        status: "replied",
-        replied_at: nowIso,
-        replied_by: "staff",
-        reply_draft: replyDraft,
-        reply_final: finalText ?? replyDraft,
-      });
+      const data: any = await res.json().catch(() => null);
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.error || "Failed to update inbox item");
+      }
 
-      setAiStatus("Saved. Marked as replied.");
-      setTimeout(() => setAiStatus(null), 2500);
+      setItems((prev) => prev.map((x) => (x.id === selected.id ? { ...x, status } : x)));
     } catch (e: any) {
-      setAiStatus(null);
-      setError(e?.message || "Failed to update inbox item.");
+      setAiStatus(e?.message || "Failed to update inbox item.");
+      setTimeout(() => setAiStatus(null), 4000);
     }
-  }
+  };
 
   async function runAiSuggest() {
     if (!selected) return;
 
+    // enterprise lock: if replied, don’t keep rewriting
+    if (selected.status === "replied" && !forceEdit) {
+      setAiStatus("This item is marked replied. Toggle “Edit anyway” to change the draft.");
+      setTimeout(() => setAiStatus(null), 4500);
+      return;
+    }
+
     setAiStatus("Drafting reply…");
     setCopied(false);
-    setError(null);
 
     const fallback = draftReplyLocal({
       platform: selected.platform,
@@ -657,8 +593,7 @@ export default function ResponsesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           context: "responses_reply_draft",
-          userAction:
-            "Return ONLY the reply text. No headings. No options. No 'Option A/B'. No meta commentary. Just the reply.",
+          userAction: "Draft a short, friendly, enterprise-safe reply to this social comment/message.",
           outcome: "success",
           platform: selected.platform,
           item: {
@@ -671,11 +606,12 @@ export default function ResponsesPage() {
             permalink: selected.permalink || null,
           },
           rules: [
-            "Output ONLY the reply text.",
+            "Return ONLY the reply text. No headings, no options, no meta commentary.",
+            "Be warm, concise, and respectful.",
             "No medical claims or diagnosis. No promises or guarantees.",
-            "Warm, concise, respectful.",
-            "If distress/urgency: suggest local support services.",
+            "If the person expresses distress/urgency, suggest seeking local support services.",
             "Ask one simple clarifying question when appropriate.",
+            "Keep it suitable for a public reply (no private/sensitive details).",
           ],
         }),
       });
@@ -683,21 +619,23 @@ export default function ResponsesPage() {
       const data: any = await res.json().catch(() => null);
       const msg = typeof data?.coachMessage === "string" ? data.coachMessage.trim() : "";
 
-      // ✅ If AI returns junk, ignore it and fall back
-      if (!res.ok || !msg || looksLikeUiJunk(msg)) {
+      if (!res.ok || !msg) {
         setReplyDraft(fallback);
-        setAiStatus("AI output wasn’t usable — using safe fallback (editable).");
-        setTimeout(() => setAiStatus(null), 4500);
+        scheduleSaveDraft(fallback);
+        setAiStatus("AI draft unavailable — using safe fallback. (You can edit it.)");
+        setTimeout(() => setAiStatus(null), 5000);
         return;
       }
 
       setReplyDraft(msg);
-      setAiStatus("Draft ready — edit it, then Save draft / Copy.");
-      setTimeout(() => setAiStatus(null), 3500);
+      scheduleSaveDraft(msg);
+      setAiStatus("Draft ready — edit it, then copy/paste.");
+      setTimeout(() => setAiStatus(null), 4500);
     } catch {
       setReplyDraft(fallback);
-      setAiStatus("AI draft failed — using safe fallback (editable).");
-      setTimeout(() => setAiStatus(null), 4500);
+      scheduleSaveDraft(fallback);
+      setAiStatus("AI draft failed — using safe fallback. (You can edit it.)");
+      setTimeout(() => setAiStatus(null), 5000);
     }
   }
 
@@ -707,9 +645,6 @@ export default function ResponsesPage() {
       await navigator.clipboard.writeText(replyDraft);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
-
-      // Copy = mark replied (enterprise) OR local mark (seed)
-      await markReplied(replyDraft);
     } catch {
       setCopied(false);
     }
@@ -721,14 +656,14 @@ export default function ResponsesPage() {
     setSelectedId(seed.id);
     setSeedCount((n) => n + 1);
     setError(null);
-    setNote(
-      "Seed mode: demo items only. They do NOT save to Supabase. Use this to demo inbox + reply workflow."
-    );
+    setNote("Seed mode: These are demo items (not real platform comments). Use this to demo the inbox and the reply workflow.");
   };
 
   const seedFive = () => {
     for (let i = 0; i < 5; i++) seedOne();
   };
+
+  const isLocked = selected?.status === "replied" && !forceEdit;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -741,11 +676,9 @@ export default function ResponsesPage() {
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-              Responses
-            </h1>
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Responses</h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Enterprise mode: real inbox items save drafts + replied status to Supabase. Seed items are demo-only.
+              Your inbox for comments and messages — separate from Scheduled so staff don’t confuse “planning posts” with “responding”.
             </p>
           </div>
 
@@ -770,9 +703,7 @@ export default function ResponsesPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search & filters</div>
-              <div className="mt-1 text-xs text-slate-300">
-                Find what needs action fast. (Enterprise-safe.)
-              </div>
+              <div className="mt-1 text-xs text-slate-300">Enterprise mode: drafts persist + status changes are logged.</div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
@@ -817,7 +748,7 @@ export default function ResponsesPage() {
               onClick={seedOne}
               className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-50 hover:bg-emerald-300/15 transition"
             >
-              Seed test item (demo)
+              Seed test item
             </button>
 
             <button
@@ -825,12 +756,10 @@ export default function ResponsesPage() {
               onClick={seedFive}
               className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
             >
-              Seed 5 (demo)
+              Seed 5
             </button>
 
-            {seedCount > 0 && (
-              <span className="text-[11px] text-slate-400">Seeded: {seedCount}</span>
-            )}
+            {seedCount > 0 && <span className="text-[11px] text-slate-400">Seeded: {seedCount}</span>}
           </div>
 
           {note && (
@@ -874,7 +803,7 @@ export default function ResponsesPage() {
               <div>
                 <div className="text-base font-semibold">Reply assistant</div>
                 <div className="mt-1 text-xs text-slate-300">
-                  AI drafts are editable. Seed items don’t save to Supabase.
+                  Drafts persist to Supabase. Mark replied/archived for clean enterprise workflow.
                 </div>
               </div>
 
@@ -930,42 +859,64 @@ export default function ResponsesPage() {
                     ) : null}
                   </div>
 
+                  {/* Status controls */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStatus("needs_reply")}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
+                    >
+                      Needs reply
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatus("archived")}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
+                    >
+                      Archive
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatus("replied")}
+                      className="rounded-2xl bg-emerald-500 px-3 py-3 text-xs font-semibold text-slate-950 hover:bg-emerald-400 transition"
+                    >
+                      Mark replied
+                    </button>
+                  </div>
+
+                  {selected.status === "replied" && (
+                    <label className="flex items-center gap-2 text-xs text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={forceEdit}
+                        onChange={(e) => setForceEdit(e.target.checked)}
+                      />
+                      Edit anyway (override lock)
+                    </label>
+                  )}
+
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={runAiSuggest}
-                      className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
+                      disabled={isLocked}
+                      className={[
+                        "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition",
+                        isLocked
+                          ? "bg-emerald-500/40 text-slate-200 cursor-not-allowed"
+                          : "bg-emerald-500 text-slate-950 hover:bg-emerald-400",
+                      ].join(" ")}
                     >
                       AI Suggest Reply
                     </button>
 
                     <button
                       type="button"
-                      onClick={saveDraft}
-                      disabled={!selected || saving}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
-                    >
-                      {saving ? "Saving…" : "Save draft"}
-                    </button>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
                       onClick={copyDraft}
                       disabled={!replyDraft.trim()}
-                      className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
-                      {copied ? "Copied" : "Copy (marks replied)"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => markReplied(replyDraft)}
-                      disabled={!selected}
-                      className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 disabled:opacity-60 disabled:cursor-not-allowed transition"
-                    >
-                      Mark replied
+                      {copied ? "Copied" : "Copy"}
                     </button>
                   </div>
 
@@ -976,11 +927,23 @@ export default function ResponsesPage() {
                   )}
 
                   <textarea
-                    className="w-full min-h-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
+                    className={[
+                      "w-full min-h-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30",
+                      isLocked ? "opacity-70" : "",
+                    ].join(" ")}
                     placeholder="Your reply draft will appear here…"
                     value={replyDraft}
-                    onChange={(e) => setReplyDraft(e.target.value)}
+                    readOnly={isLocked}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setReplyDraft(v);
+                      scheduleSaveDraft(v);
+                    }}
                   />
+
+                  <div className="text-[11px] text-slate-400">
+                    {selected.draftUpdatedAt ? `Saved: ${safeDate(selected.draftUpdatedAt)}` : "Draft not saved yet."}
+                  </div>
                 </div>
               )}
             </GlassCard>
@@ -988,9 +951,10 @@ export default function ResponsesPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • Seed items are demo-only (no Supabase saving).{"\n"}
-                • Real inbox items save drafts + replied state to Supabase.{"\n"}
-                • AI junk like “Option A/B” is auto-blocked and replaced with a safe fallback.
+                • Drafts persist in Supabase (no loss).\n
+                • Status workflow prevents double replies.\n
+                • Audit trail logs draft saves + status changes.\n
+                • Next step: permissions + “who replied” identity.
               </div>
             </GlassCard>
           </div>
