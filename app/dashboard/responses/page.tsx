@@ -463,7 +463,10 @@ export default function ResponsesPage() {
     return (
       <button
         type="button"
-        onClick={() => setSelectedId(it.id)}
+        onMouseDown={(e) => {
+  e.preventDefault();
+  setSelectedId(it.id);
+}}
         className={[
           "w-full text-left rounded-2xl border p-4 transition",
           isSelected
