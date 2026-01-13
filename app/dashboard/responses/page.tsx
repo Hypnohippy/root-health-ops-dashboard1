@@ -226,45 +226,6 @@ function clampText(s: string, max = 900) {
 
 /** ✅ Remove “Option A/B” and other helper-meta junk if it appears */
 function sanitizeAiReply(raw: string) {
-  const t = (raw || "").trim();
-  if (!t) return "";
-
-  const badSignals = [
-    "option a",
-    "option b",
-    "post reply now",
-    "save reply for later",
-    "great news!",
-    "drafted successfully",
-    "you can either post it now",
-    "sent smoothly",
-  ];
-
-  const lower = t.toLowerCase();
-  const looksBad = badSignals.some((x) => lower.includes(x));
-  if (!looksBad) return t;
-
-  const lines = t.split("\n").map((l) => l.trimEnd());
-  const cleaned = lines
-    .filter((l) => {
-      const ll = l.toLowerCase().trim();
-      if (!ll) return true;
-      if (ll.startsWith("option a")) return false;
-      if (ll.startsWith("option b")) return false;
-      if (ll.includes("post reply")) return false;
-      if (ll.includes("save") && ll.includes("later")) return false;
-      if (ll.includes("great news")) return false;
-      if (ll.includes("drafted successfully")) return false;
-      if (ll.includes("sent smoothly")) return false;
-      return true;
-    })
-    .join("\n")
-    .trim();
-
-  const cleanedLower = cleaned.toLowerCase();
-  const stillBad = badSignals.some((x) => cleanedLower.includes(x));
-  return stillBad ? "" : cleaned;
-}
 
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
