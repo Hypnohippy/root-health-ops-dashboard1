@@ -31,7 +31,7 @@ type InboxItem = {
   postText?: string | null;
   postId?: string | null;
 
-  // Enterprise persisted fields (from Supabase)
+  // Enterprise fields (from Supabase if present)
   replyDraft?: string;
   replyFinal?: string;
   repliedAt?: string | null;
@@ -81,8 +81,7 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
 }
 
 /**
- * Local fallback drafter (used if AI endpoint is unavailable).
- * Enterprise-safe: avoids medical claims / diagnosis / promises.
+ * Local fallback drafter (enterprise-safe).
  */
 function draftReplyLocal({
   platform,
@@ -152,9 +151,10 @@ function draftReplyLocal({
   if (isConcern) {
     return (
       `${greeting}I really appreciate you sharing that.\n\n` +
-      `A gentle next step is to pick one small thing you can do today — something you can repeat without pressure.\n\n` +
+      `A gentle first step: pause and do one tiny thing that reduces pressure right now (even 60 seconds).\n\n` +
+      `For example: 4 slow breaths, a glass of water, or stepping outside for fresh air.\n\n` +
       `${platformLine}\n\n` +
-      `If this feels urgent or you’re not safe, please reach out to local support services right away.` +
+      `If you’re not feeling safe or this feels urgent, please reach out to local support services right away.` +
       contextHint
     );
   }
@@ -162,7 +162,7 @@ function draftReplyLocal({
   if (isNegative) {
     return (
       `${greeting}I hear you.\n\n` +
-      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work for you and I’ll try to make it clearer or point you to something more useful.\n\n` +
+      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work and I’ll try to make it clearer or point you somewhere more useful.\n\n` +
       `No pressure either way.` +
       contextHint
     );
@@ -171,7 +171,7 @@ function draftReplyLocal({
   if (isPraise) {
     return (
       `${greeting}that means a lot — thank you.\n\n` +
-      `What part resonated most for you? I’m shaping the next posts around what people find genuinely useful.\n\n` +
+      `What part resonated most? I’m shaping the next posts around what people find genuinely useful.\n\n` +
       `${platformLine}` +
       contextHint
     );
@@ -180,8 +180,8 @@ function draftReplyLocal({
   if (isQuestion) {
     return (
       `${greeting}good question.\n\n` +
-      `A simple way to start is: choose one clear outcome (e.g., “feel calmer in 2 minutes”), then pick one repeatable action you can do daily.\n\n` +
-      `If you tell me your situation (work / study / home), I’ll tailor a short, practical version.` +
+      `A simple way to start: pick one small outcome (e.g., “feel calmer in 2 minutes”), then choose one action you can repeat daily.\n\n` +
+      `If you tell me your situation (work / study / home), I’ll tailor a short practical version.` +
       contextHint
     );
   }
@@ -236,6 +236,28 @@ function clampText(s: string, max = 900) {
   const t = (s || "").trim();
   if (t.length <= max) return t;
   return t.slice(0, max) + "…";
+}
+
+function isSeedId(id: string) {
+  return String(id || "").startsWith("seed_");
+}
+
+/**
+ * Detect the “Option A / Option B” junk and other non-reply UI output.
+ * If we see it, we ignore it and use fallback.
+ */
+function looksLikeUiJunk(s: string) {
+  const t = (s || "").toLowerCase();
+  return (
+    t.includes("option a") ||
+    t.includes("option b") ||
+    t.includes("post the reply now") ||
+    t.includes("save the reply for later") ||
+    t.includes("great news") ||
+    t.includes("drafted successfully") ||
+    t.includes("everything looks good") ||
+    t.includes("sent smoothly")
+  );
 }
 
 export default function ResponsesPage() {
@@ -375,16 +397,22 @@ export default function ResponsesPage() {
   }, [filtered, selectedId]);
 
   useEffect(() => {
-    // Load existing draft when selecting an item (enterprise behavior)
+    // When selecting a new item, load its saved draft/final into the editor
+    setCopied(false);
+    setAiStatus(null);
+
     if (!selected) {
       setReplyDraft("");
-      setAiStatus(null);
-      setCopied(false);
       return;
     }
+
     setReplyDraft(selected.replyDraft || selected.replyFinal || "");
-    setAiStatus(null);
-    setCopied(false);
+
+    // Seed items are demo-only: make it explicit so it feels “not glitchy”
+    if (isSeedId(selected.id)) {
+      setAiStatus("Demo item (seed) — drafts/replied state won’t be saved to Supabase.");
+      setTimeout(() => setAiStatus(null), 4000);
+    }
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const Pill = ({
@@ -489,10 +517,8 @@ export default function ResponsesPage() {
           {it.text || "(empty)"}
         </div>
 
-        {it.status === "replied" && (it.repliedAt || it.repliedBy) ? (
-          <div className="mt-2 text-[11px] text-slate-400">
-            Replied{it.repliedBy ? ` by ${it.repliedBy}` : ""}{it.repliedAt ? ` · ${safeDate(it.repliedAt)}` : ""}
-          </div>
+        {isSeedId(it.id) ? (
+          <div className="mt-2 text-[11px] text-slate-400">Demo item (seed)</div>
         ) : null}
       </button>
     );
@@ -516,44 +542,78 @@ export default function ResponsesPage() {
   }
 
   async function saveDraft() {
-    if (!selected || !organisationId) return;
+    if (!selected) return;
+
+    // ✅ Seed items are demo-only, no saving attempts
+    if (isSeedId(selected.id)) {
+      setAiStatus("Demo item — draft saved locally (not sent to Supabase).");
+      updateLocalItem(selected.id, { replyDraft });
+      setTimeout(() => setAiStatus(null), 3500);
+      return;
+    }
+
+    if (!organisationId) {
+      setError("Workspace not loaded yet. Please refresh.");
+      return;
+    }
+
     setSaving(true);
     setAiStatus("Saving draft…");
+    setError(null);
+
     try {
-      // Optimistic
       updateLocalItem(selected.id, { replyDraft });
 
       await persistUpdate({
         organisationId,
         id: selected.id,
         reply_draft: replyDraft,
-        // don’t change status here — keep it in needs_reply/unread
       });
 
       setAiStatus("Draft saved.");
       setTimeout(() => setAiStatus(null), 2500);
     } catch (e: any) {
       setAiStatus(null);
-      setError(e?.message || "Failed to save draft.");
+      setError(e?.message || "Failed to update inbox item.");
     } finally {
       setSaving(false);
     }
   }
 
   async function markReplied(finalText?: string) {
-    if (!selected || !organisationId) return;
+    if (!selected) return;
+
+    // ✅ Seed items are demo-only, no saving attempts
+    if (isSeedId(selected.id)) {
+      updateLocalItem(selected.id, {
+        status: "replied",
+        repliedAt: new Date().toISOString(),
+        repliedBy: "staff",
+        replyFinal: finalText ?? replyDraft,
+        replyDraft,
+      });
+      setAiStatus("Demo item — marked replied locally (not saved to Supabase).");
+      setTimeout(() => setAiStatus(null), 3500);
+      return;
+    }
+
+    if (!organisationId) {
+      setError("Workspace not loaded yet. Please refresh.");
+      return;
+    }
+
     const nowIso = new Date().toISOString();
 
     setAiStatus("Marking as replied…");
+    setError(null);
 
     try {
-      // Optimistic UI
       updateLocalItem(selected.id, {
         status: "replied",
         repliedAt: nowIso,
         repliedBy: "staff",
-        replyFinal: finalText ?? selected.replyFinal ?? "",
-        replyDraft: replyDraft,
+        replyFinal: finalText ?? replyDraft,
+        replyDraft,
       });
 
       await persistUpdate({
@@ -570,7 +630,7 @@ export default function ResponsesPage() {
       setTimeout(() => setAiStatus(null), 2500);
     } catch (e: any) {
       setAiStatus(null);
-      setError(e?.message || "Failed to mark as replied.");
+      setError(e?.message || "Failed to update inbox item.");
     }
   }
 
@@ -579,6 +639,7 @@ export default function ResponsesPage() {
 
     setAiStatus("Drafting reply…");
     setCopied(false);
+    setError(null);
 
     const fallback = draftReplyLocal({
       platform: selected.platform,
@@ -594,7 +655,7 @@ export default function ResponsesPage() {
         body: JSON.stringify({
           context: "responses_reply_draft",
           userAction:
-            "Draft a short, friendly, enterprise-safe reply to this social comment/message.",
+            "Return ONLY the reply text. No headings. No options. No 'Option A/B'. No meta commentary. Just the reply.",
           outcome: "success",
           platform: selected.platform,
           item: {
@@ -607,11 +668,11 @@ export default function ResponsesPage() {
             permalink: selected.permalink || null,
           },
           rules: [
-            "Be warm, concise, and respectful.",
+            "Output ONLY the reply text.",
             "No medical claims or diagnosis. No promises or guarantees.",
-            "If the person expresses distress or urgency, suggest seeking local support services.",
+            "Warm, concise, respectful.",
+            "If distress/urgency: suggest local support services.",
             "Ask one simple clarifying question when appropriate.",
-            "Keep it suitable for a public reply (no private/sensitive details).",
           ],
         }),
       });
@@ -619,20 +680,21 @@ export default function ResponsesPage() {
       const data: any = await res.json().catch(() => null);
       const msg = typeof data?.coachMessage === "string" ? data.coachMessage.trim() : "";
 
-      if (!res.ok || !msg) {
+      // ✅ If AI returns junk, ignore it and fall back
+      if (!res.ok || !msg || looksLikeUiJunk(msg)) {
         setReplyDraft(fallback);
-        setAiStatus("AI draft unavailable — using safe fallback. (You can edit it.)");
-        setTimeout(() => setAiStatus(null), 5000);
+        setAiStatus("AI output wasn’t usable — using safe fallback (editable).");
+        setTimeout(() => setAiStatus(null), 4500);
         return;
       }
 
       setReplyDraft(msg);
-      setAiStatus("Draft ready — edit it, then save/copy.");
-      setTimeout(() => setAiStatus(null), 4500);
+      setAiStatus("Draft ready — edit it, then Save draft / Copy.");
+      setTimeout(() => setAiStatus(null), 3500);
     } catch {
       setReplyDraft(fallback);
-      setAiStatus("AI draft failed — using safe fallback. (You can edit it.)");
-      setTimeout(() => setAiStatus(null), 5000);
+      setAiStatus("AI draft failed — using safe fallback (editable).");
+      setTimeout(() => setAiStatus(null), 4500);
     }
   }
 
@@ -643,7 +705,7 @@ export default function ResponsesPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
 
-      // ✅ Enterprise: Copy = mark replied AND persist reply_final + replied_at
+      // Copy = mark replied (enterprise) OR local mark (seed)
       await markReplied(replyDraft);
     } catch {
       setCopied(false);
@@ -657,7 +719,7 @@ export default function ResponsesPage() {
     setSeedCount((n) => n + 1);
     setError(null);
     setNote(
-      "Seed mode: These are demo items (not real platform comments). Use this to demo the inbox and the reply workflow."
+      "Seed mode: demo items only. They do NOT save to Supabase. Use this to demo inbox + reply workflow."
     );
   };
 
@@ -680,23 +742,15 @@ export default function ResponsesPage() {
               Responses
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Enterprise mode: drafts + reply state are saved to Supabase (so refresh doesn’t lose anything).
+              Enterprise mode: real inbox items save drafts + replied status to Supabase. Seed items are demo-only.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
-              All: {counts.total}
-            </span>
-            <span className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold text-amber-100">
-              Unread: {counts.unread}
-            </span>
-            <span className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold text-amber-100">
-              Needs reply: {counts.needs_reply}
-            </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold text-emerald-100">
-              Replied: {counts.replied}
-            </span>
+            <Pill>All: {counts.total}</Pill>
+            <Pill tone="warn">Unread: {counts.unread}</Pill>
+            <Pill tone="warn">Needs reply: {counts.needs_reply}</Pill>
+            <Pill tone="good">Replied: {counts.replied}</Pill>
 
             <button
               type="button"
@@ -709,7 +763,7 @@ export default function ResponsesPage() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
+        <GlassCard className="p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search & filters</div>
@@ -760,7 +814,7 @@ export default function ResponsesPage() {
               onClick={seedOne}
               className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-50 hover:bg-emerald-300/15 transition"
             >
-              Seed test item
+              Seed test item (demo)
             </button>
 
             <button
@@ -768,7 +822,7 @@ export default function ResponsesPage() {
               onClick={seedFive}
               className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
             >
-              Seed 5
+              Seed 5 (demo)
             </button>
 
             {seedCount > 0 && (
@@ -799,7 +853,7 @@ export default function ResponsesPage() {
           ) : (
             <div className="mt-4 text-[11px] text-slate-400">Loading workspace…</div>
           )}
-        </div>
+        </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-3">
@@ -813,11 +867,11 @@ export default function ResponsesPage() {
           </div>
 
           <div className="space-y-6">
-            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
+            <GlassCard className="p-6">
               <div>
                 <div className="text-base font-semibold">Reply assistant</div>
                 <div className="mt-1 text-xs text-slate-300">
-                  Drafts are saved. Copy marks replied and saves final reply.
+                  AI drafts are editable. Seed items don’t save to Supabase.
                 </div>
               </div>
 
@@ -841,9 +895,7 @@ export default function ResponsesPage() {
                           {PLATFORM_LABEL[selected.platform] || "Unknown"}
                         </div>
                       </div>
-                      <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
-                        {selected.status}
-                      </span>
+                      <Pill tone={statusTone(selected.status)}>{selected.status}</Pill>
                     </div>
 
                     <div className="mt-2 text-[11px] text-slate-400">
@@ -887,7 +939,7 @@ export default function ResponsesPage() {
                     <button
                       type="button"
                       onClick={saveDraft}
-                      disabled={!selected || !organisationId || saving}
+                      disabled={!selected || saving}
                       className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
                       {saving ? "Saving…" : "Save draft"}
@@ -898,7 +950,7 @@ export default function ResponsesPage() {
                     <button
                       type="button"
                       onClick={copyDraft}
-                      disabled={!replyDraft.trim() || !organisationId}
+                      disabled={!replyDraft.trim()}
                       className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
                       {copied ? "Copied" : "Copy (marks replied)"}
@@ -907,7 +959,7 @@ export default function ResponsesPage() {
                     <button
                       type="button"
                       onClick={() => markReplied(replyDraft)}
-                      disabled={!selected || !organisationId}
+                      disabled={!selected}
                       className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
                       Mark replied
@@ -926,29 +978,18 @@ export default function ResponsesPage() {
                     value={replyDraft}
                     onChange={(e) => setReplyDraft(e.target.value)}
                   />
-
-                  {selected.replyFinal ? (
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <div className="text-xs font-semibold text-slate-200">
-                        Last final reply (saved)
-                      </div>
-                      <div className="mt-2 text-sm text-slate-100 whitespace-pre-wrap">
-                        {selected.replyFinal}
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
               )}
-            </div>
+            </GlassCard>
 
-            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
+            <GlassCard className="p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • Drafts and reply status are saved to Supabase (survives refresh).{"\n"}
-                • Copy = saves final reply + marks replied (you can still edit before copying).{"\n"}
-                • Next step: real staff identity (replied_by) via auth + audit trail.
+                • Seed items are demo-only (no Supabase saving).{"\n"}
+                • Real inbox items save drafts + replied state to Supabase.{"\n"}
+                • AI junk like “Option A/B” is auto-blocked and replaced with a safe fallback.
               </div>
-            </div>
+            </GlassCard>
           </div>
         </div>
       </div>
