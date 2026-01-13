@@ -26,13 +26,11 @@ type InboxItem = {
   text: string;
 
   permalink?: string | null;
+
   createdAt: string;
 
   postText?: string | null;
   postId?: string | null;
-
-  draftText?: string | null;
-  draftUpdatedAt?: string | null;
 };
 
 type ApiResponse = {
@@ -77,6 +75,65 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
   return "neutral";
 }
 
+function clampText(s: string, max = 900) {
+  const t = (s || "").trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max) + "…";
+}
+
+/** ✅ Remove “Option A/B” and other meta helper junk if it appears.
+ *  If output still looks like meta, return "" so we force the safe fallback.
+ */
+function sanitizeAiReply(raw: string) {
+  const t = (raw || "").trim();
+  if (!t) return "";
+
+  const badSignals = [
+    "option a",
+    "option b",
+    "post reply now",
+    "save reply for later",
+    "save the reply for later",
+    "great news!",
+    "drafted successfully",
+    "you can either post it now",
+    "sent smoothly",
+    "everything looks good",
+    "post the reply now",
+    "save it for later",
+  ];
+
+  const lower = t.toLowerCase();
+  const looksBad = badSignals.some((x) => lower.includes(x));
+  if (!looksBad) return t;
+
+  const lines = t.split("\n").map((l) => l.trimEnd());
+  const cleaned = lines
+    .filter((l) => {
+      const ll = l.toLowerCase().trim();
+      if (!ll) return true;
+      if (ll.startsWith("option a")) return false;
+      if (ll.startsWith("option b")) return false;
+      if (ll.includes("post reply")) return false;
+      if (ll.includes("save") && ll.includes("later")) return false;
+      if (ll.includes("great news")) return false;
+      if (ll.includes("drafted successfully")) return false;
+      if (ll.includes("sent smoothly")) return false;
+      if (ll.includes("everything looks good")) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+
+  const cleanedLower = cleaned.toLowerCase();
+  const stillBad = badSignals.some((x) => cleanedLower.includes(x));
+  return stillBad ? "" : cleaned;
+}
+
+/**
+ * Local fallback reply drafter (enterprise-safe).
+ * Avoids medical claims / diagnosis / promises.
+ */
 function draftReplyLocal({
   platform,
   authorName,
@@ -103,7 +160,10 @@ function draftReplyLocal({
     tl.includes("brilliant");
 
   const isQuestion =
-    tl.includes("?") || tl.startsWith("how") || tl.startsWith("what") || tl.startsWith("why");
+    tl.includes("?") ||
+    tl.startsWith("how") ||
+    tl.startsWith("what") ||
+    tl.startsWith("why");
 
   const isConcern =
     tl.includes("struggle") ||
@@ -142,7 +202,7 @@ function draftReplyLocal({
   if (isConcern) {
     return (
       `${greeting}I really appreciate you sharing that.\n\n` +
-      `A gentle next step is to pick one small thing you can do today — something you can repeat without pressure.\n\n` +
+      `A gentle first step is to pick one tiny action you can do today (2 minutes max) — something you can repeat without pressure.\n\n` +
       `${platformLine}\n\n` +
       `If this feels urgent or you’re not safe, please reach out to local support services right away.` +
       contextHint
@@ -152,7 +212,7 @@ function draftReplyLocal({
   if (isNegative) {
     return (
       `${greeting}I hear you.\n\n` +
-      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work for you and I’ll try to make it clearer or point you to something more useful.\n\n` +
+      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work and I’ll try to make it clearer.\n\n` +
       `No pressure either way.` +
       contextHint
     );
@@ -170,7 +230,7 @@ function draftReplyLocal({
   if (isQuestion) {
     return (
       `${greeting}good question.\n\n` +
-      `A simple way to start is: choose one clear outcome (e.g., “feel calmer in 2 minutes”), then pick one repeatable action you can do daily.\n\n` +
+      `A simple start: choose one outcome (e.g., “feel calmer in 2 minutes”), then pick one repeatable action you can do daily.\n\n` +
       `If you tell me your situation (work / study / home), I’ll tailor a short, practical version.` +
       contextHint
     );
@@ -183,53 +243,39 @@ function draftReplyLocal({
   );
 }
 
-function clampText(s: string, max = 900) {
-  const t = (s || "").trim();
-  if (t.length <= max) return t;
-  return t.slice(0, max) + "…";
-}
+function newSeedItem(): InboxItem {
+  const now = new Date();
+  const id = `seed_${now.getTime()}_${Math.random().toString(16).slice(2)}`;
 
-/** ✅ Remove “Option A/B” and other meta helper junk if it appears */
-function sanitizeAiReply(raw: string) {
-  const t = (raw || "").trim();
-  if (!t) return "";
+  const platforms: InboxPlatform[] = ["linkedin", "instagram", "threads", "facebook"];
+  const platform = platforms[Math.floor(Math.random() * platforms.length)] || "linkedin";
 
-  const badSignals = [
-    "option a",
-    "option b",
-    "post reply now",
-    "save reply for later",
-    "great news!",
-    "drafted successfully",
-    "you can either post it now",
-    "sent smoothly",
+  const authorNames = ["Alex", "Sam", "Jordan", "Taylor", "Jamie"];
+  const authorName = authorNames[Math.floor(Math.random() * authorNames.length)] || "Alex";
+
+  const samples = [
+    "This really helped — thank you for sharing.",
+    "How do you stay consistent when motivation drops?",
+    "I’ve been feeling overwhelmed lately. Any small first step?",
+    "Love this. Can you share an example routine?",
+    "Not sure I agree — what’s the evidence for this approach?",
   ];
 
-  const lower = t.toLowerCase();
-  const looksBad = badSignals.some((x) => lower.includes(x));
-  if (!looksBad) return t;
+  const text = samples[Math.floor(Math.random() * samples.length)] || samples[0];
 
-  // Try strip lines containing "Option A/B" or obvious meta phrases
-  const lines = t.split("\n").map((l) => l.trimEnd());
-  const cleaned = lines
-    .filter((l) => {
-      const ll = l.toLowerCase().trim();
-      if (!ll) return true;
-      if (ll.startsWith("option a")) return false;
-      if (ll.startsWith("option b")) return false;
-      if (ll.includes("post reply")) return false;
-      if (ll.includes("save") && ll.includes("later")) return false;
-      if (ll.includes("great news")) return false;
-      if (ll.includes("drafted successfully")) return false;
-      return true;
-    })
-    .join("\n")
-    .trim();
-
-  // If it’s still meta-ish, just return empty and force fallback
-  const cleanedLower = cleaned.toLowerCase();
-  const stillBad = badSignals.some((x) => cleanedLower.includes(x));
-  return stillBad ? "" : cleaned;
+  return {
+    id,
+    platform,
+    status: "needs_reply",
+    kind: "comment",
+    authorName,
+    authorHandle: null,
+    text,
+    permalink: null,
+    createdAt: now.toISOString(),
+    postText: "a quick check-in post",
+    postId: null,
+  };
 }
 
 export default function ResponsesPage() {
@@ -253,9 +299,10 @@ export default function ResponsesPage() {
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Debounced draft saving (keep your current endpoints if already added)
-  const saveTimer = useRef<any>(null);
-  const lastSaved = useRef<string>("");
+  const [seedCount, setSeedCount] = useState(0);
+
+  // Prevent “skippy” selection by restoring scroll after state updates
+  const scrollYRef = useRef<number>(0);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -280,17 +327,19 @@ export default function ResponsesPage() {
     try {
       const org = organisationId || (await resolveOrg());
 
-      const res = await fetch(`/api/responses/list?organisationId=${encodeURIComponent(org)}`, {
-        method: "GET",
-      });
+      const res = await fetch(
+        `/api/responses/list?organisationId=${encodeURIComponent(org)}`,
+        { method: "GET" }
+      );
       const data: ApiResponse = await res.json().catch(() => ({ success: false }));
 
       if (!res.ok || data?.success === false) {
         throw new Error(data?.error || `Failed to load inbox (HTTP ${res.status}).`);
       }
 
-      const list = Array.isArray(data?.items) ? data.items : [];
-      setItems(list);
+      setItems(Array.isArray(data
+::contentReference[oaicite:0]{index=0}
+?.items) ? data.items : []);
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
     } catch (e: any) {
@@ -298,7 +347,6 @@ export default function ResponsesPage() {
       setItems([]);
       setNote(null);
       setConfigured(false);
-      setSelectedId(null);
     } finally {
       setLoading(false);
     }
@@ -320,9 +368,11 @@ export default function ResponsesPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+
     return items.filter((it) => {
       if (platformFilter !== "all" && it.platform !== platformFilter) return false;
       if (statusFilter !== "all" && it.status !== statusFilter) return false;
+
       if (!q) return true;
 
       const hay = [
@@ -342,7 +392,13 @@ export default function ResponsesPage() {
   }, [items, query, platformFilter, statusFilter]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { total: items.length, unread: 0, needs_reply: 0, replied: 0 };
+    const c: Record<string, number> = {
+      total: items.length,
+      unread: 0,
+      needs_reply: 0,
+      replied: 0,
+    };
+
     for (const it of items) {
       if (it.status === "unread") c.unread++;
       if (it.status === "needs_reply") c.needs_reply++;
@@ -355,21 +411,11 @@ export default function ResponsesPage() {
     return filtered.find((x) => x.id === selectedId) || null;
   }, [filtered, selectedId]);
 
-  // Load any saved draft into textarea when selecting
   useEffect(() => {
-    setCopied(false);
+    setReplyDraft("");
     setAiStatus(null);
-
-    if (!selected) {
-      setReplyDraft("");
-      lastSaved.current = "";
-      return;
-    }
-
-    const d = (selected.draftText || "").trim();
-    setReplyDraft(d);
-    lastSaved.current = d;
-  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+    setCopied(false);
+  }, [selectedId]);
 
   const Pill = ({
     children,
@@ -414,12 +460,27 @@ export default function ResponsesPage() {
     </div>
   );
 
+  const onSelect = (id: string) => {
+    // capture current scroll position
+    scrollYRef.current = window.scrollY || 0;
+    setSelectedId(id);
+
+    // restore scroll after React updates
+    setTimeout(() => {
+      try {
+        window.scrollTo({ top: scrollYRef.current, behavior: "instant" as any });
+      } catch {
+        window.scrollTo(0, scrollYRef.current);
+      }
+    }, 0);
+  };
+
   const Row = ({ it }: { it: InboxItem }) => {
     const isSelected = it.id === selectedId;
     return (
       <button
         type="button"
-        onClick={() => setSelectedId(it.id)}
+        onClick={() => onSelect(it.id)}
         className={[
           "w-full text-left rounded-2xl border p-4 transition",
           isSelected
@@ -463,6 +524,7 @@ export default function ResponsesPage() {
               ·{" "}
               <span className="text-slate-300">
                 {it.authorName || it.authorHandle}
+                {it.authorHandle && it.authorName ? ` (${it.authorHandle})` : ""}
               </span>
             </>
           ) : null}
@@ -473,41 +535,6 @@ export default function ResponsesPage() {
         </div>
       </button>
     );
-  };
-
-  const scheduleSaveDraft = (text: string) => {
-    if (!selected || !organisationId) return;
-    if (text === lastSaved.current) return;
-
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-
-    saveTimer.current = setTimeout(async () => {
-      try {
-        const res = await fetch("/api/responses/draft", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            organisationId,
-            inboxItemId: selected.id,
-            draftText: text,
-            updatedBy: "staff",
-          }),
-        });
-
-        const data: any = await res.json().catch(() => null);
-        if (!res.ok || data?.success === false) throw new Error(data?.error || "Failed to save draft");
-
-        lastSaved.current = text;
-        setItems((prev) =>
-          prev.map((x) =>
-            x.id === selected.id ? { ...x, draftText: text, draftUpdatedAt: new Date().toISOString() } : x
-          )
-        );
-      } catch (e: any) {
-        setAiStatus(e?.message || "Failed to save draft.");
-        setTimeout(() => setAiStatus(null), 3500);
-      }
-    }, 650);
   };
 
   async function runAiSuggest() {
@@ -528,9 +555,10 @@ export default function ResponsesPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          context: "responses_reply_draft_reply_only",
+          context: "responses_reply_draft",
           userAction:
-            "Write ONLY the final public reply text. No headings. No options. No meta commentary. No 'Option A/B'.",
+            "Draft a short, friendly, enterprise-safe reply to this social comment/message.",
+          outcome: "success",
           platform: selected.platform,
           item: {
             kind: selected.kind || "comment",
@@ -542,35 +570,39 @@ export default function ResponsesPage() {
             permalink: selected.permalink || null,
           },
           rules: [
-            "Output MUST be ONLY the reply text.",
-            "Do NOT include 'Option A' or 'Option B'.",
-            "Do NOT mention posting, saving, or workflows.",
-            "Warm, concise, respectful.",
+            "Be warm, concise, and respectful.",
             "No medical claims or diagnosis. No promises or guarantees.",
-            "If distress/urgency: suggest local support services.",
+            "If the person expresses distress or urgency, suggest local support services.",
+            "Ask one simple clarifying question when appropriate.",
+            "Keep it suitable for a public reply (no private details).",
+            "Do not include meta text like 'Option A/Option B' or instructions.",
           ],
         }),
       });
 
       const data: any = await res.json().catch(() => null);
-      const raw = typeof data?.coachMessage === "string" ? data.coachMessage : "";
-      const cleaned = sanitizeAiReply(raw);
+
+      // IMPORTANT: different endpoint versions might return different keys
+      const raw =
+        (typeof data?.coachMessage === "string" && data.coachMessage) ||
+        (typeof data?.message === "string" && data.message) ||
+        (typeof data?.text === "string" && data.text) ||
+        "";
+
+      const cleaned = sanitizeAiReply(String(raw || ""));
 
       if (!res.ok || !cleaned) {
         setReplyDraft(fallback);
-        scheduleSaveDraft(fallback);
-        setAiStatus("AI returned helper/meta text — using safe fallback. (You can edit it.)");
+        setAiStatus("AI draft was unusable — using safe fallback. (You can edit it.)");
         setTimeout(() => setAiStatus(null), 5000);
         return;
       }
 
       setReplyDraft(cleaned);
-      scheduleSaveDraft(cleaned);
       setAiStatus("Draft ready — edit it, then copy/paste.");
       setTimeout(() => setAiStatus(null), 4500);
     } catch {
       setReplyDraft(fallback);
-      scheduleSaveDraft(fallback);
       setAiStatus("AI draft failed — using safe fallback. (You can edit it.)");
       setTimeout(() => setAiStatus(null), 5000);
     }
@@ -587,6 +619,21 @@ export default function ResponsesPage() {
     }
   };
 
+  const seedOne = () => {
+    const seed = newSeedItem();
+    setItems((prev) => [seed, ...prev]);
+    onSelect(seed.id);
+    setSeedCount((n) => n + 1);
+    setError(null);
+    setNote(
+      "Seed mode: These are demo items (not real platform comments). Use this to demo the inbox and the reply workflow."
+    );
+  };
+
+  const seedFive = () => {
+    for (let i = 0; i < 5; i++) seedOne();
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -598,7 +645,9 @@ export default function ResponsesPage() {
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Responses</h1>
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+              Responses
+            </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               Your inbox for comments and messages — separate from Scheduled so staff don’t confuse “planning posts” with “responding”.
             </p>
@@ -625,7 +674,9 @@ export default function ResponsesPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search & filters</div>
-              <div className="mt-1 text-xs text-slate-300">Find what needs action fast.</div>
+              <div className="mt-1 text-xs text-slate-300">
+                Find what needs action fast. (Enterprise-safe.)
+              </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
@@ -664,6 +715,34 @@ export default function ResponsesPage() {
             </div>
           </div>
 
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={seedOne}
+              className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-50 hover:bg-emerald-300/15 transition"
+            >
+              Seed test item
+            </button>
+
+            <button
+              type="button"
+              onClick={seedFive}
+              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
+            >
+              Seed 5
+            </button>
+
+            {seedCount > 0 && (
+              <span className="text-[11px] text-slate-400">Seeded: {seedCount}</span>
+            )}
+          </div>
+
+          {note && (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300 whitespace-pre-wrap">
+              {note}
+            </div>
+          )}
+
           {error && (
             <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/40 p-4 text-sm text-red-200 whitespace-pre-wrap">
               {error}
@@ -674,6 +753,12 @@ export default function ResponsesPage() {
             <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
               Loading inbox…
             </div>
+          )}
+
+          {organisationId ? (
+            <div className="mt-4 text-[11px] text-slate-400">Workspace loaded.</div>
+          ) : (
+            <div className="mt-4 text-[11px] text-slate-400">Loading workspace…</div>
           )}
         </GlassCard>
 
@@ -778,14 +863,19 @@ export default function ResponsesPage() {
                     className="w-full min-h-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Your reply draft will appear here…"
                     value={replyDraft}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setReplyDraft(v);
-                      scheduleSaveDraft(v);
-                    }}
+                    onChange={(e) => setReplyDraft(e.target.value)}
                   />
                 </div>
               )}
+            </GlassCard>
+
+            <GlassCard className="p-6">
+              <div className="text-base font-semibold">Enterprise safety</div>
+              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+                • AI drafts are editable by staff before posting.\n
+                • If AI is unavailable or returns meta junk, we fall back to a safe template.\n
+                • Next step: permissions + audit trail (who replied, when).
+              </div>
             </GlassCard>
           </div>
         </div>
