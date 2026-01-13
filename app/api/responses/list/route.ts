@@ -1,3 +1,4 @@
+// app/api/responses/list/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
@@ -17,9 +18,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from("inbox_items")
-      .select(
-        "id, platform, status, text, author_name, author_id, created_at, permalink, reply_draft, reply_final, replied_at, replied_by"
-      )
+      .select("id, platform, status, text, author_name, author_id, created_at, permalink")
       .eq("organisation_id", organisationId)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -32,27 +31,68 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const items = (data || []).map((r: any) => ({
-      id: String(r.id),
-      platform: (String(r.platform || "unknown").toLowerCase() as any) || "unknown",
-      status: (String(r.status || "unknown") as any) || "unknown",
-      kind: "comment",
-      text: String(r.text || ""),
-      authorName: r.author_name ?? null,
-      authorHandle: null,
-      createdAt: String(r.created_at),
-      permalink: r.permalink ?? null,
-      postText: null,
-      postId: null,
+    const rows = data || [];
+    const ids = rows.map((r: any) => String(r.id));
 
-      // enterprise fields (used by UI)
-      replyDraft: r.reply_draft ?? "",
-      replyFinal: r.reply_final ?? "",
-      repliedAt: r.replied_at ?? null,
-      repliedBy: r.replied_by ?? null,
-    }));
+    // Optional: pull saved drafts (if table exists). If it doesn't, we just skip.
+    let draftByItemId: Record<string, { draft_text: string; updated_at: string | null }> = {};
+    try {
+      if (ids.length > 0) {
+        const { data: drafts, error: draftErr } = await supabaseAdmin
+          .from("inbox_item_drafts")
+          .select("inbox_item_id, draft_text, updated_at")
+          .eq("organisation_id", organisationId)
+          .in("inbox_item_id", ids)
+          .limit(500);
 
-    return NextResponse.json({ success: true, configured: true, items }, { status: 200 });
+        if (!draftErr && Array.isArray(drafts)) {
+          for (const d of drafts) {
+            const k = String((d as any).inbox_item_id);
+            draftByItemId[k] = {
+              draft_text: String((d as any).draft_text || ""),
+              updated_at: (d as any).updated_at ? String((d as any).updated_at) : null,
+            };
+          }
+        }
+      }
+    } catch (e) {
+      // If table not created yet, no problem.
+      draftByItemId = {};
+    }
+
+    const items = rows.map((r: any) => {
+      const id = String(r.id);
+      const draft = draftByItemId[id];
+
+      return {
+        id,
+        platform: (String(r.platform || "unknown").toLowerCase() as any) || "unknown",
+        status: (String(r.status || "unknown") as any) || "unknown",
+        kind: "comment",
+        text: String(r.text || ""),
+        authorName: r.author_name ?? null,
+        authorHandle: null,
+        createdAt: String(r.created_at),
+        permalink: r.permalink ?? null,
+        postText: null,
+        postId: null,
+
+        // enterprise additions
+        draftText: draft?.draft_text ?? null,
+        draftUpdatedAt: draft?.updated_at ?? null,
+      };
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        configured: true,
+        items,
+        note:
+          "Enterprise mode: drafts are saved to Supabase and status changes are logged (audit trail).",
+      },
+      { status: 200 }
+    );
   } catch (err) {
     console.error("[responses/list] unexpected error", err);
     return NextResponse.json(
