@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 type InboxPlatform =
   | "facebook"
@@ -74,9 +74,77 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
   return "neutral";
 }
 
+function clampText(s: string, max = 900) {
+  const t = (s || "").trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max) + "…";
+}
+
 /**
- * Local fallback drafter (used if AI endpoint is unavailable).
- * Enterprise-safe: avoids medical claims / diagnosis / promises.
+ * ✅ Remove “Option A/B” and other meta helper junk if it appears.
+ * If it still looks like meta / generic fluff, return "" to force fallback.
+ */
+function sanitizeAiReply(raw: string) {
+  const t = (raw || "").trim();
+  if (!t) return "";
+
+  const badSignals = [
+    "option a",
+    "option b",
+    "post reply now",
+    "save reply for later",
+    "great news!",
+    "drafted successfully",
+    "you can either post it now",
+    "sent smoothly",
+    "post the reply now",
+    "save the reply for later",
+
+    // generic fluff we reject (your exact issue)
+    "thanks so much for your comment",
+    "we really appreciate your support",
+    "we appreciate your comment",
+    "here if you have any questions",
+    "have a great day",
+  ];
+
+  // if it’s tiny, it’s rarely a good reply
+  if (t.length < 40) return "";
+
+  const lower = t.toLowerCase();
+  const looksBad = badSignals.some((x) => lower.includes(x));
+
+  if (!looksBad) return t;
+
+  // Strip obvious meta lines
+  const lines = t.split("\n").map((l) => l.trimEnd());
+  const cleaned = lines
+    .filter((l) => {
+      const ll = l.toLowerCase().trim();
+      if (!ll) return true;
+      if (ll.startsWith("option a")) return false;
+      if (ll.startsWith("option b")) return false;
+      if (ll.includes("post reply")) return false;
+      if (ll.includes("save") && ll.includes("later")) return false;
+      if (ll.includes("great news")) return false;
+      if (ll.includes("drafted successfully")) return false;
+      if (ll.includes("sent smoothly")) return false;
+      if (ll.includes("have a great day")) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+
+  // Re-check after cleaning
+  const cleanedLower = cleaned.toLowerCase();
+  const stillBad = badSignals.some((x) => cleanedLower.includes(x));
+
+  return stillBad ? "" : cleaned;
+}
+
+/**
+ * Local fallback drafter (enterprise-safe).
+ * Used when AI endpoint is unavailable or returns junk.
  */
 function draftReplyLocal({
   platform,
@@ -103,7 +171,11 @@ function draftReplyLocal({
     tl.includes("helpful") ||
     tl.includes("brilliant");
 
-  const isQuestion = tl.includes("?") || tl.startsWith("how") || tl.startsWith("what") || tl.startsWith("why");
+  const isQuestion =
+    tl.includes("?") ||
+    tl.startsWith("how") ||
+    tl.startsWith("what") ||
+    tl.startsWith("why");
 
   const isConcern =
     tl.includes("struggle") ||
@@ -142,7 +214,8 @@ function draftReplyLocal({
   if (isConcern) {
     return (
       `${greeting}I really appreciate you sharing that.\n\n` +
-      `A gentle first step is to reduce the task to something you can do in 60 seconds — just one small action you can repeat without pressure.\n\n` +
+      `A gentle first step is to pick one small thing you can do today — something you can repeat without pressure.\n\n` +
+      `If you tell me what’s feeling hardest right now (work, sleep, stress, motivation), I’ll suggest one tiny next step.\n\n` +
       `${platformLine}\n\n` +
       `If this feels urgent or you’re not safe, please reach out to local support services right away.` +
       contextHint
@@ -152,7 +225,7 @@ function draftReplyLocal({
   if (isNegative) {
     return (
       `${greeting}I hear you.\n\n` +
-      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work for you and I’ll try to make it clearer or point you to something more useful.\n\n` +
+      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work for you and I’ll try to make it clearer.\n\n` +
       `No pressure either way.` +
       contextHint
     );
@@ -170,8 +243,8 @@ function draftReplyLocal({
   if (isQuestion) {
     return (
       `${greeting}good question.\n\n` +
-      `A simple way to start is: choose one clear outcome (e.g., “feel calmer in 2 minutes”), then pick one repeatable action you can do daily.\n\n` +
-      `If you tell me your situation (work / study / home), I’ll tailor a short, practical version.` +
+      `A simple way to start is: choose one small outcome (e.g., “feel calmer in 2 minutes”), then pick one repeatable action you can do daily.\n\n` +
+      `If you tell me your situation (work / study / home), I’ll tailor a short practical version.` +
       contextHint
     );
   }
@@ -218,15 +291,6 @@ function newSeedItem(): InboxItem {
   };
 }
 
-function clampText(s: string, max = 900) {
-  const t = (s || "").trim();
-  if (t.length <= max) return t;
-  return t.slice(0, max) + "…";
-}
-
-/** ✅ Remove “Option A/B” and other helper-meta junk if it appears */
-function sanitizeAiReply(raw: string) {
-
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -236,28 +300,19 @@ export default function ResponsesPage() {
   const [configured, setConfigured] = useState<boolean>(false);
 
   const [items, setItems] = useState<InboxItem[]>([]);
-
-  // Resolve org via /api/social-accounts (single-tenant safe)
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
-  // UX controls
   const [query, setQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">("all");
   const [statusFilter, setStatusFilter] = useState<InboxStatus | "all">("all");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Reply drafting (EDITABLE)
   const [replyDraft, setReplyDraft] = useState("");
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Seed box
   const [seedCount, setSeedCount] = useState(0);
-
-  // Prevent “jump to top” feeling: keep list stable on selection
-  const listWrapRef = useRef<HTMLDivElement | null>(null);
-  const lastScrollTopRef = useRef<number>(0);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -282,10 +337,10 @@ export default function ResponsesPage() {
     try {
       const org = organisationId || (await resolveOrg());
 
-      const res = await fetch(`/api/responses/list?organisationId=${encodeURIComponent(org)}`, {
-        method: "GET",
-      });
-
+      const res = await fetch(
+        `/api/responses/list?organisationId=${encodeURIComponent(org)}`,
+        { method: "GET", cache: "no-store" }
+      );
       const data: ApiResponse = await res.json().catch(() => ({ success: false }));
 
       if (!res.ok || data?.success === false) {
@@ -364,20 +419,36 @@ export default function ResponsesPage() {
     return filtered.find((x) => x.id === selectedId) || null;
   }, [filtered, selectedId]);
 
-  // Load any saved draft for this item when selection changes
   useEffect(() => {
+    setReplyDraft("");
     setAiStatus(null);
     setCopied(false);
+  }, [selectedId]);
 
-    if (!selected || !organisationId) {
-      setReplyDraft("");
-      return;
+  async function updateItemStatus(id: string, status: InboxStatus) {
+    if (!organisationId) return;
+
+    // optimistic UI
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status } : x)));
+
+    try {
+      const res = await fetch("/api/responses/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organisationId, id, status }),
+      });
+      const data: any = await res.json().catch(() => null);
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.error || "Failed to update inbox item");
+      }
+    } catch (e: any) {
+      // revert if it fails
+      setItems((prev) =>
+        prev.map((x) => (x.id === id ? { ...x, status: "needs_reply" } : x))
+      );
+      setError(e?.message || "Failed to update inbox item");
     }
-
-    const key = `rhop:replyDraft:${organisationId}:${selected.id}`;
-    const saved = typeof window !== "undefined" ? window.localStorage.getItem(key) : null;
-    setReplyDraft(saved || "");
-  }, [selectedId, organisationId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   const Pill = ({
     children,
@@ -422,100 +493,17 @@ export default function ResponsesPage() {
     </div>
   );
 
-  function saveScroll() {
-    if (!listWrapRef.current) return;
-    lastScrollTopRef.current = listWrapRef.current.scrollTop;
-  }
-
-  function restoreScrollSoon() {
-    if (!listWrapRef.current) return;
-    const wrap = listWrapRef.current;
-    const top = lastScrollTopRef.current;
-    setTimeout(() => {
-      try {
-        wrap.scrollTop = top;
-      } catch {}
-    }, 0);
-  }
-
-  async function persistInboxUpdate(payload: any) {
-    // We keep this best-effort so UX doesn’t break if the API is down
-    try {
-      const res = await fetch("/api/responses/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data: any = await res.json().catch(() => null);
-      if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || "Failed to update inbox item.");
-      }
-      return true;
-    } catch (e: any) {
-      setNote(e?.message || "Failed to update inbox item.");
-      return false;
-    }
-  }
-
-  async function setItemStatus(nextStatus: InboxStatus) {
-    if (!selected || !organisationId) return;
-
-    // Optimistic UI update first
-    setItems((prev) =>
-      prev.map((x) => (x.id === selected.id ? { ...x, status: nextStatus } : x))
-    );
-
-    // Best-effort persist
-    await persistInboxUpdate({
-      organisationId,
-      id: selected.id,
-      status: nextStatus,
-    });
-  }
-
-  function saveDraftLocal() {
-    if (!selected || !organisationId) return;
-    const key = `rhop:replyDraft:${organisationId}:${selected.id}`;
-    window.localStorage.setItem(key, replyDraft || "");
-    setAiStatus("Saved.");
-    setTimeout(() => setAiStatus(null), 1800);
-  }
-
-  function clearDraftLocal() {
-    if (!selected || !organisationId) return;
-    const key = `rhop:replyDraft:${organisationId}:${selected.id}`;
-    window.localStorage.removeItem(key);
-    setReplyDraft("");
-    setAiStatus("Cleared.");
-    setTimeout(() => setAiStatus(null), 1800);
-  }
-
   const Row = ({ it }: { it: InboxItem }) => {
     const isSelected = it.id === selectedId;
 
     return (
-      <div
-        role="button"
-        tabIndex={0}
-        onMouseDown={(e) => {
-          // Prevent focus-jump scroll behaviour
-          e.preventDefault();
-          saveScroll();
-        }}
-        onClick={() => {
-          setSelectedId(it.id);
-          restoreScrollSoon();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            saveScroll();
-            setSelectedId(it.id);
-            restoreScrollSoon();
-          }
-        }}
+      <button
+        type="button"
+        // ✅ stop “jump to top” behaviour
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setSelectedId(it.id)}
         className={[
-          "cursor-pointer w-full text-left rounded-2xl border p-4 transition select-none",
+          "w-full text-left rounded-2xl border p-4 transition",
           isSelected
             ? "border-emerald-300/30 bg-emerald-300/5"
             : "border-white/10 bg-black/20 hover:bg-white/5",
@@ -557,7 +545,6 @@ export default function ResponsesPage() {
               ·{" "}
               <span className="text-slate-300">
                 {it.authorName || it.authorHandle}
-                {it.authorHandle && it.authorName ? ` (${it.authorHandle})` : ""}
               </span>
             </>
           ) : null}
@@ -566,7 +553,7 @@ export default function ResponsesPage() {
         <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">
           {it.text || "(empty)"}
         </div>
-      </div>
+      </button>
     );
   };
 
@@ -590,7 +577,7 @@ export default function ResponsesPage() {
         body: JSON.stringify({
           context: "responses_reply_draft",
           userAction:
-            "Draft a short, friendly, enterprise-safe public reply to this comment/message. Output only the reply text (no options, no meta).",
+            "Draft a short, friendly, enterprise-safe PUBLIC reply to the comment/message. No Option A/B. No meta text. Just the reply content.",
           outcome: "success",
           platform: selected.platform,
           item: {
@@ -603,23 +590,29 @@ export default function ResponsesPage() {
             permalink: selected.permalink || null,
           },
           rules: [
-            "Output ONLY the reply text. No headings. No 'Option A/B'. No meta commentary.",
+            "Return ONLY the reply text. No headings. No options. No status updates.",
             "Be warm, concise, and respectful.",
             "No medical claims or diagnosis. No promises or guarantees.",
-            "If distress or urgency is expressed, suggest local support services.",
+            "If distress/urgency is present, suggest seeking local support services.",
             "Ask one simple clarifying question when appropriate.",
-            "Keep it suitable for a public reply (no private/sensitive details).",
           ],
         }),
       });
 
       const data: any = await res.json().catch(() => null);
-      const raw = typeof data?.coachMessage === "string" ? data.coachMessage.trim() : "";
+
+      // Try the common keys we’ve seen in your project
+      const raw =
+        (typeof data?.coachMessage === "string" && data.coachMessage) ||
+        (typeof data?.message === "string" && data.message) ||
+        (typeof data?.text === "string" && data.text) ||
+        "";
+
       const cleaned = sanitizeAiReply(raw);
 
       if (!res.ok || !cleaned) {
         setReplyDraft(fallback);
-        setAiStatus("AI draft unavailable — using safe fallback. (You can edit it.)");
+        setAiStatus("AI draft not usable — using safe fallback. (Edit it.)");
         setTimeout(() => setAiStatus(null), 5000);
         return;
       }
@@ -629,7 +622,7 @@ export default function ResponsesPage() {
       setTimeout(() => setAiStatus(null), 4500);
     } catch {
       setReplyDraft(fallback);
-      setAiStatus("AI draft failed — using safe fallback. (You can edit it.)");
+      setAiStatus("AI draft failed — using safe fallback. (Edit it.)");
       setTimeout(() => setAiStatus(null), 5000);
     }
   }
@@ -638,14 +631,13 @@ export default function ResponsesPage() {
     try {
       if (!replyDraft.trim()) return;
       await navigator.clipboard.writeText(replyDraft);
-
       setCopied(true);
-
-      // ✅ This is the behaviour you want:
-      // When staff copy the reply, mark the item as replied.
-      await setItemStatus("replied");
-
       setTimeout(() => setCopied(false), 2500);
+
+      // ✅ mark item replied on copy
+      if (selected && organisationId) {
+        await updateItemStatus(selected.id, "replied");
+      }
     } catch {
       setCopied(false);
     }
@@ -657,7 +649,9 @@ export default function ResponsesPage() {
     setSelectedId(seed.id);
     setSeedCount((n) => n + 1);
     setError(null);
-    setNote("Seed mode: Demo items (not real platform comments).");
+    setNote(
+      "Seed mode: These are demo items (not real platform comments). Use this to demo the inbox and the reply workflow."
+    );
   };
 
   const seedFive = () => {
@@ -793,16 +787,14 @@ export default function ResponsesPage() {
         </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <div ref={listWrapRef} className="space-y-3">
-              {!loading && filtered.length === 0 ? (
-                <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
-                  No items found.
-                </div>
-              ) : (
-                filtered.map((it) => <Row key={it.id} it={it} />)
-              )}
-            </div>
+          <div className="lg:col-span-2 space-y-3">
+            {!loading && filtered.length === 0 ? (
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
+                No items found.
+              </div>
+            ) : (
+              filtered.map((it) => <Row key={it.id} it={it} />)
+            )}
           </div>
 
           <div className="space-y-6">
@@ -866,12 +858,11 @@ export default function ResponsesPage() {
                     ) : null}
                   </div>
 
-                  {/* ✅ Restored action buttons */}
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={runAiSuggest}
-                      className="col-span-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
+                      className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
                     >
                       AI Suggest Reply
                     </button>
@@ -882,47 +873,25 @@ export default function ResponsesPage() {
                       disabled={!replyDraft.trim()}
                       className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
-                      {copied ? "Copied + marked replied" : "Copy"}
+                      {copied ? "Copied" : "Copy"}
                     </button>
+                  </div>
 
+                  <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={saveDraftLocal}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
-                    >
-                      Save draft
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => void setItemStatus("replied")}
-                      className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 transition"
+                      onClick={() => selected && updateItemStatus(selected.id, "replied")}
+                      className="flex-1 rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 transition"
                     >
                       Mark replied
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => void setItemStatus("needs_reply")}
-                      className="rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm font-semibold text-amber-100 hover:bg-amber-400/15 transition"
-                    >
-                      Needs reply
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => void setItemStatus("archived")}
-                      className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/5 transition"
+                      onClick={() => selected && updateItemStatus(selected.id, "archived")}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
                     >
                       Archive
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={clearDraftLocal}
-                      className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/5 transition"
-                    >
-                      Clear draft
                     </button>
                   </div>
 
@@ -946,7 +915,7 @@ export default function ResponsesPage() {
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
                 • AI drafts are editable by staff before posting.\n
-                • Copy marks the item as “replied” (and attempts to persist to Supabase).\n
+                • If AI is unavailable or returns junk, we fall back to a safe template draft.\n
                 • Next step: permissions + audit trail (who replied, when).
               </div>
             </GlassCard>
