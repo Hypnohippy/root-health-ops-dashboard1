@@ -30,6 +30,12 @@ type InboxItem = {
 
   postText?: string | null;
   postId?: string | null;
+
+  // Enterprise persisted fields (from Supabase)
+  replyDraft?: string;
+  replyFinal?: string;
+  repliedAt?: string | null;
+  repliedBy?: string | null;
 };
 
 type ApiResponse = {
@@ -219,6 +225,10 @@ function newSeedItem(): InboxItem {
     createdAt: now.toISOString(),
     postText: "a quick check-in post",
     postId: null,
+    replyDraft: "",
+    replyFinal: "",
+    repliedAt: null,
+    repliedBy: null,
   };
 }
 
@@ -252,15 +262,10 @@ export default function ResponsesPage() {
   const [replyDraft, setReplyDraft] = useState("");
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Seed box
   const [seedCount, setSeedCount] = useState(0);
-
-  // UI-only “last action” for undo
-  const [lastMarked, setLastMarked] = useState<{
-    id: string;
-    prevStatus: InboxStatus;
-  } | null>(null);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -339,6 +344,8 @@ export default function ResponsesPage() {
         it.authorHandle || "",
         it.text || "",
         it.postText || "",
+        it.replyDraft || "",
+        it.replyFinal || "",
       ]
         .join(" ")
         .toLowerCase();
@@ -368,10 +375,17 @@ export default function ResponsesPage() {
   }, [filtered, selectedId]);
 
   useEffect(() => {
-    setReplyDraft("");
+    // Load existing draft when selecting an item (enterprise behavior)
+    if (!selected) {
+      setReplyDraft("");
+      setAiStatus(null);
+      setCopied(false);
+      return;
+    }
+    setReplyDraft(selected.replyDraft || selected.replyFinal || "");
     setAiStatus(null);
     setCopied(false);
-  }, [selectedId]);
+  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const Pill = ({
     children,
@@ -474,30 +488,90 @@ export default function ResponsesPage() {
         <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">
           {it.text || "(empty)"}
         </div>
+
+        {it.status === "replied" && (it.repliedAt || it.repliedBy) ? (
+          <div className="mt-2 text-[11px] text-slate-400">
+            Replied{it.repliedBy ? ` by ${it.repliedBy}` : ""}{it.repliedAt ? ` · ${safeDate(it.repliedAt)}` : ""}
+          </div>
+        ) : null}
       </button>
     );
   };
 
-  function markItemStatus(id: string, status: InboxStatus) {
-    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status } : x)));
+  function updateLocalItem(id: string, patch: Partial<InboxItem>) {
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   }
 
-  function markSelectedReplied() {
-    if (!selected) return;
-    const current = selected.status || "unknown";
-    if (current === "replied") return;
-
-    // keep undo info
-    setLastMarked({ id: selected.id, prevStatus: current });
-    markItemStatus(selected.id, "replied");
+  async function persistUpdate(payload: any) {
+    const res = await fetch("/api/responses/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data: any = await res.json().catch(() => null);
+    if (!res.ok || data?.success === false) {
+      throw new Error(data?.error || `Failed to update (HTTP ${res.status})`);
+    }
+    return data;
   }
 
-  function undoLastMark() {
-    if (!lastMarked) return;
-    markItemStatus(lastMarked.id, lastMarked.prevStatus);
-    setLastMarked(null);
-    setAiStatus("Undone.");
-    setTimeout(() => setAiStatus(null), 2000);
+  async function saveDraft() {
+    if (!selected || !organisationId) return;
+    setSaving(true);
+    setAiStatus("Saving draft…");
+    try {
+      // Optimistic
+      updateLocalItem(selected.id, { replyDraft });
+
+      await persistUpdate({
+        organisationId,
+        id: selected.id,
+        reply_draft: replyDraft,
+        // don’t change status here — keep it in needs_reply/unread
+      });
+
+      setAiStatus("Draft saved.");
+      setTimeout(() => setAiStatus(null), 2500);
+    } catch (e: any) {
+      setAiStatus(null);
+      setError(e?.message || "Failed to save draft.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function markReplied(finalText?: string) {
+    if (!selected || !organisationId) return;
+    const nowIso = new Date().toISOString();
+
+    setAiStatus("Marking as replied…");
+
+    try {
+      // Optimistic UI
+      updateLocalItem(selected.id, {
+        status: "replied",
+        repliedAt: nowIso,
+        repliedBy: "staff",
+        replyFinal: finalText ?? selected.replyFinal ?? "",
+        replyDraft: replyDraft,
+      });
+
+      await persistUpdate({
+        organisationId,
+        id: selected.id,
+        status: "replied",
+        replied_at: nowIso,
+        replied_by: "staff",
+        reply_draft: replyDraft,
+        reply_final: finalText ?? replyDraft,
+      });
+
+      setAiStatus("Saved. Marked as replied.");
+      setTimeout(() => setAiStatus(null), 2500);
+    } catch (e: any) {
+      setAiStatus(null);
+      setError(e?.message || "Failed to mark as replied.");
+    }
   }
 
   async function runAiSuggest() {
@@ -553,7 +627,7 @@ export default function ResponsesPage() {
       }
 
       setReplyDraft(msg);
-      setAiStatus("Draft ready — edit it, then copy/paste.");
+      setAiStatus("Draft ready — edit it, then save/copy.");
       setTimeout(() => setAiStatus(null), 4500);
     } catch {
       setReplyDraft(fallback);
@@ -565,21 +639,12 @@ export default function ResponsesPage() {
   const copyDraft = async () => {
     try {
       if (!replyDraft.trim()) return;
-
       await navigator.clipboard.writeText(replyDraft);
-
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
 
-      // ✅ Option 1: Mark as replied on copy (UI-only)
-      if (selected) {
-        const prev = selected.status || "unknown";
-        setLastMarked({ id: selected.id, prevStatus: prev });
-        markItemStatus(selected.id, "replied");
-      }
-
-      setAiStatus("Copied. Marked as replied.");
-      setTimeout(() => setAiStatus(null), 2500);
+      // ✅ Enterprise: Copy = mark replied AND persist reply_final + replied_at
+      await markReplied(replyDraft);
     } catch {
       setCopied(false);
     }
@@ -615,15 +680,23 @@ export default function ResponsesPage() {
               Responses
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Your inbox for comments and messages — separate from Scheduled so staff don’t confuse “planning posts” with “responding”.
+              Enterprise mode: drafts + reply state are saved to Supabase (so refresh doesn’t lose anything).
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Pill>All: {counts.total}</Pill>
-            <Pill tone="warn">Unread: {counts.unread}</Pill>
-            <Pill tone="warn">Needs reply: {counts.needs_reply}</Pill>
-            <Pill tone="good">Replied: {counts.replied}</Pill>
+            <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
+              All: {counts.total}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold text-amber-100">
+              Unread: {counts.unread}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold text-amber-100">
+              Needs reply: {counts.needs_reply}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold text-emerald-100">
+              Replied: {counts.replied}
+            </span>
 
             <button
               type="button"
@@ -636,7 +709,7 @@ export default function ResponsesPage() {
           </div>
         </div>
 
-        <GlassCard className="p-6">
+        <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search & filters</div>
@@ -726,7 +799,7 @@ export default function ResponsesPage() {
           ) : (
             <div className="mt-4 text-[11px] text-slate-400">Loading workspace…</div>
           )}
-        </GlassCard>
+        </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-3">
@@ -740,11 +813,11 @@ export default function ResponsesPage() {
           </div>
 
           <div className="space-y-6">
-            <GlassCard className="p-6">
+            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
               <div>
                 <div className="text-base font-semibold">Reply assistant</div>
                 <div className="mt-1 text-xs text-slate-300">
-                  Generate a draft, edit it, then copy/paste to reply on the platform.
+                  Drafts are saved. Copy marks replied and saves final reply.
                 </div>
               </div>
 
@@ -768,7 +841,9 @@ export default function ResponsesPage() {
                           {PLATFORM_LABEL[selected.platform] || "Unknown"}
                         </div>
                       </div>
-                      <Pill tone={statusTone(selected.status)}>{selected.status}</Pill>
+                      <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
+                        {selected.status}
+                      </span>
                     </div>
 
                     <div className="mt-2 text-[11px] text-slate-400">
@@ -811,31 +886,31 @@ export default function ResponsesPage() {
 
                     <button
                       type="button"
-                      onClick={copyDraft}
-                      disabled={!replyDraft.trim()}
+                      onClick={saveDraft}
+                      disabled={!selected || !organisationId || saving}
                       className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
-                      {copied ? "Copied" : "Copy"}
+                      {saving ? "Saving…" : "Save draft"}
                     </button>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={markSelectedReplied}
-                      disabled={!selected || selected.status === "replied"}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                      onClick={copyDraft}
+                      disabled={!replyDraft.trim() || !organisationId}
+                      className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
-                      Mark as replied
+                      {copied ? "Copied" : "Copy (marks replied)"}
                     </button>
 
                     <button
                       type="button"
-                      onClick={undoLastMark}
-                      disabled={!lastMarked}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                      onClick={() => markReplied(replyDraft)}
+                      disabled={!selected || !organisationId}
+                      className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
-                      Undo
+                      Mark replied
                     </button>
                   </div>
 
@@ -851,18 +926,29 @@ export default function ResponsesPage() {
                     value={replyDraft}
                     onChange={(e) => setReplyDraft(e.target.value)}
                   />
+
+                  {selected.replyFinal ? (
+                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                      <div className="text-xs font-semibold text-slate-200">
+                        Last final reply (saved)
+                      </div>
+                      <div className="mt-2 text-sm text-slate-100 whitespace-pre-wrap">
+                        {selected.replyFinal}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               )}
-            </GlassCard>
+            </div>
 
-            <GlassCard className="p-6">
+            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • AI drafts are editable by staff before posting.{"\n"}
-                • Copy marks the item as “replied” (UI-only) so staff can keep momentum.{"\n"}
-                • Next step: permissions + audit trail (who replied, when).
+                • Drafts and reply status are saved to Supabase (survives refresh).{"\n"}
+                • Copy = saves final reply + marks replied (you can still edit before copying).{"\n"}
+                • Next step: real staff identity (replied_by) via auth + audit trail.
               </div>
-            </GlassCard>
+            </div>
           </div>
         </div>
       </div>
