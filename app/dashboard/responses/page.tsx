@@ -222,6 +222,31 @@ function draftReplyLocal({
  * If it still looks like UI/ops language after cleaning, return "" to force fallback.
  */
 function sanitizeAiReply(raw: string) {
+  function looksLikeSystemHelper(raw: string) {
+  const t = (raw || "").toLowerCase();
+  if (!t.trim()) return true;
+
+  const bad = [
+    "option a",
+    "option b",
+    "post now",
+    "post the reply",
+    "save for later",
+    "drafted successfully",
+    "sent smoothly",
+    "no channels have posted",
+    "choose where to send",
+    "reply didn’t go through",
+    "didn't go through",
+    "didn’t post",
+    "didn't post",
+    "looks like your reply",
+    "great news",
+  ];
+
+  return bad.some((x) => t.includes(x));
+}
+
   const t = (raw || "").trim();
   if (!t) return "";
 
@@ -667,84 +692,116 @@ export default function ResponsesPage() {
     await tryPersistStatus(id, "needs_reply");
   };
 
-  async function runAiSuggest() {
-    if (!selected) return;
+ async function runAiSuggest() {
+  if (!selected) return;
 
-    setAiStatus("Drafting reply…");
-    setCopied(false);
+  setAiStatus("Drafting reply…");
+  setCopied(false);
 
-    const fallback = draftReplyLocal({
-      platform: selected.platform,
-      authorName: selected.authorName,
-      text: selected.text,
-      postText: selected.postText,
+  const fallback = draftReplyLocal({
+    platform: selected.platform,
+    authorName: selected.authorName,
+    text: selected.text,
+    postText: selected.postText,
+  });
+
+  // IMPORTANT: capture the item at click-time so we don’t generate against a “moving target”
+  const itemSnapshot = {
+    id: selected.id,
+    platform: selected.platform,
+    kind: selected.kind || "comment",
+    text: selected.text,
+    authorName: selected.authorName || null,
+    authorHandle: selected.authorHandle || null,
+    createdAt: selected.createdAt,
+    postText: selected.postText || null,
+    permalink: selected.permalink || null,
+  };
+
+  const callAi = async () => {
+    const res = await fetch("/api/ai/root-coach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        context: "responses_public_reply_draft_v2",
+        userAction:
+          "Write ONLY the reply text that I can paste as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
+        outcome: "success",
+        platform: itemSnapshot.platform,
+        item: {
+          kind: itemSnapshot.kind,
+          text: clampText(itemSnapshot.text, 900),
+          authorName: itemSnapshot.authorName,
+          authorHandle: itemSnapshot.authorHandle,
+          createdAt: itemSnapshot.createdAt,
+          postText: itemSnapshot.postText ? clampText(itemSnapshot.postText, 300) : null,
+          permalink: itemSnapshot.permalink,
+        },
+        rules: [
+          "Output ONLY the reply text (no headings, no options, no meta).",
+          "Be warm, concise, respectful.",
+          "No medical claims or diagnosis. No promises or guarantees.",
+          "If distress/urgency is present, suggest seeking local support services.",
+          "Ask at most ONE clarifying question if helpful.",
+          "Keep it suitable for public replies.",
+        ],
+      }),
     });
 
-    try {
-      const res = await fetch("/api/ai/root-coach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          context: "responses_public_reply_draft_v1",
-          userAction:
-            "Write ONLY the reply text that I can paste as a public reply. Do NOT mention posting, saving, drafts, channels, or options.",
-          outcome: "success",
-          platform: selected.platform,
-          item: {
-            kind: selected.kind || "comment",
-            text: clampText(selected.text, 900),
-            authorName: selected.authorName || null,
-            authorHandle: selected.authorHandle || null,
-            createdAt: selected.createdAt,
-            postText: selected.postText ? clampText(selected.postText, 300) : null,
-            permalink: selected.permalink || null,
-          },
-          rules: [
-            "Output ONLY the reply text (no headings, no options, no meta).",
-            "Be warm, concise, respectful.",
-            "No medical claims or diagnosis. No promises or guarantees.",
-            "If distress/urgency is present, suggest seeking local support services.",
-            "Ask at most ONE clarifying question if helpful.",
-            "Keep it suitable for public replies.",
-          ],
-        }),
-      });
+    const data: any = await res.json().catch(() => null);
+    const raw =
+      (typeof data?.coachMessage === "string" && data.coachMessage) ||
+      (typeof data?.message === "string" && data.message) ||
+      (typeof data?.text === "string" && data.text) ||
+      "";
 
-      const data: any = await res.json().catch(() => null);
-      const raw =
-        (typeof data?.coachMessage === "string" && data.coachMessage) ||
-        (typeof data?.message === "string" && data.message) ||
-        (typeof data?.text === "string" && data.text) ||
-        "";
+    return { ok: res.ok, raw };
+  };
 
-      const cleaned = sanitizeAiReply(raw);
-      const finalDraft =
-        cleaned && !isTooGeneric(cleaned, selected.text) ? cleaned : fallback;
+  try {
+    // Try once
+    const r1 = await callAi();
+    let cleaned1 = sanitizeAiReply(r1.raw);
 
-      setReplyDraft(finalDraft);
+    // If it’s system-helper-ish, auto-retry ONCE
+    if (!r1.ok || !cleaned1 || looksLikeSystemHelper(r1.raw)) {
+      const r2 = await callAi();
+      const cleaned2 = sanitizeAiReply(r2.raw);
 
-      if (!cleaned) {
-        setAiStatus("AI drift detected — using safe fallback. (Edit it if you want.)");
-        setTimeout(() => setAiStatus(null), 5200);
+      // use retry if valid
+      if (r2.ok && cleaned2 && !looksLikeSystemHelper(r2.raw) && !isTooGeneric(cleaned2, itemSnapshot.text)) {
+        setReplyDraft(cleaned2);
+        setAiStatus("Draft ready — edit it, then copy/paste.");
+        setTimeout(() => setAiStatus(null), 4200);
         return;
       }
 
-      if (cleaned && isTooGeneric(cleaned, selected.text)) {
-        setAiStatus(
-          "AI reply was too generic — using a better safe draft. (Edit it if you want.)"
-        );
-        setTimeout(() => setAiStatus(null), 5200);
-        return;
-      }
-
-      setAiStatus("Draft ready — edit it, then copy/paste.");
-      setTimeout(() => setAiStatus(null), 4200);
-    } catch {
+      // otherwise fallback
       setReplyDraft(fallback);
-      setAiStatus("AI draft failed — using safe fallback. (Edit it if you want.)");
+      setAiStatus("AI drift detected — using safe fallback. (Edit it if you want.)");
       setTimeout(() => setAiStatus(null), 5200);
+      return;
     }
+
+    // Not helper-ish, but check quality
+    if (isTooGeneric(cleaned1, itemSnapshot.text)) {
+      setReplyDraft(fallback);
+      setAiStatus("AI reply was too generic — using a better safe draft. (Edit it if you want.)");
+      setTimeout(() => setAiStatus(null), 5200);
+      return;
+    }
+
+    setReplyDraft(cleaned1);
+    setAiStatus("Draft ready — edit it, then copy/paste.");
+    setTimeout(() => setAiStatus(null), 4200);
+  } catch {
+    setReplyDraft(fallback);
+    setAiStatus("AI draft failed — using safe fallback. (Edit it if you want.)");
+    setTimeout(() => setAiStatus(null), 5200);
   }
+}
+
 
   const copyDraft = async () => {
     try {
