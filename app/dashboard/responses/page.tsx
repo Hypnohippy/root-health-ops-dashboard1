@@ -215,6 +215,35 @@ function sanitizeAiReply(raw: string) {
   if (badSignals.some((x) => outLower.includes(x))) return "";
   return out;
 }
+function sanitizeAiReply(raw: string) {
+  const t = (raw || "").trim();
+  if (!t) return "";
+
+  const badSignals = [
+    "looks like your reply",
+    "didn’t post",
+    "didn't post",
+    "didn’t go through",
+    "try sending it again",
+    "save it for later",
+    "option a",
+    "option b",
+    "channels",
+    "post now",
+    "send it",
+    "sent smoothly",
+    "drafted successfully",
+  ];
+
+  const lower = t.toLowerCase();
+  const looksBad = badSignals.some((s) => lower.includes(s));
+  if (looksBad) return "";
+
+  // Also reject super-generic “customer service” filler if you want:
+  if (t.length < 25) return "";
+
+  return t;
+}
 
 function newSeedItem(): InboxItem {
   const now = new Date();
@@ -486,6 +515,18 @@ export default function ResponsesPage() {
 
       const data: any = await res.json().catch(() => null);
       const raw = typeof data?.coachMessage === "string" ? data.coachMessage : "";
+      const cleaned = sanitizeAiReply(msg);
+
+if (!res.ok || !cleaned) {
+  setReplyDraft(fallback);
+  setAiStatus("AI draft was off-topic — using safe fallback. (Edit as needed.)");
+  setTimeout(() => setAiStatus(null), 5000);
+  return;
+}
+
+setReplyDraft(cleaned);
+setAiStatus("Draft ready — edit it, then copy/paste.");
+
       const cleaned = sanitizeAiReply(raw);
 
       if (!res.ok || !cleaned) {
