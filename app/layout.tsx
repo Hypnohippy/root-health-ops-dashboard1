@@ -1,60 +1,107 @@
-// app/layout.tsx
-import "./globals.css";
-import React from "react";
-import type { Metadata } from "next";
+// app/dashboard/layout.tsx
+"use client";
 
-export const metadata: Metadata = {
-  title: "Root Health Ops",
-  description: "Root Health Ops Dashboard",
+import React from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+type DashboardLayoutProps = {
+  children: React.ReactNode;
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function DashboardLayout({ children }: DashboardLayoutProps) {
+  const pathname = usePathname();
+
+  const linkClasses = (href: string) => {
+    const isActive = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+
+    return [
+      "block rounded-md px-3 py-1.5 text-sm transition-colors",
+      isActive ? "bg-emerald-400 text-slate-950" : "text-slate-100 hover:bg-white/10",
+    ].join(" ");
+  };
+
   return (
-    <html lang="en">
-      <head>
-        {/* ✅ Keyboard Guard v2 (NO focus stealing)
-            Fixes: “only 1 letter then stops” by blocking global hotkeys while typing.
-            IMPORTANT: We do NOT refocus inputs on focusout (that caused the “skippy jump”).
-        */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-(function () {
-  function typingEl(target) {
-    if (!target) return null;
-    var el = target;
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+      <header className="border-b border-white/10 bg-black/30 backdrop-blur-xl">
+        <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+          {/* Brand */}
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-xl bg-emerald-400/80 shadow-lg shadow-emerald-500/40" />
+            <div className="flex flex-col leading-tight">
+              <span className="text-sm font-semibold text-slate-50">Root Health Ops</span>
+              <span className="text-[11px] text-slate-300">Your cockpit for growth</span>
+            </div>
+          </div>
 
-    if (el && el.closest) {
-      var c = el.closest("input, textarea, select, [contenteditable='true']");
-      if (c) el = c;
-    }
+          {/* Nav links */}
+          <ul className="flex items-center gap-2 flex-wrap justify-end">
+            <li>
+              <Link href="/dashboard" className={linkClasses("/dashboard")}>
+                Home
+              </Link>
+            </li>
 
-    if (!el || !el.tagName) return null;
-    var tag = (el.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || tag === "select") return el;
-    if (el.isContentEditable) return el;
-    return null;
-  }
+            <li>
+              <Link href="/dashboard/connect" className={linkClasses("/dashboard/connect")}>
+                Connect
+              </Link>
+            </li>
 
-  function guardKey(e) {
-    var el = typingEl(e.target);
-    if (!el) return;
+            <li>
+              <Link href="/dashboard/metrics" className={linkClasses("/dashboard/metrics")}>
+                Metrics
+              </Link>
+            </li>
 
-    // Stop any global key listeners (hotkeys) from intercepting typing
-    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-    e.stopPropagation();
-    // DO NOT preventDefault (we want typing to work normally)
-  }
+            <li>
+              <Link href="/dashboard/campaigns" className={linkClasses("/dashboard/campaigns")}>
+                Campaigns
+              </Link>
+            </li>
 
-  document.addEventListener("keydown", guardKey, true);
-  document.addEventListener("keypress", guardKey, true);
-  document.addEventListener("keyup", guardKey, true);
-})();`,
-          }}
-        />
-      </head>
+            <li>
+              <Link href="/dashboard/sequences" className={linkClasses("/dashboard/sequences")}>
+                Sequences
+              </Link>
+            </li>
 
-      <body className="min-h-screen bg-slate-950 text-slate-50">{children}</body>
-    </html>
+            <li>
+              <Link href="/dashboard/stories/new" className={linkClasses("/dashboard/stories/new")}>
+                Stories
+              </Link>
+            </li>
+
+            <li>
+              <Link href="/dashboard/scheduled" className={linkClasses("/dashboard/scheduled")}>
+                Scheduled
+              </Link>
+            </li>
+
+            {/* ✅ NEW */}
+            <li>
+              <Link href="/dashboard/approvals" className={linkClasses("/dashboard/approvals")}>
+                Approvals
+              </Link>
+            </li>
+
+            <li>
+              <Link href="/dashboard/responses" className={linkClasses("/dashboard/responses")}>
+                Responses
+              </Link>
+            </li>
+
+            <li>
+              <Link href="/dashboard/brainstorm" className={linkClasses("/dashboard/brainstorm")}>
+                🧠 Brainstorm
+              </Link>
+            </li>
+          </ul>
+        </nav>
+      </header>
+
+      {/* Page Content */}
+      <main className="p-6">{children}</main>
+    </div>
   );
 }
