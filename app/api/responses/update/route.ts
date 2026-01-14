@@ -4,7 +4,6 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-
     const organisationId = (body?.organisationId || "").toString().trim();
     const id = (body?.id || "").toString().trim();
     const status = (body?.status || "").toString().trim();
@@ -15,36 +14,22 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
     if (!id) {
-      return NextResponse.json(
-        { success: false, error: "Missing inbox item id" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Missing id" }, { status: 400 });
     }
 
-    if (!status) {
-      return NextResponse.json(
-        { success: false, error: "Missing status" },
-        { status: 400 }
-      );
-    }
-
-    // Only allow known statuses
-    const allowed = ["unread", "needs_reply", "replied", "archived", "unknown"];
+    const allowed: string[] = ["unread", "needs_reply", "replied", "archived", "unknown"];
     if (!allowed.includes(status)) {
       return NextResponse.json(
-        { success: false, error: `Invalid status: ${status}` },
+        { success: false, error: "Invalid status" },
         { status: 400 }
       );
     }
 
+    // ✅ IMPORTANT: do NOT write updated_at unless the column exists
     const { data, error } = await supabaseAdmin
       .from("inbox_items")
-      .update({
-        status,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ status })
       .eq("organisation_id", organisationId)
       .eq("id", id)
       .select("id, status")
