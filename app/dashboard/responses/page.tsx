@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type InboxPlatform =
   | "facebook"
@@ -37,6 +37,7 @@ type ApiResponse = {
   items?: InboxItem[];
   note?: string;
   error?: string;
+  details?: string;
   configured?: boolean;
 };
 
@@ -81,9 +82,65 @@ function clampText(s: string, max = 900) {
 }
 
 /**
- * ✅ Remove “Option A/B” and other meta helper junk if it appears.
- * If it still looks like meta / generic fluff, return "" to force fallback.
+ * Local fallback drafter (enterprise-safe, avoids medical claims/diagnosis).
+ * Used if AI endpoint is unavailable OR produces junk.
  */
+function draftReplyLocal({
+  platform,
+  authorName,
+  text,
+}: {
+  platform: InboxPlatform;
+  authorName?: string | null;
+  text: string;
+}) {
+  const name = (authorName || "").trim();
+  const greeting = name ? `Hi ${name} — ` : "Thanks for this — ";
+
+  const tl = (text || "").toLowerCase();
+
+  const isConcern =
+    tl.includes("overwhelm") ||
+    tl.includes("burnout") ||
+    tl.includes("anxious") ||
+    tl.includes("anxiety") ||
+    tl.includes("panic") ||
+    tl.includes("stress") ||
+    tl.includes("struggle");
+
+  const isQuestion = tl.includes("?") || tl.startsWith("how") || tl.startsWith("what");
+
+  const platformLine =
+    platform === "linkedin"
+      ? "If you’d like, I can share a quick example you can try this week."
+      : platform === "instagram" || platform === "threads"
+      ? "If you want, reply “yes” and I’ll share a simple next step."
+      : "If you want, tell me a bit more and I’ll point you to a simple next step.";
+
+  if (isConcern) {
+    return (
+      `${greeting}thanks for sharing that — it sounds like a lot.\n\n` +
+      `A small first step: pick one “2-minute reset” you can do today (slow breathing, short walk, water + a pause).\n\n` +
+      `${platformLine}\n\n` +
+      `If this feels urgent or you’re not safe, please reach out to local support services right away.`
+    );
+  }
+
+  if (isQuestion) {
+    return (
+      `${greeting}good question.\n\n` +
+      `A simple start is: choose one outcome (e.g. calmer / more energy), then one repeatable action you can do daily.\n\n` +
+      `What’s the main thing you want to improve right now?`
+    );
+  }
+
+  return (
+    `${greeting}thanks for the comment.\n\n` +
+    `What are you hoping to get out of this most right now (calmer, energy, routine, confidence)?`
+  );
+}
+
+/** Remove “Option A/B” etc if it appears */
 function sanitizeAiReply(raw: string) {
   const t = (raw || "").trim();
   if (!t) return "";
@@ -91,169 +148,40 @@ function sanitizeAiReply(raw: string) {
   const badSignals = [
     "option a",
     "option b",
-    "post reply now",
-    "save reply for later",
-    "great news!",
+    "post the reply",
+    "save the reply",
+    "great news",
     "drafted successfully",
-    "you can either post it now",
     "sent smoothly",
-    "post the reply now",
-    "save the reply for later",
-
-    // generic fluff we reject (your exact issue)
-    "thanks so much for your comment",
-    "we really appreciate your support",
-    "we appreciate your comment",
-    "here if you have any questions",
-    "have a great day",
+    "you can either",
   ];
-
-  // if it’s tiny, it’s rarely a good reply
-  if (t.length < 40) return "";
 
   const lower = t.toLowerCase();
   const looksBad = badSignals.some((x) => lower.includes(x));
-
   if (!looksBad) return t;
 
-  // Strip obvious meta lines
-  const lines = t.split("\n").map((l) => l.trimEnd());
+  const lines = t
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
   const cleaned = lines
     .filter((l) => {
-      const ll = l.toLowerCase().trim();
-      if (!ll) return true;
+      const ll = l.toLowerCase();
       if (ll.startsWith("option a")) return false;
       if (ll.startsWith("option b")) return false;
-      if (ll.includes("post reply")) return false;
-      if (ll.includes("save") && ll.includes("later")) return false;
-      if (ll.includes("great news")) return false;
       if (ll.includes("drafted successfully")) return false;
-      if (ll.includes("sent smoothly")) return false;
-      if (ll.includes("have a great day")) return false;
+      if (ll.includes("great news")) return false;
+      if (ll.includes("save") && ll.includes("later")) return false;
+      if (ll.includes("post") && ll.includes("now")) return false;
       return true;
     })
     .join("\n")
     .trim();
 
-  // Re-check after cleaning
   const cleanedLower = cleaned.toLowerCase();
   const stillBad = badSignals.some((x) => cleanedLower.includes(x));
-
   return stillBad ? "" : cleaned;
-}
-
-/**
- * Local fallback drafter (enterprise-safe).
- * Used when AI endpoint is unavailable or returns junk.
- */
-function draftReplyLocal({
-  platform,
-  authorName,
-  text,
-  postText,
-}: {
-  platform: InboxPlatform;
-  authorName?: string | null;
-  text: string;
-  postText?: string | null;
-}) {
-  const name = (authorName || "").trim();
-  const greeting = name ? `Hi ${name} — ` : "Thanks for this — ";
-
-  const t = (text || "").trim();
-  const tl = t.toLowerCase();
-
-  const isPraise =
-    tl.includes("love") ||
-    tl.includes("great") ||
-    tl.includes("amazing") ||
-    tl.includes("thank") ||
-    tl.includes("helpful") ||
-    tl.includes("brilliant");
-
-  const isQuestion =
-    tl.includes("?") ||
-    tl.startsWith("how") ||
-    tl.startsWith("what") ||
-    tl.startsWith("why");
-
-  const isConcern =
-    tl.includes("struggle") ||
-    tl.includes("anxious") ||
-    tl.includes("anxiety") ||
-    tl.includes("panic") ||
-    tl.includes("depress") ||
-    tl.includes("ptsd") ||
-    tl.includes("stress") ||
-    tl.includes("overwhelm") ||
-    tl.includes("burnout");
-
-  const isNegative =
-    tl.includes("hate") ||
-    tl.includes("bad") ||
-    tl.includes("terrible") ||
-    tl.includes("worst") ||
-    tl.includes("scam") ||
-    tl.includes("fake") ||
-    tl.includes("useless");
-
-  const platformLine =
-    platform === "linkedin"
-      ? "If you’d like, I can share a quick example you can try this week."
-      : platform === "instagram" || platform === "threads"
-      ? "If you want, drop a “yes” and I’ll send a simple next step."
-      : "If you want, tell me a bit more and I’ll point you to a simple next step.";
-
-  const contextHint =
-    postText && postText.trim()
-      ? `\n\n(For context: this was in reply to your post about “${postText
-          .trim()
-          .slice(0, 120)}${postText.trim().length > 120 ? "…" : ""}”)`
-      : "";
-
-  if (isConcern) {
-    return (
-      `${greeting}I really appreciate you sharing that.\n\n` +
-      `A gentle first step is to pick one small thing you can do today — something you can repeat without pressure.\n\n` +
-      `If you tell me what’s feeling hardest right now (work, sleep, stress, motivation), I’ll suggest one tiny next step.\n\n` +
-      `${platformLine}\n\n` +
-      `If this feels urgent or you’re not safe, please reach out to local support services right away.` +
-      contextHint
-    );
-  }
-
-  if (isNegative) {
-    return (
-      `${greeting}I hear you.\n\n` +
-      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work for you and I’ll try to make it clearer.\n\n` +
-      `No pressure either way.` +
-      contextHint
-    );
-  }
-
-  if (isPraise) {
-    return (
-      `${greeting}that means a lot — thank you.\n\n` +
-      `What part resonated most for you? I’m shaping the next posts around what people find genuinely useful.\n\n` +
-      `${platformLine}` +
-      contextHint
-    );
-  }
-
-  if (isQuestion) {
-    return (
-      `${greeting}good question.\n\n` +
-      `A simple way to start is: choose one small outcome (e.g., “feel calmer in 2 minutes”), then pick one repeatable action you can do daily.\n\n` +
-      `If you tell me your situation (work / study / home), I’ll tailor a short practical version.` +
-      contextHint
-    );
-  }
-
-  return (
-    `${greeting}thanks for taking the time to comment.\n\n` +
-    `If you tell me what you’re aiming for right now (more energy, less stress, better routine), I’ll suggest one small next step you can try.` +
-    contextHint
-  );
 }
 
 function newSeedItem(): InboxItem {
@@ -314,6 +242,9 @@ export default function ResponsesPage() {
 
   const [seedCount, setSeedCount] = useState(0);
 
+  // Used to stop “jump to top” on select
+  const lastScrollYRef = useRef<number>(0);
+
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
     const data: any = await res.json().catch(() => null);
@@ -339,12 +270,12 @@ export default function ResponsesPage() {
 
       const res = await fetch(
         `/api/responses/list?organisationId=${encodeURIComponent(org)}`,
-        { method: "GET", cache: "no-store" }
+        { method: "GET" }
       );
       const data: ApiResponse = await res.json().catch(() => ({ success: false }));
 
       if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || `Failed to load inbox (HTTP ${res.status}).`);
+        throw new Error(data?.details || data?.error || `Failed to load inbox (HTTP ${res.status}).`);
       }
 
       setItems(Array.isArray(data?.items) ? data.items : []);
@@ -425,31 +356,6 @@ export default function ResponsesPage() {
     setCopied(false);
   }, [selectedId]);
 
-  async function updateItemStatus(id: string, status: InboxStatus) {
-    if (!organisationId) return;
-
-    // optimistic UI
-    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status } : x)));
-
-    try {
-      const res = await fetch("/api/responses/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organisationId, id, status }),
-      });
-      const data: any = await res.json().catch(() => null);
-      if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || "Failed to update inbox item");
-      }
-    } catch (e: any) {
-      // revert if it fails
-      setItems((prev) =>
-        prev.map((x) => (x.id === id ? { ...x, status: "needs_reply" } : x))
-      );
-      setError(e?.message || "Failed to update inbox item");
-    }
-  }
-
   const Pill = ({
     children,
     tone = "neutral",
@@ -493,15 +399,52 @@ export default function ResponsesPage() {
     </div>
   );
 
+  async function updateItemStatus(id: string, status: InboxStatus) {
+    // ✅ Seed items are demo-only; don’t hit the API
+    if (id.startsWith("seed_")) {
+      setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status } : x)));
+      return;
+    }
+
+    // ✅ Optimistic update
+    const before = items;
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status } : x)));
+
+    try {
+      const org = organisationId || (await resolveOrg());
+
+      const res = await fetch("/api/responses/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organisationId: org, id, status }),
+      });
+
+      const data: any = await res.json().catch(() => null);
+
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.details || data?.error || "Failed to update inbox item");
+      }
+    } catch (e: any) {
+      // revert
+      setItems(before);
+      throw e;
+    }
+  }
+
   const Row = ({ it }: { it: InboxItem }) => {
     const isSelected = it.id === selectedId;
 
     return (
       <button
         type="button"
-        // ✅ stop “jump to top” behaviour
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setSelectedId(it.id)}
+        onClick={() => {
+          // stop jump-to-top
+          lastScrollYRef.current = window.scrollY || 0;
+          setSelectedId(it.id);
+          requestAnimationFrame(() => {
+            window.scrollTo({ top: lastScrollYRef.current, left: 0, behavior: "auto" });
+          });
+        }}
         className={[
           "w-full text-left rounded-2xl border p-4 transition",
           isSelected
@@ -545,6 +488,7 @@ export default function ResponsesPage() {
               ·{" "}
               <span className="text-slate-300">
                 {it.authorName || it.authorHandle}
+                {it.authorHandle && it.authorName ? ` (${it.authorHandle})` : ""}
               </span>
             </>
           ) : null}
@@ -567,7 +511,6 @@ export default function ResponsesPage() {
       platform: selected.platform,
       authorName: selected.authorName,
       text: selected.text,
-      postText: selected.postText,
     });
 
     try {
@@ -577,8 +520,7 @@ export default function ResponsesPage() {
         body: JSON.stringify({
           context: "responses_reply_draft",
           userAction:
-            "Draft a short, friendly, enterprise-safe PUBLIC reply to the comment/message. No Option A/B. No meta text. Just the reply content.",
-          outcome: "success",
+            "Draft a short, friendly, enterprise-safe reply to this social comment/message.",
           platform: selected.platform,
           item: {
             kind: selected.kind || "comment",
@@ -590,29 +532,22 @@ export default function ResponsesPage() {
             permalink: selected.permalink || null,
           },
           rules: [
-            "Return ONLY the reply text. No headings. No options. No status updates.",
             "Be warm, concise, and respectful.",
             "No medical claims or diagnosis. No promises or guarantees.",
-            "If distress/urgency is present, suggest seeking local support services.",
-            "Ask one simple clarifying question when appropriate.",
+            "If distress/urgency is expressed, suggest seeking local support services.",
+            "Ask one clarifying question when helpful.",
+            "Suitable for a public reply (no private/sensitive details).",
           ],
         }),
       });
 
       const data: any = await res.json().catch(() => null);
-
-      // Try the common keys we’ve seen in your project
-      const raw =
-        (typeof data?.coachMessage === "string" && data.coachMessage) ||
-        (typeof data?.message === "string" && data.message) ||
-        (typeof data?.text === "string" && data.text) ||
-        "";
-
+      const raw = typeof data?.coachMessage === "string" ? data.coachMessage : "";
       const cleaned = sanitizeAiReply(raw);
 
       if (!res.ok || !cleaned) {
         setReplyDraft(fallback);
-        setAiStatus("AI draft not usable — using safe fallback. (Edit it.)");
+        setAiStatus("AI draft unavailable — using safe fallback. (Edit it.)");
         setTimeout(() => setAiStatus(null), 5000);
         return;
       }
@@ -629,17 +564,41 @@ export default function ResponsesPage() {
 
   const copyDraft = async () => {
     try {
-      if (!replyDraft.trim()) return;
+      if (!replyDraft.trim() || !selected) return;
+
       await navigator.clipboard.writeText(replyDraft);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
 
-      // ✅ mark item replied on copy
-      if (selected && organisationId) {
+      // ✅ Mark replied when they copy
+      try {
         await updateItemStatus(selected.id, "replied");
+        setError(null);
+      } catch (e: any) {
+        setError(e?.message || "Failed to update inbox item");
       }
     } catch {
       setCopied(false);
+    }
+  };
+
+  const markNeedsReply = async () => {
+    if (!selected) return;
+    try {
+      await updateItemStatus(selected.id, "needs_reply");
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message || "Failed to update inbox item");
+    }
+  };
+
+  const markReplied = async () => {
+    if (!selected) return;
+    try {
+      await updateItemStatus(selected.id, "replied");
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message || "Failed to update inbox item");
     }
   };
 
@@ -649,9 +608,7 @@ export default function ResponsesPage() {
     setSelectedId(seed.id);
     setSeedCount((n) => n + 1);
     setError(null);
-    setNote(
-      "Seed mode: These are demo items (not real platform comments). Use this to demo the inbox and the reply workflow."
-    );
+    setNote("Seed mode: Demo items only (not real comments). Great for testing.");
   };
 
   const seedFive = () => {
@@ -669,11 +626,9 @@ export default function ResponsesPage() {
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-              Responses
-            </h1>
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Responses</h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Your inbox for comments and messages — separate from Scheduled so staff don’t confuse “planning posts” with “responding”.
+              Inbox for comments/messages — separate from Scheduled so staff don’t confuse planning with responding.
             </p>
           </div>
 
@@ -694,13 +649,11 @@ export default function ResponsesPage() {
           </div>
         </div>
 
-        <GlassCard className="p-6">
+        <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search & filters</div>
-              <div className="mt-1 text-xs text-slate-300">
-                Find what needs action fast. (Enterprise-safe.)
-              </div>
+              <div className="mt-1 text-xs text-slate-300">Find what needs action fast.</div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
@@ -756,9 +709,7 @@ export default function ResponsesPage() {
               Seed 5
             </button>
 
-            {seedCount > 0 && (
-              <span className="text-[11px] text-slate-400">Seeded: {seedCount}</span>
-            )}
+            {seedCount > 0 && <span className="text-[11px] text-slate-400">Seeded: {seedCount}</span>}
           </div>
 
           {note && (
@@ -784,7 +735,7 @@ export default function ResponsesPage() {
           ) : (
             <div className="mt-4 text-[11px] text-slate-400">Loading workspace…</div>
           )}
-        </GlassCard>
+        </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-3">
@@ -798,12 +749,10 @@ export default function ResponsesPage() {
           </div>
 
           <div className="space-y-6">
-            <GlassCard className="p-6">
+            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
               <div>
                 <div className="text-base font-semibold">Reply assistant</div>
-                <div className="mt-1 text-xs text-slate-300">
-                  Generate a draft, edit it, then copy/paste to reply on the platform.
-                </div>
+                <div className="mt-1 text-xs text-slate-300">Generate → edit → copy/paste.</div>
               </div>
 
               {!selected ? (
@@ -822,24 +771,14 @@ export default function ResponsesPage() {
                             "shadow-[0_0_0_4px_rgba(255,255,255,0.06)]",
                           ].join(" ")}
                         />
-                        <div className="text-sm font-semibold">
-                          {PLATFORM_LABEL[selected.platform] || "Unknown"}
-                        </div>
+                        <div className="text-sm font-semibold">{PLATFORM_LABEL[selected.platform] || "Unknown"}</div>
                       </div>
                       <Pill tone={statusTone(selected.status)}>{selected.status}</Pill>
                     </div>
 
                     <div className="mt-2 text-[11px] text-slate-400">
                       {safeDate(selected.createdAt)}
-                      {selected.authorName || selected.authorHandle ? (
-                        <>
-                          {" "}
-                          ·{" "}
-                          <span className="text-slate-300">
-                            {selected.authorName || selected.authorHandle}
-                          </span>
-                        </>
-                      ) : null}
+                      {selected.authorName ? <> · <span className="text-slate-300">{selected.authorName}</span></> : null}
                     </div>
 
                     <div className="mt-3 text-sm whitespace-pre-wrap">{selected.text}</div>
@@ -873,25 +812,24 @@ export default function ResponsesPage() {
                       disabled={!replyDraft.trim()}
                       className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
-                      {copied ? "Copied" : "Copy"}
+                      {copied ? "Copied" : "Copy + mark replied"}
                     </button>
                   </div>
 
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => selected && updateItemStatus(selected.id, "replied")}
+                      onClick={markReplied}
                       className="flex-1 rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 transition"
                     >
                       Mark replied
                     </button>
-
                     <button
                       type="button"
-                      onClick={() => selected && updateItemStatus(selected.id, "archived")}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
+                      onClick={markNeedsReply}
+                      className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
                     >
-                      Archive
+                      Mark needs reply
                     </button>
                   </div>
 
@@ -909,16 +847,16 @@ export default function ResponsesPage() {
                   />
                 </div>
               )}
-            </GlassCard>
+            </div>
 
-            <GlassCard className="p-6">
+            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • AI drafts are editable by staff before posting.\n
-                • If AI is unavailable or returns junk, we fall back to a safe template draft.\n
-                • Next step: permissions + audit trail (who replied, when).
+                • Seed mode is for demo/testing.\n
+                • Replies are always editable before posting.\n
+                • Status updates are persisted to Supabase when available.
               </div>
-            </GlassCard>
+            </div>
           </div>
         </div>
       </div>
