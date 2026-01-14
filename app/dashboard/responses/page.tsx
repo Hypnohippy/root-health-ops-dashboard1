@@ -1,3 +1,4 @@
+// app/dashboard/responses/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -25,6 +26,7 @@ type InboxItem = {
   text: string;
 
   permalink?: string | null;
+
   createdAt: string;
 
   postText?: string | null;
@@ -36,18 +38,8 @@ type ApiResponse = {
   items?: InboxItem[];
   note?: string;
   error?: string;
-  details?: string;
   configured?: boolean;
 };
-
-type SavedDraft = {
-  id: string; // draft id
-  itemId: string;
-  createdAt: string;
-  text: string;
-};
-
-const STORAGE_KEY = "root_ops_responses_saved_drafts_v1";
 
 const PLATFORM_LABEL: Record<InboxPlatform, string> = {
   facebook: "Facebook",
@@ -89,31 +81,63 @@ function clampText(s: string, max = 900) {
   return t.slice(0, max) + "…";
 }
 
-/** Local fallback drafter (safe + relevant enough) */
+/**
+ * Local fallback drafter (enterprise-safe).
+ * This is what we use whenever the AI drifts into “posting UI” language.
+ */
 function draftReplyLocal({
   platform,
   authorName,
   text,
+  postText,
 }: {
   platform: InboxPlatform;
   authorName?: string | null;
   text: string;
+  postText?: string | null;
 }) {
   const name = (authorName || "").trim();
   const greeting = name ? `Hi ${name} — ` : "Thanks for this — ";
 
-  const tl = (text || "").toLowerCase();
+  const t = (text || "").trim();
+  const tl = t.toLowerCase();
+
+  const isPraise =
+    tl.includes("love") ||
+    tl.includes("great") ||
+    tl.includes("amazing") ||
+    tl.includes("thank") ||
+    tl.includes("helpful") ||
+    tl.includes("brilliant");
+
+  const isQuestion =
+    tl.includes("?") ||
+    tl.startsWith("how") ||
+    tl.startsWith("what") ||
+    tl.startsWith("why") ||
+    tl.startsWith("any ") ||
+    tl.startsWith("can ");
 
   const isConcern =
-    tl.includes("overwhelm") ||
-    tl.includes("burnout") ||
+    tl.includes("struggle") ||
     tl.includes("anxious") ||
     tl.includes("anxiety") ||
     tl.includes("panic") ||
+    tl.includes("depress") ||
+    tl.includes("ptsd") ||
     tl.includes("stress") ||
-    tl.includes("struggle");
+    tl.includes("overwhelm") ||
+    tl.includes("burnout") ||
+    tl.includes("overwhelmed");
 
-  const isQuestion = tl.includes("?") || tl.startsWith("how") || tl.startsWith("what");
+  const isNegative =
+    tl.includes("hate") ||
+    tl.includes("bad") ||
+    tl.includes("terrible") ||
+    tl.includes("worst") ||
+    tl.includes("scam") ||
+    tl.includes("fake") ||
+    tl.includes("useless");
 
   const platformLine =
     platform === "linkedin"
@@ -122,127 +146,169 @@ function draftReplyLocal({
       ? "If you want, reply “yes” and I’ll share a simple next step."
       : "If you want, tell me a bit more and I’ll point you to a simple next step.";
 
+  const contextHint =
+    postText && postText.trim()
+      ? `\n\n(For context: this was in reply to your post about “${postText
+          .trim()
+          .slice(0, 120)}${postText.trim().length > 120 ? "…" : ""}”)`
+      : "";
+
   if (isConcern) {
     return (
-      `${greeting}thanks for sharing that — it sounds like a lot.\n\n` +
-      `A small first step: pick one “2-minute reset” you can do today (slow breathing, short walk, water + a pause).\n\n` +
+      `${greeting}I really appreciate you sharing that.\n\n` +
+      `A gentle first step is to pick one small thing you can do today — something you can repeat without pressure.\n\n` +
+      `For example: 60 seconds of slow breathing, a short walk, or writing down the next one thing you can control.\n\n` +
       `${platformLine}\n\n` +
-      `If this feels urgent or you’re not safe, please reach out to local support services right away.`
+      `If this feels urgent or you’re not safe, please reach out to local support services right away.` +
+      contextHint
+    );
+  }
+
+  if (isNegative) {
+    return (
+      `${greeting}I hear you.\n\n` +
+      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work for you and I’ll try to make it clearer or point you to something more useful.\n\n` +
+      `No pressure either way.` +
+      contextHint
+    );
+  }
+
+  if (isPraise) {
+    return (
+      `${greeting}that means a lot — thank you.\n\n` +
+      `What part resonated most for you? I’m shaping the next posts around what people find genuinely useful.\n\n` +
+      `${platformLine}` +
+      contextHint
     );
   }
 
   if (isQuestion) {
     return (
       `${greeting}good question.\n\n` +
-      `A simple start is: choose one outcome (e.g. calmer / more energy), then one repeatable action you can do daily.\n\n` +
-      `What’s the main thing you want to improve right now?`
+      `A simple way to start is: choose one clear outcome (e.g., “feel calmer in 2 minutes”), then pick one repeatable action you can do daily.\n\n` +
+      `If you tell me your situation (work / study / home), I’ll tailor a short, practical version.` +
+      contextHint
     );
   }
 
   return (
-    `${greeting}thanks for the comment.\n\n` +
-    `What are you hoping to get out of this most right now (calmer, energy, routine, confidence)?`
+    `${greeting}thanks for taking the time to comment.\n\n` +
+    `If you tell me what you’re aiming for right now (more energy, less stress, better routine), I’ll suggest one small next step you can try.` +
+    contextHint
   );
 }
 
-/** Kill “Option A/B”, “channels”, “draft ready” etc. */
+/**
+ * Strip “Option A/B”, “post didn’t go through”, “save for later”, etc.
+ * If it still looks like UI/ops language after cleaning, return "" to force fallback.
+ */
 function sanitizeAiReply(raw: string) {
   const t = (raw || "").trim();
   if (!t) return "";
 
   const badSignals = [
-    // Existing / common meta junk
     "option a",
     "option b",
-    "post the reply",
-    "post reply",
-    "save the reply",
-    "save reply",
-    "save for later",
-    "great news",
+    "post reply now",
+    "post the reply now",
+    "save reply for later",
+    "save it for later",
+    "great news!",
     "drafted successfully",
     "sent smoothly",
-    "reply draft is ready",
-    "choose where to send",
-    "choose which channels",
-    "no channels have posted",
-    "channels",
-    "publish",
-    "schedule",
-
-    // ✅ New “didn’t go through” meta patterns
     "didn’t go through",
     "didn't go through",
-    "let’s try sending it again",
-    "let's try sending it again",
-    "try sending it again",
-    "try again",
-    "sending it again",
-    "didn't send",
-    "did not send",
-    "failed to send",
-    "didn’t send",
-    "reply didn't go through",
-    "reply didn’t go through",
+    "didn’t post",
+    "didn't post",
+    "choose where to send",
+    "no channels have posted",
+    "looks like your reply",
+    "you can either post it now",
   ];
 
-  const lowerAll = t.toLowerCase();
-  const looksBad = badSignals.some((x) => lowerAll.includes(x));
+  const lower = t.toLowerCase();
+  const looksBad = badSignals.some((x) => lower.includes(x));
   if (!looksBad) return t;
 
-  // Strip lines that look like workflow/status text
   const lines = t
     .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const cleaned = lines
+    .map((l) => l.trimEnd())
     .filter((l) => {
-      const ll = l.toLowerCase();
+      const ll = l.toLowerCase().trim();
+      if (!ll) return true;
       if (ll.startsWith("option a")) return false;
       if (ll.startsWith("option b")) return false;
-      if (badSignals.some((x) => ll.includes(x))) return false;
+      if (ll.includes("post") && ll.includes("reply")) return false;
+      if (ll.includes("save") && ll.includes("later")) return false;
+      if (ll.includes("great news")) return false;
+      if (ll.includes("drafted successfully")) return false;
+      if (ll.includes("sent smoothly")) return false;
+      if (ll.includes("didn't") && ll.includes("post")) return false;
+      if (ll.includes("didn’t") && ll.includes("post")) return false;
+      if (ll.includes("no channels")) return false;
+      if (ll.includes("choose where")) return false;
+      if (ll.includes("looks like your reply")) return false;
       return true;
     })
     .join("\n")
     .trim();
 
-  // If the cleaned result is still meta-ish or too thin, reject it -> fallback will be used
-  const out = cleaned || "";
-  const outLower = out.toLowerCase();
-  if (!out) return "";
-  if (out.length < 20) return ""; // prevent one-liner meta junk
-  if (badSignals.some((x) => outLower.includes(x))) return "";
-  return out;
+  if (!lines) return "";
+
+  const cleanedLower = lines.toLowerCase();
+  const stillBad = badSignals.some((x) => cleanedLower.includes(x));
+  return stillBad ? "" : lines;
 }
-function sanitizeAiReply(raw: string) {
-  const t = (raw || "").trim();
-  if (!t) return "";
 
-  const badSignals = [
-    "looks like your reply",
-    "didn’t post",
-    "didn't post",
-    "didn’t go through",
-    "try sending it again",
-    "save it for later",
-    "option a",
-    "option b",
-    "channels",
-    "post now",
-    "send it",
-    "sent smoothly",
-    "drafted successfully",
+/** If AI response is super generic, prefer the local fallback */
+function isTooGeneric(ai: string, original: string) {
+  const a = (ai || "").trim().toLowerCase();
+  const o = (original || "").trim().toLowerCase();
+  if (!a) return true;
+
+  // Classic generic template signals
+  const genericSignals = [
+    "thanks so much for your comment",
+    "we really appreciate your support",
+    "have a great day",
+    "here if you have any questions",
   ];
+  const looksGeneric = genericSignals.some((x) => a.includes(x));
 
-  const lower = t.toLowerCase();
-  const looksBad = badSignals.some((s) => lower.includes(s));
-  if (looksBad) return "";
+  // If the original is clearly asking something (or distressed) and AI ignores it, treat as generic.
+  const originalHasConcern =
+    o.includes("overwhelm") ||
+    o.includes("overwhelmed") ||
+    o.includes("anx") ||
+    o.includes("panic") ||
+    o.includes("stress") ||
+    o.includes("burnout") ||
+    o.includes("ptsd") ||
+    o.includes("depress");
 
-  // Also reject super-generic “customer service” filler if you want:
-  if (t.length < 25) return "";
+  const originalHasQuestion =
+    o.includes("?") ||
+    o.startsWith("how") ||
+    o.startsWith("what") ||
+    o.startsWith("why") ||
+    o.includes("any small") ||
+    o.includes("first step");
 
-  return t;
+  const aiMentionsConcern =
+    a.includes("overwhelm") ||
+    a.includes("stress") ||
+    a.includes("anx") ||
+    a.includes("panic") ||
+    a.includes("small step") ||
+    a.includes("first step") ||
+    a.includes("try");
+
+  if (looksGeneric && (originalHasConcern || originalHasQuestion) && !aiMentionsConcern) return true;
+
+  // Very short + generic is suspicious
+  if (looksGeneric && a.length < 180) return true;
+
+  return false;
 }
 
 function newSeedItem(): InboxItem {
@@ -280,24 +346,6 @@ function newSeedItem(): InboxItem {
   };
 }
 
-function loadDrafts(): SavedDraft[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveDrafts(all: SavedDraft[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
-  } catch {
-    // ignore
-  }
-}
-
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -307,30 +355,27 @@ export default function ResponsesPage() {
   const [configured, setConfigured] = useState<boolean>(false);
 
   const [items, setItems] = useState<InboxItem[]>([]);
+
+  // Resolve org via /api/social-accounts (single-tenant safe)
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
+  // UX controls
   const [query, setQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">("all");
   const [statusFilter, setStatusFilter] = useState<InboxStatus | "all">("all");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Reply drafting (editable)
   const [replyDraft, setReplyDraft] = useState("");
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Seed mode
   const [seedCount, setSeedCount] = useState(0);
 
-  // Saved drafts (localStorage)
-  const [savedDrafts, setSavedDrafts] = useState<SavedDraft[]>([]);
-  const [showSaved, setShowSaved] = useState(false);
-
-  const lastScrollYRef = useRef<number>(0);
-
-  useEffect(() => {
-    // localStorage only on client
-    setSavedDrafts(loadDrafts());
-  }, []);
+  // Prevent “jump to top” when selecting rows
+  const listScrollYRef = useRef<number>(0);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -355,19 +400,20 @@ export default function ResponsesPage() {
     try {
       const org = organisationId || (await resolveOrg());
 
-      const res = await fetch(
-        `/api/responses/list?organisationId=${encodeURIComponent(org)}`,
-        { method: "GET" }
-      );
+      const res = await fetch(`/api/responses/list?organisationId=${encodeURIComponent(org)}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
       const data: ApiResponse = await res.json().catch(() => ({ success: false }));
 
       if (!res.ok || data?.success === false) {
-        throw new Error(
-          data?.details || data?.error || `Failed to load inbox (HTTP ${res.status}).`
-        );
+        throw new Error(data?.error || `Failed to load inbox (HTTP ${res.status}).`);
       }
 
-      setItems(Array.isArray(data?.items) ? data.items : []);
+      const next = Array.isArray(data?.items) ? data.items : [];
+      setItems(next);
+
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
     } catch (e: any) {
@@ -400,6 +446,7 @@ export default function ResponsesPage() {
     return items.filter((it) => {
       if (platformFilter !== "all" && it.platform !== platformFilter) return false;
       if (statusFilter !== "all" && it.status !== statusFilter) return false;
+
       if (!q) return true;
 
       const hay = [
@@ -419,7 +466,12 @@ export default function ResponsesPage() {
   }, [items, query, platformFilter, statusFilter]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { total: items.length, unread: 0, needs_reply: 0, replied: 0 };
+    const c: Record<string, number> = {
+      total: items.length,
+      unread: 0,
+      needs_reply: 0,
+      replied: 0,
+    };
     for (const it of items) {
       if (it.status === "unread") c.unread++;
       if (it.status === "needs_reply") c.needs_reply++;
@@ -432,18 +484,19 @@ export default function ResponsesPage() {
     return filtered.find((x) => x.id === selectedId) || null;
   }, [filtered, selectedId]);
 
-  const draftsForSelected = useMemo(() => {
-    if (!selected) return [];
-    return savedDrafts
-      .filter((d) => d.itemId === selected.id)
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-  }, [savedDrafts, selected]);
-
+  // Reset the editor when selecting a new item
   useEffect(() => {
     setReplyDraft("");
     setAiStatus(null);
     setCopied(false);
-    setShowSaved(false);
+  }, [selectedId]);
+
+  // Keep scroll position stable when selecting an item
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (listScrollYRef.current > 0) {
+      window.scrollTo({ top: listScrollYRef.current });
+    }
   }, [selectedId]);
 
   const Pill = ({
@@ -472,165 +525,39 @@ export default function ResponsesPage() {
     );
   };
 
-  async function runAiSuggest() {
-    if (!selected) return;
+  const GlassCard = ({
+    children,
+    className = "",
+  }: {
+    children: React.ReactNode;
+    className?: string;
+  }) => (
+    <div
+      className={[
+        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </div>
+  );
 
-    setAiStatus("Drafting reply…");
-    setCopied(false);
-
-    const fallback = draftReplyLocal({
-      platform: selected.platform,
-      authorName: selected.authorName,
-      text: selected.text,
-    });
-
-    try {
-      const res = await fetch("/api/ai/root-coach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          context: "responses_reply_draft_v3",
-          userAction:
-            "Draft a PUBLIC reply to this social comment/message. Output ONLY the reply text.",
-          platform: selected.platform,
-          item: {
-            kind: selected.kind || "comment",
-            text: clampText(selected.text, 900),
-            authorName: selected.authorName || null,
-            authorHandle: selected.authorHandle || null,
-            createdAt: selected.createdAt,
-            postText: selected.postText ? clampText(selected.postText, 300) : null,
-            permalink: selected.permalink || null,
-          },
-          rules: [
-            "OUTPUT ONLY THE REPLY TEXT.",
-            "No options (no Option A/B). No workflow status. No channels. No scheduling.",
-            "Warm, concise, relevant to their message.",
-            "No medical diagnosis/claims. No guarantees.",
-            "If urgent distress: suggest local support services.",
-            "Optional: one short clarifying question.",
-          ],
-        }),
-      });
-
-      const data: any = await res.json().catch(() => null);
-      const raw = typeof data?.coachMessage === "string" ? data.coachMessage : "";
-      const cleaned = sanitizeAiReply(msg);
-
-if (!res.ok || !cleaned) {
-  setReplyDraft(fallback);
-  setAiStatus("AI draft was off-topic — using safe fallback. (Edit as needed.)");
-  setTimeout(() => setAiStatus(null), 5000);
-  return;
-}
-
-setReplyDraft(cleaned);
-setAiStatus("Draft ready — edit it, then copy/paste.");
-
-      const cleaned = sanitizeAiReply(raw);
-
-      if (!res.ok || !cleaned) {
-        setReplyDraft(fallback);
-        setAiStatus("AI output was junk/generic — using safe fallback. (Edit it.)");
-        setTimeout(() => setAiStatus(null), 5500);
-        return;
-      }
-
-      setReplyDraft(cleaned);
-      setAiStatus("Draft ready — edit it, save it, or copy/paste.");
-      setTimeout(() => setAiStatus(null), 4500);
-    } catch {
-      setReplyDraft(fallback);
-      setAiStatus("AI failed — using safe fallback. (Edit it.)");
-      setTimeout(() => setAiStatus(null), 5000);
+  const onSelectRow = (it: InboxItem) => {
+    if (typeof window !== "undefined") {
+      listScrollYRef.current = window.scrollY || 0;
     }
-  }
-
-  const copyDraft = async () => {
-    try {
-      if (!replyDraft.trim()) return;
-      await navigator.clipboard.writeText(replyDraft);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    } catch {
-      setCopied(false);
-    }
-  };
-
-  const clearDraft = () => {
-    setReplyDraft("");
-    setAiStatus(null);
-    setCopied(false);
-  };
-
-  const saveCurrentDraft = () => {
-    if (!selected) return;
-    const text = replyDraft.trim();
-    if (!text) return;
-
-    const d: SavedDraft = {
-      id: `draft_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-      itemId: selected.id,
-      createdAt: new Date().toISOString(),
-      text,
-    };
-
-    const next = [d, ...savedDrafts];
-    setSavedDrafts(next);
-    saveDrafts(next);
-
-    setAiStatus("Draft saved.");
-    setTimeout(() => setAiStatus(null), 2500);
-  };
-
-  const deleteSavedDraft = (draftId: string) => {
-    const next = savedDrafts.filter((d) => d.id !== draftId);
-    setSavedDrafts(next);
-    saveDrafts(next);
-  };
-
-  const loadSavedDraft = (draftText: string) => {
-    setReplyDraft(draftText);
-    setAiStatus("Loaded saved draft — edit if needed.");
-    setTimeout(() => setAiStatus(null), 2500);
-  };
-
-  const seedMany = (n: number) => {
-    // Make seeds ALWAYS visible
-    setQuery("");
-    setPlatformFilter("all");
-    setStatusFilter("all");
-    setShowSaved(false);
-
-    const seeds: InboxItem[] = [];
-    for (let i = 0; i < n; i++) seeds.push(newSeedItem());
-
-    // Insert at top in one state update
-    setItems((prev) => [...seeds, ...prev]);
-    setSeedCount((c) => c + n);
-    setNote("Seed mode: Demo items only (not real comments). Great for testing.");
-    setError(null);
-
-    // Scroll to top so you can SEE them
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
-    });
-
-    // Select the newest one so the right panel populates
-    setSelectedId(seeds[0]?.id ?? null);
+    setSelectedId(it.id);
   };
 
   const Row = ({ it }: { it: InboxItem }) => {
     const isSelected = it.id === selectedId;
+
     return (
       <button
         type="button"
-        onClick={() => {
-          lastScrollYRef.current = window.scrollY || 0;
-          setSelectedId(it.id);
-          requestAnimationFrame(() => {
-            window.scrollTo({ top: lastScrollYRef.current, left: 0, behavior: "auto" });
-          });
+        onClick={(e) => {
+          e.preventDefault();
+          onSelectRow(it);
         }}
         className={[
           "w-full text-left rounded-2xl border p-4 transition",
@@ -656,15 +583,27 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
             </div>
           </div>
 
-          <Pill tone={statusTone(it.status)}>{it.status}</Pill>
+          <Pill tone={statusTone(it.status)}>
+            {it.status === "needs_reply"
+              ? "needs reply"
+              : it.status === "unread"
+              ? "unread"
+              : it.status === "replied"
+              ? "replied"
+              : it.status}
+          </Pill>
         </div>
 
         <div className="mt-2 text-xs text-slate-400">
           {safeDate(it.createdAt)}
-          {it.authorName ? (
+          {it.authorName || it.authorHandle ? (
             <>
               {" "}
-              · <span className="text-slate-300">{it.authorName}</span>
+              ·{" "}
+              <span className="text-slate-300">
+                {it.authorName || it.authorHandle}
+                {it.authorHandle && it.authorName ? ` (${it.authorHandle})` : ""}
+              </span>
             </>
           ) : null}
         </div>
@@ -674,6 +613,157 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
         </div>
       </button>
     );
+  };
+
+  /**
+   * Try to persist a status update.
+   * IMPORTANT: If the API route does not exist yet, we silently keep the UI state (no top-bar errors, no status flicker).
+   */
+  const tryPersistStatus = async (id: string, status: InboxStatus) => {
+    if (!organisationId) return;
+
+    try {
+      const res = await fetch("/api/responses/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId,
+          id,
+          status,
+        }),
+      });
+
+      // If route isn't implemented, it will often be 404 — do NOT punish the user.
+      if (!res.ok) return;
+    } catch {
+      // ignore — keep local UI stable
+    }
+  };
+
+  const markRepliedLocal = async (id: string) => {
+    // Optimistic UI update
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status: "replied" } : x)));
+    await tryPersistStatus(id, "replied");
+  };
+
+  const markNeedsReplyLocal = async (id: string) => {
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status: "needs_reply" } : x)));
+    await tryPersistStatus(id, "needs_reply");
+  };
+
+  async function runAiSuggest() {
+    if (!selected) return;
+
+    setAiStatus("Drafting reply…");
+    setCopied(false);
+
+    const fallback = draftReplyLocal({
+      platform: selected.platform,
+      authorName: selected.authorName,
+      text: selected.text,
+      postText: selected.postText,
+    });
+
+    // Always be able to “clear” bad outputs by overwriting the textarea
+    try {
+      const res = await fetch("/api/ai/root-coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // VERY IMPORTANT: Make it obvious this is a PUBLIC COMMENT REPLY, not a workflow status update.
+          context: "responses_public_reply_draft_v1",
+          userAction:
+            "Write ONLY the reply text that I can paste as a public reply to this comment/message. Do NOT mention posting, saving, drafts, channels, Option A/B, or any UI/workflow steps.",
+          outcome: "success",
+          platform: selected.platform,
+          item: {
+            kind: selected.kind || "comment",
+            text: clampText(selected.text, 900),
+            authorName: selected.authorName || null,
+            authorHandle: selected.authorHandle || null,
+            createdAt: selected.createdAt,
+            postText: selected.postText ? clampText(selected.postText, 300) : null,
+            permalink: selected.permalink || null,
+          },
+          rules: [
+            "Output ONLY the reply text (no headings, no lists of options, no meta commentary).",
+            "Be warm, concise, and respectful.",
+            "No medical claims or diagnosis. No promises or guarantees.",
+            "If the person expresses distress or urgency, encourage seeking local support services.",
+            "Ask at most ONE simple clarifying question if helpful.",
+            "Keep it suitable for a public reply (avoid private/sensitive details).",
+          ],
+        }),
+      });
+
+      const data: any = await res.json().catch(() => null);
+
+      // Your endpoint might return different keys depending on earlier versions
+      const raw =
+        (typeof data?.coachMessage === "string" && data.coachMessage) ||
+        (typeof data?.message === "string" && data.message) ||
+        (typeof data?.text === "string" && data.text) ||
+        "";
+
+      const cleaned = sanitizeAiReply(raw);
+      const finalDraft =
+        cleaned && !isTooGeneric(cleaned, selected.text) ? cleaned : fallback;
+
+      setReplyDraft(finalDraft);
+
+      if (!cleaned) {
+        setAiStatus("AI drift detected — using safe fallback. (Edit it if you want.)");
+        setTimeout(() => setAiStatus(null), 5200);
+        return;
+      }
+
+      if (cleaned && isTooGeneric(cleaned, selected.text)) {
+        setAiStatus("AI reply was too generic — using a better safe draft. (Edit it if you want.)");
+        setTimeout(() => setAiStatus(null), 5200);
+        return;
+      }
+
+      setAiStatus("Draft ready — edit it, then copy/paste.");
+      setTimeout(() => setAiStatus(null), 4200);
+    } catch {
+      setReplyDraft(fallback);
+      setAiStatus("AI draft failed — using safe fallback. (Edit it if you want.)");
+      setTimeout(() => setAiStatus(null), 5200);
+    }
+  }
+
+  const copyDraft = async () => {
+    try {
+      if (!selected) return;
+      if (!replyDraft.trim()) return;
+
+      await navigator.clipboard.writeText(replyDraft);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+
+      // Mark replied (local, and attempt to persist if route exists)
+      await markRepliedLocal(selected.id);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  const seedOne = () => {
+    const seed = newSeedItem();
+    setItems((prev) => [seed, ...prev]);
+    setSelectedId(seed.id);
+    setSeedCount((n) => n + 1);
+    setError(null);
+    setNote("Seed mode: demo items only (not real platform comments).");
+  };
+
+  const seedFive = () => {
+    const batch = Array.from({ length: 5 }, () => newSeedItem());
+    setItems((prev) => [...batch, ...prev]);
+    setSelectedId(batch[0]?.id || null);
+    setSeedCount((n) => n + 5);
+    setError(null);
+    setNote("Seed mode: demo items only (not real platform comments).");
   };
 
   return (
@@ -687,9 +777,11 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Responses</h1>
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+              Responses
+            </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Inbox for comments/messages — separate from Scheduled so staff don’t confuse planning with responding.
+              Your inbox for comments and messages — separate from Scheduled so staff don’t confuse “planning posts” with “responding”.
             </p>
           </div>
 
@@ -710,11 +802,13 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
+        <GlassCard className="p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search & filters</div>
-              <div className="mt-1 text-xs text-slate-300">Find what needs action fast.</div>
+              <div className="mt-1 text-xs text-slate-300">
+                Find what needs action fast. (Enterprise-safe.)
+              </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
@@ -726,29 +820,53 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
               />
 
               <select
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none"
+                className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
                 value={platformFilter}
                 onChange={(e) => setPlatformFilter(e.target.value as any)}
               >
-                <option value="all">All platforms</option>
-                <option value="facebook">Facebook</option>
-                <option value="linkedin">LinkedIn</option>
-                <option value="instagram">Instagram</option>
-                <option value="threads">Threads</option>
-                <option value="tiktok">TikTok</option>
-                <option value="reddit">Reddit</option>
+                <option className="bg-slate-950 text-slate-100" value="all">
+                  All platforms
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="facebook">
+                  Facebook
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="linkedin">
+                  LinkedIn
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="instagram">
+                  Instagram
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="threads">
+                  Threads
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="tiktok">
+                  TikTok
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="reddit">
+                  Reddit
+                </option>
               </select>
 
               <select
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none"
+                className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as any)}
               >
-                <option value="all">All statuses</option>
-                <option value="unread">Unread</option>
-                <option value="needs_reply">Needs reply</option>
-                <option value="replied">Replied</option>
-                <option value="archived">Archived</option>
+                <option className="bg-slate-950 text-slate-100" value="all">
+                  All statuses
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="unread">
+                  Unread
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="needs_reply">
+                  Needs reply
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="replied">
+                  Replied
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="archived">
+                  Archived
+                </option>
               </select>
             </div>
           </div>
@@ -756,7 +874,7 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => seedMany(1)}
+              onClick={seedOne}
               className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-50 hover:bg-emerald-300/15 transition"
             >
               Seed test item
@@ -764,13 +882,15 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
 
             <button
               type="button"
-              onClick={() => seedMany(5)}
+              onClick={seedFive}
               className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
             >
               Seed 5
             </button>
 
-            {seedCount > 0 && <span className="text-[11px] text-slate-400">Seeded: {seedCount}</span>}
+            {seedCount > 0 && (
+              <span className="text-[11px] text-slate-400">Seeded: {seedCount}</span>
+            )}
           </div>
 
           {note && (
@@ -796,7 +916,7 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
           ) : (
             <div className="mt-4 text-[11px] text-slate-400">Loading workspace…</div>
           )}
-        </div>
+        </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-3">
@@ -810,11 +930,11 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
           </div>
 
           <div className="space-y-6">
-            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
+            <GlassCard className="p-6">
               <div>
                 <div className="text-base font-semibold">Reply assistant</div>
                 <div className="mt-1 text-xs text-slate-300">
-                  Generate → edit → save or copy/paste.
+                  Generate a draft, edit it, then copy/paste to reply on the platform.
                 </div>
               </div>
 
@@ -834,22 +954,29 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
                             "shadow-[0_0_0_4px_rgba(255,255,255,0.06)]",
                           ].join(" ")}
                         />
-                        <div className="text-sm font-semibold">{PLATFORM_LABEL[selected.platform]}</div>
+                        <div className="text-sm font-semibold">
+                          {PLATFORM_LABEL[selected.platform] || "Unknown"}
+                        </div>
                       </div>
                       <Pill tone={statusTone(selected.status)}>{selected.status}</Pill>
                     </div>
 
                     <div className="mt-2 text-[11px] text-slate-400">
                       {safeDate(selected.createdAt)}
-                      {selected.authorName ? (
+                      {selected.authorName || selected.authorHandle ? (
                         <>
                           {" "}
-                          · <span className="text-slate-300">{selected.authorName}</span>
+                          ·{" "}
+                          <span className="text-slate-300">
+                            {selected.authorName || selected.authorHandle}
+                          </span>
                         </>
                       ) : null}
                     </div>
 
-                    <div className="mt-3 text-sm whitespace-pre-wrap">{selected.text}</div>
+                    <div className="mt-3 text-sm whitespace-pre-wrap">
+                      {selected.text}
+                    </div>
 
                     {selected.permalink ? (
                       <div className="mt-3 text-[11px]">
@@ -887,61 +1014,29 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={saveCurrentDraft}
-                      disabled={!replyDraft.trim()}
-                      className="flex-1 rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 disabled:opacity-60 disabled:cursor-not-allowed transition"
-                    >
-                      Save draft
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearDraft}
+                      onClick={() => {
+                        setReplyDraft("");
+                        setAiStatus("Cleared draft.");
+                        setTimeout(() => setAiStatus(null), 1800);
+                      }}
                       className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
                     >
-                      Clear
+                      Clear draft
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!selected) return;
+                        void markNeedsReplyLocal(selected.id);
+                        setAiStatus("Marked as needs reply.");
+                        setTimeout(() => setAiStatus(null), 1800);
+                      }}
+                      className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
+                    >
+                      Mark needs reply
                     </button>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowSaved((v) => !v)}
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/5 transition"
-                  >
-                    {showSaved ? "Hide saved drafts" : `View saved drafts (${draftsForSelected.length})`}
-                  </button>
-
-                  {showSaved && (
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-3">
-                      {draftsForSelected.length === 0 ? (
-                        <div className="text-sm text-slate-300">No saved drafts for this item yet.</div>
-                      ) : (
-                        draftsForSelected.map((d) => (
-                          <div key={d.id} className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                            <div className="text-[11px] text-slate-400">{safeDate(d.createdAt)}</div>
-                            <div className="mt-2 text-sm text-slate-100 whitespace-pre-wrap">
-                              {d.text}
-                            </div>
-                            <div className="mt-3 flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => loadSavedDraft(d.text)}
-                                className="flex-1 rounded-2xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 transition"
-                              >
-                                Load
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => deleteSavedDraft(d.id)}
-                                className="flex-1 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100 hover:bg-red-500/15 transition"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
 
                   {aiStatus && (
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300 whitespace-pre-wrap">
@@ -957,16 +1052,16 @@ setAiStatus("Draft ready — edit it, then copy/paste.");
                   />
                 </div>
               )}
-            </div>
+            </GlassCard>
 
-            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
+            <GlassCard className="p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • AI drafts are always editable before posting.\n
-                • Drafts can be saved per inbox item.\n
-                • Seed mode is for demo/testing.
+                • AI drafts are editable by staff before posting.{"\n"}
+                • If AI drifts into “posting UI language”, we auto-fallback to a safe draft.{"\n"}
+                • Status updates are stable locally; persistence will be enabled when /api/responses/update is implemented.
               </div>
-            </div>
+            </GlassCard>
           </div>
         </div>
       </div>
