@@ -151,9 +151,11 @@ function sanitizeAiReply(raw: string) {
   if (!t) return "";
 
   const badSignals = [
+    // Existing / common meta junk
     "option a",
     "option b",
     "post the reply",
+    "post reply",
     "save the reply",
     "save reply",
     "save for later",
@@ -167,8 +169,28 @@ function sanitizeAiReply(raw: string) {
     "channels",
     "publish",
     "schedule",
+
+    // ✅ New “didn’t go through” meta patterns
+    "didn’t go through",
+    "didn't go through",
+    "let’s try sending it again",
+    "let's try sending it again",
+    "try sending it again",
+    "try again",
+    "sending it again",
+    "didn't send",
+    "did not send",
+    "failed to send",
+    "didn’t send",
+    "reply didn't go through",
+    "reply didn’t go through",
   ];
 
+  const lowerAll = t.toLowerCase();
+  const looksBad = badSignals.some((x) => lowerAll.includes(x));
+  if (!looksBad) return t;
+
+  // Strip lines that look like workflow/status text
   const lines = t
     .split("\n")
     .map((l) => l.trim())
@@ -185,9 +207,12 @@ function sanitizeAiReply(raw: string) {
     .join("\n")
     .trim();
 
-  const out = cleaned || t;
-  const lower = out.toLowerCase();
-  if (badSignals.some((x) => lower.includes(x))) return "";
+  // If the cleaned result is still meta-ish or too thin, reject it -> fallback will be used
+  const out = cleaned || "";
+  const outLower = out.toLowerCase();
+  if (!out) return "";
+  if (out.length < 20) return ""; // prevent one-liner meta junk
+  if (badSignals.some((x) => outLower.includes(x))) return "";
   return out;
 }
 
