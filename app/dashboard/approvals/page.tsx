@@ -16,7 +16,6 @@ type ScheduledPost = {
 };
 
 type ApiListResp = { items?: ScheduledPost[]; error?: string };
-type SocialAccountsResp = { organisationId?: string | null; organisation_id?: string | null };
 
 function safeDate(iso: string) {
   try {
@@ -33,7 +32,7 @@ function prettyPlatforms(list: any) {
 
 function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
   const s = String(status || "").toLowerCase();
-  if (s.includes("approved") || s.includes("queued")) return "good";
+  if (s.includes("queued") || s.includes("approved")) return "good";
   if (s.includes("pending")) return "warn";
   if (s.includes("rejected") || s.includes("failed") || s.includes("error")) return "bad";
   return "neutral";
@@ -47,20 +46,19 @@ export default function ApprovalsPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // UX
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [note, setNote] = useState(""); // optional reason for reject
+  const [note, setNote] = useState("");
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
-    const data: SocialAccountsResp = await res.json().catch(() => ({}));
+    const data: any = await res.json().catch(() => null);
 
     const org =
       typeof data?.organisationId === "string"
         ? data.organisationId
-        : typeof (data as any)?.organisation_id === "string"
-        ? (data as any).organisation_id
+        : typeof data?.organisation_id === "string"
+        ? data.organisation_id
         : null;
 
     if (!org) throw new Error("Workspace not loaded yet. Please refresh and try again.");
@@ -109,35 +107,19 @@ export default function ApprovalsPage() {
 
   const pending = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const base = rows.filter((r) => String(r.status || "").toLowerCase() === "pending_approval");
 
-    const filtered = rows.filter((r) => String(r.status || "").toLowerCase() === "pending_approval");
+    if (!q) return base;
 
-    if (!q) return filtered;
-
-    return filtered.filter((r) => {
+    return base.filter((r) => {
       const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.scheduled_for || ""}`.toLowerCase();
       return hay.includes(q);
     });
   }, [rows, query]);
 
-  const recentlyDecided = useMemo(() => {
-    // show last 25 approvals/rejections for confidence
-    return rows
-      .filter((r) => {
-        const s = String(r.status || "").toLowerCase();
-        return s === "queued" || s === "rejected";
-      })
-      .sort((a, b) => new Date(b.scheduled_for).getTime() - new Date(a.scheduled_for).getTime())
-      .slice(0, 25);
-  }, [rows]);
+  const selected = useMemo(() => pending.find((x) => x.id === selectedId) || null, [pending, selectedId]);
 
-  const selected = useMemo(() => {
-    return pending.find((x) => x.id === selectedId) || null;
-  }, [pending, selectedId]);
-
-  useEffect(() => {
-    setNote("");
-  }, [selectedId]);
+  useEffect(() => setNote(""), [selectedId]);
 
   const Pill = ({
     children,
@@ -183,30 +165,17 @@ export default function ApprovalsPage() {
       const res = await fetch(`/api/approvals/update?organisationId=${encodeURIComponent(org)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: selected.id,
-          action,
-          note: note.trim() || null,
-        }),
+        body: JSON.stringify({ id: selected.id, action, note: note.trim() || null }),
       });
 
       const data: any = await res.json().catch(() => null);
+      if (!res.ok || data?.success === false) throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
 
-      if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || `Failed to ${action} (HTTP ${res.status}).`);
-      }
+      // Optimistic UI update
+      const newStatus = action === "approve" ? "queued" : "rejected";
+      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
 
-      // Optimistic UI: update local row status
-      setRows((prev) =>
-        prev.map((r) => {
-          if (r.id !== selected.id) return r;
-          const newStatus = action === "approve" ? "queued" : "rejected";
-          const nextMeta = { ...(r.meta || {}), decision_note: note.trim() || null, decided_at: new Date().toISOString() };
-          return { ...r, status: newStatus, meta: nextMeta };
-        })
-      );
-
-      // Clear selection (so it doesn't feel "stuck")
+      // clear selection so list doesn’t “jump”
       setSelectedId(null);
       setNote("");
     } catch (e: any) {
@@ -227,14 +196,13 @@ export default function ApprovalsPage() {
           <div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Approvals</h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Enterprise safety: posts can be created anywhere, but only move to the publishing queue after approval.
+              Posts with <span className="text-slate-100 font-semibold">status = pending_approval</span> appear here.
+              Approve → status becomes <span className="text-slate-100 font-semibold">queued</span>.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <Pill tone="warn">Pending: {pending.length}</Pill>
-            <Pill>Recent decisions: {recentlyDecided.length}</Pill>
-
             <button
               type="button"
               onClick={refresh}
@@ -275,14 +243,10 @@ export default function ApprovalsPage() {
         </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
-          {/* Left list */}
           <div className="lg:col-span-2 space-y-3">
             {!loading && pending.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
                 No pending approvals right now.
-                <div className="mt-2 text-[11px] text-slate-400">
-                  Tip: set any scheduled_posts row status to <span className="text-slate-200 font-semibold">pending_approval</span> to test.
-                </div>
               </div>
             ) : (
               pending.map((p) => {
@@ -300,29 +264,22 @@ export default function ApprovalsPage() {
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-xs font-semibold text-slate-100 truncate">
                         {prettyPlatforms(p.platforms)}
-                        <span className="ml-2 text-[11px] font-normal text-slate-400">
-                          {safeDate(p.scheduled_for)}
-                        </span>
+                        <span className="ml-2 text-[11px] font-normal text-slate-400">{safeDate(p.scheduled_for)}</span>
                       </div>
                       <Pill tone={statusTone(p.status)}>{p.status}</Pill>
                     </div>
 
                     <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{p.message}</div>
-
-                    {p.image_url ? (
-                      <div className="mt-2 text-[11px] text-slate-400 truncate">Image: {p.image_url}</div>
-                    ) : null}
                   </button>
                 );
               })
             )}
           </div>
 
-          {/* Right panel */}
           <div className="space-y-6">
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Review</div>
-              <div className="mt-1 text-xs text-slate-300">Approve moves it to the publishing queue (status becomes queued).</div>
+              <div className="mt-1 text-xs text-slate-300">Approve moves it to publishing queue (queued).</div>
 
               {!selected ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
@@ -337,9 +294,6 @@ export default function ApprovalsPage() {
                     </div>
                     <div className="mt-2 text-[11px] text-slate-400">{safeDate(selected.scheduled_for)}</div>
                     <div className="mt-3 text-sm whitespace-pre-wrap">{selected.message}</div>
-                    {selected.image_url ? (
-                      <div className="mt-3 text-[11px] text-slate-400 truncate">Image: {selected.image_url}</div>
-                    ) : null}
                   </div>
 
                   <textarea
@@ -357,6 +311,7 @@ export default function ApprovalsPage() {
                     >
                       Approve
                     </button>
+
                     <button
                       type="button"
                       onClick={() => act("reject")}
@@ -365,45 +320,22 @@ export default function ApprovalsPage() {
                       Reject
                     </button>
                   </div>
-
-                  <div className="text-[11px] text-slate-400">
-                    Approve = status <span className="text-slate-200 font-semibold">queued</span> (dispatcher can publish). Reject = status{" "}
-                    <span className="text-slate-200 font-semibold">rejected</span>.
-                  </div>
                 </div>
               )}
             </GlassCard>
 
             <GlassCard className="p-6">
-              <div className="text-base font-semibold">Recent decisions</div>
-              <div className="mt-2 text-xs text-slate-300">Confidence panel: shows the last 25 items you approved/rejected.</div>
-
-              {recentlyDecided.length === 0 ? (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                  Nothing decided yet.
-                </div>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {recentlyDecided.map((p) => (
-                    <div key={p.id} className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-[11px] text-slate-400">
-                          {safeDate(p.scheduled_for)} · <span className="text-slate-200">{prettyPlatforms(p.platforms)}</span>
-                        </div>
-                        <Pill tone={statusTone(p.status)}>{p.status}</Pill>
-                      </div>
-                      <div className="mt-2 text-sm line-clamp-2 whitespace-pre-wrap">{p.message}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="text-base font-semibold">Enterprise safety</div>
+              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+                • Approvals do not create posts.\n
+                • They only move existing scheduled posts into the publish queue.\n
+                • Next step after this: permissions + audit trail.
+              </div>
             </GlassCard>
           </div>
         </div>
 
-        <div className="text-[11px] text-slate-500">
-          Enterprise note: No organisation IDs are displayed anywhere on this page.
-        </div>
+        <div className="text-[11px] text-slate-500">Organisation IDs remain hidden from users.</div>
       </div>
     </div>
   );
