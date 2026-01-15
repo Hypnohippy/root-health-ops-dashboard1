@@ -1,7 +1,7 @@
 // app/connect/page.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 
 type ProviderId =
   | "facebook"
@@ -90,17 +90,6 @@ const initialProviders: Provider[] = [
   },
 ];
 
-const connectUrls: Record<ProviderId, string> = {
-  facebook: "#",
-  instagram: "/api/social/connect/start?provider=instagram",
-  tiktok: "/api/social/connect/start?provider=tiktok",
-  linkedin: "/api/social/connect/start?provider=linkedin",
-  google: "/api/social/connect/start?provider=google",
-  email: "/dashboard/connect/email/setup",
-  whatsapp: "/api/social/connect/start?provider=whatsapp",
-  threads: "/api/social/connect/start?provider=threads",
-};
-
 type SocialAccountRow = {
   platform: ProviderId;
   page_id: string | null;
@@ -131,6 +120,9 @@ export default function ConnectPage() {
   const [providers, setProviders] = useState<Provider[]>(initialProviders);
   const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
 
+  // ✅ Org id (resolved from /api/social-accounts)
+  const [organisationId, setOrganisationId] = useState<string | null>(null);
+
   // Facebook Test Post + Root Coach state
   const [testMessage, setTestMessage] = useState(
     "This is a test post from Root Health Ops Dashboard ✅"
@@ -140,13 +132,42 @@ export default function ConnectPage() {
   const [testError, setTestError] = useState<string | null>(null);
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
+  // ✅ Build connect URLs dynamically once we know org id
+  const connectUrls = useMemo<Record<ProviderId, string>>(() => {
+    const org = organisationId ? encodeURIComponent(organisationId) : "";
+
+    return {
+      // ✅ NEW: OAuth for FB + LinkedIn
+      facebook: organisationId ? `/api/oauth/facebook/start?organisationId=${org}` : "#",
+      linkedin: organisationId ? `/api/oauth/linkedin/start?organisationId=${org}` : "#",
+
+      // Existing / future flows (leave as-is)
+      instagram: "/api/social/connect/start?provider=instagram",
+      tiktok: "/api/social/connect/start?provider=tiktok",
+      google: "/api/social/connect/start?provider=google",
+      email: "/dashboard/connect/email/setup",
+      whatsapp: "/api/social/connect/start?provider=whatsapp",
+      threads: "/api/social/connect/start?provider=threads",
+    };
+  }, [organisationId]);
+
   const loadSocialAccounts = async () => {
     try {
-      const res = await fetch("/api/social-accounts");
+      const res = await fetch("/api/social-accounts", { method: "GET" });
       if (!res.ok) return;
 
-      const data = await res.json();
-      const rows: SocialAccountRow[] = data.socialAccounts ?? [];
+      const data = await res.json().catch(() => null);
+
+      const org =
+        typeof data?.organisationId === "string"
+          ? data.organisationId
+          : typeof data?.organisation_id === "string"
+          ? data.organisation_id
+          : null;
+
+      if (org && !organisationId) setOrganisationId(org);
+
+      const rows: SocialAccountRow[] = data?.socialAccounts ?? [];
 
       setProviders((prev) =>
         prev.map((p) => {
@@ -188,7 +209,6 @@ export default function ConnectPage() {
       });
 
       if (!res.ok) {
-        // Don’t crash UI; log it so we can see in Vercel logs if needed
         const t = await res.text().catch(() => "");
         console.error("[connect] saveSocialAccount failed", res.status, t);
       }
@@ -210,22 +230,20 @@ export default function ConnectPage() {
   };
 
   /**
-   * ✅ NEW: handle return from /api/social/connect/start flow
-   * Many auth flows redirect back to /connect with query params.
-   * We detect success and then write the row into social_accounts.
+   * ✅ Handle return from legacy /api/social/connect/start flow.
+   * NOTE: our new OAuth routes (FB/LinkedIn) redirect back without query params,
+   * because they save directly in DB — but this handler is safe to keep.
    */
   const handleReturnFromConnectFlow = async () => {
     try {
       const url = new URL(window.location.href);
       const params = url.searchParams;
 
-      // common param names across flows
       const provider =
         asProviderId(params.get("provider")) ||
         asProviderId(params.get("platform")) ||
         asProviderId(params.get("channel"));
 
-      // common “success” indicators
       const success =
         truthyParam(params.get("success")) ||
         truthyParam(params.get("connected")) ||
@@ -234,28 +252,34 @@ export default function ConnectPage() {
 
       const errorParam = params.get("error") || params.get("message");
 
-      // If no provider in URL, nothing to do.
       if (!provider) return;
 
-      // If an error came back, show it and clean the URL.
       if (errorParam && !success) {
         alert(`Connect failed for ${provider}:\n\n${errorParam}`);
-        params.delete("provider");
-        params.delete("platform");
-        params.delete("channel");
-        params.delete("success");
-        params.delete("connected");
-        params.delete("ok");
-        params.delete("status");
-        params.delete("error");
-        params.delete("message");
-        window.history.replaceState({}, "", `${url.pathname}?${params.toString()}`.replace(/\?$/, ""));
+        [
+          "provider",
+          "platform",
+          "channel",
+          "success",
+          "connected",
+          "ok",
+          "status",
+          "error",
+          "message",
+          "pageName",
+          "page_name",
+          "accountName",
+          "account_name",
+        ].forEach((k) => params.delete(k));
+        window.history.replaceState(
+          {},
+          "",
+          `${url.pathname}?${params.toString()}`.replace(/\?$/, "")
+        );
         return;
       }
 
-      // If success is indicated, save the row.
       if (success) {
-        // Optional hints for display name
         const accountName =
           params.get("pageName") ||
           params.get("page_name") ||
@@ -275,22 +299,27 @@ export default function ConnectPage() {
         await saveSocialAccount(provider, undefined, accountName);
         await loadSocialAccounts();
 
-        // Clean URL so it doesn’t re-run on refresh
-        params.delete("provider");
-        params.delete("platform");
-        params.delete("channel");
-        params.delete("success");
-        params.delete("connected");
-        params.delete("ok");
-        params.delete("status");
-        params.delete("error");
-        params.delete("message");
-        params.delete("pageName");
-        params.delete("page_name");
-        params.delete("accountName");
-        params.delete("account_name");
+        [
+          "provider",
+          "platform",
+          "channel",
+          "success",
+          "connected",
+          "ok",
+          "status",
+          "error",
+          "message",
+          "pageName",
+          "page_name",
+          "accountName",
+          "account_name",
+        ].forEach((k) => params.delete(k));
 
-        window.history.replaceState({}, "", `${url.pathname}?${params.toString()}`.replace(/\?$/, ""));
+        window.history.replaceState(
+          {},
+          "",
+          `${url.pathname}?${params.toString()}`.replace(/\?$/, "")
+        );
 
         setBusyProvider(null);
       }
@@ -299,7 +328,6 @@ export default function ConnectPage() {
     }
   };
 
-  // Initial load + return-handler
   useEffect(() => {
     void (async () => {
       await handleReturnFromConnectFlow();
@@ -311,6 +339,13 @@ export default function ConnectPage() {
   const handleConnectClick = (provider: Provider) => {
     const url = connectUrls[provider.id];
 
+    // If we haven’t loaded org id yet, block OAuth connections cleanly
+    const needsOrgForOauth = provider.id === "facebook" || provider.id === "linkedin";
+    if (needsOrgForOauth && !organisationId) {
+      alert("Workspace is still loading. Please wait 2 seconds and try again.");
+      return;
+    }
+
     if (!url || url === "#") {
       alert(
         `We’ll soon add a one-click auth flow for ${provider.label}.\n\nFor now, use the Facebook Test Post panel below to verify your connection.`
@@ -320,11 +355,8 @@ export default function ConnectPage() {
 
     setBusyProvider(provider.id);
 
-    // Mark as pending immediately (UX)
     setProviders((prev) =>
-      prev.map((p) =>
-        p.id === provider.id ? { ...p, status: "pending" } : p
-      )
+      prev.map((p) => (p.id === provider.id ? { ...p, status: "pending" } : p))
     );
 
     window.location.href = url;
@@ -392,8 +424,7 @@ export default function ConnectPage() {
       await saveSocialAccount("facebook", undefined, "Your Facebook Page");
       await loadSocialAccounts();
     } catch (err: any) {
-      const message =
-        err?.message || "Something went wrong sending the test post.";
+      const message = err?.message || "Something went wrong sending the test post.";
       setTestError(message);
 
       fetch("/api/ai/root-coach", {
@@ -430,22 +461,18 @@ export default function ConnectPage() {
         {/* Header */}
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold">
-              Connect your channels
-            </h1>
+            <h1 className="text-2xl md:text-3xl font-semibold">Connect your channels</h1>
             <p className="text-sm text-slate-300 mt-1 max-w-xl">
-              Plug your existing pages and profiles into Root Health. You stay
-              in control — we only post what you approve.
+              Plug your existing pages and profiles into Root Health. You stay in control — we only
+              post what you approve.
+            </p>
+            <p className="mt-2 text-[11px] text-slate-400">
+              {organisationId ? "Workspace loaded ✅" : "Loading workspace…"}
             </p>
           </div>
           <div className="text-xs text-slate-400 bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 max-w-xs">
-            <p className="font-medium text-slate-200 mb-1">
-              Therapist-friendly, not techy
-            </p>
-            <p>
-              Each connection can be removed at any time. No auto-posting until
-              you explicitly approve a campaign.
-            </p>
+            <p className="font-medium text-slate-200 mb-1">Therapist-friendly, not techy</p>
+            <p>Each connection can be removed at any time. No auto-posting until you approve.</p>
           </div>
         </header>
 
@@ -453,9 +480,7 @@ export default function ConnectPage() {
         <section className="grid gap-4 md:grid-cols-3 mb-8 text-sm">
           <SummaryCard
             label="Connected channels"
-            value={`${providers.filter((p) => p.status === "connected").length} / ${
-              providers.length
-            }`}
+            value={`${providers.filter((p) => p.status === "connected").length} / ${providers.length}`}
           />
           <SummaryCard
             label="Ready for posting"
@@ -465,10 +490,7 @@ export default function ConnectPage() {
                 : "Not yet"
             }
           />
-          <SummaryCard
-            label="Next step"
-            value="Connect Facebook / Instagram first if you’re not sure."
-          />
+          <SummaryCard label="Next step" value="Connect Facebook / LinkedIn first, then start posting." />
         </section>
 
         {/* Providers grid */}
@@ -489,9 +511,7 @@ export default function ConnectPage() {
         <section className="rounded-2xl border border-emerald-500/30 bg-slate-900/80 p-6 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-base md:text-lg font-semibold text-slate-50">
-                Facebook Test Post
-              </h2>
+              <h2 className="text-base md:text-lg font-semibold text-slate-50">Facebook Test Post</h2>
               <p className="text-[11px] md:text-xs text-slate-400">
                 Sends a live test payload to your Make webhook (
                 <code className="text-[10px] bg-slate-800 px-1 py-0.5 rounded">
@@ -503,9 +523,7 @@ export default function ConnectPage() {
           </div>
 
           <div className="space-y-2">
-            <label className="block text-[11px] font-medium text-slate-300">
-              Test message content
-            </label>
+            <label className="block text-[11px] font-medium text-slate-300">Test message content</label>
             <textarea
               className="w-full min-h-[100px] rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
               value={testMessage}
@@ -524,40 +542,27 @@ export default function ConnectPage() {
             </button>
 
             {testIsLoading && (
-              <span className="text-[11px] text-slate-400">
-                Talking to Make &amp; Facebook…
-              </span>
+              <span className="text-[11px] text-slate-400">Talking to Make &amp; Facebook…</span>
             )}
           </div>
 
-          {testStatus && (
-            <div className="mt-2 text-[11px] text-emerald-400">{testStatus}</div>
-          )}
-
-          {testError && (
-            <div className="mt-2 text-[11px] text-red-400">{testError}</div>
-          )}
+          {testStatus && <div className="mt-2 text-[11px] text-emerald-400">{testStatus}</div>}
+          {testError && <div className="mt-2 text-[11px] text-red-400">{testError}</div>}
 
           {coachMessage && (
             <div className="mt-3 rounded-lg border border-sky-500/40 bg-sky-950/40 p-3">
-              <div className="text-[10px] uppercase tracking-wide text-sky-300 mb-1">
-                Root Coach
-              </div>
-              <div className="text-[11px] text-sky-50 whitespace-pre-wrap">
-                {coachMessage}
-              </div>
+              <div className="text-[10px] uppercase tracking-wide text-sky-300 mb-1">Root Coach</div>
+              <div className="text-[11px] text-sky-50 whitespace-pre-wrap">{coachMessage}</div>
             </div>
           )}
         </section>
 
         <footer className="mt-8 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs text-slate-400">
           <p>
-            Need help connecting something? Your Root Health Ops workspace can
-            be fully guided on a call — no tech knowledge required.
+            Need help connecting something? Your Root Health Ops workspace can be fully guided on a
+            call — no tech knowledge required.
           </p>
-          <p className="text-slate-500">
-            Tip: Start with Facebook &amp; Instagram, then add others over time.
-          </p>
+          <p className="text-slate-500">Tip: Start with Facebook &amp; LinkedIn, then add others.</p>
         </footer>
       </div>
     </div>
@@ -569,9 +574,7 @@ export default function ConnectPage() {
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3">
-      <p className="text-[11px] uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
+      <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
       <p className="mt-1 text-sm font-medium text-slate-100">{value}</p>
     </div>
   );
@@ -602,13 +605,10 @@ function ProviderCard({
             <StatusPill status={provider.status} />
           </div>
           <p className="mt-1 text-xs text-slate-300">{provider.description}</p>
-          {provider.hint && (
-            <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>
-          )}
+          {provider.hint && <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>}
           {provider.accountName && (
             <p className="mt-2 text-[11px] text-emerald-300">
-              Connected as{" "}
-              <span className="font-medium">{provider.accountName}</span>
+              Connected as <span className="font-medium">{provider.accountName}</span>
             </p>
           )}
         </div>
