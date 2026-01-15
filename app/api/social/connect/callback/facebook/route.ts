@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 export async function GET(req: NextRequest) {
   try {
@@ -26,9 +25,9 @@ export async function GET(req: NextRequest) {
     const errorDesc = req.nextUrl.searchParams.get("error_description");
     const state = req.nextUrl.searchParams.get("state") || "";
 
+    // ✅ If FB returned an error, bounce back to dashboard connect with message
     if (errorParam) {
-      // Return user to Connect page with a clear message
-      const url = new URL(`${appUrl}/connect`);
+      const url = new URL(`${appUrl}/dashboard/connect`);
       url.searchParams.set("provider", "facebook");
       url.searchParams.set("success", "false");
       url.searchParams.set("error", errorDesc || errorParam);
@@ -39,15 +38,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing code" }, { status: 400 });
     }
 
-    // Check CSRF state cookie
+    // ✅ CSRF state check
     const cookieState = req.cookies.get("fb_oauth_state")?.value || "";
     if (!cookieState || cookieState !== state) {
       return NextResponse.json({ error: "Invalid state" }, { status: 400 });
     }
 
+    // This MUST match Meta "Valid OAuth Redirect URIs" exactly
     const redirectUri = `${appUrl}/api/social/connect/callback/facebook`;
 
-    // Exchange code for user access token
+    // ✅ Exchange code for a user access token
     const tokenUrl =
       "https://graph.facebook.com/v24.0/oauth/access_token" +
       `?client_id=${encodeURIComponent(appId)}` +
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
 
     const userAccessToken = tokenJson.access_token as string;
 
-    // Fetch pages the user manages
+    // ✅ Get pages the user manages
     const pagesRes = await fetch(
       `https://graph.facebook.com/v24.0/me/accounts?access_token=${encodeURIComponent(
         userAccessToken
@@ -83,40 +83,37 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Pick the first Page for now (we can add a chooser later)
+    // ✅ For now pick first page (later we add a chooser UI)
     const page = pagesJson.data[0];
     const pageId = String(page.id || "");
     const pageName = String(page.name || "Facebook Page");
-    const pageAccessToken = String(page.access_token || "");
 
-    if (!pageId || !pageAccessToken) {
+    if (!pageId) {
+      return NextResponse.json({ error: "Missing page id", details: page }, { status: 400 });
+    }
+
+    // ✅ Save via your existing API route (avoids importing supabaseAdmin)
+    const saveRes = await fetch(`${appUrl}/api/social-accounts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // Your /api/social-accounts route already knows org in your current setup
+      body: JSON.stringify({
+        platform: "facebook",
+        pageId,
+        pageName,
+      }),
+    });
+
+    if (!saveRes.ok) {
+      const t = await saveRes.text().catch(() => "");
       return NextResponse.json(
-        { error: "Missing page token", details: page },
-        { status: 400 }
+        { error: "Failed to save social account", status: saveRes.status, details: t },
+        { status: 500 }
       );
     }
 
-    // ✅ Save to your social_accounts table
-    // NOTE: for now we use your existing single-org approach.
-    // Later we’ll swap to real org by logged-in user/org membership.
-    const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
-
-    await supabaseAdmin.from("social_accounts").upsert(
-      {
-        organisation_id: ORG_ID,
-        platform: "facebook",
-        page_id: pageId,
-        page_name: pageName,
-        connection_type: "oauth",
-        is_active: true,
-        // If you have a column for tokens, store it there.
-        // If not, leave it out and we’ll add securely later.
-      },
-      { onConflict: "organisation_id,platform" as any }
-    );
-
-    // Return to Connect page with success
-    const url = new URL(`${appUrl}/connect`);
+    // ✅ Redirect back to connect page with success
+    const url = new URL(`${appUrl}/dashboard/connect`);
     url.searchParams.set("provider", "facebook");
     url.searchParams.set("success", "true");
     url.searchParams.set("pageName", pageName);
