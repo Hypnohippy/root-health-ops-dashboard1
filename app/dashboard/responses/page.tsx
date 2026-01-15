@@ -46,13 +46,13 @@ type SavedDraft = {
   inboxItemId: string;
   createdAt: string;
   text: string;
-  // helpful metadata for display
   platform: InboxPlatform;
   authorName?: string | null;
   snippet: string;
 };
 
-const STORAGE_KEY = "rootops_saved_response_drafts_v1";
+const STORAGE_KEY_DRAFTS = "rootops_saved_response_drafts_v1";
+const STORAGE_KEY_STATUS = "rootops_inbox_status_overrides_v1";
 
 const PLATFORM_LABEL: Record<InboxPlatform, string> = {
   facebook: "Facebook",
@@ -100,9 +100,140 @@ function makeSnippet(s: string, max = 80) {
   return t.slice(0, max) + "…";
 }
 
+/** ✅ Detect “system helper / ops UI” responses that are NOT paste-ready replies */
+function looksLikeSystemHelper(raw: string) {
+  const t = (raw || "").toLowerCase();
+  if (!t.trim()) return true;
+
+  const bad = [
+    "option a",
+    "option b",
+    "post now",
+    "post the reply",
+    "save for later",
+    "drafted successfully",
+    "sent smoothly",
+    "no channels have posted",
+    "choose where to send",
+    "reply didn’t go through",
+    "didn't go through",
+    "didn’t post",
+    "didn't post",
+    "looks like your reply",
+    "great news",
+    "ready to go",
+    "let’s try sending it again",
+    "let’s get it out there",
+  ];
+
+  return bad.some((x) => t.includes(x));
+}
+
+/**
+ * Strip “Option A/B”, “post didn’t go through”, “save for later”, etc.
+ * If it still looks like UI/ops language after cleaning, return "" to force fallback.
+ */
+function sanitizeAiReply(raw: string) {
+  const t = (raw || "").trim();
+  if (!t) return "";
+
+  // If it looks like helper/ops output, we’ll clean aggressively
+  const lower = t.toLowerCase();
+  const looksBad =
+    looksLikeSystemHelper(t) ||
+    lower.includes("option a") ||
+    lower.includes("option b") ||
+    lower.includes("save") ||
+    lower.includes("post");
+
+  if (!looksBad) return t;
+
+  const cleaned = t
+    .split("\n")
+    .map((l) => l.trimEnd())
+    .filter((l) => {
+      const ll = l.toLowerCase().trim();
+      if (!ll) return true;
+      if (ll.startsWith("option a")) return false;
+      if (ll.startsWith("option b")) return false;
+      if (ll.includes("post") && ll.includes("reply")) return false;
+      if (ll.includes("save") && ll.includes("later")) return false;
+      if (ll.includes("great news")) return false;
+      if (ll.includes("drafted successfully")) return false;
+      if (ll.includes("sent smoothly")) return false;
+      if (ll.includes("no channels")) return false;
+      if (ll.includes("choose where")) return false;
+      if (ll.includes("looks like your reply")) return false;
+      if (ll.includes("ready to go")) return false;
+      if (ll.includes("didn't go through")) return false;
+      if (ll.includes("didn’t go through")) return false;
+      if (ll.includes("didn't post")) return false;
+      if (ll.includes("didn’t post")) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+
+  if (!cleaned) return "";
+
+  // If after cleaning it STILL looks like helper output → reject it
+  if (looksLikeSystemHelper(cleaned)) return "";
+
+  return cleaned;
+}
+
+/** If AI response is super generic, prefer the local fallback */
+function isTooGeneric(ai: string, original: string) {
+  const a = (ai || "").trim().toLowerCase();
+  const o = (original || "").trim().toLowerCase();
+  if (!a) return true;
+
+  const genericSignals = [
+    "thanks so much for your comment",
+    "we really appreciate your support",
+    "have a great day",
+    "here if you have any questions",
+  ];
+  const looksGeneric = genericSignals.some((x) => a.includes(x));
+
+  const originalHasConcern =
+    o.includes("overwhelm") ||
+    o.includes("overwhelmed") ||
+    o.includes("anx") ||
+    o.includes("panic") ||
+    o.includes("stress") ||
+    o.includes("burnout") ||
+    o.includes("ptsd") ||
+    o.includes("depress");
+
+  const originalHasQuestion =
+    o.includes("?") ||
+    o.startsWith("how") ||
+    o.startsWith("what") ||
+    o.startsWith("why") ||
+    o.includes("any small") ||
+    o.includes("first step");
+
+  const aiMentionsConcern =
+    a.includes("overwhelm") ||
+    a.includes("stress") ||
+    a.includes("anx") ||
+    a.includes("panic") ||
+    a.includes("small step") ||
+    a.includes("first step") ||
+    a.includes("try");
+
+  if (looksGeneric && (originalHasConcern || originalHasQuestion) && !aiMentionsConcern)
+    return true;
+
+  if (looksGeneric && a.length < 180) return true;
+
+  return false;
+}
+
 /**
  * Local fallback drafter (enterprise-safe).
- * This is what we use whenever the AI drifts into “posting UI” language.
+ * Used whenever AI drifts into “posting UI” language or becomes generic.
  */
 function draftReplyLocal({
   platform,
@@ -217,139 +348,6 @@ function draftReplyLocal({
   );
 }
 
-/**
- * Strip “Option A/B”, “post didn’t go through”, “save for later”, etc.
- * If it still looks like UI/ops language after cleaning, return "" to force fallback.
- */
-function sanitizeAiReply(raw: string) {
-  function looksLikeSystemHelper(raw: string) {
-  const t = (raw || "").toLowerCase();
-  if (!t.trim()) return true;
-
-  const bad = [
-    "option a",
-    "option b",
-    "post now",
-    "post the reply",
-    "save for later",
-    "drafted successfully",
-    "sent smoothly",
-    "no channels have posted",
-    "choose where to send",
-    "reply didn’t go through",
-    "didn't go through",
-    "didn’t post",
-    "didn't post",
-    "looks like your reply",
-    "great news",
-  ];
-
-  return bad.some((x) => t.includes(x));
-}
-
-  const t = (raw || "").trim();
-  if (!t) return "";
-
-  const badSignals = [
-    "option a",
-    "option b",
-    "post reply now",
-    "post the reply now",
-    "save reply for later",
-    "save it for later",
-    "great news!",
-    "drafted successfully",
-    "sent smoothly",
-    "didn’t go through",
-    "didn't go through",
-    "didn’t post",
-    "didn't post",
-    "choose where to send",
-    "no channels have posted",
-    "looks like your reply",
-    "you can either post it now",
-  ];
-
-  const lower = t.toLowerCase();
-  const looksBad = badSignals.some((x) => lower.includes(x));
-  if (!looksBad) return t;
-
-  const cleaned = t
-    .split("\n")
-    .map((l) => l.trimEnd())
-    .filter((l) => {
-      const ll = l.toLowerCase().trim();
-      if (!ll) return true;
-      if (ll.startsWith("option a")) return false;
-      if (ll.startsWith("option b")) return false;
-      if (ll.includes("post") && ll.includes("reply")) return false;
-      if (ll.includes("save") && ll.includes("later")) return false;
-      if (ll.includes("great news")) return false;
-      if (ll.includes("drafted successfully")) return false;
-      if (ll.includes("sent smoothly")) return false;
-      if (ll.includes("no channels")) return false;
-      if (ll.includes("choose where")) return false;
-      if (ll.includes("looks like your reply")) return false;
-      return true;
-    })
-    .join("\n")
-    .trim();
-
-  if (!cleaned) return "";
-  const cleanedLower = cleaned.toLowerCase();
-  const stillBad = badSignals.some((x) => cleanedLower.includes(x));
-  return stillBad ? "" : cleaned;
-}
-
-/** If AI response is super generic, prefer the local fallback */
-function isTooGeneric(ai: string, original: string) {
-  const a = (ai || "").trim().toLowerCase();
-  const o = (original || "").trim().toLowerCase();
-  if (!a) return true;
-
-  const genericSignals = [
-    "thanks so much for your comment",
-    "we really appreciate your support",
-    "have a great day",
-    "here if you have any questions",
-  ];
-  const looksGeneric = genericSignals.some((x) => a.includes(x));
-
-  const originalHasConcern =
-    o.includes("overwhelm") ||
-    o.includes("overwhelmed") ||
-    o.includes("anx") ||
-    o.includes("panic") ||
-    o.includes("stress") ||
-    o.includes("burnout") ||
-    o.includes("ptsd") ||
-    o.includes("depress");
-
-  const originalHasQuestion =
-    o.includes("?") ||
-    o.startsWith("how") ||
-    o.startsWith("what") ||
-    o.startsWith("why") ||
-    o.includes("any small") ||
-    o.includes("first step");
-
-  const aiMentionsConcern =
-    a.includes("overwhelm") ||
-    a.includes("stress") ||
-    a.includes("anx") ||
-    a.includes("panic") ||
-    a.includes("small step") ||
-    a.includes("first step") ||
-    a.includes("try");
-
-  if (looksGeneric && (originalHasConcern || originalHasQuestion) && !aiMentionsConcern)
-    return true;
-
-  if (looksGeneric && a.length < 180) return true;
-
-  return false;
-}
-
 function newSeedItem(): InboxItem {
   const now = new Date();
   const id = `seed_${now.getTime()}_${Math.random().toString(16).slice(2)}`;
@@ -388,7 +386,7 @@ function newSeedItem(): InboxItem {
 function readSavedDrafts(): SavedDraft[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEY_DRAFTS);
     const parsed = raw ? JSON.parse(raw) : null;
     if (!Array.isArray(parsed)) return [];
     return parsed as SavedDraft[];
@@ -400,9 +398,32 @@ function readSavedDrafts(): SavedDraft[] {
 function writeSavedDrafts(next: SavedDraft[]) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    window.localStorage.setItem(STORAGE_KEY_DRAFTS, JSON.stringify(next));
   } catch {
-    // ignore storage errors
+    // ignore
+  }
+}
+
+type StatusOverrides = Record<string, InboxStatus>;
+
+function readStatusOverrides(): StatusOverrides {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY_STATUS);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed as StatusOverrides;
+  } catch {
+    return {};
+  }
+}
+
+function writeStatusOverrides(next: StatusOverrides) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY_STATUS, JSON.stringify(next));
+  } catch {
+    // ignore
   }
 }
 
@@ -433,11 +454,15 @@ export default function ResponsesPage() {
   const [savedDrafts, setSavedDrafts] = useState<SavedDraft[]>([]);
   const [showSaved, setShowSaved] = useState(false);
 
+  // Local status overrides to stop “replied → snaps back”
+  const statusOverridesRef = useRef<StatusOverrides>({});
+
   // Prevent jump-to-top on select
   const listScrollYRef = useRef<number>(0);
 
   useEffect(() => {
     setSavedDrafts(readSavedDrafts());
+    statusOverridesRef.current = readStatusOverrides();
   }, []);
 
   const resolveOrg = async () => {
@@ -454,6 +479,12 @@ export default function ResponsesPage() {
     if (!org) throw new Error("Workspace not loaded yet. Please refresh and try again.");
     setOrganisationId(org);
     return org;
+  };
+
+  const applyOverrides = (rows: InboxItem[]) => {
+    const ov = statusOverridesRef.current || {};
+    if (!ov || Object.keys(ov).length === 0) return rows;
+    return rows.map((x) => (ov[x.id] ? { ...x, status: ov[x.id] } : x));
   };
 
   const load = async () => {
@@ -474,7 +505,8 @@ export default function ResponsesPage() {
         throw new Error(data?.error || `Failed to load inbox (HTTP ${res.status}).`);
       }
 
-      setItems(Array.isArray(data?.items) ? data.items : []);
+      const rows = Array.isArray(data?.items) ? data.items : [];
+      setItems(applyOverrides(rows));
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
     } catch (e: any) {
@@ -549,9 +581,14 @@ export default function ResponsesPage() {
     setCopied(false);
   }, [selectedId]);
 
+  // restore scroll after selection to prevent “skippy”
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (listScrollYRef.current > 0) window.scrollTo({ top: listScrollYRef.current });
+    if (listScrollYRef.current > 0) {
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: listScrollYRef.current });
+      });
+    }
   }, [selectedId]);
 
   const Pill = ({
@@ -667,141 +704,126 @@ export default function ResponsesPage() {
     );
   };
 
-  // Try to persist status update if your backend route exists (silently ignore if not)
-  const tryPersistStatus = async (id: string, status: InboxStatus) => {
-    if (!organisationId) return;
-    try {
-      const res = await fetch("/api/responses/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organisationId, id, status }),
-      });
-      if (!res.ok) return;
-    } catch {
-      // ignore
-    }
+  const setLocalStatus = (id: string, status: InboxStatus) => {
+    // update in-memory overrides + persist
+    const nextOv: StatusOverrides = {
+      ...(statusOverridesRef.current || {}),
+      [id]: status,
+    };
+    statusOverridesRef.current = nextOv;
+    writeStatusOverrides(nextOv);
+
+    // update visible list immediately
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status } : x)));
   };
 
-  const markRepliedLocal = async (id: string) => {
-    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status: "replied" } : x)));
-    await tryPersistStatus(id, "replied");
-  };
+  async function runAiSuggest() {
+    if (!selected) return;
 
-  const markNeedsReplyLocal = async (id: string) => {
-    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status: "needs_reply" } : x)));
-    await tryPersistStatus(id, "needs_reply");
-  };
+    setAiStatus("Drafting reply…");
+    setCopied(false);
 
- async function runAiSuggest() {
-  if (!selected) return;
-
-  setAiStatus("Drafting reply…");
-  setCopied(false);
-
-  const fallback = draftReplyLocal({
-    platform: selected.platform,
-    authorName: selected.authorName,
-    text: selected.text,
-    postText: selected.postText,
-  });
-
-  // IMPORTANT: capture the item at click-time so we don’t generate against a “moving target”
-  const itemSnapshot = {
-    id: selected.id,
-    platform: selected.platform,
-    kind: selected.kind || "comment",
-    text: selected.text,
-    authorName: selected.authorName || null,
-    authorHandle: selected.authorHandle || null,
-    createdAt: selected.createdAt,
-    postText: selected.postText || null,
-    permalink: selected.permalink || null,
-  };
-
-  const callAi = async () => {
-    const res = await fetch("/api/ai/root-coach", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        context: "responses_public_reply_draft_v2",
-        userAction:
-          "Write ONLY the reply text that I can paste as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
-        outcome: "success",
-        platform: itemSnapshot.platform,
-        item: {
-          kind: itemSnapshot.kind,
-          text: clampText(itemSnapshot.text, 900),
-          authorName: itemSnapshot.authorName,
-          authorHandle: itemSnapshot.authorHandle,
-          createdAt: itemSnapshot.createdAt,
-          postText: itemSnapshot.postText ? clampText(itemSnapshot.postText, 300) : null,
-          permalink: itemSnapshot.permalink,
-        },
-        rules: [
-          "Output ONLY the reply text (no headings, no options, no meta).",
-          "Be warm, concise, respectful.",
-          "No medical claims or diagnosis. No promises or guarantees.",
-          "If distress/urgency is present, suggest seeking local support services.",
-          "Ask at most ONE clarifying question if helpful.",
-          "Keep it suitable for public replies.",
-        ],
-      }),
+    const fallback = draftReplyLocal({
+      platform: selected.platform,
+      authorName: selected.authorName,
+      text: selected.text,
+      postText: selected.postText,
     });
 
-    const data: any = await res.json().catch(() => null);
-    const raw =
-      (typeof data?.coachMessage === "string" && data.coachMessage) ||
-      (typeof data?.message === "string" && data.message) ||
-      (typeof data?.text === "string" && data.text) ||
-      "";
+    const itemSnapshot = {
+      id: selected.id,
+      platform: selected.platform,
+      kind: selected.kind || "comment",
+      text: selected.text,
+      authorName: selected.authorName || null,
+      authorHandle: selected.authorHandle || null,
+      createdAt: selected.createdAt,
+      postText: selected.postText || null,
+      permalink: selected.permalink || null,
+    };
 
-    return { ok: res.ok, raw };
-  };
+    const callAi = async () => {
+      const res = await fetch("/api/ai/root-coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          context: "responses_public_reply_draft_v2",
+          userAction:
+            "Write ONLY the reply text that I can paste as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
+          outcome: "success",
+          platform: itemSnapshot.platform,
+          item: {
+            kind: itemSnapshot.kind,
+            text: clampText(itemSnapshot.text, 900),
+            authorName: itemSnapshot.authorName,
+            authorHandle: itemSnapshot.authorHandle,
+            createdAt: itemSnapshot.createdAt,
+            postText: itemSnapshot.postText ? clampText(itemSnapshot.postText, 300) : null,
+            permalink: itemSnapshot.permalink,
+          },
+          rules: [
+            "Output ONLY the reply text (no headings, no options, no meta).",
+            "Be warm, concise, respectful.",
+            "No medical claims or diagnosis. No promises or guarantees.",
+            "If distress/urgency is present, suggest seeking local support services.",
+            "Ask at most ONE clarifying question if helpful.",
+            "Keep it suitable for public replies.",
+          ],
+        }),
+      });
 
-  try {
-    // Try once
-    const r1 = await callAi();
-    let cleaned1 = sanitizeAiReply(r1.raw);
+      const data: any = await res.json().catch(() => null);
+      const raw =
+        (typeof data?.coachMessage === "string" && data.coachMessage) ||
+        (typeof data?.message === "string" && data.message) ||
+        (typeof data?.text === "string" && data.text) ||
+        "";
 
-    // If it’s system-helper-ish, auto-retry ONCE
-    if (!r1.ok || !cleaned1 || looksLikeSystemHelper(r1.raw)) {
-      const r2 = await callAi();
-      const cleaned2 = sanitizeAiReply(r2.raw);
+      return { ok: res.ok, raw };
+    };
 
-      // use retry if valid
-      if (r2.ok && cleaned2 && !looksLikeSystemHelper(r2.raw) && !isTooGeneric(cleaned2, itemSnapshot.text)) {
-        setReplyDraft(cleaned2);
-        setAiStatus("Draft ready — edit it, then copy/paste.");
-        setTimeout(() => setAiStatus(null), 4200);
+    try {
+      const r1 = await callAi();
+      let cleaned1 = sanitizeAiReply(r1.raw);
+
+      // retry once if drift/helper/generic
+      if (
+        !r1.ok ||
+        !cleaned1 ||
+        looksLikeSystemHelper(r1.raw) ||
+        isTooGeneric(cleaned1, itemSnapshot.text)
+      ) {
+        const r2 = await callAi();
+        const cleaned2 = sanitizeAiReply(r2.raw);
+
+        if (
+          r2.ok &&
+          cleaned2 &&
+          !looksLikeSystemHelper(r2.raw) &&
+          !isTooGeneric(cleaned2, itemSnapshot.text)
+        ) {
+          setReplyDraft(cleaned2);
+          setAiStatus("Draft ready — edit it, then copy/paste.");
+          setTimeout(() => setAiStatus(null), 4200);
+          return;
+        }
+
+        setReplyDraft(fallback);
+        setAiStatus("AI drift detected — using safe fallback. (Edit it if you want.)");
+        setTimeout(() => setAiStatus(null), 5200);
         return;
       }
 
-      // otherwise fallback
+      setReplyDraft(cleaned1);
+      setAiStatus("Draft ready — edit it, then copy/paste.");
+      setTimeout(() => setAiStatus(null), 4200);
+    } catch {
       setReplyDraft(fallback);
-      setAiStatus("AI drift detected — using safe fallback. (Edit it if you want.)");
+      setAiStatus("AI draft failed — using safe fallback. (Edit it if you want.)");
       setTimeout(() => setAiStatus(null), 5200);
-      return;
     }
-
-    // Not helper-ish, but check quality
-    if (isTooGeneric(cleaned1, itemSnapshot.text)) {
-      setReplyDraft(fallback);
-      setAiStatus("AI reply was too generic — using a better safe draft. (Edit it if you want.)");
-      setTimeout(() => setAiStatus(null), 5200);
-      return;
-    }
-
-    setReplyDraft(cleaned1);
-    setAiStatus("Draft ready — edit it, then copy/paste.");
-    setTimeout(() => setAiStatus(null), 4200);
-  } catch {
-    setReplyDraft(fallback);
-    setAiStatus("AI draft failed — using safe fallback. (Edit it if you want.)");
-    setTimeout(() => setAiStatus(null), 5200);
   }
-}
-
 
   const copyDraft = async () => {
     try {
@@ -812,7 +834,8 @@ export default function ResponsesPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
 
-      await markRepliedLocal(selected.id);
+      // ✅ mark replied locally (no backend endpoint required)
+      setLocalStatus(selected.id, "replied");
     } catch {
       setCopied(false);
     }
@@ -866,6 +889,13 @@ export default function ResponsesPage() {
     setReplyDraft("");
     setAiStatus("Cleared draft.");
     setTimeout(() => setAiStatus(null), 1400);
+  };
+
+  const markNeedsReply = () => {
+    if (!selected) return;
+    setLocalStatus(selected.id, "needs_reply");
+    setAiStatus("Marked as needs reply.");
+    setTimeout(() => setAiStatus(null), 1800);
   };
 
   const seedOne = () => {
@@ -1116,7 +1146,6 @@ export default function ResponsesPage() {
                     ) : null}
                   </div>
 
-                  {/* PRIMARY ACTIONS */}
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -1136,7 +1165,6 @@ export default function ResponsesPage() {
                     </button>
                   </div>
 
-                  {/* SAVE / VIEW SAVED */}
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -1161,7 +1189,6 @@ export default function ResponsesPage() {
                     </button>
                   </div>
 
-                  {/* SECONDARY */}
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -1173,12 +1200,7 @@ export default function ResponsesPage() {
 
                     <button
                       type="button"
-                      onClick={() => {
-                        if (!selected) return;
-                        void markNeedsReplyLocal(selected.id);
-                        setAiStatus("Marked as needs reply.");
-                        setTimeout(() => setAiStatus(null), 1800);
-                      }}
+                      onClick={markNeedsReply}
                       className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
                     >
                       Mark needs reply
@@ -1205,15 +1227,14 @@ export default function ResponsesPage() {
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
                 • AI drafts are editable by staff before posting.{"\n"}
-                • Saved drafts are stored locally (browser) for now.{"\n"}
-                • Next step: save drafts to Supabase + audit trail (who saved/posted, when).
+                • Drafts + statuses are stored locally (browser) for now.{"\n"}
+                • Next step: save drafts/status to Supabase + audit trail.
               </div>
             </GlassCard>
           </div>
         </div>
       </div>
 
-      {/* SAVED DRAFTS OVERLAY */}
       {showSaved && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm">
           <div className="mx-auto mt-10 w-[95%] max-w-3xl rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-[0_30px_100px_rgba(0,0,0,0.6)]">
@@ -1241,9 +1262,7 @@ export default function ResponsesPage() {
                   <span className="text-slate-100 font-semibold">{selected.id}</span>
                 </div>
               ) : (
-                <div className="text-xs text-slate-300">
-                  Select an inbox item to view drafts for it.
-                </div>
+                <div className="text-xs text-slate-300">Select an inbox item to view drafts.</div>
               )}
 
               {selected && savedForSelected.length === 0 ? (
@@ -1254,19 +1273,14 @@ export default function ResponsesPage() {
 
               {selected &&
                 savedForSelected.map((d) => (
-                  <div
-                    key={d.id}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-4"
-                  >
+                  <div key={d.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-xs text-slate-300">
                         {safeDate(d.createdAt)} ·{" "}
                         <span className="text-slate-100 font-semibold">
                           {PLATFORM_LABEL[d.platform]}
                         </span>
-                        {d.authorName ? (
-                          <span className="text-slate-400"> · {d.authorName}</span>
-                        ) : null}
+                        {d.authorName ? <span className="text-slate-400"> · {d.authorName}</span> : null}
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -1287,16 +1301,13 @@ export default function ResponsesPage() {
                       </div>
                     </div>
 
-                    <div className="mt-3 text-sm text-slate-100 whitespace-pre-wrap">
-                      {d.text}
-                    </div>
+                    <div className="mt-3 text-sm text-slate-100 whitespace-pre-wrap">{d.text}</div>
                   </div>
                 ))}
             </div>
 
             <div className="mt-5 text-[11px] text-slate-500">
-              Tip: If AI outputs “posting” language again, click <b>Clear draft</b> or load a
-              saved one.
+              Tip: if AI outputs “posting” language again, hit <b>Clear draft</b> and regenerate.
             </div>
           </div>
         </div>
