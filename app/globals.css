@@ -7,3 +7,8 @@ html,
 body {
   height: 100%;
 }
+
+body {
+  background: #020617; /* slate-950 fallback */
+  color: #f8fafc;      /* slate-50 fallback */
+}
