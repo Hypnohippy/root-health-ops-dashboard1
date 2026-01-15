@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 type DashboardLayoutProps = {
   children: React.ReactNode;
 };
+}
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
