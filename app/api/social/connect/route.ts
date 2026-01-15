@@ -2,25 +2,44 @@
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * Single entry point for connecting social accounts.
- * We redirect to your Social Engine connect URL (kept in env for flexibility).
+ * Root Health Ops - Social Connect entrypoint
  *
- * This keeps your UI clean and avoids per-platform OAuth routes (which you don't have yet).
+ * We standardize all connects through our internal start route:
+ *   /api/social/connect/start?provider=facebook|linkedin|instagram|threads|tiktok|google|whatsapp
+ *
+ * This avoids relying on SOCIAL_ENGINE_CONNECT_URL (which can silently point somewhere else).
  */
 export async function GET(req: NextRequest) {
-  const url = process.env.SOCIAL_ENGINE_CONNECT_URL;
+  const { searchParams, origin } = req.nextUrl;
 
-  if (!url) {
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Missing SOCIAL_ENGINE_CONNECT_URL. Add it in Vercel → Project → Settings → Environment Variables.",
-      },
-      { status: 500 }
-    );
+  // If the UI passes a provider, forward to our start route
+  const provider = (searchParams.get("provider") || "").toLowerCase().trim();
+
+  // Allowed providers we support in UI
+  const allowed = new Set([
+    "facebook",
+    "instagram",
+    "linkedin",
+    "threads",
+    "tiktok",
+    "google",
+    "whatsapp",
+  ]);
+
+  // If provider is valid, go to our internal OAuth start
+  if (provider && allowed.has(provider)) {
+    const url = new URL(`${origin}/api/social/connect/start`);
+    url.searchParams.set("provider", provider);
+    return NextResponse.redirect(url, { status: 302 });
   }
 
-  // Optional: if you want to lock this down later, we can add auth here.
-  return NextResponse.redirect(url, { status: 302 });
+  // Backwards compatibility: if you *still* want to use SOCIAL_ENGINE_CONNECT_URL,
+  // only use it when NO provider was provided.
+  const engineUrl = process.env.SOCIAL_ENGINE_CONNECT_URL;
+  if (engineUrl && !provider) {
+    return NextResponse.redirect(engineUrl, { status: 302 });
+  }
+
+  // Default: send user back to the dashboard connect page (no blank JSON pages)
+  return NextResponse.redirect(new URL(`${origin}/dashboard/connect`), { status: 302 });
 }
