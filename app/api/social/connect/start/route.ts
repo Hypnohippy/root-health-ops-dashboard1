@@ -1,50 +1,60 @@
-// app/api/social/connect/start/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-const CONNECT_BASE_URL =
-  process.env.SOCIAL_ENGINE_CONNECT_URL ||
-  process.env.NEXT_PUBLIC_SOCIAL_ENGINE_CONNECT_URL;
-
-const CONNECT_SECRET = process.env.SOCIAL_ENGINE_CONNECT_SECRET;
-
-const ALLOWED = new Set([
-  "instagram",
-  "tiktok",
-  "linkedin",
-  "google",
-  "whatsapp",
-  "threads",
-]);
-
 export async function GET(req: NextRequest) {
-  const provider = (req.nextUrl.searchParams.get("provider") || "").toLowerCase();
+  const provider = req.nextUrl.searchParams.get("provider") || "facebook";
 
-  if (!provider || !ALLOWED.has(provider)) {
+  if (provider !== "facebook") {
     return NextResponse.json(
-      { success: false, error: "Invalid provider" },
+      { error: `Unsupported provider: ${provider}` },
       { status: 400 }
     );
   }
 
-  // Temporary safe behaviour until real OAuth is wired
-  if (!CONNECT_BASE_URL) {
+  const appId = process.env.FACEBOOK_APP_ID;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+
+  if (!appId || !appUrl) {
     return NextResponse.json(
       {
-        success: false,
-        provider,
-        message:
-          "Connection flow not enabled yet. This button is wired correctly but awaits OAuth setup.",
+        error: "Missing FACEBOOK_APP_ID or NEXT_PUBLIC_APP_URL",
+        missing: {
+          FACEBOOK_APP_ID: !appId,
+          NEXT_PUBLIC_APP_URL: !appUrl,
+        },
       },
-      { status: 200 }
+      { status: 500 }
     );
   }
 
-  const url = new URL(CONNECT_BASE_URL);
-  url.searchParams.set("provider", provider);
+  // This MUST match Meta "Valid OAuth Redirect URIs" exactly
+  const redirectUri = `${appUrl}/api/social/connect/callback/facebook`;
 
-  if (CONNECT_SECRET) {
-    url.searchParams.set("secret", CONNECT_SECRET);
-  }
+  // CSRF protection (minimal but effective)
+  const state = crypto.randomUUID();
 
-  return NextResponse.redirect(url.toString(), { status: 302 });
+  const authUrl =
+    "https://www.facebook.com/v24.0/dialog/oauth" +
+    `?client_id=${encodeURIComponent(appId)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&state=${encodeURIComponent(state)}` +
+    `&response_type=code` +
+    // minimal scopes for listing pages + reading engagement + posting
+    `&scope=${encodeURIComponent(
+      ["public_profile", "pages_show_list", "pages_read_engagement", "pages_manage_posts"].join(
+        ","
+      )
+    )}`;
+
+  const res = NextResponse.redirect(authUrl, { status: 302 });
+
+  // Store state in a short-lived cookie
+  res.cookies.set("fb_oauth_state", state, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 10 * 60, // 10 mins
+  });
+
+  return res;
 }
