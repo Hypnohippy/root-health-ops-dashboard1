@@ -1,10 +1,8 @@
-import "./globals.css";
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Optional: sensible defaults */
+/* Optional defaults */
 html,
 body {
   height: 100%;
