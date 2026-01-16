@@ -1,7 +1,6 @@
-// app/connect/page.tsx
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useEffect, useState } from "react";
 
 type ProviderId =
   | "facebook"
@@ -90,50 +89,8 @@ const initialProviders: Provider[] = [
   },
 ];
 
-type SocialAccountRow = {
-  platform: ProviderId;
-  page_id: string | null;
-  page_name: string | null;
-};
-
-function asProviderId(v: string | null): ProviderId | null {
-  const s = String(v || "").toLowerCase().trim();
-  const allowed: ProviderId[] = [
-    "facebook",
-    "instagram",
-    "tiktok",
-    "linkedin",
-    "google",
-    "email",
-    "whatsapp",
-    "threads",
-  ];
-  return allowed.includes(s as ProviderId) ? (s as ProviderId) : null;
-}
-
-function truthyParam(v: string | null): boolean {
-  const s = String(v || "").toLowerCase().trim();
-  return s === "1" || s === "true" || s === "yes" || s === "connected" || s === "success";
-}
-
-export default function ConnectPage() {
-  const [providers, setProviders] = useState<Provider[]>(initialProviders);
-  const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
-
-  // ✅ Org id (resolved from /api/social-accounts)
-  const [organisationId, setOrganisationId] = useState<string | null>(null);
-
-  // Facebook Test Post + Root Coach state
-  const [testMessage, setTestMessage] = useState(
-    "This is a test post from Root Health Ops Dashboard ✅"
-  );
-  const [testIsLoading, setTestIsLoading] = useState(false);
-  const [testStatus, setTestStatus] = useState<string | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
-  const [coachMessage, setCoachMessage] = useState<string | null>(null);
-
-  // ✅ Build connect URLs dynamically once we know org id
- const connectUrls: Record<ProviderId, string> = {
+// ✅ IMPORTANT: Force Facebook to our real OAuth start route
+const connectUrls: Record<ProviderId, string> = {
   facebook: "/api/oauth/facebook/start",
   instagram: "/api/social/connect/start?provider=instagram",
   tiktok: "/api/social/connect/start?provider=tiktok",
@@ -144,427 +101,38 @@ export default function ConnectPage() {
   threads: "/api/social/connect/start?provider=threads",
 };
 
-  }, [organisationId]);
+type SocialAccountRow = {
+  platform: ProviderId;
+  page_id: string | null;
+  page_name: string | null;
+};
 
-  const loadSocialAccounts = async () => {
-    try {
-      const res = await fetch("/api/social-accounts", { method: "GET" });
-      if (!res.ok) return;
+function StatusPill({ status }: { status: ConnectionStatus }) {
+  let text = "";
+  let color = "";
 
-      const data = await res.json().catch(() => null);
-
-      const org =
-        typeof data?.organisationId === "string"
-          ? data.organisationId
-          : typeof data?.organisation_id === "string"
-          ? data.organisation_id
-          : null;
-
-      if (org && !organisationId) setOrganisationId(org);
-
-      const rows: SocialAccountRow[] = data?.socialAccounts ?? [];
-
-      setProviders((prev) =>
-        prev.map((p) => {
-          const row = rows.find((r) => r.platform === p.id);
-          if (!row) {
-            return {
-              ...p,
-              status: "disconnected",
-              accountName: undefined,
-            };
-          }
-
-          return {
-            ...p,
-            status: "connected",
-            accountName: row.page_name ?? p.accountName,
-          };
-        })
-      );
-    } catch (err) {
-      console.error("[connect] failed to load social accounts", err);
-    }
-  };
-
-  const saveSocialAccount = async (
-    providerId: ProviderId,
-    pageId?: string,
-    pageName?: string
-  ) => {
-    try {
-      const res = await fetch("/api/social-accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform: providerId,
-          pageId: pageId ?? null,
-          pageName: pageName ?? null,
-        }),
-      });
-
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        console.error("[connect] saveSocialAccount failed", res.status, t);
-      }
-    } catch (err) {
-      console.error("[connect] failed to save social account", err);
-    }
-  };
-
-  const deleteSocialAccount = async (providerId: ProviderId) => {
-    try {
-      await fetch("/api/social-accounts", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: providerId }),
-      });
-    } catch (err) {
-      console.error("[connect] failed to delete social account", err);
-    }
-  };
-
-  /**
-   * ✅ Handle return from legacy /api/social/connect/start flow.
-   * NOTE: our new OAuth routes (FB/LinkedIn) redirect back without query params,
-   * because they save directly in DB — but this handler is safe to keep.
-   */
-  const handleReturnFromConnectFlow = async () => {
-    try {
-      const url = new URL(window.location.href);
-      const params = url.searchParams;
-
-      const provider =
-        asProviderId(params.get("provider")) ||
-        asProviderId(params.get("platform")) ||
-        asProviderId(params.get("channel"));
-
-      const success =
-        truthyParam(params.get("success")) ||
-        truthyParam(params.get("connected")) ||
-        truthyParam(params.get("ok")) ||
-        truthyParam(params.get("status"));
-
-      const errorParam = params.get("error") || params.get("message");
-
-      if (!provider) return;
-
-      if (errorParam && !success) {
-        alert(`Connect failed for ${provider}:\n\n${errorParam}`);
-        [
-          "provider",
-          "platform",
-          "channel",
-          "success",
-          "connected",
-          "ok",
-          "status",
-          "error",
-          "message",
-          "pageName",
-          "page_name",
-          "accountName",
-          "account_name",
-        ].forEach((k) => params.delete(k));
-        window.history.replaceState(
-          {},
-          "",
-          `${url.pathname}?${params.toString()}`.replace(/\?$/, "")
-        );
-        return;
-      }
-
-      if (success) {
-        const accountName =
-          params.get("pageName") ||
-          params.get("page_name") ||
-          params.get("accountName") ||
-          params.get("account_name") ||
-          undefined;
-
-        setBusyProvider(provider);
-        setProviders((prev) =>
-          prev.map((p) =>
-            p.id === provider
-              ? { ...p, status: "pending", accountName: accountName ?? p.accountName }
-              : p
-          )
-        );
-
-        await saveSocialAccount(provider, undefined, accountName);
-        await loadSocialAccounts();
-
-        [
-          "provider",
-          "platform",
-          "channel",
-          "success",
-          "connected",
-          "ok",
-          "status",
-          "error",
-          "message",
-          "pageName",
-          "page_name",
-          "accountName",
-          "account_name",
-        ].forEach((k) => params.delete(k));
-
-        window.history.replaceState(
-          {},
-          "",
-          `${url.pathname}?${params.toString()}`.replace(/\?$/, "")
-        );
-
-        setBusyProvider(null);
-      }
-    } catch (err) {
-      console.error("[connect] handleReturnFromConnectFlow failed", err);
-    }
-  };
-
-  useEffect(() => {
-    void (async () => {
-      await handleReturnFromConnectFlow();
-      await loadSocialAccounts();
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleConnectClick = (provider: Provider) => {
-    const url = connectUrls[provider.id];
-
-    // If we haven’t loaded org id yet, block OAuth connections cleanly
-    const needsOrgForOauth = provider.id === "facebook" || provider.id === "linkedin";
-    if (needsOrgForOauth && !organisationId) {
-      alert("Workspace is still loading. Please wait 2 seconds and try again.");
-      return;
-    }
-
-    if (!url || url === "#") {
-      alert(
-        `We’ll soon add a one-click auth flow for ${provider.label}.\n\nFor now, use the Facebook Test Post panel below to verify your connection.`
-      );
-      return;
-    }
-
-    setBusyProvider(provider.id);
-
-    setProviders((prev) =>
-      prev.map((p) => (p.id === provider.id ? { ...p, status: "pending" } : p))
-    );
-
-    window.location.href = url;
-  };
-
-  const handleDisconnectClick = (provider: Provider) => {
-    if (!confirm(`Disconnect ${provider.label}? Root Health will stop posting to it.`)) {
-      return;
-    }
-
-    setProviders((prev) =>
-      prev.map((p) =>
-        p.id === provider.id
-          ? { ...p, status: "disconnected", accountName: undefined, lastSync: undefined }
-          : p
-      )
-    );
-
-    void deleteSocialAccount(provider.id);
-  };
-
-  const sendFacebookTestPost = async () => {
-    setTestIsLoading(true);
-    setTestStatus(null);
-    setTestError(null);
-    setCoachMessage(null);
-
-    try {
-      const res = await fetch("/api/facebook-test-post", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: testMessage }),
-      });
-
-      let data: any = null;
-      try {
-        data = await res.json();
-      } catch {
-        throw new Error(
-          "Server did not return valid JSON. Check the /api/facebook-test-post route."
-        );
-      }
-
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to send test post");
-      }
-
-      setTestStatus("Test post sent successfully to Facebook via Make 🎉");
-
-      const now = new Date().toISOString();
-
-      setProviders((prev) =>
-        prev.map((p) =>
-          p.id === "facebook"
-            ? {
-                ...p,
-                status: "connected",
-                lastSync: now,
-                accountName: p.accountName ?? "Your Facebook Page",
-              }
-            : p
-        )
-      );
-
-      await saveSocialAccount("facebook", undefined, "Your Facebook Page");
-      await loadSocialAccounts();
-    } catch (err: any) {
-      const message = err?.message || "Something went wrong sending the test post.";
-      setTestError(message);
-
-      fetch("/api/ai/root-coach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          context: "facebook_test_post",
-          errorMessage: message,
-          userAction: "Clicked Test connection / Facebook Test Post in app/connect/page.tsx",
-        }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data && data.coachMessage) setCoachMessage(data.coachMessage);
-        })
-        .catch(() => {});
-    } finally {
-      setTestIsLoading(false);
-    }
-  };
-
-  const handleTestClick = (provider: Provider) => {
-    if (provider.id === "facebook") {
-      void sendFacebookTestPost();
-      return;
-    }
-
-    alert(`We’ll add a real connection test for ${provider.label} here later.`);
-  };
+  switch (status) {
+    case "connected":
+      text = "Connected";
+      color = "bg-emerald-500/20 text-emerald-200 border-emerald-500/60";
+      break;
+    case "pending":
+      text = "Pending";
+      color = "bg-amber-500/15 text-amber-200 border-amber-500/60";
+      break;
+    default:
+      text = "Not connected";
+      color = "bg-slate-800 text-slate-300 border-slate-600";
+  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-6xl bg-slate-900/70 border border-slate-700 rounded-3xl shadow-xl p-6 md:p-10 backdrop-blur">
-        {/* Header */}
-        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-semibold">Connect your channels</h1>
-            <p className="text-sm text-slate-300 mt-1 max-w-xl">
-              Plug your existing pages and profiles into Root Health. You stay in control — we only
-              post what you approve.
-            </p>
-            <p className="mt-2 text-[11px] text-slate-400">
-              {organisationId ? "Workspace loaded ✅" : "Loading workspace…"}
-            </p>
-          </div>
-          <div className="text-xs text-slate-400 bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 max-w-xs">
-            <p className="font-medium text-slate-200 mb-1">Therapist-friendly, not techy</p>
-            <p>Each connection can be removed at any time. No auto-posting until you approve.</p>
-          </div>
-        </header>
-
-        {/* Quick summary row */}
-        <section className="grid gap-4 md:grid-cols-3 mb-8 text-sm">
-          <SummaryCard
-            label="Connected channels"
-            value={`${providers.filter((p) => p.status === "connected").length} / ${providers.length}`}
-          />
-          <SummaryCard
-            label="Ready for posting"
-            value={
-              providers.filter((p) => p.status === "connected").length > 0
-                ? "Yes — at least one"
-                : "Not yet"
-            }
-          />
-          <SummaryCard label="Next step" value="Connect Facebook / LinkedIn first, then start posting." />
-        </section>
-
-        {/* Providers grid */}
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
-          {providers.map((provider) => (
-            <ProviderCard
-              key={provider.id}
-              provider={provider}
-              busy={busyProvider === provider.id}
-              onConnect={() => handleConnectClick(provider)}
-              onDisconnect={() => handleDisconnectClick(provider)}
-              onTest={() => handleTestClick(provider)}
-            />
-          ))}
-        </section>
-
-        {/* Facebook Test Post panel */}
-        <section className="rounded-2xl border border-emerald-500/30 bg-slate-900/80 p-6 space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <h2 className="text-base md:text-lg font-semibold text-slate-50">Facebook Test Post</h2>
-              <p className="text-[11px] md:text-xs text-slate-400">
-                Sends a live test payload to your Make webhook (
-                <code className="text-[10px] bg-slate-800 px-1 py-0.5 rounded">
-                  FACEBOOK_TEST_WEBHOOK_URL
-                </code>
-                ). Use this to confirm your pipeline is alive end-to-end.
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-[11px] font-medium text-slate-300">Test message content</label>
-            <textarea
-              className="w-full min-h-[100px] rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-              value={testMessage}
-              onChange={(e) => setTestMessage(e.target.value)}
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={sendFacebookTestPost}
-              disabled={testIsLoading || !testMessage.trim()}
-              className="inline-flex items-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
-            >
-              {testIsLoading ? "Sending…" : "Send Facebook Test Post"}
-            </button>
-
-            {testIsLoading && (
-              <span className="text-[11px] text-slate-400">Talking to Make &amp; Facebook…</span>
-            )}
-          </div>
-
-          {testStatus && <div className="mt-2 text-[11px] text-emerald-400">{testStatus}</div>}
-          {testError && <div className="mt-2 text-[11px] text-red-400">{testError}</div>}
-
-          {coachMessage && (
-            <div className="mt-3 rounded-lg border border-sky-500/40 bg-sky-950/40 p-3">
-              <div className="text-[10px] uppercase tracking-wide text-sky-300 mb-1">Root Coach</div>
-              <div className="text-[11px] text-sky-50 whitespace-pre-wrap">{coachMessage}</div>
-            </div>
-          )}
-        </section>
-
-        <footer className="mt-8 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs text-slate-400">
-          <p>
-            Need help connecting something? Your Root Health Ops workspace can be fully guided on a
-            call — no tech knowledge required.
-          </p>
-          <p className="text-slate-500">Tip: Start with Facebook &amp; LinkedIn, then add others.</p>
-        </footer>
-      </div>
-    </div>
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${color}`}
+    >
+      {text}
+    </span>
   );
 }
-
-/* Helper components */
 
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
@@ -593,20 +161,18 @@ function ProviderCard({
 
   return (
     <div className="flex flex-col rounded-2xl border border-slate-700 bg-slate-900/80 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">{provider.label}</span>
-            <StatusPill status={provider.status} />
-          </div>
-          <p className="mt-1 text-xs text-slate-300">{provider.description}</p>
-          {provider.hint && <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>}
-          {provider.accountName && (
-            <p className="mt-2 text-[11px] text-emerald-300">
-              Connected as <span className="font-medium">{provider.accountName}</span>
-            </p>
-          )}
+      <div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">{provider.label}</span>
+          <StatusPill status={provider.status} />
         </div>
+        <p className="mt-1 text-xs text-slate-300">{provider.description}</p>
+        {provider.hint && <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>}
+        {provider.accountName && (
+          <p className="mt-2 text-[11px] text-emerald-300">
+            Connected as <span className="font-medium">{provider.accountName}</span>
+          </p>
+        )}
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -654,31 +220,216 @@ function ProviderCard({
   );
 }
 
-function StatusPill({ status }: { status: ConnectionStatus }) {
-  let text = "";
-  let color = "";
+export default function ConnectPage() {
+  const [providers, setProviders] = useState<Provider[]>(initialProviders);
+  const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
 
-  switch (status) {
-    case "connected":
-      text = "Connected";
-      color = "bg-emerald-500/20 text-emerald-200 border-emerald-500/60";
-      break;
-    case "pending":
-      text = "Pending";
-      color = "bg-amber-500/15 text-amber-200 border-amber-500/60";
-      break;
-    case "disconnected":
-    default:
-      text = "Not connected";
-      color = "bg-slate-800 text-slate-300 border-slate-600";
-      break;
-  }
+  // Facebook Test Post + Root Coach state (kept from your existing UI)
+  const [testMessage, setTestMessage] = useState(
+    "This is a test post from Root Health Ops Dashboard ✅"
+  );
+  const [testIsLoading, setTestIsLoading] = useState(false);
+  const [testStatus, setTestStatus] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [coachMessage, setCoachMessage] = useState<string | null>(null);
+
+  const loadSocialAccounts = async () => {
+    try {
+      const res = await fetch("/api/social-accounts");
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const rows: SocialAccountRow[] = data.socialAccounts ?? [];
+
+      setProviders((prev) =>
+        prev.map((p) => {
+          const row = rows.find((r) => r.platform === p.id);
+          if (!row) {
+            return { ...p, status: "disconnected", accountName: undefined };
+          }
+          return {
+            ...p,
+            status: "connected",
+            accountName: row.page_name ?? p.accountName,
+          };
+        })
+      );
+    } catch (err) {
+      console.error("[connect] failed to load social accounts", err);
+    }
+  };
+
+  useEffect(() => {
+    void loadSocialAccounts();
+  }, []);
+
+  const deleteSocialAccount = async (providerId: ProviderId) => {
+    try {
+      await fetch("/api/social-accounts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: providerId }),
+      });
+    } catch (err) {
+      console.error("[connect] failed to delete social account", err);
+    }
+  };
+
+  const handleConnectClick = (provider: Provider) => {
+    const url = connectUrls[provider.id];
+
+    if (!url || url === "#") {
+      alert(`Connect for ${provider.label} isn’t wired yet.`);
+      return;
+    }
+
+    setBusyProvider(provider.id);
+
+    // UX
+    setProviders((prev) => prev.map((p) => (p.id === provider.id ? { ...p, status: "pending" } : p)));
+
+    window.location.href = url;
+  };
+
+  const handleDisconnectClick = (provider: Provider) => {
+    if (!confirm(`Disconnect ${provider.label}? Root Health will stop posting to it.`)) return;
+
+    setProviders((prev) =>
+      prev.map((p) =>
+        p.id === provider.id
+          ? { ...p, status: "disconnected", accountName: undefined, lastSync: undefined }
+          : p
+      )
+    );
+
+    void deleteSocialAccount(provider.id);
+  };
+
+  const sendFacebookTestPost = async () => {
+    setTestIsLoading(true);
+    setTestStatus(null);
+    setTestError(null);
+    setCoachMessage(null);
+
+    try {
+      const res = await fetch("/api/facebook-test-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: testMessage }),
+      });
+
+      const data: any = await res.json().catch(() => null);
+
+      if (!res.ok) throw new Error(data?.error || "Failed to send test post");
+
+      setTestStatus("Test post sent successfully 🎉");
+      await loadSocialAccounts();
+    } catch (err: any) {
+      const message = err?.message || "Something went wrong sending the test post.";
+      setTestError(message);
+
+      fetch("/api/ai/root-coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          context: "facebook_test_post",
+          errorMessage: message,
+          userAction: "Clicked Facebook Test Post in app/connect/page.tsx",
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => d?.coachMessage && setCoachMessage(d.coachMessage))
+        .catch(() => {});
+    } finally {
+      setTestIsLoading(false);
+    }
+  };
+
+  const handleTestClick = (provider: Provider) => {
+    if (provider.id === "facebook") {
+      void sendFacebookTestPost();
+      return;
+    }
+    alert(`We’ll add a real connection test for ${provider.label} later.`);
+  };
 
   return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${color}`}
-    >
-      {text}
-    </span>
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-6xl bg-slate-900/70 border border-slate-700 rounded-3xl shadow-xl p-6 md:p-10 backdrop-blur">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-semibold">Connect your channels</h1>
+            <p className="text-sm text-slate-300 mt-1 max-w-xl">
+              Plug your existing pages and profiles into Root Health. You stay in control — we only
+              post what you approve.
+            </p>
+          </div>
+        </header>
+
+        <section className="grid gap-4 md:grid-cols-3 mb-8 text-sm">
+          <SummaryCard
+            label="Connected channels"
+            value={`${providers.filter((p) => p.status === "connected").length} / ${providers.length}`}
+          />
+          <SummaryCard
+            label="Ready for posting"
+            value={providers.some((p) => p.status === "connected") ? "Yes" : "Not yet"}
+          />
+          <SummaryCard label="Next step" value="Connect Facebook first, then pick your Page." />
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
+          {providers.map((provider) => (
+            <ProviderCard
+              key={provider.id}
+              provider={provider}
+              busy={busyProvider === provider.id}
+              onConnect={() => handleConnectClick(provider)}
+              onDisconnect={() => handleDisconnectClick(provider)}
+              onTest={() => handleTestClick(provider)}
+            />
+          ))}
+        </section>
+
+        <section className="rounded-2xl border border-emerald-500/30 bg-slate-900/80 p-6 space-y-4">
+          <div>
+            <h2 className="text-base md:text-lg font-semibold text-slate-50">Facebook Test Post</h2>
+            <p className="text-[11px] md:text-xs text-slate-400">
+              Sends a live test payload to your existing pipeline.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-[11px] font-medium text-slate-300">Test message content</label>
+            <textarea
+              className="w-full min-h-[100px] rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+              value={testMessage}
+              onChange={(e) => setTestMessage(e.target.value)}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={sendFacebookTestPost}
+              disabled={testIsLoading || !testMessage.trim()}
+              className="inline-flex items-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+            >
+              {testIsLoading ? "Sending…" : "Send Facebook Test Post"}
+            </button>
+          </div>
+
+          {testStatus && <div className="mt-2 text-[11px] text-emerald-400">{testStatus}</div>}
+          {testError && <div className="mt-2 text-[11px] text-red-400">{testError}</div>}
+
+          {coachMessage && (
+            <div className="mt-3 rounded-lg border border-sky-500/40 bg-sky-950/40 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-sky-300 mb-1">Root Coach</div>
+              <div className="text-[11px] text-sky-50 whitespace-pre-wrap">{coachMessage}</div>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
   );
 }
