@@ -1,258 +1,172 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 
-type FbPage = {
-  id: string;
-  name: string;
-  access_token?: string; // returned by /me/accounts
-};
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function base64UrlToJson(s: string): any | null {
+function safeDecodeState(state?: string) {
+  if (!state) return null;
   try {
-    // base64url -> base64
-    const pad = "=".repeat((4 - (s.length % 4)) % 4);
-    const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + pad;
-    const json = atob(b64);
-    return JSON.parse(json);
+    // try base64 JSON
+    const decoded = atob(state);
+    return JSON.parse(decoded);
   } catch {
-    return null;
-  }
-}
-
-function readTokenFromBrowser(): string {
-  if (typeof window === "undefined") return "";
-
-  // token should be in querystring
-  const url = new URL(window.location.href);
-  const qToken = url.searchParams.get("token") || url.searchParams.get("access_token");
-  if (qToken) return qToken;
-
-  // fallback: sometimes people mistakenly put params in hash
-  const hash = (url.hash || "").replace(/^#/, "");
-  if (hash) {
-    const hp = new URLSearchParams(hash);
-    const hToken = hp.get("token") || hp.get("access_token");
-    if (hToken) return hToken;
-  }
-
-  return "";
-}
-
-export default function PickFacebookPageClient({
-  token,
-  state,
-}: {
-  token?: string;
-  state?: string;
-}) {
-  const resolvedToken = useMemo(() => {
-    const t = (token || "").trim();
-    if (t) return t;
-    return readTokenFromBrowser();
-  }, [token]);
-
-  const decodedState = useMemo(() => {
-    const s = (state || "").trim();
-    if (!s) return null;
-    return base64UrlToJson(s);
-  }, [state]);
-
-  const organisationId: string | null =
-    typeof decodedState?.organisationId === "string" ? decodedState.organisationId : null;
-
-  const [loading, setLoading] = useState(false);
-  const [pages, setPages] = useState<FbPage[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [pickedId, setPickedId] = useState<string>("");
-
-  const debug = useMemo(() => {
-    if (typeof window === "undefined") return null;
-    const u = new URL(window.location.href);
-    return {
-      href: window.location.href,
-      search: u.search,
-      hash: u.hash,
-      tokenPropLength: (token || "").length,
-      tokenResolvedLength: resolvedToken.length,
-      hasOrganisationId: Boolean(organisationId),
-    };
-  }, [token, resolvedToken, organisationId]);
-
-  async function loadPages() {
-    setLoading(true);
-    setError(null);
-
     try {
-      const t = (resolvedToken || "").trim();
-      if (!t) {
-        setError("Missing token. Please go back and click Connect again.");
-        setPages([]);
-        return;
-      }
-
-      const res = await fetch(
-        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(
-          t
-        )}`,
-        { cache: "no-store" }
-      );
-
-      const json: any = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        setError(
-          `Could not load Facebook Pages. (${res.status})\n` +
-            (json?.error?.message ? json.error.message : "Unknown error")
-        );
-        setPages([]);
-        return;
-      }
-
-      const list: FbPage[] = Array.isArray(json?.data) ? json.data : [];
-      setPages(list);
-
-      // auto-select if exactly one
-      if (list.length === 1 && list[0]?.id) setPickedId(list[0].id);
-
-      if (list.length === 0) {
-        setError(
-          "No Pages returned.\n\nIf you don’t see the right Page:\n" +
-            "• Make sure you logged into the correct Facebook account\n" +
-            "• Make sure you have Page access (Full control / Admin)\n" +
-            "• Try reconnecting and re-approving permissions"
-        );
-      }
-    } catch (e: any) {
-      setError(e?.message || "Failed to load Pages.");
-      setPages([]);
-    } finally {
-      setLoading(false);
+      // try raw JSON
+      return JSON.parse(state);
+    } catch {
+      return null;
     }
   }
+}
 
-  async function saveSelection() {
-    setError(null);
+export default function PickFacebookPagePage() {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+  const [manualPageId, setManualPageId] = useState("");
+
+  const href = typeof window !== "undefined" ? window.location.href : "";
+  const url = useMemo(() => {
+    if (typeof window === "undefined") return null;
     try {
-      const picked = pages.find((p) => p.id === pickedId);
-      if (!picked) {
-        setError("Please select a Page first.");
-        return;
-      }
+      return new URL(window.location.href);
+    } catch {
+      return null;
+    }
+  }, [href]);
 
-      // Save to your existing social_accounts route
-      // NOTE: your table currently does NOT include a token column.
-      // For now we store page_id + page_name only (this fixes “wrong page”).
-      const res = await fetch("/api/social-accounts", {
+  const tokenResolved = (url?.searchParams.get("token") || "").trim();
+  const state = (url?.searchParams.get("state") || "").trim();
+  const decodedState = useMemo(() => safeDecodeState(state), [state]);
+  const organisationId =
+    (decodedState && (decodedState.organisationId || decodedState.organisation_id)) || null;
+
+  // ✅ Your known FB Page
+  const FUELGEIST_PAGE_ID = "101868201852363";
+
+  const connectPage = async (pageId: string) => {
+    setErr(null);
+    setOkMsg(null);
+
+    const pid = (pageId || "").trim();
+    if (!pid) {
+      setErr("Missing Page ID.");
+      return;
+    }
+    if (!tokenResolved) {
+      setErr("Missing token. Please go back and click Connect again.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await fetch("/api/oauth/facebook/connect-page", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          organisationId: organisationId || undefined,
-          platform: "facebook",
-          pageId: picked.id,
-          pageName: picked.name,
-          // If later you add a secure token field/table, we can store picked.access_token then.
+          token: tokenResolved,
+          pageId: pid,
+          organisationId,
         }),
       });
 
-      const out: any = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(out?.error || `Failed to save Page (HTTP ${res.status}).`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.error || "Failed to connect page");
       }
 
-      // Send user back to Connect with a friendly success flag
-      const back = new URL("/connect", window.location.origin);
-      back.searchParams.set("provider", "facebook");
-      back.searchParams.set("success", "true");
-      back.searchParams.set("pageName", picked.name);
-      window.location.href = back.toString();
-    } catch (e: any) {
-      setError(e?.message || "Failed to save selection.");
-    }
-  }
+      setOkMsg(`Connected: ${data?.pageName || "Facebook Page"} ✅`);
 
-  useEffect(() => {
-    void loadPages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      setTimeout(() => {
+        window.location.href = "/dashboard/connect?provider=facebook&success=1";
+      }, 700);
+    } catch (e: any) {
+      setErr(e?.message || "Failed to connect page");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
-      <div className="mx-auto w-full max-w-3xl rounded-3xl border border-white/10 bg-white/5 p-6 shadow-[0_30px_100px_rgba(0,0,0,0.55)] backdrop-blur">
+    <div className="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-black/30 backdrop-blur-xl p-6 shadow-xl">
         <h1 className="text-2xl font-semibold">Pick your Facebook Page</h1>
         <p className="mt-2 text-sm text-slate-300">
           Select which Page Root Health Ops should connect to.
         </p>
 
-        {error && (
-          <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/40 p-4 text-sm text-red-200 whitespace-pre-wrap">
-            {error}
+        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+          <div className="text-sm font-medium">Quick connect</div>
+          <p className="mt-1 text-xs text-slate-400">
+            This connects your known Page directly (no page list required).
+          </p>
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => connectPage(FUELGEIST_PAGE_ID)}
+            className="mt-3 inline-flex items-center rounded-xl bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300 disabled:opacity-60"
+          >
+            {busy ? "Connecting…" : "Connect Fuel Geist Ltd"}
+          </button>
+
+          <div className="mt-2 text-[11px] text-slate-500">
+            Page ID: <span className="font-mono">{FUELGEIST_PAGE_ID}</span>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+          <div className="text-sm font-medium">Manual Page ID</div>
+          <p className="mt-1 text-xs text-slate-400">
+            Use this when connecting other customers later.
+          </p>
+
+          <div className="mt-3 flex gap-2">
+            <input
+              value={manualPageId}
+              onChange={(e) => setManualPageId(e.target.value)}
+              placeholder="Enter Page ID…"
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+            />
+            <button
+              type="button"
+              disabled={busy || !manualPageId.trim()}
+              onClick={() => connectPage(manualPageId)}
+              className="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-400/20 disabled:opacity-60"
+            >
+              Connect
+            </button>
+          </div>
+        </div>
+
+        {okMsg && (
+          <div className="mt-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+            {okMsg}
           </div>
         )}
 
-        <div className="mt-4 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={loadPages}
-            disabled={loading}
-            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold hover:bg-white/10 disabled:opacity-60"
-          >
-            {loading ? "Loading…" : "Reload Pages"}
-          </button>
+        {err && (
+          <div className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+            {err}
+          </div>
+        )}
 
-          <button
-            type="button"
-            onClick={() => {
-              // hard refresh without changing anything
-              window.location.reload();
-            }}
-            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold hover:bg-white/10"
-          >
-            Refresh page
-          </button>
-        </div>
-
-        <div className="mt-6 space-y-3">
-          {pages.map((p) => (
-            <label
-              key={p.id}
-              className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 hover:bg-white/5 cursor-pointer"
-            >
-              <input
-                type="radio"
-                name="fbpage"
-                value={p.id}
-                checked={pickedId === p.id}
-                onChange={() => setPickedId(p.id)}
-              />
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-100 truncate">{p.name}</div>
-                <div className="text-xs text-slate-400 truncate">{p.id}</div>
-              </div>
-            </label>
-          ))}
-
-          {pages.length > 0 && (
-            <button
-              type="button"
-              onClick={saveSelection}
-              className="mt-2 w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
-            >
-              Use this Page
-            </button>
-          )}
-        </div>
-
-        {/* Debug panel (super helpful right now) */}
-        <details className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
-          <summary className="cursor-pointer text-xs font-semibold text-slate-200">
+        <details className="mt-6 rounded-2xl border border-white/10 bg-black/10 p-4">
+          <summary className="cursor-pointer text-sm text-slate-300">
             Debug (click to expand)
           </summary>
-          <pre className="mt-3 text-[11px] text-slate-300 whitespace-pre-wrap break-words">
-            {JSON.stringify(debug, null, 2)}
-          </pre>
-          <pre className="mt-3 text-[11px] text-slate-300 whitespace-pre-wrap break-words">
-            decodedState: {JSON.stringify(decodedState, null, 2)}
+          <pre className="mt-3 text-[11px] text-slate-400 whitespace-pre-wrap">
+{JSON.stringify(
+  {
+    href,
+    tokenResolvedLength: tokenResolved.length,
+    hasOrganisationId: !!organisationId,
+  },
+  null,
+  2
+)}
           </pre>
         </details>
       </div>
