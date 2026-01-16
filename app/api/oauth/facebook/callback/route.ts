@@ -8,12 +8,17 @@ const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || "";
 const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET || "";
 
 function baseUrl(req: NextRequest) {
-  // Prefer env; fallback to request origin
   try {
     return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
   } catch {
     return APP_URL ? APP_URL.replace(/\/$/, "") : "";
   }
+}
+
+async function fetchJson(url: string) {
+  const res = await fetch(url, { method: "GET", cache: "no-store" });
+  const json: any = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json };
 }
 
 export async function GET(req: NextRequest) {
@@ -25,15 +30,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const errorFromFb = req.nextUrl.searchParams.get("error");
-    const errorDesc = req.nextUrl.searchParams.get("error_description");
-    if (errorFromFb) {
-      return NextResponse.json(
-        { error: "Facebook returned an error", details: { errorFromFb, errorDesc } },
-        { status: 400 }
-      );
-    }
-
     const code = req.nextUrl.searchParams.get("code") || "";
     const state = req.nextUrl.searchParams.get("state") || "";
 
@@ -41,39 +37,47 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing code" }, { status: 400 });
     }
 
-    // ✅ CRITICAL: must match the redirect_uri Facebook actually used for THIS callback request
-    const redirectUri = `${baseUrl(req)}${req.nextUrl.pathname}`;
+    const redirectUri = `${baseUrl(req)}/api/oauth/facebook/callback`;
 
-    // Exchange code for user access token
-    const tokenRes = await fetch(
+    // 1) Exchange code -> SHORT-LIVED user access token
+    const shortUrl =
       "https://graph.facebook.com/v19.0/oauth/access_token?" +
-        new URLSearchParams({
-          client_id: FACEBOOK_APP_ID,
-          client_secret: FACEBOOK_APP_SECRET,
-          redirect_uri: redirectUri,
-          code,
-        }).toString(),
-      { method: "GET", cache: "no-store" }
-    );
+      new URLSearchParams({
+        client_id: FACEBOOK_APP_ID,
+        client_secret: FACEBOOK_APP_SECRET,
+        redirect_uri: redirectUri,
+        code,
+      }).toString();
 
-    const tokenJson: any = await tokenRes.json().catch(() => null);
+    const shortTok = await fetchJson(shortUrl);
 
-    if (!tokenRes.ok || !tokenJson?.access_token) {
+    if (!shortTok.ok || !shortTok.json?.access_token) {
       return NextResponse.json(
-        {
-          error: "Token exchange failed",
-          used_redirect_uri: redirectUri,
-          details: tokenJson,
-        },
+        { error: "Token exchange failed", details: shortTok.json },
         { status: 400 }
       );
     }
 
-    const accessToken = String(tokenJson.access_token);
+    const shortUserToken = String(shortTok.json.access_token);
 
-    // Redirect to picker WITH token + state
+    // 2) Exchange SHORT -> LONG-LIVED user access token (about 60 days)
+    const longUrl =
+      "https://graph.facebook.com/v19.0/oauth/access_token?" +
+      new URLSearchParams({
+        grant_type: "fb_exchange_token",
+        client_id: FACEBOOK_APP_ID,
+        client_secret: FACEBOOK_APP_SECRET,
+        fb_exchange_token: shortUserToken,
+      }).toString();
+
+    const longTok = await fetchJson(longUrl);
+
+    // If this fails, fall back to short token rather than breaking flow
+    const userToken = String(longTok.json?.access_token || shortUserToken);
+
+    // Redirect to picker with token + state
     const pickUrl = new URL(`${baseUrl(req)}/oauth/facebook/pick-page`);
-    pickUrl.searchParams.set("token", accessToken);
+    pickUrl.searchParams.set("token", userToken);
     if (state) pickUrl.searchParams.set("state", state);
 
     return NextResponse.redirect(pickUrl.toString(), { status: 302 });
