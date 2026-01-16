@@ -1,15 +1,22 @@
 // app/api/oauth/facebook/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-function base64UrlDecode(input: string) {
-  const b64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
-  return Buffer.from(b64 + pad, "base64").toString("utf8");
+export const runtime = "nodejs"; // ✅ ensure Buffer/Node APIs are allowed
+
+function base64UrlDecodeToJson(input: string) {
+  try {
+    const b64 = input.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
+    const str = atob(b64 + pad); // ✅ works in Node runtime too
+    return JSON.parse(str);
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
     const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || "";
     const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET || "";
 
@@ -37,10 +44,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing code" }, { status: 400 });
     }
 
-    const appUrlClean = appUrl.replace(/\/$/, "");
-    const redirectUri = `${appUrlClean}/api/oauth/facebook/callback`;
+    // Optional: validate-ish state (won’t hard fail)
+    if (state) base64UrlDecodeToJson(state);
 
-    // 1) Exchange code -> short-lived user access token
+    const redirectUri = `${appUrl}/api/oauth/facebook/callback`;
+
+    // Exchange code -> user access token
     const tokenRes = await fetch(
       `https://graph.facebook.com/v19.0/oauth/access_token?` +
         new URLSearchParams({
@@ -69,20 +78,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // (Optional safety) decode state to make sure it's valid-ish
-    if (state) {
-      try {
-        const decoded = JSON.parse(base64UrlDecode(state));
-        // no-op: we just ensure it is parseable
-        void decoded;
-      } catch {
-        // ignore: we won't hard-fail on state parsing
-      }
-    }
-
-    // 2) Redirect to picker UI so YOU choose the correct Page (not Wellbeing Cafe)
+    // Redirect to picker UI
     const pickerUrl =
-      `${appUrlClean}/oauth/facebook/pick-page` +
+      `${appUrl}/oauth/facebook/pick-page` +
       `?token=${encodeURIComponent(userToken)}` +
       `&state=${encodeURIComponent(state)}`;
 
