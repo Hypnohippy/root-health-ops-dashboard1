@@ -1,6 +1,32 @@
+// app/api/social-accounts/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomUUID } from "crypto";
+
+type ProviderId =
+  | "facebook"
+  | "instagram"
+  | "tiktok"
+  | "linkedin"
+  | "google"
+  | "email"
+  | "whatsapp"
+  | "threads";
+
+function asProviderId(v: any): ProviderId | null {
+  const s = String(v || "").toLowerCase().trim();
+  const allowed: ProviderId[] = [
+    "facebook",
+    "instagram",
+    "tiktok",
+    "linkedin",
+    "google",
+    "email",
+    "whatsapp",
+    "threads",
+  ];
+  return allowed.includes(s as ProviderId) ? (s as ProviderId) : null;
+}
 
 // Single-tenant beta mode: use the first organisation row as "the current org".
 async function getSingleTenantOrganisationId() {
@@ -33,9 +59,8 @@ async function resolveOrganisationId(req: Request) {
     const orgFromQuery = url.searchParams.get("organisationId");
     if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
   } catch {
-    // ignore URL parse issues (shouldn't happen)
+    // ignore
   }
-
   return await getSingleTenantOrganisationId();
 }
 
@@ -53,8 +78,11 @@ export async function GET(req: Request) {
 
     const { data, error } = await supabaseAdmin
       .from("social_accounts")
-      .select("*")
-      .eq("organisation_id", organisationId);
+      .select(
+        "id, organisation_id, platform, page_id, page_name, connection_type, make_webhook_url, is_active, created_at"
+      )
+      .eq("organisation_id", organisationId)
+      .order("created_at", { ascending: true });
 
     if (error) {
       console.error("[social-accounts] GET error", error);
@@ -78,9 +106,36 @@ export async function GET(req: Request) {
 }
 
 // POST /api/social-accounts?organisationId=...
+// Body:
+// {
+//   platform: "facebook" | ...,
+//   pageId?: string,
+//   pageName?: string,
+//   connectionType?: string,         // e.g. "oauth" | "make" | "manual"
+//   makeWebhookUrl?: string | null,
+//   isActive?: boolean
+// }
 export async function POST(req: Request) {
   try {
-    const { platform, pageId, pageName } = await req.json();
+    const body = await req.json().catch(() => ({}));
+
+    const platform = asProviderId(body?.platform);
+    const pageId = typeof body?.pageId === "string" ? body.pageId.trim() : "";
+    const pageName =
+      typeof body?.pageName === "string" ? body.pageName.trim() : null;
+
+    const connectionType =
+      typeof body?.connectionType === "string" && body.connectionType.trim()
+        ? body.connectionType.trim()
+        : "manual";
+
+    const makeWebhookUrl =
+      typeof body?.makeWebhookUrl === "string" && body.makeWebhookUrl.trim()
+        ? body.makeWebhookUrl.trim()
+        : null;
+
+    const isActive =
+      typeof body?.isActive === "boolean" ? body.isActive : true;
 
     if (!platform) {
       return NextResponse.json(
@@ -98,6 +153,11 @@ export async function POST(req: Request) {
       );
     }
 
+    // ✅ If inserting a brand new row, require a real pageId.
+    // (This avoids the old 'pending_page_id' hack.)
+    // You CAN still update page_name / is_active without a pageId later.
+    const hasRealPageId = pageId.length > 0;
+
     // See if we already have a row for this org + platform
     const { data: existingRows, error: existingError } = await supabaseAdmin
       .from("social_accounts")
@@ -110,18 +170,21 @@ export async function POST(req: Request) {
       console.error("[social-accounts] lookup error", existingError);
     }
 
-    let result;
+    let result: any = null;
 
     if (existingRows && existingRows.length > 0) {
       // UPDATE path
       const id = existingRows[0].id;
 
-      // Respect NOT NULL on page_id:
       const updatePayload: any = {
-        page_name: pageName ?? null,
+        page_name: pageName,
+        connection_type: connectionType,
+        make_webhook_url: makeWebhookUrl,
+        is_active: isActive,
       };
 
-      if (typeof pageId === "string" && pageId.trim().length > 0) {
+      // Only update page_id if provided
+      if (hasRealPageId) {
         updatePayload.page_id = pageId;
       }
 
@@ -129,7 +192,9 @@ export async function POST(req: Request) {
         .from("social_accounts")
         .update(updatePayload)
         .eq("id", id)
-        .select()
+        .select(
+          "id, organisation_id, platform, page_id, page_name, connection_type, make_webhook_url, is_active, created_at"
+        )
         .single();
 
       if (error) {
@@ -143,13 +208,17 @@ export async function POST(req: Request) {
       result = data;
     } else {
       // INSERT path
-      const newId = randomUUID();
+      if (!hasRealPageId) {
+        return NextResponse.json(
+          {
+            error:
+              "pageId is required the first time you connect a platform (insert).",
+          },
+          { status: 400 }
+        );
+      }
 
-      // Respect NOT NULL on page_id:
-      const safePageId =
-        (typeof pageId === "string" && pageId.trim().length > 0
-          ? pageId
-          : "pending_page_id") + "";
+      const newId = randomUUID();
 
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
@@ -157,10 +226,15 @@ export async function POST(req: Request) {
           id: newId,
           organisation_id: organisationId,
           platform,
-          page_id: safePageId, // NOT NULL
-          page_name: pageName ?? null,
+          page_id: pageId,
+          page_name: pageName,
+          connection_type: connectionType,
+          make_webhook_url: makeWebhookUrl,
+          is_active: isActive,
         })
-        .select()
+        .select(
+          "id, organisation_id, platform, page_id, page_name, connection_type, make_webhook_url, is_active, created_at"
+        )
         .single();
 
       if (error) {
@@ -190,7 +264,8 @@ export async function POST(req: Request) {
 // DELETE /api/social-accounts?organisationId=...
 export async function DELETE(req: Request) {
   try {
-    const { platform } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const platform = asProviderId(body?.platform);
 
     if (!platform) {
       return NextResponse.json(
