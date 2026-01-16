@@ -1,46 +1,36 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
+export const runtime = "nodejs";
 
-  const appId = process.env.FACEBOOK_APP_ID;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
+const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || "";
 
-  if (!appId || !appUrl) {
-    return NextResponse.json(
-      { error: "Missing FACEBOOK_APP_ID or NEXT_PUBLIC_APP_URL" },
-      { status: 500 }
-    );
+function baseUrl(req: NextRequest) {
+  try {
+    return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
+  } catch {
+    return APP_URL ? APP_URL.replace(/\/$/, "") : "";
+  }
+}
+
+export async function GET(req: NextRequest) {
+  if (!FACEBOOK_APP_ID) {
+    return NextResponse.json({ error: "Missing FACEBOOK_APP_ID" }, { status: 400 });
   }
 
-  const organisationId = url.searchParams.get("organisationId") || "";
-  if (!organisationId) {
-    return NextResponse.json({ error: "Missing organisationId" }, { status: 400 });
-  }
+  const redirectUri = `${baseUrl(req)}/api/oauth/facebook/callback`;
 
-  const redirectUri = `${appUrl.replace(/\/$/, "")}/api/oauth/facebook/callback`;
+  // You can add more later, but keep it minimal for now
+  const scope = ["pages_show_list", "pages_read_engagement", "pages_manage_posts"].join(",");
 
-  // Common Page permissions (your app may require review/approval for these)
-  const scope = [
-    "pages_show_list",
-    "pages_read_engagement",
-    "pages_manage_posts",
-  ].join(",");
+  const oauthUrl =
+    "https://www.facebook.com/v19.0/dialog/oauth?" +
+    new URLSearchParams({
+      client_id: FACEBOOK_APP_ID,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope,
+    }).toString();
 
-  const statePayload = {
-    organisationId,
-    nonce: crypto.randomUUID(),
-    t: Date.now(),
-  };
-
-  const state = Buffer.from(JSON.stringify(statePayload)).toString("base64url");
-
-  const authUrl = new URL("https://www.facebook.com/v19.0/dialog/oauth");
-  authUrl.searchParams.set("client_id", appId);
-  authUrl.searchParams.set("redirect_uri", redirectUri);
-  authUrl.searchParams.set("state", state);
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("scope", scope);
-
-  return NextResponse.redirect(authUrl.toString());
+  return NextResponse.redirect(oauthUrl, { status: 302 });
 }
