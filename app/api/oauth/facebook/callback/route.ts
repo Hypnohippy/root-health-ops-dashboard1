@@ -1,61 +1,46 @@
 // app/api/oauth/facebook/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-export const runtime = "nodejs"; // ✅ ensure Buffer/Node APIs are allowed
+export const runtime = "nodejs";
 
-function base64UrlDecodeToJson(input: string) {
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
+const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || "";
+const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET || "";
+
+function baseUrl(req: NextRequest) {
+  // Prefer env; fallback to request origin
   try {
-    const b64 = input.replace(/-/g, "+").replace(/_/g, "/");
-    const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
-    const str = atob(b64 + pad); // ✅ works in Node runtime too
-    return JSON.parse(str);
+    return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
   } catch {
-    return null;
+    return APP_URL ? APP_URL.replace(/\/$/, "") : "";
   }
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
-    const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || "";
-    const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET || "";
-
-    if (!appUrl || !FACEBOOK_APP_ID || !FACEBOOK_APP_SECRET) {
+    if (!FACEBOOK_APP_ID || !FACEBOOK_APP_SECRET) {
       return NextResponse.json(
-        { error: "Missing NEXT_PUBLIC_APP_URL or FACEBOOK_APP_ID or FACEBOOK_APP_SECRET" },
-        { status: 500 }
-      );
-    }
-
-    const url = req.nextUrl;
-    const code = url.searchParams.get("code") || "";
-    const state = url.searchParams.get("state") || "";
-    const error = url.searchParams.get("error") || "";
-    const errorDesc = url.searchParams.get("error_description") || "";
-
-    if (error) {
-      return NextResponse.json(
-        { error: `Facebook OAuth error: ${error}`, details: errorDesc || null },
+        { error: "Missing FACEBOOK_APP_ID or FACEBOOK_APP_SECRET" },
         { status: 400 }
       );
     }
+
+    const code = req.nextUrl.searchParams.get("code") || "";
+    const state = req.nextUrl.searchParams.get("state") || "";
 
     if (!code) {
       return NextResponse.json({ error: "Missing code" }, { status: 400 });
     }
 
-    // Optional: validate-ish state (won’t hard fail)
-    if (state) base64UrlDecodeToJson(state);
+    const redirectUri = `${baseUrl(req)}/api/oauth/facebook/callback`;
 
-    const redirectUri = `${appUrl}/api/oauth/facebook/callback`;
-
-    // Exchange code -> user access token
+    // Exchange code for user access token
     const tokenRes = await fetch(
-      `https://graph.facebook.com/v19.0/oauth/access_token?` +
+      "https://graph.facebook.com/v19.0/oauth/access_token?" +
         new URLSearchParams({
           client_id: FACEBOOK_APP_ID,
-          redirect_uri: redirectUri,
           client_secret: FACEBOOK_APP_SECRET,
+          redirect_uri: redirectUri,
           code,
         }).toString(),
       { method: "GET", cache: "no-store" }
@@ -63,31 +48,24 @@ export async function GET(req: NextRequest) {
 
     const tokenJson: any = await tokenRes.json().catch(() => null);
 
-    if (!tokenRes.ok) {
+    if (!tokenRes.ok || !tokenJson?.access_token) {
       return NextResponse.json(
         { error: "Token exchange failed", details: tokenJson },
         { status: 400 }
       );
     }
 
-    const userToken = String(tokenJson?.access_token || "");
-    if (!userToken) {
-      return NextResponse.json(
-        { error: "Token exchange returned no access_token", details: tokenJson },
-        { status: 400 }
-      );
-    }
+    const accessToken = String(tokenJson.access_token);
 
-    // Redirect to picker UI
-    const pickerUrl =
-      `${appUrl}/oauth/facebook/pick-page` +
-      `?token=${encodeURIComponent(userToken)}` +
-      `&state=${encodeURIComponent(state)}`;
+    // ✅ Redirect to picker WITH token + state
+    const pickUrl = new URL(`${baseUrl(req)}/oauth/facebook/pick-page`);
+    pickUrl.searchParams.set("token", accessToken);
+    if (state) pickUrl.searchParams.set("state", state);
 
-    return NextResponse.redirect(pickerUrl, { status: 302 });
+    return NextResponse.redirect(pickUrl.toString(), { status: 302 });
   } catch (e: any) {
     return NextResponse.json(
-      { error: e?.message || "Facebook callback crashed" },
+      { error: e?.message || "Callback crashed" },
       { status: 500 }
     );
   }
