@@ -1,38 +1,34 @@
 // app/api/oauth/facebook/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-const FB_API = "https://graph.facebook.com/v19.0";
-
-function decodeState(stateRaw: string | null): any | null {
-  if (!stateRaw) return null;
-
-  // state often arrives as base64url (like "eyJ..."), but sometimes plain JSON.
-  // We'll try both safely.
-  try {
-    if (stateRaw.trim().startsWith("{")) return JSON.parse(stateRaw);
-
-    const b64 = stateRaw.replace(/-/g, "+").replace(/_/g, "/");
-    const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
-    const json = Buffer.from(b64 + pad, "base64").toString("utf8");
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
+function base64UrlDecode(input: string) {
+  const b64 = input.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
+  return Buffer.from(b64 + pad, "base64").toString("utf8");
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+    const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || "";
+    const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET || "";
 
-    const code = searchParams.get("code");
-    const error = searchParams.get("error");
-    const errorDesc = searchParams.get("error_description");
-    const stateRaw = searchParams.get("state");
+    if (!appUrl || !FACEBOOK_APP_ID || !FACEBOOK_APP_SECRET) {
+      return NextResponse.json(
+        { error: "Missing NEXT_PUBLIC_APP_URL or FACEBOOK_APP_ID or FACEBOOK_APP_SECRET" },
+        { status: 500 }
+      );
+    }
+
+    const url = req.nextUrl;
+    const code = url.searchParams.get("code") || "";
+    const state = url.searchParams.get("state") || "";
+    const error = url.searchParams.get("error") || "";
+    const errorDesc = url.searchParams.get("error_description") || "";
 
     if (error) {
       return NextResponse.json(
-        { error, details: errorDesc || null },
+        { error: `Facebook OAuth error: ${error}`, details: errorDesc || null },
         { status: 400 }
       );
     }
@@ -41,114 +37,59 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing code" }, { status: 400 });
     }
 
-    const state = decodeState(stateRaw);
-    const organisationId =
-      typeof state?.organisationId === "string" ? state.organisationId : null;
+    const appUrlClean = appUrl.replace(/\/$/, "");
+    const redirectUri = `${appUrlClean}/api/oauth/facebook/callback`;
 
-    if (!organisationId) {
-      return NextResponse.json(
-        {
-          error:
-            "Missing organisationId in state. The start route must include it.",
-          state: stateRaw,
-        },
-        { status: 400 }
-      );
-    }
-
-    const appId = process.env.FACEBOOK_APP_ID;
-    const appSecret = process.env.FACEBOOK_APP_SECRET;
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-
-    if (!appId || !appSecret || !appUrl) {
-      return NextResponse.json(
-        { error: "Missing FACEBOOK_APP_ID / FACEBOOK_APP_SECRET / NEXT_PUBLIC_APP_URL" },
-        { status: 500 }
-      );
-    }
-
-    const redirectUri = `${appUrl}/api/oauth/facebook/callback`;
-
-    // 1) Exchange code -> user access token
+    // 1) Exchange code -> short-lived user access token
     const tokenRes = await fetch(
-      `${FB_API}/oauth/access_token` +
-        `?client_id=${appId}` +
-        `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-        `&client_secret=${appSecret}` +
-        `&code=${encodeURIComponent(code)}`
+      `https://graph.facebook.com/v19.0/oauth/access_token?` +
+        new URLSearchParams({
+          client_id: FACEBOOK_APP_ID,
+          redirect_uri: redirectUri,
+          client_secret: FACEBOOK_APP_SECRET,
+          code,
+        }).toString(),
+      { method: "GET", cache: "no-store" }
     );
 
-    const tokenData = await tokenRes.json();
+    const tokenJson: any = await tokenRes.json().catch(() => null);
 
-    if (!tokenRes.ok || !tokenData?.access_token) {
+    if (!tokenRes.ok) {
       return NextResponse.json(
-        { error: "Failed to exchange code for token", details: tokenData },
+        { error: "Token exchange failed", details: tokenJson },
         { status: 400 }
       );
     }
 
-    const userToken = tokenData.access_token as string;
-
-    // 2) Fetch Pages
-    const pagesRes = await fetch(
-      `${FB_API}/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(
-        userToken
-      )}`
-    );
-
-    const pagesData = await pagesRes.json();
-
-    if (!pagesRes.ok) {
+    const userToken = String(tokenJson?.access_token || "");
+    if (!userToken) {
       return NextResponse.json(
-        { error: "Facebook /me/accounts failed", details: pagesData },
+        { error: "Token exchange returned no access_token", details: tokenJson },
         { status: 400 }
       );
     }
 
-    if (!Array.isArray(pagesData?.data) || pagesData.data.length === 0) {
-      return NextResponse.json(
-        {
-          error:
-            "Could not load Facebook Pages. Usually: wrong token exchange, missing scopes, or user not granted Page access.",
-          details: pagesData,
-        },
-        { status: 400 }
-      );
+    // (Optional safety) decode state to make sure it's valid-ish
+    if (state) {
+      try {
+        const decoded = JSON.parse(base64UrlDecode(state));
+        // no-op: we just ensure it is parseable
+        void decoded;
+      } catch {
+        // ignore: we won't hard-fail on state parsing
+      }
     }
 
-    // 3) Save the FIRST page for now (simple v1).
-    // Later we’ll let the user pick from a list.
-    const first = pagesData.data[0];
+    // 2) Redirect to picker UI so YOU choose the correct Page (not Wellbeing Cafe)
+    const pickerUrl =
+      `${appUrlClean}/oauth/facebook/pick-page` +
+      `?token=${encodeURIComponent(userToken)}` +
+      `&state=${encodeURIComponent(state)}`;
 
-    const upsertPayload: any = {
-      organisation_id: organisationId,
-      platform: "facebook",
-      page_id: String(first.id),
-      page_name: String(first.name || "Facebook Page"),
-      connection_type: "oauth",
-      is_active: true,
-    };
-
-    const { error: upsertErr } = await supabaseAdmin
-      .from("social_accounts")
-      .upsert(upsertPayload, { onConflict: "organisation_id,platform" });
-
-    if (upsertErr) {
-      return NextResponse.json(
-        { error: "Failed saving social account to DB", details: upsertErr },
-        { status: 500 }
-      );
-    }
-
-    // 4) Redirect back to Connect page with success flag
-    return NextResponse.redirect(
-      `${appUrl}/dashboard/connect?provider=facebook&success=1`,
-      302
-    );
-  } catch (err: any) {
-    console.error("[facebook oauth callback]", err);
+    return NextResponse.redirect(pickerUrl, { status: 302 });
+  } catch (e: any) {
     return NextResponse.json(
-      { error: "OAuth callback crashed", message: err?.message || "Unknown" },
+      { error: e?.message || "Facebook callback crashed" },
       { status: 500 }
     );
   }
