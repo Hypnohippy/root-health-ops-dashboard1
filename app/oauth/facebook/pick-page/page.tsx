@@ -2,18 +2,13 @@
 
 import React, { useMemo, useState } from "react";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
 function safeDecodeState(state?: string) {
   if (!state) return null;
   try {
-    // try base64 JSON
     const decoded = atob(state);
     return JSON.parse(decoded);
   } catch {
     try {
-      // try raw JSON
       return JSON.parse(state);
     } catch {
       return null;
