@@ -133,22 +133,17 @@ export default function ConnectPage() {
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
   // ✅ Build connect URLs dynamically once we know org id
-  const connectUrls = useMemo<Record<ProviderId, string>>(() => {
-    const org = organisationId ? encodeURIComponent(organisationId) : "";
+ const connectUrls: Record<ProviderId, string> = {
+  facebook: "/api/oauth/facebook/start",
+  instagram: "/api/social/connect/start?provider=instagram",
+  tiktok: "/api/social/connect/start?provider=tiktok",
+  linkedin: "/api/social/connect/start?provider=linkedin",
+  google: "/api/social/connect/start?provider=google",
+  email: "/dashboard/connect/email/setup",
+  whatsapp: "/api/social/connect/start?provider=whatsapp",
+  threads: "/api/social/connect/start?provider=threads",
+};
 
-    return {
-      // ✅ NEW: OAuth for FB + LinkedIn
-      facebook: organisationId ? `/api/oauth/facebook/start?organisationId=${org}` : "#",
-      linkedin: organisationId ? `/api/oauth/linkedin/start?organisationId=${org}` : "#",
-
-      // Existing / future flows (leave as-is)
-      instagram: "/api/social/connect/start?provider=instagram",
-      tiktok: "/api/social/connect/start?provider=tiktok",
-      google: "/api/social/connect/start?provider=google",
-      email: "/dashboard/connect/email/setup",
-      whatsapp: "/api/social/connect/start?provider=whatsapp",
-      threads: "/api/social/connect/start?provider=threads",
-    };
   }, [organisationId]);
 
   const loadSocialAccounts = async () => {
