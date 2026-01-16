@@ -104,13 +104,13 @@ const initialProviders: Provider[] = [
 // OAuth starts (we’ll add these routes next)
 const connectUrls: Record<ProviderId, string> = {
   facebook: "/api/oauth/facebook/start",
-  linkedin: "/api/oauth/linkedin/start",
-  instagram: "#",
-  tiktok: "#",
-  threads: "#",
-  google: "#",
+  instagram: "/api/social/connect/start?provider=instagram",
+  tiktok: "/api/social/connect/start?provider=tiktok",
+  linkedin: "/api/social/connect/start?provider=linkedin",
+  google: "/api/social/connect/start?provider=google",
   email: "/dashboard/connect/email/setup",
-  whatsapp: "#",
+  whatsapp: "/api/social/connect/start?provider=whatsapp",
+  threads: "/api/social/connect/start?provider=threads",
 };
 
 export default function DashboardConnectPage() {
