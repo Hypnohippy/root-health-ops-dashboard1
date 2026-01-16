@@ -1,169 +1,242 @@
+// app/oauth/facebook/pick-page/pick-facebook-page-client.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
-type Props = {
-  token: string;
-  state?: string;
+type FbPage = {
+  id: string;
+  name: string;
+  access_token?: string; // page token
 };
 
-function safeDecodeState(state?: string) {
-  if (!state) return null;
-  try {
-    const json = JSON.parse(atob(state.split(".")[0] || state)); // tolerate odd formats
-    return json;
-  } catch {
-    // Try raw JSON (in case it's not base64)
+export default function PickFacebookPageClient({
+  token,
+  state,
+}: {
+  token: string;
+  state: string;
+}) {
+  const resolvedToken = useMemo(() => {
+    // Prefer prop; fallback to URL query (some deployments strip props)
+    if (token && token.trim()) return token.trim();
     try {
-      return JSON.parse(state);
+      const u = new URL(window.location.href);
+      const t = u.searchParams.get("token") || "";
+      return t.trim();
     } catch {
-      return null;
+      return "";
+    }
+  }, [token]);
+
+  const [loading, setLoading] = useState(false);
+  const [pages, setPages] = useState<FbPage[]>([]);
+  const [selectedPageId, setSelectedPageId] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+
+  const debug = useMemo(() => {
+    let href = "";
+    let search = "";
+    let hash = "";
+    try {
+      href = window.location.href;
+      search = window.location.search;
+      hash = window.location.hash;
+    } catch {}
+
+    return {
+      href,
+      search,
+      hash,
+      tokenPropLength: (token || "").length,
+      tokenResolvedLength: (resolvedToken || "").length,
+      hasOrganisationId: false,
+    };
+  }, [token, resolvedToken]);
+
+  async function loadPages() {
+    setLoading(true);
+    setError(null);
+
+    try {
+      if (!resolvedToken) {
+        setError("Missing token. Please go back and click Connect again.");
+        setPages([]);
+        return;
+      }
+
+      // ✅ This endpoint should return pages you manage for THIS logged-in user
+      // Needs scopes: pages_show_list + pages_read_engagement (already requested)
+      const url =
+        "https://graph.facebook.com/v24.0/me/accounts?" +
+        new URLSearchParams({
+          fields: "id,name,access_token",
+          limit: "100",
+          access_token: resolvedToken,
+        }).toString();
+
+      const res = await fetch(url, { cache: "no-store" });
+      const json: any = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const msg =
+          json?.error?.message ||
+          `Facebook Graph error (${res.status}). Check permissions/scopes.`;
+        setError(msg);
+        setPages([]);
+        return;
+      }
+
+      const list: FbPage[] = Array.isArray(json?.data) ? json.data : [];
+      setPages(list);
+
+      if (list.length === 0) {
+        setError("No Pages returned.");
+        return;
+      }
+
+      // Auto-select the first one if none selected
+      if (!selectedPageId) setSelectedPageId(list[0].id);
+    } catch (e: any) {
+      setError(e?.message || "Failed to load pages.");
+      setPages([]);
+    } finally {
+      setLoading(false);
     }
   }
-}
 
-export default function PickFacebookPageClient({ token, state }: Props) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [okMsg, setOkMsg] = useState<string | null>(null);
+  async function saveSelection() {
+    setSaving(true);
+    setError(null);
 
-  const [manualPageId, setManualPageId] = useState("");
-
-  // ✅ Your known FB Page
-  const FUELGEIST_PAGE_ID = "101868201852363";
-
-  const decodedState = useMemo(() => safeDecodeState(state), [state]);
-  const organisationId =
-    (decodedState && (decodedState.organisationId || decodedState.organisation_id)) || null;
-
-  const tokenResolved = (token || "").trim();
-
-  const connectPage = async (pageId: string) => {
-    setErr(null);
-    setOkMsg(null);
-
-    const pid = (pageId || "").trim();
-    if (!pid) {
-      setErr("Missing Page ID.");
-      return;
-    }
-    if (!tokenResolved) {
-      setErr("Missing token. Please go back and click Connect again.");
-      return;
-    }
-
-    setBusy(true);
     try {
-      const res = await fetch("/api/oauth/facebook/connect-page", {
+      const page = pages.find((p) => p.id === selectedPageId);
+      if (!page) {
+        setError("Please pick a Page first.");
+        return;
+      }
+
+      // Save into your DB via API:
+      // - platform: facebook
+      // - pageId: the Page ID
+      // - pageName: human name
+      // - connectionType: oauth
+      // - isActive: true
+      const res = await fetch("/api/social-accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token: tokenResolved,
-          pageId: pid,
-          organisationId, // ok if null in your single-tenant mode
+          platform: "facebook",
+          pageId: page.id,
+          pageName: page.name,
+          connectionType: "oauth",
+          makeWebhookUrl: null,
+          isActive: true,
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data: any = await res.json().catch(() => null);
 
-      if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || "Failed to connect page");
+      if (!res.ok) {
+        setError(data?.error || "Failed to save selected Page.");
+        return;
       }
 
-      setOkMsg(`Connected: ${data?.pageName || "Facebook Page"} ✅`);
-
-      // Optional: bounce back to Connect page after success
-      setTimeout(() => {
-        window.location.href = "/dashboard/connect?provider=facebook&success=1";
-      }, 700);
+      // ✅ Done — send them back to Connect so they can see it as connected
+      window.location.href = "/dashboard/connect?provider=facebook&success=1";
     } catch (e: any) {
-      setErr(e?.message || "Failed to connect page");
+      setError(e?.message || "Failed to save selected Page.");
     } finally {
-      setBusy(false);
+      setSaving(false);
     }
-  };
+  }
+
+  useEffect(() => {
+    void loadPages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-black/30 backdrop-blur-xl p-6 shadow-xl">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
         <h1 className="text-2xl font-semibold">Pick your Facebook Page</h1>
         <p className="mt-2 text-sm text-slate-300">
           Select which Page Root Health Ops should connect to.
         </p>
 
-        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
-          <div className="text-sm font-medium">Quick connect</div>
-          <p className="mt-1 text-xs text-slate-400">
-            We’ll connect your known Page directly (no page list required).
-          </p>
+        <div className="mt-6 space-y-3">
+          {error && (
+            <div className="rounded-xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
+              {error}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-slate-300">
+              Your Pages
+            </label>
+
+            <select
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+              value={selectedPageId}
+              onChange={(e) => setSelectedPageId(e.target.value)}
+              disabled={loading || pages.length === 0}
+            >
+              {pages.length === 0 ? (
+                <option value="">No pages loaded</option>
+              ) : (
+                pages.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.id})
+                  </option>
+                ))
+              )}
+            </select>
+
+            <div className="flex flex-wrap gap-3 pt-3">
+              <button
+                type="button"
+                onClick={loadPages}
+                disabled={loading}
+                className="rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-2 text-sm text-slate-100 hover:border-slate-500 disabled:opacity-60"
+              >
+                {loading ? "Loading…" : "Reload Pages"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-2 text-sm text-slate-100 hover:border-slate-500"
+              >
+                Refresh page
+              </button>
+
+              <button
+                type="button"
+                onClick={saveSelection}
+                disabled={saving || !selectedPageId}
+                className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {saving ? "Saving…" : "Use this Page"}
+              </button>
+            </div>
+          </div>
 
           <button
             type="button"
-            disabled={busy}
-            onClick={() => connectPage(FUELGEIST_PAGE_ID)}
-            className="mt-3 inline-flex items-center rounded-xl bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300 disabled:opacity-60"
+            className="text-xs text-slate-400 hover:text-slate-300"
+            onClick={() => setDebugOpen((s) => !s)}
           >
-            {busy ? "Connecting…" : "Connect Fuel Geist Ltd"}
+            Debug (click to expand)
           </button>
 
-          <div className="mt-2 text-[11px] text-slate-500">
-            Page ID: <span className="font-mono">{FUELGEIST_PAGE_ID}</span>
-          </div>
+          {debugOpen && (
+            <pre className="mt-2 max-h-64 overflow-auto rounded-xl border border-slate-700 bg-slate-950 p-3 text-[11px] text-slate-200">
+{JSON.stringify({ ...debug, decodedState: state ? "(present)" : null }, null, 2)}
+            </pre>
+          )}
         </div>
-
-        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
-          <div className="text-sm font-medium">Manual Page ID</div>
-          <p className="mt-1 text-xs text-slate-400">
-            Use this when connecting other customers’ Pages.
-          </p>
-
-          <div className="mt-3 flex gap-2">
-            <input
-              value={manualPageId}
-              onChange={(e) => setManualPageId(e.target.value)}
-              placeholder="Enter Page ID…"
-              className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-emerald-400"
-            />
-            <button
-              type="button"
-              disabled={busy || !manualPageId.trim()}
-              onClick={() => connectPage(manualPageId)}
-              className="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-400/20 disabled:opacity-60"
-            >
-              Connect
-            </button>
-          </div>
-        </div>
-
-        {okMsg && (
-          <div className="mt-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
-            {okMsg}
-          </div>
-        )}
-
-        {err && (
-          <div className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
-            {err}
-          </div>
-        )}
-
-        <details className="mt-6 rounded-2xl border border-white/10 bg-black/10 p-4">
-          <summary className="cursor-pointer text-sm text-slate-300">
-            Debug (click to expand)
-          </summary>
-          <pre className="mt-3 text-[11px] text-slate-400 whitespace-pre-wrap">
-{JSON.stringify(
-  {
-    href: typeof window !== "undefined" ? window.location.href : "(server)",
-    tokenPropLength: (token || "").length,
-    tokenResolvedLength: tokenResolved.length,
-    hasOrganisationId: !!organisationId,
-  },
-  null,
-  2
-)}
-          </pre>
-        </details>
       </div>
     </div>
   );
