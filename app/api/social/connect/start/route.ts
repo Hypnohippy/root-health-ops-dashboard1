@@ -1,4 +1,7 @@
+// app/api/social/connect/start/route.ts
 import { NextRequest, NextResponse } from "next/server";
+
+export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
   const provider = req.nextUrl.searchParams.get("provider") || "facebook";
@@ -10,8 +13,8 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const appId = process.env.FACEBOOK_APP_ID;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const appId = process.env.FACEBOOK_APP_ID || "";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
 
   if (!appId || !appUrl) {
     return NextResponse.json(
@@ -26,10 +29,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // This MUST match Meta "Valid OAuth Redirect URIs" exactly
-  const redirectUri = `${appUrl}/api/social/connect/callback/facebook`;
+  // ✅ Canonical callback (single place)
+  // Add THIS EXACT URL to Meta → Facebook Login → Valid OAuth Redirect URIs
+  const redirectUri = `${appUrl.replace(/\/$/, "")}/api/oauth/facebook/callback`;
 
-  // CSRF protection (minimal but effective)
   const state = crypto.randomUUID();
 
   const authUrl =
@@ -38,16 +41,17 @@ export async function GET(req: NextRequest) {
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&state=${encodeURIComponent(state)}` +
     `&response_type=code` +
-    // minimal scopes for listing pages + reading engagement + posting
     `&scope=${encodeURIComponent(
-      ["public_profile", "pages_show_list", "pages_read_engagement", "pages_manage_posts"].join(
-        ","
-      )
+      [
+        "public_profile",
+        "pages_show_list",
+        "pages_read_engagement",
+        "pages_manage_posts",
+      ].join(",")
     )}`;
 
   const res = NextResponse.redirect(authUrl, { status: 302 });
 
-  // Store state in a short-lived cookie
   res.cookies.set("fb_oauth_state", state, {
     httpOnly: true,
     secure: true,
