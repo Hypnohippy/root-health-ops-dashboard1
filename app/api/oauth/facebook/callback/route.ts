@@ -25,6 +25,15 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const errorFromFb = req.nextUrl.searchParams.get("error");
+    const errorDesc = req.nextUrl.searchParams.get("error_description");
+    if (errorFromFb) {
+      return NextResponse.json(
+        { error: "Facebook returned an error", details: { errorFromFb, errorDesc } },
+        { status: 400 }
+      );
+    }
+
     const code = req.nextUrl.searchParams.get("code") || "";
     const state = req.nextUrl.searchParams.get("state") || "";
 
@@ -32,7 +41,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing code" }, { status: 400 });
     }
 
-    const redirectUri = `${baseUrl(req)}/api/oauth/facebook/callback`;
+    // ✅ CRITICAL: must match the redirect_uri Facebook actually used for THIS callback request
+    const redirectUri = `${baseUrl(req)}${req.nextUrl.pathname}`;
 
     // Exchange code for user access token
     const tokenRes = await fetch(
@@ -50,14 +60,18 @@ export async function GET(req: NextRequest) {
 
     if (!tokenRes.ok || !tokenJson?.access_token) {
       return NextResponse.json(
-        { error: "Token exchange failed", details: tokenJson },
+        {
+          error: "Token exchange failed",
+          used_redirect_uri: redirectUri,
+          details: tokenJson,
+        },
         { status: 400 }
       );
     }
 
     const accessToken = String(tokenJson.access_token);
 
-    // ✅ Redirect to picker WITH token + state
+    // Redirect to picker WITH token + state
     const pickUrl = new URL(`${baseUrl(req)}/oauth/facebook/pick-page`);
     pickUrl.searchParams.set("token", accessToken);
     if (state) pickUrl.searchParams.set("state", state);
