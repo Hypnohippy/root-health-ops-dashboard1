@@ -6,8 +6,19 @@ import React, { useEffect, useMemo, useState } from "react";
 type FbPage = {
   id: string;
   name: string;
-  access_token?: string; // page token
+  access_token?: string; // page token (returned by /me/accounts)
 };
+
+function b64urlDecodeToJson<T = any>(s: string): T | null {
+  try {
+    const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+    const json = atob(b64 + pad);
+    return JSON.parse(json) as T;
+  } catch {
+    return null;
+  }
+}
 
 export default function PickFacebookPageClient({
   token,
@@ -27,6 +38,31 @@ export default function PickFacebookPageClient({
       return "";
     }
   }, [token]);
+
+  const resolvedState = useMemo(() => {
+    if (state && state.trim()) return state.trim();
+    try {
+      const u = new URL(window.location.href);
+      return (u.searchParams.get("state") || "").trim();
+    } catch {
+      return "";
+    }
+  }, [state]);
+
+  const decodedState = useMemo(() => {
+    if (!resolvedState) return null;
+    return b64urlDecodeToJson<{
+      provider?: string;
+      organisationId?: string | null;
+      nonce?: string;
+      t?: number;
+    }>(resolvedState);
+  }, [resolvedState]);
+
+  const organisationId = useMemo(() => {
+    const v = decodedState?.organisationId;
+    return typeof v === "string" && v.trim() ? v.trim() : "";
+  }, [decodedState]);
 
   const [loading, setLoading] = useState(false);
   const [pages, setPages] = useState<FbPage[]>([]);
@@ -51,9 +87,13 @@ export default function PickFacebookPageClient({
       hash,
       tokenPropLength: (token || "").length,
       tokenResolvedLength: (resolvedToken || "").length,
-      hasOrganisationId: false,
+      statePropLength: (state || "").length,
+      stateResolvedLength: (resolvedState || "").length,
+      hasOrganisationId: !!organisationId,
+      organisationId: organisationId || null,
+      decodedState,
     };
-  }, [token, resolvedToken]);
+  }, [token, resolvedToken, state, resolvedState, organisationId, decodedState]);
 
   async function loadPages() {
     setLoading(true);
@@ -66,8 +106,6 @@ export default function PickFacebookPageClient({
         return;
       }
 
-      // ✅ This endpoint should return pages you manage for THIS logged-in user
-      // Needs scopes: pages_show_list + pages_read_engagement (already requested)
       const url =
         "https://graph.facebook.com/v24.0/me/accounts?" +
         new URLSearchParams({
@@ -92,11 +130,12 @@ export default function PickFacebookPageClient({
       setPages(list);
 
       if (list.length === 0) {
-        setError("No Pages returned.");
+        setError(
+          "No Pages returned.\n\nIf you KNOW you have Page access, this is almost always one of:\n• you logged into the wrong Facebook account\n• the user did not grant Page permissions on the consent screen\n• the Page is owned/managed under a different Business/Portfolio than the logged-in account"
+        );
         return;
       }
 
-      // Auto-select the first one if none selected
       if (!selectedPageId) setSelectedPageId(list[0].id);
     } catch (e: any) {
       setError(e?.message || "Failed to load pages.");
@@ -117,22 +156,28 @@ export default function PickFacebookPageClient({
         return;
       }
 
-      // Save into your DB via API:
-      // - platform: facebook
-      // - pageId: the Page ID
-      // - pageName: human name
-      // - connectionType: oauth
-      // - isActive: true
-      const res = await fetch("/api/social-accounts", {
+      // ✅ Save into your DB via API
+      const url = organisationId
+        ? `/api/social-accounts?organisationId=${encodeURIComponent(organisationId)}`
+        : "/api/social-accounts";
+
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           platform: "facebook",
           pageId: page.id,
           pageName: page.name,
+
+          // these match your social_accounts columns you showed:
           connectionType: "oauth",
           makeWebhookUrl: null,
           isActive: true,
+
+          // NOTE: we are NOT storing access_token in DB yet because your table schema
+          // you pasted doesn’t show an access_token column.
+          // We'll add a safe storage step next (either a new column or a secrets table).
+          // pageAccessToken: page.access_token ?? null,
         }),
       });
 
@@ -144,7 +189,13 @@ export default function PickFacebookPageClient({
       }
 
       // ✅ Done — send them back to Connect so they can see it as connected
-      window.location.href = "/dashboard/connect?provider=facebook&success=1";
+      const back = organisationId
+        ? `/dashboard/connect?provider=facebook&success=1&organisationId=${encodeURIComponent(
+            organisationId
+          )}`
+        : "/dashboard/connect?provider=facebook&success=1";
+
+      window.location.href = back;
     } catch (e: any) {
       setError(e?.message || "Failed to save selected Page.");
     } finally {
@@ -167,7 +218,7 @@ export default function PickFacebookPageClient({
 
         <div className="mt-6 space-y-3">
           {error && (
-            <div className="rounded-xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
+            <div className="rounded-xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100 whitespace-pre-wrap">
               {error}
             </div>
           )}
@@ -233,7 +284,7 @@ export default function PickFacebookPageClient({
 
           {debugOpen && (
             <pre className="mt-2 max-h-64 overflow-auto rounded-xl border border-slate-700 bg-slate-950 p-3 text-[11px] text-slate-200">
-{JSON.stringify({ ...debug, decodedState: state ? "(present)" : null }, null, 2)}
+              {JSON.stringify(debug, null, 2)}
             </pre>
           )}
         </div>
