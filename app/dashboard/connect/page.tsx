@@ -32,38 +32,38 @@ type SocialAccountRow = {
   page_name: string | null;
 };
 
-const STORAGE_KEY = "rh_connect_providers_v2";
+const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
+const STORAGE_KEY = "rh_connect_providers";
 
 const initialProviders: Provider[] = [
   {
     id: "facebook",
     name: "Facebook",
     label: "Facebook Page",
-    description: "Post and reply from Root Health Ops (your page stays yours).",
-    hint: "OAuth connect (recommended). Make webhook test still available below.",
-    status: "disconnected",
-  },
-  {
-    id: "linkedin",
-    name: "LinkedIn",
-    label: "LinkedIn",
-    description: "Post to your personal LinkedIn (hero channel).",
-    hint: "OAuth connect (recommended). Company pages later.",
+    description: "Schedule posts, run gentle ads and reply to comments.",
+    hint: "Requires a Facebook Page and Business Manager access.",
     status: "disconnected",
   },
   {
     id: "instagram",
     name: "Instagram",
     label: "Instagram",
-    description: "Reels, stories and feed posts.",
-    hint: "Coming soon (after Facebook + LinkedIn).",
+    description: "Reels, stories and feed posts from the same content.",
+    hint: "Connect via your Facebook/Meta login, then pick the IG account.",
+    status: "disconnected",
+  },
+  {
+    id: "linkedin",
+    name: "LinkedIn",
+    label: "LinkedIn",
+    description: "Professional presence and referral partner content.",
     status: "disconnected",
   },
   {
     id: "threads",
     name: "Threads",
     label: "Threads",
-    description: "Short thought-leadership updates.",
+    description: "Short thought-leadership updates and story-driven posts.",
     hint: "Coming soon.",
     status: "disconnected",
   },
@@ -79,7 +79,7 @@ const initialProviders: Provider[] = [
     id: "google",
     name: "Google Business Profile",
     label: "Google Business Profile",
-    description: "Local SEO posts so clients find you.",
+    description: "Local SEO posts so clients find you when they’re searching.",
     hint: "Coming soon.",
     status: "disconnected",
   },
@@ -88,7 +88,7 @@ const initialProviders: Provider[] = [
     name: "Email",
     label: "Email newsletter",
     description: "Educational campaigns and gentle nurture sequences.",
-    hint: "Setup wizard (simple).",
+    hint: "Connect your email platform or start simple with CSV export.",
     status: "disconnected",
   },
   {
@@ -101,24 +101,21 @@ const initialProviders: Provider[] = [
   },
 ];
 
-// OAuth starts (we’ll add these routes next)
+// ✅ THIS is the critical fix: instagram must pass provider=instagram
 const connectUrls: Record<ProviderId, string> = {
-  facebook: "/api/oauth/facebook/start",
+  facebook: "/api/social/connect/start?provider=facebook",
   instagram: "/api/social/connect/start?provider=instagram",
-  tiktok: "/api/social/connect/start?provider=tiktok",
-  linkedin: "/api/social/connect/start?provider=linkedin",
-  google: "/api/social/connect/start?provider=google",
+  linkedin: "#",
+  threads: "#",
+  tiktok: "#",
+  google: "#",
   email: "/dashboard/connect/email/setup",
-  whatsapp: "/api/social/connect/start?provider=whatsapp",
-  threads: "/api/social/connect/start?provider=threads",
+  whatsapp: "#",
 };
 
 export default function DashboardConnectPage() {
   const [providers, setProviders] = useState<Provider[]>(initialProviders);
   const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
-
-  // Workspace
-  const [organisationId, setOrganisationId] = useState<string | null>(null);
 
   // Facebook Test Post + Root Coach state
   const [testMessage, setTestMessage] = useState(
@@ -129,28 +126,10 @@ export default function DashboardConnectPage() {
   const [testError, setTestError] = useState<string | null>(null);
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
 
-  const resolveOrg = async () => {
-    const res = await fetch("/api/social-accounts", { method: "GET" });
-    const data: any = await res.json().catch(() => null);
-
-    const org =
-      typeof data?.organisationId === "string"
-        ? data.organisationId
-        : typeof data?.organisation_id === "string"
-        ? data.organisation_id
-        : null;
-
-    if (!org) throw new Error("Workspace not loaded yet. Please refresh.");
-    setOrganisationId(org);
-    return org;
-  };
-
-  const loadSocialAccounts = async (orgMaybe?: string) => {
+  const loadSocialAccounts = async () => {
     try {
-      const org = orgMaybe || organisationId || (await resolveOrg());
-
       const res = await fetch(
-        `/api/social-accounts?organisationId=${encodeURIComponent(org)}`
+        `/api/social-accounts?organisationId=${encodeURIComponent(ORG_ID)}`
       );
 
       if (!res.ok) {
@@ -164,9 +143,15 @@ export default function DashboardConnectPage() {
       setProviders((prev) =>
         prev.map((p) => {
           const row = rows.find((r) => r.platform === p.id);
-          if (!row) return p;
+          if (!row) {
+            return {
+              ...p,
+              status: "disconnected",
+              accountName: undefined,
+              lastSync: undefined,
+            };
+          }
 
-          // If row exists, treat as connected (page_name helps display)
           return {
             ...p,
             status: "connected",
@@ -179,38 +164,96 @@ export default function DashboardConnectPage() {
     }
   };
 
+  // ✅ Handle return from connect flows (/dashboard/connect?provider=...&success=1)
+  const handleReturnFromConnectFlow = async () => {
+    try {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+
+      const provider = (params.get("provider") || "").toLowerCase().trim() as ProviderId;
+      const success = (params.get("success") || "").toLowerCase().trim();
+
+      if (!provider) return;
+
+      // Only handle if it's one of our provider ids
+      const allowed: ProviderId[] = [
+        "facebook",
+        "instagram",
+        "tiktok",
+        "linkedin",
+        "threads",
+        "google",
+        "email",
+        "whatsapp",
+      ];
+      if (!allowed.includes(provider)) return;
+
+      if (success === "1" || success === "true" || success === "yes") {
+        setProviders((prev) =>
+          prev.map((p) => (p.id === provider ? { ...p, status: "connected" } : p))
+        );
+
+        // Clean URL so refresh doesn’t keep re-triggering
+        params.delete("provider");
+        params.delete("success");
+        window.history.replaceState({}, "", `${url.pathname}?${params.toString()}`.replace(/\?$/, ""));
+      }
+    } catch (err) {
+      console.warn("[dashboard/connect] handleReturnFromConnectFlow failed", err);
+    }
+  };
+
   useEffect(() => {
-    // restore UI state (purely cosmetic)
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as Provider[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setProviders((prev) => {
-            // keep the new copy as the source of truth, but merge statuses
-            const map = new Map(parsed.map((x) => [x.id, x]));
-            return prev.map((p) => {
-              const old = map.get(p.id);
-              return old ? { ...p, status: old.status, accountName: old.accountName } : p;
-            });
-          });
+          setProviders(parsed);
         }
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn("[dashboard/connect] failed to read localStorage", err);
     }
 
-    void loadSocialAccounts();
+    void (async () => {
+      await handleReturnFromConnectFlow();
+      await loadSocialAccounts();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(providers));
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn("[dashboard/connect] failed to write localStorage", err);
     }
   }, [providers]);
+
+  const saveSocialAccount = async (providerId: ProviderId, pageId?: string, pageName?: string) => {
+    try {
+      const res = await fetch("/api/social-accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: providerId,
+          pageId: pageId ?? null,
+          pageName: pageName ?? null,
+        }),
+      });
+
+      if (!res.ok) {
+        let body: any = null;
+        try {
+          body = await res.json();
+        } catch {}
+        console.error("[dashboard/connect] saveSocialAccount failed", res.status, body);
+      }
+    } catch (err) {
+      console.error("[dashboard/connect] failed to save social account", err);
+    }
+  };
 
   const deleteSocialAccount = async (providerId: ProviderId) => {
     try {
@@ -232,34 +275,32 @@ export default function DashboardConnectPage() {
     }
   };
 
-  const handleConnectClick = async (provider: Provider) => {
+  const handleConnectClick = (provider: Provider) => {
     const url = connectUrls[provider.id];
 
     if (!url || url === "#") {
       alert(
-        `${provider.label} is coming soon.\n\n` +
-          `For now: Facebook + LinkedIn are the hero channels.\n` +
-          `We’ll roll the rest in once those are rock-solid.`
+        `Connection setup for ${provider.label} is not enabled yet.\n\n` +
+          `Facebook + Instagram are the current supported heroes.\n` +
+          `Others are coming soon.`
       );
       return;
     }
 
     setBusyProvider(provider.id);
 
-    // Ensure org is resolved so OAuth start can attach it (query param)
-    let org: string | null = organisationId;
-    try {
-      org = org || (await resolveOrg());
-    } catch {
-      // ignore, OAuth route can also resolve single-tenant if needed
-    }
+    // UX: mark pending
+    setProviders((prev) =>
+      prev.map((p) => (p.id === provider.id ? { ...p, status: "pending" } : p))
+    );
 
-    const finalUrl = org ? `${url}?organisationId=${encodeURIComponent(org)}` : url;
-    window.location.href = finalUrl;
+    window.location.href = url;
   };
 
   const handleDisconnectClick = (provider: Provider) => {
-    if (!confirm(`Disconnect ${provider.label}? Root Health will stop posting to it.`)) return;
+    if (!confirm(`Disconnect ${provider.label}? Root Health will stop posting to it.`)) {
+      return;
+    }
 
     setProviders((prev) =>
       prev.map((p) =>
@@ -300,16 +341,12 @@ export default function DashboardConnectPage() {
       setProviders((prev) =>
         prev.map((p) =>
           p.id === "facebook"
-            ? {
-                ...p,
-                status: "connected",
-                lastSync: now,
-                accountName: p.accountName ?? "Your Facebook Page",
-              }
+            ? { ...p, status: "connected", lastSync: now, accountName: p.accountName ?? "Your Facebook Page" }
             : p
         )
       );
 
+      await saveSocialAccount("facebook", undefined, "Your Facebook Page");
       await loadSocialAccounts();
     } catch (err: any) {
       const message = err?.message || "Something went wrong sending the test post.";
@@ -333,6 +370,11 @@ export default function DashboardConnectPage() {
   };
 
   const handleTestClick = (provider: Provider) => {
+    if (provider.id === "facebook") {
+      void sendFacebookTestPost();
+      return;
+    }
+
     setBusyProvider(provider.id);
     void loadSocialAccounts().finally(() => setBusyProvider(null));
   };
@@ -347,12 +389,6 @@ export default function DashboardConnectPage() {
               Plug your existing pages and profiles into Root Health. You stay in control —
               we only post what you approve.
             </p>
-            <div className="mt-2 text-[11px] text-slate-400">
-              Workspace:{" "}
-              <span className="text-slate-200 font-semibold">
-                {organisationId ? "loaded" : "loading…"}
-              </span>
-            </div>
           </div>
         </header>
 
@@ -362,10 +398,10 @@ export default function DashboardConnectPage() {
             value={`${providers.filter((p) => p.status === "connected").length} / ${providers.length}`}
           />
           <SummaryCard
-            label="Hero channels"
-            value="Facebook + LinkedIn"
+            label="Ready for posting"
+            value={providers.some((p) => p.status === "connected") ? "Yes" : "Not yet"}
           />
-          <SummaryCard label="Next step" value="Connect heroes → Quick Blast → Scheduled → Responses." />
+          <SummaryCard label="Next step" value="Connect Facebook + Instagram first." />
         </section>
 
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
@@ -374,7 +410,7 @@ export default function DashboardConnectPage() {
               key={provider.id}
               provider={provider}
               busy={busyProvider === provider.id}
-              onConnect={() => void handleConnectClick(provider)}
+              onConnect={() => handleConnectClick(provider)}
               onDisconnect={() => handleDisconnectClick(provider)}
               onTest={() => handleTestClick(provider)}
             />
@@ -385,14 +421,12 @@ export default function DashboardConnectPage() {
           <div>
             <h2 className="text-base md:text-lg font-semibold text-slate-50">Facebook Test Post</h2>
             <p className="text-[11px] md:text-xs text-slate-400">
-              Sends a live test payload to your Make webhook (legacy bridge).
+              Sends a live test payload to your Make webhook.
             </p>
           </div>
 
           <div className="space-y-2">
-            <label className="block text-[11px] font-medium text-slate-300">
-              Test message content
-            </label>
+            <label className="block text-[11px] font-medium text-slate-300">Test message content</label>
             <textarea
               className="w-full min-h-[100px] rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
               value={testMessage}
@@ -416,9 +450,7 @@ export default function DashboardConnectPage() {
 
           {coachMessage && (
             <div className="mt-3 rounded-lg border border-sky-500/40 bg-sky-950/40 p-3">
-              <div className="text-[10px] uppercase tracking-wide text-sky-300 mb-1">
-                Root Coach
-              </div>
+              <div className="text-[10px] uppercase tracking-wide text-sky-300 mb-1">Root Coach</div>
               <div className="text-[11px] text-sky-50 whitespace-pre-wrap">{coachMessage}</div>
             </div>
           )}
@@ -490,7 +522,7 @@ function ProviderCard({
               onClick={onTest}
               className="rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-100 hover:bg-emerald-500/20"
             >
-              Refresh status
+              Test connection
             </button>
             <button
               type="button"
