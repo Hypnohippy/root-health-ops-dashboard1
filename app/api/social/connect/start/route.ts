@@ -3,6 +3,15 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+function b64urlEncode(obj: any) {
+  const json = JSON.stringify(obj);
+  return Buffer.from(json, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
 export async function GET(req: NextRequest) {
   const provider = req.nextUrl.searchParams.get("provider") || "facebook";
 
@@ -14,7 +23,7 @@ export async function GET(req: NextRequest) {
   }
 
   const appId = process.env.FACEBOOK_APP_ID || "";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
 
   if (!appId || !appUrl) {
     return NextResponse.json(
@@ -29,11 +38,23 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // ✅ Canonical callback (single place)
-  // Add THIS EXACT URL to Meta → Facebook Login → Valid OAuth Redirect URIs
-  const redirectUri = `${appUrl.replace(/\/$/, "")}/api/oauth/facebook/callback`;
+  // ✅ Optional: pass organisationId from UI now (multi-tenant ready)
+  // If not provided, your /api/social-accounts route will fallback to single-tenant org.
+  const organisationId = (req.nextUrl.searchParams.get("organisationId") || "").trim();
 
-  const state = crypto.randomUUID();
+  // ✅ Canonical callback (single place)
+  // This MUST match Meta "Valid OAuth Redirect URIs" exactly
+  const redirectUri = `${appUrl}/api/oauth/facebook/callback`;
+
+  // ✅ State now carries orgId + nonce (so pick-page can save to the right org)
+  const statePayload = {
+    provider: "facebook",
+    organisationId: organisationId || null,
+    nonce: crypto.randomUUID(),
+    t: Date.now(),
+  };
+
+  const state = b64urlEncode(statePayload);
 
   const authUrl =
     "https://www.facebook.com/v24.0/dialog/oauth" +
@@ -52,6 +73,7 @@ export async function GET(req: NextRequest) {
 
   const res = NextResponse.redirect(authUrl, { status: 302 });
 
+  // Store state in a short-lived cookie (basic CSRF safety)
   res.cookies.set("fb_oauth_state", state, {
     httpOnly: true,
     secure: true,
