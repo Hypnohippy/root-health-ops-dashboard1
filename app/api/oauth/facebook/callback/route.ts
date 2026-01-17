@@ -15,6 +15,17 @@ function baseUrl(req: NextRequest) {
   }
 }
 
+function base64UrlDecode(str: string) {
+  try {
+    const b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+    const json = Buffer.from(b64 + pad, "base64").toString("utf8");
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 async function fetchJson(url: string) {
   const res = await fetch(url, { method: "GET", cache: "no-store" });
   const json: any = await res.json().catch(() => null);
@@ -31,25 +42,28 @@ export async function GET(req: NextRequest) {
     }
 
     const code = req.nextUrl.searchParams.get("code") || "";
-    const state = req.nextUrl.searchParams.get("state") || "";
-    const cookieState = req.cookies.get("fb_oauth_state")?.value || "";
-    const provider = (req.cookies.get("fb_oauth_provider")?.value || "facebook").toLowerCase();
+    const stateRaw = req.nextUrl.searchParams.get("state") || "";
 
     if (!code) {
       return NextResponse.json({ error: "Missing code" }, { status: 400 });
     }
 
-    // Basic state check (helps prevent mismatched callbacks)
-    if (cookieState && state && cookieState !== state) {
+    const decoded = base64UrlDecode(stateRaw) || {};
+    const provider = (decoded?.provider || "facebook").toLowerCase();
+    const nonceFromState = String(decoded?.nonce || "");
+    const nonceCookie = req.cookies.get("fb_oauth_nonce")?.value || "";
+
+    // Optional sanity check (won't block if cookie is missing)
+    if (nonceCookie && nonceFromState && nonceCookie !== nonceFromState) {
       return NextResponse.json(
-        { error: "State mismatch. Please click Connect again." },
+        { error: "State/nonce mismatch. Please click Connect again." },
         { status: 400 }
       );
     }
 
     const redirectUri = `${baseUrl(req)}/api/oauth/facebook/callback`;
 
-    // 1) Exchange code -> SHORT-LIVED user access token
+    // 1) code -> short-lived user token
     const shortUrl =
       "https://graph.facebook.com/v19.0/oauth/access_token?" +
       new URLSearchParams({
@@ -70,7 +84,7 @@ export async function GET(req: NextRequest) {
 
     const shortUserToken = String(shortTok.json.access_token);
 
-    // 2) Exchange SHORT -> LONG-LIVED user access token (about 60 days)
+    // 2) short -> long-lived user token (~60 days)
     const longUrl =
       "https://graph.facebook.com/v19.0/oauth/access_token?" +
       new URLSearchParams({
@@ -81,23 +95,20 @@ export async function GET(req: NextRequest) {
       }).toString();
 
     const longTok = await fetchJson(longUrl);
-
-    // If this fails, fall back to short token rather than breaking flow
     const userToken = String(longTok.json?.access_token || shortUserToken);
 
-    // Decide where to send the user next
+    // Next step page based on provider (from state)
     const nextPath =
       provider === "instagram" ? "/oauth/instagram/pick-account" : "/oauth/facebook/pick-page";
 
     const pickUrl = new URL(`${baseUrl(req)}${nextPath}`);
     pickUrl.searchParams.set("token", userToken);
-    if (state) pickUrl.searchParams.set("state", state);
+    if (stateRaw) pickUrl.searchParams.set("state", stateRaw);
 
     const res = NextResponse.redirect(pickUrl.toString(), { status: 302 });
 
-    // Clear cookies after use
-    res.cookies.set("fb_oauth_state", "", { path: "/", maxAge: 0 });
-    res.cookies.set("fb_oauth_provider", "", { path: "/", maxAge: 0 });
+    // Clear nonce cookie
+    res.cookies.set("fb_oauth_nonce", "", { path: "/", maxAge: 0 });
 
     return res;
   } catch (e: any) {
