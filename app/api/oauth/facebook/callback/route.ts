@@ -32,9 +32,19 @@ export async function GET(req: NextRequest) {
 
     const code = req.nextUrl.searchParams.get("code") || "";
     const state = req.nextUrl.searchParams.get("state") || "";
+    const cookieState = req.cookies.get("fb_oauth_state")?.value || "";
+    const provider = (req.cookies.get("fb_oauth_provider")?.value || "facebook").toLowerCase();
 
     if (!code) {
       return NextResponse.json({ error: "Missing code" }, { status: 400 });
+    }
+
+    // Basic state check (helps prevent mismatched callbacks)
+    if (cookieState && state && cookieState !== state) {
+      return NextResponse.json(
+        { error: "State mismatch. Please click Connect again." },
+        { status: 400 }
+      );
     }
 
     const redirectUri = `${baseUrl(req)}/api/oauth/facebook/callback`;
@@ -75,12 +85,21 @@ export async function GET(req: NextRequest) {
     // If this fails, fall back to short token rather than breaking flow
     const userToken = String(longTok.json?.access_token || shortUserToken);
 
-    // Redirect to picker with token + state
-    const pickUrl = new URL(`${baseUrl(req)}/oauth/facebook/pick-page`);
+    // Decide where to send the user next
+    const nextPath =
+      provider === "instagram" ? "/oauth/instagram/pick-account" : "/oauth/facebook/pick-page";
+
+    const pickUrl = new URL(`${baseUrl(req)}${nextPath}`);
     pickUrl.searchParams.set("token", userToken);
     if (state) pickUrl.searchParams.set("state", state);
 
-    return NextResponse.redirect(pickUrl.toString(), { status: 302 });
+    const res = NextResponse.redirect(pickUrl.toString(), { status: 302 });
+
+    // Clear cookies after use
+    res.cookies.set("fb_oauth_state", "", { path: "/", maxAge: 0 });
+    res.cookies.set("fb_oauth_provider", "", { path: "/", maxAge: 0 });
+
+    return res;
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Callback crashed" },
