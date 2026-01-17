@@ -5,10 +5,6 @@ export const runtime = "nodejs";
 
 type Provider = "facebook" | "instagram";
 
-function isProvider(v: string): v is Provider {
-  return v === "facebook" || v === "instagram";
-}
-
 function base64UrlEncode(obj: any) {
   const json = JSON.stringify(obj);
   const b64 = Buffer.from(json, "utf8").toString("base64");
@@ -16,8 +12,12 @@ function base64UrlEncode(obj: any) {
 }
 
 export async function GET(req: NextRequest) {
-  const providerParam = (req.nextUrl.searchParams.get("provider") || "facebook").toLowerCase();
-  const provider: Provider = isProvider(providerParam) ? providerParam : "facebook";
+  const providerRaw = (req.nextUrl.searchParams.get("provider") || "facebook")
+    .toLowerCase()
+    .trim();
+
+  const provider: Provider =
+    providerRaw === "instagram" ? "instagram" : "facebook";
 
   const appId = process.env.FACEBOOK_APP_ID || "";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
@@ -35,25 +35,35 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // MUST match Meta -> Facebook Login -> Valid OAuth Redirect URIs EXACTLY
+  // Canonical callback (single place)
+  // Must match Meta Valid OAuth Redirect URIs exactly
   const redirectUri = `${appUrl.replace(/\/$/, "")}/api/oauth/facebook/callback`;
 
-  // Put provider INSIDE state so we don't rely on cookies surviving redirects.
-  const nonce = crypto.randomUUID();
-  const state = base64UrlEncode({
+  // Put provider into state so callback knows where to send user next
+  const stateObj = {
     provider,
-    nonce,
+    nonce: crypto.randomUUID(),
     t: Date.now(),
-  });
+  };
+  const state = base64UrlEncode(stateObj);
 
-  const baseScopes = ["public_profile", "pages_show_list", "pages_read_engagement"];
-  const fbExtraScopes = ["pages_manage_posts"];
-  const igExtraScopes = ["instagram_basic", "instagram_content_publish"];
-
+  // Scopes
+  // - Facebook posting uses pages_* scopes
+  // - Instagram picker needs pages + instagram_basic to read linked IG business account
   const scopes =
     provider === "instagram"
-      ? [...baseScopes, ...igExtraScopes]
-      : [...baseScopes, ...fbExtraScopes];
+      ? [
+          "public_profile",
+          "pages_show_list",
+          "pages_read_engagement",
+          "instagram_basic",
+        ]
+      : [
+          "public_profile",
+          "pages_show_list",
+          "pages_read_engagement",
+          "pages_manage_posts",
+        ];
 
   const authUrl =
     "https://www.facebook.com/v24.0/dialog/oauth" +
@@ -65,13 +75,13 @@ export async function GET(req: NextRequest) {
 
   const res = NextResponse.redirect(authUrl, { status: 302 });
 
-  // Still keep a simple nonce cookie (optional sanity check)
-  res.cookies.set("fb_oauth_nonce", nonce, {
+  // Store state in a short-lived cookie (basic CSRF protection)
+  res.cookies.set("fb_oauth_state", state, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
     path: "/",
-    maxAge: 10 * 60,
+    maxAge: 10 * 60, // 10 mins
   });
 
   return res;
