@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomUUID } from "crypto";
 
+export const runtime = "nodejs";
+
 type ProviderId =
   | "facebook"
   | "instagram"
@@ -59,10 +61,17 @@ async function resolveOrganisationId(req: Request) {
     const orgFromQuery = url.searchParams.get("organisationId");
     if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
   } catch {
-    // ignore
+    // ignore URL parse issues
   }
+
   return await getSingleTenantOrganisationId();
 }
+
+/**
+ * Your social_accounts table columns (you pasted):
+ * id, organisation_id, platform, page_id, page_name,
+ * connection_type, make_webhook_url, is_active, created_at
+ */
 
 // GET /api/social-accounts?organisationId=...
 export async function GET(req: Request) {
@@ -78,11 +87,8 @@ export async function GET(req: Request) {
 
     const { data, error } = await supabaseAdmin
       .from("social_accounts")
-      .select(
-        "id, organisation_id, platform, page_id, page_name, connection_type, make_webhook_url, is_active, created_at"
-      )
-      .eq("organisation_id", organisationId)
-      .order("created_at", { ascending: true });
+      .select("*")
+      .eq("organisation_id", organisationId);
 
     if (error) {
       console.error("[social-accounts] GET error", error);
@@ -99,31 +105,25 @@ export async function GET(req: Request) {
   } catch (error: any) {
     console.error("[social-accounts] GET unexpected", error);
     return NextResponse.json(
-      { error: error.message || "Unexpected error" },
+      { error: error?.message || "Unexpected error" },
       { status: 500 }
     );
   }
 }
 
 // POST /api/social-accounts?organisationId=...
-// Body:
-// {
-//   platform: "facebook" | ...,
-//   pageId?: string,
-//   pageName?: string,
-//   connectionType?: string,         // e.g. "oauth" | "make" | "manual"
-//   makeWebhookUrl?: string | null,
-//   isActive?: boolean
-// }
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
 
     const platform = asProviderId(body?.platform);
-    const pageId = typeof body?.pageId === "string" ? body.pageId.trim() : "";
+    const pageIdRaw = typeof body?.pageId === "string" ? body.pageId.trim() : "";
     const pageName =
-      typeof body?.pageName === "string" ? body.pageName.trim() : null;
+      typeof body?.pageName === "string" && body.pageName.trim()
+        ? body.pageName.trim()
+        : null;
 
+    // NEW optional fields (safe defaults)
     const connectionType =
       typeof body?.connectionType === "string" && body.connectionType.trim()
         ? body.connectionType.trim()
@@ -139,7 +139,19 @@ export async function POST(req: Request) {
 
     if (!platform) {
       return NextResponse.json(
-        { error: "platform is required" },
+        {
+          error: "platform is required",
+          allowed: [
+            "facebook",
+            "instagram",
+            "tiktok",
+            "linkedin",
+            "google",
+            "email",
+            "whatsapp",
+            "threads",
+          ],
+        },
         { status: 400 }
       );
     }
@@ -153,15 +165,13 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ If inserting a brand new row, require a real pageId.
-    // (This avoids the old 'pending_page_id' hack.)
-    // You CAN still update page_name / is_active without a pageId later.
-    const hasRealPageId = pageId.length > 0;
+    // Your DB likely has page_id NOT NULL
+    const safePageId = pageIdRaw.length > 0 ? pageIdRaw : "pending_page_id";
 
-    // See if we already have a row for this org + platform
+    // Do we already have a row for this org + platform?
     const { data: existingRows, error: existingError } = await supabaseAdmin
       .from("social_accounts")
-      .select("id, page_id")
+      .select("id")
       .eq("organisation_id", organisationId)
       .eq("platform", platform)
       .limit(1);
@@ -173,7 +183,7 @@ export async function POST(req: Request) {
     let result: any = null;
 
     if (existingRows && existingRows.length > 0) {
-      // UPDATE path
+      // UPDATE
       const id = existingRows[0].id;
 
       const updatePayload: any = {
@@ -183,18 +193,16 @@ export async function POST(req: Request) {
         is_active: isActive,
       };
 
-      // Only update page_id if provided
-      if (hasRealPageId) {
-        updatePayload.page_id = pageId;
+      // Only update page_id if user actually provided one
+      if (pageIdRaw.length > 0) {
+        updatePayload.page_id = safePageId;
       }
 
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
         .update(updatePayload)
         .eq("id", id)
-        .select(
-          "id, organisation_id, platform, page_id, page_name, connection_type, make_webhook_url, is_active, created_at"
-        )
+        .select()
         .single();
 
       if (error) {
@@ -207,17 +215,7 @@ export async function POST(req: Request) {
 
       result = data;
     } else {
-      // INSERT path
-      if (!hasRealPageId) {
-        return NextResponse.json(
-          {
-            error:
-              "pageId is required the first time you connect a platform (insert).",
-          },
-          { status: 400 }
-        );
-      }
-
+      // INSERT
       const newId = randomUUID();
 
       const { data, error } = await supabaseAdmin
@@ -226,15 +224,13 @@ export async function POST(req: Request) {
           id: newId,
           organisation_id: organisationId,
           platform,
-          page_id: pageId,
+          page_id: safePageId, // NOT NULL
           page_name: pageName,
           connection_type: connectionType,
           make_webhook_url: makeWebhookUrl,
           is_active: isActive,
         })
-        .select(
-          "id, organisation_id, platform, page_id, page_name, connection_type, make_webhook_url, is_active, created_at"
-        )
+        .select()
         .single();
 
       if (error) {
@@ -255,7 +251,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("[social-accounts] POST unexpected", error);
     return NextResponse.json(
-      { error: error.message || "Unexpected error" },
+      { error: error?.message || "Unexpected error" },
       { status: 500 }
     );
   }
@@ -301,7 +297,7 @@ export async function DELETE(req: Request) {
   } catch (error: any) {
     console.error("[social-accounts] DELETE unexpected", error);
     return NextResponse.json(
-      { error: error.message || "Unexpected error" },
+      { error: error?.message || "Unexpected error" },
       { status: 500 }
     );
   }
