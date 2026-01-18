@@ -109,69 +109,42 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
 
     const platform = asProviderId(body?.platform);
-    const pageIdRaw = body?.pageId;
-    const pageNameRaw = body?.pageName;
+    const pageId = typeof body?.pageId === "string" ? body.pageId : null;
+    const pageName = typeof body?.pageName === "string" ? body.pageName : null;
 
-    const connectionTypeRaw = body?.connectionType;
-    const makeWebhookUrlRaw = body?.makeWebhookUrl;
-    const isActiveRaw = body?.isActive;
+    const connectionType =
+      typeof body?.connectionType === "string" ? body.connectionType : null;
 
-    const pageAccessTokenRaw = body?.pageAccessToken;
-    const tokenExpiresAtRaw = body?.tokenExpiresAt;
+    const makeWebhookUrl =
+      typeof body?.makeWebhookUrl === "string" ? body.makeWebhookUrl : null;
+
+    const isActive =
+      typeof body?.isActive === "boolean" ? body.isActive : true;
+
+    const pageAccessToken =
+      typeof body?.pageAccessToken === "string" && body.pageAccessToken.trim()
+        ? body.pageAccessToken.trim()
+        : null;
+
+    const tokenExpiresAt =
+      typeof body?.tokenExpiresAt === "string" && body.tokenExpiresAt.trim()
+        ? body.tokenExpiresAt.trim()
+        : null;
 
     if (!platform) {
-      return NextResponse.json(
-        { error: "platform is required (facebook/instagram/etc)" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "platform is required" }, { status: 400 });
     }
 
     const organisationId = await resolveOrganisationId(req);
+
     if (!organisationId) {
-      return NextResponse.json(
-        { error: "No organisation found" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No organisation found" }, { status: 400 });
     }
 
-    const pageId =
-      typeof pageIdRaw === "string" && pageIdRaw.trim().length > 0
-        ? pageIdRaw.trim()
-        : null;
-
-    const pageName =
-      typeof pageNameRaw === "string" && pageNameRaw.trim().length > 0
-        ? pageNameRaw.trim()
-        : null;
-
-    const connectionType =
-      typeof connectionTypeRaw === "string" && connectionTypeRaw.trim().length > 0
-        ? connectionTypeRaw.trim()
-        : null;
-
-    const makeWebhookUrl =
-      typeof makeWebhookUrlRaw === "string" && makeWebhookUrlRaw.trim().length > 0
-        ? makeWebhookUrlRaw.trim()
-        : null;
-
-    const isActive =
-      typeof isActiveRaw === "boolean" ? isActiveRaw : true;
-
-    const pageAccessToken =
-      typeof pageAccessTokenRaw === "string" && pageAccessTokenRaw.trim().length > 0
-        ? pageAccessTokenRaw.trim()
-        : null;
-
-    // Allow either ISO string or null
-    const tokenExpiresAt =
-      typeof tokenExpiresAtRaw === "string" && tokenExpiresAtRaw.trim().length > 0
-        ? tokenExpiresAtRaw.trim()
-        : null;
-
-    // Lookup existing org+platform row
+    // See if we already have a row for this org + platform
     const { data: existingRows, error: existingError } = await supabaseAdmin
       .from("social_accounts")
-      .select("id")
+      .select("id, page_id")
       .eq("organisation_id", organisationId)
       .eq("platform", platform)
       .limit(1);
@@ -180,23 +153,30 @@ export async function POST(req: Request) {
       console.error("[social-accounts] lookup error", existingError);
     }
 
-    let result: any = null;
+    let result;
 
     if (existingRows && existingRows.length > 0) {
       // UPDATE
       const id = existingRows[0].id;
 
       const updatePayload: any = {
-        page_name: pageName,
-        connection_type: connectionType,
-        make_webhook_url: makeWebhookUrl,
+        page_name: pageName ?? null,
+        connection_type: connectionType ?? undefined,
+        make_webhook_url: makeWebhookUrl ?? null,
         is_active: isActive,
-        page_access_token: pageAccessToken,
-        token_expires_at: tokenExpiresAt,
       };
 
-      // Only set page_id if provided (avoid accidentally nuking)
-      if (pageId) updatePayload.page_id = pageId;
+      if (typeof pageId === "string" && pageId.trim().length > 0) {
+        updatePayload.page_id = pageId.trim();
+      }
+
+      if (pageAccessToken) {
+        updatePayload.page_access_token = pageAccessToken;
+      }
+
+      if (tokenExpiresAt) {
+        updatePayload.token_expires_at = tokenExpiresAt;
+      }
 
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
@@ -218,23 +198,27 @@ export async function POST(req: Request) {
       // INSERT
       const newId = randomUUID();
 
-      // Respect NOT NULL on page_id in your DB:
-      const safePageId = pageId ?? "pending_page_id";
+      const safePageId =
+        (typeof pageId === "string" && pageId.trim().length > 0
+          ? pageId.trim()
+          : "pending_page_id") + "";
+
+      const insertPayload: any = {
+        id: newId,
+        organisation_id: organisationId,
+        platform,
+        page_id: safePageId,
+        page_name: pageName ?? null,
+        connection_type: connectionType ?? null,
+        make_webhook_url: makeWebhookUrl ?? null,
+        is_active: isActive,
+        page_access_token: pageAccessToken,
+        token_expires_at: tokenExpiresAt,
+      };
 
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
-        .insert({
-          id: newId,
-          organisation_id: organisationId,
-          platform,
-          page_id: safePageId,
-          page_name: pageName,
-          connection_type: connectionType,
-          make_webhook_url: makeWebhookUrl,
-          is_active: isActive,
-          page_access_token: pageAccessToken,
-          token_expires_at: tokenExpiresAt,
-        })
+        .insert(insertPayload)
         .select()
         .single();
 
@@ -265,29 +249,24 @@ export async function POST(req: Request) {
 // DELETE /api/social-accounts?organisationId=...
 export async function DELETE(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const platform = asProviderId(body?.platform);
+    const { platform } = await req.json();
 
-    if (!platform) {
-      return NextResponse.json(
-        { error: "platform is required" },
-        { status: 400 }
-      );
+    const provider = asProviderId(platform);
+    if (!provider) {
+      return NextResponse.json({ error: "platform is required" }, { status: 400 });
     }
 
     const organisationId = await resolveOrganisationId(req);
+
     if (!organisationId) {
-      return NextResponse.json(
-        { error: "No organisation found" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No organisation found" }, { status: 400 });
     }
 
     const { error } = await supabaseAdmin
       .from("social_accounts")
       .delete()
       .eq("organisation_id", organisationId)
-      .eq("platform", platform);
+      .eq("platform", provider);
 
     if (error) {
       console.error("[social-accounts] DELETE error", error);
@@ -297,7 +276,7 @@ export async function DELETE(req: Request) {
       );
     }
 
-    return NextResponse.json({ organisationId, platform });
+    return NextResponse.json({ organisationId, platform: provider });
   } catch (error: any) {
     console.error("[social-accounts] DELETE unexpected", error);
     return NextResponse.json(
