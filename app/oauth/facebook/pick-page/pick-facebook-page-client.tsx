@@ -5,26 +5,14 @@ import React, { useEffect, useMemo, useState } from "react";
 type FbPage = {
   id: string;
   name: string;
-  access_token?: string; // Page token from /me/accounts
+  access_token?: string; // page token
 };
 
 export default function PickFacebookPageClient({
-  token,
   state,
 }: {
-  token?: string;
   state?: string;
 }) {
-  const resolvedToken = useMemo(() => {
-    if (token && token.trim()) return token.trim();
-    try {
-      const u = new URL(window.location.href);
-      return (u.searchParams.get("token") || "").trim();
-    } catch {
-      return "";
-    }
-  }, [token]);
-
   const [loading, setLoading] = useState(false);
   const [pages, setPages] = useState<FbPage[]>([]);
   const [selectedPageId, setSelectedPageId] = useState<string>("");
@@ -39,41 +27,23 @@ export default function PickFacebookPageClient({
     } catch {}
     return {
       href,
-      tokenResolvedLength: (resolvedToken || "").length,
       pagesCount: pages.length,
       selectedPageId,
       hasState: Boolean(state && String(state).trim()),
     };
-  }, [resolvedToken, pages.length, selectedPageId, state]);
+  }, [pages.length, selectedPageId, state]);
 
   async function loadPages() {
     setLoading(true);
     setError(null);
 
     try {
-      if (!resolvedToken) {
-        setError("Missing token — please go back and click Connect Facebook again.");
-        setPages([]);
-        return;
-      }
-
-      const url =
-        "https://graph.facebook.com/v24.0/me/accounts?" +
-        new URLSearchParams({
-          fields: "id,name,access_token",
-          limit: "100",
-          access_token: resolvedToken,
-        }).toString();
-
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch("/api/oauth/facebook/pages", { cache: "no-store" });
       const json: any = await res.json().catch(() => null);
 
       if (!res.ok) {
-        const msg =
-          json?.error?.message ||
-          `Facebook Graph error (${res.status}). Check permissions/scopes.`;
-        setError(msg);
         setPages([]);
+        setError(json?.error || "Failed to load Pages. Click Connect again.");
         return;
       }
 
@@ -82,15 +52,15 @@ export default function PickFacebookPageClient({
 
       if (list.length === 0) {
         setError(
-          "No Pages returned. This usually means Facebook didn't grant Page access to this token."
+          "No Pages returned. This usually means the login did not grant Page access. Click back and Connect again."
         );
         return;
       }
 
       if (!selectedPageId) setSelectedPageId(list[0].id);
     } catch (e: any) {
-      setError(e?.message || "Failed to load pages.");
       setPages([]);
+      setError(e?.message || "Failed to load pages.");
     } finally {
       setLoading(false);
     }
@@ -166,7 +136,9 @@ export default function PickFacebookPageClient({
           )}
 
           <div className="space-y-2">
-            <label className="block text-xs font-medium text-slate-300">Your Pages</label>
+            <label className="block text-xs font-medium text-slate-300">
+              Your Pages
+            </label>
 
             <select
               className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
@@ -193,14 +165,6 @@ export default function PickFacebookPageClient({
                 className="rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-2 text-sm text-slate-100 hover:border-slate-500 disabled:opacity-60"
               >
                 {loading ? "Loading…" : "Reload Pages"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => window.location.reload()}
-                className="rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-2 text-sm text-slate-100 hover:border-slate-500"
-              >
-                Refresh page
               </button>
 
               <button
