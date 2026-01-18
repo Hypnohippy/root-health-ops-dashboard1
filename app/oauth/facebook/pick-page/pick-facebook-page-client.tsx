@@ -6,22 +6,21 @@ import React, { useEffect, useMemo, useState } from "react";
 type FbPage = {
   id: string;
   name: string;
-  access_token?: string; // page token (returned by /me/accounts)
+  access_token?: string; // ✅ page token (returned by /me/accounts)
 };
 
 export default function PickFacebookPageClient({
   token,
   state,
 }: {
-  token?: string;
+  token: string;
   state?: string;
 }) {
   const resolvedToken = useMemo(() => {
     if (token && token.trim()) return token.trim();
     try {
       const u = new URL(window.location.href);
-      const t = u.searchParams.get("token") || "";
-      return t.trim();
+      return (u.searchParams.get("token") || "").trim();
     } catch {
       return "";
     }
@@ -44,7 +43,7 @@ export default function PickFacebookPageClient({
       tokenResolvedLength: (resolvedToken || "").length,
       pagesCount: pages.length,
       selectedPageId,
-      hasState: Boolean(state),
+      hasState: !!(state && String(state).trim()),
     };
   }, [resolvedToken, pages.length, selectedPageId, state]);
 
@@ -80,14 +79,21 @@ export default function PickFacebookPageClient({
       }
 
       const list: FbPage[] = Array.isArray(json?.data) ? json.data : [];
-      setPages(list);
 
-      if (list.length === 0) {
-        setError("No Pages returned.");
+      // ✅ Filter out pages that (for whatever reason) don't include a page token
+      // If this list is empty, Facebook didn't grant Page access to this user token.
+      const usable = list.filter((p) => p && p.id && p.name);
+
+      setPages(usable);
+
+      if (usable.length === 0) {
+        setError(
+          "No Pages returned. This usually means Facebook didn’t grant Page access to this token. Try reconnecting and make sure you explicitly allow the Page."
+        );
         return;
       }
 
-      if (!selectedPageId) setSelectedPageId(list[0].id);
+      if (!selectedPageId) setSelectedPageId(usable[0].id);
     } catch (e: any) {
       setError(e?.message || "Failed to load pages.");
       setPages([]);
@@ -107,12 +113,11 @@ export default function PickFacebookPageClient({
         return;
       }
 
-      // 🔥 CRITICAL: we MUST store the page access token
-      const pageAccessToken = page.access_token || "";
-
+      // ✅ This is the KEY fix: save the PAGE ACCESS TOKEN
+      const pageAccessToken = (page.access_token || "").trim();
       if (!pageAccessToken) {
         setError(
-          "Facebook did not return a Page access token. Please reconnect and ensure you approve Page access."
+          "Facebook did not return a Page access token for this Page. Please reconnect and re-approve Page access."
         );
         return;
       }
@@ -127,8 +132,8 @@ export default function PickFacebookPageClient({
           connectionType: "facebook_oauth",
           makeWebhookUrl: null,
           isActive: true,
-          pageAccessToken, // ✅ store it
-          tokenExpiresAt: null, // we can add expiry later if we want
+          pageAccessToken, // ✅ NEW
+          tokenExpiresAt: null, // unknown; page tokens are typically long-lived
         }),
       });
 
@@ -228,7 +233,7 @@ export default function PickFacebookPageClient({
 
           {debugOpen && (
             <pre className="mt-2 max-h-64 overflow-auto rounded-xl border border-slate-700 bg-slate-950 p-3 text-[11px] text-slate-200">
-{JSON.stringify(debug, null, 2)}
+              {JSON.stringify(debug, null, 2)}
             </pre>
           )}
         </div>
