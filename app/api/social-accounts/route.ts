@@ -59,7 +59,7 @@ async function resolveOrganisationId(req: Request) {
     const orgFromQuery = url.searchParams.get("organisationId");
     if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
   } catch {
-    // ignore URL parse issues
+    // ignore
   }
 
   return await getSingleTenantOrganisationId();
@@ -109,40 +109,24 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
 
     const platform = asProviderId(body?.platform);
-    const pageId = typeof body?.pageId === "string" ? body.pageId : null;
-    const pageName = typeof body?.pageName === "string" ? body.pageName : null;
+    const pageIdRaw = body?.pageId;
+    const pageNameRaw = body?.pageName;
 
-    // ✅ New fields
-    const pageAccessToken =
-      typeof body?.pageAccessToken === "string" ? body.pageAccessToken : null;
+    const connectionTypeRaw = body?.connectionType;
+    const makeWebhookUrlRaw = body?.makeWebhookUrl;
+    const isActiveRaw = body?.isActive;
 
-    // tokenExpiresAt can be:
-    // - ISO string, or null
-    // - number seconds from now (we’ll convert), or null
-    let tokenExpiresAt: string | null = null;
-    if (typeof body?.tokenExpiresAt === "string" && body.tokenExpiresAt.trim()) {
-      tokenExpiresAt = body.tokenExpiresAt.trim();
-    } else if (typeof body?.tokenExpiresInSec === "number" && body.tokenExpiresInSec > 0) {
-      tokenExpiresAt = new Date(Date.now() + body.tokenExpiresInSec * 1000).toISOString();
-    }
-
-    // Optional fields you already use in DB
-    const connectionType =
-      typeof body?.connectionType === "string" ? body.connectionType : null;
-    const makeWebhookUrl =
-      typeof body?.makeWebhookUrl === "string" ? body.makeWebhookUrl : null;
-    const isActive =
-      typeof body?.isActive === "boolean" ? body.isActive : true;
+    const pageAccessTokenRaw = body?.pageAccessToken;
+    const tokenExpiresAtRaw = body?.tokenExpiresAt;
 
     if (!platform) {
       return NextResponse.json(
-        { error: "platform is required" },
+        { error: "platform is required (facebook/instagram/etc)" },
         { status: 400 }
       );
     }
 
     const organisationId = await resolveOrganisationId(req);
-
     if (!organisationId) {
       return NextResponse.json(
         { error: "No organisation found" },
@@ -150,7 +134,41 @@ export async function POST(req: Request) {
       );
     }
 
-    // See if we already have a row for this org + platform
+    const pageId =
+      typeof pageIdRaw === "string" && pageIdRaw.trim().length > 0
+        ? pageIdRaw.trim()
+        : null;
+
+    const pageName =
+      typeof pageNameRaw === "string" && pageNameRaw.trim().length > 0
+        ? pageNameRaw.trim()
+        : null;
+
+    const connectionType =
+      typeof connectionTypeRaw === "string" && connectionTypeRaw.trim().length > 0
+        ? connectionTypeRaw.trim()
+        : null;
+
+    const makeWebhookUrl =
+      typeof makeWebhookUrlRaw === "string" && makeWebhookUrlRaw.trim().length > 0
+        ? makeWebhookUrlRaw.trim()
+        : null;
+
+    const isActive =
+      typeof isActiveRaw === "boolean" ? isActiveRaw : true;
+
+    const pageAccessToken =
+      typeof pageAccessTokenRaw === "string" && pageAccessTokenRaw.trim().length > 0
+        ? pageAccessTokenRaw.trim()
+        : null;
+
+    // Allow either ISO string or null
+    const tokenExpiresAt =
+      typeof tokenExpiresAtRaw === "string" && tokenExpiresAtRaw.trim().length > 0
+        ? tokenExpiresAtRaw.trim()
+        : null;
+
+    // Lookup existing org+platform row
     const { data: existingRows, error: existingError } = await supabaseAdmin
       .from("social_accounts")
       .select("id")
@@ -169,24 +187,16 @@ export async function POST(req: Request) {
       const id = existingRows[0].id;
 
       const updatePayload: any = {
-        page_name: pageName ?? null,
-        connection_type: connectionType ?? null,
-        make_webhook_url: makeWebhookUrl ?? null,
+        page_name: pageName,
+        connection_type: connectionType,
+        make_webhook_url: makeWebhookUrl,
         is_active: isActive,
+        page_access_token: pageAccessToken,
+        token_expires_at: tokenExpiresAt,
       };
 
-      // Respect NOT NULL on page_id if you have it:
-      if (typeof pageId === "string" && pageId.trim().length > 0) {
-        updatePayload.page_id = pageId.trim();
-      }
-
-      // ✅ Save token fields if provided
-      if (pageAccessToken && pageAccessToken.trim()) {
-        updatePayload.page_access_token = pageAccessToken.trim();
-      }
-      if (tokenExpiresAt) {
-        updatePayload.token_expires_at = tokenExpiresAt;
-      }
+      // Only set page_id if provided (avoid accidentally nuking)
+      if (pageId) updatePayload.page_id = pageId;
 
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
@@ -208,27 +218,23 @@ export async function POST(req: Request) {
       // INSERT
       const newId = randomUUID();
 
-      const safePageId =
-        (typeof pageId === "string" && pageId.trim().length > 0
-          ? pageId.trim()
-          : "pending_page_id") + "";
-
-      const insertPayload: any = {
-        id: newId,
-        organisation_id: organisationId,
-        platform,
-        page_id: safePageId,
-        page_name: pageName ?? null,
-        connection_type: connectionType ?? null,
-        make_webhook_url: makeWebhookUrl ?? null,
-        is_active: isActive,
-        page_access_token: pageAccessToken && pageAccessToken.trim() ? pageAccessToken.trim() : null,
-        token_expires_at: tokenExpiresAt ?? null,
-      };
+      // Respect NOT NULL on page_id in your DB:
+      const safePageId = pageId ?? "pending_page_id";
 
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
-        .insert(insertPayload)
+        .insert({
+          id: newId,
+          organisation_id: organisationId,
+          platform,
+          page_id: safePageId,
+          page_name: pageName,
+          connection_type: connectionType,
+          make_webhook_url: makeWebhookUrl,
+          is_active: isActive,
+          page_access_token: pageAccessToken,
+          token_expires_at: tokenExpiresAt,
+        })
         .select()
         .single();
 
@@ -270,7 +276,6 @@ export async function DELETE(req: Request) {
     }
 
     const organisationId = await resolveOrganisationId(req);
-
     if (!organisationId) {
       return NextResponse.json(
         { error: "No organisation found" },
