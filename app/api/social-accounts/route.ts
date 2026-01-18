@@ -1,9 +1,7 @@
 // app/api/social-accounts/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomUUID } from "crypto";
-
-export const runtime = "nodejs";
 
 type ProviderId =
   | "facebook"
@@ -30,93 +28,35 @@ function asProviderId(v: any): ProviderId | null {
   return allowed.includes(s as ProviderId) ? (s as ProviderId) : null;
 }
 
-/**
- * Single-tenant beta default:
- * - If caller passes ?organisationId=..., use that
- * - Otherwise use the first organisations row
- * - If none exists, attempt to create one (best-effort)
- */
-async function getOrCreateDefaultOrganisationId(): Promise<string | null> {
+// Single-tenant beta mode fallback
+async function getSingleTenantOrganisationId() {
   const { data, error } = await supabaseAdmin
     .from("organisations")
     .select("id")
-    .order("created_at", { ascending: true })
     .limit(1);
 
-  if (!error && data && data.length > 0 && data[0]?.id) {
-    return String(data[0].id);
+  if (error) {
+    console.error("[social-accounts] organisations error", error);
+    return null;
   }
-
-  // No org found (or select failed) -> best-effort create.
-  const newId = randomUUID();
-
-  // Attempt 1: common schema includes name + created_at
-  const attempt1 = await supabaseAdmin
-    .from("organisations")
-    .insert({
-      id: newId,
-      name: "Root Health Ops Workspace",
-      created_at: new Date().toISOString(),
-    } as any)
-    .select("id")
-    .maybeSingle();
-
-  if (!attempt1.error && attempt1.data?.id) {
-    return String(attempt1.data.id);
+  if (!data || data.length === 0) {
+    console.warn("[social-accounts] No organisations found in database");
+    return null;
   }
-
-  // Attempt 2: minimal schema (id only)
-  const attempt2 = await supabaseAdmin
-    .from("organisations")
-    .insert({ id: newId } as any)
-    .select("id")
-    .maybeSingle();
-
-  if (!attempt2.error && attempt2.data?.id) {
-    return String(attempt2.data.id);
-  }
-
-  console.error(
-    "[social-accounts] Could not create default organisation",
-    attempt1.error || attempt2.error || error
-  );
-  return null;
+  return data[0].id as string;
 }
 
-async function resolveOrganisationId(req: NextRequest): Promise<string | null> {
-  const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
-  if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
-  return await getOrCreateDefaultOrganisationId();
-}
-
-/**
- * IMPORTANT (Option A / OAuth posting):
- * This route supports storing the selected FB Page's page access token.
- *
- * For that, add these columns in Supabase:
- *   alter table public.social_accounts
- *   add column if not exists page_access_token text,
- *   add column if not exists token_expires_at timestamptz;
- */
-
-function cleanOptString(v: any): string | null {
-  if (typeof v !== "string") return null;
-  const s = v.trim();
-  return s.length ? s : null;
-}
-
-function cleanOptBool(v: any): boolean | null {
-  if (typeof v === "boolean") return v;
-  if (typeof v === "string") {
-    const s = v.toLowerCase().trim();
-    if (s === "true" || s === "1" || s === "yes") return true;
-    if (s === "false" || s === "0" || s === "no") return false;
-  }
-  return null;
+async function resolveOrganisationId(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const orgFromQuery = url.searchParams.get("organisationId");
+    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
+  } catch {}
+  return await getSingleTenantOrganisationId();
 }
 
 // GET /api/social-accounts?organisationId=...
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const organisationId = await resolveOrganisationId(req);
 
@@ -130,8 +70,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("social_accounts")
       .select("*")
-      .eq("organisation_id", organisationId)
-      .order("created_at", { ascending: true });
+      .eq("organisation_id", organisationId);
 
     if (error) {
       console.error("[social-accounts] GET error", error);
@@ -148,21 +87,21 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error("[social-accounts] GET unexpected", error);
     return NextResponse.json(
-      { error: error?.message || "Unexpected error" },
+      { error: error.message || "Unexpected error" },
       { status: 500 }
     );
   }
 }
 
 // POST /api/social-accounts?organisationId=...
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
 
     const platform = asProviderId(body?.platform);
     if (!platform) {
       return NextResponse.json(
-        { error: "platform is required" },
+        { error: "platform is required (facebook/instagram/linkedin/etc)" },
         { status: 400 }
       );
     }
@@ -170,62 +109,68 @@ export async function POST(req: NextRequest) {
     const organisationId = await resolveOrganisationId(req);
     if (!organisationId) {
       return NextResponse.json(
-        { error: "No organisation found (and could not create one)" },
+        { error: "No organisation found" },
         { status: 400 }
       );
     }
 
-    // Core fields
-    const pageIdRaw = cleanOptString(body?.pageId);
-    const pageName = cleanOptString(body?.pageName);
+    const pageIdRaw = body?.pageId;
+    const pageNameRaw = body?.pageName;
 
-    // Optional fields (safe to ignore if you’re not using them yet)
-    const connectionType = cleanOptString(body?.connectionType); // "oauth" | "make" | etc
-    const makeWebhookUrl = cleanOptString(body?.makeWebhookUrl);
-    const isActive = cleanOptBool(body?.isActive);
+    const connectionTypeRaw = body?.connectionType;
+    const makeWebhookUrlRaw = body?.makeWebhookUrl;
+    const isActiveRaw = body?.isActive;
+    const metaRaw = body?.meta;
 
-    // OAuth token storage (Option A)
-    const pageAccessToken = cleanOptString(body?.pageAccessToken);
-    const tokenExpiresAt = cleanOptString(body?.tokenExpiresAt); // ISO string
+    const page_id =
+      typeof pageIdRaw === "string" && pageIdRaw.trim().length > 0
+        ? pageIdRaw.trim()
+        : "pending_page_id"; // keep NOT NULL happy
 
-    // Respect NOT NULL on page_id (your table currently uses NOT NULL)
-    const safePageId = (pageIdRaw ? pageIdRaw : "pending_page_id") + "";
+    const page_name =
+      typeof pageNameRaw === "string" && pageNameRaw.trim().length > 0
+        ? pageNameRaw.trim()
+        : null;
 
-    // Do we already have a row for this org + platform?
-    const { data: existingRows, error: existingError } = await supabaseAdmin
+    const connection_type =
+      typeof connectionTypeRaw === "string" && connectionTypeRaw.trim()
+        ? connectionTypeRaw.trim()
+        : null;
+
+    const make_webhook_url =
+      typeof makeWebhookUrlRaw === "string" && makeWebhookUrlRaw.trim()
+        ? makeWebhookUrlRaw.trim()
+        : null;
+
+    const is_active =
+      typeof isActiveRaw === "boolean" ? isActiveRaw : true;
+
+    const meta =
+      metaRaw && typeof metaRaw === "object" ? metaRaw : null;
+
+    // Check if existing row for org+platform
+    const { data: existingRows } = await supabaseAdmin
       .from("social_accounts")
       .select("id")
       .eq("organisation_id", organisationId)
       .eq("platform", platform)
       .limit(1);
 
-    if (existingError) {
-      console.error("[social-accounts] lookup error", existingError);
-    }
-
-    const basePayload: any = {
-      page_id: safePageId,
-      page_name: pageName,
-    };
-
-    // Only include optional fields if provided
-    if (connectionType !== null) basePayload.connection_type = connectionType;
-    if (makeWebhookUrl !== null) basePayload.make_webhook_url = makeWebhookUrl;
-    if (isActive !== null) basePayload.is_active = isActive;
-
-    // Token fields (require DB columns to exist)
-    if (pageAccessToken !== null) basePayload.page_access_token = pageAccessToken;
-    if (tokenExpiresAt !== null) basePayload.token_expires_at = tokenExpiresAt;
-
-    let result: any = null;
+    let result;
 
     if (existingRows && existingRows.length > 0) {
-      // UPDATE
       const id = existingRows[0].id;
 
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
-        .update(basePayload)
+        .update({
+          page_id,
+          page_name,
+          connection_type,
+          make_webhook_url,
+          is_active,
+          meta,
+        })
         .eq("id", id)
         .select()
         .single();
@@ -240,7 +185,6 @@ export async function POST(req: NextRequest) {
 
       result = data;
     } else {
-      // INSERT
       const newId = randomUUID();
 
       const { data, error } = await supabaseAdmin
@@ -249,7 +193,12 @@ export async function POST(req: NextRequest) {
           id: newId,
           organisation_id: organisationId,
           platform,
-          ...basePayload,
+          page_id,
+          page_name,
+          connection_type,
+          make_webhook_url,
+          is_active,
+          meta,
         })
         .select()
         .single();
@@ -272,14 +221,14 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("[social-accounts] POST unexpected", error);
     return NextResponse.json(
-      { error: error?.message || "Unexpected error" },
+      { error: error.message || "Unexpected error" },
       { status: 500 }
     );
   }
 }
 
 // DELETE /api/social-accounts?organisationId=...
-export async function DELETE(req: NextRequest) {
+export async function DELETE(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const platform = asProviderId(body?.platform);
@@ -308,7 +257,7 @@ export async function DELETE(req: NextRequest) {
     if (error) {
       console.error("[social-accounts] DELETE error", error);
       return NextResponse.json(
-        { error: "Failed to delete social account", details: error },
+        { error: "Failed to delete social account" },
         { status: 500 }
       );
     }
@@ -317,7 +266,7 @@ export async function DELETE(req: NextRequest) {
   } catch (error: any) {
     console.error("[social-accounts] DELETE unexpected", error);
     return NextResponse.json(
-      { error: error?.message || "Unexpected error" },
+      { error: error.message || "Unexpected error" },
       { status: 500 }
     );
   }
