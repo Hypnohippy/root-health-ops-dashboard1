@@ -1,904 +1,279 @@
-// app/dashboard/page.tsx
+// app/dashboard/connect/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 
-/**
- * Root Health Ops — Dashboard Quick Blast
- * Enterprise-safe outcome panel + redacted admin view
- */
-
-type ChannelId =
+type ProviderId =
   | "facebook"
-  | "linkedin"
   | "instagram"
-  | "threads"
   | "tiktok"
-  | "reddit";
+  | "linkedin"
+  | "google"
+  | "email"
+  | "whatsapp"
+  | "threads";
 
-type DraftItem = {
-  id: string;
-  title?: string;
-  message: string;
-  imageUrl: string;
-  selected: Record<ChannelId, boolean>;
-  savedAt: string;
-  pinned?: boolean;
+type ConnectionStatus = "connected" | "disconnected" | "pending";
+
+type Provider = {
+  id: ProviderId;
+  name: string;
+  label: string;
+  description: string;
+  hint?: string;
+  status: ConnectionStatus;
+  accountName?: string;
+  lastSync?: string;
 };
 
-type OutcomeTone = "good" | "warn" | "bad" | "neutral";
-
-type OutcomeCard = {
-  tone: OutcomeTone;
-  title: string;
-  body: string;
-  meta?: string;
-};
-
-const DRAFTS_KEY = "rh_ops_quick_blast_drafts_v2";
-const LEGACY_DRAFT_KEY = "rh_ops_quick_blast_draft_v1";
-const MAX_DRAFTS = 25;
-
-const CHANNELS: { id: ChannelId; label: string; dotClass: string }[] = [
-  { id: "facebook", label: "Facebook Page", dotClass: "bg-[#1877F2]" },
-  { id: "linkedin", label: "LinkedIn", dotClass: "bg-sky-500" },
-  { id: "instagram", label: "Instagram", dotClass: "bg-pink-500" },
-  { id: "threads", label: "Threads", dotClass: "bg-white" },
-  { id: "tiktok", label: "TikTok", dotClass: "bg-slate-200" },
+const initialProviders: Provider[] = [
+  {
+    id: "facebook",
+    name: "Facebook",
+    label: "Facebook Page",
+    description: "Post and reply via secure OAuth connection.",
+    hint: "Requires a Facebook Page you manage (Full control/Admin).",
+    status: "disconnected",
+  },
+  {
+    id: "instagram",
+    name: "Instagram",
+    label: "Instagram",
+    description: "Connect an Instagram Business account linked to a Facebook Page.",
+    hint: "Instagram Business must be linked to a Facebook Page.",
+    status: "disconnected",
+  },
+  {
+    id: "linkedin",
+    name: "LinkedIn",
+    label: "LinkedIn",
+    description: "Professional presence and referral partner content.",
+    status: "disconnected",
+  },
+  {
+    id: "threads",
+    name: "Threads",
+    label: "Threads",
+    description: "Text-first posts that ride Meta momentum.",
+    status: "disconnected",
+  },
+  {
+    id: "tiktok",
+    name: "TikTok",
+    label: "TikTok",
+    description: "Short-form video built from your campaigns.",
+    status: "disconnected",
+  },
+  {
+    id: "google",
+    name: "Google Business Profile",
+    label: "Google Business Profile",
+    description: "Local SEO posts so clients find you when they’re searching.",
+    status: "disconnected",
+  },
+  {
+    id: "email",
+    name: "Email",
+    label: "Email newsletter",
+    description: "Educational campaigns and gentle nurture sequences.",
+    status: "disconnected",
+  },
+  {
+    id: "whatsapp",
+    name: "WhatsApp",
+    label: "WhatsApp / messaging",
+    description: "Automated follow-ups and check-ins, never spammy.",
+    status: "disconnected",
+  },
 ];
 
-const DEFAULT_SELECTED: Record<ChannelId, boolean> = {
-  facebook: true,
-  linkedin: false,
-  instagram: false,
-  threads: false,
-  tiktok: false,
-  reddit: false,
+const connectUrls: Record<ProviderId, string> = {
+  // ✅ MUST go via the start route so we get code -> token -> pick-page?token=...
+  facebook: "/api/social/connect/start?provider=facebook",
+  instagram: "/api/social/connect/start?provider=instagram",
+
+  // Coming soon / placeholders (we can wire later)
+  linkedin: "#",
+  threads: "#",
+  tiktok: "#",
+  google: "#",
+  email: "#",
+  whatsapp: "#",
 };
 
-function safeJson(v: any) {
-  try {
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return String(v);
-  }
-}
+type SocialAccountRow = {
+  platform: ProviderId;
+  page_id: string | null;
+  page_name: string | null;
+};
 
-function redactVendorsDeep(input: any) {
-  const vendorRegex = /ayrshare/gi;
-  const makeRegex = /make(\.com)?/gi;
-  const pricingRegex = /https?:\/\/[^\s"]*pricing[^\s"]*/gi;
-  const docsRegex = /https?:\/\/[^\s"]*docs[^\s"]*/gi;
+export default function DashboardConnectPage() {
+  const [providers, setProviders] = useState<Provider[]>(initialProviders);
+  const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
 
-  const walk = (v: any): any => {
-    if (v == null) return v;
-
-    if (typeof v === "string") {
-      return v
-        .replace(vendorRegex, "Social posting service")
-        .replace(makeRegex, "Social posting service")
-        .replace(pricingRegex, "[link hidden]")
-        .replace(docsRegex, "[link hidden]");
-    }
-
-    if (Array.isArray(v)) return v.map(walk);
-
-    if (typeof v === "object") {
-      const out: any = {};
-      for (const [k, val] of Object.entries(v)) {
-        const safeKey = String(k).replace(vendorRegex, "service");
-        out[safeKey] = walk(val);
-      }
-      return out;
-    }
-
-    return v;
-  };
-
-  return walk(input);
-}
-
-function detectConnectedPlatforms(payload: any) {
-  const connected: Record<ChannelId, boolean> = {
-    facebook: false,
-    linkedin: false,
-    instagram: false,
-    threads: false,
-    tiktok: false,
-    reddit: false,
-  };
-
-  const rows = Array.isArray(payload?.socialAccounts)
-    ? payload.socialAccounts
-    : Array.isArray(payload?.data)
-    ? payload.data
-    : Array.isArray(payload)
-    ? payload
-    : [];
-
-  for (const r of rows) {
-    if (!r || typeof r !== "object") continue;
-    if ((r as any).is_active === false) continue;
-
-    const p = String((r as any).platform || "").toLowerCase();
-    if (p === "facebook") connected.facebook = true;
-    if (p === "linkedin") connected.linkedin = true;
-    if (p === "instagram") connected.instagram = true;
-    if (p === "threads") connected.threads = true;
-    if (p === "tiktok") connected.tiktok = true;
-    if (p === "reddit") connected.reddit = true;
-  }
-
-  return connected;
-}
-
-function userSafeQuotaMessage(payload: any): string | null {
-  const status = payload?.status;
-  const code = payload?.details?.code;
-  const msg = String(payload?.details?.message || "").toLowerCase();
-
-  if (status === 429 || code === 106 || msg.includes("quota")) {
-    return (
-      "Posting is paused for this workspace right now.\n\n" +
-      "Your draft is safe — save it for later, or post to the channels that are currently available."
-    );
-  }
-  return null;
-}
-
-function getFailedPlatformsFromResponse(payload: any): ChannelId[] {
-  const errs = payload?.details?.errors;
-  if (!Array.isArray(errs)) return [];
-  const failed = new Set<ChannelId>();
-
-  for (const e of errs) {
-    const p = String(e?.platform || "").toLowerCase().trim();
-    if (p === "facebook") failed.add("facebook");
-    if (p === "linkedin") failed.add("linkedin");
-    if (p === "instagram") failed.add("instagram");
-    if (p === "threads") failed.add("threads");
-    if (p === "tiktok") failed.add("tiktok");
-    if (p === "reddit") failed.add("reddit");
-  }
-
-  return Array.from(failed);
-}
-
-function getSucceededPlatformsFromResponse(payload: any): ChannelId[] {
-  const postIds = payload?.result?.postIds || payload?.details?.postIds;
-  if (!Array.isArray(postIds)) return [];
-  const ok = new Set<ChannelId>();
-
-  for (const p of postIds) {
-    const platform = String(p?.platform || "").toLowerCase().trim();
-    if (platform === "facebook") ok.add("facebook");
-    if (platform === "linkedin") ok.add("linkedin");
-    if (platform === "instagram") ok.add("instagram");
-    if (platform === "threads") ok.add("threads");
-    if (platform === "tiktok") ok.add("tiktok");
-    if (platform === "reddit") ok.add("reddit");
-  }
-
-  return Array.from(ok);
-}
-
-function plainEnglishFromQuickBlastFailure(payload: any): string {
-  const quota = userSafeQuotaMessage(payload);
-  if (quota) return quota;
-
-  const rawBase = String(payload?.error || payload?.message || "").trim();
-  const baseLower = rawBase.toLowerCase();
-
-  const safeBase =
-    !rawBase
-      ? "Something didn’t go through."
-      : baseLower.includes("ayrshare") || baseLower.includes("post failed")
-      ? "One or more channels couldn’t be posted right now."
-      : rawBase;
-
-  const errs = payload?.details?.errors;
-
-  if (Array.isArray(errs) && errs.length > 0) {
-    const e = errs[0];
-    const platform = String(e?.platform || "a channel");
-    const msg = String(e?.message || "").trim();
-
-    if (msg.toLowerCase().includes("choose at least one platform")) {
-      return (
-        "No worries — this one is quick.\n\n" +
-        "It looks like no channels were selected for that send.\n\n" +
-        "Select one or more channels and try again."
-      );
-    }
-
-    return `${safeBase}\n\n${platform} needs a small tweak: ${
-      msg || "Please try again."
-    }`;
-  }
-
-  return safeBase;
-}
-
-function createDraftId() {
-  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
-
-function formatDraftTitle(msg: string) {
-  const t = (msg || "").trim().replace(/\s+/g, " ");
-  if (!t) return "Untitled draft";
-  return t.length > 56 ? t.slice(0, 56) + "…" : t;
-}
-
-function normalizeDraft(d: any): DraftItem | null {
-  try {
-    if (!d || typeof d !== "object") return null;
-
-    const id = String(d.id || "").trim();
-    if (!id) return null;
-
-    const savedAt = String(d.savedAt || new Date().toISOString());
-    const message = String(d.message || "");
-    const imageUrl = String(d.imageUrl || "");
-
-    const selected: Record<ChannelId, boolean> = {
-      ...DEFAULT_SELECTED,
-      ...(typeof d.selected === "object" && d.selected ? d.selected : {}),
-    };
-
-    const title =
-      typeof d.title === "string" && d.title.trim()
-        ? d.title.trim()
-        : formatDraftTitle(message);
-
-    const pinned = Boolean(d.pinned);
-
-    return { id, title, message, imageUrl, selected, savedAt, pinned };
-  } catch {
-    return null;
-  }
-}
-
-function toneStyles(tone: OutcomeTone) {
-  switch (tone) {
-    case "good":
-      return "border-emerald-300/20 bg-emerald-300/10 text-emerald-50";
-    case "warn":
-      return "border-amber-300/20 bg-amber-300/10 text-amber-50";
-    case "bad":
-      return "border-red-300/20 bg-red-300/10 text-red-100";
-    default:
-      return "border-white/10 bg-white/5 text-slate-100";
-  }
-}
-
-export default function DashboardHomePage() {
-  const [message, setMessage] = useState(
-    "Quick check-in from Root Health Ops Dashboard ✅"
-  );
-  const [imageUrl, setImageUrl] = useState("");
-
-  const [isPosting, setIsPosting] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [celebration, setCelebration] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const [outcome, setOutcome] = useState<OutcomeCard | null>(null);
-
-  const [rawSocialAccounts, setRawSocialAccounts] = useState<any>(null);
-  const [connectedHint, setConnectedHint] = useState<string>("Loading…");
-  const [organisationId, setOrganisationId] = useState<string | null>(null);
-
-  const [connected, setConnected] = useState<Record<ChannelId, boolean>>({
-    facebook: false,
-    linkedin: false,
-    instagram: false,
-    threads: false,
-    tiktok: false,
-    reddit: false,
-  });
-
-  const [selected, setSelected] = useState<Record<ChannelId, boolean>>({
-    ...DEFAULT_SELECTED,
-  });
-
-  const [lastResponse, setLastResponse] = useState<any>(null);
-  const [coachMessage, setCoachMessage] = useState<string | null>(null);
-
-  const [drafts, setDrafts] = useState<DraftItem[]>([]);
-
-  const detectedConnectedList = useMemo(() => {
-    return Object.entries(connected)
-      .filter(([, v]) => v)
-      .map(([k]) => k)
-      .join(", ");
-  }, [connected]);
-
-  const selectedChannels = useMemo(() => {
-    return (Object.keys(selected) as ChannelId[]).filter(
-      (c) => selected[c] && connected[c]
-    );
-  }, [selected, connected]);
-
-  const failedPlatforms = useMemo(
-    () => getFailedPlatformsFromResponse(lastResponse),
-    [lastResponse]
-  );
-  const succeededPlatforms = useMemo(
-    () => getSucceededPlatformsFromResponse(lastResponse),
-    [lastResponse]
-  );
-
-  const quotaMessage = useMemo(
-    () => userSafeQuotaMessage(lastResponse),
-    [lastResponse]
-  );
-
-  useEffect(() => {
-    if (!celebration) return;
-    const t = setTimeout(() => setCelebration(null), 6500);
-    return () => clearTimeout(t);
-  }, [celebration]);
-
-  const refreshConnections = async () => {
+  async function loadSocialAccounts() {
     try {
-      const res = await fetch("/api/social-accounts", { method: "GET" });
+      const res = await fetch("/api/social-accounts", { cache: "no-store" });
       const data = await res.json().catch(() => null);
+      const rows: SocialAccountRow[] = data?.socialAccounts ?? [];
 
-      setRawSocialAccounts(data);
-      setConnectedHint(res.ok ? "Loaded from connections" : `HTTP ${res.status}`);
-
-      setOrganisationId(
-        typeof data?.organisationId === "string" ? data.organisationId : null
+      setProviders((prev) =>
+        prev.map((p) => {
+          const row = rows.find((r) => r.platform === p.id);
+          if (!row) {
+            return { ...p, status: "disconnected", accountName: undefined };
+          }
+          return {
+            ...p,
+            status: "connected",
+            accountName: row.page_name ?? p.accountName,
+          };
+        })
       );
-
-      setConnected(detectConnectedPlatforms(data));
-    } catch (e: any) {
-      setConnectedHint(e?.message || "Failed to load connections");
+    } catch (e) {
+      console.error("[dashboard/connect] loadSocialAccounts failed", e);
     }
-  };
+  }
 
-  const saveDraftsToStorage = (next: DraftItem[]) => {
-    try {
-      localStorage.setItem(DRAFTS_KEY, JSON.stringify(next));
-    } catch {}
-  };
-
-  const commitDrafts = (next: DraftItem[]) => {
-    setDrafts(next);
-    saveDraftsToStorage(next);
-  };
-
-  const loadDraftsFromStorage = () => {
-    try {
-      const raw = localStorage.getItem(DRAFTS_KEY);
-      if (!raw) {
-        setDrafts([]);
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        setDrafts([]);
-        return;
-      }
-      const normalized = parsed
-        .map(normalizeDraft)
-        .filter(Boolean) as DraftItem[];
-
-      setDrafts(normalized);
-      saveDraftsToStorage(normalized);
-    } catch {
-      setDrafts([]);
-    }
-  };
-
-  const migrateLegacyDraftIfNeeded = () => {
-    try {
-      const legacy = localStorage.getItem(LEGACY_DRAFT_KEY);
-      if (!legacy) return;
-
-      const existing = localStorage.getItem(DRAFTS_KEY);
-      if (existing) {
-        localStorage.removeItem(LEGACY_DRAFT_KEY);
-        return;
-      }
-
-      const d = JSON.parse(legacy);
-      if (!d?.message) {
-        localStorage.removeItem(LEGACY_DRAFT_KEY);
-        return;
-      }
-
-      const migrated = normalizeDraft({
-        id: createDraftId(),
-        title: formatDraftTitle(String(d.message || "")),
-        message: String(d.message || ""),
-        imageUrl: String(d.imageUrl || ""),
-        selected: d.selected || { ...DEFAULT_SELECTED },
-        savedAt: String(d.savedAt || new Date().toISOString()),
-        pinned: false,
-      });
-
-      const next = migrated ? [migrated] : [];
-      localStorage.setItem(DRAFTS_KEY, JSON.stringify(next));
-      localStorage.removeItem(LEGACY_DRAFT_KEY);
-    } catch {}
-  };
-
+  // Handle return flags like /dashboard/connect?provider=facebook&success=1
   useEffect(() => {
-    void refreshConnections();
-    migrateLegacyDraftIfNeeded();
-    loadDraftsFromStorage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void loadSocialAccounts();
   }, []);
 
-  const toggle = (c: ChannelId) => {
-    setSelected((s) => ({ ...s, [c]: !s[c] }));
+  const handleConnectClick = (provider: Provider) => {
+    const url = connectUrls[provider.id];
+
+    if (!url || url === "#") {
+      alert(`Connect flow for ${provider.name} is coming soon.`);
+      return;
+    }
+
+    setBusyProvider(provider.id);
+    setProviders((prev) =>
+      prev.map((p) => (p.id === provider.id ? { ...p, status: "pending" } : p))
+    );
+
+    window.location.href = url;
   };
 
-  const callRootCoach = async (payload: {
-    context: string;
-    userAction: string;
-    errorMessage?: string;
-    outcome?: "success" | "failed" | "partial_success";
-    failedPlatforms?: ChannelId[];
-    successPlatforms?: ChannelId[];
-  }) => {
+  const handleDisconnectClick = async (provider: Provider) => {
+    if (!confirm(`Disconnect ${provider.label}?`)) return;
+
+    setProviders((prev) =>
+      prev.map((p) =>
+        p.id === provider.id
+          ? { ...p, status: "disconnected", accountName: undefined, lastSync: undefined }
+          : p
+      )
+    );
+
     try {
-      const res = await fetch("/api/ai/root-coach", {
-        method: "POST",
+      await fetch("/api/social-accounts", {
+        method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ platform: provider.id }),
       });
-      const data = await res.json().catch(() => null);
-      if (data?.coachMessage) setCoachMessage(String(data.coachMessage));
-    } catch {}
-  };
-
-  const saveDraft = (reason?: string) => {
-    try {
-      const item: DraftItem = {
-        id: createDraftId(),
-        title: formatDraftTitle(message),
-        message,
-        imageUrl,
-        selected,
-        savedAt: new Date().toISOString(),
-        pinned: false,
-      };
-
-      const next = [item, ...drafts].slice(0, MAX_DRAFTS);
-      commitDrafts(next);
-
-      setOutcome({
-        tone: "good",
-        title: "Saved for later",
-        body:
-          "Your draft is safely stored on this device. You can load it anytime and send when you’re ready.",
-      });
-
-      setLastResponse(null);
-      setError(null);
-      setStatus("Saved for later — your draft is safe.");
-      setCelebration("Saved. You’re still in control.");
-
-      void callRootCoach({
-        context: "save_for_later_success",
-        userAction: reason ? `Saved draft (${reason})` : "Saved draft",
-        outcome: "success",
-      });
-    } catch {
-      setOutcome({
-        tone: "bad",
-        title: "Couldn’t save that draft",
-        body: "Your text is still here — copy it somewhere safe, then try saving again.",
-      });
-      setError("Couldn’t save the draft on this device. Copy the text for now.");
+    } catch (e) {
+      console.error("[dashboard/connect] disconnect failed", e);
     }
   };
-
-  const postQuickBlast = async (platforms: ChannelId[]) => {
-    const trimmed = message.trim();
-    if (!trimmed) throw new Error("Message is required.");
-    if (!organisationId)
-      throw new Error("Workspace not loaded yet. Refresh and try again.");
-    if (!platforms.length) throw new Error("Select at least one channel.");
-
-    const res = await fetch("/api/social/quick-blast", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: trimmed,
-        platforms,
-        imageUrl: imageUrl.trim() || null,
-        organisationId,
-      }),
-    });
-
-    const data = await res.json().catch(() => ({}));
-    setLastResponse(data);
-
-    if (!res.ok || data?.success === false) {
-      const friendly = plainEnglishFromQuickBlastFailure(data);
-      setError(friendly);
-
-      const failed = getFailedPlatformsFromResponse(data);
-      const succeeded = getSucceededPlatformsFromResponse(data);
-
-      if (succeeded.length > 0 && failed.length > 0) {
-        setOutcome({
-          tone: "warn",
-          title: "Partially posted",
-          body:
-            `Some channels went through, and some need a quick follow-up.\n\n` +
-            `Posted: ${succeeded.join(", ")}\n` +
-            `Needs action: ${failed.join(", ")}`,
-        });
-      } else {
-        setOutcome({
-          tone: quotaMessage ? "warn" : "bad",
-          title: "Not posted yet",
-          body: friendly,
-        });
-      }
-
-      void callRootCoach({
-        context: "quick_blast_failed",
-        userAction: `Quick Blast attempted: ${platforms.join(", ")}`,
-        errorMessage: friendly,
-        outcome:
-          succeeded.length > 0 && failed.length > 0 ? "partial_success" : "failed",
-        failedPlatforms: failed,
-        successPlatforms: succeeded,
-      });
-
-      throw new Error(friendly);
-    }
-
-    setError(null);
-    setStatus(`Posted successfully to: ${platforms.join(", ")}`);
-
-    setOutcome({
-      tone: "good",
-      title: "Posted",
-      body: `Your message was sent to: ${platforms.join(", ")}.`,
-    });
-
-    void callRootCoach({
-      context: "quick_blast_success",
-      userAction: `Quick Blast succeeded: ${platforms.join(", ")}`,
-      outcome: "success",
-      successPlatforms: platforms,
-    });
-
-    return data;
-  };
-
-  const handleSend = async () => {
-    setIsPosting(true);
-    setStatus(null);
-    setCelebration(null);
-    setError(null);
-    setCoachMessage(null);
-    setLastResponse(null);
-
-    setOutcome({
-      tone: "neutral",
-      title: "Sending…",
-      body: "Hang tight — pushing your message out now.",
-    });
-
-    try {
-      if (selectedChannels.length === 0) {
-        throw new Error(
-          `Select at least one connected channel.\n\nDetected connected: ${
-            detectedConnectedList || "(none)"
-          }`
-        );
-      }
-
-      await postQuickBlast(selectedChannels);
-    } catch (e: any) {
-      const msg = (e?.message || "Something didn’t go through.").toString();
-      setError(msg);
-
-      setOutcome((prev) => {
-        if (prev && prev.title !== "Sending…") return prev;
-        return {
-          tone: "bad",
-          title: "Not posted yet",
-          body: msg,
-          meta: "Save it, or try again later.",
-        };
-      });
-    } finally {
-      setIsPosting(false);
-    }
-  };
-
-  const canSend = !isPosting && message.trim().length > 0;
-
-  const connectedCount = useMemo(() => {
-    return Object.values(connected).filter(Boolean).length;
-  }, [connected]);
-
-  const charCount = message.length;
-  const charHint =
-    charCount < 20
-      ? "Short and punchy"
-      : charCount < 140
-      ? "Great length"
-      : charCount < 300
-      ? "A bit longer — still fine"
-      : "Long — consider tightening";
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
-        <div className="absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-sky-500/10 blur-3xl" />
-        <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-pink-500/10 blur-3xl" />
-      </div>
-
-      <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
+      <div className="mx-auto w-full max-w-6xl bg-slate-900/70 border border-slate-700 rounded-3xl shadow-xl p-6 md:p-10 backdrop-blur">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-                Root Health Ops
-              </h1>
-              <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold text-emerald-100">
-                Enterprise Beta
-              </span>
-            </div>
-            <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              A calm, premium cockpit for social momentum. Send fast. Recover
-              cleanly. Keep going.
+            <h1 className="text-2xl md:text-3xl font-semibold">Connect your channels</h1>
+            <p className="text-sm text-slate-300 mt-1 max-w-xl">
+              One-click OAuth connections. You stay in control — we only post what you approve.
             </p>
           </div>
-
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
-              Connected:{" "}
-              <span className="ml-1 text-slate-50 font-semibold">
-                {connectedCount}
-              </span>
-            </span>
-            <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
-              {connectedHint}
-            </span>
-            <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
-              {charHint}
-            </span>
+          <div className="text-xs text-slate-400 bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 max-w-xs">
+            <p className="font-medium text-slate-200 mb-1">Therapist-friendly</p>
+            <p>No tech setup. Click connect, choose the right account, done.</p>
           </div>
-        </div>
+        </header>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-6">
-            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6 md:p-7">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold">Quick Blast</h2>
-                  <p className="mt-1 text-xs text-slate-300">
-                    Write once, choose channels, send.
-                  </p>
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {providers.map((provider) => {
+            const busy = busyProvider === provider.id;
+            const connected = provider.status === "connected";
+
+            return (
+              <div
+                key={provider.id}
+                className="flex flex-col rounded-2xl border border-slate-700 bg-slate-900/80 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold">{provider.label}</span>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                          provider.status === "connected"
+                            ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/60"
+                            : provider.status === "pending"
+                              ? "bg-amber-500/15 text-amber-200 border-amber-500/60"
+                              : "bg-slate-800 text-slate-300 border-slate-600"
+                        }`}
+                      >
+                        {provider.status === "connected"
+                          ? "Connected"
+                          : provider.status === "pending"
+                            ? "Pending"
+                            : "Not connected"}
+                      </span>
+                    </div>
+
+                    <p className="mt-1 text-xs text-slate-300">{provider.description}</p>
+                    {provider.hint && <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>}
+
+                    {provider.accountName && (
+                      <p className="mt-2 text-[11px] text-emerald-300">
+                        Connected as <span className="font-medium">{provider.accountName}</span>
+                      </p>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex flex-col items-end gap-2">
-                  <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
-                    {charCount} chars
-                  </span>
-                  {organisationId ? (
-                    <span className="text-[10px] text-slate-500">
-                      Workspace loaded
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-amber-200">
-                      Loading workspace…
-                    </span>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {!connected && (
+                    <button
+                      type="button"
+                      onClick={() => handleConnectClick(provider)}
+                      disabled={busy}
+                      className="rounded-full bg-blue-500 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-blue-400 disabled:opacity-60"
+                    >
+                      {busy ? `Opening ${provider.name}…` : `Connect ${provider.name}`}
+                    </button>
                   )}
-                </div>
-              </div>
 
-              <div className="mt-5">
-                <label className="text-[11px] uppercase tracking-wide text-slate-400">
-                  Message
-                </label>
-                <textarea
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30 min-h-[160px]"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Write your Quick Blast…"
-                />
-              </div>
+                  {connected && (
+                    <button
+                      type="button"
+                      onClick={() => handleDisconnectClick(provider)}
+                      className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-red-500 hover:text-red-200"
+                    >
+                      Disconnect
+                    </button>
+                  )}
 
-              <div className="mt-6">
-                <label className="text-[11px] uppercase tracking-wide text-slate-400">
-                  Image (optional)
-                </label>
-                <input
-                  type="url"
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
-                  placeholder="Paste a direct image URL (JPG/PNG)…"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                />
-              </div>
-
-              <div className="mt-6">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-[11px] uppercase tracking-wide text-slate-400">
-                    Channels
-                  </label>
                   <button
                     type="button"
-                    onClick={refreshConnections}
-                    className="text-xs text-slate-300 hover:text-slate-50"
+                    onClick={() => void loadSocialAccounts()}
+                    className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
                   >
                     Refresh
                   </button>
                 </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {CHANNELS.map((c) => {
-                    const isConnected = connected[c.id];
-                    const isSelected = selected[c.id];
-
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => toggle(c.id)}
-                        className={[
-                          "group inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-xs font-semibold transition",
-                          isSelected
-                            ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-50"
-                            : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
-                        ].join(" ")}
-                      >
-                        <span
-                          className={[
-                            "h-2 w-2 rounded-full",
-                            c.dotClass,
-                            "shadow-[0_0_0_4px_rgba(255,255,255,0.06)]",
-                          ].join(" ")}
-                        />
-                        <span>{c.label}</span>
-                        {!isConnected ? (
-                          <span className="ml-1 text-[10px] text-amber-200">
-                            not connected
-                          </span>
-                        ) : (
-                          <span className="ml-1 text-[10px] text-slate-400">
-                            connected
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-3 text-[11px] text-slate-400">
-                  Only connected channels will actually send.
-                </div>
               </div>
+            );
+          })}
+        </section>
 
-              <div className="mt-6 flex flex-col sm:flex-row gap-3">
-                <button
-                  type="button"
-                  onClick={handleSend}
-                  disabled={!canSend || !selectedChannels.length || !organisationId}
-                  className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
-                >
-                  {isPosting ? "Sending…" : "Send Quick Blast"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => saveDraft("manual")}
-                  disabled={!canSend}
-                  className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
-                >
-                  Save for later
-                </button>
-              </div>
-
-              {status && (
-                <div className="mt-4 text-xs text-slate-300 whitespace-pre-wrap">
-                  {status}
-                </div>
-              )}
-              {error && (
-                <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/40 p-4 text-sm text-red-200 whitespace-pre-wrap">
-                  {error}
-                </div>
-              )}
-              {celebration && (
-                <div className="mt-3 text-xs text-emerald-200 whitespace-pre-wrap">
-                  {celebration}
-                </div>
-              )}
-            </div>
-
-            {outcome && (
-              <div
-                className={[
-                  "rounded-3xl border p-6 md:p-7 whitespace-pre-wrap",
-                  toneStyles(outcome.tone),
-                ].join(" ")}
-              >
-                <div className="text-base md:text-lg font-semibold">
-                  {outcome.title}
-                </div>
-                <div className="mt-2 text-sm leading-relaxed">{outcome.body}</div>
-                {outcome.meta && (
-                  <div className="mt-3 text-xs text-slate-200/90">
-                    {outcome.meta}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-base font-semibold">Admin view</h3>
-                  <p className="mt-1 text-xs text-slate-300">
-                    Safe technical details (redacted).
-                  </p>
-                </div>
-                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
-                  {quotaMessage ? "Limited" : "Normal"}
-                </span>
-              </div>
-
-              {lastResponse ? (
-                <details className="mt-4">
-                  <summary className="cursor-pointer text-sm text-slate-200 hover:text-slate-50">
-                    Show last response (redacted)
-                  </summary>
-                  <pre className="mt-3 max-h-[320px] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-[10px] text-slate-200 whitespace-pre-wrap">
-                    {safeJson(redactVendorsDeep(lastResponse))}
-                  </pre>
-                </details>
-              ) : (
-                <div className="mt-4 text-sm text-slate-400">
-                  No response yet — send a Quick Blast to see details here.
-                </div>
-              )}
-
-              <details className="mt-4">
-                <summary className="cursor-pointer text-sm text-slate-200 hover:text-slate-50">
-                  Show connections (redacted)
-                </summary>
-                <pre className="mt-3 max-h-[320px] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-[10px] text-slate-200 whitespace-pre-wrap">
-                  {safeJson(redactVendorsDeep(rawSocialAccounts))}
-                </pre>
-              </details>
-            </div>
-
-            {coachMessage && (
-              <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
-                <div className="text-base font-semibold">Root Coach</div>
-                <div className="mt-3 text-sm whitespace-pre-wrap">
-                  {coachMessage}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-6">
-            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
-              <div className="text-base font-semibold">Saved drafts</div>
-              <div className="mt-2 text-sm text-slate-300">
-                Drafts are stored on this device. (Later we can sync per org.)
-              </div>
-              <div className="mt-3 text-xs text-slate-400">
-                Use “Save for later” and we’ll restore the full draft library panel
-                when you want it.
-              </div>
-            </div>
-          </div>
-        </div>
+        <footer className="mt-8 text-xs text-slate-400">
+          Tip: Always click Connect from this page. Don’t bookmark the pick-page URLs — they require a token.
+        </footer>
       </div>
     </div>
   );
