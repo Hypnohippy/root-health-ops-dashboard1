@@ -3,34 +3,55 @@
 
 import React, { useMemo, useState } from "react";
 
-type FbPage = { id: string; name: string };
-
-const KNOWN_FUEL_GEIST_PAGE: FbPage = {
-  id: "101868201852363",
-  name: "Fuel Geist Ltd",
+type FbPage = {
+  id: string;
+  name: string;
+  access_token?: string; // page token (returned by /me/accounts)
 };
+
+const QUICK_PAGE_ID = "101868201852363";
+const QUICK_PAGE_NAME = "Fuel Geist Ltd";
+
+function getQueryToken() {
+  try {
+    const u = new URL(window.location.href);
+    return (u.searchParams.get("token") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function getQueryState() {
+  try {
+    const u = new URL(window.location.href);
+    return (u.searchParams.get("state") || "").trim();
+  } catch {
+    return "";
+  }
+}
 
 export default function PickFacebookPageClient({
   token,
   state,
 }: {
-  token: string;
-  state: string;
+  token?: string;
+  state?: string;
 }) {
-  const resolvedUserToken = useMemo(() => {
-    if (token && token.trim()) return token.trim();
-    try {
-      const u = new URL(window.location.href);
-      return (u.searchParams.get("token") || "").trim();
-    } catch {
-      return "";
-    }
+  const resolvedToken = useMemo(() => {
+    const t = (token || "").trim();
+    return t || getQueryToken();
   }, [token]);
 
-  const [manualPageId, setManualPageId] = useState("");
+  const resolvedState = useMemo(() => {
+    const s = (state || "").trim();
+    return s || getQueryState();
+  }, [state]);
+
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  const [manualPageId, setManualPageId] = useState("");
   const [debugOpen, setDebugOpen] = useState(false);
 
   const debug = useMemo(() => {
@@ -40,95 +61,116 @@ export default function PickFacebookPageClient({
     } catch {}
     return {
       href,
-      tokenResolvedLength: (resolvedUserToken || "").length,
-      hasState: Boolean(state && state.trim()),
+      tokenResolvedLength: (resolvedToken || "").length,
+      hasState: !!resolvedState,
     };
-  }, [resolvedUserToken, state]);
+  }, [resolvedToken, resolvedState]);
 
-  async function connectPage(pageId: string, pageNameHint?: string) {
+  async function saveToDb(args: {
+    pageId: string;
+    pageName: string;
+    pageAccessToken: string | null;
+  }) {
+    const res = await fetch("/api/social-accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        platform: "facebook",
+        pageId: args.pageId,
+        pageName: args.pageName,
+        connectionType: "facebook_oauth",
+        makeWebhookUrl: null,
+        isActive: true,
+
+        // ✅ NEW
+        pageAccessToken: args.pageAccessToken,
+        tokenExpiresAt: null, // we can add expiry later if we want
+      }),
+    });
+
+    const data: any = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error || "Failed to save Facebook connection");
+  }
+
+  async function fetchPageAccessTokenForPage(pageId: string) {
+    // We prefer to store a PAGE access token, not just the user token.
+    // /me/accounts returns access_token per page if permissions are correct.
+    if (!resolvedToken) return null;
+
+    const url =
+      "https://graph.facebook.com/v24.0/me/accounts?" +
+      new URLSearchParams({
+        fields: "id,name,access_token",
+        limit: "100",
+        access_token: resolvedToken,
+      }).toString();
+
+    const res = await fetch(url, { cache: "no-store" });
+    const json: any = await res.json().catch(() => null);
+
+    if (!res.ok) return null;
+
+    const list: FbPage[] = Array.isArray(json?.data) ? json.data : [];
+    const match = list.find((p) => String(p.id) === String(pageId));
+    return match?.access_token ? String(match.access_token) : null;
+  }
+
+  async function quickConnect() {
     setBusy(true);
     setErr(null);
     setOkMsg(null);
 
     try {
-      if (!resolvedUserToken) {
-        setErr("Missing token. Please go back and click Connect again.");
-        return;
+      if (!resolvedToken) {
+        throw new Error("Missing token. Please go back and click Connect again.");
       }
 
-      // 1) Ask server to fetch Page access token (never do this directly from client)
-      const tokenRes = await fetch("/api/oauth/facebook/page-token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userToken: resolvedUserToken,
-          pageId,
-        }),
+      // try to grab page access token for Fuel Geist Ltd (best case)
+      const pageTok = await fetchPageAccessTokenForPage(QUICK_PAGE_ID);
+
+      await saveToDb({
+        pageId: QUICK_PAGE_ID,
+        pageName: QUICK_PAGE_NAME,
+        pageAccessToken: pageTok,
       });
 
-      const tokenJson: any = await tokenRes.json().catch(() => null);
-
-      if (!tokenRes.ok) {
-        setErr(tokenJson?.error || "Failed to fetch Facebook Page token.");
-        return;
-      }
-
-      const pageAccessToken = String(tokenJson?.pageAccessToken || "").trim();
-      const pageName =
-        String(tokenJson?.page?.name || "").trim() ||
-        String(pageNameHint || "").trim() ||
-        "Facebook Page";
-
-      if (!pageAccessToken) {
-        setErr("No Page access token returned.");
-        return;
-      }
-
-      // 2) Save into DB (social_accounts)
-      // Store tokens in meta so we can post later without Make/Ayrshare
-      const saveRes = await fetch("/api/social-accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform: "facebook",
-          pageId,
-          pageName,
-          connectionType: "oauth",
-          makeWebhookUrl: null,
-          isActive: true,
-          meta: {
-            fb_user_token_present: true, // we do NOT store user token
-            fb_page_access_token: pageAccessToken, // ✅ store page token
-          },
-        }),
-      });
-
-      const saveJson: any = await saveRes.json().catch(() => null);
-
-      if (!saveRes.ok) {
-        setErr(saveJson?.error || "Failed to save social account.");
-        return;
-      }
-
-      setOkMsg(`Connected: ${pageName}`);
-
-      // 3) Back to Connect page
+      setOkMsg("Saved. Returning to Connect…");
       window.location.href = "/dashboard/connect?provider=facebook&success=1";
     } catch (e: any) {
-      setErr(e?.message || "Connect failed.");
+      setErr(e?.message || "Quick connect failed.");
     } finally {
       setBusy(false);
     }
   }
 
-  function onQuickConnect() {
-    void connectPage(KNOWN_FUEL_GEIST_PAGE.id, KNOWN_FUEL_GEIST_PAGE.name);
-  }
+  async function connectManual() {
+    setBusy(true);
+    setErr(null);
+    setOkMsg(null);
 
-  function onManualConnect() {
-    const id = manualPageId.trim();
-    if (!id) return;
-    void connectPage(id, "Facebook Page");
+    try {
+      if (!resolvedToken) {
+        throw new Error("Missing token. Please go back and click Connect again.");
+      }
+
+      const id = manualPageId.trim();
+      if (!id) throw new Error("Enter a Page ID first.");
+
+      const pageTok = await fetchPageAccessTokenForPage(id);
+
+      await saveToDb({
+        pageId: id,
+        pageName: `Facebook Page (${id})`,
+        pageAccessToken: pageTok,
+      });
+
+      setOkMsg("Saved. Returning to Connect…");
+      window.location.href = "/dashboard/connect?provider=facebook&success=1";
+    } catch (e: any) {
+      setErr(e?.message || "Manual connect failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -145,14 +187,13 @@ export default function PickFacebookPageClient({
               {err}
             </div>
           )}
-
           {okMsg && (
             <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-100">
               {okMsg}
             </div>
           )}
 
-          <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4">
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
             <div className="text-sm font-semibold">Quick connect</div>
             <div className="mt-1 text-xs text-slate-400">
               This connects your known Page directly (no page list required).
@@ -160,41 +201,38 @@ export default function PickFacebookPageClient({
 
             <button
               type="button"
-              onClick={onQuickConnect}
+              onClick={quickConnect}
               disabled={busy}
-              className="mt-3 w-full rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+              className="mt-3 w-full rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
             >
-              {busy ? "Connecting…" : `Connect ${KNOWN_FUEL_GEIST_PAGE.name}`}
+              {busy ? "Connecting…" : `Connect ${QUICK_PAGE_NAME}`}
             </button>
-
             <div className="mt-2 text-[11px] text-slate-400">
-              Page ID: {KNOWN_FUEL_GEIST_PAGE.id}
+              Page ID: {QUICK_PAGE_ID}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4">
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
             <div className="text-sm font-semibold">Manual Page ID</div>
             <div className="mt-1 text-xs text-slate-400">
               Use this when connecting other customers later.
             </div>
 
-            <div className="mt-3 flex gap-2">
-              <input
-                value={manualPageId}
-                onChange={(e) => setManualPageId(e.target.value)}
-                placeholder="Enter Page ID…"
-                className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                disabled={busy}
-              />
-              <button
-                type="button"
-                onClick={onManualConnect}
-                disabled={busy || !manualPageId.trim()}
-                className="rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-2 text-sm text-slate-100 hover:border-slate-500 disabled:opacity-60"
-              >
-                Connect
-              </button>
-            </div>
+            <input
+              value={manualPageId}
+              onChange={(e) => setManualPageId(e.target.value)}
+              placeholder="Enter Page ID…"
+              className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            />
+
+            <button
+              type="button"
+              onClick={connectManual}
+              disabled={busy || !manualPageId.trim()}
+              className="mt-3 w-full rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-2 text-sm text-slate-100 hover:border-slate-500 disabled:opacity-60"
+            >
+              {busy ? "Connecting…" : "Connect"}
+            </button>
           </div>
 
           <button
@@ -207,7 +245,7 @@ export default function PickFacebookPageClient({
 
           {debugOpen && (
             <pre className="max-h-64 overflow-auto rounded-xl border border-slate-700 bg-slate-950 p-3 text-[11px] text-slate-200">
-              {JSON.stringify(debug, null, 2)}
+{JSON.stringify(debug, null, 2)}
             </pre>
           )}
         </div>
