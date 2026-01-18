@@ -9,8 +9,10 @@ export default function PickInstagramAccountPage({
 }: {
   searchParams: Record<string, string | string[] | undefined>;
 }) {
-  const token = typeof searchParams.token === "string" ? searchParams.token : "";
-  const state = typeof searchParams.state === "string" ? searchParams.state : "";
+  const token =
+    typeof searchParams.token === "string" ? searchParams.token : "";
 
-  return <PickInstagramAccountClient token={token} state={state} />;
+  // NOTE: we intentionally ignore `state` here because the client component
+  // does not need it (and passing it breaks the build).
+  return <PickInstagramAccountClient token={token} />;
 }
