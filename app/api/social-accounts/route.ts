@@ -28,7 +28,7 @@ function asProviderId(v: any): ProviderId | null {
   return allowed.includes(s as ProviderId) ? (s as ProviderId) : null;
 }
 
-// Single-tenant beta mode fallback
+// Single-tenant beta mode: use the first organisation row as "the current org".
 async function getSingleTenantOrganisationId() {
   const { data, error } = await supabaseAdmin
     .from("organisations")
@@ -39,19 +39,29 @@ async function getSingleTenantOrganisationId() {
     console.error("[social-accounts] organisations error", error);
     return null;
   }
+
   if (!data || data.length === 0) {
     console.warn("[social-accounts] No organisations found in database");
     return null;
   }
+
   return data[0].id as string;
 }
 
+/**
+ * Multi-tenant ready:
+ * - If caller passes ?organisationId=..., use that
+ * - otherwise fall back to single-tenant default
+ */
 async function resolveOrganisationId(req: Request) {
   try {
     const url = new URL(req.url);
     const orgFromQuery = url.searchParams.get("organisationId");
     if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
-  } catch {}
+  } catch {
+    // ignore URL parse issues
+  }
+
   return await getSingleTenantOrganisationId();
 }
 
@@ -99,14 +109,40 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
 
     const platform = asProviderId(body?.platform);
+    const pageId = typeof body?.pageId === "string" ? body.pageId : null;
+    const pageName = typeof body?.pageName === "string" ? body.pageName : null;
+
+    // ✅ New fields
+    const pageAccessToken =
+      typeof body?.pageAccessToken === "string" ? body.pageAccessToken : null;
+
+    // tokenExpiresAt can be:
+    // - ISO string, or null
+    // - number seconds from now (we’ll convert), or null
+    let tokenExpiresAt: string | null = null;
+    if (typeof body?.tokenExpiresAt === "string" && body.tokenExpiresAt.trim()) {
+      tokenExpiresAt = body.tokenExpiresAt.trim();
+    } else if (typeof body?.tokenExpiresInSec === "number" && body.tokenExpiresInSec > 0) {
+      tokenExpiresAt = new Date(Date.now() + body.tokenExpiresInSec * 1000).toISOString();
+    }
+
+    // Optional fields you already use in DB
+    const connectionType =
+      typeof body?.connectionType === "string" ? body.connectionType : null;
+    const makeWebhookUrl =
+      typeof body?.makeWebhookUrl === "string" ? body.makeWebhookUrl : null;
+    const isActive =
+      typeof body?.isActive === "boolean" ? body.isActive : true;
+
     if (!platform) {
       return NextResponse.json(
-        { error: "platform is required (facebook/instagram/linkedin/etc)" },
+        { error: "platform is required" },
         { status: 400 }
       );
     }
 
     const organisationId = await resolveOrganisationId(req);
+
     if (!organisationId) {
       return NextResponse.json(
         { error: "No organisation found" },
@@ -114,63 +150,47 @@ export async function POST(req: Request) {
       );
     }
 
-    const pageIdRaw = body?.pageId;
-    const pageNameRaw = body?.pageName;
-
-    const connectionTypeRaw = body?.connectionType;
-    const makeWebhookUrlRaw = body?.makeWebhookUrl;
-    const isActiveRaw = body?.isActive;
-    const metaRaw = body?.meta;
-
-    const page_id =
-      typeof pageIdRaw === "string" && pageIdRaw.trim().length > 0
-        ? pageIdRaw.trim()
-        : "pending_page_id"; // keep NOT NULL happy
-
-    const page_name =
-      typeof pageNameRaw === "string" && pageNameRaw.trim().length > 0
-        ? pageNameRaw.trim()
-        : null;
-
-    const connection_type =
-      typeof connectionTypeRaw === "string" && connectionTypeRaw.trim()
-        ? connectionTypeRaw.trim()
-        : null;
-
-    const make_webhook_url =
-      typeof makeWebhookUrlRaw === "string" && makeWebhookUrlRaw.trim()
-        ? makeWebhookUrlRaw.trim()
-        : null;
-
-    const is_active =
-      typeof isActiveRaw === "boolean" ? isActiveRaw : true;
-
-    const meta =
-      metaRaw && typeof metaRaw === "object" ? metaRaw : null;
-
-    // Check if existing row for org+platform
-    const { data: existingRows } = await supabaseAdmin
+    // See if we already have a row for this org + platform
+    const { data: existingRows, error: existingError } = await supabaseAdmin
       .from("social_accounts")
       .select("id")
       .eq("organisation_id", organisationId)
       .eq("platform", platform)
       .limit(1);
 
-    let result;
+    if (existingError) {
+      console.error("[social-accounts] lookup error", existingError);
+    }
+
+    let result: any = null;
 
     if (existingRows && existingRows.length > 0) {
+      // UPDATE
       const id = existingRows[0].id;
+
+      const updatePayload: any = {
+        page_name: pageName ?? null,
+        connection_type: connectionType ?? null,
+        make_webhook_url: makeWebhookUrl ?? null,
+        is_active: isActive,
+      };
+
+      // Respect NOT NULL on page_id if you have it:
+      if (typeof pageId === "string" && pageId.trim().length > 0) {
+        updatePayload.page_id = pageId.trim();
+      }
+
+      // ✅ Save token fields if provided
+      if (pageAccessToken && pageAccessToken.trim()) {
+        updatePayload.page_access_token = pageAccessToken.trim();
+      }
+      if (tokenExpiresAt) {
+        updatePayload.token_expires_at = tokenExpiresAt;
+      }
 
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
-        .update({
-          page_id,
-          page_name,
-          connection_type,
-          make_webhook_url,
-          is_active,
-          meta,
-        })
+        .update(updatePayload)
         .eq("id", id)
         .select()
         .single();
@@ -185,21 +205,30 @@ export async function POST(req: Request) {
 
       result = data;
     } else {
+      // INSERT
       const newId = randomUUID();
+
+      const safePageId =
+        (typeof pageId === "string" && pageId.trim().length > 0
+          ? pageId.trim()
+          : "pending_page_id") + "";
+
+      const insertPayload: any = {
+        id: newId,
+        organisation_id: organisationId,
+        platform,
+        page_id: safePageId,
+        page_name: pageName ?? null,
+        connection_type: connectionType ?? null,
+        make_webhook_url: makeWebhookUrl ?? null,
+        is_active: isActive,
+        page_access_token: pageAccessToken && pageAccessToken.trim() ? pageAccessToken.trim() : null,
+        token_expires_at: tokenExpiresAt ?? null,
+      };
 
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
-        .insert({
-          id: newId,
-          organisation_id: organisationId,
-          platform,
-          page_id,
-          page_name,
-          connection_type,
-          make_webhook_url,
-          is_active,
-          meta,
-        })
+        .insert(insertPayload)
         .select()
         .single();
 
@@ -241,6 +270,7 @@ export async function DELETE(req: Request) {
     }
 
     const organisationId = await resolveOrganisationId(req);
+
     if (!organisationId) {
       return NextResponse.json(
         { error: "No organisation found" },
