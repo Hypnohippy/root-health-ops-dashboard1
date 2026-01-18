@@ -6,32 +6,29 @@ import React, { useEffect, useMemo, useState } from "react";
 type FbPage = { id: string; name: string; access_token?: string };
 type IgAccount = { id: string; username?: string; name?: string };
 
-function getQueryToken() {
-  try {
-    const u = new URL(window.location.href);
-    return (u.searchParams.get("token") || "").trim();
-  } catch {
-    return "";
-  }
-}
-
 export default function PickInstagramAccountClient({
   token,
 }: {
   token?: string;
 }) {
   const resolvedToken = useMemo(() => {
-    const t = (token || "").trim();
-    return t || getQueryToken();
+    if (token && token.trim()) return token.trim();
+    try {
+      const u = new URL(window.location.href);
+      const t = u.searchParams.get("token") || "";
+      return t.trim();
+    } catch {
+      return "";
+    }
   }, [token]);
 
   const [loadingPages, setLoadingPages] = useState(false);
   const [pages, setPages] = useState<FbPage[]>([]);
   const [selectedPageId, setSelectedPageId] = useState<string>("");
-  const [ig, setIg] = useState<IgAccount | null>(null);
+  const [detectedIg, setDetectedIg] = useState<IgAccount | null>(null);
 
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
 
   const debug = useMemo(() => {
@@ -44,18 +41,18 @@ export default function PickInstagramAccountClient({
       tokenResolvedLength: (resolvedToken || "").length,
       pagesCount: pages.length,
       selectedPageId,
-      ig,
+      detectedIg,
     };
-  }, [resolvedToken, pages.length, selectedPageId, ig]);
+  }, [resolvedToken, pages.length, selectedPageId, detectedIg]);
 
   async function loadPages() {
     setLoadingPages(true);
     setError(null);
-    setPages([]);
-    setIg(null);
+    setDetectedIg(null);
 
     try {
       if (!resolvedToken) {
+        setPages([]);
         setError("Missing token. Please go back and click Connect again.");
         return;
       }
@@ -74,8 +71,9 @@ export default function PickInstagramAccountClient({
       if (!res.ok) {
         const msg =
           json?.error?.message ||
-          `Facebook Graph error (${res.status}). Check permissions/scopes.`;
+          `Facebook Graph error (${res.status}).`;
         setError(msg);
+        setPages([]);
         return;
       }
 
@@ -89,51 +87,68 @@ export default function PickInstagramAccountClient({
         return;
       }
 
-      setSelectedPageId(list[0].id);
+      if (!selectedPageId) {
+        setSelectedPageId(list[0].id);
+      }
     } catch (e: any) {
-      setError(e?.message || "Failed to load Facebook Pages.");
+      setError(e?.message || "Failed to load pages.");
+      setPages([]);
     } finally {
       setLoadingPages(false);
     }
   }
 
-  async function detectIgForPage(page: FbPage) {
+  async function detectInstagramForSelectedPage(pageId: string) {
     setError(null);
-    setIg(null);
+    setDetectedIg(null);
+
+    const page = pages.find((p) => p.id === pageId);
+    const pageToken = page?.access_token;
+
+    if (!page || !pageToken) {
+      setError("Selected Page has no page access token. Reload Pages and try again.");
+      return;
+    }
 
     try {
-      if (!page?.access_token) {
-        setError("Missing Page access token for this Page. Try reconnecting and re-approving permissions.");
-        return;
-      }
-
-      // Ask the Page for its connected Instagram business account
-      const url =
-        `https://graph.facebook.com/v24.0/${encodeURIComponent(page.id)}?` +
+      // Find IG business account linked to that Page
+      const pageInfoUrl =
+        `https://graph.facebook.com/v24.0/${encodeURIComponent(pageId)}?` +
         new URLSearchParams({
-          fields: "connected_instagram_account{username,name,id}",
-          access_token: page.access_token,
+          fields: "instagram_business_account",
+          access_token: pageToken,
         }).toString();
 
-      const res = await fetch(url, { cache: "no-store" });
-      const json: any = await res.json().catch(() => null);
+      const pageRes = await fetch(pageInfoUrl, { cache: "no-store" });
+      const pageJson: any = await pageRes.json().catch(() => null);
 
-      if (!res.ok) {
-        const msg =
-          json?.error?.message ||
-          `Graph error (${res.status}) when checking connected_instagram_account`;
-        setError(msg);
+      const igId = pageJson?.instagram_business_account?.id;
+      if (!pageRes.ok || !igId) {
+        setError(
+          pageJson?.error?.message ||
+            "None found for this Page yet. Make sure the Instagram is linked to this Facebook Page in Meta Business Suite."
+        );
         return;
       }
 
-      const acct: IgAccount | null = json?.connected_instagram_account || null;
+      // Fetch IG username (nice display)
+      const igInfoUrl =
+        `https://graph.facebook.com/v24.0/${encodeURIComponent(igId)}?` +
+        new URLSearchParams({
+          fields: "username,name",
+          access_token: pageToken,
+        }).toString();
 
-      if (!acct?.id) {
-        setIg(null);
-        return;
-      }
+      const igRes = await fetch(igInfoUrl, { cache: "no-store" });
+      const igJson: any = await igRes.json().catch(() => null);
 
-      setIg(acct);
+      const account: IgAccount = {
+        id: String(igId),
+        username: igJson?.username,
+        name: igJson?.name,
+      };
+
+      setDetectedIg(account);
     } catch (e: any) {
       setError(e?.message || "Failed to detect Instagram account.");
     }
@@ -145,33 +160,51 @@ export default function PickInstagramAccountClient({
 
     try {
       const page = pages.find((p) => p.id === selectedPageId);
-      if (!page) throw new Error("Please pick a Facebook Page first.");
-      if (!ig?.id) throw new Error("No Instagram account detected for this Page yet.");
+      if (!page) {
+        setError("Please pick a Facebook Page first.");
+        return;
+      }
 
-      // Save IG connection (store the IG business account id as page_id)
+      if (!page.access_token) {
+        setError("That Page has no access token. Reload Pages and try again.");
+        return;
+      }
+
+      if (!detectedIg?.id) {
+        setError("No Instagram account detected yet. Pick a page and wait for detection.");
+        return;
+      }
+
+      const igName =
+        detectedIg.username ||
+        detectedIg.name ||
+        `Instagram ${detectedIg.id}`;
+
       const res = await fetch("/api/social-accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           platform: "instagram",
-          pageId: ig.id,
-          pageName: ig.username || ig.name || "Instagram",
+          pageId: detectedIg.id, // store IG business account id
+          pageName: igName,
           connectionType: "oauth",
           makeWebhookUrl: null,
           isActive: true,
-
-          // ✅ Save token too (we keep the Page token; that's what IG Graph calls use)
-          pageAccessToken: page.access_token || null,
+          pageAccessToken: page.access_token, // ✅ this is what IG Graph uses
           tokenExpiresAt: null,
         }),
       });
 
       const data: any = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || "Failed to save Instagram connection");
+
+      if (!res.ok) {
+        setError(data?.error || "Failed to save Instagram account.");
+        return;
+      }
 
       window.location.href = "/dashboard/connect?provider=instagram&success=1";
     } catch (e: any) {
-      setError(e?.message || "Failed to save Instagram connection.");
+      setError(e?.message || "Failed to save Instagram account.");
     } finally {
       setSaving(false);
     }
@@ -183,9 +216,9 @@ export default function PickInstagramAccountClient({
   }, []);
 
   useEffect(() => {
-    const page = pages.find((p) => p.id === selectedPageId);
-    if (!page) return;
-    void detectIgForPage(page);
+    if (selectedPageId) {
+      void detectInstagramForSelectedPage(selectedPageId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPageId, pages.length]);
 
@@ -194,7 +227,8 @@ export default function PickInstagramAccountClient({
       <div className="w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
         <h1 className="text-2xl font-semibold">Pick your Instagram account</h1>
         <p className="mt-2 text-sm text-slate-300">
-          Instagram Business accounts are linked to a Facebook Page. Choose the Page, then we’ll detect the linked Instagram account.
+          Instagram Business accounts are linked to a Facebook Page. Choose the Page,
+          then we’ll detect the linked Instagram account.
         </p>
 
         <div className="mt-6 space-y-3">
@@ -205,7 +239,7 @@ export default function PickInstagramAccountClient({
           )}
 
           <div className="space-y-2">
-            <div className="text-xs font-medium text-slate-300">
+            <div className="text-xs text-slate-400">
               Facebook Page (used to locate the linked Instagram Business account)
             </div>
 
@@ -226,17 +260,12 @@ export default function PickInstagramAccountClient({
               )}
             </select>
 
-            <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/40 px-4 py-3">
-              <div className="text-xs font-medium text-slate-300">Detected Instagram account</div>
-              <div className="mt-1 text-sm text-slate-100">
-                {ig?.id ? (
-                  <>
-                    {ig.username ? <span className="font-semibold">@{ig.username}</span> : <span className="font-semibold">{ig.name || "Instagram"}</span>}
-                    <span className="ml-2 text-xs text-slate-400">({ig.id})</span>
-                  </>
-                ) : (
-                  <span className="text-slate-400">None found for this Page yet.</span>
-                )}
+            <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/40 p-3">
+              <div className="text-xs text-slate-400">Detected Instagram account</div>
+              <div className="mt-1 text-sm">
+                {detectedIg
+                  ? `${detectedIg.username || detectedIg.name || "(unknown)"} (${detectedIg.id})`
+                  : "None found for this Page yet."}
               </div>
             </div>
 
@@ -261,7 +290,7 @@ export default function PickInstagramAccountClient({
               <button
                 type="button"
                 onClick={saveSelection}
-                disabled={saving || !ig?.id}
+                disabled={saving || !selectedPageId || !detectedIg}
                 className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
               >
                 {saving ? "Saving…" : "Use this Instagram account"}
