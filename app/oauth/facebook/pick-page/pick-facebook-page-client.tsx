@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 type FbPage = {
   id: string;
   name: string;
-  access_token?: string; // page token
+  access_token?: string;
 };
 
 export default function PickFacebookPageClient({
@@ -29,7 +29,7 @@ export default function PickFacebookPageClient({
       href,
       pagesCount: pages.length,
       selectedPageId,
-      hasState: Boolean(state && String(state).trim()),
+      hasState: Boolean(state && state.trim()),
     };
   }, [pages.length, selectedPageId, state]);
 
@@ -42,25 +42,25 @@ export default function PickFacebookPageClient({
       const json: any = await res.json().catch(() => null);
 
       if (!res.ok) {
+        setError(json?.error || "Failed to load pages.");
         setPages([]);
-        setError(json?.error || "Failed to load Pages. Click Connect again.");
         return;
       }
 
-      const list: FbPage[] = Array.isArray(json?.data) ? json.data : [];
+      const list: FbPage[] = Array.isArray(json?.pages) ? json.pages : [];
       setPages(list);
 
       if (list.length === 0) {
         setError(
-          "No Pages returned. This usually means the login did not grant Page access. Click back and Connect again."
+          "No Facebook Pages returned. This usually means Facebook did not grant Page access in this login."
         );
         return;
       }
 
       if (!selectedPageId) setSelectedPageId(list[0].id);
     } catch (e: any) {
-      setPages([]);
       setError(e?.message || "Failed to load pages.");
+      setPages([]);
     } finally {
       setLoading(false);
     }
@@ -77,26 +77,13 @@ export default function PickFacebookPageClient({
         return;
       }
 
-      const pageToken = (page.access_token || "").trim();
-      if (!pageToken) {
-        setError(
-          "Facebook did not return a Page access token. Reconnect and re-approve Page permissions."
-        );
-        return;
-      }
-
-      const res = await fetch("/api/social-accounts", {
+      const res = await fetch("/api/oauth/facebook/save-page", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          platform: "facebook",
           pageId: page.id,
           pageName: page.name,
-          connectionType: "facebook_oauth",
-          makeWebhookUrl: null,
-          isActive: true,
-          pageAccessToken: pageToken,
-          tokenExpiresAt: null,
+          pageAccessToken: page.access_token || "",
         }),
       });
 
@@ -169,8 +156,16 @@ export default function PickFacebookPageClient({
 
               <button
                 type="button"
+                onClick={() => window.location.reload()}
+                className="rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-2 text-sm text-slate-100 hover:border-slate-500"
+              >
+                Refresh page
+              </button>
+
+              <button
+                type="button"
                 onClick={saveSelection}
-                disabled={saving || !selectedPageId || pages.length === 0}
+                disabled={saving || !selectedPageId}
                 className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
               >
                 {saving ? "Saving…" : "Use this Page"}
