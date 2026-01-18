@@ -1,4 +1,3 @@
-// app/oauth/facebook/pick-page/pick-facebook-page-client.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -6,14 +5,14 @@ import React, { useEffect, useMemo, useState } from "react";
 type FbPage = {
   id: string;
   name: string;
-  access_token?: string; // ✅ page token (returned by /me/accounts)
+  access_token?: string; // Page token from /me/accounts
 };
 
 export default function PickFacebookPageClient({
   token,
   state,
 }: {
-  token: string;
+  token?: string;
   state?: string;
 }) {
   const resolvedToken = useMemo(() => {
@@ -43,7 +42,7 @@ export default function PickFacebookPageClient({
       tokenResolvedLength: (resolvedToken || "").length,
       pagesCount: pages.length,
       selectedPageId,
-      hasState: !!(state && String(state).trim()),
+      hasState: Boolean(state && String(state).trim()),
     };
   }, [resolvedToken, pages.length, selectedPageId, state]);
 
@@ -53,7 +52,7 @@ export default function PickFacebookPageClient({
 
     try {
       if (!resolvedToken) {
-        setError("Missing token. Please go back and click Connect again.");
+        setError("Missing token — please go back and click Connect Facebook again.");
         setPages([]);
         return;
       }
@@ -79,21 +78,16 @@ export default function PickFacebookPageClient({
       }
 
       const list: FbPage[] = Array.isArray(json?.data) ? json.data : [];
+      setPages(list);
 
-      // ✅ Filter out pages that (for whatever reason) don't include a page token
-      // If this list is empty, Facebook didn't grant Page access to this user token.
-      const usable = list.filter((p) => p && p.id && p.name);
-
-      setPages(usable);
-
-      if (usable.length === 0) {
+      if (list.length === 0) {
         setError(
-          "No Pages returned. This usually means Facebook didn’t grant Page access to this token. Try reconnecting and make sure you explicitly allow the Page."
+          "No Pages returned. This usually means Facebook didn't grant Page access to this token."
         );
         return;
       }
 
-      if (!selectedPageId) setSelectedPageId(usable[0].id);
+      if (!selectedPageId) setSelectedPageId(list[0].id);
     } catch (e: any) {
       setError(e?.message || "Failed to load pages.");
       setPages([]);
@@ -113,11 +107,10 @@ export default function PickFacebookPageClient({
         return;
       }
 
-      // ✅ This is the KEY fix: save the PAGE ACCESS TOKEN
-      const pageAccessToken = (page.access_token || "").trim();
-      if (!pageAccessToken) {
+      const pageToken = (page.access_token || "").trim();
+      if (!pageToken) {
         setError(
-          "Facebook did not return a Page access token for this Page. Please reconnect and re-approve Page access."
+          "Facebook did not return a Page access token. Reconnect and re-approve Page permissions."
         );
         return;
       }
@@ -132,8 +125,8 @@ export default function PickFacebookPageClient({
           connectionType: "facebook_oauth",
           makeWebhookUrl: null,
           isActive: true,
-          pageAccessToken, // ✅ NEW
-          tokenExpiresAt: null, // unknown; page tokens are typically long-lived
+          pageAccessToken: pageToken,
+          tokenExpiresAt: null,
         }),
       });
 
@@ -173,9 +166,7 @@ export default function PickFacebookPageClient({
           )}
 
           <div className="space-y-2">
-            <label className="block text-xs font-medium text-slate-300">
-              Your Pages
-            </label>
+            <label className="block text-xs font-medium text-slate-300">Your Pages</label>
 
             <select
               className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
@@ -215,7 +206,7 @@ export default function PickFacebookPageClient({
               <button
                 type="button"
                 onClick={saveSelection}
-                disabled={saving || !selectedPageId}
+                disabled={saving || !selectedPageId || pages.length === 0}
                 className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
               >
                 {saving ? "Saving…" : "Use this Page"}
