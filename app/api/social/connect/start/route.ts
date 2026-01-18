@@ -3,21 +3,15 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-type Provider = "facebook" | "instagram";
-
-function base64UrlEncode(obj: any) {
-  const json = JSON.stringify(obj);
-  const b64 = Buffer.from(json, "utf8").toString("base64");
-  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
 export async function GET(req: NextRequest) {
-  const providerRaw = (req.nextUrl.searchParams.get("provider") || "facebook")
-    .toLowerCase()
-    .trim();
+  const provider = req.nextUrl.searchParams.get("provider") || "facebook";
 
-  const provider: Provider =
-    providerRaw === "instagram" ? "instagram" : "facebook";
+  if (provider !== "facebook") {
+    return NextResponse.json(
+      { error: `Unsupported provider: ${provider}` },
+      { status: 400 }
+    );
+  }
 
   const appId = process.env.FACEBOOK_APP_ID || "";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
@@ -35,47 +29,34 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Canonical callback (single place)
-  // Must match Meta Valid OAuth Redirect URIs exactly
-  const redirectUri = `${appUrl.replace(/\/$/, "")}/api/oauth/facebook/callback`;
+  const base = appUrl.replace(/\/$/, "");
 
-  // Put provider into state so callback knows where to send user next
-  const stateObj = {
-    provider,
-    nonce: crypto.randomUUID(),
-    t: Date.now(),
-  };
-  const state = base64UrlEncode(stateObj);
+  // ✅ Canonical callback (single place)
+  const redirectUri = `${base}/api/oauth/facebook/callback`;
 
-  // Scopes
-  // - Facebook posting uses pages_* scopes
-  // - Instagram picker needs pages + instagram_basic to read linked IG business account
-  const scopes =
-    provider === "instagram"
-      ? [
-          "public_profile",
-          "pages_show_list",
-          "pages_read_engagement",
-          "instagram_basic",
-        ]
-      : [
-          "public_profile",
-          "pages_show_list",
-          "pages_read_engagement",
-          "pages_manage_posts",
-        ];
+  const state = crypto.randomUUID();
 
+  // ✅ Force Meta to re-prompt for the Page-related permissions
+  // ✅ return_scopes helps us verify what Meta granted
   const authUrl =
     "https://www.facebook.com/v24.0/dialog/oauth" +
     `?client_id=${encodeURIComponent(appId)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&state=${encodeURIComponent(state)}` +
     `&response_type=code` +
-    `&scope=${encodeURIComponent(scopes.join(","))}`;
+    `&auth_type=rerequest` +
+    `&return_scopes=true` +
+    `&scope=${encodeURIComponent(
+      [
+        "public_profile",
+        "pages_show_list",
+        "pages_read_engagement",
+        "pages_manage_posts",
+      ].join(",")
+    )}`;
 
   const res = NextResponse.redirect(authUrl, { status: 302 });
 
-  // Store state in a short-lived cookie (basic CSRF protection)
   res.cookies.set("fb_oauth_state", state, {
     httpOnly: true,
     secure: true,
