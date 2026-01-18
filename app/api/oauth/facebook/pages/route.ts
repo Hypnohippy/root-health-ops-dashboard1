@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+type FbPage = { id: string; name: string; access_token?: string };
+
 export async function GET(req: NextRequest) {
   try {
     const token = req.cookies.get("fb_user_token")?.value || "";
 
     if (!token) {
       return NextResponse.json(
-        { error: "Missing fb_user_token cookie. Click Connect Facebook again." },
+        { error: "Missing token cookie. Please click Connect again." },
         { status: 401 }
       );
     }
@@ -21,19 +23,23 @@ export async function GET(req: NextRequest) {
         access_token: token,
       }).toString();
 
-    const res = await fetch(url, { method: "GET", cache: "no-store" });
-    const json: any = await res.json().catch(() => null);
+    const fbRes = await fetch(url, { method: "GET", cache: "no-store" });
+    const json: any = await fbRes.json().catch(() => null);
 
-    if (!res.ok) {
+    if (!fbRes.ok) {
       return NextResponse.json(
-        { error: "Facebook Graph error", details: json },
+        {
+          error:
+            json?.error?.message ||
+            `Facebook Graph error (${fbRes.status}) loading pages`,
+          details: json,
+        },
         { status: 400 }
       );
     }
 
-    return NextResponse.json({
-      data: Array.isArray(json?.data) ? json.data : [],
-    });
+    const pages: FbPage[] = Array.isArray(json?.data) ? json.data : [];
+    return NextResponse.json({ pages });
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Failed to load pages" },
