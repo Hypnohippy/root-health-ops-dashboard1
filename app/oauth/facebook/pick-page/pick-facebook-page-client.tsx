@@ -5,18 +5,14 @@ import React, { useEffect, useMemo, useState } from "react";
 type FbPage = {
   id: string;
   name: string;
-  access_token?: string; // page token (only returned by /me/accounts)
+  access_token?: string; // page token from /me/accounts
 };
-
-// ✅ Your known Page (single-tenant beta shortcut)
-const KNOWN_PAGE_ID = "101868201852363";
-const KNOWN_PAGE_NAME = "Fuel Geist Ltd";
 
 export default function PickFacebookPageClient({
   token,
   state,
 }: {
-  token?: string;
+  token: string;
   state?: string;
 }) {
   const resolvedToken = useMemo(() => {
@@ -37,31 +33,38 @@ export default function PickFacebookPageClient({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
-  const [okMsg, setOkMsg] = useState<string | null>(null);
 
   const debug = useMemo(() => {
     let href = "";
+    let search = "";
+    let hash = "";
     try {
       href = window.location.href;
+      search = window.location.search;
+      hash = window.location.hash;
     } catch {}
+
     return {
       href,
+      search,
+      hash,
+      tokenPropLength: (token || "").length,
       tokenResolvedLength: (resolvedToken || "").length,
       pagesCount: pages.length,
       selectedPageId,
-      hasState: !!(state && String(state).trim()),
+      hasState: Boolean(state && state.trim()),
     };
-  }, [resolvedToken, pages.length, selectedPageId, state]);
+  }, [token, resolvedToken, pages.length, selectedPageId, state]);
 
   async function loadPages() {
     setLoading(true);
     setError(null);
-    setOkMsg(null);
 
     try {
       if (!resolvedToken) {
-        // ✅ IMPORTANT CHANGE:
-        // Don’t treat this as a fatal error — list mode is optional.
+        setError(
+          "Missing token. Please go back and click Connect Facebook again."
+        );
         setPages([]);
         return;
       }
@@ -90,7 +93,9 @@ export default function PickFacebookPageClient({
       setPages(list);
 
       if (list.length === 0) {
-        setError("No Facebook Pages returned for list mode.");
+        setError(
+          "No Facebook Pages returned. This usually means Facebook did not grant Page access in this login."
+        );
         return;
       }
 
@@ -103,22 +108,39 @@ export default function PickFacebookPageClient({
     }
   }
 
-  async function saveSelection(pageId: string, pageName: string) {
+  async function saveSelection() {
     setSaving(true);
     setError(null);
-    setOkMsg(null);
 
     try {
+      const page = pages.find((p) => p.id === selectedPageId);
+      if (!page) {
+        setError("Please pick a Page first.");
+        return;
+      }
+
+      // ✅ This is the critical fix:
+      // Store the PAGE access token so Quick Blast can post.
+      const pageAccessToken = (page.access_token || "").trim();
+      if (!pageAccessToken) {
+        setError(
+          "Facebook did not return a Page access token. Try Connect again and ensure you approve Page access."
+        );
+        return;
+      }
+
       const res = await fetch("/api/social-accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           platform: "facebook",
-          pageId,
-          pageName,
+          pageId: page.id,
+          pageName: page.name,
           connectionType: "facebook_oauth",
           makeWebhookUrl: null,
           isActive: true,
+          pageAccessToken, // ✅ NEW: stored in DB
+          tokenExpiresAt: null,
         }),
       });
 
@@ -129,9 +151,6 @@ export default function PickFacebookPageClient({
         return;
       }
 
-      setOkMsg(`Connected: ${pageName} ✅`);
-
-      // Back to Connect so it shows Connected
       window.location.href = "/dashboard/connect?provider=facebook&success=1";
     } catch (e: any) {
       setError(e?.message || "Failed to save selected Page.");
@@ -141,12 +160,9 @@ export default function PickFacebookPageClient({
   }
 
   useEffect(() => {
-    // List mode is optional — try it once if token exists
     void loadPages();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const listModeAvailable = !!resolvedToken;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
@@ -156,49 +172,17 @@ export default function PickFacebookPageClient({
           Select which Page Root Health Ops should connect to.
         </p>
 
-        {/* ✅ Quick connect ALWAYS available */}
-        <div className="mt-6 rounded-2xl border border-emerald-500/30 bg-slate-900/80 p-4">
-          <div className="text-sm font-semibold text-slate-50">Quick connect</div>
-          <div className="mt-1 text-xs text-slate-300">
-            This connects your known Page directly (no page list required).
-          </div>
+        <div className="mt-6 space-y-3">
+          {error && (
+            <div className="rounded-xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
+              {error}
+            </div>
+          )}
 
-          <button
-            type="button"
-            onClick={() => saveSelection(KNOWN_PAGE_ID, KNOWN_PAGE_NAME)}
-            disabled={saving}
-            className="mt-3 inline-flex items-center rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-          >
-            {saving ? "Connecting…" : `Connect ${KNOWN_PAGE_NAME}`}
-          </button>
-
-          <div className="mt-2 text-[11px] text-slate-400">Page ID: {KNOWN_PAGE_ID}</div>
-        </div>
-
-        {/* ✅ List mode explanation (no scary red error) */}
-        {!listModeAvailable && (
-          <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/40 px-4 py-3 text-sm text-slate-200">
-            List mode isn’t available on this load (no user token present). That’s fine — Quick
-            connect above will still connect your Page.
-          </div>
-        )}
-
-        {error && (
-          <div className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
-            {error}
-          </div>
-        )}
-
-        {okMsg && (
-          <div className="mt-4 rounded-xl border border-emerald-500/40 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-100">
-            {okMsg}
-          </div>
-        )}
-
-        {/* List mode UI (only if token exists) */}
-        {listModeAvailable && (
-          <div className="mt-6 space-y-2">
-            <label className="block text-xs font-medium text-slate-300">Your Pages (list mode)</label>
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-slate-300">
+              Your Pages
+            </label>
 
             <select
               className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
@@ -237,11 +221,7 @@ export default function PickFacebookPageClient({
 
               <button
                 type="button"
-                onClick={() => {
-                  const page = pages.find((p) => p.id === selectedPageId);
-                  if (page) void saveSelection(page.id, page.name);
-                  else setError("Please pick a Page first.");
-                }}
+                onClick={saveSelection}
                 disabled={saving || !selectedPageId}
                 className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
               >
@@ -249,21 +229,21 @@ export default function PickFacebookPageClient({
               </button>
             </div>
           </div>
-        )}
 
-        <button
-          type="button"
-          className="mt-6 text-xs text-slate-400 hover:text-slate-300"
-          onClick={() => setDebugOpen((s) => !s)}
-        >
-          Debug (click to expand)
-        </button>
+          <button
+            type="button"
+            className="text-xs text-slate-400 hover:text-slate-300"
+            onClick={() => setDebugOpen((s) => !s)}
+          >
+            Debug (click to expand)
+          </button>
 
-        {debugOpen && (
-          <pre className="mt-2 max-h-64 overflow-auto rounded-xl border border-slate-700 bg-slate-950 p-3 text-[11px] text-slate-200">
-{JSON.stringify(debug, null, 2)}
-          </pre>
-        )}
+          {debugOpen && (
+            <pre className="mt-2 max-h-64 overflow-auto rounded-xl border border-slate-700 bg-slate-950 p-3 text-[11px] text-slate-200">
+              {JSON.stringify(debug, null, 2)}
+            </pre>
+          )}
+        </div>
       </div>
     </div>
   );
