@@ -1,230 +1,219 @@
 // app/api/social/quick-blast/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
-const AYRSHARE_API_KEY = process.env.AYRSHARE_API_KEY;
+export const runtime = "nodejs";
 
-// Mode C (Make) webhooks — use what you already have in Vercel
-const MAKE_FB_WEBHOOK_URL = process.env.MAKE_FB_WEBHOOK_URL;
-const MAKE_INSTAGRAM_QUICK_BLAST_WEBHOOK_URL =
-  process.env.MAKE_INSTAGRAM_QUICK_BLAST_WEBHOOK_URL;
+type ProviderId =
+  | "facebook"
+  | "instagram"
+  | "tiktok"
+  | "linkedin"
+  | "google"
+  | "email"
+  | "whatsapp"
+  | "threads";
 
-// Optional: allow a forced mode switch without deleting env vars
-// - If QUICK_BLAST_PROVIDER="make" → always Make
-// - else → Ayrshare if key exists, otherwise Make (if possible)
-const QUICK_BLAST_PROVIDER = (process.env.QUICK_BLAST_PROVIDER || "").toLowerCase();
+type SocialAccountRow = {
+  id: string;
+  organisation_id: string;
+  platform: ProviderId;
+  page_id: string | null;
+  page_name: string | null;
+  connection_type: string | null;
+  make_webhook_url: string | null;
+  is_active: boolean | null;
+  page_access_token: string | null;
+  token_expires_at: string | null;
+};
 
-const ALLOWED_PLATFORMS = [
-  "facebook",
-  "instagram",
-  "linkedin",
-  "threads",
-  "tiktok",
-  "reddit",
-  "twitter",
-  "youtube",
-  "google",
-] as const;
+async function getSingleTenantOrganisationId() {
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
 
-type AllowedPlatform = (typeof ALLOWED_PLATFORMS)[number];
-
-function normalizePlatforms(platformsRaw: any[]): AllowedPlatform[] {
-  const platforms = (Array.isArray(platformsRaw) ? platformsRaw : [])
-    .map((p) => String(p || "").toLowerCase().trim())
-    .filter(Boolean);
-
-  const invalid = platforms.filter((p) => !ALLOWED_PLATFORMS.includes(p as any));
-  if (invalid.length > 0) {
-    throw new Error(`Unsupported platform(s): ${invalid.join(", ")}`);
+  if (error) {
+    console.error("[quick-blast] organisations error", error);
+    return null;
   }
-  if (platforms.length === 0) {
-    throw new Error("Choose at least one platform.");
-  }
-  return platforms as AllowedPlatform[];
+  if (!data || data.length === 0) return null;
+  return data[0].id as string;
 }
 
-async function postViaAyrshare(args: {
+async function resolveOrganisationId(req: NextRequest) {
+  try {
+    const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
+    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
+  } catch {}
+  return await getSingleTenantOrganisationId();
+}
+
+async function loadSocialAccount(
+  organisationId: string,
+  platform: ProviderId
+): Promise<SocialAccountRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from("social_accounts")
+    .select(
+      "id, organisation_id, platform, page_id, page_name, connection_type, make_webhook_url, is_active, page_access_token, token_expires_at"
+    )
+    .eq("organisation_id", organisationId)
+    .eq("platform", platform)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[quick-blast] social_accounts load error", error);
+    return null;
+  }
+  return (data as any) ?? null;
+}
+
+async function postToFacebookPage(args: {
+  pageId: string;
+  pageAccessToken: string;
   message: string;
-  platforms: AllowedPlatform[];
-  imageUrl?: string;
 }) {
-  if (!AYRSHARE_API_KEY) {
-    return {
-      ok: false,
-      error: "Missing AYRSHARE_API_KEY in Vercel env.",
-      details: null,
-    };
-  }
+  const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+    args.pageId
+  )}/feed`;
 
-  const payload: Record<string, any> = {
-    post: args.message,
-    platforms: args.platforms,
-  };
+  const body = new URLSearchParams();
+  body.set("message", args.message);
+  body.set("access_token", args.pageAccessToken);
 
-  if (args.imageUrl && String(args.imageUrl).trim()) {
-    payload.mediaUrls = [String(args.imageUrl).trim()];
-  }
-
-  const res = await fetch("https://app.ayrshare.com/api/post", {
+  const res = await fetch(url, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${AYRSHARE_API_KEY}`,
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: JSON.stringify(payload),
+    body,
+    cache: "no-store",
   });
 
-  const raw = await res.text();
-  let json: any = null;
-  try {
-    json = JSON.parse(raw);
-  } catch {
-    // keep raw
-  }
+  const json: any = await res.json().catch(() => null);
 
-  if (!res.ok) {
-    return {
-      ok: false,
-      error: "Ayrshare post failed",
-      details: json ?? { raw },
-      status: res.status,
-      sent: payload,
-    };
-  }
-
-  const hasErrors = Array.isArray(json?.errors) && json.errors.length > 0;
-  if (hasErrors) {
-    return {
-      ok: false,
-      error: "Ayrshare returned platform errors",
-      details: json,
-      sent: payload,
-    };
-  }
-
-  return { ok: true, result: json, sent: payload };
-}
-
-async function postViaMake(args: {
-  message: string;
-  platforms: AllowedPlatform[];
-  imageUrl?: string;
-}) {
-  // We only wire what you actually have today
-  // (Facebook + Instagram). Others will return a clear per-platform error.
-  const results: Record<string, any> = {};
-
-  for (const p of args.platforms) {
-    try {
-      if (p === "facebook") {
-        if (!MAKE_FB_WEBHOOK_URL) {
-          results[p] = { ok: false, error: "Missing MAKE_FB_WEBHOOK_URL env var." };
-          continue;
-        }
-
-        const r = await fetch(MAKE_FB_WEBHOOK_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            platform: "facebook",
-            message: args.message,
-            imageUrl: args.imageUrl || null,
-          }),
-        });
-
-        const text = await r.text();
-        results[p] = { ok: r.ok, status: r.status, body: text };
-        continue;
-      }
-
-      if (p === "instagram") {
-        if (!MAKE_INSTAGRAM_QUICK_BLAST_WEBHOOK_URL) {
-          results[p] = {
-            ok: false,
-            error: "Missing MAKE_INSTAGRAM_QUICK_BLAST_WEBHOOK_URL env var.",
-          };
-          continue;
-        }
-
-        const r = await fetch(MAKE_INSTAGRAM_QUICK_BLAST_WEBHOOK_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            platform: "instagram",
-            message: args.message,
-            imageUrl: args.imageUrl || null,
-          }),
-        });
-
-        const text = await r.text();
-        results[p] = { ok: r.ok, status: r.status, body: text };
-        continue;
-      }
-
-      // Not wired yet
-      results[p] = {
-        ok: false,
-        error:
-          "This platform is not wired to Make yet. For now, use Facebook/Instagram or enable Ayrshare.",
-      };
-    } catch (e: any) {
-      results[p] = { ok: false, error: e?.message || "Make webhook failed." };
-    }
-  }
-
-  const anyOk = Object.values(results).some((x: any) => x?.ok);
-  return { ok: anyOk, results };
+  return { ok: res.ok, status: res.status, json };
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const message: string = (body?.message ?? "").toString();
-    const platformsRaw: any[] = Array.isArray(body?.platforms) ? body.platforms : [];
-    const imageUrl: string | undefined = body?.imageUrl;
 
-    if (!message.trim()) {
+    const message = String(body?.message ?? "").trim();
+    const platformsRaw = Array.isArray(body?.platforms) ? body.platforms : [];
+    const platforms: ProviderId[] = platformsRaw
+      .map((p: any) => String(p || "").toLowerCase().trim())
+      .filter(Boolean);
+
+    if (!message) {
       return NextResponse.json(
         { success: false, error: "Message is required." },
-        { status: 200 }
+        { status: 400 }
       );
     }
 
-    let platforms: AllowedPlatform[];
-    try {
-      platforms = normalizePlatforms(platformsRaw);
-    } catch (e: any) {
+    if (platforms.length === 0) {
       return NextResponse.json(
-        {
-          success: false,
-          error: e?.message || "Invalid platform selection.",
-          allowed: ALLOWED_PLATFORMS,
-        },
-        { status: 200 }
+        { success: false, error: "At least one platform is required." },
+        { status: 400 }
       );
     }
 
-    const forceMake = QUICK_BLAST_PROVIDER === "make";
-    const canAyrshare = Boolean(AYRSHARE_API_KEY);
-
-    // Provider selection
-    if (!forceMake && canAyrshare) {
-      const out = await postViaAyrshare({ message, platforms, imageUrl });
+    // ✅ Single-tenant beta default (or ?organisationId=...)
+    const organisationId = await resolveOrganisationId(req);
+    if (!organisationId) {
       return NextResponse.json(
-        { success: out.ok, provider: "ayrshare", ...out },
-        { status: 200 }
+        { success: false, error: "No organisation found in database." },
+        { status: 400 }
       );
     }
 
-    // Make fallback (Mode C)
-    const out = await postViaMake({ message, platforms, imageUrl });
+    // For this step: we ONLY implement Facebook via OAuth cleanly.
+    // Everything else returns a clear message so we don't accidentally post via Make/Ayrshare.
+    const results: any[] = [];
+
+    for (const p of platforms) {
+      if (p !== "facebook") {
+        results.push({
+          platform: p,
+          ok: false,
+          skipped: true,
+          reason:
+            "Not implemented in OAuth posting yet (Facebook is first).",
+        });
+        continue;
+      }
+
+      const row = await loadSocialAccount(organisationId, "facebook");
+
+      if (!row?.page_id) {
+        results.push({
+          platform: "facebook",
+          ok: false,
+          error:
+            "Facebook not connected (missing page_id). Go to Connect and connect Facebook.",
+        });
+        continue;
+      }
+
+      if (!row?.page_access_token) {
+        results.push({
+          platform: "facebook",
+          ok: false,
+          error:
+            "Facebook connected but missing page_access_token. Reconnect Facebook and pick the Page again.",
+        });
+        continue;
+      }
+
+      const fb = await postToFacebookPage({
+        pageId: row.page_id,
+        pageAccessToken: row.page_access_token,
+        message,
+      });
+
+      if (!fb.ok) {
+        results.push({
+          platform: "facebook",
+          ok: false,
+          status: fb.status,
+          error: fb.json?.error?.message || "Facebook post failed",
+          details: fb.json,
+        });
+        continue;
+      }
+
+      results.push({
+        platform: "facebook",
+        ok: true,
+        postedId: fb.json?.id || null,
+      });
+    }
+
+    const okCount = results.filter((r) => r.ok).length;
+    const failCount = results.length - okCount;
+
     return NextResponse.json(
-      { success: out.ok, provider: "make", ...out },
+      {
+        success: okCount > 0 && failCount === 0,
+        organisationId,
+        results,
+        summary: {
+          attempted: results.length,
+          ok: okCount,
+          failed: failCount,
+        },
+      },
       { status: 200 }
     );
   } catch (err: any) {
+    console.error("[quick-blast] unexpected error", err);
     return NextResponse.json(
-      { success: false, error: err?.message || "Quick Blast crashed." },
-      { status: 200 }
+      { success: false, error: err?.message || "Internal server error" },
+      { status: 500 }
     );
   }
 }
