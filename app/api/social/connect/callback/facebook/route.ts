@@ -14,7 +14,6 @@ function baseUrl(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  // Forward ALL query params to the canonical callback
   const target = new URL(`${baseUrl(req)}/api/oauth/facebook/callback`);
   req.nextUrl.searchParams.forEach((v, k) => target.searchParams.set(k, v));
   return NextResponse.redirect(target.toString(), { status: 302 });
