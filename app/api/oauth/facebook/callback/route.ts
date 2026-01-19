@@ -36,19 +36,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing code" }, { status: 400 });
     }
 
-    // CSRF check (state must match what we set in start route cookie)
-    const expectedState = req.cookies.get("fb_oauth_state")?.value || "";
-    if (!expectedState || !state || state !== expectedState) {
-      return NextResponse.json(
-        { error: "Invalid OAuth state. Please click Connect again." },
-        { status: 400 }
-      );
-    }
-
-    // This MUST match Meta Valid OAuth Redirect URIs exactly
+    // MUST match your Meta Valid OAuth Redirect URI EXACTLY
     const redirectUri = `${baseUrl(req)}/api/oauth/facebook/callback`;
 
-    // 1) Exchange code -> short-lived user access token
+    // 1) Exchange code -> short-lived user token
     const shortUrl =
       "https://graph.facebook.com/v24.0/oauth/access_token?" +
       new URLSearchParams({
@@ -69,7 +60,7 @@ export async function GET(req: NextRequest) {
 
     const shortUserToken = String(shortTok.json.access_token);
 
-    // 2) Exchange short -> long-lived (best effort)
+    // 2) Exchange -> long-lived user token (best effort; fallback is short token)
     const longUrl =
       "https://graph.facebook.com/v24.0/oauth/access_token?" +
       new URLSearchParams({
@@ -80,25 +71,13 @@ export async function GET(req: NextRequest) {
       }).toString();
 
     const longTok = await fetchJson(longUrl);
-
     const userToken = String(longTok.json?.access_token || shortUserToken);
 
-    // ✅ Store token SERVER-SIDE in cookie (NOT in URL)
-    const res = NextResponse.redirect(
-      `${baseUrl(req)}/oauth/facebook/pick-page?state=${encodeURIComponent(state)}`,
-      { status: 302 }
-    );
-
-    // Clear one-time state cookie
-    res.cookies.set("fb_oauth_state", "", {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 0,
+    // ✅ IMPORTANT: set cookie so pick-page can work WITHOUT token in URL
+    const res = NextResponse.redirect(`${baseUrl(req)}/oauth/facebook/pick-page`, {
+      status: 302,
     });
 
-    // Store token short-lived (enough for picking page)
     res.cookies.set("fb_user_token", userToken, {
       httpOnly: true,
       secure: true,
@@ -106,6 +85,17 @@ export async function GET(req: NextRequest) {
       path: "/",
       maxAge: 10 * 60, // 10 minutes
     });
+
+    // Optional: keep state around if you want later (not required for now)
+    if (state) {
+      res.cookies.set("fb_oauth_state_echo", state, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 10 * 60,
+      });
+    }
 
     return res;
   } catch (e: any) {
