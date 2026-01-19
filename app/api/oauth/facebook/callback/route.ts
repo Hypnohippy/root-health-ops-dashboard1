@@ -1,3 +1,4 @@
+// app/api/oauth/facebook/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -33,13 +34,15 @@ export async function GET(req: NextRequest) {
     const state = req.nextUrl.searchParams.get("state") || "";
 
     if (!code) {
-      return NextResponse.json({ error: "Missing code" }, { status: 400 });
+      // If user hits callback without code, send them back to Connect (no JSON dead-end)
+      const back = new URL(`${baseUrl(req)}/dashboard/connect`);
+      back.searchParams.set("error", "missing_code");
+      return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
-    // MUST match your Meta Valid OAuth Redirect URI EXACTLY
     const redirectUri = `${baseUrl(req)}/api/oauth/facebook/callback`;
 
-    // 1) Exchange code -> short-lived user token
+    // 1) code -> short-lived user token
     const shortUrl =
       "https://graph.facebook.com/v24.0/oauth/access_token?" +
       new URLSearchParams({
@@ -52,15 +55,14 @@ export async function GET(req: NextRequest) {
     const shortTok = await fetchJson(shortUrl);
 
     if (!shortTok.ok || !shortTok.json?.access_token) {
-      return NextResponse.json(
-        { error: "Token exchange failed", details: shortTok.json },
-        { status: 400 }
-      );
+      const back = new URL(`${baseUrl(req)}/dashboard/connect`);
+      back.searchParams.set("error", "token_exchange_failed");
+      return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
     const shortUserToken = String(shortTok.json.access_token);
 
-    // 2) Exchange -> long-lived user token (best effort; fallback is short token)
+    // 2) short -> long-lived user token (~60 days)
     const longUrl =
       "https://graph.facebook.com/v24.0/oauth/access_token?" +
       new URLSearchParams({
@@ -73,35 +75,14 @@ export async function GET(req: NextRequest) {
     const longTok = await fetchJson(longUrl);
     const userToken = String(longTok.json?.access_token || shortUserToken);
 
-    // ✅ IMPORTANT: set cookie so pick-page can work WITHOUT token in URL
-    const res = NextResponse.redirect(`${baseUrl(req)}/oauth/facebook/pick-page`, {
-      status: 302,
-    });
+    // ✅ ALWAYS redirect to pick-page WITH token
+    const pickUrl = new URL(`${baseUrl(req)}/oauth/facebook/pick-page`);
+    pickUrl.searchParams.set("token", userToken);
+    if (state) pickUrl.searchParams.set("state", state);
 
-    res.cookies.set("fb_user_token", userToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 10 * 60, // 10 minutes
-    });
-
-    // Optional: keep state around if you want later (not required for now)
-    if (state) {
-      res.cookies.set("fb_oauth_state_echo", state, {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 10 * 60,
-      });
-    }
-
-    return res;
+    return NextResponse.redirect(pickUrl.toString(), { status: 302 });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Callback crashed" },
-      { status: 500 }
-    );
+    const msg = e?.message || "Callback crashed";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
