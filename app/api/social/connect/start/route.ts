@@ -3,15 +3,79 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-type ProviderId = "facebook" | "instagram";
+type ProviderId = "facebook" | "instagram" | "linkedin";
 
 function safeBaseUrl(appUrl: string) {
   return (appUrl || "").replace(/\/$/, "");
 }
 
+function encodeState(obj: any) {
+  return Buffer.from(JSON.stringify(obj)).toString("base64url");
+}
+
 export async function GET(req: NextRequest) {
   const provider = (req.nextUrl.searchParams.get("provider") || "facebook") as ProviderId;
 
+  // ----------------------------
+  // LinkedIn (separate OAuth)
+  // ----------------------------
+  if (provider === "linkedin") {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+    const clientId = process.env.LINKEDIN_CLIENT_ID || "";
+
+    if (!appUrl || !clientId) {
+      return NextResponse.json(
+        {
+          error: "Missing LINKEDIN_CLIENT_ID or NEXT_PUBLIC_APP_URL",
+          missing: {
+            LINKEDIN_CLIENT_ID: !clientId,
+            NEXT_PUBLIC_APP_URL: !appUrl,
+          },
+        },
+        { status: 500 }
+      );
+    }
+
+    const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/linkedin/callback`;
+
+    // State payload
+    const stateObj = {
+      provider: "linkedin",
+      nonce: crypto.randomUUID(),
+      t: Date.now(),
+    };
+    const state = encodeState(stateObj);
+
+    // Minimal scopes needed to post:
+    // - r_liteprofile: identify the member (author)
+    // - w_member_social: create posts
+    const scope = ["r_liteprofile", "w_member_social"].join(" ");
+
+    const authUrl =
+      "https://www.linkedin.com/oauth/v2/authorization" +
+      `?response_type=code` +
+      `&client_id=${encodeURIComponent(clientId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&state=${encodeURIComponent(state)}` +
+      `&scope=${encodeURIComponent(scope)}`;
+
+    const res = NextResponse.redirect(authUrl, { status: 302 });
+
+    // short-lived CSRF cookie (same pattern you used for FB)
+    res.cookies.set("oauth_state_linkedin", state, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 10 * 60,
+    });
+
+    return res;
+  }
+
+  // ----------------------------
+  // Meta (Facebook/Instagram)
+  // ----------------------------
   if (provider !== "facebook" && provider !== "instagram") {
     return NextResponse.json(
       { error: `Unsupported provider: ${provider}` },
@@ -36,19 +100,15 @@ export async function GET(req: NextRequest) {
   }
 
   // ✅ Canonical callback
-  // Add THIS EXACT URL to Meta → Facebook Login → Valid OAuth Redirect URIs
   const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/facebook/callback`;
 
-  // State payload (we use provider later)
   const stateObj = {
     provider,
     nonce: crypto.randomUUID(),
     t: Date.now(),
   };
-  const state = Buffer.from(JSON.stringify(stateObj)).toString("base64url");
+  const state = encodeState(stateObj);
 
-  // ✅ Scopes
-  // business_management is the KEY that makes pages show up reliably for Business Portfolio / New Pages.
   const baseScopes = [
     "public_profile",
     "pages_show_list",
@@ -57,7 +117,6 @@ export async function GET(req: NextRequest) {
     "business_management",
   ];
 
-  // Instagram uses the SAME Meta login; we’ll pick FB Page then detect IG business acct.
   const instagramScopes = [
     ...baseScopes,
     "instagram_basic",
@@ -72,20 +131,18 @@ export async function GET(req: NextRequest) {
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&state=${encodeURIComponent(state)}` +
     `&response_type=code` +
-    // ✅ These two make Facebook re-offer missing scopes when it “remembers” you:
     `&auth_type=rerequest` +
     `&return_scopes=true` +
     `&scope=${encodeURIComponent(scopes.join(","))}`;
 
   const res = NextResponse.redirect(authUrl, { status: 302 });
 
-  // Store state in short-lived cookie (CSRF + sanity)
   res.cookies.set("fb_oauth_state", state, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
     path: "/",
-    maxAge: 10 * 60, // 10 mins
+    maxAge: 10 * 60,
   });
 
   return res;
