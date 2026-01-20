@@ -1,3 +1,4 @@
+// app/api/social-accounts/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomUUID } from "crypto";
@@ -27,40 +28,27 @@ function asProviderId(v: any): ProviderId | null {
   return allowed.includes(s as ProviderId) ? (s as ProviderId) : null;
 }
 
-// Single-tenant beta mode: use the first organisation row as "the current org".
+// Single-tenant beta mode: use first org row as current org.
 async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .limit(1);
+  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
 
   if (error) {
     console.error("[social-accounts] organisations error", error);
     return null;
   }
-
   if (!data || data.length === 0) {
     console.warn("[social-accounts] No organisations found in database");
     return null;
   }
-
   return data[0].id as string;
 }
 
-/**
- * Multi-tenant ready:
- * - If caller passes ?organisationId=..., use that
- * - otherwise fall back to single-tenant default
- */
 async function resolveOrganisationId(req: Request) {
   try {
     const url = new URL(req.url);
     const orgFromQuery = url.searchParams.get("organisationId");
     if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
-  } catch {
-    // ignore URL parse issues
-  }
-
+  } catch {}
   return await getSingleTenantOrganisationId();
 }
 
@@ -70,10 +58,7 @@ export async function GET(req: Request) {
     const organisationId = await resolveOrganisationId(req);
 
     if (!organisationId) {
-      return NextResponse.json({
-        organisationId: null,
-        socialAccounts: [],
-      });
+      return NextResponse.json({ organisationId: null, socialAccounts: [] });
     }
 
     const { data, error } = await supabaseAdmin
@@ -83,10 +68,7 @@ export async function GET(req: Request) {
 
     if (error) {
       console.error("[social-accounts] GET error", error);
-      return NextResponse.json(
-        { error: "Failed to load social accounts" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Failed to load social accounts" }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -109,31 +91,22 @@ export async function POST(req: Request) {
 
     const platform = asProviderId(body?.platform);
     const pageId = typeof body?.pageId === "string" ? body.pageId.trim() : "";
-    const pageName =
-      typeof body?.pageName === "string" ? body.pageName.trim() : "";
-    const connectionType =
-      typeof body?.connectionType === "string" ? body.connectionType : null;
-    const makeWebhookUrl =
-      typeof body?.makeWebhookUrl === "string" ? body.makeWebhookUrl : null;
-    const isActive =
-      typeof body?.isActive === "boolean" ? body.isActive : true;
-
-    // ✅ NEW fields
+    const pageName = typeof body?.pageName === "string" ? body.pageName.trim() : "";
     const pageAccessToken =
-      typeof body?.pageAccessToken === "string"
-        ? body.pageAccessToken.trim()
-        : null;
-
+      typeof body?.pageAccessToken === "string" ? body.pageAccessToken.trim() : "";
     const tokenExpiresAt =
-      typeof body?.tokenExpiresAt === "string" && body.tokenExpiresAt.trim()
-        ? body.tokenExpiresAt.trim()
-        : null;
+      typeof body?.tokenExpiresAt === "string" ? body.tokenExpiresAt.trim() : "";
+
+    const connectionType =
+      typeof body?.connectionType === "string" ? body.connectionType.trim() : null;
+
+    const makeWebhookUrl =
+      typeof body?.makeWebhookUrl === "string" ? body.makeWebhookUrl.trim() : null;
+
+    const isActive = typeof body?.isActive === "boolean" ? body.isActive : true;
 
     if (!platform) {
-      return NextResponse.json(
-        { error: "platform is required (facebook/instagram/...)" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "platform is required" }, { status: 400 });
     }
 
     const organisationId = await resolveOrganisationId(req);
@@ -142,10 +115,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No organisation found" }, { status: 400 });
     }
 
-    // See if we already have a row for this org + platform
+    // Look up existing row
     const { data: existingRows, error: existingError } = await supabaseAdmin
       .from("social_accounts")
-      .select("id, page_id")
+      .select("id")
       .eq("organisation_id", organisationId)
       .eq("platform", platform)
       .limit(1);
@@ -154,25 +127,24 @@ export async function POST(req: Request) {
       console.error("[social-accounts] lookup error", existingError);
     }
 
+    const updatePayload: any = {
+      page_name: pageName || null,
+      connection_type: connectionType,
+      make_webhook_url: makeWebhookUrl,
+      is_active: isActive,
+    };
+
+    // Respect NOT NULL on page_id if your schema has it
+    if (pageId) updatePayload.page_id = pageId;
+
+    // ✅ Store tokens when provided (this is what Quick Blast needs)
+    if (pageAccessToken) updatePayload.page_access_token = pageAccessToken;
+    if (tokenExpiresAt) updatePayload.token_expires_at = tokenExpiresAt;
+
     let result: any;
 
     if (existingRows && existingRows.length > 0) {
-      // UPDATE path
       const id = existingRows[0].id;
-
-      const updatePayload: any = {
-        page_name: pageName || null,
-        connection_type: connectionType,
-        make_webhook_url: makeWebhookUrl,
-        is_active: isActive,
-      };
-
-      // Respect NOT NULL on page_id:
-      if (pageId) updatePayload.page_id = pageId;
-
-      // ✅ Only set token if provided
-      if (pageAccessToken) updatePayload.page_access_token = pageAccessToken;
-      if (tokenExpiresAt !== null) updatePayload.token_expires_at = tokenExpiresAt;
 
       const { data, error } = await supabaseAdmin
         .from("social_accounts")
@@ -191,22 +163,22 @@ export async function POST(req: Request) {
 
       result = data;
     } else {
-      // INSERT path
       const newId = randomUUID();
 
+      // If page_id is required and we don't have it yet, use a safe placeholder
       const safePageId = pageId ? pageId : "pending_page_id";
 
       const insertPayload: any = {
         id: newId,
         organisation_id: organisationId,
         platform,
-        page_id: safePageId, // NOT NULL
+        page_id: safePageId,
         page_name: pageName || null,
         connection_type: connectionType,
         make_webhook_url: makeWebhookUrl,
         is_active: isActive,
-        page_access_token: pageAccessToken,
-        token_expires_at: tokenExpiresAt,
+        page_access_token: pageAccessToken || null,
+        token_expires_at: tokenExpiresAt || null,
       };
 
       const { data, error } = await supabaseAdmin
@@ -242,15 +214,11 @@ export async function POST(req: Request) {
 // DELETE /api/social-accounts?organisationId=...
 export async function DELETE(req: Request) {
   try {
-    const { platform } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const platform = asProviderId(body?.platform);
 
-    const pid = asProviderId(platform);
-
-    if (!pid) {
-      return NextResponse.json(
-        { error: "platform is required" },
-        { status: 400 }
-      );
+    if (!platform) {
+      return NextResponse.json({ error: "platform is required" }, { status: 400 });
     }
 
     const organisationId = await resolveOrganisationId(req);
@@ -263,17 +231,14 @@ export async function DELETE(req: Request) {
       .from("social_accounts")
       .delete()
       .eq("organisation_id", organisationId)
-      .eq("platform", pid);
+      .eq("platform", platform);
 
     if (error) {
       console.error("[social-accounts] DELETE error", error);
-      return NextResponse.json(
-        { error: "Failed to delete social account" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Failed to delete social account" }, { status: 500 });
     }
 
-    return NextResponse.json({ organisationId, platform: pid });
+    return NextResponse.json({ organisationId, platform });
   } catch (error: any) {
     console.error("[social-accounts] DELETE unexpected", error);
     return NextResponse.json(
