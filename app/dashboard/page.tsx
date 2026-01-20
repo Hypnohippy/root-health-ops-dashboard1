@@ -54,6 +54,8 @@ type Draft = {
   selectedPlatforms: ProviderId[];
 };
 
+type AiVariant = { title: string; text: string };
+
 function loadDrafts(): Draft[] {
   try {
     const raw = localStorage.getItem(DRAFTS_KEY);
@@ -88,11 +90,20 @@ export default function DashboardHomePage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
 
+  // ---------- AI Assist state ----------
+  const [aiOpen, setAiOpen] = useState(true);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
+
+  const [aiTone, setAiTone] = useState("calm");
+  const [aiGoal, setAiGoal] = useState("awareness");
+  const [aiLength, setAiLength] = useState<"short" | "medium" | "long">("short");
+  const [aiIncludeCta, setAiIncludeCta] = useState(true);
+  const [aiIncludeHashtags, setAiIncludeHashtags] = useState(true);
+
   const connectedPlatforms = useMemo(() => {
-    const active = (socialAccounts || []).filter((r) => {
-      // treat missing is_active as active (older rows)
-      return r.is_active !== false;
-    });
+    const active = (socialAccounts || []).filter((r) => r.is_active !== false);
     return new Set(active.map((r) => r.platform));
   }, [socialAccounts]);
 
@@ -137,8 +148,8 @@ export default function DashboardHomePage() {
     const d: Draft = {
       id: crypto.randomUUID(),
       savedAt: Date.now(),
-      message: message,
-      imageUrl: imageUrl,
+      message,
+      imageUrl,
       selectedPlatforms: selected,
     };
     const next = [d, ...drafts];
@@ -191,6 +202,53 @@ export default function DashboardHomePage() {
     }
   }
 
+  async function generateAiVariants() {
+    setAiBusy(true);
+    setAiError(null);
+    setAiVariants([]);
+
+    try {
+      const res = await fetch("/api/ai/quick-blast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          platforms: selected.length ? selected : Array.from(connectedPlatforms),
+          tone: aiTone,
+          goal: aiGoal,
+          length: aiLength,
+          includeCta: aiIncludeCta,
+          includeHashtags: aiIncludeHashtags,
+          brandName: "Root Health",
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setAiError(json?.error || `AI request failed (${res.status})`);
+        return;
+      }
+
+      const variants: AiVariant[] = Array.isArray(json?.variants) ? json.variants : [];
+      if (!variants.length) {
+        setAiError("No variants returned. Try again.");
+        return;
+      }
+
+      setAiVariants(variants);
+    } catch (e: any) {
+      setAiError(e?.message || "AI generate failed");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  function useVariant(v: AiVariant) {
+    setMessage(v.text);
+    setAiOpen(false);
+  }
+
   useEffect(() => {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
@@ -202,7 +260,8 @@ export default function DashboardHomePage() {
     const defaults = socialAccounts
       .map((r) => r.platform)
       .filter((p) => connectedPlatforms.has(p));
-    if (defaults.length > 0) setSelected(defaults);
+    if (defaults.length > 0)s
+      setSelected(defaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingAccounts, socialAccounts]);
 
@@ -270,6 +329,148 @@ export default function DashboardHomePage() {
                 </div>
               </div>
 
+              {/* AI Assist */}
+              <div className="mt-5 rounded-3xl border border-slate-700 bg-slate-950 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">AI Assist</div>
+                    <div className="text-[11px] text-slate-400">
+                      Generate 3 variants you can click-to-use.
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setAiOpen((v) => !v)}
+                    className="rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 hover:border-slate-600"
+                  >
+                    {aiOpen ? "Hide" : "Show"}
+                  </button>
+                </div>
+
+                {aiOpen && (
+                  <div className="mt-4 space-y-3">
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div>
+                        <label className="block text-[11px] text-slate-400">Tone</label>
+                        <select
+                          value={aiTone}
+                          onChange={(e) => setAiTone(e.target.value)}
+                          className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs outline-none focus:border-emerald-500"
+                        >
+                          <option value="calm">Calm</option>
+                          <option value="warm">Warm</option>
+                          <option value="confident">Confident</option>
+                          <option value="professional">Professional</option>
+                          <option value="uplifting">Uplifting</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-slate-400">Goal</label>
+                        <select
+                          value={aiGoal}
+                          onChange={(e) => setAiGoal(e.target.value)}
+                          className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs outline-none focus:border-emerald-500"
+                        >
+                          <option value="awareness">Awareness</option>
+                          <option value="engagement">Engagement</option>
+                          <option value="lead">Lead / enquiry</option>
+                          <option value="education">Education</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-slate-400">Length</label>
+                        <select
+                          value={aiLength}
+                          onChange={(e) => setAiLength(e.target.value as any)}
+                          className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs outline-none focus:border-emerald-500"
+                        >
+                          <option value="short">Short</option>
+                          <option value="medium">Medium</option>
+                          <option value="long">Long</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3 text-xs text-slate-300">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={aiIncludeCta}
+                          onChange={(e) => setAiIncludeCta(e.target.checked)}
+                        />
+                        Include CTA
+                      </label>
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={aiIncludeHashtags}
+                          onChange={(e) => setAiIncludeHashtags(e.target.checked)}
+                        />
+                        Include hashtags
+                      </label>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={generateAiVariants}
+                        disabled={aiBusy || (selected.length === 0 && connectedPlatforms.size === 0)}
+                        className="rounded-2xl bg-blue-500 px-4 py-2 text-xs font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60"
+                      >
+                        {aiBusy ? "Generating…" : "Generate 3 variants"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAiVariants([]);
+                          setAiError(null);
+                        }}
+                        className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs text-slate-200 hover:border-slate-600"
+                      >
+                        Clear
+                      </button>
+                    </div>
+
+                    {aiError && (
+                      <div className="rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-xs text-red-100">
+                        {aiError}
+                      </div>
+                    )}
+
+                    {aiVariants.length > 0 && (
+                      <div className="space-y-3">
+                        {aiVariants.map((v, i) => (
+                          <div
+                            key={i}
+                            className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="text-xs font-semibold text-slate-200">
+                                {v.title || `Variant ${i + 1}`}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => useVariant(v)}
+                                className="rounded-xl bg-emerald-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 hover:bg-emerald-400"
+                              >
+                                Use this
+                              </button>
+                            </div>
+                            <div className="mt-2 whitespace-pre-wrap text-sm text-slate-200">
+                              {v.text}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="mt-5 space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-300">
@@ -295,7 +496,7 @@ export default function DashboardHomePage() {
                     placeholder="Paste a direct image URL (JPG/PNG)…"
                   />
                   <div className="mt-1 text-[11px] text-slate-500">
-                    (We’ll add upload later — URL is fine for now.)
+                    Instagram requires an image URL right now (we’ll add upload + text-only later).
                   </div>
                 </div>
 
