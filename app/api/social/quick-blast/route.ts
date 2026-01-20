@@ -27,6 +27,20 @@ type SocialAccountRow = {
   token_expires_at: string | null;
 };
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isProbablyPublicHttpsUrl(u: string) {
+  if (!u) return false;
+  try {
+    const url = new URL(u);
+    return url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 async function getSingleTenantOrganisationId() {
   const { data, error } = await supabaseAdmin
     .from("organisations")
@@ -95,74 +109,196 @@ async function postToFacebookPage(args: {
   return { ok: res.ok, status: res.status, json };
 }
 
-/**
- * Instagram publishing (Business/Creator via Graph API)
- * Requires:
- * - igUserId = instagram_business_account id (your social_accounts.instagram.page_id)
- * - pageAccessToken = token with instagram_content_publish (we store it in page_access_token)
- *
- * For simplicity/reliability:
- * - If there's no imageUrl, we return a clear "needs image" message for IG.
- */
-async function publishToInstagram(args: {
+async function igGetContainerStatus(args: {
+  creationId: string;
+  token: string;
+}) {
+  const url =
+    `https://graph.facebook.com/v24.0/${encodeURIComponent(args.creationId)}?` +
+    new URLSearchParams({
+      fields: "status_code",
+      access_token: args.token,
+    }).toString();
+
+  const res = await fetch(url, { method: "GET", cache: "no-store" });
+  const json: any = await res.json().catch(() => null);
+
+  // status_code commonly: IN_PROGRESS, FINISHED, ERROR
+  const status = String(json?.status_code || "");
+  return { ok: res.ok, status: res.status, json, status_code: status };
+}
+
+async function igCreateMediaContainer(args: {
   igUserId: string;
-  pageAccessToken: string;
+  token: string;
   caption: string;
   imageUrl: string;
 }) {
-  // 1) Create media container
-  const createUrl = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+  const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
     args.igUserId
   )}/media`;
 
-  const createBody = new URLSearchParams();
-  createBody.set("image_url", args.imageUrl);
-  createBody.set("caption", args.caption);
-  createBody.set("access_token", args.pageAccessToken);
+  const body = new URLSearchParams();
+  body.set("image_url", args.imageUrl);
+  body.set("caption", args.caption);
+  body.set("access_token", args.token);
 
-  const createRes = await fetch(createUrl, {
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: createBody,
+    body,
     cache: "no-store",
   });
 
-  const createJson: any = await createRes.json().catch(() => null);
-  if (!createRes.ok || !createJson?.id) {
-    return {
-      ok: false,
-      stage: "create_media",
-      status: createRes.status,
-      json: createJson,
-    };
-  }
+  const json: any = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json, creationId: json?.id ? String(json.id) : "" };
+}
 
-  const creationId = String(createJson.id);
-
-  // 2) Publish container
-  const publishUrl = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+async function igPublishContainer(args: {
+  igUserId: string;
+  token: string;
+  creationId: string;
+}) {
+  const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
     args.igUserId
   )}/media_publish`;
 
-  const publishBody = new URLSearchParams();
-  publishBody.set("creation_id", creationId);
-  publishBody.set("access_token", args.pageAccessToken);
+  const body = new URLSearchParams();
+  body.set("creation_id", args.creationId);
+  body.set("access_token", args.token);
 
-  const publishRes = await fetch(publishUrl, {
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: publishBody,
+    body,
     cache: "no-store",
   });
 
-  const publishJson: any = await publishRes.json().catch(() => null);
+  const json: any = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json };
+}
+
+/**
+ * Instagram publish that waits for media readiness.
+ * Fixes: "Media ID is not available" (9007 / 2207027) by polling status_code.
+ */
+async function publishToInstagramWithWait(args: {
+  igUserId: string;
+  token: string;
+  caption: string;
+  imageUrl: string;
+}) {
+  // 1) Create container
+  const created = await igCreateMediaContainer({
+    igUserId: args.igUserId,
+    token: args.token,
+    caption: args.caption,
+    imageUrl: args.imageUrl,
+  });
+
+  if (!created.ok || !created.creationId) {
+    return {
+      ok: false,
+      stage: "create_media",
+      status: created.status,
+      json: created.json,
+      creationId: created.creationId || null,
+    };
+  }
+
+  const creationId = created.creationId;
+
+  // 2) Poll readiness (up to ~30 seconds)
+  const delaysMs = [1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]; // ~30s total
+  let lastStatus = "";
+  let lastStatusJson: any = null;
+
+  for (const d of delaysMs) {
+    const st = await igGetContainerStatus({ creationId, token: args.token });
+    lastStatus = st.status_code;
+    lastStatusJson = st.json;
+
+    if (!st.ok) {
+      // If status check fails, don't loop forever
+      break;
+    }
+
+    if (lastStatus === "FINISHED") {
+      break;
+    }
+
+    if (lastStatus === "ERROR") {
+      return {
+        ok: false,
+        stage: "container_status",
+        status: st.status,
+        json: st.json,
+        creationId,
+        note: "Instagram reported container status ERROR.",
+      };
+    }
+
+    // IN_PROGRESS (or empty) -> wait and try again
+    await sleep(d);
+  }
+
+  // 3) Publish (with a couple retries if IG still says "not ready")
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const pub = await igPublishContainer({
+      igUserId: args.igUserId,
+      token: args.token,
+      creationId,
+    });
+
+    if (pub.ok) {
+      return {
+        ok: true,
+        stage: "media_publish",
+        status: pub.status,
+        json: pub.json,
+        creationId,
+        containerStatus: lastStatus || null,
+      };
+    }
+
+    const msg = String(pub.json?.error?.message || "");
+    const code = Number(pub.json?.error?.code || 0);
+    const sub = Number(pub.json?.error?.error_subcode || 0);
+
+    const isNotReady =
+      msg.toLowerCase().includes("not ready") ||
+      msg.toLowerCase().includes("not available") ||
+      (code === 9007 && sub === 2207027);
+
+    if (!isNotReady) {
+      return {
+        ok: false,
+        stage: "media_publish",
+        status: pub.status,
+        json: pub.json,
+        creationId,
+        containerStatus: lastStatus || null,
+      };
+    }
+
+    // Not ready -> wait a bit then retry publish
+    await sleep(2000 * attempt);
+  }
 
   return {
-    ok: publishRes.ok,
+    ok: false,
     stage: "media_publish",
-    status: publishRes.status,
-    json: publishJson,
+    status: 400,
+    json: {
+      error: {
+        message:
+          "Instagram media was created but never became publishable in time. Try again in 30–60 seconds.",
+      },
+      container_status: lastStatus,
+      container_status_raw: lastStatusJson,
+    },
     creationId,
+    containerStatus: lastStatus || null,
   };
 }
 
@@ -285,9 +421,19 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        const ig = await publishToInstagram({
+        if (!isProbablyPublicHttpsUrl(imageUrl)) {
+          results.push({
+            platform: "instagram",
+            ok: false,
+            error:
+              "imageUrl must be a public HTTPS URL that Meta servers can fetch (not localhost, not a private drive link).",
+          });
+          continue;
+        }
+
+        const ig = await publishToInstagramWithWait({
           igUserId: igRow.page_id,
-          pageAccessToken: igRow.page_access_token,
+          token: igRow.page_access_token,
           caption: message,
           imageUrl,
         });
@@ -302,6 +448,8 @@ export async function POST(req: NextRequest) {
               ig.json?.error?.message ||
               "Instagram publish failed (check permissions + IG is linked to FB Page).",
             details: ig.json,
+            creationId: ig.creationId || null,
+            containerStatus: ig.containerStatus || null,
           });
           continue;
         }
@@ -311,12 +459,12 @@ export async function POST(req: NextRequest) {
           ok: true,
           creationId: ig.creationId || null,
           postedId: ig.json?.id || null,
+          containerStatus: ig.containerStatus || null,
         });
 
         continue;
       }
 
-      // default: not implemented yet
       results.push({
         platform: p,
         ok: false,
