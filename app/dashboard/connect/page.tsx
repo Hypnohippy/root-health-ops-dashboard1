@@ -54,7 +54,7 @@ const initialProviders: Provider[] = [
     id: "threads",
     name: "Threads",
     label: "Threads",
-    description: "Text-first posts via Meta OAuth (we’ll expand capabilities next).",
+    description: "Text-first posts that ride Meta momentum.",
     status: "disconnected",
   },
   {
@@ -92,10 +92,10 @@ const connectUrls: Record<ProviderId, string> = {
   instagram: "/api/social/connect/start?provider=instagram",
   linkedin: "/api/social/connect/start?provider=linkedin",
 
-  // ✅ NOW WIRED
+  // ✅ NOW WIRED:
   threads: "/api/social/connect/start?provider=threads",
 
-  // placeholders
+  // Coming soon / placeholders
   tiktok: "#",
   google: "#",
   email: "#",
@@ -162,7 +162,12 @@ export default function DashboardConnectPage() {
     setProviders((prev) =>
       prev.map((p) =>
         p.id === provider.id
-          ? { ...p, status: "disconnected", accountName: undefined, lastSync: undefined }
+          ? {
+              ...p,
+              status: "disconnected",
+              accountName: undefined,
+              lastSync: undefined,
+            }
           : p
       )
     );
@@ -213,15 +218,15 @@ export default function DashboardConnectPage() {
                           provider.status === "connected"
                             ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/60"
                             : provider.status === "pending"
-                              ? "bg-amber-500/15 text-amber-200 border-amber-500/60"
-                              : "bg-slate-800 text-slate-300 border-slate-600"
+                            ? "bg-amber-500/15 text-amber-200 border-amber-500/60"
+                            : "bg-slate-800 text-slate-300 border-slate-600"
                         }`}
                       >
                         {provider.status === "connected"
                           ? "Connected"
                           : provider.status === "pending"
-                            ? "Pending"
-                            : "Not connected"}
+                          ? "Pending"
+                          : "Not connected"}
                       </span>
                     </div>
 
