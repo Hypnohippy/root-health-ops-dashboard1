@@ -33,6 +33,19 @@ type QuickBlastResult = {
   error?: string;
 };
 
+type AiVariant = {
+  title: string;
+  text: string;
+  cta: string;
+  hashtags: string[];
+};
+
+type AiResponse = {
+  success: boolean;
+  variants?: AiVariant[];
+  error?: string;
+};
+
 const PROVIDER_LABELS: Record<ProviderId, string> = {
   facebook: "Facebook Page",
   instagram: "Instagram",
@@ -54,8 +67,6 @@ type Draft = {
   selectedPlatforms: ProviderId[];
 };
 
-type AiVariant = { title: string; text: string };
-
 function loadDrafts(): Draft[] {
   try {
     const raw = localStorage.getItem(DRAFTS_KEY);
@@ -74,9 +85,23 @@ function saveDrafts(drafts: Draft[]) {
   } catch {}
 }
 
+function joinVariant(v: AiVariant) {
+  const hash = Array.isArray(v.hashtags) && v.hashtags.length > 0 ? `\n\n${v.hashtags.join(" ")}` : "";
+  const cta = v.cta ? `\n\n${v.cta}` : "";
+  return `${(v.text || "").trim()}${cta}${hash}`.trim();
+}
+
 export default function DashboardHomePage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
+
+  // AI composer controls
+  const [aiSubject, setAiSubject] = useState("");
+  const [aiTone, setAiTone] = useState("calm"); // calm | supportive | direct | philosophical | story
+  const [aiLength, setAiLength] = useState("short"); // short | medium | long
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
   const [message, setMessage] = useState(
     "Quick check-in from Root Health Ops Dashboard ✅"
@@ -90,24 +115,18 @@ export default function DashboardHomePage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
 
-  // ---------- AI Assist state ----------
-  const [aiOpen, setAiOpen] = useState(true);
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
-
-  const [aiTone, setAiTone] = useState("calm");
-  const [aiGoal, setAiGoal] = useState("awareness");
-  const [aiLength, setAiLength] = useState<"short" | "medium" | "long">("short");
-  const [aiIncludeCta, setAiIncludeCta] = useState(true);
-  const [aiIncludeHashtags, setAiIncludeHashtags] = useState(true);
-
   const connectedPlatforms = useMemo(() => {
-    const active = (socialAccounts || []).filter((r) => r.is_active !== false);
+    const active = (socialAccounts || []).filter((r) => {
+      // treat missing is_active as active (older rows)
+      return r.is_active !== false;
+    });
     return new Set(active.map((r) => r.platform));
   }, [socialAccounts]);
 
-  const connectedCount = useMemo(() => connectedPlatforms.size, [connectedPlatforms]);
+  const connectedCount = useMemo(
+    () => connectedPlatforms.size,
+    [connectedPlatforms]
+  );
 
   const charCount = message.length;
 
@@ -148,8 +167,8 @@ export default function DashboardHomePage() {
     const d: Draft = {
       id: crypto.randomUUID(),
       savedAt: Date.now(),
-      message,
-      imageUrl,
+      message: message,
+      imageUrl: imageUrl,
       selectedPlatforms: selected,
     };
     const next = [d, ...drafts];
@@ -167,6 +186,51 @@ export default function DashboardHomePage() {
     const next = drafts.filter((d) => d.id !== id);
     setDrafts(next);
     saveDrafts(next);
+  }
+
+  async function generateAiQuickBlast() {
+    setAiBusy(true);
+    setAiError(null);
+    setAiVariants([]);
+
+    try {
+      const subject = aiSubject.trim();
+      if (!subject) {
+        setAiError("Please type a subject first (e.g., 'coping with failure').");
+        return;
+      }
+
+      const res = await fetch("/api/ai/quick-blast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject,
+          tone: aiTone,
+          length: aiLength,
+          audience: "clients",
+          platforms: selected,
+        }),
+      });
+
+      const json: AiResponse = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setAiError((json as any)?.error || `AI request failed (${res.status})`);
+        return;
+      }
+
+      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
+      if (vars.length === 0) {
+        setAiError("AI returned no variants. Try Generate again.");
+        return;
+      }
+
+      setAiVariants(vars);
+    } catch (e: any) {
+      setAiError(e?.message || "AI generation failed");
+    } finally {
+      setAiBusy(false);
+    }
   }
 
   async function sendQuickBlast() {
@@ -202,53 +266,6 @@ export default function DashboardHomePage() {
     }
   }
 
-  async function generateAiVariants() {
-    setAiBusy(true);
-    setAiError(null);
-    setAiVariants([]);
-
-    try {
-      const res = await fetch("/api/ai/quick-blast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message,
-          platforms: selected.length ? selected : Array.from(connectedPlatforms),
-          tone: aiTone,
-          goal: aiGoal,
-          length: aiLength,
-          includeCta: aiIncludeCta,
-          includeHashtags: aiIncludeHashtags,
-          brandName: "Root Health",
-        }),
-      });
-
-      const json = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        setAiError(json?.error || `AI request failed (${res.status})`);
-        return;
-      }
-
-      const variants: AiVariant[] = Array.isArray(json?.variants) ? json.variants : [];
-      if (!variants.length) {
-        setAiError("No variants returned. Try again.");
-        return;
-      }
-
-      setAiVariants(variants);
-    } catch (e: any) {
-      setAiError(e?.message || "AI generate failed");
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  function useVariant(v: AiVariant) {
-    setMessage(v.text);
-    setAiOpen(false);
-  }
-
   useEffect(() => {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
@@ -260,8 +277,7 @@ export default function DashboardHomePage() {
     const defaults = socialAccounts
       .map((r) => r.platform)
       .filter((p) => connectedPlatforms.has(p));
-    if (defaults.length > 0)
-      setSelected(defaults);
+    if (defaults.length > 0) setSelected(defaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingAccounts, socialAccounts]);
 
@@ -275,6 +291,8 @@ export default function DashboardHomePage() {
     "email",
     "whatsapp",
   ];
+
+  const instagramSelected = selected.includes("instagram");
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
@@ -307,9 +325,7 @@ export default function DashboardHomePage() {
                   Refresh
                 </button>
               </div>
-              <div className="mt-2 text-slate-500">
-                Loaded from connections
-              </div>
+              <div className="mt-2 text-slate-500">Loaded from connections</div>
             </div>
           </div>
 
@@ -329,144 +345,106 @@ export default function DashboardHomePage() {
                 </div>
               </div>
 
-              {/* AI Assist */}
-              <div className="mt-5 rounded-3xl border border-slate-700 bg-slate-950 p-4">
-                <div className="flex items-center justify-between gap-3">
+              {/* AI Composer */}
+              <div className="mt-6 rounded-3xl border border-slate-700 bg-slate-950 p-4">
+                <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold">AI Assist</div>
-                    <div className="text-[11px] text-slate-400">
-                      Generate 3 variants you can click-to-use.
+                    <div className="text-sm font-semibold">AI helper</div>
+                    <div className="text-[11px] text-slate-400 mt-1">
+                      Type a subject + pick tone/length → Generate → Use (then edit if you want).
                     </div>
                   </div>
-
                   <button
                     type="button"
-                    onClick={() => setAiOpen((v) => !v)}
-                    className="rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 hover:border-slate-600"
+                    onClick={generateAiQuickBlast}
+                    disabled={aiBusy}
+                    className="rounded-2xl bg-blue-500 px-4 py-2 text-xs font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60"
                   >
-                    {aiOpen ? "Hide" : "Show"}
+                    {aiBusy ? "Generating…" : "Generate"}
                   </button>
                 </div>
 
-                {aiOpen && (
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Subject (what’s the post about?)
+                    </label>
+                    <input
+                      value={aiSubject}
+                      onChange={(e) => setAiSubject(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder='e.g. "coping with failure"'
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300">
+                        Tone
+                      </label>
+                      <select
+                        value={aiTone}
+                        onChange={(e) => setAiTone(e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      >
+                        <option value="calm">Calm</option>
+                        <option value="supportive">Supportive</option>
+                        <option value="direct">Direct</option>
+                        <option value="philosophical">Philosophical</option>
+                        <option value="story">Story-style</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300">
+                        Length
+                      </label>
+                      <select
+                        value={aiLength}
+                        onChange={(e) => setAiLength(e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      >
+                        <option value="short">Short</option>
+                        <option value="medium">Medium</option>
+                        <option value="long">Long</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {aiError && (
+                  <div className="mt-3 rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
+                    {aiError}
+                  </div>
+                )}
+
+                {aiVariants.length > 0 && (
                   <div className="mt-4 space-y-3">
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <div>
-                        <label className="block text-[11px] text-slate-400">Tone</label>
-                        <select
-                          value={aiTone}
-                          onChange={(e) => setAiTone(e.target.value)}
-                          className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs outline-none focus:border-emerald-500"
-                        >
-                          <option value="calm">Calm</option>
-                          <option value="warm">Warm</option>
-                          <option value="confident">Confident</option>
-                          <option value="professional">Professional</option>
-                          <option value="uplifting">Uplifting</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] text-slate-400">Goal</label>
-                        <select
-                          value={aiGoal}
-                          onChange={(e) => setAiGoal(e.target.value)}
-                          className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs outline-none focus:border-emerald-500"
-                        >
-                          <option value="awareness">Awareness</option>
-                          <option value="engagement">Engagement</option>
-                          <option value="lead">Lead / enquiry</option>
-                          <option value="education">Education</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] text-slate-400">Length</label>
-                        <select
-                          value={aiLength}
-                          onChange={(e) => setAiLength(e.target.value as any)}
-                          className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs outline-none focus:border-emerald-500"
-                        >
-                          <option value="short">Short</option>
-                          <option value="medium">Medium</option>
-                          <option value="long">Long</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-3 text-xs text-slate-300">
-                      <label className="inline-flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={aiIncludeCta}
-                          onChange={(e) => setAiIncludeCta(e.target.checked)}
-                        />
-                        Include CTA
-                      </label>
-                      <label className="inline-flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={aiIncludeHashtags}
-                          onChange={(e) => setAiIncludeHashtags(e.target.checked)}
-                        />
-                        Include hashtags
-                      </label>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={generateAiVariants}
-                        disabled={aiBusy || (selected.length === 0 && connectedPlatforms.size === 0)}
-                        className="rounded-2xl bg-blue-500 px-4 py-2 text-xs font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60"
+                    {aiVariants.map((v, idx) => (
+                      <div
+                        key={`${idx}-${v.title}`}
+                        className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4"
                       >
-                        {aiBusy ? "Generating…" : "Generate 3 variants"}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAiVariants([]);
-                          setAiError(null);
-                        }}
-                        className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs text-slate-200 hover:border-slate-600"
-                      >
-                        Clear
-                      </button>
-                    </div>
-
-                    {aiError && (
-                      <div className="rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-xs text-red-100">
-                        {aiError}
-                      </div>
-                    )}
-
-                    {aiVariants.length > 0 && (
-                      <div className="space-y-3">
-                        {aiVariants.map((v, i) => (
-                          <div
-                            key={i}
-                            className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="text-xs font-semibold text-slate-200">
-                                {v.title || `Variant ${i + 1}`}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => useVariant(v)}
-                                className="rounded-xl bg-emerald-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 hover:bg-emerald-400"
-                              >
-                                Use this
-                              </button>
-                            </div>
-                            <div className="mt-2 whitespace-pre-wrap text-sm text-slate-200">
-                              {v.text}
-                            </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="text-sm font-semibold">
+                            {v.title || `Variant ${idx + 1}`}
                           </div>
-                        ))}
+                          <button
+                            type="button"
+                            onClick={() => setMessage(joinVariant(v))}
+                            className="rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                          >
+                            Use this
+                          </button>
+                        </div>
+                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
+                          {joinVariant(v)}
+                        </div>
                       </div>
-                    )}
+                    ))}
+                    <div className="text-[11px] text-slate-500">
+                      Tip: Click “Use this”, tweak the wording, then hit “Send Quick Blast”.
+                    </div>
                   </div>
                 )}
               </div>
@@ -479,7 +457,7 @@ export default function DashboardHomePage() {
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    rows={4}
+                    rows={5}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                     placeholder="Write a quick update…"
                   />
@@ -496,8 +474,13 @@ export default function DashboardHomePage() {
                     placeholder="Paste a direct image URL (JPG/PNG)…"
                   />
                   <div className="mt-1 text-[11px] text-slate-500">
-                    Instagram requires an image URL right now (we’ll add upload + text-only later).
+                    (Instagram posting may require an image for some post types.)
                   </div>
+                  {instagramSelected && !imageUrl.trim() && (
+                    <div className="mt-2 text-[11px] text-amber-300">
+                      Instagram selected: if posting fails, add an image URL and try again.
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -564,7 +547,11 @@ export default function DashboardHomePage() {
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={sending || message.trim().length === 0 || selected.length === 0}
+                    disabled={
+                      sending ||
+                      message.trim().length === 0 ||
+                      selected.length === 0
+                    }
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {sending ? "Sending…" : "Send Quick Blast"}
@@ -591,7 +578,10 @@ export default function DashboardHomePage() {
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-sm">
                     {result.success ? (
                       <div className="text-emerald-200">
-                        Sent. {result.summary ? `OK: ${result.summary.ok}, Failed: ${result.summary.failed}` : ""}
+                        Sent.{" "}
+                        {result.summary
+                          ? `OK: ${result.summary.ok}, Failed: ${result.summary.failed}`
+                          : ""}
                       </div>
                     ) : (
                       <div className="text-red-200">
@@ -612,10 +602,13 @@ export default function DashboardHomePage() {
 
                 {adminOpen && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
-                    <div className="text-slate-400 mb-2">Safe technical details (redacted).</div>
+                    <div className="text-slate-400 mb-2">
+                      Safe technical details (redacted).
+                    </div>
                     <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
                     <div className="mt-1">
-                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
+                      Connected platforms:{" "}
+                      {Array.from(connectedPlatforms).join(", ") || "(none)"}
                     </div>
                   </div>
                 )}
@@ -677,7 +670,7 @@ export default function DashboardHomePage() {
           </div>
 
           <div className="mt-8 text-xs text-slate-500">
-            No response yet — send a Quick Blast to see details here.
+            Tip: Generate with AI → Use a variant → tweak → post.
           </div>
         </div>
       </div>
