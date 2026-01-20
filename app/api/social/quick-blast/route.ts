@@ -18,12 +18,12 @@ type SocialAccountRow = {
   id: string;
   organisation_id: string;
   platform: ProviderId;
-  page_id: string | null; // FB: page_id, IG: ig_user_id
+  page_id: string | null; // FB: page id, IG: ig user id, LI: author urn (urn:li:person:...)
   page_name: string | null;
   connection_type: string | null;
   make_webhook_url: string | null;
   is_active: boolean | null;
-  page_access_token: string | null; // FB page token, IG token (needs insta scopes)
+  page_access_token: string | null; // FB Page token, IG token (same FB page token), LI access token
   token_expires_at: string | null;
 };
 
@@ -71,24 +71,27 @@ async function loadSocialAccount(
   return (data as any) ?? null;
 }
 
-function isHttps(url: string) {
-  return /^https:\/\/.+/i.test((url || "").trim());
+function isExpired(tokenExpiresAt: string | null) {
+  if (!tokenExpiresAt) return false;
+  const t = Date.parse(tokenExpiresAt);
+  if (!Number.isFinite(t)) return false;
+  return Date.now() > t - 60_000; // treat as expired if within 60s of expiry
 }
 
 function isLikelyImageUrl(url: string) {
   const u = (url || "").trim();
   if (!u) return false;
-  if (!isHttps(u)) return false; // FB/IG should fetch https
+  if (!/^https:\/\/.+/i.test(u)) return false;
   return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
 }
 
-async function fbPost(args: {
+async function postToFacebook(args: {
   pageId: string;
   pageAccessToken: string;
   message: string;
   imageUrl?: string;
 }) {
-  // If imageUrl is present, publish a photo post:
+  // Photo post if imageUrl provided
   if (args.imageUrl && args.imageUrl.trim()) {
     const imageUrl = args.imageUrl.trim();
 
@@ -126,7 +129,7 @@ async function fbPost(args: {
     return { ok: res.ok, status: res.status, json, mode: "photo" as const };
   }
 
-  // Otherwise do a text post:
+  // Text post
   const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
     args.pageId
   )}/feed`;
@@ -146,17 +149,18 @@ async function fbPost(args: {
   return { ok: res.ok, status: res.status, json, mode: "text" as const };
 }
 
-async function sleep(ms: number) {
-  await new Promise((r) => setTimeout(r, ms));
-}
-
-async function igCreateMedia(args: {
+/**
+ * Instagram Content Publishing:
+ * - Create media container (image_url + caption)
+ * - Poll container status
+ * - Publish container
+ */
+async function createIgMediaContainer(args: {
   igUserId: string;
   accessToken: string;
-  caption: string;
   imageUrl: string;
+  caption: string;
 }) {
-  // POST /{ig-user-id}/media?image_url=...&caption=...
   const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
     args.igUserId
   )}/media`;
@@ -177,16 +181,14 @@ async function igCreateMedia(args: {
   return { ok: res.ok, status: res.status, json };
 }
 
-async function igGetContainerStatus(args: {
+async function getIgContainerStatus(args: {
   creationId: string;
   accessToken: string;
 }) {
-  // GET /{creation-id}?fields=status_code
   const url =
-    `https://graph.facebook.com/v24.0/${encodeURIComponent(args.creationId)}` +
-    "?" +
+    `https://graph.facebook.com/v24.0/${encodeURIComponent(args.creationId)}?` +
     new URLSearchParams({
-      fields: "status_code",
+      fields: "status_code,status",
       access_token: args.accessToken,
     }).toString();
 
@@ -195,8 +197,11 @@ async function igGetContainerStatus(args: {
   return { ok: res.ok, status: res.status, json };
 }
 
-async function igPublish(args: { igUserId: string; accessToken: string; creationId: string }) {
-  // POST /{ig-user-id}/media_publish?creation_id=...
+async function publishIgMedia(args: {
+  igUserId: string;
+  accessToken: string;
+  creationId: string;
+}) {
   const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
     args.igUserId
   )}/media_publish`;
@@ -222,101 +227,163 @@ async function postToInstagram(args: {
   caption: string;
   imageUrl: string;
 }) {
+  if (!args.imageUrl || !args.imageUrl.trim()) {
+    return {
+      ok: false,
+      status: 400,
+      json: {
+        error: {
+          message:
+            "Instagram posting currently requires an imageUrl. Add an image and try again (we’ll add text-only later).",
+        },
+      },
+      stage: "input" as const,
+    };
+  }
+
   if (!isLikelyImageUrl(args.imageUrl)) {
     return {
       ok: false,
-      stage: "validation",
       status: 400,
-      error:
-        "Instagram imageUrl must be a direct https image link (ending .jpg/.png etc).",
-      details: null,
+      json: {
+        error: {
+          message:
+            "Instagram imageUrl must be a direct https image link (ending .jpg/.png etc).",
+        },
+      },
+      stage: "input" as const,
     };
   }
 
-  // 1) Create media container
-  const create = await igCreateMedia({
+  // 1) create container
+  const created = await createIgMediaContainer({
     igUserId: args.igUserId,
     accessToken: args.accessToken,
-    caption: args.caption,
     imageUrl: args.imageUrl,
+    caption: args.caption,
   });
 
-  if (!create.ok || !create.json?.id) {
+  if (!created.ok || !created.json?.id) {
     return {
       ok: false,
-      stage: "media_create",
-      status: create.status,
-      error: create.json?.error?.message || "Instagram media create failed",
-      details: create.json,
+      status: created.status,
+      json: created.json,
+      stage: "media_create" as const,
     };
   }
 
-  const creationId = String(create.json.id);
+  const creationId = String(created.json.id);
 
-  // 2) Poll until container is FINISHED (Meta can take a few seconds)
-  let statusCode = "UNKNOWN";
-  const maxAttempts = 12; // ~24s total at 2s intervals
-  for (let i = 0; i < maxAttempts; i++) {
-    await sleep(2000);
-
-    const st = await igGetContainerStatus({
+  // 2) poll until FINISHED (avoid “Media ID not available”)
+  let containerStatus = "UNKNOWN";
+  for (let i = 0; i < 10; i++) {
+    const st = await getIgContainerStatus({
       creationId,
       accessToken: args.accessToken,
     });
 
-    if (!st.ok) {
-      // If status check fails, keep going a bit then report
-      statusCode = "STATUS_CHECK_FAILED";
-      continue;
+    containerStatus =
+      st.json?.status_code || st.json?.status || containerStatus;
+
+    if (
+      containerStatus === "FINISHED" ||
+      containerStatus === "READY" ||
+      containerStatus === "PUBLISHED"
+    ) {
+      break;
     }
 
-    statusCode = String(st.json?.status_code || "UNKNOWN");
-
-    if (statusCode === "FINISHED") break;
-    if (statusCode === "ERROR") {
+    if (containerStatus === "ERROR" || containerStatus === "FAILED") {
       return {
         ok: false,
-        stage: "container_status",
         status: 400,
-        error: "Instagram container status ERROR",
-        details: st.json,
+        json: st.json,
+        stage: "container_status" as const,
       };
     }
+
+    // wait a bit
+    await new Promise((r) => setTimeout(r, 1200));
   }
 
-  if (statusCode !== "FINISHED") {
-    return {
-      ok: false,
-      stage: "container_wait",
-      status: 400,
-      error:
-        "Instagram media is not ready to publish yet. Try again in a moment.",
-      details: { creationId, containerStatus: statusCode },
-    };
-  }
-
-  // 3) Publish
-  const pub = await igPublish({
+  // 3) publish
+  const pub = await publishIgMedia({
     igUserId: args.igUserId,
     accessToken: args.accessToken,
     creationId,
   });
 
-  if (!pub.ok || !pub.json?.id) {
+  if (!pub.ok) {
     return {
       ok: false,
-      stage: "media_publish",
       status: pub.status,
-      error: pub.json?.error?.message || "Instagram publish failed",
-      details: pub.json,
+      json: pub.json,
+      stage: "media_publish" as const,
+      creationId,
+      containerStatus,
     };
   }
 
   return {
     ok: true,
+    status: 200,
+    json: pub.json,
     creationId,
-    postedId: String(pub.json.id),
-    containerStatus: statusCode,
+    containerStatus,
+  };
+}
+
+/**
+ * LinkedIn text post (Member share) via ugcPosts.
+ * We store author as page_id (urn:li:person:...) and token in page_access_token.
+ */
+async function postToLinkedIn(args: {
+  authorUrn: string;
+  accessToken: string;
+  message: string;
+}) {
+  const url = "https://api.linkedin.com/v2/ugcPosts";
+
+  const payload = {
+    author: args.authorUrn,
+    lifecycleState: "PUBLISHED",
+    specificContent: {
+      "com.linkedin.ugc.ShareContent": {
+        shareCommentary: {
+          text: args.message,
+        },
+        shareMediaCategory: "NONE",
+      },
+    },
+    visibility: {
+      "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+    },
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${args.accessToken}`,
+      "Content-Type": "application/json",
+      "X-Restli-Protocol-Version": "2.0.0",
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+
+  const json: any = await res.json().catch(() => null);
+
+  // Some LinkedIn responses put the created ID in headers, some in body.
+  const headerId =
+    res.headers.get("x-restli-id") ||
+    res.headers.get("x-linkedin-id") ||
+    res.headers.get("location");
+
+  return {
+    ok: res.ok,
+    status: res.status,
+    json,
+    postedId: json?.id || headerId || null,
   };
 }
 
@@ -357,8 +424,7 @@ export async function POST(req: NextRequest) {
     const results: any[] = [];
 
     for (const p of platforms) {
-      // Only FB + IG are implemented right now
-      if (p !== "facebook" && p !== "instagram") {
+      if (p !== "facebook" && p !== "instagram" && p !== "linkedin") {
         results.push({
           platform: p,
           ok: false,
@@ -368,6 +434,9 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      // -------------------------
+      // Facebook
+      // -------------------------
       if (p === "facebook") {
         const row = await loadSocialAccount(organisationId, "facebook");
 
@@ -391,7 +460,7 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        const fb = await fbPost({
+        const fb = await postToFacebook({
           pageId: row.page_id,
           pageAccessToken: row.page_access_token,
           message,
@@ -402,7 +471,6 @@ export async function POST(req: NextRequest) {
           results.push({
             platform: "facebook",
             ok: false,
-            stage: "post",
             status: fb.status,
             error: fb.json?.error?.message || "Facebook post failed",
             details: fb.json,
@@ -420,7 +488,9 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      // -------------------------
       // Instagram
+      // -------------------------
       if (p === "instagram") {
         const row = await loadSocialAccount(organisationId, "instagram");
 
@@ -429,28 +499,17 @@ export async function POST(req: NextRequest) {
             platform: "instagram",
             ok: false,
             error:
-              "Instagram not connected (missing IG user id). Go to Connect and connect Instagram.",
+              "Instagram not connected (missing page_id). Go to Connect and connect Instagram.",
           });
           continue;
         }
 
-        if (!row?.page_access_token || !row.page_access_token.trim()) {
+        if (!row?.page_access_token) {
           results.push({
             platform: "instagram",
             ok: false,
             error:
-              "Instagram connected but missing page_access_token. Reconnect Instagram and pick the account again.",
-          });
-          continue;
-        }
-
-        // For now, IG requires an image (you already saw this)
-        if (!imageUrl) {
-          results.push({
-            platform: "instagram",
-            ok: false,
-            error:
-              "Instagram posting currently requires an imageUrl. Add an image and try again (we’ll add text-only later).",
+              "Instagram connected but missing page_access_token. Reconnect Instagram (or Facebook) and try again.",
           });
           continue;
         }
@@ -459,17 +518,17 @@ export async function POST(req: NextRequest) {
           igUserId: row.page_id,
           accessToken: row.page_access_token,
           caption: message,
-          imageUrl,
+          imageUrl: imageUrl,
         });
 
         if (!ig.ok) {
           results.push({
             platform: "instagram",
             ok: false,
-            stage: ig.stage,
-            status: ig.status,
-            error: ig.error,
-            details: ig.details,
+            stage: (ig as any).stage || "instagram",
+            status: (ig as any).status || 400,
+            error: ig.json?.error?.message || "Instagram post failed",
+            details: ig.json,
           });
           continue;
         }
@@ -477,26 +536,90 @@ export async function POST(req: NextRequest) {
         results.push({
           platform: "instagram",
           ok: true,
-          creationId: ig.creationId,
-          postedId: ig.postedId,
-          containerStatus: ig.containerStatus,
+          creationId: (ig as any).creationId || null,
+          postedId: ig.json?.id || null,
+          containerStatus: (ig as any).containerStatus || null,
         });
+
+        continue;
+      }
+
+      // -------------------------
+      // LinkedIn
+      // -------------------------
+      if (p === "linkedin") {
+        const row = await loadSocialAccount(organisationId, "linkedin");
+
+        if (!row?.page_id) {
+          results.push({
+            platform: "linkedin",
+            ok: false,
+            error:
+              "LinkedIn not connected (missing author URN). Go to Connect and connect LinkedIn.",
+          });
+          continue;
+        }
+
+        if (!row?.page_access_token) {
+          results.push({
+            platform: "linkedin",
+            ok: false,
+            error:
+              "LinkedIn connected but missing access token. Reconnect LinkedIn and try again.",
+          });
+          continue;
+        }
+
+        if (isExpired(row.token_expires_at)) {
+          results.push({
+            platform: "linkedin",
+            ok: false,
+            error: "LinkedIn token expired. Please reconnect LinkedIn.",
+          });
+          continue;
+        }
+
+        const li = await postToLinkedIn({
+          authorUrn: row.page_id,
+          accessToken: row.page_access_token,
+          message, // text-only for now
+        });
+
+        if (!li.ok) {
+          results.push({
+            platform: "linkedin",
+            ok: false,
+            status: li.status,
+            error: li.json?.message || li.json?.error_description || "LinkedIn post failed",
+            details: li.json,
+          });
+          continue;
+        }
+
+        results.push({
+          platform: "linkedin",
+          ok: true,
+          postedId: li.postedId,
+          mode: imageUrl ? "text_with_image_ignored" : "text",
+        });
+
+        continue;
       }
     }
 
     const okCount = results.filter((r) => r.ok).length;
-    const failedCount = results.filter((r) => !r.ok && !r.skipped).length;
+    const failCount = results.filter((r) => !r.ok && !r.skipped).length;
     const skippedCount = results.filter((r) => r.skipped).length;
 
     return NextResponse.json(
       {
-        success: failedCount === 0,
+        success: okCount > 0 && failCount === 0,
         organisationId,
         results,
         summary: {
           attempted: results.length,
           ok: okCount,
-          failed: failedCount,
+          failed: failCount,
           skipped: skippedCount,
         },
       },
