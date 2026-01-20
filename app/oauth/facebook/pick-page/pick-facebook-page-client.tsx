@@ -1,3 +1,4 @@
+// app/oauth/facebook/pick-page/pick-facebook-page-client.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -12,11 +13,10 @@ export default function PickFacebookPageClient({
   token,
   state,
 }: {
-  token: string;
+  token?: string;
   state?: string;
 }) {
   const resolvedToken = useMemo(() => {
-    // Prefer prop; fallback to URL query (some deployments strip props)
     if (token && token.trim()) return token.trim();
     try {
       const u = new URL(window.location.href);
@@ -62,9 +62,7 @@ export default function PickFacebookPageClient({
 
     try {
       if (!resolvedToken) {
-        setError(
-          "Missing token. Please go back and click Connect Facebook again."
-        );
+        setError("Missing token. Please go back and click Connect Facebook again.");
         setPages([]);
         return;
       }
@@ -119,16 +117,14 @@ export default function PickFacebookPageClient({
         return;
       }
 
-      // ✅ This is the critical fix:
-      // Store the PAGE access token so Quick Blast can post.
-      const pageAccessToken = (page.access_token || "").trim();
-      if (!pageAccessToken) {
+      if (!page.access_token) {
         setError(
-          "Facebook did not return a Page access token. Try Connect again and ensure you approve Page access."
+          "Facebook did not return a Page access token for this Page. Reconnect and approve permissions again."
         );
         return;
       }
 
+      // ✅ Save into DB INCLUDING the Page access token
       const res = await fetch("/api/social-accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -136,11 +132,10 @@ export default function PickFacebookPageClient({
           platform: "facebook",
           pageId: page.id,
           pageName: page.name,
+          pageAccessToken: page.access_token,
           connectionType: "facebook_oauth",
           makeWebhookUrl: null,
           isActive: true,
-          pageAccessToken, // ✅ NEW: stored in DB
-          tokenExpiresAt: null,
         }),
       });
 
