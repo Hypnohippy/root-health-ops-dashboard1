@@ -3,10 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-export async function GET(req: NextRequest) {
-  const provider = req.nextUrl.searchParams.get("provider") || "facebook";
+type ProviderId = "facebook" | "instagram";
 
-  if (provider !== "facebook") {
+function safeBaseUrl(appUrl: string) {
+  return (appUrl || "").replace(/\/$/, "");
+}
+
+export async function GET(req: NextRequest) {
+  const provider = (req.nextUrl.searchParams.get("provider") || "facebook") as ProviderId;
+
+  if (provider !== "facebook" && provider !== "instagram") {
     return NextResponse.json(
       { error: `Unsupported provider: ${provider}` },
       { status: 400 }
@@ -29,34 +35,51 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const base = appUrl.replace(/\/$/, "");
+  // ✅ Canonical callback
+  // Add THIS EXACT URL to Meta → Facebook Login → Valid OAuth Redirect URIs
+  const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/facebook/callback`;
 
-  // ✅ Canonical callback (single place)
-  const redirectUri = `${base}/api/oauth/facebook/callback`;
+  // State payload (we use provider later)
+  const stateObj = {
+    provider,
+    nonce: crypto.randomUUID(),
+    t: Date.now(),
+  };
+  const state = Buffer.from(JSON.stringify(stateObj)).toString("base64url");
 
-  const state = crypto.randomUUID();
+  // ✅ Scopes
+  // business_management is the KEY that makes pages show up reliably for Business Portfolio / New Pages.
+  const baseScopes = [
+    "public_profile",
+    "pages_show_list",
+    "pages_read_engagement",
+    "pages_manage_posts",
+    "business_management",
+  ];
 
-  // ✅ Force Meta to re-prompt for the Page-related permissions
-  // ✅ return_scopes helps us verify what Meta granted
+  // Instagram uses the SAME Meta login; we’ll pick FB Page then detect IG business acct.
+  const instagramScopes = [
+    ...baseScopes,
+    "instagram_basic",
+    "instagram_content_publish",
+  ];
+
+  const scopes = provider === "instagram" ? instagramScopes : baseScopes;
+
   const authUrl =
     "https://www.facebook.com/v24.0/dialog/oauth" +
     `?client_id=${encodeURIComponent(appId)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&state=${encodeURIComponent(state)}` +
     `&response_type=code` +
+    // ✅ These two make Facebook re-offer missing scopes when it “remembers” you:
     `&auth_type=rerequest` +
     `&return_scopes=true` +
-    `&scope=${encodeURIComponent(
-      [
-        "public_profile",
-        "pages_show_list",
-        "pages_read_engagement",
-        "pages_manage_posts",
-      ].join(",")
-    )}`;
+    `&scope=${encodeURIComponent(scopes.join(","))}`;
 
   const res = NextResponse.redirect(authUrl, { status: 302 });
 
+  // Store state in short-lived cookie (CSRF + sanity)
   res.cookies.set("fb_oauth_state", state, {
     httpOnly: true,
     secure: true,
