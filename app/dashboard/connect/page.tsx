@@ -47,8 +47,7 @@ const initialProviders: Provider[] = [
     id: "linkedin",
     name: "LinkedIn",
     label: "LinkedIn",
-    description: "Direct posting to your profile (no third party tools).",
-    hint: "Login to LinkedIn and approve posting permission.",
+    description: "Professional presence and referral partner content.",
     status: "disconnected",
   },
   {
@@ -91,9 +90,11 @@ const initialProviders: Provider[] = [
 const connectUrls: Record<ProviderId, string> = {
   facebook: "/api/social/connect/start?provider=facebook",
   instagram: "/api/social/connect/start?provider=instagram",
-  linkedin: "/api/social/connect/start?provider=linkedin",
 
-  // Coming next:
+  // ✅ LinkedIn OAuth
+  linkedin: "/api/oauth/linkedin/start",
+
+  // Coming soon / placeholders
   threads: "#",
   tiktok: "#",
   google: "#",
@@ -271,7 +272,7 @@ export default function DashboardConnectPage() {
         </section>
 
         <footer className="mt-8 text-xs text-slate-400">
-          Tip: Always click Connect from this page. Don’t bookmark OAuth pick pages — they’re token-driven.
+          Tip: Always click Connect from this page. Don’t bookmark the pick-page URLs — they require a token.
         </footer>
       </div>
     </div>
