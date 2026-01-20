@@ -1,160 +1,174 @@
 // app/api/ai/quick-blast/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
 
 export const runtime = "nodejs";
 
-type ProviderId =
-  | "facebook"
-  | "instagram"
-  | "tiktok"
-  | "linkedin"
-  | "google"
-  | "email"
-  | "whatsapp"
-  | "threads";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 
-function safeJsonParse<T>(raw: string): T | null {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
+const PROVIDERS = [
+  "facebook",
+  "instagram",
+  "linkedin",
+  "threads",
+  "tiktok",
+  "google",
+  "email",
+  "whatsapp",
+] as const;
+
+type ProviderId = (typeof PROVIDERS)[number];
+
+function asProviderList(input: any): ProviderId[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((x) => String(x || "").toLowerCase().trim())
+    .filter((x) => PROVIDERS.includes(x as ProviderId)) as ProviderId[];
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
-        {
-          error:
-            "Missing OPENAI_API_KEY in environment variables (Vercel → Project → Settings → Environment Variables).",
-        },
+        { error: "Missing OPENAI_API_KEY in Vercel env." },
         { status: 500 }
       );
     }
 
     const body = await req.json().catch(() => ({}));
 
-    const message = String(body?.message ?? "").trim();
-    const platforms: ProviderId[] = Array.isArray(body?.platforms)
-      ? body.platforms
-          .map((p: any) => String(p || "").toLowerCase().trim())
-          .filter(Boolean)
-      : [];
-
+    const subject = String(body?.subject ?? "").trim();
     const tone = String(body?.tone ?? "calm").trim();
-    const goal = String(body?.goal ?? "awareness").trim();
     const length = String(body?.length ?? "short").trim(); // short | medium | long
-    const includeCta = Boolean(body?.includeCta ?? true);
-    const includeHashtags = Boolean(body?.includeHashtags ?? true);
+    const audience = String(body?.audience ?? "clients").trim();
+    const platforms = asProviderList(body?.platforms);
 
-    // Optional: if you want a consistent brand voice without wiring more tables yet
-    const brandName = String(body?.brandName ?? "Root Health").trim();
-
-    if (!platforms.length) {
+    if (!subject) {
       return NextResponse.json(
-        { error: "No platforms provided (platforms[] is required)." },
+        { error: "subject is required" },
         { status: 400 }
       );
     }
 
-    // We can generate even if message is empty (e.g. user wants AI to draft from scratch)
-    const platformHints = platforms.includes("instagram")
-      ? "Instagram note: keep line breaks, include a short hook line, and avoid links in the main body."
-      : "";
+    const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-    const lengthRules =
-      length === "short"
-        ? "Aim for 50–120 characters."
+    // Keep outputs safe + therapist-friendly by default
+    const system = [
+      "You write concise, warm, premium social posts for a mental health brand called Root Health.",
+      "The tone must be supportive, human, non-salesy, non-medical (no diagnosis or treatment claims).",
+      "Avoid absolute promises. Avoid crisis advice. Encourage gentle self-compassion.",
+      "Use UK spelling.",
+      "Return ONLY valid JSON that matches the provided schema.",
+    ].join(" ");
+
+    const platformHint =
+      platforms.length > 0
+        ? `Target platforms: ${platforms.join(", ")}.`
+        : "Target platforms: facebook and instagram.";
+
+    const lengthHint =
+      length === "long"
+        ? "Aim 220–420 words."
         : length === "medium"
-          ? "Aim for 120–240 characters."
-          : "Aim for 240–450 characters.";
+          ? "Aim 120–220 words."
+          : "Aim 60–120 words.";
 
-    // We ask for STRICT JSON so the UI can present 3 variants cleanly.
-    const prompt = `
-You are a copywriter for a therapist-friendly marketing platform called ${brandName} Ops.
-Write 3 quick-blast post variants for: ${platforms.join(", ")}.
+    const prompt = [
+      `Subject: ${subject}`,
+      `Audience: ${audience}`,
+      `Tone: ${tone}`,
+      platformHint,
+      lengthHint,
+      "",
+      "Generate 3 distinct variants:",
+      "- Variant 1: reflective / philosophical",
+      "- Variant 2: practical / grounded (simple steps)",
+      "- Variant 3: story-style (short personal tone, but not oversharing)",
+      "",
+      "Each variant must include:",
+      "- a strong first line hook",
+      "- the main post text",
+      "- a gentle CTA question at the end",
+      "- 0–6 relevant hashtags (no spam, no cringe)",
+    ].join("\n");
 
-Tone: ${tone}
-Goal: ${goal}
-${lengthRules}
-${includeCta ? "Include a gentle CTA." : "No CTA."}
-${includeHashtags ? "Include 3–8 relevant hashtags." : "No hashtags."}
-${platformHints}
-
-If the user provided a draft, improve it. If it's empty, create from scratch.
-User draft:
-"""${message}"""
-
-Return ONLY valid JSON with this exact shape:
-{
-  "variants": [
-    { "title": "Variant 1 short label", "text": "..." },
-    { "title": "Variant 2 short label", "text": "..." },
-    { "title": "Variant 3 short label", "text": "..." }
-  ]
-}
-`.trim();
-
-    const res = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
+    const schema = {
+      name: "root_health_quick_blast",
+      strict: true,
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["variants"],
+        properties: {
+          variants: {
+            type: "array",
+            minItems: 3,
+            maxItems: 3,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["title", "text", "hashtags", "cta"],
+              properties: {
+                title: { type: "string" },
+                text: { type: "string" },
+                cta: { type: "string" },
+                hashtags: {
+                  type: "array",
+                  items: { type: "string" },
+                  minItems: 0,
+                  maxItems: 6,
+                },
+              },
+            },
+          },
+        },
       },
-      body: JSON.stringify({
-        model: "gpt-5",
-        reasoning: { effort: "low" },
-        input: prompt,
-      }),
+    } as const;
+
+    const resp = await client.responses.create({
+      model: "gpt-4o-mini",
+      input: [
+        { role: "system", content: system },
+        { role: "user", content: prompt },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          ...schema,
+        },
+      },
     });
 
-    const json = await res.json().catch(() => null);
+    const raw = resp.output_text || "";
+    let json: any = null;
 
-    if (!res.ok) {
+    try {
+      json = JSON.parse(raw);
+    } catch {
       return NextResponse.json(
         {
-          error: "OpenAI request failed",
-          status: res.status,
-          details: json,
+          error: "AI output was not valid JSON (unexpected).",
+          raw: raw.slice(0, 2000),
         },
         { status: 500 }
       );
     }
-
-    const outputText = String(json?.output_text ?? "").trim();
-    const parsed = safeJsonParse<{ variants: { title: string; text: string }[] }>(
-      outputText
-    );
-
-    if (!parsed?.variants || !Array.isArray(parsed.variants)) {
-      return NextResponse.json(
-        {
-          error:
-            "AI output was not valid JSON. (This is rare; click Generate again.)",
-          raw: outputText.slice(0, 2000),
-        },
-        { status: 500 }
-      );
-    }
-
-    // Basic cleanup
-    const variants = parsed.variants
-      .slice(0, 3)
-      .map((v, idx) => ({
-        title: String(v?.title ?? `Variant ${idx + 1}`).slice(0, 60),
-        text: String(v?.text ?? "").trim(),
-      }))
-      .filter((v) => v.text.length > 0);
 
     return NextResponse.json(
-      { variants },
+      {
+        success: true,
+        subject,
+        tone,
+        length,
+        platforms,
+        ...json,
+      },
       { status: 200 }
     );
   } catch (e: any) {
+    console.error("[ai/quick-blast] error", e);
     return NextResponse.json(
-      { error: e?.message || "Unexpected error" },
+      { error: e?.message || "AI generator failed" },
       { status: 500 }
     );
   }
