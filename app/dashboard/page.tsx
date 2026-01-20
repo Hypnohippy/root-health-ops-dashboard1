@@ -260,7 +260,7 @@ export default function DashboardHomePage() {
     const defaults = socialAccounts
       .map((r) => r.platform)
       .filter((p) => connectedPlatforms.has(p));
-    if (defaults.length > 0)s
+    if (defaults.length > 0)
       setSelected(defaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingAccounts, socialAccounts]);
