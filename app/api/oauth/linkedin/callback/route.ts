@@ -1,171 +1,208 @@
-import { NextResponse } from "next/server";
+// app/api/oauth/linkedin/callback/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-function decodeState(state: string | null): { organisationId: string } | null {
-  if (!state) return null;
+export const runtime = "nodejs";
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
+const LINKEDIN_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID || "";
+const LINKEDIN_CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET || "";
+
+function baseUrl(req: NextRequest) {
   try {
-    const json = Buffer.from(state, "base64url").toString("utf8");
-    const parsed = JSON.parse(json);
-    if (typeof parsed?.organisationId !== "string" || !parsed.organisationId) return null;
-    return { organisationId: parsed.organisationId };
+    return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
   } catch {
-    return null;
+    return APP_URL ? APP_URL.replace(/\/$/, "") : "";
   }
 }
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const error = url.searchParams.get("error");
-  const errorDescription = url.searchParams.get("error_description");
-
-  const clientId = process.env.LINKEDIN_CLIENT_ID;
-  const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-
-  if (!clientId || !clientSecret || !appUrl) {
-    return NextResponse.json(
-      { error: "Missing LINKEDIN_CLIENT_ID / LINKEDIN_CLIENT_SECRET / NEXT_PUBLIC_APP_URL" },
-      { status: 500 }
-    );
-  }
+async function getSingleTenantOrganisationId() {
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
 
   if (error) {
-    return NextResponse.json(
-      { error, errorDescription },
-      { status: 400 }
-    );
+    console.error("[linkedin-callback] organisations error", error);
+    return null;
   }
+  if (!data || data.length === 0) return null;
+  return data[0].id as string;
+}
 
-  if (!code) {
-    return NextResponse.json({ error: "Missing code" }, { status: 400 });
-  }
+async function upsertLinkedInAccount(args: {
+  organisationId: string;
+  memberId: string;
+  displayName: string;
+  accessToken: string;
+  expiresAtISO: string | null;
+}) {
+  const { organisationId, memberId, displayName, accessToken, expiresAtISO } = args;
 
-  const decoded = decodeState(state);
-  if (!decoded) {
-    return NextResponse.json({ error: "Invalid state" }, { status: 400 });
-  }
-
-  const redirectUri = `${appUrl.replace(/\/$/, "")}/api/oauth/linkedin/callback`;
-
-  // Exchange code → access token
-  const tokenRes = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: redirectUri,
-      client_id: clientId,
-      client_secret: clientSecret,
-    }).toString(),
-  });
-
-  const tokenJson: any = await tokenRes.json().catch(() => null);
-
-  if (!tokenRes.ok || !tokenJson?.access_token) {
-    return NextResponse.json(
-      { error: "LinkedIn token exchange failed", details: tokenJson },
-      { status: 400 }
-    );
-  }
-
-  const accessToken: string = tokenJson.access_token;
-  const expiresIn: number | null =
-    typeof tokenJson.expires_in === "number" ? tokenJson.expires_in : null;
-
-  const expiresAt =
-    expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
-
-  // Fetch basic profile for display name (OIDC userinfo)
-  let pageName = "LinkedIn Account";
-  let pageId = "linkedin_me";
-
-  try {
-    const meRes = await fetch("https://api.linkedin.com/v2/userinfo", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const me: any = await meRes.json().catch(() => null);
-    if (meRes.ok && me) {
-      pageName = me?.name || me?.given_name || pageName;
-      pageId = me?.sub || pageId;
-    }
-  } catch {
-    // ignore
-  }
-
-  // Upsert social_accounts row
+  // Check if exists
   const { data: existing, error: findErr } = await supabaseAdmin
     .from("social_accounts")
     .select("id")
-    .eq("organisation_id", decoded.organisationId)
+    .eq("organisation_id", organisationId)
     .eq("platform", "linkedin")
-    .limit(1);
+    .limit(1)
+    .maybeSingle();
 
   if (findErr) {
-    return NextResponse.json({ error: "DB lookup failed", details: findErr }, { status: 500 });
+    console.error("[linkedin-callback] existing lookup error", findErr);
   }
 
-  let socialAccountId: string;
-
-  if (existing && existing.length > 0) {
-    socialAccountId = existing[0].id;
-
-    const { error: upErr } = await supabaseAdmin
+  if (existing?.id) {
+    const { error: updErr } = await supabaseAdmin
       .from("social_accounts")
       .update({
-        page_id: pageId,
-        page_name: pageName,
-        connection_type: "oauth",
-        make_webhook_url: null,
+        page_id: memberId,
+        page_name: displayName,
+        connection_type: "linkedin_oauth",
         is_active: true,
+        page_access_token: accessToken,
+        token_expires_at: expiresAtISO,
       })
-      .eq("id", socialAccountId);
+      .eq("id", existing.id);
 
-    if (upErr) {
-      return NextResponse.json({ error: "Failed updating social account", details: upErr }, { status: 500 });
+    if (updErr) {
+      console.error("[linkedin-callback] update error", updErr);
+      throw new Error("Failed to update LinkedIn social account");
     }
-  } else {
-    socialAccountId = crypto.randomUUID();
-
-    const { error: insErr } = await supabaseAdmin
-      .from("social_accounts")
-      .insert({
-        id: socialAccountId,
-        organisation_id: decoded.organisationId,
-        platform: "linkedin",
-        page_id: pageId,
-        page_name: pageName,
-        connection_type: "oauth",
-        make_webhook_url: null,
-        is_active: true,
-      });
-
-    if (insErr) {
-      return NextResponse.json({ error: "Failed creating social account", details: insErr }, { status: 500 });
-    }
+    return;
   }
 
-  // Store token in social_account_tokens
-  const { error: tokErr } = await supabaseAdmin
-    .from("social_account_tokens")
-    .upsert(
-      {
-        social_account_id: socialAccountId,
-        access_token: accessToken,
-        refresh_token: tokenJson?.refresh_token ?? null,
-        expires_at: expiresAt,
-        scope: tokenJson?.scope ?? null,
+  // Insert
+  const { error: insErr } = await supabaseAdmin.from("social_accounts").insert({
+    organisation_id: organisationId,
+    platform: "linkedin",
+    page_id: memberId || "pending_member_id",
+    page_name: displayName,
+    connection_type: "linkedin_oauth",
+    is_active: true,
+    page_access_token: accessToken,
+    token_expires_at: expiresAtISO,
+  });
+
+  if (insErr) {
+    console.error("[linkedin-callback] insert error", insErr);
+    throw new Error("Failed to create LinkedIn social account");
+  }
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    if (!LINKEDIN_CLIENT_ID || !LINKEDIN_CLIENT_SECRET) {
+      return NextResponse.json(
+        { error: "Missing LINKEDIN_CLIENT_ID or LINKEDIN_CLIENT_SECRET" },
+        { status: 500 }
+      );
+    }
+
+    const code = req.nextUrl.searchParams.get("code") || "";
+    const state = req.nextUrl.searchParams.get("state") || "";
+
+    if (!code) {
+      return NextResponse.json({ error: "Missing code" }, { status: 400 });
+    }
+
+    // Minimal CSRF check (cookie must match state)
+    const cookieState = req.cookies.get("oauth_state_linkedin")?.value || "";
+    if (!cookieState || !state || cookieState !== state) {
+      return NextResponse.json(
+        { error: "Invalid state (CSRF check failed). Please try Connect again." },
+        { status: 400 }
+      );
+    }
+
+    const redirectUri = `${baseUrl(req)}/api/oauth/linkedin/callback`;
+
+    // Exchange code -> access token
+    const tokenRes = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: redirectUri,
+        client_id: LINKEDIN_CLIENT_ID,
+        client_secret: LINKEDIN_CLIENT_SECRET,
+      }),
+      cache: "no-store",
+    });
+
+    const tokenJson: any = await tokenRes.json().catch(() => null);
+
+    if (!tokenRes.ok || !tokenJson?.access_token) {
+      return NextResponse.json(
+        { error: "LinkedIn token exchange failed", details: tokenJson },
+        { status: 400 }
+      );
+    }
+
+    const accessToken = String(tokenJson.access_token);
+    const expiresInSec = Number(tokenJson.expires_in || 0);
+    const expiresAtISO =
+      expiresInSec > 0 ? new Date(Date.now() + expiresInSec * 1000).toISOString() : null;
+
+    // Get member id + name for display
+    const meRes = await fetch("https://api.linkedin.com/v2/me", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "X-Restli-Protocol-Version": "2.0.0",
       },
-      { onConflict: "social_account_id" }
+      cache: "no-store",
+    });
+
+    const meJson: any = await meRes.json().catch(() => null);
+
+    if (!meRes.ok || !meJson?.id) {
+      return NextResponse.json(
+        { error: "LinkedIn /me failed", details: meJson },
+        { status: 400 }
+      );
+    }
+
+    const memberId = String(meJson.id);
+    const first = meJson?.localizedFirstName || "";
+    const last = meJson?.localizedLastName || "";
+    const displayName = `LinkedIn: ${String(`${first} ${last}`).trim() || memberId}`;
+
+    const organisationId = await getSingleTenantOrganisationId();
+    if (!organisationId) {
+      return NextResponse.json(
+        { error: "No organisation found in database" },
+        { status: 400 }
+      );
+    }
+
+    await upsertLinkedInAccount({
+      organisationId,
+      memberId,
+      displayName,
+      accessToken,
+      expiresAtISO,
+    });
+
+    // Clear state cookie
+    const res = NextResponse.redirect(`${baseUrl(req)}/dashboard/connect?provider=linkedin&success=1`, {
+      status: 302,
+    });
+    res.cookies.set("oauth_state_linkedin", "", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,
+    });
+
+    return res;
+  } catch (e: any) {
+    console.error("[linkedin-callback] crashed", e);
+    return NextResponse.json(
+      { error: e?.message || "LinkedIn callback crashed" },
+      { status: 500 }
     );
-
-  if (tokErr) {
-    return NextResponse.json({ error: "Failed saving token", details: tokErr }, { status: 500 });
   }
-
-  // Send them back to Connect page
-  return NextResponse.redirect(`${appUrl.replace(/\/$/, "")}/dashboard/connect`);
 }
