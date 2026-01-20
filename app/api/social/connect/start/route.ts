@@ -17,14 +17,73 @@ export async function GET(req: NextRequest) {
   const provider = (req.nextUrl.searchParams.get("provider") ||
     "facebook") as ProviderId;
 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  if (!appUrl) {
+    return NextResponse.json(
+      { error: "Missing NEXT_PUBLIC_APP_URL" },
+      { status: 500 }
+    );
+  }
+
+  // ----------------------------
+  // Threads (separate OAuth)
+  // ----------------------------
+  if (provider === "threads") {
+    const clientId = process.env.THREADS_CLIENT_ID || "";
+
+    if (!clientId) {
+      return NextResponse.json(
+        {
+          error: "Missing THREADS_CLIENT_ID",
+          missing: { THREADS_CLIENT_ID: !clientId },
+        },
+        { status: 500 }
+      );
+    }
+
+    // MUST match the Threads dashboard redirect exactly
+    const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/threads/callback`;
+
+    const stateObj = {
+      provider: "threads",
+      nonce: crypto.randomUUID(),
+      t: Date.now(),
+    };
+    const state = encodeState(stateObj);
+
+    // Threads OAuth authorize endpoint (NOT Facebook dialog/oauth)
+    // Scopes are Threads-specific; we keep it minimal for posting.
+    // (Docs show Threads uses its own OAuth flow)
+    const scope = ["threads_basic", "threads_content_publish"].join(",");
+
+    const authUrl =
+      "https://www.threads.net/oauth/authorize" +
+      `?client_id=${encodeURIComponent(clientId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&response_type=code` +
+      `&state=${encodeURIComponent(state)}` +
+      `&scope=${encodeURIComponent(scope)}`;
+
+    const res = NextResponse.redirect(authUrl, { status: 302 });
+
+    res.cookies.set("oauth_state_threads", state, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 10 * 60,
+    });
+
+    return res;
+  }
+
   // ----------------------------
   // LinkedIn (separate OAuth)
   // ----------------------------
   if (provider === "linkedin") {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
     const clientId = process.env.LINKEDIN_CLIENT_ID || "";
 
-    if (!appUrl || !clientId) {
+    if (!clientId) {
       return NextResponse.json(
         {
           error: "Missing LINKEDIN_CLIENT_ID or NEXT_PUBLIC_APP_URL",
@@ -46,8 +105,6 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
-    // Minimal posting scopes (you already proved posting works)
-    // If your LinkedIn app uses OIDC scopes instead, keep them aligned in the callback code.
     const scope = ["r_liteprofile", "w_member_social"].join(" ");
 
     const authUrl =
@@ -65,16 +122,16 @@ export async function GET(req: NextRequest) {
       secure: true,
       sameSite: "lax",
       path: "/",
-      maxAge: 10 * 60, // 10 mins
+      maxAge: 10 * 60,
     });
 
     return res;
   }
 
   // ----------------------------
-  // Meta (Facebook / Instagram / Threads)
+  // Meta (Facebook/Instagram)
   // ----------------------------
-  if (provider !== "facebook" && provider !== "instagram" && provider !== "threads") {
+  if (provider !== "facebook" && provider !== "instagram") {
     return NextResponse.json(
       { error: `Unsupported provider: ${provider}` },
       { status: 400 }
@@ -82,9 +139,8 @@ export async function GET(req: NextRequest) {
   }
 
   const appId = process.env.FACEBOOK_APP_ID || "";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
 
-  if (!appId || !appUrl) {
+  if (!appId) {
     return NextResponse.json(
       {
         error: "Missing FACEBOOK_APP_ID or NEXT_PUBLIC_APP_URL",
@@ -97,8 +153,6 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // ✅ Canonical Meta callback (single place)
-  // Must be listed in Meta → Facebook Login → Valid OAuth Redirect URIs
   const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/facebook/callback`;
 
   const stateObj = {
@@ -108,7 +162,6 @@ export async function GET(req: NextRequest) {
   };
   const state = encodeState(stateObj);
 
-  // Base scopes that made Pages show reliably for you
   const baseScopes = [
     "public_profile",
     "pages_show_list",
@@ -117,26 +170,13 @@ export async function GET(req: NextRequest) {
     "business_management",
   ];
 
-  // Instagram: same Meta login, then you detect IG business account linked to a Page
   const instagramScopes = [
     ...baseScopes,
     "instagram_basic",
     "instagram_content_publish",
   ];
 
-  // Threads: Threads API scopes (Meta)
-  // These are the minimum “publish” pair used in current Threads API setups. :contentReference[oaicite:1]{index=1}
-  const threadsScopes = [
-    "threads_basic",
-    "threads_content_publish",
-  ];
-
-  const scopes =
-    provider === "instagram"
-      ? instagramScopes
-      : provider === "threads"
-        ? threadsScopes
-        : baseScopes;
+  const scopes = provider === "instagram" ? instagramScopes : baseScopes;
 
   const authUrl =
     "https://www.facebook.com/v24.0/dialog/oauth" +
@@ -144,20 +184,18 @@ export async function GET(req: NextRequest) {
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&state=${encodeURIComponent(state)}` +
     `&response_type=code` +
-    // Forces Meta to re-offer missing scopes when it “remembers” prior approvals
     `&auth_type=rerequest` +
     `&return_scopes=true` +
     `&scope=${encodeURIComponent(scopes.join(","))}`;
 
   const res = NextResponse.redirect(authUrl, { status: 302 });
 
-  // CSRF + sanity
   res.cookies.set("fb_oauth_state", state, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
     path: "/",
-    maxAge: 10 * 60, // 10 mins
+    maxAge: 10 * 60,
   });
 
   return res;
