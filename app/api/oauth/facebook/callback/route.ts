@@ -21,6 +21,20 @@ async function fetchJson(url: string) {
   return { ok: res.ok, status: res.status, json };
 }
 
+function decodeStateProvider(state: string): "facebook" | "instagram" | "threads" | null {
+  try {
+    if (!state) return null;
+    // state is base64url(JSON)
+    const jsonStr = Buffer.from(state, "base64url").toString("utf8");
+    const obj = JSON.parse(jsonStr);
+    const p = String(obj?.provider || "").toLowerCase().trim();
+    if (p === "facebook" || p === "instagram" || p === "threads") return p;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
     if (!FACEBOOK_APP_ID || !FACEBOOK_APP_SECRET) {
@@ -75,12 +89,18 @@ export async function GET(req: NextRequest) {
     const longTok = await fetchJson(longUrl);
     const userToken = String(longTok.json?.access_token || shortUserToken);
 
-    // ✅ ALWAYS redirect to pick-page WITH token
-    const pickUrl = new URL(`${baseUrl(req)}/oauth/facebook/pick-page`);
-    pickUrl.searchParams.set("token", userToken);
-    if (state) pickUrl.searchParams.set("state", state);
+    // Decide where to send them next based on state.provider
+    const provider = decodeStateProvider(state) || "facebook";
 
-    return NextResponse.redirect(pickUrl.toString(), { status: 302 });
+    let nextPath = "/oauth/facebook/pick-page";
+    if (provider === "instagram") nextPath = "/oauth/instagram/pick-account";
+    if (provider === "threads") nextPath = "/oauth/threads/finish";
+
+    const nextUrl = new URL(`${baseUrl(req)}${nextPath}`);
+    nextUrl.searchParams.set("token", userToken);
+    if (state) nextUrl.searchParams.set("state", state);
+
+    return NextResponse.redirect(nextUrl.toString(), { status: 302 });
   } catch (e: any) {
     const msg = e?.message || "Callback crashed";
     return NextResponse.json({ error: msg }, { status: 500 });
