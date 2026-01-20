@@ -54,7 +54,7 @@ const initialProviders: Provider[] = [
     id: "threads",
     name: "Threads",
     label: "Threads",
-    description: "Text-first posts that ride Meta momentum.",
+    description: "Text-first posts via Meta OAuth (we’ll expand capabilities next).",
     status: "disconnected",
   },
   {
@@ -90,12 +90,12 @@ const initialProviders: Provider[] = [
 const connectUrls: Record<ProviderId, string> = {
   facebook: "/api/social/connect/start?provider=facebook",
   instagram: "/api/social/connect/start?provider=instagram",
+  linkedin: "/api/social/connect/start?provider=linkedin",
 
-  // ✅ LinkedIn OAuth
-  linkedin: "/api/oauth/linkedin/start",
+  // ✅ NOW WIRED
+  threads: "/api/social/connect/start?provider=threads",
 
-  // Coming soon / placeholders
-  threads: "#",
+  // placeholders
   tiktok: "#",
   google: "#",
   email: "#",
