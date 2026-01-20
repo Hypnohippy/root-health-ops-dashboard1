@@ -1,50 +1,59 @@
-import { NextResponse } from "next/server";
+// app/api/oauth/linkedin/start/route.ts
+import { NextRequest, NextResponse } from "next/server";
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
+export const runtime = "nodejs";
 
-  const clientId = process.env.LINKEDIN_CLIENT_ID;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+function safeBaseUrl(appUrl: string) {
+  return (appUrl || "").replace(/\/$/, "");
+}
+
+export async function GET(req: NextRequest) {
+  const clientId = process.env.LINKEDIN_CLIENT_ID || "";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
 
   if (!clientId || !appUrl) {
     return NextResponse.json(
-      { error: "Missing LINKEDIN_CLIENT_ID or NEXT_PUBLIC_APP_URL" },
+      {
+        error: "Missing LINKEDIN_CLIENT_ID or NEXT_PUBLIC_APP_URL",
+        missing: {
+          LINKEDIN_CLIENT_ID: !clientId,
+          NEXT_PUBLIC_APP_URL: !appUrl,
+        },
+      },
       { status: 500 }
     );
   }
 
-  const organisationId = url.searchParams.get("organisationId") || "";
-  if (!organisationId) {
-    return NextResponse.json(
-      { error: "Missing organisationId" },
-      { status: 400 }
-    );
-  }
+  const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/linkedin/callback`;
 
-  const redirectUri = `${appUrl.replace(/\/$/, "")}/api/oauth/linkedin/callback`;
-
-  // Minimal scopes for sign-in + posting (LinkedIn may require app approval for posting scopes)
-  const scope = [
-    "openid",
-    "profile",
-    "email",
-    "w_member_social",
-  ].join(" ");
-
-  const statePayload = {
-    organisationId,
+  const stateObj = {
+    provider: "linkedin",
     nonce: crypto.randomUUID(),
     t: Date.now(),
   };
+  const state = Buffer.from(JSON.stringify(stateObj)).toString("base64url");
 
-  const state = Buffer.from(JSON.stringify(statePayload)).toString("base64url");
+  // LinkedIn scopes are space-separated
+  const scope = ["openid", "profile", "email", "w_member_social"].join(" ");
 
-  const authUrl = new URL("https://www.linkedin.com/oauth/v2/authorization");
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("client_id", clientId);
-  authUrl.searchParams.set("redirect_uri", redirectUri);
-  authUrl.searchParams.set("scope", scope);
-  authUrl.searchParams.set("state", state);
+  const authUrl =
+    "https://www.linkedin.com/oauth/v2/authorization" +
+    `?response_type=code` +
+    `&client_id=${encodeURIComponent(clientId)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&state=${encodeURIComponent(state)}` +
+    `&scope=${encodeURIComponent(scope)}`;
 
-  return NextResponse.redirect(authUrl.toString());
+  const res = NextResponse.redirect(authUrl, { status: 302 });
+
+  // short-lived CSRF cookie
+  res.cookies.set("li_oauth_state", state, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 10 * 60,
+  });
+
+  return res;
 }
