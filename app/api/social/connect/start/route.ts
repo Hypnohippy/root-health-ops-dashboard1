@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-type ProviderId = "facebook" | "instagram" | "linkedin";
+type ProviderId = "facebook" | "instagram" | "linkedin" | "threads";
 
 function safeBaseUrl(appUrl: string) {
   return (appUrl || "").replace(/\/$/, "");
@@ -14,7 +14,8 @@ function encodeState(obj: any) {
 }
 
 export async function GET(req: NextRequest) {
-  const provider = (req.nextUrl.searchParams.get("provider") || "facebook") as ProviderId;
+  const provider = (req.nextUrl.searchParams.get("provider") ||
+    "facebook") as ProviderId;
 
   // ----------------------------
   // LinkedIn (separate OAuth)
@@ -38,7 +39,6 @@ export async function GET(req: NextRequest) {
 
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/linkedin/callback`;
 
-    // State payload
     const stateObj = {
       provider: "linkedin",
       nonce: crypto.randomUUID(),
@@ -46,9 +46,8 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
-    // Minimal scopes needed to post:
-    // - r_liteprofile: identify the member (author)
-    // - w_member_social: create posts
+    // Minimal posting scopes (you already proved posting works)
+    // If your LinkedIn app uses OIDC scopes instead, keep them aligned in the callback code.
     const scope = ["r_liteprofile", "w_member_social"].join(" ");
 
     const authUrl =
@@ -61,22 +60,21 @@ export async function GET(req: NextRequest) {
 
     const res = NextResponse.redirect(authUrl, { status: 302 });
 
-    // short-lived CSRF cookie (same pattern you used for FB)
     res.cookies.set("oauth_state_linkedin", state, {
       httpOnly: true,
       secure: true,
       sameSite: "lax",
       path: "/",
-      maxAge: 10 * 60,
+      maxAge: 10 * 60, // 10 mins
     });
 
     return res;
   }
 
   // ----------------------------
-  // Meta (Facebook/Instagram)
+  // Meta (Facebook / Instagram / Threads)
   // ----------------------------
-  if (provider !== "facebook" && provider !== "instagram") {
+  if (provider !== "facebook" && provider !== "instagram" && provider !== "threads") {
     return NextResponse.json(
       { error: `Unsupported provider: ${provider}` },
       { status: 400 }
@@ -99,7 +97,8 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // ✅ Canonical callback
+  // ✅ Canonical Meta callback (single place)
+  // Must be listed in Meta → Facebook Login → Valid OAuth Redirect URIs
   const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/facebook/callback`;
 
   const stateObj = {
@@ -109,6 +108,7 @@ export async function GET(req: NextRequest) {
   };
   const state = encodeState(stateObj);
 
+  // Base scopes that made Pages show reliably for you
   const baseScopes = [
     "public_profile",
     "pages_show_list",
@@ -117,13 +117,26 @@ export async function GET(req: NextRequest) {
     "business_management",
   ];
 
+  // Instagram: same Meta login, then you detect IG business account linked to a Page
   const instagramScopes = [
     ...baseScopes,
     "instagram_basic",
     "instagram_content_publish",
   ];
 
-  const scopes = provider === "instagram" ? instagramScopes : baseScopes;
+  // Threads: Threads API scopes (Meta)
+  // These are the minimum “publish” pair used in current Threads API setups. :contentReference[oaicite:1]{index=1}
+  const threadsScopes = [
+    "threads_basic",
+    "threads_content_publish",
+  ];
+
+  const scopes =
+    provider === "instagram"
+      ? instagramScopes
+      : provider === "threads"
+        ? threadsScopes
+        : baseScopes;
 
   const authUrl =
     "https://www.facebook.com/v24.0/dialog/oauth" +
@@ -131,18 +144,20 @@ export async function GET(req: NextRequest) {
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&state=${encodeURIComponent(state)}` +
     `&response_type=code` +
+    // Forces Meta to re-offer missing scopes when it “remembers” prior approvals
     `&auth_type=rerequest` +
     `&return_scopes=true` +
     `&scope=${encodeURIComponent(scopes.join(","))}`;
 
   const res = NextResponse.redirect(authUrl, { status: 302 });
 
+  // CSRF + sanity
   res.cookies.set("fb_oauth_state", state, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
     path: "/",
-    maxAge: 10 * 60,
+    maxAge: 10 * 60, // 10 mins
   });
 
   return res;
