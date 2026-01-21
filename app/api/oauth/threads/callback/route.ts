@@ -17,34 +17,94 @@ function baseUrl(req: NextRequest) {
   }
 }
 
-async function fetchJson(url: string, opts?: RequestInit) {
-  const res = await fetch(url, { cache: "no-store", ...(opts || {}) });
+async function fetchJson(url: string, init?: RequestInit) {
+  const res = await fetch(url, { cache: "no-store", ...(init || {}) });
   const json: any = await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, json };
 }
 
-// Single-tenant beta default
 async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
+
   if (error) {
-    console.error("[threads-callback] organisations error", error);
+    console.error("[threads/callback] organisations error", error);
     return null;
   }
   if (!data || data.length === 0) return null;
   return data[0].id as string;
 }
 
+async function upsertThreadsSocialAccount(args: {
+  organisationId: string;
+  threadsUserId: string;
+  username?: string;
+  accessToken: string;
+  tokenExpiresAt?: string | null;
+}) {
+  const organisationId = args.organisationId;
+
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from("social_accounts")
+    .select("id")
+    .eq("organisation_id", organisationId)
+    .eq("platform", "threads")
+    .limit(1);
+
+  if (existingError) {
+    console.warn("[threads/callback] existing lookup error", existingError);
+  }
+
+  const pageName = args.username ? String(args.username) : null;
+
+  if (existing && existing.length > 0) {
+    const id = existing[0].id;
+    const { error } = await supabaseAdmin
+      .from("social_accounts")
+      .update({
+        page_id: String(args.threadsUserId),
+        page_name: pageName,
+        connection_type: "threads_oauth",
+        make_webhook_url: null,
+        is_active: true,
+        page_access_token: String(args.accessToken),
+        token_expires_at: args.tokenExpiresAt ?? null,
+      })
+      .eq("id", id);
+
+    if (error) throw error;
+    return;
+  }
+
+  // Insert new
+  const { error } = await supabaseAdmin.from("social_accounts").insert({
+    id: randomUUID(),
+    organisation_id: organisationId,
+    platform: "threads",
+    page_id: String(args.threadsUserId),
+    page_name: pageName,
+    connection_type: "threads_oauth",
+    make_webhook_url: null,
+    is_active: true,
+    page_access_token: String(args.accessToken),
+    token_expires_at: args.tokenExpiresAt ?? null,
+  });
+
+  if (error) throw error;
+}
+
 export async function GET(req: NextRequest) {
   try {
     if (!THREADS_CLIENT_ID || !THREADS_CLIENT_SECRET) {
       const back = new URL(`${baseUrl(req)}/dashboard/connect`);
-      back.searchParams.set("error", "threads_missing_env");
+      back.searchParams.set("error", "threads_missing_client_credentials");
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
     const code = req.nextUrl.searchParams.get("code") || "";
     const state = req.nextUrl.searchParams.get("state") || "";
-
     if (!code) {
       const back = new URL(`${baseUrl(req)}/dashboard/connect`);
       back.searchParams.set("error", "threads_missing_code");
@@ -53,30 +113,49 @@ export async function GET(req: NextRequest) {
 
     const redirectUri = `${baseUrl(req)}/api/oauth/threads/callback`;
 
-    // 1) Exchange code -> access token
-    // Threads token exchange happens on graph.threads.net
-    const tokenUrl =
-      "https://graph.threads.net/oauth/access_token?" +
-      new URLSearchParams({
+    // 1) code -> short-lived threads token
+    const tokenUrl = "https://graph.threads.net/oauth/access_token";
+
+    const tokenRes = await fetchJson(tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
         client_id: THREADS_CLIENT_ID,
         client_secret: THREADS_CLIENT_SECRET,
         grant_type: "authorization_code",
         redirect_uri: redirectUri,
         code,
-      }).toString();
+      }),
+    });
 
-    const tok = await fetchJson(tokenUrl);
-
-    if (!tok.ok || !tok.json?.access_token) {
-      console.error("[threads-callback] token exchange failed", tok.json);
+    if (!tokenRes.ok || !tokenRes.json?.access_token) {
+      console.error("[threads/callback] token exchange failed", tokenRes.json);
       const back = new URL(`${baseUrl(req)}/dashboard/connect`);
       back.searchParams.set("error", "threads_token_exchange_failed");
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
-    const accessToken = String(tok.json.access_token);
+    const shortToken = String(tokenRes.json.access_token);
 
-    // 2) Fetch threads user id (and username if available)
+    // 2) short -> long-lived token (recommended)
+    const exchangeUrl =
+      "https://graph.threads.net/access_token?" +
+      new URLSearchParams({
+        grant_type: "th_exchange_token",
+        client_secret: THREADS_CLIENT_SECRET,
+        access_token: shortToken,
+      }).toString();
+
+    const longRes = await fetchJson(exchangeUrl);
+
+    const accessToken = String(longRes.json?.access_token || shortToken);
+    const expiresIn = Number(longRes.json?.expires_in || 0);
+
+    // token_expires_at (optional)
+    const tokenExpiresAt =
+      expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
+
+    // 3) fetch Threads user
     const meUrl =
       "https://graph.threads.net/v1.0/me?" +
       new URLSearchParams({
@@ -84,62 +163,34 @@ export async function GET(req: NextRequest) {
         access_token: accessToken,
       }).toString();
 
-    const me = await fetchJson(meUrl);
+    const meRes = await fetchJson(meUrl);
 
-    if (!me.ok || !me.json?.id) {
-      console.error("[threads-callback] /me failed", me.json);
+    if (!meRes.ok || !meRes.json?.id) {
+      console.error("[threads/callback] failed to fetch me", meRes.json);
       const back = new URL(`${baseUrl(req)}/dashboard/connect`);
       back.searchParams.set("error", "threads_me_failed");
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
-    const threadsUserId = String(me.json.id);
-    const threadsUsername = me.json?.username ? String(me.json.username) : null;
+    const threadsUserId = String(meRes.json.id);
+    const username = meRes.json.username ? String(meRes.json.username) : undefined;
 
+    // 4) upsert DB
     const organisationId = await getSingleTenantOrganisationId();
     if (!organisationId) {
       const back = new URL(`${baseUrl(req)}/dashboard/connect`);
-      back.searchParams.set("error", "no_org");
+      back.searchParams.set("error", "no_organisation");
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
-    // Upsert social_accounts row for threads
-    const { data: existing } = await supabaseAdmin
-      .from("social_accounts")
-      .select("id")
-      .eq("organisation_id", organisationId)
-      .eq("platform", "threads")
-      .limit(1);
+    await upsertThreadsSocialAccount({
+      organisationId,
+      threadsUserId,
+      username,
+      accessToken,
+      tokenExpiresAt,
+    });
 
-    if (existing && existing.length > 0) {
-      await supabaseAdmin
-        .from("social_accounts")
-        .update({
-          page_id: threadsUserId,
-          page_name: threadsUsername,
-          connection_type: "threads_oauth",
-          make_webhook_url: null,
-          is_active: true,
-          page_access_token: accessToken,
-          token_expires_at: null,
-        })
-        .eq("id", existing[0].id);
-    } else {
-      await supabaseAdmin.from("social_accounts").insert({
-        id: randomUUID(),
-        organisation_id: organisationId,
-        platform: "threads",
-        page_id: threadsUserId,
-        page_name: threadsUsername,
-        connection_type: "threads_oauth",
-        make_webhook_url: null,
-        is_active: true,
-        page_access_token: accessToken,
-        token_expires_at: null,
-      });
-    }
-
-    // Done
     const back = new URL(`${baseUrl(req)}/dashboard/connect`);
     back.searchParams.set("provider", "threads");
     back.searchParams.set("success", "1");
@@ -147,7 +198,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.redirect(back.toString(), { status: 302 });
   } catch (e: any) {
-    console.error("[threads-callback] crashed", e);
+    console.error("[threads/callback] crashed", e);
     const back = new URL(`${baseUrl(req)}/dashboard/connect`);
     back.searchParams.set("error", "threads_callback_crashed");
     return NextResponse.redirect(back.toString(), { status: 302 });
