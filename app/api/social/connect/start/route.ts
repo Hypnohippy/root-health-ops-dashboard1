@@ -16,76 +16,23 @@ function encodeState(obj: any) {
 export async function GET(req: NextRequest) {
   const provider = (req.nextUrl.searchParams.get("provider") || "facebook") as ProviderId;
 
-  // ----------------------------
-  // Threads (separate OAuth)
-  // ----------------------------
-  if (provider === "threads") {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-    const clientId = process.env.THREADS_CLIENT_ID || "";
-
-    if (!appUrl || !clientId) {
-      return NextResponse.json(
-        {
-          error: "Missing THREADS_CLIENT_ID or NEXT_PUBLIC_APP_URL",
-          missing: {
-            THREADS_CLIENT_ID: !clientId,
-            NEXT_PUBLIC_APP_URL: !appUrl,
-          },
-        },
-        { status: 500 }
-      );
-    }
-
-    const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/threads/callback`;
-
-    const stateObj = {
-      provider: "threads",
-      nonce: crypto.randomUUID(),
-      t: Date.now(),
-    };
-    const state = encodeState(stateObj);
-
-    // Threads permissions
-    // (These are NOT valid on Facebook Login dialog — must use Threads OAuth)
-    const scope = ["threads_basic", "threads_content_publish"].join(",");
-
-    const authUrl =
-      "https://www.threads.net/oauth/authorize" +
-      `?client_id=${encodeURIComponent(clientId)}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&response_type=code` +
-      `&scope=${encodeURIComponent(scope)}` +
-      `&state=${encodeURIComponent(state)}`;
-
-    const res = NextResponse.redirect(authUrl, { status: 302 });
-
-    res.cookies.set("oauth_state_threads", state, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 10 * 60,
-    });
-
-    return res;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  if (!appUrl) {
+    return NextResponse.json(
+      { error: "Missing NEXT_PUBLIC_APP_URL" },
+      { status: 500 }
+    );
   }
 
   // ----------------------------
   // LinkedIn (separate OAuth)
   // ----------------------------
   if (provider === "linkedin") {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
     const clientId = process.env.LINKEDIN_CLIENT_ID || "";
 
-    if (!appUrl || !clientId) {
+    if (!clientId) {
       return NextResponse.json(
-        {
-          error: "Missing LINKEDIN_CLIENT_ID or NEXT_PUBLIC_APP_URL",
-          missing: {
-            LINKEDIN_CLIENT_ID: !clientId,
-            NEXT_PUBLIC_APP_URL: !appUrl,
-          },
-        },
+        { error: "Missing LINKEDIN_CLIENT_ID" },
         { status: 500 }
       );
     }
@@ -123,6 +70,52 @@ export async function GET(req: NextRequest) {
   }
 
   // ----------------------------
+  // Threads (separate OAuth)
+  // ----------------------------
+  if (provider === "threads") {
+    const clientId = process.env.THREADS_CLIENT_ID || "";
+
+    if (!clientId) {
+      return NextResponse.json(
+        { error: "Missing THREADS_CLIENT_ID" },
+        { status: 500 }
+      );
+    }
+
+    const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/threads/callback`;
+
+    const stateObj = {
+      provider: "threads",
+      nonce: crypto.randomUUID(),
+      t: Date.now(),
+    };
+    const state = encodeState(stateObj);
+
+    // Threads scopes (you already saw threads_basic is required)
+    const scope = ["threads_basic", "threads_content_publish"].join(" ");
+
+    const authUrl =
+      "https://threads.net/oauth/authorize" +
+      `?response_type=code` +
+      `&client_id=${encodeURIComponent(clientId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&state=${encodeURIComponent(state)}` +
+      `&scope=${encodeURIComponent(scope)}`;
+
+    const res = NextResponse.redirect(authUrl, { status: 302 });
+
+    res.cookies.set("oauth_state_threads", state, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 10 * 60,
+    });
+
+    return res;
+  }
+
+  // ----------------------------
   // Meta (Facebook/Instagram)
   // ----------------------------
   if (provider !== "facebook" && provider !== "instagram") {
@@ -133,17 +126,10 @@ export async function GET(req: NextRequest) {
   }
 
   const appId = process.env.FACEBOOK_APP_ID || "";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
 
-  if (!appId || !appUrl) {
+  if (!appId) {
     return NextResponse.json(
-      {
-        error: "Missing FACEBOOK_APP_ID or NEXT_PUBLIC_APP_URL",
-        missing: {
-          FACEBOOK_APP_ID: !appId,
-          NEXT_PUBLIC_APP_URL: !appUrl,
-        },
-      },
+      { error: "Missing FACEBOOK_APP_ID" },
       { status: 500 }
     );
   }
