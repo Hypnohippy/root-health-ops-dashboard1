@@ -54,7 +54,8 @@ const initialProviders: Provider[] = [
     id: "threads",
     name: "Threads",
     label: "Threads",
-    description: "Text-first posts that ride Meta momentum.",
+    description: "Text-first posts (and images) via Threads OAuth.",
+    hint: "Connect the Threads account you want to post as.",
     status: "disconnected",
   },
   {
@@ -91,8 +92,6 @@ const connectUrls: Record<ProviderId, string> = {
   facebook: "/api/social/connect/start?provider=facebook",
   instagram: "/api/social/connect/start?provider=instagram",
   linkedin: "/api/social/connect/start?provider=linkedin",
-
-  // ✅ NOW WIRED:
   threads: "/api/social/connect/start?provider=threads",
 
   // Coming soon / placeholders
@@ -121,9 +120,7 @@ export default function DashboardConnectPage() {
       setProviders((prev) =>
         prev.map((p) => {
           const row = rows.find((r) => r.platform === p.id);
-          if (!row) {
-            return { ...p, status: "disconnected", accountName: undefined };
-          }
+          if (!row) return { ...p, status: "disconnected", accountName: undefined };
           return {
             ...p,
             status: "connected",
@@ -162,12 +159,7 @@ export default function DashboardConnectPage() {
     setProviders((prev) =>
       prev.map((p) =>
         p.id === provider.id
-          ? {
-              ...p,
-              status: "disconnected",
-              accountName: undefined,
-              lastSync: undefined,
-            }
+          ? { ...p, status: "disconnected", accountName: undefined, lastSync: undefined }
           : p
       )
     );
@@ -218,15 +210,15 @@ export default function DashboardConnectPage() {
                           provider.status === "connected"
                             ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/60"
                             : provider.status === "pending"
-                            ? "bg-amber-500/15 text-amber-200 border-amber-500/60"
-                            : "bg-slate-800 text-slate-300 border-slate-600"
+                              ? "bg-amber-500/15 text-amber-200 border-amber-500/60"
+                              : "bg-slate-800 text-slate-300 border-slate-600"
                         }`}
                       >
                         {provider.status === "connected"
                           ? "Connected"
                           : provider.status === "pending"
-                          ? "Pending"
-                          : "Not connected"}
+                            ? "Pending"
+                            : "Not connected"}
                       </span>
                     </div>
 
@@ -277,7 +269,7 @@ export default function DashboardConnectPage() {
         </section>
 
         <footer className="mt-8 text-xs text-slate-400">
-          Tip: Always click Connect from this page. Don’t bookmark the pick-page URLs — they require a token.
+          Tip: Always click Connect from this page. Don’t bookmark callback URLs — they need live OAuth state.
         </footer>
       </div>
     </div>
