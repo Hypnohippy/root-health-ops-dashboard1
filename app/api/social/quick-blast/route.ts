@@ -18,7 +18,7 @@ type SocialAccountRow = {
   id: string;
   organisation_id: string;
   platform: ProviderId;
-  page_id: string | null; // pageId / igId / threadsUserId / etc
+  page_id: string | null;
   page_name: string | null;
   connection_type: string | null;
   make_webhook_url: string | null;
@@ -26,6 +26,8 @@ type SocialAccountRow = {
   page_access_token: string | null;
   token_expires_at: string | null;
 };
+
+const THREADS_TEXT_MAX = 500;
 
 async function sleep(ms: number) {
   await new Promise((r) => setTimeout(r, ms));
@@ -149,7 +151,6 @@ async function postToFacebook(args: {
 
 // -------------------------
 // Threads posting
-// (graph.threads.net)
 // -------------------------
 async function threadsCreateContainer(args: {
   threadsUserId: string;
@@ -157,7 +158,9 @@ async function threadsCreateContainer(args: {
   message: string;
   imageUrl?: string;
 }) {
-  const base = `https://graph.threads.net/v1.0/${encodeURIComponent(args.threadsUserId)}/threads`;
+  const base = `https://graph.threads.net/v1.0/${encodeURIComponent(
+    args.threadsUserId
+  )}/threads`;
 
   const body = new URLSearchParams();
   body.set("access_token", args.accessToken);
@@ -168,7 +171,12 @@ async function threadsCreateContainer(args: {
       return {
         ok: false,
         status: 400,
-        json: { error: { message: "Threads imageUrl must be a direct https image link (.jpg/.png etc)." } },
+        json: {
+          error: {
+            message:
+              "Threads imageUrl must be a direct https image link (.jpg/.png etc).",
+          },
+        },
       };
     }
     body.set("media_type", "IMAGE");
@@ -240,6 +248,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ✅ Fail early with a friendly message if Threads selected and message too long
+    if (platforms.includes("threads") && message.length > THREADS_TEXT_MAX) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Threads text limit is ${THREADS_TEXT_MAX} characters. Your message is ${message.length}. Shorten it and try again.`,
+          limits: {
+            threads: { maxChars: THREADS_TEXT_MAX, actualChars: message.length },
+          },
+        },
+        { status: 400 }
+      );
+    }
+
     const organisationId = await resolveOrganisationId(req);
     if (!organisationId) {
       return NextResponse.json(
@@ -251,7 +273,6 @@ export async function POST(req: NextRequest) {
     const results: any[] = [];
 
     for (const p of platforms) {
-      // ---------- Facebook ----------
       if (p === "facebook") {
         const row = await loadSocialAccount(organisationId, "facebook");
 
@@ -259,7 +280,8 @@ export async function POST(req: NextRequest) {
           results.push({
             platform: "facebook",
             ok: false,
-            error: "Facebook not connected (missing page_id). Go to Connect and connect Facebook.",
+            error:
+              "Facebook not connected (missing page_id). Go to Connect and connect Facebook.",
           });
           continue;
         }
@@ -268,7 +290,8 @@ export async function POST(req: NextRequest) {
           results.push({
             platform: "facebook",
             ok: false,
-            error: "Facebook connected but missing page_access_token. Reconnect Facebook and pick the Page again.",
+            error:
+              "Facebook connected but missing page_access_token. Reconnect Facebook and pick the Page again.",
           });
           continue;
         }
@@ -300,43 +323,6 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // ---------- Instagram ----------
-      if (p === "instagram") {
-        // Your IG flow already works in this project (you proved it).
-        // We keep using it exactly as you’ve implemented it elsewhere.
-        // If your IG posting is already integrated into THIS endpoint in your current deployment, keep that.
-        // Otherwise: you can leave this as “skipped” until we unify.
-        //
-        // If you already have the IG implementation in this endpoint (as per your successful result),
-        // then DO NOT use this block. Keep your working IG implementation.
-        //
-        // For safety, we’ll detect whether the IG row has a token; if yes, we attempt direct Threads-style publish is NOT correct for IG.
-        // So we simply return the “not implemented here” message unless your working IG code is present.
-        results.push({
-          platform: "instagram",
-          ok: false,
-          skipped: true,
-          reason:
-            "Instagram posting is handled by your existing IG flow in this project. (Leave as-is if already implemented.)",
-        });
-        continue;
-      }
-
-      // ---------- LinkedIn ----------
-      if (p === "linkedin") {
-        // You already wired LinkedIn and confirmed it posts successfully.
-        // So we don’t touch it here unless you want it unified in this endpoint as well.
-        results.push({
-          platform: "linkedin",
-          ok: false,
-          skipped: true,
-          reason:
-            "LinkedIn posting is already working in your project; keep your existing LinkedIn implementation where it currently lives.",
-        });
-        continue;
-      }
-
-      // ---------- Threads ----------
       if (p === "threads") {
         const row = await loadSocialAccount(organisationId, "threads");
 
@@ -358,7 +344,6 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // Create container
         const create = await threadsCreateContainer({
           threadsUserId: row.page_id,
           accessToken: row.page_access_token,
@@ -390,7 +375,6 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // Publish (with small retries in case media needs a moment)
         let published: any = null;
         let lastErr: any = null;
 
@@ -401,13 +385,12 @@ export async function POST(req: NextRequest) {
             creationId,
           });
 
-          if (pub.ok && (pub.json?.id || pub.json?.post_id)) {
+          if (pub.ok && pub.json?.id) {
             published = pub;
             break;
           }
 
           lastErr = pub;
-          // Wait a moment (common when publishing media)
           await sleep(1500);
         }
 
@@ -428,14 +411,24 @@ export async function POST(req: NextRequest) {
           platform: "threads",
           ok: true,
           creationId,
-          postedId: published.json?.id || published.json?.post_id || null,
+          postedId: published.json?.id || null,
           mode: imageUrl ? "image" : "text",
         });
-
         continue;
       }
 
-      // ---------- Everything else ----------
+      // leave your LinkedIn implementation where it lives (for now)
+      if (p === "linkedin") {
+        results.push({
+          platform: "linkedin",
+          ok: false,
+          skipped: true,
+          reason:
+            "LinkedIn posting is already working in your project; keep your existing LinkedIn implementation where it currently lives.",
+        });
+        continue;
+      }
+
       results.push({
         platform: p,
         ok: false,
@@ -445,18 +438,18 @@ export async function POST(req: NextRequest) {
     }
 
     const okCount = results.filter((r) => r.ok).length;
-    const failCount = results.filter((r) => !r.ok && !r.skipped).length;
+    const failedCount = results.filter((r) => !r.ok && !r.skipped).length;
     const skippedCount = results.filter((r) => r.skipped).length;
 
     return NextResponse.json(
       {
-        success: okCount > 0 && failCount === 0,
+        success: okCount > 0 && failedCount === 0,
         organisationId,
         results,
         summary: {
           attempted: results.length,
           ok: okCount,
-          failed: failCount,
+          failed: failedCount,
           skipped: skippedCount,
         },
       },
