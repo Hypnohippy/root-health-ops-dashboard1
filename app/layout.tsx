@@ -8,35 +8,33 @@ export const metadata: Metadata = {
   description: "Root Health Ops Dashboard",
 };
 
+const TIKTOK_VERIFICATION =
+  "tiktok-developers-site-verification=P6W3E8CfxKyF1EmqoWpO9y6wx8raoZzI";
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-slate-950 text-slate-50 flex flex-col">
-        {/* Main content */}
-        <main className="flex-1">
-          {children}
-        </main>
+      <body className="min-h-screen bg-slate-950 text-slate-50">
+        {/* 
+          IMPORTANT:
+          TikTok verification crawlers do NOT run JS.
+          This must be present in the initial HTML response.
+        */}
+        <div
+          style={{
+            position: "absolute",
+            left: "-99999px",
+            top: "-99999px",
+            width: 1,
+            height: 1,
+            overflow: "hidden",
+          }}
+          aria-hidden="true"
+        >
+          {TIKTOK_VERIFICATION}
+        </div>
 
-        {/* ✅ Required footer for platform compliance (TikTok, Meta, etc.) */}
-        <footer className="border-t border-slate-800 bg-slate-950 px-4 py-4 text-center text-xs text-slate-400">
-          <a
-            href="/privacy"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-slate-200 underline-offset-2 hover:underline"
-          >
-            Privacy Policy
-          </a>
-          <span className="mx-2">|</span>
-          <a
-            href="/terms"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-slate-200 underline-offset-2 hover:underline"
-          >
-            Terms of Service
-          </a>
-        </footer>
+        {children}
       </body>
     </html>
   );
