@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 const TIKTOK_VERIFICATION =
-  "tiktok-developers-site-verification=P6W3E8CfxKyF1EmqoWpO9y6wx8raoZzI";
+  "tiktok-developers-site-verification=0B7fkj4hG1N8gVPjVcpfwYAqJJCJ9k5h";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
