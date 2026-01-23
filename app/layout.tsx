@@ -11,14 +11,20 @@ export const metadata: Metadata = {
 const TIKTOK_VERIFY = "0B7fkj4hG1N8gVPjVcpfwYAqJJCJ9k5h";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const verifyLine = `tiktok-developers-site-verification=${TIKTOK_VERIFY}`;
+
   return (
     <html lang="en">
+      <head>
+        {/* Keep meta too (doesn’t hurt) */}
+        <meta name="tiktok-developers-site-verification" content={TIKTOK_VERIFY} />
+      </head>
       <body className="min-h-screen bg-slate-950 text-slate-50">
-        {/* TikTok verifier sometimes wants the raw signature string visible in HTML */}
-        <div style={{ position: "absolute", left: "-99999px", top: 0 }}>
-          tiktok-developers-site-verification={TIKTOK_VERIFY}
-        </div>
-
+        {/* CRITICAL: inject as raw HTML so it’s not split by React into <!-- --> */}
+        <div
+          style={{ position: "absolute", left: "-99999px", top: 0 }}
+          dangerouslySetInnerHTML={{ __html: verifyLine }}
+        />
         {children}
       </body>
     </html>
