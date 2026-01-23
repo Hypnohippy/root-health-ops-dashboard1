@@ -1,4 +1,3 @@
-// app/api/social/quick-blast/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
@@ -51,11 +50,12 @@ async function getSingleTenantOrganisationId() {
   return data[0].id as string;
 }
 
-async function resolveOrganisationId(req: NextRequest) {
+async function resolveOrganisationId(req: NextRequest, bodyOrgId?: string) {
   try {
     const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
     if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
   } catch {}
+  if (bodyOrgId && String(bodyOrgId).trim()) return String(bodyOrgId).trim();
   return await getSingleTenantOrganisationId();
 }
 
@@ -107,6 +107,7 @@ async function postToFacebook(args: {
               "Facebook imageUrl must be a direct https image link (ending .jpg/.png etc).",
           },
         },
+        mode: "photo" as const,
       };
     }
 
@@ -150,15 +151,10 @@ async function postToFacebook(args: {
   return { ok: res.ok, status: res.status, json, mode: "text" as const };
 }
 
-/**
- * ✅ LinkedIn proxy: send `text` (the LinkedIn route accepts text OR message anyway)
- */
 async function postToLinkedIn(args: {
   req: NextRequest;
   message: string;
   organisationId: string;
-  imageUrl?: string;
-  videoUrl?: string;
 }) {
   const url = `${baseUrl(args.req)}/api/linkedin/post`;
 
@@ -166,10 +162,8 @@ async function postToLinkedIn(args: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      text: args.message, // ✅ IMPORTANT
+      text: args.message, // ✅ IMPORTANT: linkedin route expects "text"
       organisationId: args.organisationId,
-      imageUrl: args.imageUrl || undefined,
-      videoUrl: args.videoUrl || undefined,
     }),
     cache: "no-store",
   });
@@ -193,7 +187,6 @@ export async function POST(req: NextRequest) {
 
     const message = String(body?.message ?? "").trim();
     const imageUrl = String(body?.imageUrl ?? "").trim();
-    const videoUrl = String(body?.videoUrl ?? "").trim();
 
     const platformsRaw = Array.isArray(body?.platforms) ? body.platforms : [];
     const platforms: ProviderId[] = platformsRaw
@@ -214,7 +207,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const organisationId = await resolveOrganisationId(req);
+    const organisationId = await resolveOrganisationId(req, body?.organisationId);
     if (!organisationId) {
       return NextResponse.json(
         { success: false, error: "No organisation found in database." },
@@ -281,8 +274,6 @@ export async function POST(req: NextRequest) {
           req,
           message,
           organisationId,
-          imageUrl: imageUrl || undefined,
-          videoUrl: videoUrl || undefined,
         });
 
         if (!li.ok) {
@@ -306,12 +297,12 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Leave TikTok / Threads / IG alone as requested
+      // Leave TikTok / Threads / IG as-is for now (you told me to not touch TikTok)
       results.push({
         platform: p,
         ok: false,
         skipped: true,
-        reason: "Not implemented yet (or handled elsewhere).",
+        reason: "Not implemented here yet (kept unchanged).",
       });
     }
 
