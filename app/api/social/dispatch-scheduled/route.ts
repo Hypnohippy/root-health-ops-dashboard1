@@ -1,4 +1,3 @@
-// app/api/social/dispatch-scheduled/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
@@ -14,26 +13,18 @@ function baseUrl(req: NextRequest) {
   return req.nextUrl.origin;
 }
 
-function resolveOrgIdFromEnvOrItem(itemOrgId: string | null) {
-  const pinned = (process.env.SINGLE_TENANT_ORG_ID || "").trim();
-  if (pinned) return pinned;
-  return (itemOrgId || "").trim();
-}
-
 export async function GET(req: NextRequest) {
   try {
     const nowIso = new Date().toISOString();
 
-    // 1) Find due scheduled posts
+    // 1) Find due scheduled posts (Supabase)
     const { data: items, error } = await supabaseAdmin
       .from("scheduled_posts")
-      .select(
-        "id, organisation_id, message, platforms, image_url, scheduled_for, status"
-      )
+      .select("id, organisation_id, message, platforms, image_url, scheduled_for, status")
       .eq("status", "scheduled")
       .lte("scheduled_for", nowIso)
       .order("scheduled_for", { ascending: true })
-      .limit(25);
+      .limit(20);
 
     if (error) {
       console.error("[dispatch-scheduled] fetch error", error);
@@ -43,9 +34,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const scanned = items?.length || 0;
     if (!items || items.length === 0) {
       return NextResponse.json(
-        { success: true, scanned: 0, due: 0, dispatched: 0, failed: 0, failures: [] },
+        { success: true, scanned, due: 0, dispatched: 0, failed: 0, failures: [] },
         { status: 200 }
       );
     }
@@ -54,72 +46,56 @@ export async function GET(req: NextRequest) {
     const failures: any[] = [];
 
     for (const item of items as any[]) {
-      const id = String(item.id || "");
-      const itemOrgId = item.organisation_id ? String(item.organisation_id) : null;
+      const id = String(item.id);
+      const organisationId = String(item.organisation_id);
+      const message = String(item.message || "");
+      const platforms = Array.isArray(item.platforms) ? item.platforms : [];
+      const imageUrl = item.image_url ? String(item.image_url) : "";
 
-      const organisationId = resolveOrgIdFromEnvOrItem(itemOrgId);
-
-      const message: string = String(item.message || "").trim();
-      const platforms: string[] = Array.isArray(item.platforms) ? item.platforms : [];
-      const imageUrl: string | null = item.image_url ? String(item.image_url) : null;
-
-      if (!id || !organisationId || !message || platforms.length === 0) {
-        failures.push({
-          id,
-          error: "Invalid scheduled_post row (missing id/org/message/platforms).",
-        });
-
-        await supabaseAdmin
-          .from("scheduled_posts")
-          .update({
-            status: "failed",
-            error_info: { error: "Invalid row data" },
-          })
-          .eq("id", id);
-
-        continue;
-      }
+      // 2) Dispatch using your internal social engine (connected tokens)
+      // We reuse /api/social/quick-blast because it already posts via your saved social_accounts
+      const dispatchUrl = `${baseUrl(req)}/api/social/quick-blast?organisationId=${encodeURIComponent(
+        organisationId
+      )}`;
 
       try {
-        // 2) Dispatch using YOUR internal posting endpoint (direct posting)
-        const postRes = await fetch(
-          `${baseUrl(req)}/api/social/quick-blast?organisationId=${encodeURIComponent(
-            organisationId
-          )}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              message,
-              platforms,
-              imageUrl: imageUrl || undefined,
-            }),
-            cache: "no-store",
-          }
-        );
+        const res = await fetch(dispatchUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({
+            message,
+            platforms,
+            imageUrl: imageUrl || undefined,
+          }),
+        });
 
-        const postJson: any = await postRes.json().catch(() => null);
+        const data = await res.json().catch(() => null);
 
-        // We only mark as SENT if:
-        // - response ok
-        // - and "summary.failed" is 0
-        const failed = Number(postJson?.summary?.failed || 0);
-        const ok = Number(postJson?.summary?.ok || 0);
-
-        if (!postRes.ok || !postJson || failed > 0 || ok === 0) {
-          const errorInfo = postJson || { status: postRes.status, error: "Posting failed" };
-
-          failures.push({
-            id,
-            statusCode: postRes.status,
-            error: errorInfo,
-          });
+        if (!res.ok || !data?.results) {
+          failures.push({ id, statusCode: res.status, error: data || "Dispatch failed" });
 
           await supabaseAdmin
             .from("scheduled_posts")
             .update({
               status: "failed",
-              error_info: errorInfo,
+              error_info: data || { statusCode: res.status, error: "Dispatch failed" },
+            })
+            .eq("id", id);
+
+          continue;
+        }
+
+        const ok = Array.isArray(data.results) && data.results.every((r: any) => r?.ok || r?.skipped);
+
+        if (!ok) {
+          failures.push({ id, statusCode: 200, error: data });
+
+          await supabaseAdmin
+            .from("scheduled_posts")
+            .update({
+              status: "failed",
+              error_info: data,
             })
             .eq("id", id);
 
@@ -131,14 +107,12 @@ export async function GET(req: NextRequest) {
           .update({
             status: "sent",
             posted_at: new Date().toISOString(),
-            error_info: null,
+            error_info: data, // keep full results for audit
           })
           .eq("id", id);
 
         dispatchedCount += 1;
       } catch (e: any) {
-        console.error("[dispatch-scheduled] exception posting item", id, e);
-
         failures.push({ id, error: String(e) });
 
         await supabaseAdmin
@@ -153,19 +127,19 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(
       {
-        success: true,
-        scanned: items.length,
-        due: items.length,
+        success: failures.length === 0,
+        scanned,
+        due: scanned,
         dispatched: dispatchedCount,
         failed: failures.length,
         failures,
       },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err) {
     console.error("[dispatch-scheduled] fatal error", err);
     return NextResponse.json(
-      { success: false, error: err?.message || "Internal error running dispatcher." },
+      { success: false, error: "Internal error running dispatcher." },
       { status: 200 }
     );
   }
