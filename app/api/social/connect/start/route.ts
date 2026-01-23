@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-type ProviderId = "facebook" | "instagram" | "linkedin" | "threads";
+type ProviderId = "facebook" | "instagram" | "linkedin";
 
 function safeBaseUrl(appUrl: string) {
   return (appUrl || "").replace(/\/$/, "");
@@ -16,29 +16,30 @@ function encodeState(obj: any) {
 export async function GET(req: NextRequest) {
   const provider = (req.nextUrl.searchParams.get("provider") || "facebook") as ProviderId;
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-  if (!appUrl) {
-    return NextResponse.json(
-      { error: "Missing NEXT_PUBLIC_APP_URL" },
-      { status: 500 }
-    );
-  }
-
   // ----------------------------
   // LinkedIn (separate OAuth)
   // ----------------------------
   if (provider === "linkedin") {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
     const clientId = process.env.LINKEDIN_CLIENT_ID || "";
 
-    if (!clientId) {
+    if (!appUrl || !clientId) {
       return NextResponse.json(
-        { error: "Missing LINKEDIN_CLIENT_ID" },
+        {
+          error: "Missing LINKEDIN_CLIENT_ID or NEXT_PUBLIC_APP_URL",
+          missing: {
+            LINKEDIN_CLIENT_ID: !clientId,
+            NEXT_PUBLIC_APP_URL: !appUrl,
+          },
+        },
         { status: 500 }
       );
     }
 
+    // IMPORTANT: must match exactly what's in LinkedIn Developer "Authorized redirect URLs"
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/linkedin/callback`;
 
+    // State payload
     const stateObj = {
       provider: "linkedin",
       nonce: crypto.randomUUID(),
@@ -46,7 +47,13 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
-    const scope = ["r_liteprofile", "w_member_social"].join(" ");
+    /**
+     * ✅ Use OpenID scopes because your app is configured for OpenID Connect.
+     * This avoids LinkedIn "Bummer" when r_liteprofile isn't granted/allowed.
+     *
+     * Keep w_member_social for posting.
+     */
+    const scope = ["openid", "profile", "email", "w_member_social"].join(" ");
 
     const authUrl =
       "https://www.linkedin.com/oauth/v2/authorization" +
@@ -54,57 +61,13 @@ export async function GET(req: NextRequest) {
       `&client_id=${encodeURIComponent(clientId)}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
       `&state=${encodeURIComponent(state)}` +
-      `&scope=${encodeURIComponent(scope)}`;
+      `&scope=${encodeURIComponent(scope)}` +
+      // forces the consent screen if LinkedIn is caching an old/invalid grant
+      `&prompt=consent`;
 
     const res = NextResponse.redirect(authUrl, { status: 302 });
 
     res.cookies.set("oauth_state_linkedin", state, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 10 * 60,
-    });
-
-    return res;
-  }
-
-  // ----------------------------
-  // Threads (separate OAuth)
-  // ----------------------------
-  if (provider === "threads") {
-    const clientId = process.env.THREADS_CLIENT_ID || "";
-
-    if (!clientId) {
-      return NextResponse.json(
-        { error: "Missing THREADS_CLIENT_ID" },
-        { status: 500 }
-      );
-    }
-
-    const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/threads/callback`;
-
-    const stateObj = {
-      provider: "threads",
-      nonce: crypto.randomUUID(),
-      t: Date.now(),
-    };
-    const state = encodeState(stateObj);
-
-    // Threads scopes (you already saw threads_basic is required)
-    const scope = ["threads_basic", "threads_content_publish"].join(" ");
-
-    const authUrl =
-      "https://threads.net/oauth/authorize" +
-      `?response_type=code` +
-      `&client_id=${encodeURIComponent(clientId)}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&state=${encodeURIComponent(state)}` +
-      `&scope=${encodeURIComponent(scope)}`;
-
-    const res = NextResponse.redirect(authUrl, { status: 302 });
-
-    res.cookies.set("oauth_state_threads", state, {
       httpOnly: true,
       secure: true,
       sameSite: "lax",
@@ -126,10 +89,17 @@ export async function GET(req: NextRequest) {
   }
 
   const appId = process.env.FACEBOOK_APP_ID || "";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
 
-  if (!appId) {
+  if (!appId || !appUrl) {
     return NextResponse.json(
-      { error: "Missing FACEBOOK_APP_ID" },
+      {
+        error: "Missing FACEBOOK_APP_ID or NEXT_PUBLIC_APP_URL",
+        missing: {
+          FACEBOOK_APP_ID: !appId,
+          NEXT_PUBLIC_APP_URL: !appUrl,
+        },
+      },
       { status: 500 }
     );
   }
