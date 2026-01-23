@@ -12,10 +12,8 @@ type ScheduledPost = {
   status: string;
   created_at?: string;
   meta?: any;
-  error_info?: any; // if your table uses this
+  error_info?: any;
 };
-
-type FilterMode = "all" | "scheduled" | "sent" | "failed";
 
 function prettyPlatforms(list: any) {
   if (!Array.isArray(list) || list.length === 0) return "(none)";
@@ -38,58 +36,35 @@ function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
   return "neutral";
 }
 
-function normalizeStatus(s: any) {
-  return String(s || "").toLowerCase().trim();
-}
-
 export default function ScheduledPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
-
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
-  // Queue UX controls
   const [query, setQuery] = useState("");
   const [showPastCount, setShowPastCount] = useState(25);
-  const [filterMode, setFilterMode] = useState<FilterMode>("all");
-
-  async function resolveOrgId() {
-    // This endpoint already exists in your project and returns organisationId
-    const res = await fetch("/api/social-accounts", { cache: "no-store" });
-    const data: any = await res.json().catch(() => null);
-
-    const orgId = data?.organisationId ? String(data.organisationId) : "";
-    if (!orgId) throw new Error("Could not determine organisationId. (No org returned from /api/social-accounts)");
-    return orgId;
-  }
 
   const load = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const orgId = organisationId || (await resolveOrgId());
-      if (!organisationId) setOrganisationId(orgId);
-
-      const res = await fetch(
-        `/api/schedule/list?organisationId=${encodeURIComponent(orgId)}`,
-        { cache: "no-store" }
-      );
-
+      // ✅ Let the API decide the org (single-tenant default), and return items.
+      const res = await fetch(`/api/schedule/list`, { cache: "no-store" });
       const data: any = await res.json().catch(() => null);
 
-      if (!res.ok) {
-        throw new Error(
-          data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`
-        );
+      if (!data?.ok) {
+        throw new Error(data?.error || "Failed to load scheduled posts.");
       }
 
+      setOrganisationId(data.organisationId || null);
       setRows(Array.isArray(data?.items) ? data.items : []);
     } catch (e: any) {
       setRows([]);
+      setOrganisationId(null);
       setError(e?.message || "Could not load scheduled posts.");
     } finally {
       setLoading(false);
@@ -110,7 +85,7 @@ export default function ScheduledPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const filteredBySearch = useMemo(() => {
+  const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
 
@@ -122,71 +97,25 @@ export default function ScheduledPage() {
     });
   }, [rows, query]);
 
-  const filteredByMode = useMemo(() => {
-    const mode = filterMode;
-
-    if (mode === "all") return filteredBySearch;
-
-    return filteredBySearch.filter((r) => {
-      const s = normalizeStatus(r.status);
-
-      if (mode === "scheduled") {
-        // treat anything "scheduled/queued/pending" as scheduled bucket
-        return s.includes("scheduled") || s.includes("queued") || s.includes("pending");
-      }
-
-      if (mode === "sent") {
-        return s.includes("sent") || s.includes("posted") || s.includes("success");
-      }
-
-      if (mode === "failed") {
-        return s.includes("failed") || s.includes("error");
-      }
-
-      return true;
-    });
-  }, [filteredBySearch, filterMode]);
-
   const upcoming = useMemo(() => {
     const now = Date.now();
-    return filteredByMode
+    return filtered
       .filter((r) => new Date(r.scheduled_for).getTime() >= now)
       .sort(
         (a, b) =>
           new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime()
       );
-  }, [filteredByMode]);
+  }, [filtered]);
 
   const past = useMemo(() => {
     const now = Date.now();
-    return filteredByMode
+    return filtered
       .filter((r) => new Date(r.scheduled_for).getTime() < now)
       .sort(
         (a, b) =>
           new Date(b.scheduled_for).getTime() - new Date(a.scheduled_for).getTime()
       );
-  }, [filteredByMode]);
-
-  const counts = useMemo(() => {
-    const all = filteredBySearch.length;
-
-    const scheduled = filteredBySearch.filter((r) => {
-      const s = normalizeStatus(r.status);
-      return s.includes("scheduled") || s.includes("queued") || s.includes("pending");
-    }).length;
-
-    const sent = filteredBySearch.filter((r) => {
-      const s = normalizeStatus(r.status);
-      return s.includes("sent") || s.includes("posted") || s.includes("success");
-    }).length;
-
-    const failed = filteredBySearch.filter((r) => {
-      const s = normalizeStatus(r.status);
-      return s.includes("failed") || s.includes("error");
-    }).length;
-
-    return { all, scheduled, sent, failed };
-  }, [filteredBySearch]);
+  }, [filtered]);
 
   const Pill = ({
     children,
@@ -216,43 +145,10 @@ export default function ScheduledPage() {
     );
   };
 
-  const FilterButton = ({
-    label,
-    mode,
-    count,
-  }: {
-    label: string;
-    mode: FilterMode;
-    count: number;
-  }) => {
-    const active = filterMode === mode;
-    return (
-      <button
-        type="button"
-        onClick={() => setFilterMode(mode)}
-        className={[
-          "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition",
-          active ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-white/5 text-slate-100 hover:bg-white/10",
-        ].join(" ")}
-      >
-        <span>{label}</span>
-        <span className="text-[11px] opacity-80">{count}</span>
-      </button>
-    );
-  };
-
   const RowCard = ({ p }: { p: ScheduledPost }) => {
     const tone = statusTone(p.status);
-
-    // Try to surface useful error detail (without breaking if field is different)
-    const err =
-      (p as any)?.error_info ||
-      (p as any)?.meta?.error_info ||
-      (p as any)?.meta?.error ||
-      null;
-
     return (
-      <div className="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-3">
+      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-[11px] text-slate-300">
             {safeDate(p.scheduled_for)} ·{" "}
@@ -263,25 +159,22 @@ export default function ScheduledPage() {
           <Pill tone={tone}>{p.status || "unknown"}</Pill>
         </div>
 
-        <div className="text-sm whitespace-pre-wrap text-slate-100">
+        <div className="mt-3 text-sm whitespace-pre-wrap text-slate-100">
           {p.message || "(empty message)"}
         </div>
 
         {p.image_url ? (
-          <div className="text-[11px] text-slate-400 truncate">
+          <div className="mt-3 text-[11px] text-slate-400 truncate">
             Image: <span className="text-slate-300">{p.image_url}</span>
           </div>
         ) : null}
 
-        {err ? (
-          <details className="rounded-2xl border border-red-500/25 bg-red-950/20 p-3">
-            <summary className="cursor-pointer text-[11px] font-semibold text-red-200">
-              View error details
-            </summary>
-            <pre className="mt-2 whitespace-pre-wrap text-[11px] text-red-100">
-              {JSON.stringify(err, null, 2)}
-            </pre>
-          </details>
+        {p.error_info ? (
+          <div className="mt-3 rounded-xl border border-red-500/30 bg-red-950/30 p-3 text-[11px] text-red-200 whitespace-pre-wrap">
+            {typeof p.error_info === "string"
+              ? p.error_info
+              : JSON.stringify(p.error_info, null, 2)}
+          </div>
         ) : null}
       </div>
     );
@@ -293,7 +186,7 @@ export default function ScheduledPage() {
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-              Scheduled <span className="text-xs text-slate-400">(fixed)</span>
+              Scheduled <span className="text-xs text-slate-400">(v5)</span>
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               Read-only queue of everything scheduled from elsewhere (Stories, Campaigns, Sequences, etc.).
@@ -320,12 +213,12 @@ export default function ScheduledPage() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-6 space-y-4">
+        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <div className="text-base font-semibold">Search + Filter</div>
+              <div className="text-base font-semibold">Search the queue</div>
               <div className="mt-1 text-xs text-slate-300">
-                Search by message, platforms, status, or date. Use filters to show Sent/Failed.
+                Search by message, platforms, status, or date.
               </div>
             </div>
 
@@ -337,21 +230,14 @@ export default function ScheduledPage() {
             />
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <FilterButton label="All" mode="all" count={counts.all} />
-            <FilterButton label="Scheduled" mode="scheduled" count={counts.scheduled} />
-            <FilterButton label="Sent" mode="sent" count={counts.sent} />
-            <FilterButton label="Failed" mode="failed" count={counts.failed} />
-          </div>
-
           {error && (
-            <div className="rounded-2xl border border-red-500/40 bg-red-950/40 p-4 text-sm text-red-200 whitespace-pre-wrap">
+            <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/40 p-4 text-sm text-red-200 whitespace-pre-wrap">
               {error}
             </div>
           )}
 
           {loading && (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
               Loading scheduled posts…
             </div>
           )}
@@ -366,7 +252,7 @@ export default function ScheduledPage() {
 
             {!loading && upcoming.length === 0 ? (
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                No upcoming posts in this filter.
+                No upcoming posts.
               </div>
             ) : (
               <div className="space-y-3">
@@ -395,7 +281,7 @@ export default function ScheduledPage() {
 
             {!loading && past.length === 0 ? (
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                No past posts in this filter.
+                No past posts.
               </div>
             ) : (
               <div className="space-y-3">
@@ -411,10 +297,6 @@ export default function ScheduledPage() {
               </div>
             )}
           </section>
-        </div>
-
-        <div className="text-[11px] text-slate-500">
-          Note: this page no longer hard-codes an organisation id.
         </div>
       </div>
     </div>
