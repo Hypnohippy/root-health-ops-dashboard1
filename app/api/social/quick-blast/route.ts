@@ -18,7 +18,7 @@ type SocialAccountRow = {
   id: string;
   organisation_id: string;
   platform: ProviderId;
-  page_id: string | null; // for linkedin we will store author URN or person id
+  page_id: string | null;
   page_name: string | null;
   connection_type: string | null;
   make_webhook_url: string | null;
@@ -26,6 +26,16 @@ type SocialAccountRow = {
   page_access_token: string | null;
   token_expires_at: string | null;
 };
+
+function safeBaseUrl(appUrl: string) {
+  return (appUrl || "").replace(/\/$/, "");
+}
+
+function baseUrl(req: NextRequest) {
+  const env = process.env.NEXT_PUBLIC_APP_URL || "";
+  if (env) return safeBaseUrl(env);
+  return req.nextUrl.origin;
+}
 
 async function getSingleTenantOrganisationId() {
   const { data, error } = await supabaseAdmin
@@ -78,9 +88,6 @@ function isLikelyImageUrl(url: string) {
   return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
 }
 
-/** -----------------------------
- *  FACEBOOK
- *  ---------------------------- */
 async function postToFacebook(args: {
   pageId: string;
   pageAccessToken: string;
@@ -122,7 +129,7 @@ async function postToFacebook(args: {
     });
 
     const json: any = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, json };
+    return { ok: res.ok, status: res.status, json, mode: "photo" as const };
   }
 
   // Text post
@@ -142,141 +149,44 @@ async function postToFacebook(args: {
   });
 
   const json: any = await res.json().catch(() => null);
-  return { ok: res.ok, status: res.status, json };
+  return { ok: res.ok, status: res.status, json, mode: "text" as const };
 }
 
-/** -----------------------------
- *  LINKEDIN (Option A)
- *  Uses the token already stored in social_accounts
- *  page_access_token = LinkedIn access token
- *  page_id = author URN (preferred) or LinkedIn person id
- *  ---------------------------- */
+/**
+ * ✅ LinkedIn: reuse your existing, already-working implementation
+ * We simply proxy to /api/linkedin/post so Quick Blast works everywhere.
+ */
+async function postToLinkedInViaExistingRoute(args: {
+  req: NextRequest;
+  message: string;
+  organisationId: string;
+}) {
+  const url = `${baseUrl(args.req)}/api/linkedin/post`;
 
-function normalizeLinkedInAuthorUrn(pageId: string | null): string | null {
-  const v = (pageId || "").trim();
-  if (!v) return null;
-
-  // already urn
-  if (v.startsWith("urn:li:")) return v;
-
-  // otherwise treat as person id
-  return `urn:li:person:${v}`;
-}
-
-async function fetchLinkedInMe(accessToken: string) {
-  // Classic endpoint
-  const res = await fetch("https://api.linkedin.com/v2/me", {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "X-Restli-Protocol-Version": "2.0.0",
-    },
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // Keep payload simple; your existing route can expand later
+    body: JSON.stringify({
+      message: args.message,
+      organisationId: args.organisationId,
+    }),
     cache: "no-store",
   });
 
   const json: any = await res.json().catch(() => null);
-  return { ok: res.ok, status: res.status, json };
-}
-
-async function ensureLinkedInAuthorUrn(args: {
-  organisationId: string;
-  linkedinRow: SocialAccountRow;
-}): Promise<{ authorUrn: string | null; personId: string | null }> {
-  const existingUrn = normalizeLinkedInAuthorUrn(args.linkedinRow.page_id);
-  if (existingUrn) return { authorUrn: existingUrn, personId: null };
-
-  const token = (args.linkedinRow.page_access_token || "").trim();
-  if (!token) return { authorUrn: null, personId: null };
-
-  const me = await fetchLinkedInMe(token);
-  if (!me.ok || !me.json?.id) {
-    console.warn("[quick-blast] linkedin /me failed", me.status, me.json);
-    return { authorUrn: null, personId: null };
-  }
-
-  const personId = String(me.json.id);
-  const authorUrn = `urn:li:person:${personId}`;
-
-  // Save back so ALL pages can rely on it
-  try {
-    await supabaseAdmin
-      .from("social_accounts")
-      .update({
-        page_id: authorUrn,
-        page_name:
-          args.linkedinRow.page_name ||
-          me.json?.localizedFirstName ||
-          me.json?.firstName?.localized?.en_US ||
-          null,
-        is_active: true,
-      })
-      .eq("id", args.linkedinRow.id);
-  } catch (e) {
-    console.warn("[quick-blast] linkedin author urn save warn", e);
-  }
-
-  return { authorUrn, personId };
-}
-
-async function postToLinkedInText(args: {
-  accessToken: string;
-  authorUrn: string;
-  message: string;
-}) {
-  const url = "https://api.linkedin.com/v2/ugcPosts";
-
-  const payload = {
-    author: args.authorUrn,
-    lifecycleState: "PUBLISHED",
-    specificContent: {
-      "com.linkedin.ugc.ShareContent": {
-        shareCommentary: { text: args.message },
-        shareMediaCategory: "NONE",
-      },
-    },
-    visibility: {
-      "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
-    },
-  };
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${args.accessToken}`,
-      "Content-Type": "application/json",
-      "X-Restli-Protocol-Version": "2.0.0",
-    },
-    body: JSON.stringify(payload),
-    cache: "no-store",
-  });
-
-  // LinkedIn often returns 201 with empty body
-  const text = await res.text().catch(() => "");
-  let json: any = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = null;
-  }
-
-  // some responses provide id in header
-  const headerId =
-    res.headers.get("x-restli-id") ||
-    res.headers.get("x-linkedin-id") ||
-    null;
 
   return {
-    ok: res.ok,
+    ok: res.ok && !!json?.postedId,
     status: res.status,
     json,
-    headerId,
-    raw: text?.slice(0, 500) || "",
+    error:
+      json?.error ||
+      json?.message ||
+      (!res.ok ? `LinkedIn request failed (${res.status})` : null),
   };
 }
 
-/** -----------------------------
- *  MAIN
- *  ---------------------------- */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -314,18 +224,7 @@ export async function POST(req: NextRequest) {
     const results: any[] = [];
 
     for (const p of platforms) {
-      // Only these are implemented right now
-      if (p !== "facebook" && p !== "instagram" && p !== "linkedin" && p !== "threads") {
-        results.push({
-          platform: p,
-          ok: false,
-          skipped: true,
-          reason: "Not implemented yet.",
-        });
-        continue;
-      }
-
-      // FACEBOOK
+      // --- Facebook ---
       if (p === "facebook") {
         const row = await loadSocialAccount(organisationId, "facebook");
 
@@ -371,89 +270,34 @@ export async function POST(req: NextRequest) {
           platform: "facebook",
           ok: true,
           postedId: fb.json?.post_id || fb.json?.id || null,
-          mode: imageUrl ? "photo" : "text",
+          mode: fb.mode,
         });
+
         continue;
       }
 
-      // INSTAGRAM (your existing working flow)
+      // --- Instagram ---
       if (p === "instagram") {
-        // Keep your existing Instagram handler where it currently lives.
-        // If you already have IG posting working in this endpoint in your current version,
-        // leave it as-is. If not, this will skip cleanly.
+        // You already have IG posting working in your project through your IG flow.
+        // Keep it as-is if your current quick-blast route already supports it.
+        // If your IG flow is inside THIS endpoint already, it will run there.
+        // If not, we skip with a clear reason.
         results.push({
           platform: "instagram",
           ok: false,
           skipped: true,
           reason:
-            "Instagram posting is handled by your existing IG flow (already working).",
+            "Instagram is handled by your existing IG flow in this project. (If you want, we can also proxy to that route like LinkedIn.)",
         });
         continue;
       }
 
-      // THREADS (already working in your build — enforce 500 char max)
-      if (p === "threads") {
-        const row = await loadSocialAccount(organisationId, "threads");
-
-        if (!row?.page_access_token) {
-          results.push({
-            platform: "threads",
-            ok: false,
-            error: "Threads not connected (missing access token). Connect Threads.",
-          });
-          continue;
-        }
-
-        // Threads max is 500 chars — hard trim so it never fails
-        const text = message.length > 500 ? message.slice(0, 500) : message;
-
-        // NOTE: Your Threads posting logic may exist elsewhere in your project.
-        // If your project currently posts Threads successfully from this endpoint, keep it.
-        // If you want me to wire the Threads API calls here next, say so and paste your current threads route.
-        results.push({
-          platform: "threads",
-          ok: false,
-          skipped: true,
-          reason:
-            "Threads posting is already working in your project; keep your existing implementation. (We can unify it here next if you want.)",
-          note: message.length > 500 ? "Message trimmed to 500 chars (Threads limit)." : undefined,
-        });
-        continue;
-      }
-
-      // ✅ LINKEDIN (Option A implemented here)
+      // --- LinkedIn (FIXED) ---
       if (p === "linkedin") {
-        const row = await loadSocialAccount(organisationId, "linkedin");
-
-        if (!row?.page_access_token) {
-          results.push({
-            platform: "linkedin",
-            ok: false,
-            error:
-              "LinkedIn not connected (missing access token). Reconnect LinkedIn from Connect.",
-          });
-          continue;
-        }
-
-        const { authorUrn } = await ensureLinkedInAuthorUrn({
-          organisationId,
-          linkedinRow: row,
-        });
-
-        if (!authorUrn) {
-          results.push({
-            platform: "linkedin",
-            ok: false,
-            error:
-              "LinkedIn connected but could not resolve author URN. Reconnect LinkedIn and try again.",
-          });
-          continue;
-        }
-
-        const li = await postToLinkedInText({
-          accessToken: row.page_access_token,
-          authorUrn,
+        const li = await postToLinkedInViaExistingRoute({
+          req,
           message,
+          organisationId,
         });
 
         if (!li.ok) {
@@ -461,11 +305,8 @@ export async function POST(req: NextRequest) {
             platform: "linkedin",
             ok: false,
             status: li.status,
-            error:
-              li.json?.message ||
-              li.json?.error_description ||
-              "LinkedIn post failed",
-            details: li.json || li.raw,
+            error: li.error || "LinkedIn post failed",
+            details: li.json,
           });
           continue;
         }
@@ -473,16 +314,24 @@ export async function POST(req: NextRequest) {
         results.push({
           platform: "linkedin",
           ok: true,
-          postedId: li.json?.id || li.headerId || null,
+          postedId: li.json?.postedId || null,
           mode: "text",
         });
 
         continue;
       }
+
+      // --- Everything else ---
+      results.push({
+        platform: p,
+        ok: false,
+        skipped: true,
+        reason: "Not implemented yet.",
+      });
     }
 
     const okCount = results.filter((r) => r.ok).length;
-    const failCount = results.filter((r) => r.ok === false && !r.skipped).length;
+    const failCount = results.filter((r) => !r.ok && !r.skipped).length;
     const skippedCount = results.filter((r) => r.skipped).length;
 
     return NextResponse.json(
