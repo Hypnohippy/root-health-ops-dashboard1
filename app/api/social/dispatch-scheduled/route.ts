@@ -14,6 +14,12 @@ function baseUrl(req: NextRequest) {
   return req.nextUrl.origin;
 }
 
+function resolveOrgIdFromEnvOrItem(itemOrgId: string | null) {
+  const pinned = (process.env.SINGLE_TENANT_ORG_ID || "").trim();
+  if (pinned) return pinned;
+  return (itemOrgId || "").trim();
+}
+
 export async function GET(req: NextRequest) {
   try {
     const nowIso = new Date().toISOString();
@@ -27,7 +33,7 @@ export async function GET(req: NextRequest) {
       .eq("status", "scheduled")
       .lte("scheduled_for", nowIso)
       .order("scheduled_for", { ascending: true })
-      .limit(20);
+      .limit(25);
 
     if (error) {
       console.error("[dispatch-scheduled] fetch error", error);
@@ -44,82 +50,110 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const failures: any[] = [];
     let dispatchedCount = 0;
+    const failures: any[] = [];
 
-    // 2) Dispatch each due item via YOUR social engine (Quick Blast)
     for (const item of items as any[]) {
-      const id = item.id as string;
-      const organisationId = String(item.organisation_id || "").trim();
-      const message: string = String(item.message || "");
+      const id = String(item.id || "");
+      const itemOrgId = item.organisation_id ? String(item.organisation_id) : null;
+
+      const organisationId = resolveOrgIdFromEnvOrItem(itemOrgId);
+
+      const message: string = String(item.message || "").trim();
       const platforms: string[] = Array.isArray(item.platforms) ? item.platforms : [];
-      const imageUrl: string = item.image_url ? String(item.image_url) : "";
+      const imageUrl: string | null = item.image_url ? String(item.image_url) : null;
 
-      try {
-        const qbRes = await fetch(`${baseUrl(req)}/api/social/quick-blast?organisationId=${encodeURIComponent(organisationId)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          cache: "no-store",
-          body: JSON.stringify({
-            message,
-            platforms,
-            imageUrl: imageUrl || undefined,
-          }),
+      if (!id || !organisationId || !message || platforms.length === 0) {
+        failures.push({
+          id,
+          error: "Invalid scheduled_post row (missing id/org/message/platforms).",
         });
-
-        const qbJson: any = await qbRes.json().catch(() => null);
-
-        const ok = !!qbJson?.success && Array.isArray(qbJson?.results) && qbJson.results.every((r: any) => r?.ok || r?.skipped);
-
-        if (!ok) {
-          // Mark failed (and store error_info)
-          await supabaseAdmin
-            .from("scheduled_posts")
-            .update({
-              status: "failed",
-              error_info: qbJson || { error: "Quick Blast failed", status: qbRes.status },
-            })
-            .eq("id", id);
-
-          failures.push({
-            id,
-            organisationId,
-            statusCode: qbRes.status,
-            error: qbJson,
-          });
-
-          continue;
-        }
-
-        // Mark sent only when Quick Blast actually succeeded
-        await supabaseAdmin
-          .from("scheduled_posts")
-          .update({
-            status: "sent",
-            posted_at: new Date().toISOString(),
-            error_info: qbJson, // keep proof of results (optional but useful)
-          })
-          .eq("id", id);
-
-        dispatchedCount += 1;
-      } catch (e: any) {
-        console.error("[dispatch-scheduled] exception dispatching item", id, e);
 
         await supabaseAdmin
           .from("scheduled_posts")
           .update({
             status: "failed",
-            error_info: { error: String(e?.message || e) },
+            error_info: { error: "Invalid row data" },
           })
           .eq("id", id);
 
-        failures.push({ id, organisationId, error: String(e?.message || e) });
+        continue;
+      }
+
+      try {
+        // 2) Dispatch using YOUR internal posting endpoint (direct posting)
+        const postRes = await fetch(
+          `${baseUrl(req)}/api/social/quick-blast?organisationId=${encodeURIComponent(
+            organisationId
+          )}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message,
+              platforms,
+              imageUrl: imageUrl || undefined,
+            }),
+            cache: "no-store",
+          }
+        );
+
+        const postJson: any = await postRes.json().catch(() => null);
+
+        // We only mark as SENT if:
+        // - response ok
+        // - and "summary.failed" is 0
+        const failed = Number(postJson?.summary?.failed || 0);
+        const ok = Number(postJson?.summary?.ok || 0);
+
+        if (!postRes.ok || !postJson || failed > 0 || ok === 0) {
+          const errorInfo = postJson || { status: postRes.status, error: "Posting failed" };
+
+          failures.push({
+            id,
+            statusCode: postRes.status,
+            error: errorInfo,
+          });
+
+          await supabaseAdmin
+            .from("scheduled_posts")
+            .update({
+              status: "failed",
+              error_info: errorInfo,
+            })
+            .eq("id", id);
+
+          continue;
+        }
+
+        await supabaseAdmin
+          .from("scheduled_posts")
+          .update({
+            status: "sent",
+            posted_at: new Date().toISOString(),
+            error_info: null,
+          })
+          .eq("id", id);
+
+        dispatchedCount += 1;
+      } catch (e: any) {
+        console.error("[dispatch-scheduled] exception posting item", id, e);
+
+        failures.push({ id, error: String(e) });
+
+        await supabaseAdmin
+          .from("scheduled_posts")
+          .update({
+            status: "failed",
+            error_info: { error: String(e) },
+          })
+          .eq("id", id);
       }
     }
 
     return NextResponse.json(
       {
-        success: failures.length === 0,
+        success: true,
         scanned: items.length,
         due: items.length,
         dispatched: dispatchedCount,
