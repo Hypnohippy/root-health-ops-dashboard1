@@ -94,7 +94,6 @@ async function postToFacebook(args: {
   message: string;
   imageUrl?: string;
 }) {
-  // Photo post
   if (args.imageUrl && args.imageUrl.trim()) {
     const imageUrl = args.imageUrl.trim();
 
@@ -108,6 +107,7 @@ async function postToFacebook(args: {
               "Facebook imageUrl must be a direct https image link (ending .jpg/.png etc).",
           },
         },
+        mode: "photo" as const,
       };
     }
 
@@ -132,7 +132,6 @@ async function postToFacebook(args: {
     return { ok: res.ok, status: res.status, json, mode: "photo" as const };
   }
 
-  // Text post
   const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
     args.pageId
   )}/feed`;
@@ -153,23 +152,25 @@ async function postToFacebook(args: {
 }
 
 /**
- * ✅ LinkedIn: reuse your existing, already-working implementation
- * We simply proxy to /api/linkedin/post so Quick Blast works everywhere.
+ * ✅ LinkedIn proxy (now supports imageUrl/videoUrl)
  */
 async function postToLinkedInViaExistingRoute(args: {
   req: NextRequest;
   message: string;
   organisationId: string;
+  imageUrl?: string;
+  videoUrl?: string;
 }) {
   const url = `${baseUrl(args.req)}/api/linkedin/post`;
 
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    // Keep payload simple; your existing route can expand later
     body: JSON.stringify({
       message: args.message,
       organisationId: args.organisationId,
+      imageUrl: args.imageUrl || undefined,
+      videoUrl: args.videoUrl || undefined,
     }),
     cache: "no-store",
   });
@@ -177,7 +178,7 @@ async function postToLinkedInViaExistingRoute(args: {
   const json: any = await res.json().catch(() => null);
 
   return {
-    ok: res.ok && !!json?.postedId,
+    ok: res.ok && (json?.postedId || json?.ok),
     status: res.status,
     json,
     error:
@@ -193,6 +194,7 @@ export async function POST(req: NextRequest) {
 
     const message = String(body?.message ?? "").trim();
     const imageUrl = String(body?.imageUrl ?? "").trim();
+    const videoUrl = String(body?.videoUrl ?? "").trim();
 
     const platformsRaw = Array.isArray(body?.platforms) ? body.platforms : [];
     const platforms: ProviderId[] = platformsRaw
@@ -278,26 +280,24 @@ export async function POST(req: NextRequest) {
 
       // --- Instagram ---
       if (p === "instagram") {
-        // You already have IG posting working in your project through your IG flow.
-        // Keep it as-is if your current quick-blast route already supports it.
-        // If your IG flow is inside THIS endpoint already, it will run there.
-        // If not, we skip with a clear reason.
         results.push({
           platform: "instagram",
           ok: false,
           skipped: true,
           reason:
-            "Instagram is handled by your existing IG flow in this project. (If you want, we can also proxy to that route like LinkedIn.)",
+            "Instagram is handled by your existing IG flow in this project.",
         });
         continue;
       }
 
-      // --- LinkedIn (FIXED) ---
+      // --- LinkedIn (text + image + video) ---
       if (p === "linkedin") {
         const li = await postToLinkedInViaExistingRoute({
           req,
           message,
           organisationId,
+          imageUrl: imageUrl || undefined,
+          videoUrl: videoUrl || undefined,
         });
 
         if (!li.ok) {
@@ -315,7 +315,7 @@ export async function POST(req: NextRequest) {
           platform: "linkedin",
           ok: true,
           postedId: li.json?.postedId || null,
-          mode: "text",
+          mode: li.json?.mode || (videoUrl ? "video" : imageUrl ? "image" : "text"),
         });
 
         continue;
