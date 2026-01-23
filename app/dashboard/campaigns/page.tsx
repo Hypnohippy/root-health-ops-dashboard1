@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import ConnectedChannelsBar from "../components/ConnectedChannelsBar";
 
 type CampaignRecord = {
   id: string;
@@ -139,20 +140,25 @@ export default function CampaignsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
-        <header className="flex items-center justify-between gap-2">
-          <div>
-            <h1 className="text-2xl font-semibold">Campaigns</h1>
-            <p className="text-sm text-gray-600">
-              See your split tests at a glance. Each card groups variants by
-              campaign name, platform and objective.
-            </p>
+        <header className="flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h1 className="text-2xl font-semibold">Campaigns</h1>
+              <p className="text-sm text-gray-600">
+                See your split tests at a glance. Each card groups variants by
+                campaign name, platform and objective.
+              </p>
+            </div>
+            <a
+              href="/dashboard/campaigns/new"
+              className="rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white"
+            >
+              + New campaign
+            </a>
           </div>
-          <a
-            href="/dashboard/campaigns/new"
-            className="rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white"
-          >
-            + New campaign
-          </a>
+
+          {/* ✅ Option A: Connections bar everywhere */}
+          <ConnectedChannelsBar title="Social connections" />
         </header>
 
         <section className="rounded-xl border bg-white p-4 flex flex-wrap gap-4 items-center text-xs">
@@ -219,13 +225,9 @@ export default function CampaignsPage() {
           </div>
         </section>
 
-        {loading && (
-          <p className="text-sm text-gray-500">Loading campaigns…</p>
-        )}
+        {loading && <p className="text-sm text-gray-500">Loading campaigns…</p>}
         {error && (
-          <p className="text-sm text-red-600">
-            Error loading campaigns: {error}
-          </p>
+          <p className="text-sm text-red-600">Error loading campaigns: {error}</p>
         )}
 
         {!loading && !error && grouped.length === 0 && (
@@ -253,12 +255,8 @@ export default function CampaignsPage() {
                       key={c.id}
                       className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] gap-1"
                     >
-                      <span className="font-semibold">
-                        {c.ab_group || "–"}
-                      </span>
-                      <span className="text-gray-500">
-                        {c.status || "draft"}
-                      </span>
+                      <span className="font-semibold">{c.ab_group || "–"}</span>
+                      <span className="text-gray-500">{c.status || "draft"}</span>
                     </span>
                   ))}
                 </div>
