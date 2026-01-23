@@ -1,27 +1,26 @@
-// app/api/social/dispatch-scheduled/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
-const AYRSHARE_API_KEY = process.env.AYRSHARE_API_KEY;
+export const runtime = "nodejs";
+
+function safeBaseUrl(appUrl: string) {
+  return (appUrl || "").replace(/\/$/, "");
+}
+
+function baseUrl(req: NextRequest) {
+  const env = process.env.NEXT_PUBLIC_APP_URL || "";
+  if (env) return safeBaseUrl(env);
+  return req.nextUrl.origin;
+}
 
 export async function GET(req: NextRequest) {
-  if (!AYRSHARE_API_KEY) {
-    console.error("Missing AYRSHARE_API_KEY");
-    return NextResponse.json(
-      { success: false, error: "Missing social engine key." },
-      { status: 200 }
-    );
-  }
-
   try {
     const nowIso = new Date().toISOString();
 
     // 1) Find due scheduled posts
     const { data: items, error } = await supabaseAdmin
       .from("scheduled_posts")
-      .select(
-        "id, organisation_id, message, platforms, image_url, scheduled_for, status"
-      )
+      .select("id, organisation_id, message, platforms, image_url, scheduled_for, status")
       .eq("status", "scheduled")
       .lte("scheduled_for", nowIso)
       .order("scheduled_for", { ascending: true })
@@ -36,10 +35,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (!items || items.length === 0) {
-      return NextResponse.json(
-        { success: true, dispatched: 0, failed: 0 },
-        { status: 200 }
-      );
+      return NextResponse.json({ success: true, dispatched: 0, failed: 0 }, { status: 200 });
     }
 
     let dispatchedCount = 0;
@@ -47,48 +43,39 @@ export async function GET(req: NextRequest) {
 
     for (const item of items as any[]) {
       const id = item.id as string;
-      const text: string = item.message;
-      const platforms: string[] = item.platforms || [];
+      const organisationId = item.organisation_id as string;
+      const message: string = String(item.message || "").trim();
+      const platforms: string[] = Array.isArray(item.platforms) ? item.platforms : [];
       const imageUrl: string | null = item.image_url || null;
 
-      const payload: Record<string, any> = {
-        post: text,
-        platforms,
-      };
-
-      if (imageUrl && typeof imageUrl === "string") {
-        payload.mediaUrls = [imageUrl];
+      if (!organisationId || !message || platforms.length === 0) {
+        failures.push({ id, error: "Invalid scheduled post record (missing org/message/platforms)" });
+        await supabaseAdmin
+          .from("scheduled_posts")
+          .update({ status: "failed", error_info: { error: "Invalid record" } })
+          .eq("id", id);
+        continue;
       }
 
       try {
-        const res = await fetch("https://api.ayrshare.com/api/post", {
+        // ✅ Post via YOUR own social engine (Quick Blast)
+        const res = await fetch(`${baseUrl(req)}/api/social/quick-blast`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${AYRSHARE_API_KEY}`,
-          },
-          body: JSON.stringify(payload),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            organisationId,
+            message,
+            platforms,
+            imageUrl: imageUrl || undefined,
+          }),
+          cache: "no-store",
         });
 
-        let data: any = null;
-        try {
-          data = await res.json();
-        } catch {
-          // ignore parse failures; treat as generic error if not ok
-        }
+        const data: any = await res.json().catch(() => null);
 
-        if (!res.ok || (data && data.status === "error")) {
-          console.error(
-            "[dispatch-scheduled] Ayrshare error for item",
-            id,
-            res.status,
-            data
-          );
-          failures.push({
-            id,
-            statusCode: res.status,
-            error: data,
-          });
+        const ok = !!data?.success && Array.isArray(data?.results);
+        if (!ok) {
+          failures.push({ id, statusCode: res.status, error: data || "Quick Blast failed" });
 
           await supabaseAdmin
             .from("scheduled_posts")
@@ -106,6 +93,7 @@ export async function GET(req: NextRequest) {
           .update({
             status: "sent",
             posted_at: new Date().toISOString(),
+            error_info: null,
           })
           .eq("id", id);
 
