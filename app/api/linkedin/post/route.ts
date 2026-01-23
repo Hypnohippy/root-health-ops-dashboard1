@@ -1,171 +1,257 @@
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function pickText(body: any) {
-  const t =
-    (typeof body?.text === "string" && body.text) ||
-    (typeof body?.message === "string" && body.message) ||
-    "";
-  return String(t || "").trim();
-}
+type ProviderId = "linkedin";
 
-function pickUrl(body: any, key: "imageUrl" | "videoUrl") {
-  const v = body?.[key];
-  if (!v) return "";
-  return String(v || "").trim();
-}
+type SocialAccountRow = {
+  id: string;
+  organisation_id: string;
+  platform: ProviderId;
+  page_access_token: string | null;
+  is_active: boolean | null;
+};
 
-function looksLikeHttpsUrl(u: string) {
-  return /^https:\/\/.+/i.test((u || "").trim());
-}
+async function getSingleTenantOrganisationId() {
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
 
-async function getLinkedInAccessToken() {
-  const token = process.env.LINKEDIN_ACCESS_TOKEN;
-  if (!token) throw new Error("LINKEDIN_ACCESS_TOKEN not configured");
-  return token;
-}
-
-async function safeJson(res: Response) {
-  try {
-    return await res.json();
-  } catch {
+  if (error) {
+    console.error("[linkedin/post] organisations error", error);
     return null;
   }
+  if (!data || data.length === 0) return null;
+  return data[0].id as string;
 }
 
-async function fetchBytesFromUrl(url: string) {
-  const res = await fetch(url, { method: "GET", cache: "no-store" });
-  const contentType = res.headers.get("content-type") || "";
-  const buf = Buffer.from(await res.arrayBuffer());
-  return { ok: res.ok, status: res.status, contentType, buf };
+async function resolveOrganisationId(req: NextRequest) {
+  // 1) querystring
+  try {
+    const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
+    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
+  } catch {}
+
+  // 2) body
+  try {
+    const clone = req.clone();
+    const b = await clone.json().catch(() => ({} as any));
+    const orgFromBody = String(b?.organisationId ?? "").trim();
+    if (orgFromBody) return orgFromBody;
+  } catch {}
+
+  // 3) single-tenant fallback
+  return await getSingleTenantOrganisationId();
 }
 
-function isImageContentType(ct: string) {
-  return /^image\/(jpeg|jpg|png|gif|webp)$/i.test(ct || "");
+async function loadLinkedInToken(organisationId: string) {
+  // Prefer token stored in social_accounts (so reconnect fixes expiry)
+  const { data, error } = await supabaseAdmin
+    .from("social_accounts")
+    .select("id, organisation_id, platform, page_access_token, is_active")
+    .eq("organisation_id", organisationId)
+    .eq("platform", "linkedin")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[linkedin/post] social_accounts load warn", error);
+  }
+
+  const row = (data as any as SocialAccountRow) ?? null;
+  if (row?.page_access_token) return row.page_access_token;
+
+  // Fallback to env token if you still have it
+  const env = process.env.LINKEDIN_ACCESS_TOKEN;
+  if (env) return env;
+
+  throw new Error(
+    "LinkedIn is not connected (no token found). Go to Connect and reconnect LinkedIn."
+  );
 }
-function isVideoContentType(ct: string) {
-  return /^video\/(mp4|quicktime|x-m4v|webm)$/i.test(ct || "");
+
+async function fetchJson(url: string, token: string, init?: RequestInit) {
+  const res = await fetch(url, {
+    cache: "no-store",
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(init?.headers || {}),
+    },
+  });
+
+  const json: any = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json };
 }
 
 async function getAuthorUrn(token: string) {
-  const userRes = await fetch("https://api.linkedin.com/v2/userinfo", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const userInfo = await safeJson(userRes);
-  if (!userRes.ok) {
-    throw new Error(userInfo?.message || "Failed to fetch LinkedIn user info");
+  // OpenID Connect userinfo
+  const out = await fetchJson("https://api.linkedin.com/v2/userinfo", token);
+  if (!out.ok) {
+    const msg = out.json?.message || out.json?.error_description || "Failed to fetch LinkedIn userinfo";
+    throw new Error(msg);
   }
-  const sub = userInfo?.sub as string | undefined;
-  if (!sub) throw new Error("No 'sub' field in LinkedIn userinfo response");
+
+  const sub = out.json?.sub ? String(out.json.sub) : "";
+  if (!sub) throw new Error("LinkedIn userinfo returned no 'sub' (member id).");
+
   return `urn:li:person:${sub}`;
 }
 
-async function registerUpload(token: string, authorUrn: string, kind: "image" | "video") {
-  // LinkedIn recipes:
-  // image: urn:li:digitalmediaRecipe:feedshare-image
-  // video: urn:li:digitalmediaRecipe:feedshare-video
+function isLikelyMediaUrl(url: string) {
+  const u = (url || "").trim();
+  if (!u) return false;
+  if (!/^https:\/\//i.test(u)) return false;
+  return true;
+}
+
+function mediaCategoryFromContentType(ct: string) {
+  const s = (ct || "").toLowerCase();
+  if (s.startsWith("image/")) return "IMAGE" as const;
+  if (s.startsWith("video/")) return "VIDEO" as const;
+  return null;
+}
+
+/**
+ * Register upload + PUT bytes to LinkedIn, returns asset URN
+ */
+async function uploadAssetToLinkedIn(args: {
+  token: string;
+  authorUrn: string;
+  mediaUrl: string;
+}) {
+  // 1) download bytes from your mediaUrl
+  const mediaRes = await fetch(args.mediaUrl, { cache: "no-store" });
+  if (!mediaRes.ok) {
+    throw new Error(`Failed to fetch mediaUrl (${mediaRes.status}). Ensure it is a public https URL.`);
+  }
+
+  const contentType = mediaRes.headers.get("content-type") || "application/octet-stream";
+  const ab = await mediaRes.arrayBuffer();
+
+  const category = mediaCategoryFromContentType(contentType);
+  if (!category) {
+    throw new Error(
+      `Unsupported media type (${contentType}). Use a public https image/* or video/* URL.`
+    );
+  }
+
+  // 2) register upload
   const recipe =
-    kind === "image"
+    category === "IMAGE"
       ? "urn:li:digitalmediaRecipe:feedshare-image"
       : "urn:li:digitalmediaRecipe:feedshare-video";
 
-  const body = {
+  const registerBody: any = {
     registerUploadRequest: {
+      owner: args.authorUrn,
       recipes: [recipe],
-      owner: authorUrn,
       serviceRelationships: [
         {
           relationshipType: "OWNER",
           identifier: "urn:li:userGeneratedContent",
         },
       ],
+      supportedUploadMechanism: ["SYNCHRONOUS_UPLOAD"],
     },
   };
 
-  const res = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "X-Restli-Protocol-Version": "2.0.0",
-      "LinkedIn-Version": "202402",
-    },
-    body: JSON.stringify(body),
-  });
+  const reg = await fetchJson(
+    "https://api.linkedin.com/v2/assets?action=registerUpload",
+    args.token,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0",
+      },
+      body: JSON.stringify(registerBody),
+    }
+  );
 
-  const json = await safeJson(res);
-  if (!res.ok) {
-    throw new Error(json?.message || "LinkedIn registerUpload failed");
+  if (!reg.ok) {
+    const msg =
+      reg.json?.message ||
+      reg.json?.error?.message ||
+      "LinkedIn registerUpload failed";
+    throw new Error(msg);
   }
 
+  const value = reg.json?.value;
+  const asset = value?.asset ? String(value.asset) : "";
   const uploadUrl =
-    json?.value?.uploadMechanism?.["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]
-      ?.uploadUrl;
+    value?.uploadMechanism?.[
+      "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
+    ]?.uploadUrl;
 
-  const asset = json?.value?.asset;
-
-  if (!uploadUrl || !asset) {
-    throw new Error("LinkedIn registerUpload returned missing uploadUrl/asset");
+  if (!asset || !uploadUrl) {
+    throw new Error("LinkedIn registerUpload returned no asset/uploadUrl.");
   }
 
-  return { uploadUrl: String(uploadUrl), asset: String(asset) };
-}
+  // 3) upload bytes
+  // IMPORTANT: use Uint8Array, not Buffer (fixes your Vercel build error)
+  const bytes = new Uint8Array(ab);
 
-async function uploadToLinkedIn(uploadUrl: string, bytes: Buffer, contentType: string) {
-  // LinkedIn expects PUT binary to the uploadUrl
-  const res = await fetch(uploadUrl, {
+  const putRes = await fetch(uploadUrl, {
     method: "PUT",
     headers: {
-      "Content-Type": contentType || "application/octet-stream",
+      Authorization: `Bearer ${args.token}`,
+      "Content-Type": contentType,
     },
     body: bytes,
   });
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`LinkedIn upload failed (${res.status}). ${txt || ""}`.trim());
+  if (!putRes.ok) {
+    const txt = await putRes.text().catch(() => "");
+    throw new Error(`LinkedIn upload PUT failed (${putRes.status}). ${txt}`.trim());
   }
+
+  return { asset, category };
 }
 
 async function createUgcPost(args: {
   token: string;
   authorUrn: string;
   text: string;
-  media?: { kind: "image" | "video"; asset: string };
+  asset?: string;
+  category?: "IMAGE" | "VIDEO";
 }) {
-  const hasMedia = !!args.media;
-
-  const postBody: any = {
+  const base: any = {
     author: args.authorUrn,
     lifecycleState: "PUBLISHED",
-    specificContent: {
-      "com.linkedin.ugc.ShareContent": {
-        shareCommentary: { text: args.text },
-        shareMediaCategory: hasMedia
-          ? args.media!.kind === "image"
-            ? "IMAGE"
-            : "VIDEO"
-          : "NONE",
-      },
-    },
     visibility: {
       "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
     },
   };
 
-  if (hasMedia) {
-    postBody.specificContent["com.linkedin.ugc.ShareContent"].media = [
-      {
-        status: "READY",
-        description: { text: "" },
-        media: args.media!.asset,
-        title: { text: "" },
+  // Text-only
+  if (!args.asset || !args.category) {
+    base.specificContent = {
+      "com.linkedin.ugc.ShareContent": {
+        shareCommentary: { text: args.text },
+        shareMediaCategory: "NONE",
       },
-    ];
+    };
+  } else {
+    base.specificContent = {
+      "com.linkedin.ugc.ShareContent": {
+        shareCommentary: { text: args.text },
+        shareMediaCategory: args.category,
+        media: [
+          {
+            status: "READY",
+            media: args.asset,
+            title: { text: "" },
+          },
+        ],
+      },
+    };
   }
 
-  const res = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+  const postRes = await fetch("https://api.linkedin.com/v2/ugcPosts", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${args.token}`,
@@ -173,132 +259,80 @@ async function createUgcPost(args: {
       "X-Restli-Protocol-Version": "2.0.0",
       "LinkedIn-Version": "202402",
     },
-    body: JSON.stringify(postBody),
+    body: JSON.stringify(base),
   });
 
-  const json = await safeJson(res);
+  const postJson: any = await postRes.json().catch(() => null);
 
-  if (!res.ok) {
-    throw new Error(json?.message || "Failed to post on LinkedIn");
+  if (!postRes.ok) {
+    const msg =
+      postJson?.message ||
+      postJson?.error?.message ||
+      "Failed to post on LinkedIn";
+    throw new Error(msg);
   }
 
-  // often returned in headers
-  const headerId =
-    res.headers.get("x-restli-id") ||
-    res.headers.get("x-linkedin-id") ||
-    res.headers.get("location") ||
-    "";
-
-  const postedId =
-    (typeof json?.id === "string" && json.id) ||
-    (typeof json === "string" && json) ||
-    headerId ||
-    null;
-
-  return { postedId, raw: json };
+  // LinkedIn typically returns an id URN in headers or body depending on endpoint behavior.
+  // We’ll return the full payload and let Quick Blast show something useful.
+  return postJson;
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => ({} as any));
 
-    const text = pickText(body);
-    const imageUrl = pickUrl(body, "imageUrl");
-    const videoUrl = pickUrl(body, "videoUrl");
+    // Accept BOTH field names (your Quick Blast sends message; older code sent text)
+    const text = String(body?.text ?? body?.message ?? "").trim();
+    const mediaUrl = String(body?.mediaUrl ?? body?.imageUrl ?? body?.videoUrl ?? "").trim();
 
     if (!text) {
-      return NextResponse.json(
-        { error: "Missing post text. Send { message: '...' } (or { text: '...' })." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing 'text' (or 'message') in body" }, { status: 400 });
     }
 
-    // validate urls if provided
-    if (imageUrl && !looksLikeHttpsUrl(imageUrl)) {
-      return NextResponse.json({ error: "imageUrl must be an https URL" }, { status: 400 });
-    }
-    if (videoUrl && !looksLikeHttpsUrl(videoUrl)) {
-      return NextResponse.json({ error: "videoUrl must be an https URL" }, { status: 400 });
+    const organisationId = await resolveOrganisationId(req);
+    if (!organisationId) {
+      return NextResponse.json({ error: "No organisation found" }, { status: 400 });
     }
 
-    const token = await getLinkedInAccessToken();
+    const token = await loadLinkedInToken(organisationId);
     const authorUrn = await getAuthorUrn(token);
 
-    // Prefer video if both provided
-    const mediaUrl = (videoUrl || imageUrl || "").trim();
+    // Optional media
+    let asset: string | undefined;
+    let category: "IMAGE" | "VIDEO" | undefined;
 
-    if (!mediaUrl) {
-      const out = await createUgcPost({ token, authorUrn, text });
-      return NextResponse.json({ ok: true, mode: "text", postedId: out.postedId, raw: out.raw });
+    if (mediaUrl) {
+      if (!isLikelyMediaUrl(mediaUrl)) {
+        return NextResponse.json(
+          { error: "mediaUrl must be a public https URL" },
+          { status: 400 }
+        );
+      }
+
+      const up = await uploadAssetToLinkedIn({ token, authorUrn, mediaUrl });
+      asset = up.asset;
+      category = up.category;
     }
 
-    // Fetch bytes
-    const fetched = await fetchBytesFromUrl(mediaUrl);
-
-    if (!fetched.ok) {
-      return NextResponse.json(
-        { error: `Failed to fetch media (${fetched.status}) from URL` },
-        { status: 400 }
-      );
-    }
-
-    const ct = fetched.contentType || "";
-    const sizeBytes = fetched.buf.length;
-
-    // Basic sanity limits to avoid timeouts
-    // (LinkedIn supports larger, but Vercel serverless can struggle with huge files)
-    const MAX_IMAGE = 8 * 1024 * 1024;  // 8MB
-    const MAX_VIDEO = 20 * 1024 * 1024; // 20MB
-
-    const isImg = isImageContentType(ct);
-    const isVid = isVideoContentType(ct);
-
-    if (!isImg && !isVid) {
-      return NextResponse.json(
-        { error: `Unsupported media content-type: ${ct || "unknown"}` },
-        { status: 400 }
-      );
-    }
-
-    if (isImg && sizeBytes > MAX_IMAGE) {
-      return NextResponse.json(
-        { error: `Image too large (${Math.round(sizeBytes / 1024 / 1024)}MB). Keep under 8MB for now.` },
-        { status: 400 }
-      );
-    }
-
-    if (isVid && sizeBytes > MAX_VIDEO) {
-      return NextResponse.json(
-        { error: `Video too large (${Math.round(sizeBytes / 1024 / 1024)}MB). Keep under 20MB for now.` },
-        { status: 400 }
-      );
-    }
-
-    const kind: "image" | "video" = isVid ? "video" : "image";
-
-    // registerUpload → upload → create post
-    const reg = await registerUpload(token, authorUrn, kind);
-    await uploadToLinkedIn(reg.uploadUrl, fetched.buf, ct);
-
-    const out = await createUgcPost({
+    const postData = await createUgcPost({
       token,
       authorUrn,
       text,
-      media: { kind, asset: reg.asset },
+      asset,
+      category,
     });
 
+    // Provide a stable field for Quick Blast + UI
     return NextResponse.json({
       ok: true,
-      mode: kind,
-      postedId: out.postedId,
-      asset: reg.asset,
-      raw: out.raw,
+      organisationId,
+      postedId: postData?.id || postData?.urn || null,
+      mode: category ? category.toLowerCase() : "text",
+      raw: postData,
     });
   } catch (err: any) {
-    console.error("LinkedIn post error", err);
-    return NextResponse.json(
-      { error: err?.message || "Server error" },
-      { status: 500 }
-    );
+    const msg = err?.message || "Server error";
+    console.error("[linkedin/post] error", err);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
