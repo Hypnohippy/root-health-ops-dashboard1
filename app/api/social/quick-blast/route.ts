@@ -107,7 +107,6 @@ async function postToFacebook(args: {
               "Facebook imageUrl must be a direct https image link (ending .jpg/.png etc).",
           },
         },
-        mode: "photo" as const,
       };
     }
 
@@ -152,9 +151,9 @@ async function postToFacebook(args: {
 }
 
 /**
- * ✅ LinkedIn proxy (now supports imageUrl/videoUrl)
+ * ✅ LinkedIn proxy: send `text` (the LinkedIn route accepts text OR message anyway)
  */
-async function postToLinkedInViaExistingRoute(args: {
+async function postToLinkedIn(args: {
   req: NextRequest;
   message: string;
   organisationId: string;
@@ -167,7 +166,7 @@ async function postToLinkedInViaExistingRoute(args: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      message: args.message,
+      text: args.message, // ✅ IMPORTANT
       organisationId: args.organisationId,
       imageUrl: args.imageUrl || undefined,
       videoUrl: args.videoUrl || undefined,
@@ -178,7 +177,7 @@ async function postToLinkedInViaExistingRoute(args: {
   const json: any = await res.json().catch(() => null);
 
   return {
-    ok: res.ok && (json?.postedId || json?.ok),
+    ok: res.ok && !!json?.postedId,
     status: res.status,
     json,
     error:
@@ -226,7 +225,6 @@ export async function POST(req: NextRequest) {
     const results: any[] = [];
 
     for (const p of platforms) {
-      // --- Facebook ---
       if (p === "facebook") {
         const row = await loadSocialAccount(organisationId, "facebook");
 
@@ -278,21 +276,8 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // --- Instagram ---
-      if (p === "instagram") {
-        results.push({
-          platform: "instagram",
-          ok: false,
-          skipped: true,
-          reason:
-            "Instagram is handled by your existing IG flow in this project.",
-        });
-        continue;
-      }
-
-      // --- LinkedIn (text + image + video) ---
       if (p === "linkedin") {
-        const li = await postToLinkedInViaExistingRoute({
+        const li = await postToLinkedIn({
           req,
           message,
           organisationId,
@@ -315,18 +300,18 @@ export async function POST(req: NextRequest) {
           platform: "linkedin",
           ok: true,
           postedId: li.json?.postedId || null,
-          mode: li.json?.mode || (videoUrl ? "video" : imageUrl ? "image" : "text"),
+          mode: "text",
         });
 
         continue;
       }
 
-      // --- Everything else ---
+      // Leave TikTok / Threads / IG alone as requested
       results.push({
         platform: p,
         ok: false,
         skipped: true,
-        reason: "Not implemented yet.",
+        reason: "Not implemented yet (or handled elsewhere).",
       });
     }
 
