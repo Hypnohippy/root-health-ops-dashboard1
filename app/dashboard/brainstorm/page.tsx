@@ -1,7 +1,7 @@
-// app/dashboard/brainstorm/page.tsx
 "use client";
 
 import React, { useMemo, useState } from "react";
+import ConnectedChannelsBar from "../components/ConnectedChannelsBar";
 
 type Mode = "direct" | "story_series";
 type ChannelId = "linkedin" | "facebook" | "instagram" | "reddit" | "tiktok";
@@ -185,11 +185,14 @@ export default function BrainstormPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-6">
-        <header className="space-y-1">
+        <header className="space-y-3">
           <h1 className="text-2xl md:text-3xl font-semibold">🧠 Brainstorm</h1>
           <p className="text-sm text-slate-300 max-w-2xl">
             Choose what you’re creating (direct post vs story series). This stops the “always story mode” behaviour.
           </p>
+
+          {/* ✅ Shared connections bar */}
+          <ConnectedChannelsBar title="Social connections" />
         </header>
 
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-4">
