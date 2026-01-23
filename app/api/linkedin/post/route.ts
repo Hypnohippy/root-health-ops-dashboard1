@@ -1,68 +1,144 @@
-// app/api/linkedin/post/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-async function getLinkedInAccessToken() {
-  const token = process.env.LINKEDIN_ACCESS_TOKEN;
-  if (!token) throw new Error("LINKEDIN_ACCESS_TOKEN not configured");
-  return token;
+type SocialAccountRow = {
+  id: string;
+  organisation_id: string;
+  platform: string;
+  page_access_token: string | null;
+  token_expires_at: string | null;
+  is_active: boolean | null;
+};
+
+async function getSingleTenantOrganisationId() {
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
+
+  if (error) {
+    console.error("[linkedin/post] organisations error", error);
+    return null;
+  }
+  if (!data || data.length === 0) return null;
+  return data[0].id as string;
 }
 
-async function fetchJson(url: string, init: RequestInit) {
-  const res = await fetch(url, { ...init, cache: "no-store" });
-  const json: any = await res.json().catch(() => null);
-  return { ok: res.ok, status: res.status, json, headers: res.headers };
+async function resolveOrganisationId(req: NextRequest, bodyOrgId?: string) {
+  try {
+    const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
+    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
+  } catch {}
+  if (bodyOrgId && String(bodyOrgId).trim()) return String(bodyOrgId).trim();
+  return await getSingleTenantOrganisationId();
+}
+
+async function loadLinkedInAccount(organisationId: string): Promise<SocialAccountRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from("social_accounts")
+    .select("id, organisation_id, platform, page_access_token, token_expires_at, is_active")
+    .eq("organisation_id", organisationId)
+    .eq("platform", "linkedin")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[linkedin/post] social_accounts load error", error);
+    return null;
+  }
+  return (data as any) ?? null;
+}
+
+function isExpired(tokenExpiresAt: string | null) {
+  if (!tokenExpiresAt) return false; // some providers don't set it
+  const t = Date.parse(tokenExpiresAt);
+  if (!Number.isFinite(t)) return false;
+  return Date.now() > t - 60_000; // treat as expired if within 60s
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    // ✅ Backwards compatible: accept text OR message
+    // Accept either "text" or "message" to be flexible across callers
     const text = String(body?.text ?? body?.message ?? "").trim();
-
     if (!text) {
-      return NextResponse.json(
-        { ok: false, error: "Missing 'text' (or 'message') in body" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Missing post text." }, { status: 400 });
     }
 
-    const token = await getLinkedInAccessToken();
+    const organisationId = await resolveOrganisationId(req, body?.organisationId);
+    if (!organisationId) {
+      return NextResponse.json({ ok: false, error: "No organisation found." }, { status: 400 });
+    }
 
-    // ✅ OIDC userinfo (works with openid/profile scopes)
-    const userRes = await fetchJson("https://api.linkedin.com/v2/userinfo", {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const liRow = await loadLinkedInAccount(organisationId);
 
-    if (!userRes.ok) {
+    if (!liRow?.page_access_token) {
       return NextResponse.json(
         {
           ok: false,
-          error:
-            userRes.json?.message ||
-            userRes.json?.error_description ||
-            "Failed to fetch LinkedIn user info",
-          details: userRes.json,
-          status: userRes.status,
+          error: "LinkedIn is not connected (missing access token). Please reconnect LinkedIn on the Connect page.",
+        },
+        { status: 401 }
+      );
+    }
+
+    if (isExpired(liRow.token_expires_at)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "LinkedIn token expired. Please reconnect LinkedIn on the Connect page.",
+          details: { code: "EXPIRED_ACCESS_TOKEN" },
+        },
+        { status: 401 }
+      );
+    }
+
+    const token = liRow.page_access_token;
+
+    // OIDC userinfo gives us "sub" to build person URN
+    const userRes = await fetch("https://api.linkedin.com/v2/userinfo", {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+
+    const userInfo: any = await userRes.json().catch(() => null);
+
+    if (!userRes.ok) {
+      const msg =
+        userInfo?.message ||
+        userInfo?.error_description ||
+        userInfo?.error ||
+        "Failed to fetch LinkedIn user info";
+
+      return NextResponse.json(
+        {
+          ok: false,
+          error: msg,
+          details: {
+            status: userRes.status,
+            serviceErrorCode: userInfo?.serviceErrorCode,
+            code: userInfo?.code,
+            message: userInfo?.message,
+          },
         },
         { status: 500 }
       );
     }
 
-    const sub = userRes.json?.sub ? String(userRes.json.sub) : "";
+    const sub = userInfo?.sub ? String(userInfo.sub) : "";
     if (!sub) {
       return NextResponse.json(
-        { ok: false, error: "No 'sub' field in LinkedIn userinfo response", details: userRes.json },
+        { ok: false, error: "LinkedIn userinfo returned no 'sub'." },
         { status: 500 }
       );
     }
 
     const authorUrn = `urn:li:person:${sub}`;
 
-    // ✅ Text-only UGC post (images/video later)
     const postBody = {
       author: authorUrn,
       lifecycleState: "PUBLISHED",
@@ -77,7 +153,6 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    // LinkedIn returns the new post URN in the "x-restli-id" header for ugcPosts
     const postRes = await fetch("https://api.linkedin.com/v2/ugcPosts", {
       method: "POST",
       headers: {
@@ -90,36 +165,30 @@ export async function POST(req: NextRequest) {
       cache: "no-store",
     });
 
+    // LinkedIn sometimes returns empty body on success; be defensive
     const postJson: any = await postRes.json().catch(() => null);
-    const postedIdHeader = postRes.headers.get("x-restli-id") || "";
-    const postedId =
-      postedIdHeader ||
-      postJson?.id ||
-      postJson?.entity ||
-      null;
 
     if (!postRes.ok) {
       return NextResponse.json(
         {
           ok: false,
-          error: postJson?.message || postJson?.error || "Failed to post on LinkedIn",
-          details: postJson,
-          status: postRes.status,
+          error: postJson?.message || "Failed to post on LinkedIn",
+          details: postJson || { status: postRes.status },
         },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({
-      ok: true,
-      postedId,
-      raw: postJson,
-    });
+    // Try to return a usable id
+    const postedId =
+      postRes.headers.get("x-restli-id") ||
+      postJson?.id ||
+      postJson?.value ||
+      null;
+
+    return NextResponse.json({ ok: true, postedId, raw: postJson }, { status: 200 });
   } catch (err: any) {
     console.error("[linkedin/post] error", err);
-    return NextResponse.json(
-      { ok: false, error: err?.message || "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message || "Server error" }, { status: 500 });
   }
 }
