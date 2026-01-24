@@ -3,8 +3,6 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-const AYRSHARE_API_KEY = process.env.AYRSHARE_API_KEY;
-
 type ProviderId =
   | "facebook"
   | "instagram"
@@ -83,27 +81,13 @@ async function loadSocialAccount(
   return (data as any) ?? null;
 }
 
-function isLikelyHttpUrl(url: string) {
-  const u = (url || "").trim();
-  if (!u) return false;
-  return /^https:\/\/.+/i.test(u);
-}
-
 function isLikelyImageUrl(url: string) {
   const u = (url || "").trim();
-  if (!isLikelyHttpUrl(u)) return false;
+  if (!u) return false;
+  if (!/^https:\/\/.+/i.test(u)) return false;
   return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
 }
 
-function isLikelyVideoUrl(url: string) {
-  const u = (url || "").trim();
-  if (!isLikelyHttpUrl(u)) return false;
-  return /\.(mp4|mov|m4v|webm)(\?.*)?$/i.test(u);
-}
-
-// -----------------------
-// Facebook (direct Graph API)
-// -----------------------
 async function postToFacebook(args: {
   pageId: string;
   pageAccessToken: string;
@@ -169,9 +153,6 @@ async function postToFacebook(args: {
   return { ok: res.ok, status: res.status, json, mode: "text" as const };
 }
 
-// -----------------------
-// LinkedIn (your existing route)
-// -----------------------
 async function postToLinkedIn(args: {
   req: NextRequest;
   message: string;
@@ -192,7 +173,7 @@ async function postToLinkedIn(args: {
   const json: any = await res.json().catch(() => null);
 
   return {
-    ok: res.ok && (!!json?.postedId || json?.ok === true),
+    ok: res.ok && !!json?.postedId,
     status: res.status,
     json,
     error:
@@ -202,62 +183,43 @@ async function postToLinkedIn(args: {
   };
 }
 
-// -----------------------
-// Instagram + Threads via Ayrshare (restores “it used to work” behaviour)
-// -----------------------
-async function postToAyrshare(args: {
-  post: string;
-  platforms: string[];
+/**
+ * Post via Make.com webhook (Instagram/Threads).
+ * This is intentionally NOT Ayrshare.
+ */
+async function postToMakeWebhook(args: {
+  webhookUrl: string;
+  organisationId: string;
+  platform: "instagram" | "threads";
+  message: string;
   imageUrl?: string;
   videoUrl?: string;
 }) {
-  if (!AYRSHARE_API_KEY) {
-    return {
-      ok: false,
-      status: 500,
-      json: { error: "Missing AYRSHARE_API_KEY in env." },
-    };
-  }
-
-  const payload: any = {
-    post: args.post,
-    platforms: args.platforms,
-  };
-
-  const imageUrl = (args.imageUrl || "").trim();
-  const videoUrl = (args.videoUrl || "").trim();
-
-  // Ayrshare supports mediaUrls (and will handle per-platform rules)
-  const mediaUrls: string[] = [];
-  if (imageUrl) {
-    if (!isLikelyHttpUrl(imageUrl)) {
-      return { ok: false, status: 400, json: { error: "imageUrl must be https." } };
-    }
-    mediaUrls.push(imageUrl);
-  }
-  if (videoUrl) {
-    if (!isLikelyHttpUrl(videoUrl)) {
-      return { ok: false, status: 400, json: { error: "videoUrl must be https." } };
-    }
-    mediaUrls.push(videoUrl);
-  }
-  if (mediaUrls.length) payload.mediaUrls = mediaUrls;
-
-  const res = await fetch("https://api.ayrshare.com/api/post", {
+  const res = await fetch(args.webhookUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${AYRSHARE_API_KEY}`,
-    },
-    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      organisationId: args.organisationId,
+      platform: args.platform,
+      message: args.message,
+      imageUrl: args.imageUrl || null,
+      videoUrl: args.videoUrl || null,
+      source: "root-health-ops",
+    }),
     cache: "no-store",
   });
 
   const json: any = await res.json().catch(() => null);
 
-  // Ayrshare can return 200 with status "error"
-  const ok = res.ok && json && json.status !== "error";
-  return { ok, status: res.status, json };
+  return {
+    ok: res.ok,
+    status: res.status,
+    json,
+    error:
+      json?.error ||
+      json?.message ||
+      (!res.ok ? `Make webhook failed (${res.status})` : null),
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -265,8 +227,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
 
     const message = String(body?.message ?? "").trim();
-    const imageUrl = String(body?.imageUrl ?? body?.image_url ?? "").trim();
-    const videoUrl = String(body?.videoUrl ?? body?.video_url ?? "").trim();
+    const imageUrl = String(body?.imageUrl ?? "").trim();
+    const videoUrl = String(body?.videoUrl ?? "").trim();
 
     const platformsRaw = Array.isArray(body?.platforms) ? body.platforms : [];
     const platforms: ProviderId[] = platformsRaw
@@ -287,7 +249,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const organisationId = await resolveOrganisationId(req, body?.organisationId);
+    const organisationId = await resolveOrganisationId(
+      req,
+      body?.organisationId
+    );
     if (!organisationId) {
       return NextResponse.json(
         { success: false, error: "No organisation found in database." },
@@ -298,7 +263,7 @@ export async function POST(req: NextRequest) {
     const results: any[] = [];
 
     for (const p of platforms) {
-      // Facebook
+      // --- Facebook (direct) ---
       if (p === "facebook") {
         const row = await loadSocialAccount(organisationId, "facebook");
 
@@ -350,7 +315,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // LinkedIn
+      // --- LinkedIn (direct route) ---
       if (p === "linkedin") {
         const li = await postToLinkedIn({ req, message, organisationId });
 
@@ -368,49 +333,117 @@ export async function POST(req: NextRequest) {
         results.push({
           platform: "linkedin",
           ok: true,
-          postedId: li.json?.postedId || li.json?.id || null,
+          postedId: li.json?.postedId || null,
           mode: "text",
         });
 
         continue;
       }
 
-      // Instagram + Threads via Ayrshare (restored)
-      if (p === "instagram" || p === "threads") {
-        const as = await postToAyrshare({
-          post: message,
-          platforms: [p],
+      // --- Instagram (Make webhook; NOT Ayrshare) ---
+      if (p === "instagram") {
+        const row = await loadSocialAccount(organisationId, "instagram");
+        const webhook =
+          row?.make_webhook_url ||
+          process.env.MAKE_INSTAGRAM_QUICK_BLAST_WEBHOOK_URL ||
+          "";
+
+        if (!webhook) {
+          results.push({
+            platform: "instagram",
+            ok: false,
+            status: 400,
+            error:
+              "Instagram posting is not configured. Add MAKE_INSTAGRAM_QUICK_BLAST_WEBHOOK_URL in Vercel or set social_accounts.make_webhook_url for instagram.",
+          });
+          continue;
+        }
+
+        const ig = await postToMakeWebhook({
+          webhookUrl: webhook,
+          organisationId,
+          platform: "instagram",
+          message,
           imageUrl: imageUrl || undefined,
           videoUrl: videoUrl || undefined,
         });
 
-        if (!as.ok) {
+        if (!ig.ok) {
           results.push({
-            platform: p,
+            platform: "instagram",
             ok: false,
-            status: as.status,
-            error: as.json?.error?.message || as.json?.error || "Ayrshare post failed",
-            details: as.json,
+            status: ig.status,
+            error: ig.error || "Instagram webhook failed",
+            details: ig.json,
           });
           continue;
         }
 
         results.push({
-          platform: p,
+          platform: "instagram",
           ok: true,
-          postedId: as.json?.postId || as.json?.id || null,
-          mode: videoUrl ? "video" : imageUrl ? "image" : "text",
+          postedId: ig.json?.id || ig.json?.postedId || null,
+          mode: imageUrl ? "image" : videoUrl ? "video" : "text",
         });
 
         continue;
       }
 
-      // Leave TikTok alone + everything else untouched
+      // --- Threads (Make webhook; NOT Ayrshare) ---
+      if (p === "threads") {
+        const row = await loadSocialAccount(organisationId, "threads");
+        const webhook =
+          row?.make_webhook_url ||
+          process.env.MAKE_THREADS_QUICK_BLAST_WEBHOOK_URL ||
+          "";
+
+        if (!webhook) {
+          results.push({
+            platform: "threads",
+            ok: false,
+            status: 400,
+            error:
+              "Threads posting is not configured. Add MAKE_THREADS_QUICK_BLAST_WEBHOOK_URL in Vercel or set social_accounts.make_webhook_url for threads.",
+          });
+          continue;
+        }
+
+        const th = await postToMakeWebhook({
+          webhookUrl: webhook,
+          organisationId,
+          platform: "threads",
+          message,
+          imageUrl: imageUrl || undefined,
+          videoUrl: videoUrl || undefined,
+        });
+
+        if (!th.ok) {
+          results.push({
+            platform: "threads",
+            ok: false,
+            status: th.status,
+            error: th.error || "Threads webhook failed",
+            details: th.json,
+          });
+          continue;
+        }
+
+        results.push({
+          platform: "threads",
+          ok: true,
+          postedId: th.json?.id || th.json?.postedId || null,
+          mode: imageUrl ? "image" : videoUrl ? "video" : "text",
+        });
+
+        continue;
+      }
+
+      // --- TikTok / others left untouched ---
       results.push({
         platform: p,
         ok: false,
         skipped: true,
-        reason: "Not implemented in quick-blast (kept unchanged).",
+        reason: "Not implemented here yet (kept unchanged).",
       });
     }
 
