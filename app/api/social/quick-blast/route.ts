@@ -155,6 +155,7 @@ async function postToLinkedIn(args: {
   req: NextRequest;
   message: string;
   organisationId: string;
+  imageUrl?: string;
 }) {
   const url = `${baseUrl(args.req)}/api/linkedin/post`;
 
@@ -162,8 +163,9 @@ async function postToLinkedIn(args: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      text: args.message, // ✅ IMPORTANT: linkedin route expects "text"
+      text: args.message, // ✅ LinkedIn route expects "text"
       organisationId: args.organisationId,
+      imageUrl: args.imageUrl || undefined, // ✅ pass through for image posts
     }),
     cache: "no-store",
   });
@@ -171,7 +173,7 @@ async function postToLinkedIn(args: {
   const json: any = await res.json().catch(() => null);
 
   return {
-    ok: res.ok && !!json?.postedId,
+    ok: res.ok && !!(json?.postedId || json?.ok),
     status: res.status,
     json,
     error:
@@ -274,6 +276,7 @@ export async function POST(req: NextRequest) {
           req,
           message,
           organisationId,
+          imageUrl: imageUrl || undefined,
         });
 
         if (!li.ok) {
@@ -291,13 +294,13 @@ export async function POST(req: NextRequest) {
           platform: "linkedin",
           ok: true,
           postedId: li.json?.postedId || null,
-          mode: "text",
+          mode: imageUrl ? "image" : "text",
         });
 
         continue;
       }
 
-      // Leave TikTok / Threads / IG as-is for now (you told me to not touch TikTok)
+      // Leave TikTok / Threads / IG as-is for now (per your instruction)
       results.push({
         platform: p,
         ok: false,
