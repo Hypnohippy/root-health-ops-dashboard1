@@ -1,7 +1,5 @@
-// app/api/social-accounts/route.ts
-import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { randomUUID } from "crypto";
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -15,58 +13,6 @@ type ProviderId =
   | "whatsapp"
   | "threads";
 
-function asProviderId(v: any): ProviderId | null {
-  const s = String(v || "").toLowerCase().trim();
-  const allowed: ProviderId[] = [
-    "facebook",
-    "instagram",
-    "tiktok",
-    "linkedin",
-    "google",
-    "email",
-    "whatsapp",
-    "threads",
-  ];
-  return (allowed as string[]).includes(s) ? (s as ProviderId) : null;
-}
-
-// Single-tenant beta mode: use the first organisation row as "the current org".
-async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .limit(1);
-
-  if (error) {
-    console.error("[social-accounts] organisations error", error);
-    return null;
-  }
-
-  if (!data || data.length === 0) {
-    console.warn("[social-accounts] No organisations found in database");
-    return null;
-  }
-
-  return data[0].id as string;
-}
-
-/**
- * Multi-tenant ready:
- * - If caller passes ?organisationId=..., use that
- * - otherwise fall back to single-tenant default
- */
-async function resolveOrganisationId(req: Request) {
-  try {
-    const url = new URL(req.url);
-    const orgFromQuery = url.searchParams.get("organisationId");
-    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
-  } catch {
-    // ignore
-  }
-
-  return await getSingleTenantOrganisationId();
-}
-
 type SocialAccountRow = {
   id: string;
   organisation_id: string;
@@ -78,341 +24,636 @@ type SocialAccountRow = {
   is_active: boolean | null;
   page_access_token: string | null;
   token_expires_at: string | null;
-  created_at?: string | null;
 };
 
-async function fetchJson(url: string) {
-  const res = await fetch(url, { method: "GET", cache: "no-store" });
+function safeBaseUrl(appUrl: string) {
+  return (appUrl || "").replace(/\/$/, "");
+}
+
+function baseUrl(req: NextRequest) {
+  const env = process.env.NEXT_PUBLIC_APP_URL || "";
+  if (env) return safeBaseUrl(env);
+  return req.nextUrl.origin;
+}
+
+async function getSingleTenantOrganisationId() {
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
+
+  if (error) {
+    console.error("[quick-blast] organisations error", error);
+    return null;
+  }
+  if (!data || data.length === 0) return null;
+  return data[0].id as string;
+}
+
+async function resolveOrganisationId(req: NextRequest, bodyOrgId?: string) {
+  try {
+    const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
+    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
+  } catch {}
+  if (bodyOrgId && String(bodyOrgId).trim()) return String(bodyOrgId).trim();
+  return await getSingleTenantOrganisationId();
+}
+
+async function loadSocialAccount(
+  organisationId: string,
+  platform: ProviderId
+): Promise<SocialAccountRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from("social_accounts")
+    .select(
+      "id, organisation_id, platform, page_id, page_name, connection_type, make_webhook_url, is_active, page_access_token, token_expires_at"
+    )
+    .eq("organisation_id", organisationId)
+    .eq("platform", platform)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[quick-blast] social_accounts load error", error);
+    return null;
+  }
+  return (data as any) ?? null;
+}
+
+function isLikelyImageUrl(url: string) {
+  const u = (url || "").trim();
+  if (!u) return false;
+  if (!/^https:\/\/.+/i.test(u)) return false;
+  return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
+}
+
+function isLikelyVideoUrl(url: string) {
+  const u = (url || "").trim();
+  if (!u) return false;
+  if (!/^https:\/\/.+/i.test(u)) return false;
+  return /\.(mp4|mov|m4v)(\?.*)?$/i.test(u);
+}
+
+async function postToFacebook(args: {
+  pageId: string;
+  pageAccessToken: string;
+  message: string;
+  imageUrl?: string;
+}) {
+  // Photo post
+  if (args.imageUrl && args.imageUrl.trim()) {
+    const imageUrl = args.imageUrl.trim();
+
+    if (!isLikelyImageUrl(imageUrl)) {
+      return {
+        ok: false,
+        status: 400,
+        json: {
+          error: {
+            message:
+              "Facebook imageUrl must be a direct https image link (ending .jpg/.png etc).",
+          },
+        },
+        mode: "photo" as const,
+      };
+    }
+
+    const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+      args.pageId
+    )}/photos`;
+
+    const body = new URLSearchParams();
+    body.set("url", imageUrl);
+    body.set("caption", args.message);
+    body.set("published", "true");
+    body.set("access_token", args.pageAccessToken);
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      cache: "no-store",
+    });
+
+    const json: any = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, json, mode: "photo" as const };
+  }
+
+  // Text post
+  const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+    args.pageId
+  )}/feed`;
+
+  const body = new URLSearchParams();
+  body.set("message", args.message);
+  body.set("access_token", args.pageAccessToken);
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+    cache: "no-store",
+  });
+
   const json: any = await res.json().catch(() => null);
-  return { ok: res.ok, status: res.status, json };
+  return { ok: res.ok, status: res.status, json, mode: "text" as const };
+}
+
+async function postToLinkedIn(args: {
+  req: NextRequest;
+  message: string;
+  organisationId: string;
+}) {
+  const url = `${baseUrl(args.req)}/api/linkedin/post`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: args.message, // linkedin route expects "text"
+      organisationId: args.organisationId,
+    }),
+    cache: "no-store",
+  });
+
+  const json: any = await res.json().catch(() => null);
+
+  return {
+    ok: res.ok && !!json?.postedId,
+    status: res.status,
+    json,
+    error:
+      json?.error ||
+      json?.message ||
+      (!res.ok ? `LinkedIn request failed (${res.status})` : null),
+  };
 }
 
 /**
- * If Facebook is connected and has a page token,
- * auto-detect the linked Instagram Business account and upsert it.
- *
- * This makes Connect + Quick Blast consistent and removes the “connected here but not there” issue.
+ * ✅ Instagram direct publish (no Ayrshare, no Make)
+ * Uses Instagram Graph content publishing flow: create container → publish. :contentReference[oaicite:0]{index=0}
  */
-async function syncInstagramFromFacebook(args: {
+async function postToInstagram(args: {
   organisationId: string;
-  facebookRow: SocialAccountRow;
-  existingInstagramRow?: SocialAccountRow | null;
+  message: string;
+  imageUrl?: string;
+  videoUrl?: string;
 }) {
-  const fb = args.facebookRow;
-  if (!fb?.page_id || !fb?.page_access_token) return;
+  const row = await loadSocialAccount(args.organisationId, "instagram");
 
-  // Ask the FB Page for the linked IG business account
-  const url =
-    `https://graph.facebook.com/v24.0/${encodeURIComponent(fb.page_id)}?` +
-    new URLSearchParams({
-      fields: "instagram_business_account{id,username,name}",
-      access_token: fb.page_access_token,
-    }).toString();
-
-  const out = await fetchJson(url);
-
-  if (!out.ok) {
-    // Don't break the API if Meta rejects this call; just log and continue.
-    console.warn("[social-accounts] IG sync Graph error", out.json);
-    return;
+  if (!row?.page_id) {
+    return {
+      ok: false,
+      status: 401,
+      json: {
+        error:
+          "Instagram is not connected (missing page_id). Reconnect Instagram on Connect page.",
+      },
+    };
+  }
+  if (!row?.page_access_token) {
+    return {
+      ok: false,
+      status: 401,
+      json: {
+        error:
+          "Instagram is not connected (missing access token). Reconnect Instagram on Connect page.",
+      },
+    };
   }
 
-  const ig = out.json?.instagram_business_account;
-  const igId = ig?.id ? String(ig.id) : "";
-  const igName =
-    (ig?.username && String(ig.username)) ||
-    (ig?.name && String(ig.name)) ||
-    "";
+  const igUserId = row.page_id;
+  const accessToken = row.page_access_token;
 
-  if (!igId) {
-    // No IG linked to this Page — that’s a legit state.
-    return;
+  const hasImage = !!args.imageUrl?.trim();
+  const hasVideo = !!args.videoUrl?.trim();
+
+  // NOTE: You can loosen these checks later, but they prevent “mystery failures”.
+  if (hasImage && !isLikelyImageUrl(args.imageUrl!)) {
+    return {
+      ok: false,
+      status: 400,
+      json: { error: "Instagram imageUrl must be a direct https image link (.jpg/.png/.webp/.gif)." },
+    };
+  }
+  if (hasVideo && !isLikelyVideoUrl(args.videoUrl!)) {
+    return {
+      ok: false,
+      status: 400,
+      json: { error: "Instagram videoUrl must be a direct https video link (.mp4/.mov/.m4v)." },
+    };
   }
 
-  // If we already have a row and it’s already correct + has token, skip update
-  const existing = args.existingInstagramRow;
-  const alreadyGood =
-    existing &&
-    existing.page_id === igId &&
-    !!existing.page_access_token &&
-    (existing.is_active ?? true);
+  // 1) Create media container
+  const createUrl = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+    igUserId
+  )}/media`;
 
-  if (alreadyGood) return;
+  const createBody = new URLSearchParams();
+  createBody.set("caption", args.message);
+  createBody.set("access_token", accessToken);
 
-  try {
-    if (existing?.id) {
-      await supabaseAdmin
-        .from("social_accounts")
-        .update({
-          page_id: igId,
-          page_name: igName || existing.page_name,
-          connection_type: "instagram_oauth",
-          make_webhook_url: null,
-          is_active: true,
-          // ✅ Instagram publishing uses the FB Page token in practice
-          page_access_token: fb.page_access_token,
-          token_expires_at: null,
-        })
-        .eq("id", existing.id);
-    } else {
-      await supabaseAdmin.from("social_accounts").insert({
-        id: randomUUID(),
-        organisation_id: args.organisationId,
-        platform: "instagram",
-        page_id: igId,
-        page_name: igName || null,
-        connection_type: "instagram_oauth",
-        make_webhook_url: null,
-        is_active: true,
-        page_access_token: fb.page_access_token,
-        token_expires_at: null,
-      });
-    }
-
-    console.log("[social-accounts] IG sync: upserted", { igId, igName });
-  } catch (e) {
-    console.warn("[social-accounts] IG sync DB warn", e);
+  if (hasVideo) {
+    createBody.set("video_url", args.videoUrl!.trim());
+    // many apps use REELS for video publishing; if your app is set for reels, this helps
+    createBody.set("media_type", "REELS");
+  } else if (hasImage) {
+    createBody.set("image_url", args.imageUrl!.trim());
+  } else {
+    // Instagram generally requires media; text-only isn’t a standard IG feed publish
+    return {
+      ok: false,
+      status: 400,
+      json: { error: "Instagram requires an imageUrl or videoUrl (text-only posts are not supported)." },
+    };
   }
+
+  const createRes = await fetch(createUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: createBody,
+    cache: "no-store",
+  });
+
+  const createJson: any = await createRes.json().catch(() => null);
+
+  if (!createRes.ok || !createJson?.id) {
+    return {
+      ok: false,
+      status: createRes.status,
+      json: createJson || { error: "Failed creating Instagram media container." },
+    };
+  }
+
+  const creationId = String(createJson.id);
+
+  // 2) Publish container
+  const publishUrl = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+    igUserId
+  )}/media_publish`;
+
+  const publishBody = new URLSearchParams();
+  publishBody.set("creation_id", creationId);
+  publishBody.set("access_token", accessToken);
+
+  const pubRes = await fetch(publishUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: publishBody,
+    cache: "no-store",
+  });
+
+  const pubJson: any = await pubRes.json().catch(() => null);
+
+  if (!pubRes.ok || !pubJson?.id) {
+    return {
+      ok: false,
+      status: pubRes.status,
+      json: pubJson || { error: "Failed publishing Instagram media container." },
+    };
+  }
+
+  return {
+    ok: true,
+    status: 200,
+    json: {
+      postedId: String(pubJson.id),
+      creationId,
+      mode: hasVideo ? "video" : "image",
+    },
+  };
 }
 
-// GET /api/social-accounts?organisationId=...
-export async function GET(req: Request) {
-  try {
-    const organisationId = await resolveOrganisationId(req);
+/**
+ * ✅ Threads direct publish (no Ayrshare, no Make)
+ * Threads API flow: create container → publish. :contentReference[oaicite:1]{index=1}
+ */
+async function postToThreads(args: {
+  organisationId: string;
+  message: string;
+  imageUrl?: string;
+  videoUrl?: string;
+}) {
+  const row = await loadSocialAccount(args.organisationId, "threads");
 
-    if (!organisationId) {
-      return NextResponse.json({
-        organisationId: null,
-        socialAccounts: [],
-      });
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from("social_accounts")
-      .select("*")
-      .eq("organisation_id", organisationId);
-
-    if (error) {
-      console.error("[social-accounts] GET error", error);
-      return NextResponse.json(
-        { error: "Failed to load social accounts" },
-        { status: 500 }
-      );
-    }
-
-    const rows: SocialAccountRow[] = (data ?? []) as any;
-
-    // ✅ Auto-sync IG from FB (only if FB has a usable page token)
-    const fbRow =
-      rows.find((r) => r.platform === "facebook" && r.is_active) || null;
-    const igRow =
-      rows.find((r) => r.platform === "instagram" && r.is_active) || null;
-
-    if (fbRow?.page_access_token && fbRow?.page_id) {
-      await syncInstagramFromFacebook({
-        organisationId,
-        facebookRow: fbRow,
-        existingInstagramRow: igRow,
-      });
-
-      // Re-fetch after potential upsert so caller sees the updated state immediately
-      const { data: data2 } = await supabaseAdmin
-        .from("social_accounts")
-        .select("*")
-        .eq("organisation_id", organisationId);
-
-      return NextResponse.json({
-        organisationId,
-        socialAccounts: (data2 ?? []) as any,
-      });
-    }
-
-    return NextResponse.json({
-      organisationId,
-      socialAccounts: rows ?? [],
-    });
-  } catch (error: any) {
-    console.error("[social-accounts] GET unexpected", error);
-    return NextResponse.json(
-      { error: error.message || "Unexpected error" },
-      { status: 500 }
-    );
+  if (!row?.page_id) {
+    return {
+      ok: false,
+      status: 401,
+      json: {
+        error:
+          "Threads is not connected (missing page_id). Reconnect Threads on Connect page.",
+      },
+    };
   }
+  if (!row?.page_access_token) {
+    return {
+      ok: false,
+      status: 401,
+      json: {
+        error:
+          "Threads is not connected (missing access token). Reconnect Threads on Connect page.",
+      },
+    };
+  }
+
+  const threadsUserId = row.page_id;
+  const accessToken = row.page_access_token;
+
+  const hasImage = !!args.imageUrl?.trim();
+  const hasVideo = !!args.videoUrl?.trim();
+
+  if (hasImage && !isLikelyImageUrl(args.imageUrl!)) {
+    return {
+      ok: false,
+      status: 400,
+      json: { error: "Threads imageUrl must be a direct https image link (.jpg/.png/.webp/.gif)." },
+    };
+  }
+  if (hasVideo && !isLikelyVideoUrl(args.videoUrl!)) {
+    return {
+      ok: false,
+      status: 400,
+      json: { error: "Threads videoUrl must be a direct https video link (.mp4/.mov/.m4v)." },
+    };
+  }
+
+  // 1) Create container
+  const createUrl = `https://graph.threads.net/v1.0/${encodeURIComponent(
+    threadsUserId
+  )}/threads`;
+
+  const createBody = new URLSearchParams();
+  createBody.set("access_token", accessToken);
+  createBody.set("text", args.message);
+
+  // If you pass a media url, Threads expects the appropriate field
+  if (hasImage) createBody.set("image_url", args.imageUrl!.trim());
+  if (hasVideo) createBody.set("video_url", args.videoUrl!.trim());
+
+  const createRes = await fetch(createUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: createBody,
+    cache: "no-store",
+  });
+
+  const createJson: any = await createRes.json().catch(() => null);
+
+  if (!createRes.ok || !createJson?.id) {
+    return {
+      ok: false,
+      status: createRes.status,
+      json: createJson || { error: "Failed creating Threads container." },
+    };
+  }
+
+  const creationId = String(createJson.id);
+
+  // 2) Publish
+  const publishUrl = `https://graph.threads.net/v1.0/${encodeURIComponent(
+    threadsUserId
+  )}/threads_publish`;
+
+  const publishBody = new URLSearchParams();
+  publishBody.set("access_token", accessToken);
+  publishBody.set("creation_id", creationId);
+
+  const pubRes = await fetch(publishUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: publishBody,
+    cache: "no-store",
+  });
+
+  const pubJson: any = await pubRes.json().catch(() => null);
+
+  if (!pubRes.ok || !pubJson?.id) {
+    return {
+      ok: false,
+      status: pubRes.status,
+      json: pubJson || { error: "Failed publishing Threads container." },
+    };
+  }
+
+  return {
+    ok: true,
+    status: 200,
+    json: {
+      postedId: String(pubJson.id),
+      creationId,
+      mode: hasVideo ? "video" : hasImage ? "image" : "text",
+    },
+  };
 }
 
-// POST /api/social-accounts?organisationId=...
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    const platform = asProviderId(body?.platform);
-    const pageId = typeof body?.pageId === "string" ? body.pageId : undefined;
-    const pageName =
-      typeof body?.pageName === "string" ? body.pageName : undefined;
+    const message = String(body?.message ?? "").trim();
+    const imageUrl = String(body?.imageUrl ?? "").trim();
+    const videoUrl = String(body?.videoUrl ?? "").trim();
 
-    const connectionType =
-      typeof body?.connectionType === "string" ? body.connectionType : undefined;
+    const platformsRaw = Array.isArray(body?.platforms) ? body.platforms : [];
+    const platforms: ProviderId[] = platformsRaw
+      .map((p: any) => String(p || "").toLowerCase().trim())
+      .filter(Boolean) as ProviderId[];
 
-    const makeWebhookUrl =
-      typeof body?.makeWebhookUrl === "string" ? body.makeWebhookUrl : undefined;
-
-    const isActive =
-      typeof body?.isActive === "boolean" ? body.isActive : undefined;
-
-    const pageAccessToken =
-      typeof body?.pageAccessToken === "string" ? body.pageAccessToken : undefined;
-
-    const tokenExpiresAt =
-      typeof body?.tokenExpiresAt === "string" ? body.tokenExpiresAt : undefined;
-
-    if (!platform) {
+    if (!message) {
       return NextResponse.json(
-        { error: "platform is required" },
+        { success: false, error: "Message is required." },
         { status: 400 }
       );
     }
 
-    const organisationId = await resolveOrganisationId(req);
-
-    if (!organisationId) {
-      return NextResponse.json({ error: "No organisation found" }, { status: 400 });
-    }
-
-    // See if we already have a row for this org + platform
-    const { data: existingRows, error: existingError } = await supabaseAdmin
-      .from("social_accounts")
-      .select("id, page_id")
-      .eq("organisation_id", organisationId)
-      .eq("platform", platform)
-      .limit(1);
-
-    if (existingError) {
-      console.error("[social-accounts] lookup error", existingError);
-    }
-
-    let result: any;
-
-    if (existingRows && existingRows.length > 0) {
-      const id = existingRows[0].id;
-
-      const updatePayload: any = {};
-
-      if (typeof pageName === "string") updatePayload.page_name = pageName;
-      if (typeof connectionType === "string") updatePayload.connection_type = connectionType;
-      if (typeof makeWebhookUrl === "string") updatePayload.make_webhook_url = makeWebhookUrl;
-      if (typeof isActive === "boolean") updatePayload.is_active = isActive;
-      if (typeof pageAccessToken === "string") updatePayload.page_access_token = pageAccessToken;
-      if (typeof tokenExpiresAt === "string") updatePayload.token_expires_at = tokenExpiresAt;
-
-      // Respect NOT NULL on page_id (only update if provided)
-      if (typeof pageId === "string" && pageId.trim().length > 0) {
-        updatePayload.page_id = pageId.trim();
-      }
-
-      const { data, error } = await supabaseAdmin
-        .from("social_accounts")
-        .update(updatePayload)
-        .eq("id", id)
-        .select()
-        .single();
-
-      if (error) {
-        console.error("[social-accounts] update error", error);
-        return NextResponse.json(
-          { error: "Failed to update social account", details: error },
-          { status: 500 }
-        );
-      }
-
-      result = data;
-    } else {
-      const newId = randomUUID();
-
-      // Respect NOT NULL on page_id:
-      const safePageId =
-        (typeof pageId === "string" && pageId.trim().length > 0
-          ? pageId.trim()
-          : "pending_page_id") + "";
-
-      const { data, error } = await supabaseAdmin
-        .from("social_accounts")
-        .insert({
-          id: newId,
-          organisation_id: organisationId,
-          platform,
-          page_id: safePageId,
-          page_name: pageName ?? null,
-          connection_type: connectionType ?? null,
-          make_webhook_url: makeWebhookUrl ?? null,
-          is_active: typeof isActive === "boolean" ? isActive : true,
-          page_access_token: pageAccessToken ?? null,
-          token_expires_at: tokenExpiresAt ?? null,
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error("[social-accounts] insert error", error);
-        return NextResponse.json(
-          { error: "Failed to create social account", details: error },
-          { status: 500 }
-        );
-      }
-
-      result = data;
-    }
-
-    return NextResponse.json({
-      organisationId,
-      socialAccount: result,
-    });
-  } catch (error: any) {
-    console.error("[social-accounts] POST unexpected", error);
-    return NextResponse.json(
-      { error: error.message || "Unexpected error" },
-      { status: 500 }
-    );
-  }
-}
-
-// DELETE /api/social-accounts?organisationId=...
-export async function DELETE(req: Request) {
-  try {
-    const body = await req.json().catch(() => ({}));
-    const platform = asProviderId(body?.platform);
-
-    if (!platform) {
+    if (platforms.length === 0) {
       return NextResponse.json(
-        { error: "platform is required" },
+        { success: false, error: "At least one platform is required." },
         { status: 400 }
       );
     }
 
-    const organisationId = await resolveOrganisationId(req);
-
+    const organisationId = await resolveOrganisationId(req, body?.organisationId);
     if (!organisationId) {
-      return NextResponse.json({ error: "No organisation found" }, { status: 400 });
-    }
-
-    const { error } = await supabaseAdmin
-      .from("social_accounts")
-      .delete()
-      .eq("organisation_id", organisationId)
-      .eq("platform", platform);
-
-    if (error) {
-      console.error("[social-accounts] DELETE error", error);
       return NextResponse.json(
-        { error: "Failed to delete social account" },
-        { status: 500 }
+        { success: false, error: "No organisation found in database." },
+        { status: 400 }
       );
     }
 
-    return NextResponse.json({ organisationId, platform });
-  } catch (error: any) {
-    console.error("[social-accounts] DELETE unexpected", error);
+    const results: any[] = [];
+
+    for (const p of platforms) {
+      // --- Facebook (direct) ---
+      if (p === "facebook") {
+        const row = await loadSocialAccount(organisationId, "facebook");
+
+        if (!row?.page_id) {
+          results.push({
+            platform: "facebook",
+            ok: false,
+            error:
+              "Facebook not connected (missing page_id). Go to Connect and connect Facebook.",
+          });
+          continue;
+        }
+
+        if (!row?.page_access_token) {
+          results.push({
+            platform: "facebook",
+            ok: false,
+            error:
+              "Facebook connected but missing page_access_token. Reconnect Facebook and pick the Page again.",
+          });
+          continue;
+        }
+
+        const fb = await postToFacebook({
+          pageId: row.page_id,
+          pageAccessToken: row.page_access_token,
+          message,
+          imageUrl: imageUrl || undefined,
+        });
+
+        if (!fb.ok) {
+          results.push({
+            platform: "facebook",
+            ok: false,
+            status: fb.status,
+            error: fb.json?.error?.message || "Facebook post failed",
+            details: fb.json,
+          });
+          continue;
+        }
+
+        results.push({
+          platform: "facebook",
+          ok: true,
+          postedId: fb.json?.post_id || fb.json?.id || null,
+          mode: fb.mode,
+        });
+
+        continue;
+      }
+
+      // --- LinkedIn (direct route) ---
+      if (p === "linkedin") {
+        const li = await postToLinkedIn({ req, message, organisationId });
+
+        if (!li.ok) {
+          results.push({
+            platform: "linkedin",
+            ok: false,
+            status: li.status,
+            error: li.error || "LinkedIn post failed",
+            details: li.json,
+          });
+          continue;
+        }
+
+        results.push({
+          platform: "linkedin",
+          ok: true,
+          postedId: li.json?.postedId || null,
+          mode: "text",
+        });
+
+        continue;
+      }
+
+      // --- Instagram (direct Graph publish) ---
+      if (p === "instagram") {
+        const ig = await postToInstagram({
+          organisationId,
+          message,
+          imageUrl: imageUrl || undefined,
+          videoUrl: videoUrl || undefined,
+        });
+
+        if (!ig.ok) {
+          results.push({
+            platform: "instagram",
+            ok: false,
+            status: ig.status,
+            error: ig.json?.error || "Instagram post failed",
+            details: ig.json,
+          });
+          continue;
+        }
+
+        results.push({
+          platform: "instagram",
+          ok: true,
+          postedId: ig.json?.postedId || null,
+          mode: ig.json?.mode || "media",
+        });
+
+        continue;
+      }
+
+      // --- Threads (direct Threads API publish) ---
+      if (p === "threads") {
+        const th = await postToThreads({
+          organisationId,
+          message,
+          imageUrl: imageUrl || undefined,
+          videoUrl: videoUrl || undefined,
+        });
+
+        if (!th.ok) {
+          results.push({
+            platform: "threads",
+            ok: false,
+            status: th.status,
+            error: th.json?.error || "Threads post failed",
+            details: th.json,
+          });
+          continue;
+        }
+
+        results.push({
+          platform: "threads",
+          ok: true,
+          postedId: th.json?.postedId || null,
+          mode: th.json?.mode || "text",
+        });
+
+        continue;
+      }
+
+      // Leave TikTok/others unchanged
+      results.push({
+        platform: p,
+        ok: false,
+        skipped: true,
+        reason: "Not implemented here yet (kept unchanged).",
+      });
+    }
+
+    const okCount = results.filter((r) => r.ok).length;
+    const failCount = results.filter((r) => !r.ok && !r.skipped).length;
+    const skippedCount = results.filter((r) => r.skipped).length;
+
     return NextResponse.json(
-      { error: error.message || "Unexpected error" },
+      {
+        success: okCount > 0 && failCount === 0,
+        organisationId,
+        results,
+        summary: {
+          attempted: results.length,
+          ok: okCount,
+          failed: failCount,
+          skipped: skippedCount,
+        },
+      },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error("[quick-blast] unexpected error", err);
+    return NextResponse.json(
+      { success: false, error: err?.message || "Internal server error" },
       { status: 500 }
     );
   }
