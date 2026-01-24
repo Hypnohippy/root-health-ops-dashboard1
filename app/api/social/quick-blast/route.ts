@@ -3,6 +3,8 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
+const AYRSHARE_API_KEY = process.env.AYRSHARE_API_KEY;
+
 type ProviderId =
   | "facebook"
   | "instagram"
@@ -81,19 +83,34 @@ async function loadSocialAccount(
   return (data as any) ?? null;
 }
 
-function isLikelyImageUrl(url: string) {
+function isLikelyHttpUrl(url: string) {
   const u = (url || "").trim();
   if (!u) return false;
-  if (!/^https:\/\/.+/i.test(u)) return false;
+  return /^https:\/\/.+/i.test(u);
+}
+
+function isLikelyImageUrl(url: string) {
+  const u = (url || "").trim();
+  if (!isLikelyHttpUrl(u)) return false;
   return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
 }
 
+function isLikelyVideoUrl(url: string) {
+  const u = (url || "").trim();
+  if (!isLikelyHttpUrl(u)) return false;
+  return /\.(mp4|mov|m4v|webm)(\?.*)?$/i.test(u);
+}
+
+// -----------------------
+// Facebook (direct Graph API)
+// -----------------------
 async function postToFacebook(args: {
   pageId: string;
   pageAccessToken: string;
   message: string;
   imageUrl?: string;
 }) {
+  // Photo post
   if (args.imageUrl && args.imageUrl.trim()) {
     const imageUrl = args.imageUrl.trim();
 
@@ -132,6 +149,7 @@ async function postToFacebook(args: {
     return { ok: res.ok, status: res.status, json, mode: "photo" as const };
   }
 
+  // Text post
   const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
     args.pageId
   )}/feed`;
@@ -151,11 +169,13 @@ async function postToFacebook(args: {
   return { ok: res.ok, status: res.status, json, mode: "text" as const };
 }
 
+// -----------------------
+// LinkedIn (your existing route)
+// -----------------------
 async function postToLinkedIn(args: {
   req: NextRequest;
   message: string;
   organisationId: string;
-  imageUrl?: string;
 }) {
   const url = `${baseUrl(args.req)}/api/linkedin/post`;
 
@@ -163,9 +183,8 @@ async function postToLinkedIn(args: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      text: args.message, // ✅ LinkedIn route expects "text"
+      text: args.message, // linkedin route expects "text"
       organisationId: args.organisationId,
-      imageUrl: args.imageUrl || undefined, // ✅ pass through for image posts
     }),
     cache: "no-store",
   });
@@ -173,7 +192,7 @@ async function postToLinkedIn(args: {
   const json: any = await res.json().catch(() => null);
 
   return {
-    ok: res.ok && !!(json?.postedId || json?.ok),
+    ok: res.ok && (!!json?.postedId || json?.ok === true),
     status: res.status,
     json,
     error:
@@ -183,12 +202,71 @@ async function postToLinkedIn(args: {
   };
 }
 
+// -----------------------
+// Instagram + Threads via Ayrshare (restores “it used to work” behaviour)
+// -----------------------
+async function postToAyrshare(args: {
+  post: string;
+  platforms: string[];
+  imageUrl?: string;
+  videoUrl?: string;
+}) {
+  if (!AYRSHARE_API_KEY) {
+    return {
+      ok: false,
+      status: 500,
+      json: { error: "Missing AYRSHARE_API_KEY in env." },
+    };
+  }
+
+  const payload: any = {
+    post: args.post,
+    platforms: args.platforms,
+  };
+
+  const imageUrl = (args.imageUrl || "").trim();
+  const videoUrl = (args.videoUrl || "").trim();
+
+  // Ayrshare supports mediaUrls (and will handle per-platform rules)
+  const mediaUrls: string[] = [];
+  if (imageUrl) {
+    if (!isLikelyHttpUrl(imageUrl)) {
+      return { ok: false, status: 400, json: { error: "imageUrl must be https." } };
+    }
+    mediaUrls.push(imageUrl);
+  }
+  if (videoUrl) {
+    if (!isLikelyHttpUrl(videoUrl)) {
+      return { ok: false, status: 400, json: { error: "videoUrl must be https." } };
+    }
+    mediaUrls.push(videoUrl);
+  }
+  if (mediaUrls.length) payload.mediaUrls = mediaUrls;
+
+  const res = await fetch("https://api.ayrshare.com/api/post", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${AYRSHARE_API_KEY}`,
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+
+  const json: any = await res.json().catch(() => null);
+
+  // Ayrshare can return 200 with status "error"
+  const ok = res.ok && json && json.status !== "error";
+  return { ok, status: res.status, json };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
     const message = String(body?.message ?? "").trim();
-    const imageUrl = String(body?.imageUrl ?? "").trim();
+    const imageUrl = String(body?.imageUrl ?? body?.image_url ?? "").trim();
+    const videoUrl = String(body?.videoUrl ?? body?.video_url ?? "").trim();
 
     const platformsRaw = Array.isArray(body?.platforms) ? body.platforms : [];
     const platforms: ProviderId[] = platformsRaw
@@ -220,6 +298,7 @@ export async function POST(req: NextRequest) {
     const results: any[] = [];
 
     for (const p of platforms) {
+      // Facebook
       if (p === "facebook") {
         const row = await loadSocialAccount(organisationId, "facebook");
 
@@ -271,13 +350,9 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      // LinkedIn
       if (p === "linkedin") {
-        const li = await postToLinkedIn({
-          req,
-          message,
-          organisationId,
-          imageUrl: imageUrl || undefined,
-        });
+        const li = await postToLinkedIn({ req, message, organisationId });
 
         if (!li.ok) {
           results.push({
@@ -293,19 +368,49 @@ export async function POST(req: NextRequest) {
         results.push({
           platform: "linkedin",
           ok: true,
-          postedId: li.json?.postedId || null,
-          mode: imageUrl ? "image" : "text",
+          postedId: li.json?.postedId || li.json?.id || null,
+          mode: "text",
         });
 
         continue;
       }
 
-      // Leave TikTok / Threads / IG as-is for now (per your instruction)
+      // Instagram + Threads via Ayrshare (restored)
+      if (p === "instagram" || p === "threads") {
+        const as = await postToAyrshare({
+          post: message,
+          platforms: [p],
+          imageUrl: imageUrl || undefined,
+          videoUrl: videoUrl || undefined,
+        });
+
+        if (!as.ok) {
+          results.push({
+            platform: p,
+            ok: false,
+            status: as.status,
+            error: as.json?.error?.message || as.json?.error || "Ayrshare post failed",
+            details: as.json,
+          });
+          continue;
+        }
+
+        results.push({
+          platform: p,
+          ok: true,
+          postedId: as.json?.postId || as.json?.id || null,
+          mode: videoUrl ? "video" : imageUrl ? "image" : "text",
+        });
+
+        continue;
+      }
+
+      // Leave TikTok alone + everything else untouched
       results.push({
         platform: p,
         ok: false,
         skipped: true,
-        reason: "Not implemented here yet (kept unchanged).",
+        reason: "Not implemented in quick-blast (kept unchanged).",
       });
     }
 
