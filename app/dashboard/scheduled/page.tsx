@@ -40,8 +40,47 @@ function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
   return "neutral";
 }
 
+/**
+ * Pull out a human-friendly error summary from our various shapes of error_info
+ * (quick-blast style: { success, results: [{platform, ok, error, details}] })
+ */
+function summarizeErrorInfo(errorInfo: any): { title: string; lines: string[] } | null {
+  if (!errorInfo) return null;
+
+  // If it's already a string
+  if (typeof errorInfo === "string") {
+    return { title: "Error", lines: [errorInfo] };
+  }
+
+  // Common quick-blast format
+  const results = Array.isArray(errorInfo?.results) ? errorInfo.results : null;
+  if (results && results.length) {
+    const lines = results.map((r: any) => {
+      const platform = r?.platform ? String(r.platform) : "unknown";
+      const ok = !!r?.ok;
+      const err = r?.error || r?.reason || r?.message || "Unknown error";
+      return `${platform}: ${ok ? "OK" : "FAILED"} — ${String(err)}`;
+    });
+    const title = errorInfo?.success === false ? "Dispatch failed" : "Dispatch results";
+    return { title, lines };
+  }
+
+  // Airtable-ish / other shapes
+  if (errorInfo?.error) {
+    const msg = typeof errorInfo.error === "string" ? errorInfo.error : JSON.stringify(errorInfo.error);
+    return { title: "Error", lines: [msg] };
+  }
+
+  try {
+    return { title: "Error details", lines: [JSON.stringify(errorInfo)] };
+  } catch {
+    return { title: "Error details", lines: ["(unreadable error_info)"] };
+  }
+}
+
 export default function ScheduledPage() {
   const [orgId, setOrgId] = useState<string | null>(null);
+  const [orgLoadError, setOrgLoadError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -52,15 +91,26 @@ export default function ScheduledPage() {
   const [query, setQuery] = useState("");
   const [showPastCount, setShowPastCount] = useState(25);
 
+  // 1) Load orgId from backend
   useEffect(() => {
     (async () => {
       try {
+        setOrgLoadError(null);
         const res = await fetch("/api/social-accounts", { cache: "no-store" });
         const data: any = await res.json().catch(() => null);
+
         const id = data?.organisationId ? String(data.organisationId) : null;
+
+        if (!id) {
+          setOrgId(null);
+          setOrgLoadError("Could not determine organisationId. (No organisationId returned.)");
+          return;
+        }
+
         setOrgId(id);
-      } catch {
+      } catch (e: any) {
         setOrgId(null);
+        setOrgLoadError(e?.message || "Could not determine organisationId.");
       }
     })();
   }, []);
@@ -83,7 +133,8 @@ export default function ScheduledPage() {
         );
       }
 
-      setRows(Array.isArray(data?.items) ? data.items : []);
+      const items = Array.isArray(data?.items) ? (data.items as ScheduledPost[]) : [];
+      setRows(items);
     } catch (e: any) {
       setRows([]);
       setError(e?.message || "Could not load scheduled posts.");
@@ -102,6 +153,7 @@ export default function ScheduledPage() {
     }
   };
 
+  // 2) Load scheduled posts once orgId is ready
   useEffect(() => {
     if (!orgId) return;
     void load(orgId);
@@ -115,7 +167,7 @@ export default function ScheduledPage() {
     return rows.filter((r) => {
       const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.status || ""} ${
         r.scheduled_for || ""
-      }`.toLowerCase();
+      } ${r.posted_at || ""}`.toLowerCase();
       return hay.includes(q);
     });
   }, [rows, query]);
@@ -126,8 +178,7 @@ export default function ScheduledPage() {
       .filter((r) => new Date(r.scheduled_for).getTime() >= now)
       .sort(
         (a, b) =>
-          new Date(a.scheduled_for).getTime() -
-          new Date(b.scheduled_for).getTime()
+          new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime()
       );
   }, [filtered]);
 
@@ -137,8 +188,7 @@ export default function ScheduledPage() {
       .filter((r) => new Date(r.scheduled_for).getTime() < now)
       .sort(
         (a, b) =>
-          new Date(b.scheduled_for).getTime() -
-          new Date(a.scheduled_for).getTime()
+          new Date(b.scheduled_for).getTime() - new Date(a.scheduled_for).getTime()
       );
   }, [filtered]);
 
@@ -172,6 +222,8 @@ export default function ScheduledPage() {
 
   const RowCard = ({ p }: { p: ScheduledPost }) => {
     const tone = statusTone(p.status);
+    const errSummary = summarizeErrorInfo(p.error_info);
+
     return (
       <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -180,6 +232,9 @@ export default function ScheduledPage() {
             <span className="text-slate-100 font-semibold">
               {prettyPlatforms(p.platforms)}
             </span>
+            {p.posted_at ? (
+              <span className="text-slate-400"> · posted {safeDate(p.posted_at)}</span>
+            ) : null}
           </div>
           <Pill tone={tone}>{p.status || "unknown"}</Pill>
         </div>
@@ -194,10 +249,22 @@ export default function ScheduledPage() {
           </div>
         ) : null}
 
-        {p.error_info ? (
-          <pre className="mt-3 text-[11px] text-red-200 whitespace-pre-wrap bg-red-950/30 border border-red-500/30 rounded-xl p-3">
-            {JSON.stringify(p.error_info, null, 2)}
-          </pre>
+        {errSummary ? (
+          <div className="mt-3 rounded-xl border border-red-500/30 bg-red-950/30 p-3">
+            <div className="text-[11px] font-semibold text-red-200">{errSummary.title}</div>
+            <ul className="mt-2 space-y-1">
+              {errSummary.lines.slice(0, 6).map((line, idx) => (
+                <li key={idx} className="text-[11px] text-red-100 whitespace-pre-wrap">
+                  • {line}
+                </li>
+              ))}
+            </ul>
+
+            {/* Raw details toggle-like (always visible but compact) */}
+            <pre className="mt-3 text-[10px] text-red-100/80 whitespace-pre-wrap bg-black/30 border border-white/10 rounded-lg p-2 overflow-x-auto">
+              {JSON.stringify(p.error_info, null, 2)}
+            </pre>
+          </div>
         ) : null}
       </div>
     );
@@ -214,9 +281,16 @@ export default function ScheduledPage() {
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               Read-only queue of everything scheduled from elsewhere (Stories, Campaigns, Sequences, etc.).
             </p>
+
             <p className="mt-1 text-[11px] text-slate-500">
               Org: {orgId ? orgId : "loading…"}
             </p>
+
+            {orgLoadError ? (
+              <div className="mt-2 text-[11px] text-red-300 whitespace-pre-wrap">
+                {orgLoadError}
+              </div>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -239,7 +313,7 @@ export default function ScheduledPage() {
             <div>
               <div className="text-base font-semibold">Search the queue</div>
               <div className="mt-1 text-xs text-slate-300">
-                Search by message, platforms, status, or date.
+                Search by message, platforms, status, date, or posted time.
               </div>
             </div>
 
