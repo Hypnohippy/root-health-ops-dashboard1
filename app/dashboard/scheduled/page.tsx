@@ -13,8 +13,6 @@ type ScheduledPost = {
   status: string;
   created_at?: string;
   meta?: any;
-  error_info?: any;
-  posted_at?: string | null;
 };
 
 function prettyPlatforms(list: any) {
@@ -47,24 +45,27 @@ export default function ScheduledPage() {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // org id comes from API (no hardcoding)
   const [orgId, setOrgId] = useState<string | null>(null);
 
   // Queue UX controls
   const [query, setQuery] = useState("");
   const [showPastCount, setShowPastCount] = useState(25);
 
-  const loadOrg = async () => {
-    try {
-      const res = await fetch("/api/social-accounts", { cache: "no-store" });
-      const data: any = await res.json().catch(() => null);
-      const id = data?.organisationId ? String(data.organisationId) : null;
-      setOrgId(id);
-      return id;
-    } catch {
-      setOrgId(null);
-      return null;
+  const loadOrgId = async () => {
+    // Uses your existing endpoint:
+    // /api/social-accounts -> { organisationId, socialAccounts: [...] }
+    const res = await fetch("/api/social-accounts", { cache: "no-store" });
+    const data: any = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(data?.error || `Failed to detect organisation (HTTP ${res.status}).`);
     }
+
+    const detected = String(data?.organisationId || "").trim();
+    if (!detected) throw new Error("No organisationId returned from /api/social-accounts.");
+
+    setOrgId(detected);
+    return detected;
   };
 
   const load = async () => {
@@ -72,17 +73,16 @@ export default function ScheduledPage() {
     setError(null);
 
     try {
-      const oid = orgId || (await loadOrg());
-      if (!oid) throw new Error("Could not determine organisationId.");
+      const activeOrgId = orgId || (await loadOrgId());
 
       const res = await fetch(
-        `/api/schedule/list?organisationId=${encodeURIComponent(oid)}`,
+        `/api/schedule/list?organisationId=${encodeURIComponent(activeOrgId)}`,
         { cache: "no-store" }
       );
 
       const data: any = await res.json().catch(() => null);
 
-      if (!res.ok || !data?.ok) {
+      if (!res.ok) {
         throw new Error(
           data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`
         );
@@ -107,7 +107,7 @@ export default function ScheduledPage() {
   };
 
   useEffect(() => {
-    void loadOrg().then(() => load());
+    void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -116,9 +116,9 @@ export default function ScheduledPage() {
     if (!q) return rows;
 
     return rows.filter((r) => {
-      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${
-        r.status || ""
-      } ${r.scheduled_for || ""}`.toLowerCase();
+      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.status || ""} ${
+        r.scheduled_for || ""
+      }`.toLowerCase();
       return hay.includes(q);
     });
   }, [rows, query]);
@@ -194,12 +194,6 @@ export default function ScheduledPage() {
             Image: <span className="text-slate-300">{p.image_url}</span>
           </div>
         ) : null}
-
-        {p.error_info ? (
-          <div className="mt-3 rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-[11px] text-red-200 whitespace-pre-wrap">
-            Error: {typeof p.error_info === "string" ? p.error_info : JSON.stringify(p.error_info, null, 2)}
-          </div>
-        ) : null}
       </div>
     );
   };
@@ -215,11 +209,9 @@ export default function ScheduledPage() {
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               Read-only queue of everything scheduled from elsewhere (Stories, Campaigns, Sequences, etc.).
             </p>
-            {orgId ? (
-              <div className="mt-2 text-[11px] text-slate-500">
-                Org: <span className="text-slate-300">{orgId}</span>
-              </div>
-            ) : null}
+            <p className="mt-1 text-[11px] text-slate-500">
+              Using organisation: <span className="text-slate-300">{orgId || "detecting…"}</span>
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
