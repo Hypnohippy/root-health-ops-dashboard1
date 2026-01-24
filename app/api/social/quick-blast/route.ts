@@ -1,3 +1,4 @@
+// app/api/social/quick-blast/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
@@ -88,13 +89,20 @@ function isLikelyImageUrl(url: string) {
   return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
 }
 
+function isLikelyVideoUrl(url: string) {
+  const u = (url || "").trim();
+  if (!u) return false;
+  if (!/^https:\/\/.+/i.test(u)) return false;
+  return /\.(mp4|mov|m4v|webm)(\?.*)?$/i.test(u);
+}
+
+// -------------------- FACEBOOK (direct) --------------------
 async function postToFacebook(args: {
   pageId: string;
   pageAccessToken: string;
   message: string;
   imageUrl?: string;
 }) {
-  // Photo post
   if (args.imageUrl && args.imageUrl.trim()) {
     const imageUrl = args.imageUrl.trim();
 
@@ -133,7 +141,6 @@ async function postToFacebook(args: {
     return { ok: res.ok, status: res.status, json, mode: "photo" as const };
   }
 
-  // Text post
   const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
     args.pageId
   )}/feed`;
@@ -153,6 +160,7 @@ async function postToFacebook(args: {
   return { ok: res.ok, status: res.status, json, mode: "text" as const };
 }
 
+// -------------------- LINKEDIN (your internal direct route) --------------------
 async function postToLinkedIn(args: {
   req: NextRequest;
   message: string;
@@ -164,7 +172,7 @@ async function postToLinkedIn(args: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      text: args.message, // linkedin route expects "text"
+      text: args.message,
       organisationId: args.organisationId,
     }),
     cache: "no-store",
@@ -183,105 +191,187 @@ async function postToLinkedIn(args: {
   };
 }
 
-/**
- * ✅ Direct-post proxy for IG/Threads.
- * - NO AYRSHARE
- * - NO MAKE
- *
- * We try a small set of likely internal endpoints (because you already have direct posting routes).
- * The first one that returns success-ish wins.
- */
-async function postViaInternalCandidates(args: {
-  req: NextRequest;
-  candidates: string[];
-  organisationId: string;
-  platform: "instagram" | "threads";
-  message: string;
+// -------------------- INSTAGRAM (direct via IG Graph API) --------------------
+// Requires imageUrl or videoUrl (IG does NOT accept pure text posts)
+async function postToInstagram(args: {
+  igUserId: string;
+  accessToken: string;
+  caption: string;
   imageUrl?: string;
   videoUrl?: string;
 }) {
-  const root = baseUrl(args.req);
+  const igUserId = args.igUserId.trim();
 
-  // We send a “wide” payload so different internal routes still work.
-  const payload = {
-    organisationId: args.organisationId,
-    platform: args.platform,
+  const hasImage = !!args.imageUrl?.trim();
+  const hasVideo = !!args.videoUrl?.trim();
 
-    // common names
-    message: args.message,
-    text: args.message,
-    post: args.message,
+  if (!hasImage && !hasVideo) {
+    return {
+      ok: false,
+      status: 400,
+      json: {
+        error:
+          "Instagram requires an imageUrl or videoUrl (Instagram does not support text-only posts).",
+      },
+    };
+  }
 
-    imageUrl: args.imageUrl || undefined,
-    mediaUrl: args.imageUrl || undefined,
-    mediaUrls: args.imageUrl ? [args.imageUrl] : undefined,
+  if (hasImage && args.imageUrl && !isLikelyImageUrl(args.imageUrl)) {
+    return {
+      ok: false,
+      status: 400,
+      json: { error: "Instagram imageUrl must be a direct https image link." },
+    };
+  }
 
-    videoUrl: args.videoUrl || undefined,
-    videoUrls: args.videoUrl ? [args.videoUrl] : undefined,
-  };
+  if (hasVideo && args.videoUrl && !isLikelyVideoUrl(args.videoUrl)) {
+    return {
+      ok: false,
+      status: 400,
+      json: { error: "Instagram videoUrl must be a direct https video link (.mp4 etc)." },
+    };
+  }
 
-  const attempts: any[] = [];
+  // 1) Create media container
+  const createBody = new URLSearchParams();
+  createBody.set("access_token", args.accessToken);
+  createBody.set("caption", args.caption);
 
-  for (const path of args.candidates) {
-    const url = `${root}${path.startsWith("/") ? "" : "/"}${path}`;
+  if (hasImage && args.imageUrl) {
+    createBody.set("image_url", args.imageUrl.trim());
+  } else if (hasVideo && args.videoUrl) {
+    // For videos, many IG setups need REELS. If your account supports plain VIDEO, this still often works.
+    createBody.set("video_url", args.videoUrl.trim());
+    createBody.set("media_type", "REELS");
+  }
 
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        cache: "no-store",
-      });
-
-      const json: any = await res.json().catch(() => null);
-
-      // Accept several “success shapes”
-      const success =
-        res.ok &&
-        (json?.success === true ||
-          json?.ok === true ||
-          !!json?.postedId ||
-          !!json?.id);
-
-      attempts.push({
-        path,
-        status: res.status,
-        ok: res.ok,
-        success,
-        response: json,
-      });
-
-      if (success) {
-        return {
-          ok: true,
-          status: res.status,
-          json,
-          used: path,
-          attempts,
-        };
-      }
-    } catch (e: any) {
-      attempts.push({
-        path,
-        status: 0,
-        ok: false,
-        success: false,
-        error: String(e?.message || e),
-      });
+  const createRes = await fetch(
+    `https://graph.facebook.com/v24.0/${encodeURIComponent(igUserId)}/media`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: createBody,
+      cache: "no-store",
     }
+  );
+
+  const createJson: any = await createRes.json().catch(() => null);
+
+  if (!createRes.ok || !createJson?.id) {
+    return {
+      ok: false,
+      status: createRes.status,
+      json: createJson || { error: "Instagram media container create failed." },
+    };
+  }
+
+  const creationId = String(createJson.id);
+
+  // 2) Publish container
+  const publishBody = new URLSearchParams();
+  publishBody.set("access_token", args.accessToken);
+  publishBody.set("creation_id", creationId);
+
+  const publishRes = await fetch(
+    `https://graph.facebook.com/v24.0/${encodeURIComponent(
+      igUserId
+    )}/media_publish`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: publishBody,
+      cache: "no-store",
+    }
+  );
+
+  const publishJson: any = await publishRes.json().catch(() => null);
+
+  if (!publishRes.ok) {
+    return {
+      ok: false,
+      status: publishRes.status,
+      json: publishJson || { error: "Instagram publish failed." },
+    };
   }
 
   return {
-    ok: false,
-    status: 500,
-    json: {
-      error: `No working internal ${args.platform} posting route was found.`,
-      hint:
-        "One of your direct posting routes has likely moved/renamed. Provide the IG/Threads route path and we will wire it cleanly.",
-      attempts,
-    },
-    used: null,
-    attempts,
+    ok: true,
+    status: publishRes.status,
+    json: { ...publishJson, creationId },
+  };
+}
+
+// -------------------- THREADS (direct best-effort) --------------------
+// NOTE: This uses the same “create then publish” pattern used by Meta.
+// If your Threads setup expects a slightly different param name, the error_info will show it clearly.
+async function postToThreads(args: {
+  threadsUserId: string;
+  accessToken: string;
+  text: string;
+  imageUrl?: string;
+  videoUrl?: string;
+}) {
+  const userId = args.threadsUserId.trim();
+
+  const createBody = new URLSearchParams();
+  createBody.set("access_token", args.accessToken);
+  createBody.set("text", args.text);
+
+  if (args.imageUrl?.trim()) createBody.set("image_url", args.imageUrl.trim());
+  if (args.videoUrl?.trim()) createBody.set("video_url", args.videoUrl.trim());
+
+  const createRes = await fetch(
+    `https://graph.facebook.com/v24.0/${encodeURIComponent(userId)}/threads`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: createBody,
+      cache: "no-store",
+    }
+  );
+
+  const createJson: any = await createRes.json().catch(() => null);
+
+  if (!createRes.ok || !createJson?.id) {
+    return {
+      ok: false,
+      status: createRes.status,
+      json: createJson || { error: "Threads create failed." },
+    };
+  }
+
+  const creationId = String(createJson.id);
+
+  const publishBody = new URLSearchParams();
+  publishBody.set("access_token", args.accessToken);
+  publishBody.set("creation_id", creationId);
+
+  const publishRes = await fetch(
+    `https://graph.facebook.com/v24.0/${encodeURIComponent(
+      userId
+    )}/threads_publish`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: publishBody,
+      cache: "no-store",
+    }
+  );
+
+  const publishJson: any = await publishRes.json().catch(() => null);
+
+  if (!publishRes.ok) {
+    return {
+      ok: false,
+      status: publishRes.status,
+      json: publishJson || { error: "Threads publish failed." },
+    };
+  }
+
+  return {
+    ok: true,
+    status: publishRes.status,
+    json: { ...publishJson, creationId },
   };
 }
 
@@ -312,10 +402,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const organisationId = await resolveOrganisationId(
-      req,
-      body?.organisationId
-    );
+    const organisationId = await resolveOrganisationId(req, body?.organisationId);
     if (!organisationId) {
       return NextResponse.json(
         { success: false, error: "No organisation found in database." },
@@ -326,7 +413,7 @@ export async function POST(req: NextRequest) {
     const results: any[] = [];
 
     for (const p of platforms) {
-      // --- Facebook (direct) ---
+      // FACEBOOK
       if (p === "facebook") {
         const row = await loadSocialAccount(organisationId, "facebook");
 
@@ -334,18 +421,15 @@ export async function POST(req: NextRequest) {
           results.push({
             platform: "facebook",
             ok: false,
-            error:
-              "Facebook not connected (missing page_id). Go to Connect and connect Facebook.",
+            error: "Facebook not connected (missing page_id).",
           });
           continue;
         }
-
         if (!row?.page_access_token) {
           results.push({
             platform: "facebook",
             ok: false,
-            error:
-              "Facebook connected but missing page_access_token. Reconnect Facebook and pick the Page again.",
+            error: "Facebook connected but missing page_access_token.",
           });
           continue;
         }
@@ -374,11 +458,10 @@ export async function POST(req: NextRequest) {
           postedId: fb.json?.post_id || fb.json?.id || null,
           mode: fb.mode,
         });
-
         continue;
       }
 
-      // --- LinkedIn (direct route) ---
+      // LINKEDIN
       if (p === "linkedin") {
         const li = await postToLinkedIn({ req, message, organisationId });
 
@@ -399,28 +482,38 @@ export async function POST(req: NextRequest) {
           postedId: li.json?.postedId || null,
           mode: "text",
         });
-
         continue;
       }
 
-      // --- Instagram (direct internal routes; NO AYRSHARE/MAKE) ---
+      // INSTAGRAM
       if (p === "instagram") {
-        const ig = await postViaInternalCandidates({
-          req,
-          organisationId,
-          platform: "instagram",
-          message,
+        const row = await loadSocialAccount(organisationId, "instagram");
+
+        if (!row?.page_id || !row.page_id.trim()) {
+          results.push({
+            platform: "instagram",
+            ok: false,
+            status: 401,
+            error: "Instagram is not connected (missing IG page_id). Reconnect Instagram.",
+          });
+          continue;
+        }
+        if (!row?.page_access_token || !row.page_access_token.trim()) {
+          results.push({
+            platform: "instagram",
+            ok: false,
+            status: 401,
+            error: "Instagram is not connected (missing access token). Reconnect Instagram.",
+          });
+          continue;
+        }
+
+        const ig = await postToInstagram({
+          igUserId: row.page_id,
+          accessToken: row.page_access_token,
+          caption: message,
           imageUrl: imageUrl || undefined,
           videoUrl: videoUrl || undefined,
-          candidates: [
-            // common/likely patterns in your repo
-            "/api/instagram/post",
-            "/api/instagram/post-direct",
-            "/api/social/instagram/post",
-            "/api/social/instagram/post-direct",
-            "/api/instagram/publish",
-            "/api/social/instagram/publish",
-          ],
         });
 
         if (!ig.ok) {
@@ -437,31 +530,41 @@ export async function POST(req: NextRequest) {
         results.push({
           platform: "instagram",
           ok: true,
-          postedId: ig.json?.postedId || ig.json?.id || null,
-          mode: imageUrl ? "image" : videoUrl ? "video" : "text",
-          usedRoute: ig.used,
+          postedId: ig.json?.id || null,
+          mode: imageUrl ? "image" : videoUrl ? "video" : "unknown",
         });
-
         continue;
       }
 
-      // --- Threads (direct internal routes; NO AYRSHARE/MAKE) ---
+      // THREADS
       if (p === "threads") {
-        const th = await postViaInternalCandidates({
-          req,
-          organisationId,
-          platform: "threads",
-          message,
+        const row = await loadSocialAccount(organisationId, "threads");
+
+        if (!row?.page_id || !row.page_id.trim()) {
+          results.push({
+            platform: "threads",
+            ok: false,
+            status: 401,
+            error: "Threads is not connected (missing threads user id). Reconnect Threads.",
+          });
+          continue;
+        }
+        if (!row?.page_access_token || !row.page_access_token.trim()) {
+          results.push({
+            platform: "threads",
+            ok: false,
+            status: 401,
+            error: "Threads is not connected (missing access token). Reconnect Threads.",
+          });
+          continue;
+        }
+
+        const th = await postToThreads({
+          threadsUserId: row.page_id,
+          accessToken: row.page_access_token,
+          text: message,
           imageUrl: imageUrl || undefined,
           videoUrl: videoUrl || undefined,
-          candidates: [
-            "/api/threads/post",
-            "/api/threads/post-direct",
-            "/api/social/threads/post",
-            "/api/social/threads/post-direct",
-            "/api/threads/publish",
-            "/api/social/threads/publish",
-          ],
         });
 
         if (!th.ok) {
@@ -478,20 +581,17 @@ export async function POST(req: NextRequest) {
         results.push({
           platform: "threads",
           ok: true,
-          postedId: th.json?.postedId || th.json?.id || null,
+          postedId: th.json?.id || null,
           mode: imageUrl ? "image" : videoUrl ? "video" : "text",
-          usedRoute: th.used,
         });
-
         continue;
       }
 
-      // Leave TikTok/others unchanged as requested
       results.push({
         platform: p,
         ok: false,
         skipped: true,
-        reason: "Not implemented here yet (kept unchanged).",
+        reason: "Not implemented here yet.",
       });
     }
 
