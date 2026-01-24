@@ -13,6 +13,8 @@ type ScheduledPost = {
   status: string;
   created_at?: string;
   meta?: any;
+  error_info?: any;
+  posted_at?: string | null;
 };
 
 function prettyPlatforms(list: any) {
@@ -39,50 +41,43 @@ function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
 }
 
 export default function ScheduledPage() {
+  const [orgId, setOrgId] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  const [orgId, setOrgId] = useState<string | null>(null);
-
-  // Queue UX controls
   const [query, setQuery] = useState("");
   const [showPastCount, setShowPastCount] = useState(25);
 
-  const loadOrgId = async () => {
-    // Uses your existing endpoint:
-    // /api/social-accounts -> { organisationId, socialAccounts: [...] }
-    const res = await fetch("/api/social-accounts", { cache: "no-store" });
-    const data: any = await res.json().catch(() => null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/social-accounts", { cache: "no-store" });
+        const data: any = await res.json().catch(() => null);
+        const id = data?.organisationId ? String(data.organisationId) : null;
+        setOrgId(id);
+      } catch {
+        setOrgId(null);
+      }
+    })();
+  }, []);
 
-    if (!res.ok) {
-      throw new Error(data?.error || `Failed to detect organisation (HTTP ${res.status}).`);
-    }
-
-    const detected = String(data?.organisationId || "").trim();
-    if (!detected) throw new Error("No organisationId returned from /api/social-accounts.");
-
-    setOrgId(detected);
-    return detected;
-  };
-
-  const load = async () => {
+  const load = async (organisationId: string) => {
     setLoading(true);
     setError(null);
 
     try {
-      const activeOrgId = orgId || (await loadOrgId());
-
       const res = await fetch(
-        `/api/schedule/list?organisationId=${encodeURIComponent(activeOrgId)}`,
+        `/api/schedule/list?organisationId=${encodeURIComponent(organisationId)}`,
         { cache: "no-store" }
       );
 
       const data: any = await res.json().catch(() => null);
 
-      if (!res.ok) {
+      if (!data?.ok) {
         throw new Error(
           data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`
         );
@@ -98,18 +93,20 @@ export default function ScheduledPage() {
   };
 
   const refresh = async () => {
+    if (!orgId) return;
     setRefreshing(true);
     try {
-      await load();
+      await load(orgId);
     } finally {
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    void load();
+    if (!orgId) return;
+    void load(orgId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [orgId]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -129,7 +126,8 @@ export default function ScheduledPage() {
       .filter((r) => new Date(r.scheduled_for).getTime() >= now)
       .sort(
         (a, b) =>
-          new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime()
+          new Date(a.scheduled_for).getTime() -
+          new Date(b.scheduled_for).getTime()
       );
   }, [filtered]);
 
@@ -139,7 +137,8 @@ export default function ScheduledPage() {
       .filter((r) => new Date(r.scheduled_for).getTime() < now)
       .sort(
         (a, b) =>
-          new Date(b.scheduled_for).getTime() - new Date(a.scheduled_for).getTime()
+          new Date(b.scheduled_for).getTime() -
+          new Date(a.scheduled_for).getTime()
       );
   }, [filtered]);
 
@@ -194,6 +193,12 @@ export default function ScheduledPage() {
             Image: <span className="text-slate-300">{p.image_url}</span>
           </div>
         ) : null}
+
+        {p.error_info ? (
+          <pre className="mt-3 text-[11px] text-red-200 whitespace-pre-wrap bg-red-950/30 border border-red-500/30 rounded-xl p-3">
+            {JSON.stringify(p.error_info, null, 2)}
+          </pre>
+        ) : null}
       </div>
     );
   };
@@ -204,13 +209,13 @@ export default function ScheduledPage() {
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-              Scheduled <span className="text-xs text-slate-400">(v5)</span>
+              Scheduled <span className="text-xs text-slate-400">(org-aware)</span>
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               Read-only queue of everything scheduled from elsewhere (Stories, Campaigns, Sequences, etc.).
             </p>
             <p className="mt-1 text-[11px] text-slate-500">
-              Using organisation: <span className="text-slate-300">{orgId || "detecting…"}</span>
+              Org: {orgId ? orgId : "loading…"}
             </p>
           </div>
 
@@ -221,7 +226,7 @@ export default function ScheduledPage() {
             <button
               type="button"
               onClick={refresh}
-              disabled={refreshing}
+              disabled={refreshing || !orgId}
               className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
             >
               {refreshing ? "Refreshing…" : "Refresh"}
