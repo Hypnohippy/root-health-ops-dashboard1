@@ -15,14 +15,12 @@ async function getSingleTenantOrganisationId() {
     return null;
   }
   if (!data || data.length === 0) return null;
-  return data[0].id as string;
+  return String(data[0].id);
 }
 
 export async function GET(req: NextRequest) {
   try {
-    let organisationId =
-      req.nextUrl.searchParams.get("organisationId")?.trim() || "";
-
+    let organisationId = req.nextUrl.searchParams.get("organisationId")?.trim() || "";
     if (!organisationId) {
       const fallback = await getSingleTenantOrganisationId();
       if (fallback) organisationId = fallback;
@@ -30,7 +28,7 @@ export async function GET(req: NextRequest) {
 
     if (!organisationId) {
       return NextResponse.json(
-        { ok: false, error: "No organisation found." },
+        { organisationId: null, socialAccounts: [], error: "No organisation found." },
         { status: 200 }
       );
     }
@@ -38,7 +36,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("social_accounts")
       .select(
-        "id, organisation_id, platform, page_id, page_name, connection_type, make_webhook_url, is_active, created_at, page_access_token, token_expires_at"
+        "id, organisation_id, platform, page_id, page_name, connection_type, make_webhook_url, is_active, created_at, token_expires_at"
       )
       .eq("organisation_id", organisationId)
       .order("created_at", { ascending: true });
@@ -46,7 +44,7 @@ export async function GET(req: NextRequest) {
     if (error) {
       console.error("[social-accounts] db error", error);
       return NextResponse.json(
-        { ok: false, organisationId, error: "DB error loading social accounts." },
+        { organisationId, socialAccounts: [], error: "DB error loading social accounts." },
         { status: 200 }
       );
     }
@@ -55,10 +53,10 @@ export async function GET(req: NextRequest) {
       { organisationId, socialAccounts: data || [] },
       { status: 200 }
     );
-  } catch (err: any) {
-    console.error("[social-accounts] fatal", err);
+  } catch (e: any) {
+    console.error("[social-accounts] fatal", e);
     return NextResponse.json(
-      { ok: false, error: err?.message || "Internal error." },
+      { organisationId: null, socialAccounts: [], error: e?.message || "Internal error." },
       { status: 200 }
     );
   }
