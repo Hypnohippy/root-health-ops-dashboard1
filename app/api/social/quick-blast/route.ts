@@ -184,41 +184,104 @@ async function postToLinkedIn(args: {
 }
 
 /**
- * Post via Make.com webhook (Instagram/Threads).
- * This is intentionally NOT Ayrshare.
+ * ✅ Direct-post proxy for IG/Threads.
+ * - NO AYRSHARE
+ * - NO MAKE
+ *
+ * We try a small set of likely internal endpoints (because you already have direct posting routes).
+ * The first one that returns success-ish wins.
  */
-async function postToMakeWebhook(args: {
-  webhookUrl: string;
+async function postViaInternalCandidates(args: {
+  req: NextRequest;
+  candidates: string[];
   organisationId: string;
   platform: "instagram" | "threads";
   message: string;
   imageUrl?: string;
   videoUrl?: string;
 }) {
-  const res = await fetch(args.webhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      organisationId: args.organisationId,
-      platform: args.platform,
-      message: args.message,
-      imageUrl: args.imageUrl || null,
-      videoUrl: args.videoUrl || null,
-      source: "root-health-ops",
-    }),
-    cache: "no-store",
-  });
+  const root = baseUrl(args.req);
 
-  const json: any = await res.json().catch(() => null);
+  // We send a “wide” payload so different internal routes still work.
+  const payload = {
+    organisationId: args.organisationId,
+    platform: args.platform,
+
+    // common names
+    message: args.message,
+    text: args.message,
+    post: args.message,
+
+    imageUrl: args.imageUrl || undefined,
+    mediaUrl: args.imageUrl || undefined,
+    mediaUrls: args.imageUrl ? [args.imageUrl] : undefined,
+
+    videoUrl: args.videoUrl || undefined,
+    videoUrls: args.videoUrl ? [args.videoUrl] : undefined,
+  };
+
+  const attempts: any[] = [];
+
+  for (const path of args.candidates) {
+    const url = `${root}${path.startsWith("/") ? "" : "/"}${path}`;
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+      });
+
+      const json: any = await res.json().catch(() => null);
+
+      // Accept several “success shapes”
+      const success =
+        res.ok &&
+        (json?.success === true ||
+          json?.ok === true ||
+          !!json?.postedId ||
+          !!json?.id);
+
+      attempts.push({
+        path,
+        status: res.status,
+        ok: res.ok,
+        success,
+        response: json,
+      });
+
+      if (success) {
+        return {
+          ok: true,
+          status: res.status,
+          json,
+          used: path,
+          attempts,
+        };
+      }
+    } catch (e: any) {
+      attempts.push({
+        path,
+        status: 0,
+        ok: false,
+        success: false,
+        error: String(e?.message || e),
+      });
+    }
+  }
 
   return {
-    ok: res.ok,
-    status: res.status,
-    json,
-    error:
-      json?.error ||
-      json?.message ||
-      (!res.ok ? `Make webhook failed (${res.status})` : null),
+    ok: false,
+    status: 500,
+    json: {
+      error: `No working internal ${args.platform} posting route was found.`,
+      hint:
+        "One of your direct posting routes has likely moved/renamed. Provide the IG/Threads route path and we will wire it cleanly.",
+      attempts,
+    },
+    used: null,
+    attempts,
   };
 }
 
@@ -340,32 +403,24 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // --- Instagram (Make webhook; NOT Ayrshare) ---
+      // --- Instagram (direct internal routes; NO AYRSHARE/MAKE) ---
       if (p === "instagram") {
-        const row = await loadSocialAccount(organisationId, "instagram");
-        const webhook =
-          row?.make_webhook_url ||
-          process.env.MAKE_INSTAGRAM_QUICK_BLAST_WEBHOOK_URL ||
-          "";
-
-        if (!webhook) {
-          results.push({
-            platform: "instagram",
-            ok: false,
-            status: 400,
-            error:
-              "Instagram posting is not configured. Add MAKE_INSTAGRAM_QUICK_BLAST_WEBHOOK_URL in Vercel or set social_accounts.make_webhook_url for instagram.",
-          });
-          continue;
-        }
-
-        const ig = await postToMakeWebhook({
-          webhookUrl: webhook,
+        const ig = await postViaInternalCandidates({
+          req,
           organisationId,
           platform: "instagram",
           message,
           imageUrl: imageUrl || undefined,
           videoUrl: videoUrl || undefined,
+          candidates: [
+            // common/likely patterns in your repo
+            "/api/instagram/post",
+            "/api/instagram/post-direct",
+            "/api/social/instagram/post",
+            "/api/social/instagram/post-direct",
+            "/api/instagram/publish",
+            "/api/social/instagram/publish",
+          ],
         });
 
         if (!ig.ok) {
@@ -373,7 +428,7 @@ export async function POST(req: NextRequest) {
             platform: "instagram",
             ok: false,
             status: ig.status,
-            error: ig.error || "Instagram webhook failed",
+            error: ig.json?.error || "Instagram post failed",
             details: ig.json,
           });
           continue;
@@ -382,39 +437,31 @@ export async function POST(req: NextRequest) {
         results.push({
           platform: "instagram",
           ok: true,
-          postedId: ig.json?.id || ig.json?.postedId || null,
+          postedId: ig.json?.postedId || ig.json?.id || null,
           mode: imageUrl ? "image" : videoUrl ? "video" : "text",
+          usedRoute: ig.used,
         });
 
         continue;
       }
 
-      // --- Threads (Make webhook; NOT Ayrshare) ---
+      // --- Threads (direct internal routes; NO AYRSHARE/MAKE) ---
       if (p === "threads") {
-        const row = await loadSocialAccount(organisationId, "threads");
-        const webhook =
-          row?.make_webhook_url ||
-          process.env.MAKE_THREADS_QUICK_BLAST_WEBHOOK_URL ||
-          "";
-
-        if (!webhook) {
-          results.push({
-            platform: "threads",
-            ok: false,
-            status: 400,
-            error:
-              "Threads posting is not configured. Add MAKE_THREADS_QUICK_BLAST_WEBHOOK_URL in Vercel or set social_accounts.make_webhook_url for threads.",
-          });
-          continue;
-        }
-
-        const th = await postToMakeWebhook({
-          webhookUrl: webhook,
+        const th = await postViaInternalCandidates({
+          req,
           organisationId,
           platform: "threads",
           message,
           imageUrl: imageUrl || undefined,
           videoUrl: videoUrl || undefined,
+          candidates: [
+            "/api/threads/post",
+            "/api/threads/post-direct",
+            "/api/social/threads/post",
+            "/api/social/threads/post-direct",
+            "/api/threads/publish",
+            "/api/social/threads/publish",
+          ],
         });
 
         if (!th.ok) {
@@ -422,7 +469,7 @@ export async function POST(req: NextRequest) {
             platform: "threads",
             ok: false,
             status: th.status,
-            error: th.error || "Threads webhook failed",
+            error: th.json?.error || "Threads post failed",
             details: th.json,
           });
           continue;
@@ -431,14 +478,15 @@ export async function POST(req: NextRequest) {
         results.push({
           platform: "threads",
           ok: true,
-          postedId: th.json?.id || th.json?.postedId || null,
+          postedId: th.json?.postedId || th.json?.id || null,
           mode: imageUrl ? "image" : videoUrl ? "video" : "text",
+          usedRoute: th.used,
         });
 
         continue;
       }
 
-      // --- TikTok / others left untouched ---
+      // Leave TikTok/others unchanged as requested
       results.push({
         platform: p,
         ok: false,
