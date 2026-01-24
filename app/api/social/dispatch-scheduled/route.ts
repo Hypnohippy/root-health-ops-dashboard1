@@ -41,23 +41,33 @@ export async function GET(req: NextRequest) {
 
     if (!items || items.length === 0) {
       return NextResponse.json(
-        { success: true, scanned, due: 0, dispatched: 0, failed: 0, failures: [] },
+        {
+          success: true,
+          scanned,
+          due: 0,
+          dispatched: 0,
+          failed: 0,
+          failures: [],
+        },
         { status: 200 }
       );
     }
 
     let dispatchedCount = 0;
     const failures: any[] = [];
+    const dispatches: any[] = [];
 
     for (const item of items as any[]) {
       const id = String(item.id);
       const organisationId = String(item.organisation_id);
       const message = String(item.message || "");
-      const platforms: string[] = Array.isArray(item.platforms) ? item.platforms : [];
+      const platforms: string[] = Array.isArray(item.platforms)
+        ? item.platforms
+        : [];
       const imageUrl: string | null = item.image_url || null;
 
       try {
-        // Call YOUR posting engine (which uses Supabase social_accounts tokens)
+        // Call YOUR posting engine (Quick Blast uses Supabase social_accounts tokens)
         const url = `${baseUrl(req)}/api/social/quick-blast?organisationId=${encodeURIComponent(
           organisationId
         )}`;
@@ -69,42 +79,91 @@ export async function GET(req: NextRequest) {
             message,
             platforms,
             imageUrl: imageUrl || undefined,
+            organisationId, // include in body too (belt + braces)
           }),
           cache: "no-store",
         });
 
-      const json: any = await res.json().catch(() => null);
+        const json: any = await res.json().catch(() => null);
 
-// ✅ Treat as success if at least ONE platform posted
-const ok = (json?.summary?.ok ?? 0) > 0;
+        // quick-blast returns { success: boolean, results, summary... }
+        const ok = !!json?.success;
 
-if (!ok) {
-  failures.push({
-    id,
-    organisationId,
-    error: json?.error || "Dispatch failed",
-    details: json,
-  });
+        // Always store what happened (helps debugging forever)
+        dispatches.push({
+          id,
+          organisationId,
+          ok,
+          platforms,
+          summary: json?.summary || null,
+          results: json?.results || null,
+        });
 
-  await supabaseAdmin
-    .from("scheduled_posts")
-    .update({
-      status: "failed",
-      error_info: json || { error: "Dispatch failed" },
-    })
-    .eq("id", id);
+        if (!ok) {
+          failures.push({
+            id,
+            organisationId,
+            error: json?.error || "Dispatch failed",
+            details: json,
+          });
 
-  continue;
-}
+          // mark failed
+          const { error: updErr } = await supabaseAdmin
+            .from("scheduled_posts")
+            .update({
+              status: "failed",
+              error_info: json || { error: "Dispatch failed" },
+            })
+            .eq("id", id);
 
-        await supabaseAdmin
+          if (updErr) {
+            console.error("[dispatch-scheduled] FAILED update->failed", id, updErr);
+          }
+
+          continue;
+        }
+
+        // ✅ Critical: ensure DB update actually succeeds
+        const postedAt = new Date().toISOString();
+        const { error: updErr } = await supabaseAdmin
           .from("scheduled_posts")
           .update({
             status: "sent",
-            posted_at: new Date().toISOString(),
+            posted_at: postedAt,
             error_info: null,
           })
           .eq("id", id);
+
+        if (updErr) {
+          console.error("[dispatch-scheduled] update->sent FAILED", id, updErr);
+
+          // If we posted but couldn't update DB, mark it failed so UI doesn't lie
+          failures.push({
+            id,
+            organisationId,
+            error: "Posted successfully but failed to update scheduled_posts status to sent.",
+            details: { dbError: updErr, quickBlast: json },
+          });
+
+          const { error: updErr2 } = await supabaseAdmin
+            .from("scheduled_posts")
+            .update({
+              status: "failed",
+              error_info: {
+                error:
+                  "Posted successfully but failed to update scheduled_posts status to sent.",
+                dbError: updErr,
+                quickBlast: json,
+              },
+            })
+            .eq("id", id);
+
+          if (updErr2) {
+            console.error("[dispatch-scheduled] update->failed ALSO FAILED", id, updErr2);
+          }
+
+          continue;
+        }
 
         dispatchedCount += 1;
       } catch (e: any) {
@@ -116,13 +175,17 @@ if (!ok) {
           error: String(e?.message || e),
         });
 
-        await supabaseAdmin
+        const { error: updErr } = await supabaseAdmin
           .from("scheduled_posts")
           .update({
             status: "failed",
             error_info: { error: String(e?.message || e) },
           })
           .eq("id", id);
+
+        if (updErr) {
+          console.error("[dispatch-scheduled] exception update->failed FAILED", id, updErr);
+        }
       }
     }
 
@@ -134,13 +197,17 @@ if (!ok) {
         dispatched: dispatchedCount,
         failed: failures.length,
         failures,
+        dispatches,
       },
       { status: 200 }
     );
   } catch (err: any) {
     console.error("[dispatch-scheduled] fatal error", err);
     return NextResponse.json(
-      { success: false, error: err?.message || "Internal error running dispatcher." },
+      {
+        success: false,
+        error: err?.message || "Internal error running dispatcher.",
+      },
       { status: 200 }
     );
   }
