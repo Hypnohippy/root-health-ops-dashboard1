@@ -1,8 +1,5 @@
 {
   "crons": [
-    {
-      "path": "/api/social/dispatch-scheduled",
-      "schedule": "* * * * *"
-    }
+    { "path": "/api/social/dispatch-scheduled", "schedule": "* * * * *" }
   ]
 }
