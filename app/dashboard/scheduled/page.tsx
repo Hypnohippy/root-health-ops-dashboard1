@@ -1,3 +1,4 @@
+// app/dashboard/scheduled/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -12,8 +13,16 @@ type ScheduledPost = {
   status: string;
   created_at?: string;
   meta?: any;
-  error_info?: any;
 };
+
+async function fetchOrganisationId(): Promise<string> {
+  const res = await fetch("/api/social-accounts", { cache: "no-store" });
+  const data: any = await res.json().catch(() => null);
+
+  const orgId = String(data?.organisationId || "").trim();
+  if (!res.ok || !orgId) throw new Error("Could not load organisationId from /api/social-accounts");
+  return orgId;
+}
 
 function prettyPlatforms(list: any) {
   if (!Array.isArray(list) || list.length === 0) return "(none)";
@@ -42,7 +51,6 @@ export default function ScheduledPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
-  const [organisationId, setOrganisationId] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
   const [showPastCount, setShowPastCount] = useState(25);
@@ -52,19 +60,22 @@ export default function ScheduledPage() {
     setError(null);
 
     try {
-      // ✅ Let the API decide the org (single-tenant default), and return items.
-      const res = await fetch(`/api/schedule/list`, { cache: "no-store" });
+      const organisationId = await fetchOrganisationId();
+
+      const res = await fetch(
+        `/api/schedule/list?organisationId=${encodeURIComponent(organisationId)}`,
+        { cache: "no-store" }
+      );
+
       const data: any = await res.json().catch(() => null);
 
-      if (!data?.ok) {
-        throw new Error(data?.error || "Failed to load scheduled posts.");
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
       }
 
-      setOrganisationId(data.organisationId || null);
       setRows(Array.isArray(data?.items) ? data.items : []);
     } catch (e: any) {
       setRows([]);
-      setOrganisationId(null);
       setError(e?.message || "Could not load scheduled posts.");
     } finally {
       setLoading(false);
@@ -90,9 +101,7 @@ export default function ScheduledPage() {
     if (!q) return rows;
 
     return rows.filter((r) => {
-      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.status || ""} ${
-        r.scheduled_for || ""
-      }`.toLowerCase();
+      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.status || ""} ${r.scheduled_for || ""}`.toLowerCase();
       return hay.includes(q);
     });
   }, [rows, query]);
@@ -101,20 +110,14 @@ export default function ScheduledPage() {
     const now = Date.now();
     return filtered
       .filter((r) => new Date(r.scheduled_for).getTime() >= now)
-      .sort(
-        (a, b) =>
-          new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime()
-      );
+      .sort((a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime());
   }, [filtered]);
 
   const past = useMemo(() => {
     const now = Date.now();
     return filtered
       .filter((r) => new Date(r.scheduled_for).getTime() < now)
-      .sort(
-        (a, b) =>
-          new Date(b.scheduled_for).getTime() - new Date(a.scheduled_for).getTime()
-      );
+      .sort((a, b) => new Date(b.scheduled_for).getTime() - new Date(a.scheduled_for).getTime());
   }, [filtered]);
 
   const Pill = ({
@@ -134,12 +137,7 @@ export default function ScheduledPage() {
         : "border-white/10 bg-white/5 text-slate-200";
 
     return (
-      <span
-        className={[
-          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold",
-          cls,
-        ].join(" ")}
-      >
+      <span className={["inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold", cls].join(" ")}>
         {children}
       </span>
     );
@@ -152,9 +150,7 @@ export default function ScheduledPage() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-[11px] text-slate-300">
             {safeDate(p.scheduled_for)} ·{" "}
-            <span className="text-slate-100 font-semibold">
-              {prettyPlatforms(p.platforms)}
-            </span>
+            <span className="text-slate-100 font-semibold">{prettyPlatforms(p.platforms)}</span>
           </div>
           <Pill tone={tone}>{p.status || "unknown"}</Pill>
         </div>
@@ -166,14 +162,6 @@ export default function ScheduledPage() {
         {p.image_url ? (
           <div className="mt-3 text-[11px] text-slate-400 truncate">
             Image: <span className="text-slate-300">{p.image_url}</span>
-          </div>
-        ) : null}
-
-        {p.error_info ? (
-          <div className="mt-3 rounded-xl border border-red-500/30 bg-red-950/30 p-3 text-[11px] text-red-200 whitespace-pre-wrap">
-            {typeof p.error_info === "string"
-              ? p.error_info
-              : JSON.stringify(p.error_info, null, 2)}
           </div>
         ) : null}
       </div>
@@ -191,11 +179,6 @@ export default function ScheduledPage() {
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               Read-only queue of everything scheduled from elsewhere (Stories, Campaigns, Sequences, etc.).
             </p>
-            {organisationId ? (
-              <p className="mt-2 text-[11px] text-slate-500">
-                Org detected: {organisationId}
-              </p>
-            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -255,11 +238,7 @@ export default function ScheduledPage() {
                 No upcoming posts.
               </div>
             ) : (
-              <div className="space-y-3">
-                {upcoming.map((p) => (
-                  <RowCard key={p.id} p={p} />
-                ))}
-              </div>
+              <div className="space-y-3">{upcoming.map((p) => <RowCard key={p.id} p={p} />)}</div>
             )}
           </section>
 
@@ -285,15 +264,13 @@ export default function ScheduledPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {past.slice(0, showPastCount).map((p) => (
-                  <RowCard key={p.id} p={p} />
-                ))}
+                {past.slice(0, showPastCount).map((p) => <RowCard key={p.id} p={p} />)}
               </div>
             )}
 
             {past.length > showPastCount && (
               <div className="pt-1 text-[11px] text-slate-400">
-                Showing {showPastCount} of {past.length}. Use “Show more” to load more.
+                Showing {showPastCount} of {past.length}.
               </div>
             )}
           </section>
