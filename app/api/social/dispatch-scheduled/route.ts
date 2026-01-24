@@ -1,3 +1,4 @@
+// app/api/social/dispatch-scheduled/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
@@ -17,14 +18,16 @@ export async function GET(req: NextRequest) {
   try {
     const nowIso = new Date().toISOString();
 
-    // 1) Find due scheduled posts (Supabase)
+    // 1) Find due scheduled posts
     const { data: items, error } = await supabaseAdmin
       .from("scheduled_posts")
-      .select("id, organisation_id, message, platforms, image_url, scheduled_for, status")
+      .select(
+        "id, organisation_id, message, platforms, image_url, scheduled_for, status"
+      )
       .eq("status", "scheduled")
       .lte("scheduled_for", nowIso)
       .order("scheduled_for", { ascending: true })
-      .limit(20);
+      .limit(25);
 
     if (error) {
       console.error("[dispatch-scheduled] fetch error", error);
@@ -35,6 +38,7 @@ export async function GET(req: NextRequest) {
     }
 
     const scanned = items?.length || 0;
+
     if (!items || items.length === 0) {
       return NextResponse.json(
         { success: true, scanned, due: 0, dispatched: 0, failed: 0, failures: [] },
@@ -49,53 +53,44 @@ export async function GET(req: NextRequest) {
       const id = String(item.id);
       const organisationId = String(item.organisation_id);
       const message = String(item.message || "");
-      const platforms = Array.isArray(item.platforms) ? item.platforms : [];
-      const imageUrl = item.image_url ? String(item.image_url) : "";
-
-      // 2) Dispatch using your internal social engine (connected tokens)
-      // We reuse /api/social/quick-blast because it already posts via your saved social_accounts
-      const dispatchUrl = `${baseUrl(req)}/api/social/quick-blast?organisationId=${encodeURIComponent(
-        organisationId
-      )}`;
+      const platforms: string[] = Array.isArray(item.platforms) ? item.platforms : [];
+      const imageUrl: string | null = item.image_url || null;
 
       try {
-        const res = await fetch(dispatchUrl, {
+        // Call YOUR posting engine (which uses Supabase social_accounts tokens)
+        const url = `${baseUrl(req)}/api/social/quick-blast?organisationId=${encodeURIComponent(
+          organisationId
+        )}`;
+
+        const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          cache: "no-store",
           body: JSON.stringify({
             message,
             platforms,
             imageUrl: imageUrl || undefined,
           }),
+          cache: "no-store",
         });
 
-        const data = await res.json().catch(() => null);
+        const json: any = await res.json().catch(() => null);
 
-        if (!res.ok || !data?.results) {
-          failures.push({ id, statusCode: res.status, error: data || "Dispatch failed" });
-
-          await supabaseAdmin
-            .from("scheduled_posts")
-            .update({
-              status: "failed",
-              error_info: data || { statusCode: res.status, error: "Dispatch failed" },
-            })
-            .eq("id", id);
-
-          continue;
-        }
-
-        const ok = Array.isArray(data.results) && data.results.every((r: any) => r?.ok || r?.skipped);
+        // quick-blast returns { success: boolean, results, summary... }
+        const ok = !!json?.success;
 
         if (!ok) {
-          failures.push({ id, statusCode: 200, error: data });
+          failures.push({
+            id,
+            organisationId,
+            error: json?.error || "Dispatch failed",
+            details: json,
+          });
 
           await supabaseAdmin
             .from("scheduled_posts")
             .update({
               status: "failed",
-              error_info: data,
+              error_info: json || { error: "Dispatch failed" },
             })
             .eq("id", id);
 
@@ -107,19 +102,25 @@ export async function GET(req: NextRequest) {
           .update({
             status: "sent",
             posted_at: new Date().toISOString(),
-            error_info: data, // keep full results for audit
+            error_info: null,
           })
           .eq("id", id);
 
         dispatchedCount += 1;
       } catch (e: any) {
-        failures.push({ id, error: String(e) });
+        console.error("[dispatch-scheduled] exception", id, e);
+
+        failures.push({
+          id,
+          organisationId,
+          error: String(e?.message || e),
+        });
 
         await supabaseAdmin
           .from("scheduled_posts")
           .update({
             status: "failed",
-            error_info: { error: String(e) },
+            error_info: { error: String(e?.message || e) },
           })
           .eq("id", id);
       }
@@ -127,7 +128,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(
       {
-        success: failures.length === 0,
+        success: true,
         scanned,
         due: scanned,
         dispatched: dispatchedCount,
@@ -136,10 +137,10 @@ export async function GET(req: NextRequest) {
       },
       { status: 200 }
     );
-  } catch (err) {
+  } catch (err: any) {
     console.error("[dispatch-scheduled] fatal error", err);
     return NextResponse.json(
-      { success: false, error: "Internal error running dispatcher." },
+      { success: false, error: err?.message || "Internal error running dispatcher." },
       { status: 200 }
     );
   }
