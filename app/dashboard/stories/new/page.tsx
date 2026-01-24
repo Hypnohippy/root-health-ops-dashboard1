@@ -40,18 +40,21 @@ type CtaStyleOption =
 
 type Mode = "now" | "schedule";
 
-// ✅ MUST be organisations.id (not owner_id)
-const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
+async function fetchOrganisationId(): Promise<string> {
+  const res = await fetch("/api/social-accounts", { cache: "no-store" });
+  const data: any = await res.json().catch(() => null);
+
+  const orgId = String(data?.organisationId || "").trim();
+  if (!res.ok || !orgId) throw new Error("Could not load organisationId from /api/social-accounts");
+  return orgId;
+}
 
 export default function StorySeriesBuilderPage() {
   const [idea, setIdea] = useState("");
-  const [storyType, setStoryType] = useState<StoryTypeOption>(
-    "HR director perspective"
-  );
+  const [storyType, setStoryType] = useState<StoryTypeOption>("HR director perspective");
   const [tone, setTone] = useState<ToneOption>("Professional & confident");
   const [targetPlatform, setTargetPlatform] = useState<ChannelId>("linkedin");
-  const [ctaStyle, setCtaStyle] =
-    useState<CtaStyleOption>("Comment for more / next part");
+  const [ctaStyle, setCtaStyle] = useState<CtaStyleOption>("Comment for more / next part");
   const [seriesLength, setSeriesLength] = useState<number>(3);
 
   const [autoVariation, setAutoVariation] = useState(true);
@@ -68,10 +71,7 @@ export default function StorySeriesBuilderPage() {
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
 
-  const canGenerate = useMemo(
-    () => !!idea.trim() && !isGenerating,
-    [idea, isGenerating]
-  );
+  const canGenerate = useMemo(() => !!idea.trim() && !isGenerating, [idea, isGenerating]);
 
   const normalizeIdea = (raw: string) => raw.replace(/\s+/g, " ").trim();
 
@@ -119,9 +119,7 @@ export default function StorySeriesBuilderPage() {
           title: typeof p.title === "string" ? p.title : "",
           body: typeof p.body === "string" ? p.body : "",
           platformSuggestion:
-            typeof p.platformSuggestion === "string"
-              ? p.platformSuggestion
-              : undefined,
+            typeof p.platformSuggestion === "string" ? p.platformSuggestion : undefined,
           cta: typeof p.cta === "string" ? p.cta : undefined,
           imagePrompt:
             typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
@@ -169,9 +167,7 @@ export default function StorySeriesBuilderPage() {
   };
 
   const updatePost = (index: number, patch: Partial<GeneratedPost>) => {
-    setPosts((prev) =>
-      prev.map((p, i) => (i === index ? { ...p, ...patch } : p))
-    );
+    setPosts((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   };
 
   const handleSendNow = async () => {
@@ -200,9 +196,7 @@ export default function StorySeriesBuilderPage() {
         throw new Error(data?.error || data?.message || "Quick Blast failed.");
       }
 
-      setDispatchStatus(
-        `Sent now to ${targetPlatform}. Switch to Schedule to queue the full series.`
-      );
+      setDispatchStatus(`Sent now to ${targetPlatform}. Switch to Schedule to queue the full series.`);
     } catch (err: any) {
       setDispatchError(err?.message || "Send now failed.");
     } finally {
@@ -219,6 +213,8 @@ export default function StorySeriesBuilderPage() {
       if (posts.length === 0) throw new Error("Generate a story/series first.");
       if (!seriesStart) throw new Error("Choose the first post date/time.");
 
+      const organisationId = await fetchOrganisationId();
+
       const base = new Date(seriesStart);
       if (isNaN(base.getTime())) throw new Error("Start date/time is not valid.");
 
@@ -228,11 +224,9 @@ export default function StorySeriesBuilderPage() {
       const failures: { index: number; error: string }[] = [];
 
       for (let i = 0; i < posts.length; i++) {
-        const scheduledDate = new Date(
-          base.getTime() + i * cadenceDays * 24 * 60 * 60 * 1000
-        );
-
+        const scheduledDate = new Date(base.getTime() + i * cadenceDays * 24 * 60 * 60 * 1000);
         const whenIso = scheduledDate.toISOString();
+
         const message = buildMessage(posts[i], {
           part: i + 1,
           total: posts.length,
@@ -246,7 +240,7 @@ export default function StorySeriesBuilderPage() {
             message,
             platforms: [targetPlatform],
             scheduledAt: whenIso,
-            organisationId: ORG_ID,
+            organisationId,
             meta: {
               series: posts.length > 1,
               part: i + 1,
@@ -261,10 +255,7 @@ export default function StorySeriesBuilderPage() {
         if (!res.ok || !data?.success) {
           failures.push({
             index: i,
-            error:
-              data?.error ||
-              data?.message ||
-              `Failed scheduling part ${i + 1}`,
+            error: data?.error || data?.message || `Failed scheduling part ${i + 1}`,
           });
         } else {
           successCount++;
@@ -324,9 +315,7 @@ export default function StorySeriesBuilderPage() {
                   onClick={() => setMode("now")}
                   className={[
                     "px-3 py-1.5",
-                    mode === "now"
-                      ? "bg-emerald-500 text-slate-950"
-                      : "text-slate-300",
+                    mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                   ].join(" ")}
                 >
                   Send now
@@ -336,9 +325,7 @@ export default function StorySeriesBuilderPage() {
                   onClick={() => setMode("schedule")}
                   className={[
                     "px-3 py-1.5",
-                    mode === "schedule"
-                      ? "bg-emerald-500 text-slate-950"
-                      : "text-slate-300",
+                    mode === "schedule" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                   ].join(" ")}
                 >
                   Schedule
@@ -359,15 +346,11 @@ export default function StorySeriesBuilderPage() {
 
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Story type
-                </label>
+                <label className="block text-[11px] font-medium text-slate-300">Story type</label>
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={storyType}
-                  onChange={(e) =>
-                    setStoryType(e.target.value as StoryTypeOption)
-                  }
+                  onChange={(e) => setStoryType(e.target.value as StoryTypeOption)}
                 >
                   <option value="HR director perspective">HR director perspective</option>
                   <option value="Problem → Solution → Success">Problem → Solution → Success</option>
@@ -381,9 +364,7 @@ export default function StorySeriesBuilderPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Tone
-                </label>
+                <label className="block text-[11px] font-medium text-slate-300">Tone</label>
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={tone}
@@ -400,9 +381,7 @@ export default function StorySeriesBuilderPage() {
 
             <div className="grid md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Platform
-                </label>
+                <label className="block text-[11px] font-medium text-slate-300">Platform</label>
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={targetPlatform}
@@ -417,9 +396,7 @@ export default function StorySeriesBuilderPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Series length
-                </label>
+                <label className="block text-[11px] font-medium text-slate-300">Series length</label>
                 <input
                   type="number"
                   min={1}
@@ -427,17 +404,13 @@ export default function StorySeriesBuilderPage() {
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={seriesLength}
                   onChange={(e) =>
-                    setSeriesLength(
-                      Math.max(1, Math.min(10, Number(e.target.value) || 1))
-                    )
+                    setSeriesLength(Math.max(1, Math.min(10, Number(e.target.value) || 1)))
                   }
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  CTA style
-                </label>
+                <label className="block text-[11px] font-medium text-slate-300">CTA style</label>
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={ctaStyle}
@@ -473,16 +446,12 @@ export default function StorySeriesBuilderPage() {
             </div>
 
             {generationError && (
-              <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">
-                {generationError}
-              </div>
+              <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">{generationError}</div>
             )}
 
             {mode === "schedule" && posts.length > 0 && (
               <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
-                <div className="text-[11px] font-semibold text-slate-200">
-                  Scheduling options
-                </div>
+                <div className="text-[11px] font-semibold text-slate-200">Scheduling options</div>
 
                 <div className="grid md:grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -508,9 +477,7 @@ export default function StorySeriesBuilderPage() {
                       className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={dailyCadence}
                       onChange={(e) =>
-                        setDailyCadence(
-                          Math.max(1, Math.min(14, Number(e.target.value) || 1))
-                        )
+                        setDailyCadence(Math.max(1, Math.min(14, Number(e.target.value) || 1)))
                       }
                     />
                   </div>
@@ -536,15 +503,15 @@ export default function StorySeriesBuilderPage() {
                     disabled={isDispatching || !seriesStart}
                     className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
                   >
-                    {isDispatching ? "Scheduling…" : `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`}
+                    {isDispatching
+                      ? "Scheduling…"
+                      : `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`}
                   </button>
                 )}
               </div>
             )}
 
-            {dispatchStatus && (
-              <div className="mt-2 text-[11px] text-emerald-400">{dispatchStatus}</div>
-            )}
+            {dispatchStatus && <div className="mt-2 text-[11px] text-emerald-400">{dispatchStatus}</div>}
             {dispatchError && (
               <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">{dispatchError}</div>
             )}
@@ -554,9 +521,7 @@ export default function StorySeriesBuilderPage() {
             <h2 className="text-base md:text-lg font-semibold">2) Edit & preview</h2>
 
             {posts.length === 0 ? (
-              <p className="text-sm text-slate-400">
-                Your generated story/series will appear here.
-              </p>
+              <p className="text-sm text-slate-400">Your generated story/series will appear here.</p>
             ) : (
               <div className="space-y-3 max-h-[620px] overflow-y-auto pr-1">
                 {posts.map((p, idx) => (
@@ -565,9 +530,7 @@ export default function StorySeriesBuilderPage() {
                     className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-2"
                   >
                     <div className="text-[11px] text-slate-400">
-                      {posts.length > 1
-                        ? `Episode ${idx + 1} / ${posts.length}`
-                        : "Single post"}
+                      {posts.length > 1 ? `Episode ${idx + 1} / ${posts.length}` : "Single post"}
                     </div>
 
                     <input
