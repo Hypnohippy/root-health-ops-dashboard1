@@ -1,15 +1,8 @@
+// app/api/schedule/list/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
-
-function safeJson(v: any) {
-  try {
-    return JSON.parse(JSON.stringify(v));
-  } catch {
-    return v;
-  }
-}
 
 async function getSingleTenantOrganisationId() {
   const { data, error } = await supabaseAdmin
@@ -22,20 +15,20 @@ async function getSingleTenantOrganisationId() {
     return null;
   }
   if (!data || data.length === 0) return null;
-  return String((data as any)[0].id);
+  return data[0].id as string;
+}
+
+async function resolveOrganisationId(req: NextRequest) {
+  try {
+    const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
+    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
+  } catch {}
+  return await getSingleTenantOrganisationId();
 }
 
 export async function GET(req: NextRequest) {
   try {
-    // Optional filters
-    const organisationIdFromQuery = req.nextUrl.searchParams.get("organisationId");
-    const status = (req.nextUrl.searchParams.get("status") || "").trim(); // optional: scheduled|sent|failed etc
-    const limitRaw = req.nextUrl.searchParams.get("limit") || "200";
-    const limit = Math.max(1, Math.min(500, Number(limitRaw) || 200));
-
-    const organisationId =
-      (organisationIdFromQuery && organisationIdFromQuery.trim()) ||
-      (await getSingleTenantOrganisationId());
+    const organisationId = await resolveOrganisationId(req);
 
     if (!organisationId) {
       return NextResponse.json(
@@ -44,27 +37,19 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // ✅ IMPORTANT: return ALL statuses by default
-    let q = supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("scheduled_posts")
       .select(
-        "id, organisation_id, message, platforms, image_url, scheduled_for, status, created_at, meta, error_info"
+        "id, organisation_id, message, platforms, image_url, scheduled_for, status, created_at, meta, sequence_id, series_part, series_total, error_info, posted_at"
       )
       .eq("organisation_id", organisationId)
-      .order("scheduled_for", { ascending: false })
-      .limit(limit);
-
-    // Optional status filter if you want it later
-    if (status) {
-      q = q.eq("status", status);
-    }
-
-    const { data, error } = await q;
+      .order("scheduled_for", { ascending: true })
+      .limit(250);
 
     if (error) {
       console.error("[schedule/list] DB error", error);
       return NextResponse.json(
-        { ok: false, error: "DB error loading scheduled posts.", details: safeJson(error) },
+        { ok: false, error: error.message || "DB error" },
         { status: 200 }
       );
     }
@@ -77,10 +62,10 @@ export async function GET(req: NextRequest) {
       },
       { status: 200 }
     );
-  } catch (e: any) {
-    console.error("[schedule/list] fatal error", e);
+  } catch (err: any) {
+    console.error("[schedule/list] unexpected", err);
     return NextResponse.json(
-      { ok: false, error: e?.message || "Internal error." },
+      { ok: false, error: err?.message || "Internal error" },
       { status: 200 }
     );
   }
