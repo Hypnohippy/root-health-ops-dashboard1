@@ -7,7 +7,7 @@ type SocialAccountRow = {
   id: string;
   organisation_id: string;
   platform: string;
-  page_id: string | null; // for LinkedIn we store something like member id / openid sub in here in your project
+  page_id: string | null;
   page_name: string | null;
   is_active: boolean | null;
   page_access_token: string | null;
@@ -21,7 +21,9 @@ function isLikelyImageUrl(url: string) {
   return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
 }
 
-async function loadLinkedInAccount(organisationId: string): Promise<SocialAccountRow | null> {
+async function loadLinkedInAccount(
+  organisationId: string
+): Promise<SocialAccountRow | null> {
   const { data, error } = await supabaseAdmin
     .from("social_accounts")
     .select(
@@ -41,7 +43,6 @@ async function loadLinkedInAccount(organisationId: string): Promise<SocialAccoun
 }
 
 async function getLinkedInAuthorUrn(token: string) {
-  // Use OpenID Connect userinfo
   const userRes = await fetch("https://api.linkedin.com/v2/userinfo", {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
@@ -95,16 +96,19 @@ async function registerLinkedInImageUpload(args: {
     },
   };
 
-  const res = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${args.token}`,
-      "Content-Type": "application/json",
-      "X-Restli-Protocol-Version": "2.0.0",
-    },
-    body: JSON.stringify(registerBody),
-    cache: "no-store",
-  });
+  const res = await fetch(
+    "https://api.linkedin.com/v2/assets?action=registerUpload",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.token}`,
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0",
+      },
+      body: JSON.stringify(registerBody),
+      cache: "no-store",
+    }
+  );
 
   const json: any = await res.json().catch(() => null);
 
@@ -119,7 +123,9 @@ async function registerLinkedInImageUpload(args: {
 
   const value = json?.value;
   const uploadMechanism =
-    value?.uploadMechanism?.["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"];
+    value?.uploadMechanism?.[
+      "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
+    ];
   const uploadUrl = uploadMechanism?.uploadUrl as string | undefined;
   const asset = value?.asset as string | undefined;
 
@@ -140,13 +146,22 @@ async function registerLinkedInImageUpload(args: {
   };
 }
 
-async function uploadBytesToLinkedIn(uploadUrl: string, bytes: Uint8Array, contentType: string) {
+/**
+ * ✅ IMPORTANT FIX
+ * TS doesn't like Uint8Array for fetch body in your build.
+ * Use ArrayBuffer (which is valid BodyInit).
+ */
+async function uploadArrayBufferToLinkedIn(
+  uploadUrl: string,
+  arrayBuffer: ArrayBuffer,
+  contentType: string
+) {
   const res = await fetch(uploadUrl, {
     method: "PUT",
     headers: {
       "Content-Type": contentType || "application/octet-stream",
     },
-    body: bytes, // ✅ Uint8Array is valid BodyInit (avoids Buffer TS build error)
+    body: arrayBuffer, // ✅ ArrayBuffer is accepted as BodyInit
     cache: "no-store",
   });
 
@@ -207,9 +222,9 @@ async function createLinkedInUgcPost(args: {
     cache: "no-store",
   });
 
-  // LinkedIn sometimes returns empty JSON; try both header + body
   const json: any = await res.json().catch(() => null);
-  const headerId = res.headers.get("x-restli-id") || res.headers.get("x-linkedin-id");
+  const headerId =
+    res.headers.get("x-restli-id") || res.headers.get("x-linkedin-id");
   const postedId = json?.id || headerId || null;
 
   if (!res.ok) {
@@ -228,7 +243,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    // Accept either "text" (correct) or "message" (common elsewhere)
     const text = String(body?.text ?? body?.message ?? "").trim();
     const organisationId = String(body?.organisationId ?? "").trim();
     const imageUrl = String(body?.imageUrl ?? "").trim();
@@ -264,14 +278,18 @@ export async function POST(req: NextRequest) {
     const author = await getLinkedInAuthorUrn(token);
     if (!author.ok) {
       return NextResponse.json(
-        { ok: false, error: author.error, details: author.details, status: author.status },
+        {
+          ok: false,
+          error: author.error,
+          details: author.details,
+          status: author.status,
+        },
         { status: 500 }
       );
     }
 
     let imageAssetUrn: string | undefined = undefined;
 
-    // ✅ If imageUrl provided, upload it to LinkedIn first
     if (imageUrl) {
       if (!isLikelyImageUrl(imageUrl)) {
         return NextResponse.json(
@@ -296,8 +314,7 @@ export async function POST(req: NextRequest) {
       }
 
       const contentType = imgRes.headers.get("content-type") || "image/jpeg";
-      const arrayBuffer = await imgRes.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
+      const arrayBuffer = await imgRes.arrayBuffer(); // ✅ keep as ArrayBuffer
 
       const reg = await registerLinkedInImageUpload({
         token,
@@ -311,7 +328,12 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const up = await uploadBytesToLinkedIn(reg.uploadUrl, bytes, contentType);
+      const up = await uploadArrayBufferToLinkedIn(
+        reg.uploadUrl,
+        arrayBuffer,
+        contentType
+      );
+
       if (!up.ok) {
         return NextResponse.json(
           { ok: false, error: up.error, details: up.details, status: up.status },
