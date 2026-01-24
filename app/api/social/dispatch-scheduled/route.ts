@@ -73,29 +73,29 @@ export async function GET(req: NextRequest) {
           cache: "no-store",
         });
 
-        const json: any = await res.json().catch(() => null);
+      const json: any = await res.json().catch(() => null);
 
-        // quick-blast returns { success: boolean, results, summary... }
-        const ok = !!json?.success;
+// ✅ Treat as success if at least ONE platform posted
+const ok = (json?.summary?.ok ?? 0) > 0;
 
-        if (!ok) {
-          failures.push({
-            id,
-            organisationId,
-            error: json?.error || "Dispatch failed",
-            details: json,
-          });
+if (!ok) {
+  failures.push({
+    id,
+    organisationId,
+    error: json?.error || "Dispatch failed",
+    details: json,
+  });
 
-          await supabaseAdmin
-            .from("scheduled_posts")
-            .update({
-              status: "failed",
-              error_info: json || { error: "Dispatch failed" },
-            })
-            .eq("id", id);
+  await supabaseAdmin
+    .from("scheduled_posts")
+    .update({
+      status: "failed",
+      error_info: json || { error: "Dispatch failed" },
+    })
+    .eq("id", id);
 
-          continue;
-        }
+  continue;
+}
 
         await supabaseAdmin
           .from("scheduled_posts")
