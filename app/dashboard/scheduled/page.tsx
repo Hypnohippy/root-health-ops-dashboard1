@@ -13,16 +13,9 @@ type ScheduledPost = {
   status: string;
   created_at?: string;
   meta?: any;
+  error_info?: any;
+  posted_at?: string | null;
 };
-
-async function fetchOrganisationId(): Promise<string> {
-  const res = await fetch("/api/social-accounts", { cache: "no-store" });
-  const data: any = await res.json().catch(() => null);
-
-  const orgId = String(data?.organisationId || "").trim();
-  if (!res.ok || !orgId) throw new Error("Could not load organisationId from /api/social-accounts");
-  return orgId;
-}
 
 function prettyPlatforms(list: any) {
   if (!Array.isArray(list) || list.length === 0) return "(none)";
@@ -39,9 +32,11 @@ function safeDate(iso: string) {
 
 function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
   const s = String(status || "").toLowerCase();
-  if (s.includes("sent") || s.includes("posted") || s.includes("success")) return "good";
+  if (s.includes("sent") || s.includes("posted") || s.includes("success"))
+    return "good";
   if (s.includes("failed") || s.includes("error")) return "bad";
-  if (s.includes("pending") || s.includes("scheduled") || s.includes("queued")) return "warn";
+  if (s.includes("pending") || s.includes("scheduled") || s.includes("queued"))
+    return "warn";
   return "neutral";
 }
 
@@ -52,25 +47,45 @@ export default function ScheduledPage() {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
+  // org id comes from API (no hardcoding)
+  const [orgId, setOrgId] = useState<string | null>(null);
+
+  // Queue UX controls
   const [query, setQuery] = useState("");
   const [showPastCount, setShowPastCount] = useState(25);
+
+  const loadOrg = async () => {
+    try {
+      const res = await fetch("/api/social-accounts", { cache: "no-store" });
+      const data: any = await res.json().catch(() => null);
+      const id = data?.organisationId ? String(data.organisationId) : null;
+      setOrgId(id);
+      return id;
+    } catch {
+      setOrgId(null);
+      return null;
+    }
+  };
 
   const load = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const organisationId = await fetchOrganisationId();
+      const oid = orgId || (await loadOrg());
+      if (!oid) throw new Error("Could not determine organisationId.");
 
       const res = await fetch(
-        `/api/schedule/list?organisationId=${encodeURIComponent(organisationId)}`,
+        `/api/schedule/list?organisationId=${encodeURIComponent(oid)}`,
         { cache: "no-store" }
       );
 
       const data: any = await res.json().catch(() => null);
 
-      if (!res.ok) {
-        throw new Error(data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
+      if (!res.ok || !data?.ok) {
+        throw new Error(
+          data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`
+        );
       }
 
       setRows(Array.isArray(data?.items) ? data.items : []);
@@ -92,7 +107,7 @@ export default function ScheduledPage() {
   };
 
   useEffect(() => {
-    void load();
+    void loadOrg().then(() => load());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -101,7 +116,9 @@ export default function ScheduledPage() {
     if (!q) return rows;
 
     return rows.filter((r) => {
-      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.status || ""} ${r.scheduled_for || ""}`.toLowerCase();
+      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${
+        r.status || ""
+      } ${r.scheduled_for || ""}`.toLowerCase();
       return hay.includes(q);
     });
   }, [rows, query]);
@@ -110,14 +127,20 @@ export default function ScheduledPage() {
     const now = Date.now();
     return filtered
       .filter((r) => new Date(r.scheduled_for).getTime() >= now)
-      .sort((a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime());
+      .sort(
+        (a, b) =>
+          new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime()
+      );
   }, [filtered]);
 
   const past = useMemo(() => {
     const now = Date.now();
     return filtered
       .filter((r) => new Date(r.scheduled_for).getTime() < now)
-      .sort((a, b) => new Date(b.scheduled_for).getTime() - new Date(a.scheduled_for).getTime());
+      .sort(
+        (a, b) =>
+          new Date(b.scheduled_for).getTime() - new Date(a.scheduled_for).getTime()
+      );
   }, [filtered]);
 
   const Pill = ({
@@ -137,7 +160,12 @@ export default function ScheduledPage() {
         : "border-white/10 bg-white/5 text-slate-200";
 
     return (
-      <span className={["inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold", cls].join(" ")}>
+      <span
+        className={[
+          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold",
+          cls,
+        ].join(" ")}
+      >
         {children}
       </span>
     );
@@ -150,7 +178,9 @@ export default function ScheduledPage() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-[11px] text-slate-300">
             {safeDate(p.scheduled_for)} ·{" "}
-            <span className="text-slate-100 font-semibold">{prettyPlatforms(p.platforms)}</span>
+            <span className="text-slate-100 font-semibold">
+              {prettyPlatforms(p.platforms)}
+            </span>
           </div>
           <Pill tone={tone}>{p.status || "unknown"}</Pill>
         </div>
@@ -162,6 +192,12 @@ export default function ScheduledPage() {
         {p.image_url ? (
           <div className="mt-3 text-[11px] text-slate-400 truncate">
             Image: <span className="text-slate-300">{p.image_url}</span>
+          </div>
+        ) : null}
+
+        {p.error_info ? (
+          <div className="mt-3 rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-[11px] text-red-200 whitespace-pre-wrap">
+            Error: {typeof p.error_info === "string" ? p.error_info : JSON.stringify(p.error_info, null, 2)}
           </div>
         ) : null}
       </div>
@@ -179,6 +215,11 @@ export default function ScheduledPage() {
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
               Read-only queue of everything scheduled from elsewhere (Stories, Campaigns, Sequences, etc.).
             </p>
+            {orgId ? (
+              <div className="mt-2 text-[11px] text-slate-500">
+                Org: <span className="text-slate-300">{orgId}</span>
+              </div>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -238,7 +279,11 @@ export default function ScheduledPage() {
                 No upcoming posts.
               </div>
             ) : (
-              <div className="space-y-3">{upcoming.map((p) => <RowCard key={p.id} p={p} />)}</div>
+              <div className="space-y-3">
+                {upcoming.map((p) => (
+                  <RowCard key={p.id} p={p} />
+                ))}
+              </div>
             )}
           </section>
 
@@ -264,16 +309,22 @@ export default function ScheduledPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {past.slice(0, showPastCount).map((p) => <RowCard key={p.id} p={p} />)}
+                {past.slice(0, showPastCount).map((p) => (
+                  <RowCard key={p.id} p={p} />
+                ))}
               </div>
             )}
 
             {past.length > showPastCount && (
               <div className="pt-1 text-[11px] text-slate-400">
-                Showing {showPastCount} of {past.length}.
+                Showing {showPastCount} of {past.length}. Use “Show more” to load more.
               </div>
             )}
           </section>
+        </div>
+
+        <div className="text-[11px] text-slate-500">
+          Note: internal identifiers are intentionally hidden from users.
         </div>
       </div>
     </div>
