@@ -114,6 +114,17 @@ export default function ScheduledPage() {
       }
     })();
   }, []);
+// 2) Auto-refresh scheduled posts every 30 seconds
+useEffect(() => {
+  if (!orgId) return;
+
+  const interval = setInterval(() => {
+    load(orgId);
+  }, 30_000); // 30 seconds
+
+  return () => clearInterval(interval);
+}, [orgId]);
+  
 
   const load = async (organisationId: string) => {
     setLoading(true);
