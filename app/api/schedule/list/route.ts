@@ -18,25 +18,25 @@ async function getSingleTenantOrganisationId() {
   return data[0].id as string;
 }
 
-async function resolveOrganisationId(req: NextRequest) {
-  try {
-    const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
-    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
-  } catch {}
-  return await getSingleTenantOrganisationId();
-}
-
 export async function GET(req: NextRequest) {
   try {
-    const organisationId = await resolveOrganisationId(req);
+    // Accept org from query, else fall back to single-tenant org
+    let organisationId =
+      req.nextUrl.searchParams.get("organisationId")?.trim() || "";
+
+    if (!organisationId) {
+      const fallback = await getSingleTenantOrganisationId();
+      if (fallback) organisationId = fallback;
+    }
 
     if (!organisationId) {
       return NextResponse.json(
-        { ok: false, error: "No organisation found." },
+        { ok: false, error: "Missing organisationId." },
         { status: 200 }
       );
     }
 
+    // Pull from Supabase scheduled_posts (same table /api/social/schedule writes to)
     const { data, error } = await supabaseAdmin
       .from("scheduled_posts")
       .select(
@@ -47,25 +47,21 @@ export async function GET(req: NextRequest) {
       .limit(250);
 
     if (error) {
-      console.error("[schedule/list] DB error", error);
+      console.error("[schedule/list] db error", error);
       return NextResponse.json(
-        { ok: false, error: error.message || "DB error" },
+        { ok: false, organisationId, error: "DB error loading scheduled posts." },
         { status: 200 }
       );
     }
 
     return NextResponse.json(
-      {
-        ok: true,
-        organisationId,
-        items: Array.isArray(data) ? data : [],
-      },
+      { ok: true, organisationId, items: data || [] },
       { status: 200 }
     );
   } catch (err: any) {
-    console.error("[schedule/list] unexpected", err);
+    console.error("[schedule/list] fatal", err);
     return NextResponse.json(
-      { ok: false, error: err?.message || "Internal error" },
+      { ok: false, error: err?.message || "Internal error." },
       { status: 200 }
     );
   }
