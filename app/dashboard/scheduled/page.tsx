@@ -170,6 +170,18 @@ useEffect(() => {
     void load(orgId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
+  // 🔁 Auto-refresh every 30s while page is open
+useEffect(() => {
+  if (!orgId) return;
+
+  const interval = setInterval(() => {
+    load(orgId);
+  }, 30_000); // 30 seconds
+
+  return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [orgId]);
+
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
