@@ -126,33 +126,40 @@ useEffect(() => {
 }, [orgId]);
   
 
-  const load = async (organisationId: string) => {
+  const load = async (organisationId: string, opts?: { silent?: boolean }) => {
+  const silent = !!opts?.silent;
+
+  if (!silent) {
     setLoading(true);
-    setError(null);
+  }
+  setError(null);
 
-    try {
-      const res = await fetch(
-        `/api/schedule/list?organisationId=${encodeURIComponent(organisationId)}`,
-        { cache: "no-store" }
+  try {
+    const res = await fetch(
+      `/api/schedule/list?organisationId=${encodeURIComponent(organisationId)}`,
+      { cache: "no-store" }
+    );
+
+    const data: any = await res.json().catch(() => null);
+
+    if (!data?.ok) {
+      throw new Error(
+        data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`
       );
+    }
 
-      const data: any = await res.json().catch(() => null);
-
-      if (!data?.ok) {
-        throw new Error(
-          data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`
-        );
-      }
-
-      const items = Array.isArray(data?.items) ? (data.items as ScheduledPost[]) : [];
-      setRows(items);
-    } catch (e: any) {
+    setRows(Array.isArray(data?.items) ? data.items : []);
+  } catch (e: any) {
+    if (!silent) {
       setRows([]);
       setError(e?.message || "Could not load scheduled posts.");
-    } finally {
+    }
+  } finally {
+    if (!silent) {
       setLoading(false);
     }
-  };
+  }
+};
 
   const refresh = async () => {
     if (!orgId) return;
