@@ -182,7 +182,7 @@ useEffect(() => {
   if (!orgId) return;
 
   const interval = setInterval(() => {
-    load(orgId);
+    load(orgId, { silent: true });
   }, 30_000); // 30 seconds
 
   return () => clearInterval(interval);
