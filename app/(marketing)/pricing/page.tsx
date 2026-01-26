@@ -73,7 +73,11 @@ function PriceCard({
         </div>
       </div>
 
-      <ul className="mt-6 space-y-3">{features.map((f, i) => <Feature key={i}>{f}</Feature>)}</ul>
+      <ul className="mt-6 space-y-3">
+        {features.map((f, i) => (
+          <Feature key={i}>{f}</Feature>
+        ))}
+      </ul>
 
       <div className="mt-8">
         <Link
@@ -134,14 +138,15 @@ export default function PricingPage() {
               Colleges
             </Link>
 
+            {/* ✅ Guardrail: do not go straight into /dashboard */}
             <Link
-              href="/dashboard"
+              href="/get-started?mode=signin"
               className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10"
             >
               Sign in
             </Link>
             <Link
-              href="/dashboard/connect"
+              href="/get-started"
               className="rounded-full bg-emerald-400 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-300"
             >
               Get started
@@ -170,8 +175,9 @@ export default function PricingPage() {
           </p>
 
           <div className="flex flex-wrap items-center gap-3">
+            {/* ✅ Guardrail */}
             <Link
-              href="/dashboard/connect"
+              href="/get-started"
               className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300"
             >
               Start in minutes
@@ -199,7 +205,7 @@ export default function PricingPage() {
               <>Built to reduce overwhelm, not add tasks</>,
             ]}
             ctaLabel="Choose Solo"
-            ctaHref="/dashboard/connect"
+            ctaHref="/get-started"
           />
 
           <PriceCard
@@ -216,7 +222,7 @@ export default function PricingPage() {
               <>Designed for sustainable practice growth</>,
             ]}
             ctaLabel="Choose Growth"
-            ctaHref="/dashboard/connect"
+            ctaHref="/get-started"
           />
 
           <PriceCard
@@ -278,8 +284,9 @@ export default function PricingPage() {
               </div>
 
               <div className="mt-5 flex flex-wrap gap-3">
+                {/* ✅ Guardrail */}
                 <Link
-                  href="/dashboard/connect"
+                  href="/get-started"
                   className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300"
                 >
                   Get started
@@ -349,8 +356,9 @@ export default function PricingPage() {
               <Link href="/colleges" className="hover:text-slate-200">
                 Colleges
               </Link>
-              <Link href="/dashboard" className="hover:text-slate-200">
-                Dashboard
+              {/* ✅ Don’t advertise direct dashboard as a public nav item */}
+              <Link href="/get-started?mode=signin" className="hover:text-slate-200">
+                Sign in
               </Link>
             </div>
           </div>
