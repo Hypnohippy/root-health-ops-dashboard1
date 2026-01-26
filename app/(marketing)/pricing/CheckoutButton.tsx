@@ -1,4 +1,3 @@
-// app/(marketing)/pricing/CheckoutButton.tsx
 "use client";
 
 import React, { useState } from "react";
@@ -18,14 +17,12 @@ export default function CheckoutButton({
   const onClick = async () => {
     setLoading(true);
     setErr(null);
-
     try {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan }),
       });
-
       const data: any = await res.json().catch(() => null);
 
       if (!data?.ok || !data?.url) {
