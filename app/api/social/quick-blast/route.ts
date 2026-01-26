@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -36,7 +37,64 @@ function baseUrl(req: NextRequest) {
   return req.nextUrl.origin;
 }
 
-async function getSingleTenantOrganisationId() {
+/**
+ * Try to read a Supabase user id from an Authorization Bearer token.
+ * IMPORTANT: This is OPTIONAL. If no token is provided, we fall back to your existing single-tenant org logic.
+ */
+async function tryGetUserIdFromReq(req: NextRequest): Promise<string | null> {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+    if (!supabaseUrl || !supabaseAnon) return null;
+
+    const authHeader = req.headers.get("authorization") || "";
+    const token = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim()
+      : "";
+
+    if (!token) return null;
+
+    const supabase = createClient(supabaseUrl, supabaseAnon, {
+      auth: { persistSession: false },
+    });
+
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user?.id) return null;
+
+    return data.user.id;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * If authenticated, resolve organisation via organisation_members.
+ * Otherwise fall back to your existing single-tenant behaviour.
+ */
+async function resolveOrganisationId(req: NextRequest, bodyOrgId?: string) {
+  // 1) If caller passes organisationId explicitly (query/body), keep your existing behaviour.
+  try {
+    const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
+    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
+  } catch {}
+  if (bodyOrgId && String(bodyOrgId).trim()) return String(bodyOrgId).trim();
+
+  // 2) Try auth-based org resolution (if token present)
+  const userId = await tryGetUserIdFromReq(req);
+  if (userId) {
+    const { data, error } = await supabaseAdmin
+      .from("organisation_members")
+      .select("organisation_id")
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data?.organisation_id) {
+      return String(data.organisation_id);
+    }
+  }
+
+  // 3) Fallback: single-tenant org (what you already had)
   const { data, error } = await supabaseAdmin
     .from("organisations")
     .select("id")
@@ -48,15 +106,6 @@ async function getSingleTenantOrganisationId() {
   }
   if (!data || data.length === 0) return null;
   return data[0].id as string;
-}
-
-async function resolveOrganisationId(req: NextRequest, bodyOrgId?: string) {
-  try {
-    const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
-    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
-  } catch {}
-  if (bodyOrgId && String(bodyOrgId).trim()) return String(bodyOrgId).trim();
-  return await getSingleTenantOrganisationId();
 }
 
 async function loadSocialAccount(
@@ -186,10 +235,6 @@ async function postToLinkedIn(args: {
 /**
  * ✅ Threads direct posting (NO Ayrshare, NO Make)
  * Uses Threads API host: https://graph.threads.net
- *
- * Flow:
- * 1) Create container: POST /me/threads?media_type=TEXT|IMAGE&text=...(&image_url=...)
- * 2) Publish:          POST /me/threads_publish?creation_id=...
  */
 async function postToThreads(args: {
   accessToken: string;
@@ -275,6 +320,82 @@ async function postToThreads(args: {
   };
 }
 
+/** Plan + usage helpers */
+function getUTCYearMonth() {
+  const d = new Date();
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 };
+}
+
+async function getPostsPerMonth(organisationId: string): Promise<number> {
+  const { data, error } = await supabaseAdmin
+    .from("organisation_plans")
+    .select("posts_per_month, plan")
+    .eq("organisation_id", organisationId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[quick-blast] organisation_plans error", error);
+    return 0;
+  }
+  const ppm = Number((data as any)?.posts_per_month ?? 0);
+  return Number.isFinite(ppm) ? ppm : 0;
+}
+
+async function getPostsUsedThisMonth(organisationId: string): Promise<number> {
+  const { year, month } = getUTCYearMonth();
+
+  const { data, error } = await supabaseAdmin
+    .from("organisation_post_usage")
+    .select("posts_used")
+    .eq("organisation_id", organisationId)
+    .eq("year", year)
+    .eq("month", month)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[quick-blast] organisation_post_usage read error", error);
+    return 0;
+  }
+  return Number((data as any)?.posts_used ?? 0) || 0;
+}
+
+/**
+ * Best practice is an atomic increment in DB.
+ * We'll TRY an RPC called increment_org_posts_used.
+ * If it doesn't exist yet, we fallback to a simple upsert (works for now, but not perfectly race-proof).
+ */
+async function incrementPostsUsedThisMonth(organisationId: string): Promise<void> {
+  const { year, month } = getUTCYearMonth();
+
+  // Try RPC first (atomic)
+  const { error: rpcErr } = await supabaseAdmin.rpc("increment_org_posts_used", {
+    org_id: organisationId,
+    y: year,
+    m: month,
+    inc: 1,
+  });
+
+  if (!rpcErr) return;
+
+  // Fallback (non-atomic but acceptable for builder phase)
+  const current = await getPostsUsedThisMonth(organisationId);
+  const next = current + 1;
+
+  const { error: upsertErr } = await supabaseAdmin
+    .from("organisation_post_usage")
+    .upsert(
+      { organisation_id: organisationId, year, month, posts_used: next },
+      { onConflict: "organisation_id,year,month" }
+    );
+
+  if (upsertErr) {
+    console.error("[quick-blast] usage increment fallback failed", upsertErr);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -307,6 +428,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, error: "No organisation found in database." },
         { status: 400 }
+      );
+    }
+
+    // ✅ Guardrails: plan + monthly usage check BEFORE posting
+    const postsPerMonth = await getPostsPerMonth(organisationId);
+    const postsUsed = await getPostsUsedThisMonth(organisationId);
+
+    if (!postsPerMonth || postsPerMonth < 1) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "No valid plan found for this organisation (posts_per_month missing).",
+        },
+        { status: 403 }
+      );
+    }
+
+    if (postsUsed >= postsPerMonth) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Monthly post limit reached (${postsUsed}/${postsPerMonth}).`,
+          organisationId,
+        },
+        { status: 429 }
       );
     }
 
@@ -391,7 +538,6 @@ export async function POST(req: NextRequest) {
       }
 
       // --- Instagram ---
-      // (leave whatever you already wired for IG untouched elsewhere; we don't change it here)
       if (p === "instagram") {
         results.push({
           platform: "instagram",
@@ -403,7 +549,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // --- Threads (FIXED: direct Threads API on graph.threads.net) ---
+      // --- Threads (direct Threads API) ---
       if (p === "threads") {
         const row = await loadSocialAccount(organisationId, "threads");
 
@@ -459,6 +605,11 @@ export async function POST(req: NextRequest) {
     const failCount = results.filter((r) => !r.ok && !r.skipped).length;
     const skippedCount = results.filter((r) => r.skipped).length;
 
+    // ✅ Count 1 usage if at least one platform posted successfully
+    if (okCount > 0) {
+      await incrementPostsUsedThisMonth(organisationId);
+    }
+
     return NextResponse.json(
       {
         success: okCount > 0 && failCount === 0,
@@ -469,6 +620,11 @@ export async function POST(req: NextRequest) {
           ok: okCount,
           failed: failCount,
           skipped: skippedCount,
+        },
+        usage: {
+          postsPerMonth,
+          postsUsedBefore: postsUsed,
+          postsUsedAfter: okCount > 0 ? postsUsed + 1 : postsUsed,
         },
       },
       { status: 200 }
