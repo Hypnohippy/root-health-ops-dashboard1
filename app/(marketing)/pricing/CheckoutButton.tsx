@@ -1,7 +1,7 @@
 // app/(marketing)/pricing/CheckoutButton.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 type PlanKey = "solo" | "growth" | "team";
 
@@ -16,6 +16,20 @@ export default function CheckoutButton({
 }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [orgId, setOrgId] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/social-accounts", { cache: "no-store" });
+        const data: any = await res.json().catch(() => null);
+        const id = data?.organisationId ? String(data.organisationId) : null;
+        setOrgId(id);
+      } catch {
+        setOrgId(null);
+      }
+    })();
+  }, []);
 
   const onClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -30,28 +44,22 @@ export default function CheckoutButton({
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, organisationId: orgId || undefined }),
       });
 
       const data: any = await res.json().catch(() => null);
 
-      // Expect: { ok: true, url: "https://checkout.stripe.com/..." }
       if (!data?.ok) {
         throw new Error(
-          data?.error ||
-            data?.message ||
-            `Checkout failed (HTTP ${res.status}).`
+          data?.error || data?.message || `Checkout failed (HTTP ${res.status}).`
         );
       }
 
       const url = String(data?.url || "").trim();
       if (!url || !url.startsWith("http")) {
-        throw new Error(
-          "Stripe session URL was not returned. (Server created a session but did not provide a redirect URL.)"
-        );
+        throw new Error("Stripe session URL missing/invalid.");
       }
 
-      // ✅ Hard redirect to Stripe Checkout
       window.location.href = url;
     } catch (e: any) {
       setErr(e?.message || "Could not start checkout.");
