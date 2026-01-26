@@ -1,7 +1,6 @@
 // app/api/stripe/checkout/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { randomUUID } from "crypto";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -9,7 +8,7 @@ export const runtime = "nodejs";
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
 
-// Your env vars (these should be the REAL Stripe price IDs)
+// Price IDs stored in Vercel env (these should be the actual Stripe price IDs)
 const PRICE_SOLO = process.env.price_rootops_basic_monthly || "";
 const PRICE_GROWTH = process.env.price_rootops_pro_monthly || "";
 const PRICE_TEAM = process.env.price_rootops_enterprise_monthly || "";
@@ -27,44 +26,18 @@ function resolvePriceId(plan: PlanKey) {
   return PRICE_TEAM;
 }
 
-function prettyPlanName(plan: PlanKey) {
-  if (plan === "solo") return "Solo";
-  if (plan === "growth") return "Growth";
-  return "Team";
-}
-
-/**
- * Option A guardrail:
- * Create the organisation BEFORE checkout so the webhook always has a real org to update.
- *
- * We keep this insert minimal + resilient:
- * - id (UUID)
- * - name (string)
- *
- * If your organisations table has extra required fields, this will error and we return a clear message.
- */
-async function createOrganisation(plan: PlanKey) {
-  const organisationId = randomUUID();
-
-  const name = `Root Health Ops (${prettyPlanName(plan)})`;
-
+async function getSingleTenantOrganisationId() {
   const { data, error } = await supabaseAdmin
     .from("organisations")
-    .insert({
-      id: organisationId,
-      name,
-    })
     .select("id")
-    .single();
+    .limit(1);
 
-  if (error || !data?.id) {
-    console.error("[stripe/checkout] org insert failed", error);
-    throw new Error(
-      "Could not create organisation record. Your organisations table likely requires additional fields. Paste your organisations table columns (or app/api/organisations/route.ts) and I’ll align this perfectly."
-    );
+  if (error) {
+    console.error("[stripe/checkout] organisations error", error);
+    return null;
   }
-
-  return String(data.id);
+  if (!data || data.length === 0) return null;
+  return data[0].id as string;
 }
 
 export async function POST(req: NextRequest) {
@@ -88,6 +61,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ✅ IMPORTANT: do NOT create organisations here (public page has no userId)
+    // We attach orgId into Stripe metadata so the webhook can update the right org.
+    let organisationId = String(body?.organisationId || "").trim();
+    if (!organisationId) {
+      const fallback = await getSingleTenantOrganisationId();
+      if (fallback) organisationId = fallback;
+    }
+
+    if (!organisationId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "No organisationId available. (Expected org context; create/select an organisation first.)",
+        },
+        { status: 200 }
+      );
+    }
+
     const priceId = resolvePriceId(plan);
     if (!priceId) {
       return NextResponse.json(
@@ -102,48 +94,31 @@ export async function POST(req: NextRequest) {
 
     const base = safeBaseUrl(req);
 
-    // ✅ 1) Create org FIRST (guardrail)
-    const organisationId = await createOrganisation(plan);
+    // After payment: send them into the app
+    const successUrl = `${base}/dashboard/connect?checkout=success&plan=${encodeURIComponent(
+      plan
+    )}`;
 
-    // ✅ 2) Success & cancel URLs carry orgId (so UI can load the right tenant)
-    const successUrl =
-      `${base}/dashboard/connect` +
-      `?checkout=success` +
-      `&plan=${encodeURIComponent(plan)}` +
-      `&org=${encodeURIComponent(organisationId)}` +
-      `&session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${base}/pricing?checkout=cancelled`;
 
-    const cancelUrl =
-      `${base}/pricing` +
-      `?checkout=cancelled` +
-      `&plan=${encodeURIComponent(plan)}` +
-      `&org=${encodeURIComponent(organisationId)}`;
-
-    // ✅ 3) Create Stripe Checkout session with metadata for webhook determinism
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       success_url: successUrl,
       cancel_url: cancelUrl,
       line_items: [{ price: priceId, quantity: 1 }],
-
-      // ✅ your 50% promo codes work here (college route etc)
       allow_promotion_codes: true,
 
-      // ✅ make webhook deterministic (your webhook already supports organisationId metadata)
-      metadata: {
-        organisationId,
-        plan,
-        source: "pricing_page",
-      },
-
-      // Optional but helpful for support/debug
+      // ✅ KEY: bind checkout to the org in a durable way
       client_reference_id: organisationId,
+      subscription_data: {
+        metadata: {
+          organisationId,
+          plan,
+        },
+      },
     });
 
-    return NextResponse.json(
-      { ok: true, url: session.url, organisationId },
-      { status: 200 }
-    );
+    return NextResponse.json({ ok: true, url: session.url }, { status: 200 });
   } catch (e: any) {
     console.error("[stripe/checkout] error", e);
     return NextResponse.json(
