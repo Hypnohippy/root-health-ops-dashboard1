@@ -6,6 +6,7 @@ export const runtime = "nodejs";
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
 
+// Your env vars (you showed these exist)
 const PRICE_SOLO = process.env.price_rootops_basic_monthly || "";
 const PRICE_GROWTH = process.env.price_rootops_pro_monthly || "";
 const PRICE_TEAM = process.env.price_rootops_enterprise_monthly || "";
@@ -50,16 +51,20 @@ export async function POST(req: NextRequest) {
         {
           ok: false,
           error:
-            "Missing Stripe price id env vars. Check: price_rootops_basic_monthly / pro / enterprise",
+            "Missing price env var. Check: price_rootops_basic_monthly / price_rootops_pro_monthly / price_rootops_enterprise_monthly",
         },
         { status: 200 }
       );
     }
 
     const base = safeBaseUrl(req);
+
+    // After payment: send them to the app onboarding/connect flow
     const successUrl = `${base}/dashboard/connect?checkout=success&plan=${encodeURIComponent(
       plan
     )}`;
+
+    // If they cancel: back to pricing
     const cancelUrl = `${base}/pricing?checkout=cancelled`;
 
     const session = await stripe.checkout.sessions.create({
@@ -67,7 +72,7 @@ export async function POST(req: NextRequest) {
       success_url: successUrl,
       cancel_url: cancelUrl,
       line_items: [{ price: priceId, quantity: 1 }],
-      allow_promotion_codes: true, // ✅ for COLLEGE50 style subsidies
+      allow_promotion_codes: true, // ✅ supports your COLLEGE50 style subsidy
     });
 
     return NextResponse.json({ ok: true, url: session.url }, { status: 200 });
