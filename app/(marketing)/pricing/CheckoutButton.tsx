@@ -17,12 +17,14 @@ export default function CheckoutButton({
   const onClick = async () => {
     setLoading(true);
     setErr(null);
+
     try {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan }),
       });
+
       const data: any = await res.json().catch(() => null);
 
       if (!data?.ok || !data?.url) {
@@ -60,10 +62,6 @@ export default function CheckoutButton({
           {err}
         </div>
       ) : null}
-
-      <div className="mt-3 text-center text-[11px] text-slate-500">
-        Secure checkout · cancel anytime
-      </div>
     </div>
   );
 }
