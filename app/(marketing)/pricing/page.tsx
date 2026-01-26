@@ -1,6 +1,7 @@
 // app/(marketing)/pricing/page.tsx
 import Link from "next/link";
 import React from "react";
+import CheckoutButton from "./CheckoutButton";
 
 function Pill({ children }: { children: React.ReactNode }) {
   return (
@@ -25,8 +26,7 @@ function PriceCard({
   price,
   subtitle,
   features,
-  ctaLabel,
-  ctaHref,
+  plan,
   highlight,
 }: {
   badge?: string;
@@ -34,8 +34,7 @@ function PriceCard({
   price: string;
   subtitle: string;
   features: React.ReactNode[];
-  ctaLabel: string;
-  ctaHref: string;
+  plan: "solo" | "growth" | "team";
   highlight?: boolean;
 }) {
   return (
@@ -78,21 +77,11 @@ function PriceCard({
       </ul>
 
       <div className="mt-8">
-        <Link
-          href={ctaHref}
-          className={[
-            "inline-flex w-full items-center justify-center rounded-full px-5 py-3 text-sm font-semibold transition",
-            highlight
-              ? "bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-              : "border border-white/10 bg-white/5 text-slate-100 hover:bg-white/10",
-          ].join(" ")}
-        >
-          {ctaLabel}
-        </Link>
-
-        <div className="mt-3 text-center text-[11px] text-slate-500">
-          No pressure. Set up takes minutes.
-        </div>
+        <CheckoutButton
+          plan={plan}
+          label={plan === "team" ? "Talk to us / Start Team" : `Choose ${title}`}
+          highlight={highlight}
+        />
       </div>
     </div>
   );
@@ -113,25 +102,28 @@ export default function PricingPage() {
         </h1>
 
         <p className="text-base md:text-lg text-slate-300 leading-relaxed max-w-3xl">
-          When money is tight, it’s normal to choose the cheapest tool — even if
-          it doesn’t actually reduce stress. Root Health Ops is built to create
-          calm momentum and consistent visibility without turning your week into
-          “content work”.
+          Root Health Ops is designed to reduce overwhelm and keep you visible
+          consistently — without turning your week into “content work”.
         </p>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href="/get-started"
-            className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300"
-          >
-            Get started
-          </Link>
           <Link
             href="/how-it-works"
             className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
           >
             See how it works
           </Link>
+
+          <Link
+            href="/colleges"
+            className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
+          >
+            Colleges →
+          </Link>
+        </div>
+
+        <div className="text-[11px] text-slate-500">
+          Tip: colleges can distribute a promo code for 6-month subsidy.
         </div>
       </section>
 
@@ -140,6 +132,7 @@ export default function PricingPage() {
           title="Solo"
           subtitle="For a single clinician who wants calm momentum."
           price="£49"
+          plan="solo"
           features={[
             <>Connect your channels once</>,
             <>Create Stories and edit before publishing</>,
@@ -147,8 +140,6 @@ export default function PricingPage() {
             <>Queue view with clear “sent / scheduled / failed” status</>,
             <>Built to reduce overwhelm, not add tasks</>,
           ]}
-          ctaLabel="Choose Solo"
-          ctaHref="/get-started"
         />
 
         <PriceCard
@@ -156,6 +147,7 @@ export default function PricingPage() {
           title="Growth"
           subtitle="For clinicians rebuilding confidence and consistency."
           price="£99"
+          plan="growth"
           highlight
           features={[
             <>Everything in Solo</>,
@@ -164,14 +156,13 @@ export default function PricingPage() {
             <>Priority help getting set up</>,
             <>Designed for sustainable practice growth</>,
           ]}
-          ctaLabel="Choose Growth"
-          ctaHref="/get-started"
         />
 
         <PriceCard
           title="Team"
           subtitle="For multi-practitioner practices and collectives."
           price="£199"
+          plan="team"
           features={[
             <>Everything in Growth</>,
             <>Organisation-first setup</>,
@@ -179,9 +170,43 @@ export default function PricingPage() {
             <>Priority support</>,
             <>Best for clinics, groups, and larger teams</>,
           ]}
-          ctaLabel="Talk to us"
-          ctaHref="/colleges"
         />
+      </section>
+
+      <section className="rounded-[32px] border border-white/10 bg-white/5 p-8 md:p-10">
+        <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
+          <div>
+            <div className="text-2xl md:text-3xl font-semibold tracking-tight">
+              The 6-month subsidy (college route)
+            </div>
+            <p className="mt-3 text-sm text-slate-300 leading-relaxed">
+              Colleges can provide a promo code to students (e.g.{" "}
+              <span className="text-slate-50 font-semibold">COLLEGE50</span>).
+              Students enter it during checkout — the discount applies
+              automatically for 6 months.
+            </p>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-black/20 p-6">
+            <div className="text-sm font-semibold text-slate-50">
+              What you do in Stripe
+            </div>
+            <ol className="mt-2 space-y-2 text-sm text-slate-300 leading-relaxed list-decimal list-inside">
+              <li>Create a coupon: 50% off</li>
+              <li>Set duration: repeating</li>
+              <li>Set months: 6</li>
+              <li>Create a promotion code for that coupon</li>
+            </ol>
+            <div className="mt-4">
+              <Link
+                href="/colleges"
+                className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
+              >
+                See colleges options →
+              </Link>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
   );
