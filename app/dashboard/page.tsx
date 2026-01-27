@@ -59,8 +59,8 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
-// ✅ Brainstorm → Quick Blast prefill
-const PREFILL_KEY = "rh_prefill_quick_blast_v1";
+// ✅ Prefill key used by Brainstorm → Quick Blast
+const PREFILL_QUICKBLAST_KEY = "rootops_prefill_quickblast_v1";
 
 type Draft = {
   id: string;
@@ -71,11 +71,10 @@ type Draft = {
 };
 
 type PrefillPayload = {
-  text?: string;
-  platform?: ProviderId; // Brainstorm may send one preferred platform
-  tone?: string;
-  mode?: string;
-  createdAt?: string;
+  message?: string;
+  imageUrl?: string;
+  suggestedPlatforms?: ProviderId[];
+  attribution?: any; // stored for later use (optional)
 };
 
 function loadDrafts(): Draft[] {
@@ -105,45 +104,19 @@ function joinVariant(v: AiVariant) {
   return `${(v.text || "").trim()}${cta}${hash}`.trim();
 }
 
-function safeParsePrefill(raw: string | null): PrefillPayload | null {
-  try {
-    if (!raw) return null;
-    const obj = JSON.parse(raw);
-    if (!obj || typeof obj !== "object") return null;
-    return obj as PrefillPayload;
-  } catch {
-    return null;
-  }
-}
-
-function mapBrainstormToneToAiTone(toneRaw: string | undefined) {
-  const t = (toneRaw || "").toLowerCase();
-
-  // Your AI helper supports: calm | supportive | direct | philosophical | story
-  if (t.includes("support")) return "supportive";
-  if (t.includes("direct")) return "direct";
-  if (t.includes("philos")) return "philosophical";
-  if (t.includes("story")) return "story";
-
-  // fallback
-  return "calm";
-}
-
 export default function DashboardHomePage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
 
   // AI composer controls
   const [aiSubject, setAiSubject] = useState("");
-  const [aiTone, setAiTone] = useState("calm"); // calm | supportive | direct | philosophical | story
-  const [aiLength, setAiLength] = useState("short"); // short | medium | long
+  const [aiTone, setAiTone] = useState("calm");
+  const [aiLength, setAiLength] = useState("short");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
-  const [message, setMessage] = useState(
-    "Quick check-in from Root Health Ops Dashboard ✅"
-  );
+  const [message, setMessage] = useState("Quick check-in from Root Health Ops ✅");
   const [imageUrl, setImageUrl] = useState("");
   const [selected, setSelected] = useState<ProviderId[]>([]);
 
@@ -153,24 +126,12 @@ export default function DashboardHomePage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
 
-  // ✅ show a small banner when prefill was applied
-  const [prefillBanner, setPrefillBanner] = useState<string | null>(null);
-
-  // ✅ stop auto-default selection from overriding prefill
-  const [selectionWasPrefilled, setSelectionWasPrefilled] = useState(false);
-
   const connectedPlatforms = useMemo(() => {
-    const active = (socialAccounts || []).filter((r) => {
-      // treat missing is_active as active (older rows)
-      return r.is_active !== false;
-    });
+    const active = (socialAccounts || []).filter((r) => r.is_active !== false);
     return new Set(active.map((r) => r.platform));
   }, [socialAccounts]);
 
-  const connectedCount = useMemo(
-    () => connectedPlatforms.size,
-    [connectedPlatforms]
-  );
+  const connectedCount = useMemo(() => connectedPlatforms.size, [connectedPlatforms]);
 
   const charCount = message.length;
 
@@ -224,7 +185,6 @@ export default function DashboardHomePage() {
     setMessage(d.message || "");
     setImageUrl(d.imageUrl || "");
     setSelected(Array.isArray(d.selectedPlatforms) ? d.selectedPlatforms : []);
-    setPrefillBanner("Draft restored.");
   }
 
   function deleteDraft(id: string) {
@@ -264,9 +224,7 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const vars = Array.isArray((json as any)?.variants)
-        ? (json as any).variants
-        : [];
+      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
       if (vars.length === 0) {
         setAiError("AI returned no variants. Try Generate again.");
         return;
@@ -313,97 +271,54 @@ export default function DashboardHomePage() {
     }
   }
 
-  // Initial load
+  // ✅ Load accounts + drafts on mount
   useEffect(() => {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
   }, []);
 
-  // ✅ Apply Brainstorm → Quick Blast prefill (once, client-only)
+  // ✅ Apply Brainstorm → Quick Blast prefill ONCE
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(PREFILL_KEY);
-      const prefill = safeParsePrefill(raw);
-      if (!prefill) return;
+      const raw = localStorage.getItem(PREFILL_QUICKBLAST_KEY);
+      if (!raw) return;
 
-      const text = String(prefill.text || "").trim();
-      const preferredPlatform = (prefill.platform || "") as ProviderId;
+      const parsed: PrefillPayload = JSON.parse(raw);
+      localStorage.removeItem(PREFILL_QUICKBLAST_KEY);
 
-      if (text) {
-        setMessage(text);
+      const nextMessage = String(parsed?.message ?? "").trim();
+      const nextImageUrl = String(parsed?.imageUrl ?? "").trim();
+      const suggested = Array.isArray(parsed?.suggestedPlatforms)
+        ? (parsed.suggestedPlatforms as ProviderId[])
+        : [];
+
+      if (nextMessage) setMessage(nextMessage);
+      if (nextImageUrl) setImageUrl(nextImageUrl);
+
+      // If they suggested platforms, use them (but only if connected)
+      if (suggested.length > 0) {
+        // if connections not loaded yet, we still set; later auto-select won't overwrite because selected.length > 0
+        setSelected(suggested);
       }
-
-      // If Brainstorm hinted a single platform, preselect it (but only if it’s a real ProviderId)
-      const allowed: ProviderId[] = [
-        "facebook",
-        "instagram",
-        "tiktok",
-        "linkedin",
-        "google",
-        "email",
-        "whatsapp",
-        "threads",
-      ];
-
-      if (preferredPlatform && allowed.includes(preferredPlatform)) {
-        setSelected([preferredPlatform]);
-        setSelectionWasPrefilled(true);
-      }
-
-      // Try to align AI helper tone with Brainstorm
-      if (prefill.tone) {
-        setAiTone(mapBrainstormToneToAiTone(prefill.tone));
-      }
-
-      // Optional: put something into the subject so user can generate variants quickly
-      if (!aiSubject.trim() && text) {
-        // keep it short-ish
-        const subjectGuess = text.split("\n")[0].slice(0, 80).trim();
-        if (subjectGuess) setAiSubject(subjectGuess);
-      }
-
-      setPrefillBanner("Imported from Brainstorm. Ready to post.");
-      window.localStorage.removeItem(PREFILL_KEY);
-    } catch {
-      // ignore
+    } catch (e) {
+      console.warn("[quick-blast] prefill parse failed", e);
+      try {
+        localStorage.removeItem(PREFILL_QUICKBLAST_KEY);
+      } catch {}
     }
+    // run once
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-select connected channels if none selected yet
   useEffect(() => {
-    if (selectionWasPrefilled) return;
     if (selected.length > 0) return;
     const defaults = socialAccounts
       .map((r) => r.platform)
       .filter((p) => connectedPlatforms.has(p));
     if (defaults.length > 0) setSelected(defaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadingAccounts, socialAccounts, selectionWasPrefilled]);
-
-  // If we preselected a platform from Brainstorm, and it’s NOT connected, fall back to connected defaults
-  useEffect(() => {
-    if (!selectionWasPrefilled) return;
-    if (selected.length !== 1) return;
-
-    const only = selected[0];
-    const isConnected = connectedPlatforms.has(only);
-
-    // Wait until accounts are loaded to make this decision
-    if (loadingAccounts) return;
-
-    if (!isConnected) {
-      const defaults = socialAccounts
-        .map((r) => r.platform)
-        .filter((p) => connectedPlatforms.has(p));
-      if (defaults.length > 0) {
-        setSelected(defaults);
-        setPrefillBanner(
-          `Imported from Brainstorm. Note: ${PROVIDER_LABELS[only]} isn't connected, so I selected your connected channels instead.`
-        );
-      }
-    }
-  }, [selectionWasPrefilled, selected, connectedPlatforms, socialAccounts, loadingAccounts]);
+  }, [loadingAccounts, socialAccounts]);
 
   const channelCards: ProviderId[] = [
     "facebook",
@@ -425,9 +340,7 @@ export default function DashboardHomePage() {
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
-              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
-                Enterprise Beta
-              </h1>
+              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">Enterprise Beta</h1>
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
@@ -453,21 +366,13 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
-          {prefillBanner ? (
-            <div className="mt-6 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-              {prefillBanner}
-            </div>
-          ) : null}
-
           <div className="mt-8 grid gap-6 lg:grid-cols-3">
             {/* Quick Blast Card */}
             <div className="lg:col-span-2 rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-semibold">Quick Blast</h2>
-                  <p className="mt-1 text-sm text-slate-300">
-                    Write once, choose channels, send.
-                  </p>
+                  <p className="mt-1 text-sm text-slate-300">Write once, choose channels, send.</p>
                 </div>
                 <div className="text-right text-xs text-slate-400">
                   <div>{charCount} chars</div>
@@ -509,9 +414,7 @@ export default function DashboardHomePage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">
-                        Tone
-                      </label>
+                      <label className="block text-xs font-medium text-slate-300">Tone</label>
                       <select
                         value={aiTone}
                         onChange={(e) => setAiTone(e.target.value)}
@@ -526,9 +429,7 @@ export default function DashboardHomePage() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">
-                        Length
-                      </label>
+                      <label className="block text-xs font-medium text-slate-300">Length</label>
                       <select
                         value={aiLength}
                         onChange={(e) => setAiLength(e.target.value)}
@@ -556,9 +457,7 @@ export default function DashboardHomePage() {
                         className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4"
                       >
                         <div className="flex items-start justify-between gap-3">
-                          <div className="text-sm font-semibold">
-                            {v.title || `Variant ${idx + 1}`}
-                          </div>
+                          <div className="text-sm font-semibold">{v.title || `Variant ${idx + 1}`}</div>
                           <button
                             type="button"
                             onClick={() => setMessage(joinVariant(v))}
@@ -581,9 +480,7 @@ export default function DashboardHomePage() {
 
               <div className="mt-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Message
-                  </label>
+                  <label className="block text-xs font-medium text-slate-300">Message</label>
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
@@ -594,9 +491,7 @@ export default function DashboardHomePage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Image (optional)
-                  </label>
+                  <label className="block text-xs font-medium text-slate-300">Image (optional)</label>
                   <input
                     value={imageUrl}
                     onChange={(e) => setImageUrl(e.target.value)}
@@ -604,7 +499,7 @@ export default function DashboardHomePage() {
                     placeholder="Paste a direct image URL (JPG/PNG)…"
                   />
                   <div className="mt-1 text-[11px] text-slate-500">
-                    (Instagram posting may require an image for some post types.)
+                    (Instagram posting often requires an image URL.)
                   </div>
                   {instagramSelected && !imageUrl.trim() && (
                     <div className="mt-2 text-[11px] text-amber-300">
@@ -615,9 +510,7 @@ export default function DashboardHomePage() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="block text-xs font-medium text-slate-300">
-                      Channels
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Channels</label>
                     <button
                       type="button"
                       onClick={refreshChannels}
@@ -628,37 +521,26 @@ export default function DashboardHomePage() {
                   </div>
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {[
-                      "facebook",
-                      "linkedin",
-                      "instagram",
-                      "threads",
-                      "tiktok",
-                      "google",
-                      "email",
-                      "whatsapp",
-                    ].map((p) => {
-                      const isConnected = connectedPlatforms.has(p as ProviderId);
-                      const isSelected = selected.includes(p as ProviderId);
+                    {channelCards.map((p) => {
+                      const isConnected = connectedPlatforms.has(p);
+                      const isSelected = selected.includes(p);
 
                       return (
                         <button
                           key={p}
                           type="button"
-                          onClick={() => togglePlatform(p as ProviderId)}
+                          onClick={() => togglePlatform(p)}
                           disabled={!isConnected}
                           className={`flex items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm transition ${
                             !isConnected
                               ? "border-slate-800 bg-slate-950/40 text-slate-600 cursor-not-allowed"
                               : isSelected
-                                ? "border-emerald-500/60 bg-emerald-500/10 text-slate-100"
-                                : "border-slate-700 bg-slate-950 text-slate-200 hover:border-slate-600"
+                              ? "border-emerald-500/60 bg-emerald-500/10 text-slate-100"
+                              : "border-slate-700 bg-slate-950 text-slate-200 hover:border-slate-600"
                           }`}
                         >
                           <div>
-                            <div className="font-medium">
-                              {PROVIDER_LABELS[p as ProviderId]}
-                            </div>
+                            <div className="font-medium">{PROVIDER_LABELS[p]}</div>
                             <div className="text-[11px] text-slate-500">
                               {isConnected ? "connected" : "not connected"}
                             </div>
@@ -668,8 +550,8 @@ export default function DashboardHomePage() {
                               !isConnected
                                 ? "border-slate-800 text-slate-600"
                                 : isSelected
-                                  ? "border-emerald-500/60 text-emerald-200"
-                                  : "border-slate-600 text-slate-300"
+                                ? "border-emerald-500/60 text-emerald-200"
+                                : "border-slate-600 text-slate-300"
                             }`}
                           >
                             {isSelected ? "Selected" : "Select"}
@@ -716,14 +598,10 @@ export default function DashboardHomePage() {
                     {result.success ? (
                       <div className="text-emerald-200">
                         Sent.{" "}
-                        {result.summary
-                          ? `OK: ${result.summary.ok}, Failed: ${result.summary.failed}`
-                          : ""}
+                        {result.summary ? `OK: ${result.summary.ok}, Failed: ${result.summary.failed}` : ""}
                       </div>
                     ) : (
-                      <div className="text-red-200">
-                        Failed: {result.error || "Unknown error"}
-                      </div>
+                      <div className="text-red-200">Failed: {result.error || "Unknown error"}</div>
                     )}
 
                     <details className="mt-2">
@@ -739,13 +617,10 @@ export default function DashboardHomePage() {
 
                 {adminOpen && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
-                    <div className="text-slate-400 mb-2">
-                      Safe technical details (redacted).
-                    </div>
+                    <div className="text-slate-400 mb-2">Safe technical details (redacted).</div>
                     <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
                     <div className="mt-1">
-                      Connected platforms:{" "}
-                      {Array.from(connectedPlatforms).join(", ") || "(none)"}
+                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
                     </div>
                   </div>
                 )}
@@ -758,9 +633,6 @@ export default function DashboardHomePage() {
               <p className="mt-1 text-sm text-slate-300">
                 Drafts are stored on this device. (Later we can sync per org.)
               </p>
-              <p className="mt-2 text-[11px] text-slate-500">
-                Use “Save for later” and we’ll restore the full draft library
-              </p>
 
               <div className="mt-4 space-y-3">
                 {drafts.length === 0 ? (
@@ -769,16 +641,9 @@ export default function DashboardHomePage() {
                   </div>
                 ) : (
                   drafts.map((d) => (
-                    <div
-                      key={d.id}
-                      className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
-                    >
-                      <div className="text-[11px] text-slate-500">
-                        {new Date(d.savedAt).toLocaleString()}
-                      </div>
-                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">
-                        {d.message || "(empty)"}
-                      </div>
+                    <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                      <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
+                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
                       <div className="mt-2 text-[11px] text-slate-500">
                         Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
                       </div>
@@ -806,9 +671,7 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
-          <div className="mt-8 text-xs text-slate-500">
-            Tip: Generate with AI → Use a variant → tweak → post.
-          </div>
+          <div className="mt-8 text-xs text-slate-500">Tip: Brainstorm → Send to Quick Blast → tweak → post.</div>
         </div>
       </div>
     </div>
