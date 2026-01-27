@@ -63,6 +63,7 @@ const initialProviders: Provider[] = [
     name: "TikTok",
     label: "TikTok",
     description: "Short-form video built from your campaigns.",
+    hint: "Connect your TikTok account via Login Kit (sandbox for review).",
     status: "disconnected",
   },
   {
@@ -94,8 +95,10 @@ const connectUrls: Record<ProviderId, string> = {
   linkedin: "/api/social/connect/start?provider=linkedin",
   threads: "/api/social/connect/start?provider=threads",
 
+  // ✅ NOW LIVE (TikTok Login Kit start)
+  tiktok: "/api/oauth/tiktok/start",
+
   // Coming soon / placeholders
-  tiktok: "#",
   google: "#",
   email: "#",
   whatsapp: "#",
