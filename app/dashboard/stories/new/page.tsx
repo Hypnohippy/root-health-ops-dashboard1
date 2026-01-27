@@ -40,8 +40,38 @@ type CtaStyleOption =
 
 type Mode = "now" | "schedule";
 
+type BrainstormPrefill = {
+  mode?: "direct" | "story_series";
+  platform?: ChannelId;
+  tone?: string;
+  storyType?: string;
+  ctaStyle?: string;
+  seriesLength?: number;
+  direct?: string | null;
+  series?: Array<{
+    title: string;
+    body: string;
+    platformSuggestion?: string;
+    cta?: string;
+    imagePrompt?: string;
+  }> | null;
+  createdAt?: string;
+};
+
+function safeParsePrefill(raw: string | null): BrainstormPrefill | null {
+  try {
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as BrainstormPrefill;
+  } catch {
+    return null;
+  }
+}
+
 export default function StorySeriesBuilderPage() {
   const [idea, setIdea] = useState("");
+
   const [storyType, setStoryType] = useState<StoryTypeOption>(
     "HR director perspective"
   );
@@ -68,6 +98,9 @@ export default function StorySeriesBuilderPage() {
   // ✅ Org comes from backend (no hardcoding)
   const [orgId, setOrgId] = useState<string | null>(null);
 
+  // Brainstorm import banner
+  const [importedFromBrainstorm, setImportedFromBrainstorm] = useState(false);
+
   useEffect(() => {
     (async () => {
       try {
@@ -79,6 +112,93 @@ export default function StorySeriesBuilderPage() {
         setOrgId(null);
       }
     })();
+  }, []);
+
+  // ✅ Import from Brainstorm (client only)
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("rh_prefill_stories_v1");
+      const prefill = safeParsePrefill(raw);
+      if (!prefill) return;
+
+      // Mark banner
+      setImportedFromBrainstorm(true);
+
+      // Platform
+      if (prefill.platform) setTargetPlatform(prefill.platform);
+
+      // Tone (map string to closest option)
+      if (prefill.tone) {
+        const t = String(prefill.tone);
+        const mapped: ToneOption =
+          t.includes("Warm") ? "Warm & supportive" :
+          t.includes("Inspirational") ? "Inspirational & human" :
+          t.includes("thought") ? "Strong thought-leader" :
+          t.includes("Data") ? "Data-backed but human" :
+          "Professional & confident";
+        setTone(mapped);
+      }
+
+      // Story type (best-effort match)
+      if (prefill.storyType) {
+        const st = String(prefill.storyType) as StoryTypeOption;
+        // only set if it's one of our allowed values
+        const allowed: StoryTypeOption[] = [
+          "Personal journey",
+          "Professional insight",
+          "HR director perspective",
+          "Problem → Solution → Success",
+          "Client case (anonymous)",
+          "Educational mini-series",
+          "Behind the scenes",
+          "Trauma recovery arc",
+        ];
+        if (allowed.includes(st)) setStoryType(st);
+      }
+
+      // CTA style match
+      if (prefill.ctaStyle) {
+        const cs = String(prefill.ctaStyle) as CtaStyleOption;
+        const allowed: CtaStyleOption[] = [
+          "Comment for more / next part",
+          "Like or share if this resonates",
+          "DM me to talk privately",
+          "Follow for the next part",
+          "Click through to learn more",
+        ];
+        if (allowed.includes(cs)) setCtaStyle(cs);
+      }
+
+      // Series length
+      if (typeof prefill.seriesLength === "number") {
+        setSeriesLength(Math.max(1, Math.min(10, prefill.seriesLength)));
+      }
+
+      // If Brainstorm sent a full series, pre-fill posts directly
+      if (Array.isArray(prefill.series) && prefill.series.length > 0) {
+        const mapped: GeneratedPost[] = prefill.series.map((p) => ({
+          title: typeof p.title === "string" ? p.title : "",
+          body: typeof p.body === "string" ? p.body : "",
+          platformSuggestion: typeof p.platformSuggestion === "string" ? p.platformSuggestion : undefined,
+          cta: typeof p.cta === "string" ? p.cta : undefined,
+          imagePrompt: typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
+        }));
+
+        setPosts(mapped);
+        setSeriesLength(mapped.length);
+        setGenerationError(null);
+        setDispatchStatus(null);
+        setDispatchError(null);
+      } else if (typeof prefill.direct === "string" && prefill.direct.trim()) {
+        // If Brainstorm sent a direct draft, use it as the idea to generate a series from
+        setIdea(prefill.direct.trim());
+      }
+
+      // Optional: clear after import so it doesn't re-import forever
+      window.localStorage.removeItem("rh_prefill_stories_v1");
+    } catch {
+      // ignore
+    }
   }, []);
 
   const canGenerate = useMemo(
@@ -325,7 +445,16 @@ export default function StorySeriesBuilderPage() {
           </div>
         </header>
 
+        {importedFromBrainstorm ? (
+          <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            Imported from Brainstorm. You can edit anything before generating/sending.
+          </div>
+        ) : null}
+
         <div className="grid gap-6 lg:grid-cols-2">
+          {/* --- your existing UI continues unchanged below --- */}
+          {/* (Everything else remains exactly as you pasted, so no surprises.) */}
+
           <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-5">
             <div className="flex items-center justify-between">
               <h2 className="text-base md:text-lg font-semibold">1) Create</h2>
@@ -377,9 +506,7 @@ export default function StorySeriesBuilderPage() {
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={storyType}
-                  onChange={(e) =>
-                    setStoryType(e.target.value as StoryTypeOption)
-                  }
+                  onChange={(e) => setStoryType(e.target.value as StoryTypeOption)}
                 >
                   <option value="HR director perspective">HR director perspective</option>
                   <option value="Problem → Solution → Success">Problem → Solution → Success</option>
@@ -439,9 +566,7 @@ export default function StorySeriesBuilderPage() {
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={seriesLength}
                   onChange={(e) =>
-                    setSeriesLength(
-                      Math.max(1, Math.min(10, Number(e.target.value) || 1))
-                    )
+                    setSeriesLength(Math.max(1, Math.min(10, Number(e.target.value) || 1)))
                   }
                 />
               </div>
@@ -492,9 +617,7 @@ export default function StorySeriesBuilderPage() {
 
             {mode === "schedule" && posts.length > 0 && (
               <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
-                <div className="text-[11px] font-semibold text-slate-200">
-                  Scheduling options
-                </div>
+                <div className="text-[11px] font-semibold text-slate-200">Scheduling options</div>
 
                 <div className="grid md:grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -520,9 +643,7 @@ export default function StorySeriesBuilderPage() {
                       className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={dailyCadence}
                       onChange={(e) =>
-                        setDailyCadence(
-                          Math.max(1, Math.min(14, Number(e.target.value) || 1))
-                        )
+                        setDailyCadence(Math.max(1, Math.min(14, Number(e.target.value) || 1)))
                       }
                     />
                   </div>
@@ -551,16 +672,14 @@ export default function StorySeriesBuilderPage() {
                     {isDispatching
                       ? "Scheduling…"
                       : orgId
-                      ? `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`
-                      : "Loading org…"}
+                        ? `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`
+                        : "Loading org…"}
                   </button>
                 )}
               </div>
             )}
 
-            {dispatchStatus && (
-              <div className="mt-2 text-[11px] text-emerald-400">{dispatchStatus}</div>
-            )}
+            {dispatchStatus && <div className="mt-2 text-[11px] text-emerald-400">{dispatchStatus}</div>}
             {dispatchError && (
               <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">{dispatchError}</div>
             )}
@@ -570,9 +689,7 @@ export default function StorySeriesBuilderPage() {
             <h2 className="text-base md:text-lg font-semibold">2) Edit & preview</h2>
 
             {posts.length === 0 ? (
-              <p className="text-sm text-slate-400">
-                Your generated story/series will appear here.
-              </p>
+              <p className="text-sm text-slate-400">Your generated story/series will appear here.</p>
             ) : (
               <div className="space-y-3 max-h-[620px] overflow-y-auto pr-1">
                 {posts.map((p, idx) => (
@@ -581,9 +698,7 @@ export default function StorySeriesBuilderPage() {
                     className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-2"
                   >
                     <div className="text-[11px] text-slate-400">
-                      {posts.length > 1
-                        ? `Episode ${idx + 1} / ${posts.length}`
-                        : "Single post"}
+                      {posts.length > 1 ? `Episode ${idx + 1} / ${posts.length}` : "Single post"}
                     </div>
 
                     <input
