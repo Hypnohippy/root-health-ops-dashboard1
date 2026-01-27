@@ -70,6 +70,7 @@ function PublicFooter() {
       <div className="mx-auto max-w-6xl px-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>© {safeYear()} Root Health Ops</div>
+
           <div className="flex flex-wrap gap-3">
             <Link href="/" className="hover:text-slate-200">
               Home
@@ -85,6 +86,14 @@ function PublicFooter() {
             </Link>
             <Link href="/dashboard" className="hover:text-slate-200">
               Dashboard
+            </Link>
+
+            {/* ✅ TikTok reviewer requirement: visible legal links from homepage */}
+            <Link href="/terms" className="hover:text-slate-200">
+              Terms of Service
+            </Link>
+            <Link href="/privacy" className="hover:text-slate-200">
+              Privacy Policy
             </Link>
           </div>
         </div>
