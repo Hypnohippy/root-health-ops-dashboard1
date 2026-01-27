@@ -67,21 +67,21 @@ function friendlyError(err: string) {
   if (t.includes("write a brief") || t.includes("brief first") || t.includes("required")) {
     return {
       headline: "Type a quick idea first",
-      help: "Just tell me who it’s for and what you want them to do. One sentence is enough.",
+      help: "One sentence is enough: who it’s for + the outcome you’re offering.",
     };
   }
 
   if (t.includes("empty post") || t.includes("ai returned an empty")) {
     return {
       headline: "I didn’t get a usable draft back",
-      help: "Try rephrasing your idea slightly (who it’s for + the outcome), then send again.",
+      help: "Try a simpler phrasing (who it’s for + what changes). Then send again.",
     };
   }
 
   if (t.includes("failed to fetch") || t.includes("network") || t.includes("timeout")) {
     return {
       headline: "Connection hiccup",
-      help: "Refresh the page and try again. If it keeps happening, we’ll check the server logs.",
+      help: "Refresh and try again. If it keeps happening, we’ll check the server logs.",
     };
   }
 
@@ -100,85 +100,76 @@ function defaultStarterMessages(): ChatMsg[] {
       kind: "plain",
       text:
         "Hey David — this is your Thinking Space.\n\n" +
-        "Send me a rough idea (messy is fine). I’ll help shape it for your chosen platform + tone.\n\n" +
-        "Tip: Include (1) who it’s for, (2) the problem, (3) the outcome you offer.",
+        "Drop a rough idea. I’ll suggest a couple of directions first, then we’ll shape a draft.\n\n" +
+        "Tip: include who it’s for + the outcome you’re offering.",
     },
   ];
 }
 
-/**
- * Deterministic “coach preamble” (so it always feels like guidance,
- * even though the AI endpoint returns a finished draft).
- */
-function coachPreamble(args: { platform: ChannelId; tone: string; mode: Mode }) {
-  const { platform, tone, mode } = args;
+function summariseIdea(oneLine: string) {
+  const s = oneLine.replace(/\s+/g, " ").trim();
+  if (s.length <= 120) return s;
+  return s.slice(0, 117).trim() + "…";
+}
 
-  const platTips: Record<ChannelId, string[]> = {
-    linkedin: [
-      "Lead with the outcome (what changes for them) in the first line.",
-      "Add one credible detail: a common mistake HR/leaders make, or a simple framework.",
-      "End with a low-pressure question (not a sales push).",
-    ],
-    facebook: [
-      "Make it warm and relatable — one clear point per paragraph.",
-      "Use a gentle CTA question that invites comments.",
-      "Avoid heavy jargon; keep it human.",
-    ],
-    instagram: [
-      "Shorter sentences, more whitespace. One idea per line works well.",
-      "If you can, pair with a simple image or 3–5 slides later.",
-      "CTA: ask a specific question to encourage replies.",
-    ],
-    reddit: [
-      "Be direct and useful. Start with the problem and your practical angle.",
-      "Avoid anything that reads like an ad; aim for genuine help.",
-      "Invite discussion: ask what others have tried.",
-    ],
-    tiktok: [
-      "Think in scenes: hook (0–2s), problem (2–6s), three bullets (6–20s), CTA (last 2s).",
-      "If we stay text-only, we can still write it like a voiceover script.",
-      "Keep it punchy; cut any fluffy lines.",
-    ],
-  };
+function coachNudge(args: { idea: string; mode: Mode; platform: ChannelId; tone: string; seriesLength: number }) {
+  const idea = summariseIdea(args.idea);
+  const platform = args.platform;
+  const tone = args.tone;
+  const mode = args.mode;
 
-  const “seriesIdea” =
+  const platformTip =
+    platform === "linkedin"
+      ? "LinkedIn tip: lead with the outcome + a clean, confident hook. Keep it skimmable."
+      : platform === "tiktok"
+        ? "TikTok tip: make it one punchy idea, then a simple list. Strong opening line matters."
+        : platform === "instagram"
+          ? "Instagram tip: keep it warm + human. Short paragraphs. One clear takeaway."
+          : platform === "facebook"
+            ? "Facebook tip: conversational tone + a question near the end works well."
+            : "Tip: keep it simple, clear, and one idea per post.";
+
+  const seriesIdea =
     mode === "direct"
-      ? "If this topic has depth, we can also turn it into a 3-part mini-series (Part 1: the mistake, Part 2: the fix, Part 3: the example)."
-      : "We’ll keep continuity across parts (one theme, one takeaway per episode), and make sure each part stands alone.";
+      ? `We can also turn this into a short ${Math.max(3, args.seriesLength)}-part series (Part 1: the problem, Part 2: what works, Part 3: next step).`
+      : "We’ll keep the series tight: one lesson per episode, one CTA style, consistent voice.";
 
-  const suggestions = platTips[platform] || [];
-  const toneLine = tone?.trim()
-    ? `Tone you chose: “${tone.trim()}”. I’ll match that.`
-    : "I’ll keep it warm, clear, and therapist-friendly.";
+  const options =
+    mode === "direct"
+      ? [
+          "Option A: confident offer (clear outcome + invitation)",
+          "Option B: thought-leader angle (a belief + a gentle challenge)",
+          "Option C: practical mini-steps (3 bullets people can actually do)",
+        ]
+      : [
+          "Option A: educational mini-series (teach one concept per part)",
+          "Option B: problem → solution → success arc",
+          "Option C: HR director perspective (what leaders miss + what works)",
+        ];
 
   return (
-    `Nice — this is a strong seed.\n\n` +
-    `${toneLine}\n\n` +
-    `Two quick ways we can take it:\n` +
-    `1) **Single punchy post**: one clear claim + one practical takeaway + gentle question.\n` +
-    `2) **Mini-series**: split into small episodes so it feels easy to follow and easier to post consistently.\n\n` +
-    `${“seriesIdea”}\n\n` +
-    `Platform notes (${platform}):\n- ${suggestions.join("\n- ")}`
+    `I like this. There’s something solid here:\n“${idea}”\n\n` +
+    `${platformTip}\n\n` +
+    `${seriesIdea}\n\n` +
+    `Before I draft, pick a direction (or say “surprise me”):\n` +
+    `- ${options[0]}\n- ${options[1]}\n- ${options[2]}\n\n` +
+    `I’ll write it in a ${tone} tone.`
   );
 }
 
 export default function BrainstormPage() {
-  // Context controls
   const [mode, setMode] = useState<Mode>("direct");
   const [platform, setPlatform] = useState<ChannelId>("linkedin");
   const [tone, setTone] = useState<string>("Professional & confident");
 
-  // Story series controls
   const [seriesLength, setSeriesLength] = useState<number>(3);
   const [storyType, setStoryType] = useState<string>("HR director perspective");
   const [ctaStyle, setCtaStyle] = useState<string>("Comment for more / next part");
 
-  // Chat input
   const [input, setInput] = useState<string>(
     "New year, new projects — I’m offering a free consultation to help HR/leadership pick a wellbeing programme that actually works. Make it confident, direct, and friendly."
   );
 
-  // IMPORTANT: do NOT read localStorage during initial render (SSR/build)
   const [messages, setMessages] = useState<ChatMsg[]>(() => defaultStarterMessages());
 
   const [loading, setLoading] = useState(false);
@@ -194,15 +185,14 @@ export default function BrainstormPage() {
       const raw = window.localStorage.getItem("rh_brainstorm_chat_v1");
       if (!raw) return;
       const parsed = JSON.parse(raw) as ChatMsg[];
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        setMessages(parsed);
-      }
+      if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
     } catch {
       // ignore
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist chat AFTER mount (client only)
+  // Persist chat
   useEffect(() => {
     try {
       window.localStorage.setItem("rh_brainstorm_chat_v1", JSON.stringify(messages.slice(-60)));
@@ -253,6 +243,9 @@ export default function BrainstormPage() {
           mode,
           platform,
           tone,
+          storyType,
+          ctaStyle,
+          seriesLength,
           direct: payload.direct || null,
           series: payload.series || null,
           createdAt: new Date().toISOString(),
@@ -312,7 +305,7 @@ export default function BrainstormPage() {
     setLastError(null);
     setLoading(true);
 
-    // Add user message
+    // User message
     setMessages((prev) => [
       ...prev,
       { id: uid(), role: "user", createdAt: Date.now(), kind: "plain", text },
@@ -321,10 +314,18 @@ export default function BrainstormPage() {
     // Clear input for “texting” feel
     setInput("");
 
-    try {
-      // ✅ Coach preamble BEFORE draft (what you asked for)
-      pushAssistantPlain(coachPreamble({ platform, tone, mode }));
+    // ✅ NEW: coach nudge before drafting
+    pushAssistantPlain(
+      coachNudge({
+        idea: text,
+        mode,
+        platform,
+        tone,
+        seriesLength,
+      })
+    );
 
+    try {
       const prompt = `${buildContextHeader()}\n\nUser idea:\n${text}`;
 
       if (mode === "direct") {
@@ -348,7 +349,7 @@ export default function BrainstormPage() {
         const composed = composeDirect(post);
 
         pushAssistantResult(
-          "Here’s a draft we can work with. Want me to (a) shorten it, (b) make it more human, or (c) turn it into a 3-part series?",
+          "Alright — here’s a clean first draft. If you want, say “shorter”, “more human”, “more punch”, or “turn into a series” and I’ll reshape it.",
           {
             mode,
             platform,
@@ -384,7 +385,7 @@ export default function BrainstormPage() {
       const posts: StoryPost[] = data.posts;
 
       pushAssistantResult(
-        `Done — I’ve drafted a ${posts.length}-part series. Want it more teachable, more story-led, or more direct-response?`,
+        `Nice — here’s a ${posts.length}-part series. If you want, tell me: “more teachable”, “more story”, or “more direct”.`,
         {
           mode,
           platform,
@@ -425,8 +426,7 @@ export default function BrainstormPage() {
 
   const clearChat = () => {
     if (!confirm("Clear this Brainstorm chat?")) return;
-    const fresh = defaultStarterMessages();
-    setMessages(fresh);
+    setMessages(defaultStarterMessages());
     try {
       window.localStorage.removeItem("rh_brainstorm_chat_v1");
     } catch {
@@ -442,7 +442,7 @@ export default function BrainstormPage() {
             <div>
               <h1 className="text-2xl md:text-3xl font-semibold">🧠 Brainstorm</h1>
               <p className="text-sm text-slate-300 max-w-2xl">
-                Thinking Space — chat your idea out, explore angles, then send to Quick Blast or Stories when you’re ready.
+                Thinking Space — ideas first, draft second. Then send to Quick Blast or Stories.
               </p>
             </div>
 
@@ -458,7 +458,6 @@ export default function BrainstormPage() {
           <ConnectedChannelsBar title="Social connections" />
         </header>
 
-        {/* Context controls */}
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-4">
           <div className="grid md:grid-cols-4 gap-3">
             <div className="space-y-1">
@@ -536,11 +535,10 @@ export default function BrainstormPage() {
           )}
 
           <p className="text-[11px] text-slate-400">
-            Tip: Change Create/Platform/Tone any time — your next message will use the new settings.
+            Tip: Change Create/Platform/Tone anytime — your next message uses the new settings.
           </p>
         </section>
 
-        {/* Chat */}
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 overflow-hidden">
           <div ref={listRef} className="max-h-[520px] overflow-y-auto px-4 py-4 space-y-3">
             {messages.map((m) => {
@@ -565,9 +563,9 @@ export default function BrainstormPage() {
                           onClick={async () => {
                             const p = m.payload!;
                             if (p.mode === "direct" && p.directPost) {
-                              await navigator.clipboard.writeText(composeDirect(p.directPost));
+                              await copyToClipboard(composeDirect(p.directPost));
                             } else if (p.mode === "story_series" && p.seriesPosts?.length) {
-                              await navigator.clipboard.writeText(composeSeries(p.seriesPosts));
+                              await copyToClipboard(composeSeries(p.seriesPosts));
                             }
                           }}
                         >
@@ -621,19 +619,13 @@ export default function BrainstormPage() {
             ) : null}
           </div>
 
-          {/* Composer */}
           <div className="border-t border-slate-700 bg-slate-950/40 px-4 py-4">
             <div className="flex flex-col gap-2">
               <textarea
                 className="w-full min-h-[70px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (canSend) void handleSend();
-                  }
-                }}
+                onKeyDown={handleKeyDown}
                 placeholder="Type your idea… (Enter to send, Shift+Enter for a new line)"
               />
 
@@ -654,7 +646,7 @@ export default function BrainstormPage() {
         </section>
 
         <p className="text-[11px] text-slate-500">
-          Note: “Send to Quick Blast / Stories” stores the draft and copies it to your clipboard, then opens the destination page.
+          Next improvement (optional): we can add “quick reply chips” under the coach message: Shorter / Punchier / Turn into series / Add CTA / Add data point.
         </p>
       </div>
     </div>
