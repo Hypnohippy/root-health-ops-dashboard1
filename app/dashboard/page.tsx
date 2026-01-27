@@ -59,12 +59,23 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
+// ✅ Brainstorm → Quick Blast prefill
+const PREFILL_KEY = "rh_prefill_quick_blast_v1";
+
 type Draft = {
   id: string;
   savedAt: number;
   message: string;
   imageUrl: string;
   selectedPlatforms: ProviderId[];
+};
+
+type PrefillPayload = {
+  text?: string;
+  platform?: ProviderId; // Brainstorm may send one preferred platform
+  tone?: string;
+  mode?: string;
+  createdAt?: string;
 };
 
 function loadDrafts(): Draft[] {
@@ -86,9 +97,36 @@ function saveDrafts(drafts: Draft[]) {
 }
 
 function joinVariant(v: AiVariant) {
-  const hash = Array.isArray(v.hashtags) && v.hashtags.length > 0 ? `\n\n${v.hashtags.join(" ")}` : "";
+  const hash =
+    Array.isArray(v.hashtags) && v.hashtags.length > 0
+      ? `\n\n${v.hashtags.join(" ")}`
+      : "";
   const cta = v.cta ? `\n\n${v.cta}` : "";
   return `${(v.text || "").trim()}${cta}${hash}`.trim();
+}
+
+function safeParsePrefill(raw: string | null): PrefillPayload | null {
+  try {
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return null;
+    return obj as PrefillPayload;
+  } catch {
+    return null;
+  }
+}
+
+function mapBrainstormToneToAiTone(toneRaw: string | undefined) {
+  const t = (toneRaw || "").toLowerCase();
+
+  // Your AI helper supports: calm | supportive | direct | philosophical | story
+  if (t.includes("support")) return "supportive";
+  if (t.includes("direct")) return "direct";
+  if (t.includes("philos")) return "philosophical";
+  if (t.includes("story")) return "story";
+
+  // fallback
+  return "calm";
 }
 
 export default function DashboardHomePage() {
@@ -114,6 +152,12 @@ export default function DashboardHomePage() {
 
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
+
+  // ✅ show a small banner when prefill was applied
+  const [prefillBanner, setPrefillBanner] = useState<string | null>(null);
+
+  // ✅ stop auto-default selection from overriding prefill
+  const [selectionWasPrefilled, setSelectionWasPrefilled] = useState(false);
 
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => {
@@ -180,6 +224,7 @@ export default function DashboardHomePage() {
     setMessage(d.message || "");
     setImageUrl(d.imageUrl || "");
     setSelected(Array.isArray(d.selectedPlatforms) ? d.selectedPlatforms : []);
+    setPrefillBanner("Draft restored.");
   }
 
   function deleteDraft(id: string) {
@@ -219,7 +264,9 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
+      const vars = Array.isArray((json as any)?.variants)
+        ? (json as any).variants
+        : [];
       if (vars.length === 0) {
         setAiError("AI returned no variants. Try Generate again.");
         return;
@@ -266,20 +313,97 @@ export default function DashboardHomePage() {
     }
   }
 
+  // Initial load
   useEffect(() => {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
   }, []);
 
+  // ✅ Apply Brainstorm → Quick Blast prefill (once, client-only)
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(PREFILL_KEY);
+      const prefill = safeParsePrefill(raw);
+      if (!prefill) return;
+
+      const text = String(prefill.text || "").trim();
+      const preferredPlatform = (prefill.platform || "") as ProviderId;
+
+      if (text) {
+        setMessage(text);
+      }
+
+      // If Brainstorm hinted a single platform, preselect it (but only if it’s a real ProviderId)
+      const allowed: ProviderId[] = [
+        "facebook",
+        "instagram",
+        "tiktok",
+        "linkedin",
+        "google",
+        "email",
+        "whatsapp",
+        "threads",
+      ];
+
+      if (preferredPlatform && allowed.includes(preferredPlatform)) {
+        setSelected([preferredPlatform]);
+        setSelectionWasPrefilled(true);
+      }
+
+      // Try to align AI helper tone with Brainstorm
+      if (prefill.tone) {
+        setAiTone(mapBrainstormToneToAiTone(prefill.tone));
+      }
+
+      // Optional: put something into the subject so user can generate variants quickly
+      if (!aiSubject.trim() && text) {
+        // keep it short-ish
+        const subjectGuess = text.split("\n")[0].slice(0, 80).trim();
+        if (subjectGuess) setAiSubject(subjectGuess);
+      }
+
+      setPrefillBanner("Imported from Brainstorm. Ready to post.");
+      window.localStorage.removeItem(PREFILL_KEY);
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-select connected channels if none selected yet
   useEffect(() => {
+    if (selectionWasPrefilled) return;
     if (selected.length > 0) return;
     const defaults = socialAccounts
       .map((r) => r.platform)
       .filter((p) => connectedPlatforms.has(p));
     if (defaults.length > 0) setSelected(defaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadingAccounts, socialAccounts]);
+  }, [loadingAccounts, socialAccounts, selectionWasPrefilled]);
+
+  // If we preselected a platform from Brainstorm, and it’s NOT connected, fall back to connected defaults
+  useEffect(() => {
+    if (!selectionWasPrefilled) return;
+    if (selected.length !== 1) return;
+
+    const only = selected[0];
+    const isConnected = connectedPlatforms.has(only);
+
+    // Wait until accounts are loaded to make this decision
+    if (loadingAccounts) return;
+
+    if (!isConnected) {
+      const defaults = socialAccounts
+        .map((r) => r.platform)
+        .filter((p) => connectedPlatforms.has(p));
+      if (defaults.length > 0) {
+        setSelected(defaults);
+        setPrefillBanner(
+          `Imported from Brainstorm. Note: ${PROVIDER_LABELS[only]} isn't connected, so I selected your connected channels instead.`
+        );
+      }
+    }
+  }, [selectionWasPrefilled, selected, connectedPlatforms, socialAccounts, loadingAccounts]);
 
   const channelCards: ProviderId[] = [
     "facebook",
@@ -328,6 +452,12 @@ export default function DashboardHomePage() {
               <div className="mt-2 text-slate-500">Loaded from connections</div>
             </div>
           </div>
+
+          {prefillBanner ? (
+            <div className="mt-6 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+              {prefillBanner}
+            </div>
+          ) : null}
 
           <div className="mt-8 grid gap-6 lg:grid-cols-3">
             {/* Quick Blast Card */}
@@ -498,15 +628,24 @@ export default function DashboardHomePage() {
                   </div>
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {channelCards.map((p) => {
-                      const isConnected = connectedPlatforms.has(p);
-                      const isSelected = selected.includes(p);
+                    {[
+                      "facebook",
+                      "linkedin",
+                      "instagram",
+                      "threads",
+                      "tiktok",
+                      "google",
+                      "email",
+                      "whatsapp",
+                    ].map((p) => {
+                      const isConnected = connectedPlatforms.has(p as ProviderId);
+                      const isSelected = selected.includes(p as ProviderId);
 
                       return (
                         <button
                           key={p}
                           type="button"
-                          onClick={() => togglePlatform(p)}
+                          onClick={() => togglePlatform(p as ProviderId)}
                           disabled={!isConnected}
                           className={`flex items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm transition ${
                             !isConnected
@@ -517,7 +656,9 @@ export default function DashboardHomePage() {
                           }`}
                         >
                           <div>
-                            <div className="font-medium">{PROVIDER_LABELS[p]}</div>
+                            <div className="font-medium">
+                              {PROVIDER_LABELS[p as ProviderId]}
+                            </div>
                             <div className="text-[11px] text-slate-500">
                               {isConnected ? "connected" : "not connected"}
                             </div>
@@ -547,11 +688,7 @@ export default function DashboardHomePage() {
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={
-                      sending ||
-                      message.trim().length === 0 ||
-                      selected.length === 0
-                    }
+                    disabled={sending || message.trim().length === 0 || selected.length === 0}
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {sending ? "Sending…" : "Send Quick Blast"}
