@@ -22,109 +22,8 @@ type BrainstormChatMsg = {
   content: string;
 };
 
-type CommonsImage = {
-  url: string; // direct image url (jpg/jpeg/png)
-  title: string; // file title
-  pageUrl: string; // file page on Commons
-  licenseShortName?: string;
-  licenseUrl?: string;
-  attribution?: string;
-};
-
 function clean(s: any) {
   return String(s ?? "").trim();
-}
-
-/**
- * Wikimedia Commons search that returns:
- * - direct image URL (when available)
- * - file page URL
- * - license/attribution when the API provides it
- */
-async function findCommonsImage(query: string): Promise<CommonsImage | null> {
-  const q = clean(query);
-  if (!q) return null;
-
-  // 1) search files
-  const searchUrl =
-    "https://commons.wikimedia.org/w/api.php?" +
-    new URLSearchParams({
-      action: "query",
-      format: "json",
-      origin: "*",
-      list: "search",
-      srsearch: `${q} filetype:bitmap`,
-      srnamespace: "6", // File:
-      srlimit: "5",
-    }).toString();
-
-  const searchRes = await fetch(searchUrl, { cache: "no-store" });
-  const searchJson: any = await searchRes.json().catch(() => null);
-  const first = searchJson?.query?.search?.[0];
-  const title: string | null = first?.title ? String(first.title) : null;
-  if (!title) return null;
-
-  // 2) fetch imageinfo (url + extmetadata)
-  const infoUrl =
-    "https://commons.wikimedia.org/w/api.php?" +
-    new URLSearchParams({
-      action: "query",
-      format: "json",
-      origin: "*",
-      prop: "imageinfo",
-      titles: title,
-      iiprop: "url|extmetadata",
-      iiurlwidth: "1600",
-    }).toString();
-
-  const infoRes = await fetch(infoUrl, { cache: "no-store" });
-  const infoJson: any = await infoRes.json().catch(() => null);
-
-  const pages = infoJson?.query?.pages || {};
-  const page = Object.values(pages)?.[0] as any;
-  const imageinfo = page?.imageinfo?.[0];
-  if (!imageinfo) return null;
-
-  const url: string | null = imageinfo?.thumburl || imageinfo?.url || null;
-
-  // ensure it's an image link
-  if (!url || !/\.(jpg|jpeg|png|webp)(\?.*)?$/i.test(url)) return null;
-
-  const pageUrl = `https://commons.wikimedia.org/wiki/${encodeURIComponent(
-    title.replace(/ /g, "_")
-  )}`;
-
-  const meta = imageinfo?.extmetadata || {};
-  const licenseShortName =
-    meta?.LicenseShortName?.value
-      ? String(meta.LicenseShortName.value).replace(/<[^>]+>/g, "")
-      : undefined;
-
-  const licenseUrl =
-    meta?.LicenseUrl?.value
-      ? String(meta.LicenseUrl.value).replace(/<[^>]+>/g, "")
-      : undefined;
-
-  const artist =
-    meta?.Artist?.value
-      ? String(meta.Artist.value).replace(/<[^>]+>/g, "").trim()
-      : undefined;
-
-  const credit =
-    meta?.Credit?.value
-      ? String(meta.Credit.value).replace(/<[^>]+>/g, "").trim()
-      : undefined;
-
-  const attribution = [artist, credit].filter(Boolean).join(" · ") || undefined;
-
-  return {
-    url,
-    title,
-    pageUrl,
-    licenseShortName,
-    licenseUrl,
-    attribution,
-  };
 }
 
 export async function POST(req: NextRequest) {
@@ -141,8 +40,7 @@ export async function POST(req: NextRequest) {
     const prompt = clean(body?.prompt);
     const platform = clean(body?.platform || "linkedin") as ProviderId;
     const tone = clean(body?.tone || "Professional & confident");
-    const goal = clean(body?.goal || "Create a strong social post");
-    const wantImage = Boolean(body?.wantImage);
+    const goal = clean(body?.goal || "Brainstorm + draft posts");
     const history: BrainstormChatMsg[] = Array.isArray(body?.history)
       ? body.history
           .map((m: any) => ({
@@ -159,16 +57,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+
     const system = [
       "You are Root Health Ops Brainstorm Coach.",
-      "Act like a friendly texting partner: you riff, expand, propose angles, and ask 1–2 smart questions.",
-      "Be warm, premium, therapist-friendly. UK spelling.",
-      "No medical diagnosis or treatment claims. No crisis advice.",
-      "Do not mention vendors.",
-      "Always produce (1) chat reply (riffing), then (2) 5–8 idea angles, then (3) 3 draft posts.",
-      "Draft posts should be distinct: hook, body, gentle CTA, and optional hashtags (0–6).",
-      "If the platform is instagram, remind that an image is needed for posting.",
+      "Act like a friendly texting partner: riff, expand, propose angles, and ask 0–2 smart questions.",
+      "UK spelling. Premium, warm, therapist-friendly.",
+      "No medical diagnosis/treatment claims. No crisis advice.",
       "Return ONLY valid JSON matching the schema.",
+      "",
+      "Output must include:",
+      "1) assistantReply: a conversational riff (not generic praise).",
+      "2) questions: 0–2 clarifying questions.",
+      "3) angles: 5–8 short angle bullets.",
+      "4) drafts: exactly 3 draft posts, each with an imageQuery string suitable for finding a topical Commons image.",
+      "",
+      "IMPORTANT: The user may request 'links to pictures for each story'.",
+      "You should NOT fetch links. Just provide imageQuery phrases (e.g. 'adhd workplace sticky notes desk').",
     ].join(" ");
 
     const userPrompt = [
@@ -177,18 +82,16 @@ export async function POST(req: NextRequest) {
       `Tone: ${tone}`,
       `Goal: ${goal}`,
       "",
-      "Make the assistant response feel like a real conversation:",
-      "- Start with an enthusiastic, specific reflection (not generic praise).",
-      "- Offer 2–3 creative directions (angles) and 1–2 clarifying questions.",
-      "- Then propose 5–8 angles as short bullets.",
-      "- Then produce 3 draft posts ready to paste.",
+      "Draft rules:",
+      "- Each draft must feel distinct (different hook/angle).",
+      "- Include hook, body, gentle CTA question.",
+      "- Hashtags 0–6, not spammy.",
+      "- suggestedMode: quick_blast OR story_series (pick what fits).",
+      "- imageQuery: a short search phrase that would find a topical, relevant photo/illustration.",
       "",
-      "IMPORTANT: Always return 'questions' as an array (0–2 strings). If none, return [].",
+      "If platform is instagram, mention that an image is needed.",
     ].join("\n");
 
-    const client = new OpenAI({ apiKey: OPENAI_API_KEY });
-
-    // ✅ FIX: "questions" must be in required because strict=true and it's in properties.
     const schema = {
       name: "root_health_brainstorm",
       strict: true,
@@ -217,7 +120,7 @@ export async function POST(req: NextRequest) {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["title", "text", "cta", "hashtags", "suggestedMode"],
+              required: ["title", "text", "cta", "hashtags", "suggestedMode", "imageQuery"],
               properties: {
                 title: { type: "string" },
                 text: { type: "string" },
@@ -232,6 +135,7 @@ export async function POST(req: NextRequest) {
                   type: "string",
                   enum: ["quick_blast", "story_series"],
                 },
+                imageQuery: { type: "string" },
               },
             },
           },
@@ -240,7 +144,6 @@ export async function POST(req: NextRequest) {
     } as const;
 
     const inputMsgs: any[] = [{ role: "system", content: system }];
-
     for (const m of history.slice(-10)) {
       inputMsgs.push({ role: m.role, content: m.content });
     }
@@ -258,19 +161,9 @@ export async function POST(req: NextRequest) {
       json = JSON.parse(raw);
     } catch {
       return NextResponse.json(
-        {
-          success: false,
-          error: "AI output was not valid JSON (unexpected).",
-          raw: raw.slice(0, 2000),
-        },
+        { success: false, error: "AI output was not valid JSON.", raw: raw.slice(0, 2000) },
         { status: 500 }
       );
-    }
-
-    let image: CommonsImage | null = null;
-    if (wantImage) {
-      const q = prompt.slice(0, 120);
-      image = await findCommonsImage(q);
     }
 
     return NextResponse.json(
@@ -281,7 +174,6 @@ export async function POST(req: NextRequest) {
         goal,
         prompt,
         ...json,
-        image,
       },
       { status: 200 }
     );
