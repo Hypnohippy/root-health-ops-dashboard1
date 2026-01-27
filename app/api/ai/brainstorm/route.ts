@@ -40,9 +40,6 @@ function clean(s: any) {
  * - direct image URL (when available)
  * - file page URL
  * - license/attribution when the API provides it
- *
- * NOTE: Commons licensing can be CC BY / CC BY-SA / Public Domain etc.
- * We return the attribution text so you can show it in UI / video.
  */
 async function findCommonsImage(query: string): Promise<CommonsImage | null> {
   const q = clean(query);
@@ -88,8 +85,7 @@ async function findCommonsImage(query: string): Promise<CommonsImage | null> {
   const imageinfo = page?.imageinfo?.[0];
   if (!imageinfo) return null;
 
-  const url: string | null =
-    imageinfo?.thumburl || imageinfo?.url || null;
+  const url: string | null = imageinfo?.thumburl || imageinfo?.url || null;
 
   // ensure it's an image link
   if (!url || !/\.(jpg|jpeg|png|webp)(\?.*)?$/i.test(url)) return null;
@@ -99,7 +95,6 @@ async function findCommonsImage(query: string): Promise<CommonsImage | null> {
   )}`;
 
   const meta = imageinfo?.extmetadata || {};
-  // These fields vary by file.
   const licenseShortName =
     meta?.LicenseShortName?.value
       ? String(meta.LicenseShortName.value).replace(/<[^>]+>/g, "")
@@ -164,7 +159,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // The behaviour you asked for: “riff” BEFORE drafting.
     const system = [
       "You are Root Health Ops Brainstorm Coach.",
       "Act like a friendly texting partner: you riff, expand, propose angles, and ask 1–2 smart questions.",
@@ -186,19 +180,22 @@ export async function POST(req: NextRequest) {
       "Make the assistant response feel like a real conversation:",
       "- Start with an enthusiastic, specific reflection (not generic praise).",
       "- Offer 2–3 creative directions (angles) and 1–2 clarifying questions.",
-      "- Then propose 5–8 'angles' as bullets.",
+      "- Then propose 5–8 angles as short bullets.",
       "- Then produce 3 draft posts ready to paste.",
+      "",
+      "IMPORTANT: Always return 'questions' as an array (0–2 strings). If none, return [].",
     ].join("\n");
 
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
+    // ✅ FIX: "questions" must be in required because strict=true and it's in properties.
     const schema = {
       name: "root_health_brainstorm",
       strict: true,
       schema: {
         type: "object",
         additionalProperties: false,
-        required: ["assistantReply", "angles", "drafts"],
+        required: ["assistantReply", "questions", "angles", "drafts"],
         properties: {
           assistantReply: { type: "string" },
           questions: {
@@ -242,10 +239,8 @@ export async function POST(req: NextRequest) {
       },
     } as const;
 
-    // Build conversation input
     const inputMsgs: any[] = [{ role: "system", content: system }];
 
-    // Add history (keep short to avoid token bloat)
     for (const m of history.slice(-10)) {
       inputMsgs.push({ role: m.role, content: m.content });
     }
@@ -272,10 +267,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Optional: fetch Commons image
     let image: CommonsImage | null = null;
     if (wantImage) {
-      // Use the user's prompt as query, but short and topic-y
       const q = prompt.slice(0, 120);
       image = await findCommonsImage(q);
     }
@@ -288,7 +281,7 @@ export async function POST(req: NextRequest) {
         goal,
         prompt,
         ...json,
-        image, // may be null
+        image,
       },
       { status: 200 }
     );
