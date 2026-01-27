@@ -18,6 +18,7 @@ type Draft = {
   cta: string;
   hashtags: string[];
   suggestedMode: "quick_blast" | "story_series";
+  imageQuery: string;
 };
 
 type CommonsImage = {
@@ -35,6 +36,12 @@ type BrainstormApiResponse = {
   questions?: string[];
   angles?: string[];
   drafts?: Draft[];
+  error?: string;
+};
+
+type CommonsApiResponse = {
+  success: boolean;
+  query?: string;
   image?: CommonsImage | null;
   error?: string;
 };
@@ -51,8 +58,7 @@ function uid() {
 }
 
 function joinDraft(d: Draft) {
-  const hash =
-    Array.isArray(d.hashtags) && d.hashtags.length ? `\n\n${d.hashtags.join(" ")}` : "";
+  const hash = d.hashtags?.length ? `\n\n${d.hashtags.join(" ")}` : "";
   const cta = d.cta?.trim() ? `\n\n${d.cta.trim()}` : "";
   return `${(d.text || "").trim()}${cta}${hash}`.trim();
 }
@@ -61,7 +67,7 @@ export default function BrainstormPage() {
   const [platform, setPlatform] = useState<ChannelId>("linkedin");
   const [tone, setTone] = useState<string>("Professional & confident");
 
-  const [wantImage, setWantImage] = useState<boolean>(true);
+  const [wantImages, setWantImages] = useState<boolean>(true);
 
   const [input, setInput] = useState<string>(
     "I want to do a post on the difficulties of ADHD in working life. Can you give me some ideas?"
@@ -72,7 +78,7 @@ export default function BrainstormPage() {
       id: uid(),
       role: "assistant",
       content:
-        "Drop your idea in plain English. I’ll riff with you, offer angles, and then draft posts you can send to Quick Blast or turn into Stories.",
+        "Drop your idea in plain English. I’ll riff with you first (angles + hooks), then draft posts you can send into Quick Blast or Stories.",
     },
   ]);
 
@@ -81,7 +87,8 @@ export default function BrainstormPage() {
 
   const [angles, setAngles] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [image, setImage] = useState<CommonsImage | null>(null);
+  const [draftImages, setDraftImages] = useState<Record<number, CommonsImage | null>>({});
+  const [draftImageBusy, setDraftImageBusy] = useState<Record<number, boolean>>({});
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -93,12 +100,31 @@ export default function BrainstormPage() {
     } catch {}
   };
 
+  const fetchImageForDraft = async (idx: number, query: string) => {
+    if (!wantImages) return;
+    const q = (query || "").trim();
+    if (!q) return;
+
+    setDraftImageBusy((prev) => ({ ...prev, [idx]: true }));
+    try {
+      const res = await fetch(`/api/media/commons-image?q=${encodeURIComponent(q)}`, {
+        cache: "no-store",
+      });
+      const data: CommonsApiResponse = await res.json().catch(() => null);
+      const img = data?.success ? (data.image || null) : null;
+      setDraftImages((prev) => ({ ...prev, [idx]: img }));
+    } catch {
+      setDraftImages((prev) => ({ ...prev, [idx]: null }));
+    } finally {
+      setDraftImageBusy((prev) => ({ ...prev, [idx]: false }));
+    }
+  };
+
   const send = async () => {
     setError(null);
     const msg = input.trim();
     if (!msg) return;
 
-    // add user bubble
     setChat((prev) => [...prev, { id: uid(), role: "user", content: msg }]);
     setInput("");
     setLoading(true);
@@ -112,10 +138,7 @@ export default function BrainstormPage() {
           platform,
           tone,
           goal: "Brainstorm + draft posts",
-          wantImage,
-          history: chat
-            .slice(-10)
-            .map((m) => ({ role: m.role, content: m.content })),
+          history: chat.slice(-10).map((m) => ({ role: m.role, content: m.content })),
         }),
       });
 
@@ -131,8 +154,19 @@ export default function BrainstormPage() {
       }
 
       setAngles(Array.isArray(data.angles) ? data.angles : []);
-      setDrafts(Array.isArray(data.drafts) ? data.drafts : []);
-      setImage(data.image || null);
+      const nextDrafts = Array.isArray(data.drafts) ? data.drafts : [];
+      setDrafts(nextDrafts);
+
+      // reset images each round
+      setDraftImages({});
+      setDraftImageBusy({});
+
+      // fetch images AFTER drafts render (parallel-ish)
+      if (wantImages && nextDrafts.length) {
+        nextDrafts.forEach((d, idx) => {
+          void fetchImageForDraft(idx, d.imageQuery);
+        });
+      }
 
       setTimeout(scrollToBottom, 50);
     } catch (e: any) {
@@ -142,18 +176,18 @@ export default function BrainstormPage() {
     }
   };
 
-  const sendToQuickBlast = (d: Draft) => {
+  const sendToQuickBlast = (d: Draft, img: CommonsImage | null) => {
     const payload = {
       message: joinDraft(d),
-      imageUrl: image?.url || "",
+      imageUrl: img?.url || "",
       suggestedPlatforms: [platform],
-      attribution: image
+      attribution: img
         ? {
-            title: image.title,
-            pageUrl: image.pageUrl,
-            licenseShortName: image.licenseShortName,
-            licenseUrl: image.licenseUrl,
-            attribution: image.attribution,
+            title: img.title,
+            pageUrl: img.pageUrl,
+            licenseShortName: img.licenseShortName,
+            licenseUrl: img.licenseUrl,
+            attribution: img.attribution,
           }
         : null,
     };
@@ -165,13 +199,21 @@ export default function BrainstormPage() {
     window.location.href = "/dashboard";
   };
 
-  const sendToStories = (d: Draft) => {
-    // Stories page expects an idea/brief; we’ll pass the draft text as the seed
+  const sendToStories = (d: Draft, img: CommonsImage | null) => {
     const payload = {
       idea: joinDraft(d),
       platform,
       tone,
-      imageUrl: image?.url || "",
+      imageUrl: img?.url || "",
+      attribution: img
+        ? {
+            title: img.title,
+            pageUrl: img.pageUrl,
+            licenseShortName: img.licenseShortName,
+            licenseUrl: img.licenseUrl,
+            attribution: img.attribution,
+          }
+        : null,
     };
 
     try {
@@ -187,10 +229,8 @@ export default function BrainstormPage() {
         <header className="space-y-3">
           <h1 className="text-2xl md:text-3xl font-semibold">💬 Brainstorm</h1>
           <p className="text-sm text-slate-300 max-w-3xl">
-            Talk it out like a text thread. I’ll riff with you first (angles + hooks), then draft posts you can push into
-            Quick Blast or Stories.
+            Talk it out like a text thread. We riff first, then draft posts you can push into Quick Blast or Stories.
           </p>
-
           <ConnectedChannelsBar title="Social connections" />
         </header>
 
@@ -225,10 +265,10 @@ export default function BrainstormPage() {
               <label className="flex items-center gap-2 text-sm rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2">
                 <input
                   type="checkbox"
-                  checked={wantImage}
-                  onChange={(e) => setWantImage(e.target.checked)}
+                  checked={wantImages}
+                  onChange={(e) => setWantImages(e.target.checked)}
                 />
-                Find a Commons JPEG
+                Find 1 image per draft
               </label>
             </div>
           </div>
@@ -240,7 +280,7 @@ export default function BrainstormPage() {
             <div className="flex items-center justify-between">
               <h2 className="font-semibold">Conversation</h2>
               <div className="text-[11px] text-slate-400">
-                Tip: Ask for angles, hooks, series ideas, objections, or rewrite in your voice.
+                Try: “Give me 10 hooks before drafts.” / “Push back on my idea.” / “Make it kinder + simpler.”
               </div>
             </div>
 
@@ -266,7 +306,7 @@ export default function BrainstormPage() {
                 className="w-full min-h-[110px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Type your idea… e.g. “I want to post about ADHD at work — can you give me angles and a gentle CTA?”"
+                placeholder="Type your idea…"
               />
 
               <div className="flex items-center gap-3">
@@ -284,53 +324,8 @@ export default function BrainstormPage() {
             </div>
           </div>
 
-          {/* Outputs */}
+          {/* Output */}
           <div className="space-y-6">
-            {/* Image */}
-            <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="font-semibold">Suggested image (Commons)</h2>
-                <div className="text-[11px] text-slate-400">
-                  Includes license + attribution where available.
-                </div>
-              </div>
-
-              {!wantImage ? (
-                <div className="text-sm text-slate-400">Image search is off.</div>
-              ) : !image ? (
-                <div className="text-sm text-slate-400">No image yet — send a message to generate one.</div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="text-sm break-all">
-                    <div className="text-slate-200 font-medium">{image.title}</div>
-                    <div className="text-slate-400 text-[12px] break-all">
-                      URL: {image.url}
-                    </div>
-                  </div>
-
-                  <div className="text-[12px] text-slate-300 space-y-1">
-                    <div>
-                      License:{" "}
-                      <span className="text-slate-200">
-                        {image.licenseShortName || "Unknown"}
-                      </span>
-                    </div>
-                    {image.attribution ? <div>Attribution: {image.attribution}</div> : null}
-                    <div className="text-slate-400 break-all">
-                      File page: {image.pageUrl}
-                    </div>
-                    {image.licenseUrl ? (
-                      <div className="text-slate-400 break-all">License URL: {image.licenseUrl}</div>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-[12px] text-slate-300">
-                    For your TikTok review/demo video: briefly show this license line + the file page.
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Angles */}
             <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-3">
               <h2 className="font-semibold">Angles</h2>
@@ -353,37 +348,71 @@ export default function BrainstormPage() {
                 <div className="text-sm text-slate-400">No drafts yet — send a message.</div>
               ) : (
                 <div className="space-y-3">
-                  {drafts.map((d, idx) => (
-                    <div key={idx} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 space-y-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold">{d.title || `Draft ${idx + 1}`}</div>
-                          <div className="text-[11px] text-slate-400">
-                            Suggested: {d.suggestedMode === "story_series" ? "Stories" : "Quick Blast"}
+                  {drafts.map((d, idx) => {
+                    const img = draftImages[idx] ?? null;
+                    const busy = !!draftImageBusy[idx];
+
+                    return (
+                      <div key={idx} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold">{d.title || `Draft ${idx + 1}`}</div>
+                            <div className="text-[11px] text-slate-400">
+                              Suggested: {d.suggestedMode === "story_series" ? "Stories" : "Quick Blast"}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => sendToQuickBlast(d, img)}
+                              className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                            >
+                              Send to Quick Blast
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => sendToStories(d, img)}
+                              className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                            >
+                              Send to Stories
+                            </button>
                           </div>
                         </div>
 
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => sendToQuickBlast(d)}
-                            className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                          >
-                            Send to Quick Blast
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => sendToStories(d)}
-                            className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
-                          >
-                            Send to Stories
-                          </button>
+                        <pre className="whitespace-pre-wrap text-sm text-slate-100">{joinDraft(d)}</pre>
+
+                        <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-3">
+                          <div className="text-[11px] text-slate-400">
+                            Image query: <span className="text-slate-200">{d.imageQuery || "(none)"}</span>
+                          </div>
+
+                          {wantImages ? (
+                            busy ? (
+                              <div className="mt-2 text-sm text-slate-300">Finding a Commons image…</div>
+                            ) : img ? (
+                              <div className="mt-2 text-[12px] text-slate-200 space-y-1">
+                                <div className="break-all">Image URL: {img.url}</div>
+                                <div className="text-slate-400 break-all">File page: {img.pageUrl}</div>
+                                <div className="text-slate-400">
+                                  License: {img.licenseShortName || "Unknown"}
+                                </div>
+                                {img.attribution ? (
+                                  <div className="text-slate-400">Attribution: {img.attribution}</div>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <div className="mt-2 text-sm text-slate-400">
+                                No image found quickly. Try a simpler query (e.g. “adhd workplace desk”).
+                              </div>
+                            )
+                          ) : (
+                            <div className="mt-2 text-sm text-slate-400">Image search is off.</div>
+                          )}
                         </div>
                       </div>
-
-                      <pre className="whitespace-pre-wrap text-sm text-slate-100">{joinDraft(d)}</pre>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -391,7 +420,7 @@ export default function BrainstormPage() {
         </section>
 
         <footer className="text-xs text-slate-500">
-          Tip: If you want more “riffing”, literally ask: “Give me 10 angles, 5 hooks, and 3 ‘hot takes’ before drafts.”
+          This avoids 504s by fetching images separately after drafts appear.
         </footer>
       </div>
     </div>
