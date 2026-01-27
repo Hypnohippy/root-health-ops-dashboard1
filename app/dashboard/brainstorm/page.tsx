@@ -40,15 +40,6 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function safeJsonParse<T>(v: string | null): T | null {
-  try {
-    if (!v) return null;
-    return JSON.parse(v) as T;
-  } catch {
-    return null;
-  }
-}
-
 function composeDirect(post: DirectPost) {
   const composed = [
     post.title?.trim() ? post.title.trim() : null,
@@ -100,8 +91,23 @@ function friendlyError(err: string) {
   };
 }
 
+function defaultStarterMessages(): ChatMsg[] {
+  return [
+    {
+      id: uid(),
+      role: "assistant",
+      createdAt: Date.now(),
+      kind: "plain",
+      text:
+        "Hey David — this is your Thinking Space.\n\n" +
+        "Tell me what you want to say (rough is fine). I’ll help shape it for your chosen platform + tone.\n\n" +
+        "Tip: Include (1) who it’s for, (2) the problem, (3) the outcome you offer.",
+    },
+  ];
+}
+
 export default function BrainstormPage() {
-  // Context controls (still valuable in thinking space)
+  // Context controls
   const [mode, setMode] = useState<Mode>("direct");
   const [platform, setPlatform] = useState<ChannelId>("linkedin");
   const [tone, setTone] = useState<string>("Professional & confident");
@@ -111,38 +117,40 @@ export default function BrainstormPage() {
   const [storyType, setStoryType] = useState<string>("HR director perspective");
   const [ctaStyle, setCtaStyle] = useState<string>("Comment for more / next part");
 
-  // Chat
+  // Chat input
   const [input, setInput] = useState<string>(
     "New year, new projects — I’m offering a free consultation to help HR/leadership pick a wellbeing programme that actually works. Make it confident, direct, and friendly."
   );
-  const [messages, setMessages] = useState<ChatMsg[]>(() => {
-    const saved = safeJsonParse<ChatMsg[]>(localStorage.getItem("rh_brainstorm_chat_v1"));
-    if (saved?.length) return saved;
 
-    return [
-      {
-        id: uid(),
-        role: "assistant",
-        createdAt: Date.now(),
-        kind: "plain",
-        text:
-          "Hey David — this is your Thinking Space.\n\n" +
-          "Tell me what you want to say (rough is fine). I’ll help shape it for your chosen platform + tone.\n\n" +
-          "Tip: Include (1) who it’s for, (2) the problem, (3) the outcome you offer.",
-      },
-    ];
-  });
+  // IMPORTANT: do NOT read localStorage during initial render (SSR/build)
+  const [messages, setMessages] = useState<ChatMsg[]>(() => defaultStarterMessages());
 
   const [loading, setLoading] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const listRef = useRef<HTMLDivElement | null>(null);
+
   const canSend = useMemo(() => !!input.trim() && !loading, [input, loading]);
 
-  // Persist chat
+  // Load saved chat AFTER mount (client only)
   useEffect(() => {
     try {
-      localStorage.setItem("rh_brainstorm_chat_v1", JSON.stringify(messages.slice(-60)));
+      const raw = window.localStorage.getItem("rh_brainstorm_chat_v1");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as ChatMsg[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setMessages(parsed);
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist chat AFTER mount (client only)
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("rh_brainstorm_chat_v1", JSON.stringify(messages.slice(-60)));
     } catch {
       // ignore
     }
@@ -164,9 +172,8 @@ export default function BrainstormPage() {
   };
 
   const sendToQuickBlast = async (text: string) => {
-    // Store + copy. Quick Blast page can later read this key to auto-fill.
     try {
-      localStorage.setItem(
+      window.localStorage.setItem(
         "rh_prefill_quick_blast_v1",
         JSON.stringify({
           text,
@@ -180,13 +187,12 @@ export default function BrainstormPage() {
       // ignore
     }
     await copyToClipboard(text);
-    // Your Quick Blast appears to live on /dashboard (home)
     window.location.href = `/dashboard?from=brainstorm`;
   };
 
   const sendToStories = async (payload: { direct?: string; series?: StoryPost[] }) => {
     try {
-      localStorage.setItem(
+      window.localStorage.setItem(
         "rh_prefill_stories_v1",
         JSON.stringify({
           mode,
@@ -204,7 +210,6 @@ export default function BrainstormPage() {
     if (payload.direct) await copyToClipboard(payload.direct);
     if (payload.series?.length) await copyToClipboard(composeSeries(payload.series));
 
-    // You already have a nav link to /dashboard/stories/new
     window.location.href = `/dashboard/stories/new?from=brainstorm`;
   };
 
@@ -252,18 +257,14 @@ export default function BrainstormPage() {
     setLastError(null);
     setLoading(true);
 
-    // Add user message
     setMessages((prev) => [
       ...prev,
       { id: uid(), role: "user", createdAt: Date.now(), kind: "plain", text },
     ]);
 
-    // Clear input for “texting” feel
     setInput("");
 
     try {
-      // We keep this thinking space simple: each send generates/refines a draft
-      // using your existing endpoints, with context included.
       const prompt = `${buildContextHeader()}\n\nUser idea:\n${text}`;
 
       if (mode === "direct") {
@@ -297,12 +298,10 @@ export default function BrainstormPage() {
           }
         );
 
-        // Also show the draft as a follow-up assistant message (bubble-friendly)
         pushAssistantPlain(composed);
         return;
       }
 
-      // story_series
       const res = await fetch("/api/ai/story-series", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -334,7 +333,6 @@ export default function BrainstormPage() {
         }
       );
 
-      // Show parts in a readable way
       pushAssistantPlain(
         posts
           .map((p, i) => {
@@ -349,7 +347,6 @@ export default function BrainstormPage() {
       setLastError(msg);
 
       const fe = friendlyError(msg);
-
       pushAssistantPlain(
         `⚠️ ${fe.headline}\n\n${fe.help}\n\nIf you want, paste what you were trying to do in one line and I’ll guide you.`
       );
@@ -367,19 +364,10 @@ export default function BrainstormPage() {
 
   const clearChat = () => {
     if (!confirm("Clear this Brainstorm chat?")) return;
-    const fresh: ChatMsg[] = [
-      {
-        id: uid(),
-        role: "assistant",
-        createdAt: Date.now(),
-        kind: "plain",
-        text:
-          "Fresh slate. Tell me what you’re trying to say (rough is fine) and who it’s for — I’ll shape it with you.",
-      },
-    ];
+    const fresh = defaultStarterMessages();
     setMessages(fresh);
     try {
-      localStorage.removeItem("rh_brainstorm_chat_v1");
+      window.localStorage.removeItem("rh_brainstorm_chat_v1");
     } catch {
       // ignore
     }
@@ -406,11 +394,9 @@ export default function BrainstormPage() {
             </button>
           </div>
 
-          {/* ✅ Shared connections bar */}
           <ConnectedChannelsBar title="Social connections" />
         </header>
 
-        {/* Context controls (kept, but lighter) */}
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-4">
           <div className="grid md:grid-cols-4 gap-3">
             <div className="space-y-1">
@@ -492,19 +478,12 @@ export default function BrainstormPage() {
           </p>
         </section>
 
-        {/* Chat area */}
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 overflow-hidden">
-          <div
-            ref={listRef}
-            className="max-h-[520px] overflow-y-auto px-4 py-4 space-y-3"
-          >
+          <div ref={listRef} className="max-h-[520px] overflow-y-auto px-4 py-4 space-y-3">
             {messages.map((m) => {
               const isUser = m.role === "user";
               return (
-                <div
-                  key={m.id}
-                  className={`flex ${isUser ? "justify-end" : "justify-start"}`}
-                >
+                <div key={m.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
                   <div
                     className={[
                       "max-w-[90%] md:max-w-[70%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap",
@@ -515,7 +494,6 @@ export default function BrainstormPage() {
                   >
                     {m.text}
 
-                    {/* Action row on assistant "result" messages */}
                     {!isUser && m.kind === "result" && m.payload ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
@@ -524,8 +502,7 @@ export default function BrainstormPage() {
                           onClick={async () => {
                             const p = m.payload!;
                             if (p.mode === "direct" && p.directPost) {
-                              const text = composeDirect(p.directPost);
-                              await copyToClipboard(text);
+                              await copyToClipboard(composeDirect(p.directPost));
                             } else if (p.mode === "story_series" && p.seriesPosts?.length) {
                               await copyToClipboard(composeSeries(p.seriesPosts));
                             }
@@ -542,7 +519,6 @@ export default function BrainstormPage() {
                             if (p.mode === "direct" && p.directPost) {
                               await sendToQuickBlast(composeDirect(p.directPost));
                             } else if (p.mode === "story_series" && p.seriesPosts?.length) {
-                              // Quick Blast generally wants one post at a time; send Part 1
                               await sendToQuickBlast(
                                 `${p.seriesPosts[0].title}\n\n${p.seriesPosts[0].body}\n\n${p.seriesPosts[0].cta || ""}`.trim()
                               );
@@ -582,7 +558,6 @@ export default function BrainstormPage() {
             ) : null}
           </div>
 
-          {/* Composer */}
           <div className="border-t border-slate-700 bg-slate-950/40 px-4 py-4">
             <div className="flex flex-col gap-2">
               <textarea
@@ -603,15 +578,9 @@ export default function BrainstormPage() {
                   {loading ? "Sending…" : "Send"}
                 </button>
 
-                {lastError ? (
-                  <div className="text-xs text-slate-300">
-                    (If something failed, I’ve already translated it into plain English above.)
-                  </div>
-                ) : (
-                  <div className="text-xs text-slate-400">
-                    This is a thinking space — rough drafts welcome.
-                  </div>
-                )}
+                <div className="text-xs text-slate-400">
+                  This is a thinking space — rough drafts welcome.
+                </div>
               </div>
             </div>
           </div>
