@@ -100,10 +100,66 @@ function defaultStarterMessages(): ChatMsg[] {
       kind: "plain",
       text:
         "Hey David — this is your Thinking Space.\n\n" +
-        "Tell me what you want to say (rough is fine). I’ll help shape it for your chosen platform + tone.\n\n" +
+        "Send me a rough idea (messy is fine). I’ll help shape it for your chosen platform + tone.\n\n" +
         "Tip: Include (1) who it’s for, (2) the problem, (3) the outcome you offer.",
     },
   ];
+}
+
+/**
+ * Deterministic “coach preamble” (so it always feels like guidance,
+ * even though the AI endpoint returns a finished draft).
+ */
+function coachPreamble(args: { platform: ChannelId; tone: string; mode: Mode }) {
+  const { platform, tone, mode } = args;
+
+  const platTips: Record<ChannelId, string[]> = {
+    linkedin: [
+      "Lead with the outcome (what changes for them) in the first line.",
+      "Add one credible detail: a common mistake HR/leaders make, or a simple framework.",
+      "End with a low-pressure question (not a sales push).",
+    ],
+    facebook: [
+      "Make it warm and relatable — one clear point per paragraph.",
+      "Use a gentle CTA question that invites comments.",
+      "Avoid heavy jargon; keep it human.",
+    ],
+    instagram: [
+      "Shorter sentences, more whitespace. One idea per line works well.",
+      "If you can, pair with a simple image or 3–5 slides later.",
+      "CTA: ask a specific question to encourage replies.",
+    ],
+    reddit: [
+      "Be direct and useful. Start with the problem and your practical angle.",
+      "Avoid anything that reads like an ad; aim for genuine help.",
+      "Invite discussion: ask what others have tried.",
+    ],
+    tiktok: [
+      "Think in scenes: hook (0–2s), problem (2–6s), three bullets (6–20s), CTA (last 2s).",
+      "If we stay text-only, we can still write it like a voiceover script.",
+      "Keep it punchy; cut any fluffy lines.",
+    ],
+  };
+
+  const “seriesIdea” =
+    mode === "direct"
+      ? "If this topic has depth, we can also turn it into a 3-part mini-series (Part 1: the mistake, Part 2: the fix, Part 3: the example)."
+      : "We’ll keep continuity across parts (one theme, one takeaway per episode), and make sure each part stands alone.";
+
+  const suggestions = platTips[platform] || [];
+  const toneLine = tone?.trim()
+    ? `Tone you chose: “${tone.trim()}”. I’ll match that.`
+    : "I’ll keep it warm, clear, and therapist-friendly.";
+
+  return (
+    `Nice — this is a strong seed.\n\n` +
+    `${toneLine}\n\n` +
+    `Two quick ways we can take it:\n` +
+    `1) **Single punchy post**: one clear claim + one practical takeaway + gentle question.\n` +
+    `2) **Mini-series**: split into small episodes so it feels easy to follow and easier to post consistently.\n\n` +
+    `${“seriesIdea”}\n\n` +
+    `Platform notes (${platform}):\n- ${suggestions.join("\n- ")}`
+  );
 }
 
 export default function BrainstormPage() {
@@ -144,7 +200,6 @@ export default function BrainstormPage() {
     } catch {
       // ignore
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist chat AFTER mount (client only)
@@ -257,14 +312,19 @@ export default function BrainstormPage() {
     setLastError(null);
     setLoading(true);
 
+    // Add user message
     setMessages((prev) => [
       ...prev,
       { id: uid(), role: "user", createdAt: Date.now(), kind: "plain", text },
     ]);
 
+    // Clear input for “texting” feel
     setInput("");
 
     try {
+      // ✅ Coach preamble BEFORE draft (what you asked for)
+      pushAssistantPlain(coachPreamble({ platform, tone, mode }));
+
       const prompt = `${buildContextHeader()}\n\nUser idea:\n${text}`;
 
       if (mode === "direct") {
@@ -288,7 +348,7 @@ export default function BrainstormPage() {
         const composed = composeDirect(post);
 
         pushAssistantResult(
-          "Here’s a polished draft. Want it shorter, punchier, or more human?\n\n(You can also send it straight to Quick Blast or Stories below.)",
+          "Here’s a draft we can work with. Want me to (a) shorten it, (b) make it more human, or (c) turn it into a 3-part series?",
           {
             mode,
             platform,
@@ -302,6 +362,7 @@ export default function BrainstormPage() {
         return;
       }
 
+      // story_series
       const res = await fetch("/api/ai/story-series", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -323,7 +384,7 @@ export default function BrainstormPage() {
       const posts: StoryPost[] = data.posts;
 
       pushAssistantResult(
-        `Done — I’ve drafted a ${posts.length}-part story series.\n\nWant the series more “teachable”, more “story”, or more “salesy”?`,
+        `Done — I’ve drafted a ${posts.length}-part series. Want it more teachable, more story-led, or more direct-response?`,
         {
           mode,
           platform,
@@ -381,7 +442,7 @@ export default function BrainstormPage() {
             <div>
               <h1 className="text-2xl md:text-3xl font-semibold">🧠 Brainstorm</h1>
               <p className="text-sm text-slate-300 max-w-2xl">
-                Thinking Space — chat your idea out, get a polished draft, then send it to Quick Blast or Stories when you’re ready.
+                Thinking Space — chat your idea out, explore angles, then send to Quick Blast or Stories when you’re ready.
               </p>
             </div>
 
@@ -397,6 +458,7 @@ export default function BrainstormPage() {
           <ConnectedChannelsBar title="Social connections" />
         </header>
 
+        {/* Context controls */}
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-4">
           <div className="grid md:grid-cols-4 gap-3">
             <div className="space-y-1">
@@ -474,10 +536,11 @@ export default function BrainstormPage() {
           )}
 
           <p className="text-[11px] text-slate-400">
-            Tip: You can change Create/Platform/Tone at any time — your next message will use the new settings.
+            Tip: Change Create/Platform/Tone any time — your next message will use the new settings.
           </p>
         </section>
 
+        {/* Chat */}
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 overflow-hidden">
           <div ref={listRef} className="max-h-[520px] overflow-y-auto px-4 py-4 space-y-3">
             {messages.map((m) => {
@@ -502,9 +565,9 @@ export default function BrainstormPage() {
                           onClick={async () => {
                             const p = m.payload!;
                             if (p.mode === "direct" && p.directPost) {
-                              await copyToClipboard(composeDirect(p.directPost));
+                              await navigator.clipboard.writeText(composeDirect(p.directPost));
                             } else if (p.mode === "story_series" && p.seriesPosts?.length) {
-                              await copyToClipboard(composeSeries(p.seriesPosts));
+                              await navigator.clipboard.writeText(composeSeries(p.seriesPosts));
                             }
                           }}
                         >
@@ -558,13 +621,19 @@ export default function BrainstormPage() {
             ) : null}
           </div>
 
+          {/* Composer */}
           <div className="border-t border-slate-700 bg-slate-950/40 px-4 py-4">
             <div className="flex flex-col gap-2">
               <textarea
                 className="w-full min-h-[70px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (canSend) void handleSend();
+                  }
+                }}
                 placeholder="Type your idea… (Enter to send, Shift+Enter for a new line)"
               />
 
@@ -578,9 +647,7 @@ export default function BrainstormPage() {
                   {loading ? "Sending…" : "Send"}
                 </button>
 
-                <div className="text-xs text-slate-400">
-                  This is a thinking space — rough drafts welcome.
-                </div>
+                <div className="text-xs text-slate-400">Rough drafts welcome.</div>
               </div>
             </div>
           </div>
@@ -588,7 +655,6 @@ export default function BrainstormPage() {
 
         <p className="text-[11px] text-slate-500">
           Note: “Send to Quick Blast / Stories” stores the draft and copies it to your clipboard, then opens the destination page.
-          Next we can add a 1-click “Paste from Brainstorm” button on those pages to auto-fill.
         </p>
       </div>
     </div>
