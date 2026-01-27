@@ -63,6 +63,37 @@ function joinDraft(d: Draft) {
   return `${(d.text || "").trim()}${cta}${hash}`.trim();
 }
 
+function safeUrl(u?: string | null) {
+  const s = String(u || "").trim();
+  if (!s) return "";
+  if (!/^https?:\/\//i.test(s)) return "";
+  return s;
+}
+
+// Adds tiny variance so “Find another” often returns a different file.
+function variantQuery(base: string, attempt: number) {
+  const q = (base || "").trim();
+  if (!q) return q;
+
+  const add = [
+    "photo",
+    "workplace",
+    "desk",
+    "sticky notes",
+    "calendar",
+    "brain",
+    "focus",
+    "neurodiversity",
+    "meeting",
+    "laptop",
+  ];
+
+  const pick = add[attempt % add.length];
+  // If query already has the word, don’t spam it
+  if (q.toLowerCase().includes(pick.toLowerCase())) return q;
+  return `${q} ${pick}`.trim();
+}
+
 export default function BrainstormPage() {
   const [platform, setPlatform] = useState<ChannelId>("linkedin");
   const [tone, setTone] = useState<string>("Professional & confident");
@@ -87,8 +118,13 @@ export default function BrainstormPage() {
 
   const [angles, setAngles] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
+
+  // Image state per draft index
   const [draftImages, setDraftImages] = useState<Record<number, CommonsImage | null>>({});
   const [draftImageBusy, setDraftImageBusy] = useState<Record<number, boolean>>({});
+  const [draftImageAttempts, setDraftImageAttempts] = useState<Record<number, number>>({});
+  const [draftImageQueryEdits, setDraftImageQueryEdits] = useState<Record<number, string>>({});
+  const [draftImageError, setDraftImageError] = useState<Record<number, string | null>>({});
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -106,18 +142,39 @@ export default function BrainstormPage() {
     if (!q) return;
 
     setDraftImageBusy((prev) => ({ ...prev, [idx]: true }));
+    setDraftImageError((prev) => ({ ...prev, [idx]: null }));
+
     try {
       const res = await fetch(`/api/media/commons-image?q=${encodeURIComponent(q)}`, {
         cache: "no-store",
       });
       const data: CommonsApiResponse = await res.json().catch(() => null);
       const img = data?.success ? (data.image || null) : null;
+
       setDraftImages((prev) => ({ ...prev, [idx]: img }));
+
+      if (!img) {
+        setDraftImageError((prev) => ({
+          ...prev,
+          [idx]: "No image found quickly. Try tweaking the query words.",
+        }));
+      }
     } catch {
       setDraftImages((prev) => ({ ...prev, [idx]: null }));
+      setDraftImageError((prev) => ({ ...prev, [idx]: "Image lookup failed. Try again." }));
     } finally {
       setDraftImageBusy((prev) => ({ ...prev, [idx]: false }));
     }
+  };
+
+  const findAnotherImage = async (idx: number) => {
+    const base = (draftImageQueryEdits[idx] ?? drafts[idx]?.imageQuery ?? "").trim();
+    const attempt = (draftImageAttempts[idx] ?? 0) + 1;
+    setDraftImageAttempts((prev) => ({ ...prev, [idx]: attempt }));
+
+    const q = variantQuery(base, attempt);
+    setDraftImageQueryEdits((prev) => ({ ...prev, [idx]: q })); // keep what we searched
+    await fetchImageForDraft(idx, q);
   };
 
   const send = async () => {
@@ -157,14 +214,19 @@ export default function BrainstormPage() {
       const nextDrafts = Array.isArray(data.drafts) ? data.drafts : [];
       setDrafts(nextDrafts);
 
-      // reset images each round
+      // reset image state each round
       setDraftImages({});
       setDraftImageBusy({});
+      setDraftImageAttempts({});
+      setDraftImageQueryEdits({});
+      setDraftImageError({});
 
-      // fetch images AFTER drafts render (parallel-ish)
+      // fetch images AFTER drafts appear
       if (wantImages && nextDrafts.length) {
         nextDrafts.forEach((d, idx) => {
-          void fetchImageForDraft(idx, d.imageQuery);
+          const q = (d.imageQuery || "").trim();
+          setDraftImageQueryEdits((prev) => ({ ...prev, [idx]: q }));
+          void fetchImageForDraft(idx, q);
         });
       }
 
@@ -176,11 +238,11 @@ export default function BrainstormPage() {
     }
   };
 
-  const sendToQuickBlast = (d: Draft, img: CommonsImage | null) => {
+  const sendToQuickBlast = (d: Draft, img: CommonsImage | null, suggestedPlatform: ChannelId) => {
     const payload = {
       message: joinDraft(d),
       imageUrl: img?.url || "",
-      suggestedPlatforms: [platform],
+      suggestedPlatforms: [suggestedPlatform],
       attribution: img
         ? {
             title: img.title,
@@ -268,7 +330,7 @@ export default function BrainstormPage() {
                   checked={wantImages}
                   onChange={(e) => setWantImages(e.target.checked)}
                 />
-                Find 1 image per draft
+                Find images
               </label>
             </div>
           </div>
@@ -280,7 +342,7 @@ export default function BrainstormPage() {
             <div className="flex items-center justify-between">
               <h2 className="font-semibold">Conversation</h2>
               <div className="text-[11px] text-slate-400">
-                Try: “Give me 10 hooks before drafts.” / “Push back on my idea.” / “Make it kinder + simpler.”
+                Try: “Give me 10 hooks first.” / “Push back on my angle.” / “Make it kinder + simpler.”
               </div>
             </div>
 
@@ -351,9 +413,17 @@ export default function BrainstormPage() {
                   {drafts.map((d, idx) => {
                     const img = draftImages[idx] ?? null;
                     const busy = !!draftImageBusy[idx];
+                    const imgErr = draftImageError[idx] ?? null;
+                    const query = draftImageQueryEdits[idx] ?? d.imageQuery ?? "";
+
+                    const previewUrl = safeUrl(img?.url);
+                    const filePageUrl = safeUrl(img?.pageUrl);
 
                     return (
-                      <div key={idx} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 space-y-3">
+                      <div
+                        key={idx}
+                        className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 space-y-3"
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <div className="text-sm font-semibold">{d.title || `Draft ${idx + 1}`}</div>
@@ -365,7 +435,7 @@ export default function BrainstormPage() {
                           <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
-                              onClick={() => sendToQuickBlast(d, img)}
+                              onClick={() => sendToQuickBlast(d, img, platform)}
                               className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
                             >
                               Send to Quick Blast
@@ -382,32 +452,135 @@ export default function BrainstormPage() {
 
                         <pre className="whitespace-pre-wrap text-sm text-slate-100">{joinDraft(d)}</pre>
 
-                        <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-3">
-                          <div className="text-[11px] text-slate-400">
-                            Image query: <span className="text-slate-200">{d.imageQuery || "(none)"}</span>
+                        {/* Image area */}
+                        <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-3 space-y-3">
+                          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+                            <div className="flex-1 space-y-1">
+                              <div className="text-[11px] text-slate-400">Image search query</div>
+                              <input
+                                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                                value={query}
+                                onChange={(e) =>
+                                  setDraftImageQueryEdits((prev) => ({
+                                    ...prev,
+                                    [idx]: e.target.value,
+                                  }))
+                                }
+                                placeholder="e.g. adhd workplace desk"
+                              />
+                              <div className="text-[11px] text-slate-500">
+                                Tip: Use concrete nouns (“desk”, “meeting”, “calendar”, “sticky notes”) for better results.
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => fetchImageForDraft(idx, query)}
+                                disabled={busy || !wantImages}
+                                className="rounded-full border border-slate-600 bg-slate-950 px-3 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
+                              >
+                                {busy ? "Searching…" : "Search this"}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => void findAnotherImage(idx)}
+                                disabled={busy || !wantImages}
+                                className="rounded-full bg-blue-500 px-3 py-2 text-xs font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60"
+                              >
+                                {busy ? "…" : "Find another"}
+                              </button>
+                            </div>
                           </div>
 
                           {wantImages ? (
                             busy ? (
-                              <div className="mt-2 text-sm text-slate-300">Finding a Commons image…</div>
+                              <div className="text-sm text-slate-300">Finding an image…</div>
                             ) : img ? (
-                              <div className="mt-2 text-[12px] text-slate-200 space-y-1">
-                                <div className="break-all">Image URL: {img.url}</div>
-                                <div className="text-slate-400 break-all">File page: {img.pageUrl}</div>
-                                <div className="text-slate-400">
-                                  License: {img.licenseShortName || "Unknown"}
+                              <div className="grid md:grid-cols-[140px_1fr] gap-3 items-start">
+                                {/* Preview */}
+                                <div className="rounded-2xl border border-slate-700 bg-slate-950 overflow-hidden">
+                                  {previewUrl ? (
+                                    <a href={previewUrl} target="_blank" rel="noreferrer">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={previewUrl}
+                                        alt={img.title || "Commons image"}
+                                        className="w-full h-[140px] object-cover"
+                                      />
+                                    </a>
+                                  ) : (
+                                    <div className="h-[140px] flex items-center justify-center text-xs text-slate-400">
+                                      No preview
+                                    </div>
+                                  )}
                                 </div>
-                                {img.attribution ? (
-                                  <div className="text-slate-400">Attribution: {img.attribution}</div>
-                                ) : null}
+
+                                {/* Meta */}
+                                <div className="text-[12px] text-slate-200 space-y-1">
+                                  <div className="break-all">
+                                    <span className="text-slate-400">Image URL:</span>{" "}
+                                    {previewUrl || "(missing)"}
+                                  </div>
+                                  <div className="break-all">
+                                    <span className="text-slate-400">Commons page:</span>{" "}
+                                    {filePageUrl || "(missing)"}
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400">License:</span>{" "}
+                                    {img.licenseShortName || "Unknown"}
+                                    {img.licenseUrl ? (
+                                      <>
+                                        {" "}
+                                        <a
+                                          className="text-emerald-300 hover:text-emerald-200"
+                                          href={img.licenseUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                        >
+                                          (view)
+                                        </a>
+                                      </>
+                                    ) : null}
+                                  </div>
+                                  {img.attribution ? (
+                                    <div>
+                                      <span className="text-slate-400">Attribution:</span> {img.attribution}
+                                    </div>
+                                  ) : null}
+
+                                  <div className="pt-2 flex flex-wrap gap-2">
+                                    {previewUrl ? (
+                                      <a
+                                        href={previewUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="rounded-full border border-slate-600 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                                      >
+                                        Open full image
+                                      </a>
+                                    ) : null}
+                                    {filePageUrl ? (
+                                      <a
+                                        href={filePageUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="rounded-full border border-slate-600 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                                      >
+                                        Open Commons page
+                                      </a>
+                                    ) : null}
+                                  </div>
+                                </div>
                               </div>
                             ) : (
-                              <div className="mt-2 text-sm text-slate-400">
-                                No image found quickly. Try a simpler query (e.g. “adhd workplace desk”).
+                              <div className="text-sm text-slate-400">
+                                {imgErr || "No image found. Try Search this or Find another."}
                               </div>
                             )
                           ) : (
-                            <div className="mt-2 text-sm text-slate-400">Image search is off.</div>
+                            <div className="text-sm text-slate-400">Image search is off.</div>
                           )}
                         </div>
                       </div>
@@ -420,7 +593,7 @@ export default function BrainstormPage() {
         </section>
 
         <footer className="text-xs text-slate-500">
-          This avoids 504s by fetching images separately after drafts appear.
+          Click the thumbnail to preview. Use “Find another” to rotate images without slowing down the AI.
         </footer>
       </div>
     </div>
