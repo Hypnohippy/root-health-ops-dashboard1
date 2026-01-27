@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ConnectedChannelsBar from "../components/ConnectedChannelsBar";
 
 type Mode = "direct" | "story_series";
@@ -21,43 +21,257 @@ type StoryPost = {
   imagePrompt?: string;
 };
 
-export default function BrainstormPage() {
-  const [mode, setMode] = useState<Mode>("direct");
+type ChatMsg = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  createdAt: number;
+  kind?: "plain" | "result";
+  payload?: {
+    mode: Mode;
+    platform: ChannelId;
+    tone: string;
+    directPost?: DirectPost | null;
+    seriesPosts?: StoryPost[] | null;
+  };
+};
 
+function uid() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function safeJsonParse<T>(v: string | null): T | null {
+  try {
+    if (!v) return null;
+    return JSON.parse(v) as T;
+  } catch {
+    return null;
+  }
+}
+
+function composeDirect(post: DirectPost) {
+  const composed = [
+    post.title?.trim() ? post.title.trim() : null,
+    post.body?.trim() ? post.body.trim() : null,
+    post.cta?.trim() ? post.cta.trim() : null,
+    post.hashtags?.length ? post.hashtags.join(" ") : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return composed.trim();
+}
+
+function composeSeries(posts: StoryPost[]) {
+  return posts
+    .map((p, i) =>
+      `Part ${i + 1}/${posts.length}\n\n${p.title}\n\n${p.body}\n\n${p.cta || ""}`.trim()
+    )
+    .join("\n\n---\n\n");
+}
+
+function friendlyError(err: string) {
+  const t = (err || "").toLowerCase();
+
+  if (t.includes("write a brief") || t.includes("brief first") || t.includes("required")) {
+    return {
+      headline: "Type a quick idea first",
+      help: "Just tell me who it’s for and what you want them to do. One sentence is enough.",
+    };
+  }
+
+  if (t.includes("empty post") || t.includes("ai returned an empty")) {
+    return {
+      headline: "I didn’t get a usable draft back",
+      help: "Try rephrasing your idea slightly (who it’s for + the outcome), then send again.",
+    };
+  }
+
+  if (t.includes("failed to fetch") || t.includes("network") || t.includes("timeout")) {
+    return {
+      headline: "Connection hiccup",
+      help: "Refresh the page and try again. If it keeps happening, we’ll check the server logs.",
+    };
+  }
+
+  return {
+    headline: "Something went wrong",
+    help: "Try again. If it repeats, copy the details and we’ll fix it fast.",
+  };
+}
+
+export default function BrainstormPage() {
+  // Context controls (still valuable in thinking space)
+  const [mode, setMode] = useState<Mode>("direct");
   const [platform, setPlatform] = useState<ChannelId>("linkedin");
   const [tone, setTone] = useState<string>("Professional & confident");
 
-  const [brief, setBrief] = useState<string>(
-    "New year, new projects — I’m offering a free consultation to help HR/leadership pick a wellbeing programme that actually works. Make it confident, direct, and friendly."
-  );
-
+  // Story series controls
   const [seriesLength, setSeriesLength] = useState<number>(3);
   const [storyType, setStoryType] = useState<string>("HR director perspective");
   const [ctaStyle, setCtaStyle] = useState<string>("Comment for more / next part");
 
+  // Chat
+  const [input, setInput] = useState<string>(
+    "New year, new projects — I’m offering a free consultation to help HR/leadership pick a wellbeing programme that actually works. Make it confident, direct, and friendly."
+  );
+  const [messages, setMessages] = useState<ChatMsg[]>(() => {
+    const saved = safeJsonParse<ChatMsg[]>(localStorage.getItem("rh_brainstorm_chat_v1"));
+    if (saved?.length) return saved;
+
+    return [
+      {
+        id: uid(),
+        role: "assistant",
+        createdAt: Date.now(),
+        kind: "plain",
+        text:
+          "Hey David — this is your Thinking Space.\n\n" +
+          "Tell me what you want to say (rough is fine). I’ll help shape it for your chosen platform + tone.\n\n" +
+          "Tip: Include (1) who it’s for, (2) the problem, (3) the outcome you offer.",
+      },
+    ];
+  });
+
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
 
-  const [directPost, setDirectPost] = useState<DirectPost | null>(null);
-  const [seriesPosts, setSeriesPosts] = useState<StoryPost[]>([]);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const canSend = useMemo(() => !!input.trim() && !loading, [input, loading]);
 
-  const canGenerate = useMemo(() => !!brief.trim() && !loading, [brief, loading]);
+  // Persist chat
+  useEffect(() => {
+    try {
+      localStorage.setItem("rh_brainstorm_chat_v1", JSON.stringify(messages.slice(-60)));
+    } catch {
+      // ignore
+    }
+  }, [messages]);
 
-  const handleGenerate = async () => {
+  // Auto-scroll
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, loading]);
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // ignore
+    }
+  };
+
+  const sendToQuickBlast = async (text: string) => {
+    // Store + copy. Quick Blast page can later read this key to auto-fill.
+    try {
+      localStorage.setItem(
+        "rh_prefill_quick_blast_v1",
+        JSON.stringify({
+          text,
+          platform,
+          tone,
+          mode,
+          createdAt: new Date().toISOString(),
+        })
+      );
+    } catch {
+      // ignore
+    }
+    await copyToClipboard(text);
+    // Your Quick Blast appears to live on /dashboard (home)
+    window.location.href = `/dashboard?from=brainstorm`;
+  };
+
+  const sendToStories = async (payload: { direct?: string; series?: StoryPost[] }) => {
+    try {
+      localStorage.setItem(
+        "rh_prefill_stories_v1",
+        JSON.stringify({
+          mode,
+          platform,
+          tone,
+          direct: payload.direct || null,
+          series: payload.series || null,
+          createdAt: new Date().toISOString(),
+        })
+      );
+    } catch {
+      // ignore
+    }
+
+    if (payload.direct) await copyToClipboard(payload.direct);
+    if (payload.series?.length) await copyToClipboard(composeSeries(payload.series));
+
+    // You already have a nav link to /dashboard/stories/new
+    window.location.href = `/dashboard/stories/new?from=brainstorm`;
+  };
+
+  const pushAssistantPlain = (text: string) => {
+    setMessages((prev) => [
+      ...prev,
+      { id: uid(), role: "assistant", createdAt: Date.now(), kind: "plain", text },
+    ]);
+  };
+
+  const pushAssistantResult = (text: string, payload: ChatMsg["payload"]) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: uid(),
+        role: "assistant",
+        createdAt: Date.now(),
+        kind: "result",
+        text,
+        payload: payload || undefined,
+      },
+    ]);
+  };
+
+  const buildContextHeader = () => {
+    const bits = [
+      `Mode: ${mode === "direct" ? "Direct Post" : "Story Series"}`,
+      `Platform: ${platform}`,
+      `Tone: ${tone}`,
+    ];
+
+    if (mode === "story_series") {
+      bits.push(`Series: ${seriesLength} parts`);
+      bits.push(`Story type: ${storyType}`);
+      bits.push(`CTA style: ${ctaStyle}`);
+    }
+
+    return bits.join(" · ");
+  };
+
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text) return;
+
+    setLastError(null);
     setLoading(true);
-    setError(null);
-    setDirectPost(null);
-    setSeriesPosts([]);
+
+    // Add user message
+    setMessages((prev) => [
+      ...prev,
+      { id: uid(), role: "user", createdAt: Date.now(), kind: "plain", text },
+    ]);
+
+    // Clear input for “texting” feel
+    setInput("");
 
     try {
-      if (!brief.trim()) throw new Error("Write a brief first.");
+      // We keep this thinking space simple: each send generates/refines a draft
+      // using your existing endpoints, with context included.
+      const prompt = `${buildContextHeader()}\n\nUser idea:\n${text}`;
 
       if (mode === "direct") {
         const res = await fetch("/api/ai/brainstorm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            prompt: brief.trim(),
+            prompt,
             platform,
             tone,
             goal: "Direct post to my audience",
@@ -65,13 +279,26 @@ export default function BrainstormPage() {
         });
 
         const data: any = await res.json().catch(() => null);
-        if (!data?.success) {
-          throw new Error(data?.error || "Brainstorm failed.");
-        }
+        if (!data?.success) throw new Error(data?.error || "Brainstorm failed.");
 
-        const post = data?.post;
+        const post: DirectPost = data?.post;
         if (!post?.body) throw new Error("AI returned an empty post.");
-        setDirectPost(post);
+
+        const composed = composeDirect(post);
+
+        pushAssistantResult(
+          "Here’s a polished draft. Want it shorter, punchier, or more human?\n\n(You can also send it straight to Quick Blast or Stories below.)",
+          {
+            mode,
+            platform,
+            tone,
+            directPost: post,
+            seriesPosts: null,
+          }
+        );
+
+        // Also show the draft as a follow-up assistant message (bubble-friendly)
+        pushAssistantPlain(composed);
         return;
       }
 
@@ -80,7 +307,7 @@ export default function BrainstormPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          idea: brief.trim(),
+          idea: prompt,
           storyType,
           tone,
           seriesLength,
@@ -94,107 +321,96 @@ export default function BrainstormPage() {
         throw new Error(data?.error || "Story series generation failed.");
       }
 
-      setSeriesPosts(data.posts);
+      const posts: StoryPost[] = data.posts;
+
+      pushAssistantResult(
+        `Done — I’ve drafted a ${posts.length}-part story series.\n\nWant the series more “teachable”, more “story”, or more “salesy”?`,
+        {
+          mode,
+          platform,
+          tone,
+          directPost: null,
+          seriesPosts: posts,
+        }
+      );
+
+      // Show parts in a readable way
+      pushAssistantPlain(
+        posts
+          .map((p, i) => {
+            const header = `Part ${i + 1}/${posts.length}: ${p.title}`;
+            const cta = p.cta ? `\n\nCTA: ${p.cta}` : "";
+            return `${header}\n\n${p.body}${cta}`.trim();
+          })
+          .join("\n\n— — —\n\n")
+      );
     } catch (e: any) {
-      setError(e?.message || "Something went wrong.");
+      const msg = e?.message || "Something went wrong.";
+      setLastError(msg);
+
+      const fe = friendlyError(msg);
+
+      pushAssistantPlain(
+        `⚠️ ${fe.headline}\n\n${fe.help}\n\nIf you want, paste what you were trying to do in one line and I’ll guide you.`
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // ignore
+  const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (canSend) void handleSend();
     }
   };
 
-  const renderDirect = () => {
-    if (!directPost) return null;
-
-    const composed = [
-      directPost.title?.trim() ? directPost.title.trim() : null,
-      directPost.body?.trim() ? directPost.body.trim() : null,
-      directPost.cta?.trim() ? directPost.cta.trim() : null,
-      directPost.hashtags?.length ? directPost.hashtags.join(" ") : null,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-
-    return (
-      <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold">Result · Direct Post</h2>
-          <button
-            className="text-xs rounded-full border border-slate-600 px-3 py-1 hover:bg-white/10"
-            onClick={() => copyToClipboard(composed)}
-            type="button"
-          >
-            Copy
-          </button>
-        </div>
-
-        <pre className="whitespace-pre-wrap text-sm text-slate-100 bg-slate-950/60 border border-slate-700 rounded-2xl p-3">
-          {composed}
-        </pre>
-
-        <p className="text-[11px] text-slate-400">
-          Tip: If you hit duplicate-content rules on platforms, tweak the opening line or CTA slightly.
-        </p>
-      </div>
-    );
-  };
-
-  const renderSeries = () => {
-    if (!seriesPosts.length) return null;
-
-    return (
-      <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold">Result · Story Series ({seriesPosts.length})</h2>
-          <button
-            className="text-xs rounded-full border border-slate-600 px-3 py-1 hover:bg-white/10"
-            onClick={() =>
-              copyToClipboard(
-                seriesPosts
-                  .map((p, i) => `Part ${i + 1}/${seriesPosts.length}\n\n${p.title}\n\n${p.body}\n\n${p.cta || ""}`.trim())
-                  .join("\n\n---\n\n")
-              )
-            }
-            type="button"
-          >
-            Copy all
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          {seriesPosts.map((p, i) => (
-            <div key={i} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-2">
-              <div className="text-[11px] text-slate-400">Part {i + 1}/{seriesPosts.length}</div>
-              <div className="text-sm font-semibold">{p.title}</div>
-              <pre className="whitespace-pre-wrap text-sm text-slate-100">{p.body}</pre>
-              {p.cta ? <div className="text-sm text-emerald-200">{p.cta}</div> : null}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+  const clearChat = () => {
+    if (!confirm("Clear this Brainstorm chat?")) return;
+    const fresh: ChatMsg[] = [
+      {
+        id: uid(),
+        role: "assistant",
+        createdAt: Date.now(),
+        kind: "plain",
+        text:
+          "Fresh slate. Tell me what you’re trying to say (rough is fine) and who it’s for — I’ll shape it with you.",
+      },
+    ];
+    setMessages(fresh);
+    try {
+      localStorage.removeItem("rh_brainstorm_chat_v1");
+    } catch {
+      // ignore
+    }
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-6">
         <header className="space-y-3">
-          <h1 className="text-2xl md:text-3xl font-semibold">🧠 Brainstorm</h1>
-          <p className="text-sm text-slate-300 max-w-2xl">
-            Choose what you’re creating (direct post vs story series). This stops the “always story mode” behaviour.
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-semibold">🧠 Brainstorm</h1>
+              <p className="text-sm text-slate-300 max-w-2xl">
+                Thinking Space — chat your idea out, get a polished draft, then send it to Quick Blast or Stories when you’re ready.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={clearChat}
+              className="text-xs rounded-full border border-slate-600 px-3 py-1.5 hover:bg-white/10"
+            >
+              Clear
+            </button>
+          </div>
 
           {/* ✅ Shared connections bar */}
           <ConnectedChannelsBar title="Social connections" />
         </header>
 
+        {/* Context controls (kept, but lighter) */}
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-4">
           <div className="grid md:grid-cols-4 gap-3">
             <div className="space-y-1">
@@ -254,7 +470,9 @@ export default function BrainstormPage() {
                   max={10}
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                   value={seriesLength}
-                  onChange={(e) => setSeriesLength(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
+                  onChange={(e) =>
+                    setSeriesLength(Math.max(1, Math.min(10, Number(e.target.value) || 1)))
+                  }
                 />
               </div>
 
@@ -269,31 +487,140 @@ export default function BrainstormPage() {
             </div>
           )}
 
-          <div className="space-y-1">
-            <label className="text-[11px] text-slate-300">Brief</label>
-            <textarea
-              className="w-full min-h-[140px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-              value={brief}
-              onChange={(e) => setBrief(e.target.value)}
-              placeholder="Tell the AI exactly what you want to post."
-            />
+          <p className="text-[11px] text-slate-400">
+            Tip: You can change Create/Platform/Tone at any time — your next message will use the new settings.
+          </p>
+        </section>
+
+        {/* Chat area */}
+        <section className="rounded-3xl border border-slate-700 bg-slate-900/80 overflow-hidden">
+          <div
+            ref={listRef}
+            className="max-h-[520px] overflow-y-auto px-4 py-4 space-y-3"
+          >
+            {messages.map((m) => {
+              const isUser = m.role === "user";
+              return (
+                <div
+                  key={m.id}
+                  className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={[
+                      "max-w-[90%] md:max-w-[70%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap",
+                      isUser
+                        ? "bg-emerald-500 text-slate-950"
+                        : "bg-slate-950/60 border border-slate-700 text-slate-100",
+                    ].join(" ")}
+                  >
+                    {m.text}
+
+                    {/* Action row on assistant "result" messages */}
+                    {!isUser && m.kind === "result" && m.payload ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="text-xs rounded-full border border-slate-600 px-3 py-1 hover:bg-white/10"
+                          onClick={async () => {
+                            const p = m.payload!;
+                            if (p.mode === "direct" && p.directPost) {
+                              const text = composeDirect(p.directPost);
+                              await copyToClipboard(text);
+                            } else if (p.mode === "story_series" && p.seriesPosts?.length) {
+                              await copyToClipboard(composeSeries(p.seriesPosts));
+                            }
+                          }}
+                        >
+                          Copy
+                        </button>
+
+                        <button
+                          type="button"
+                          className="text-xs rounded-full bg-emerald-500 px-3 py-1 font-semibold text-slate-950 hover:bg-emerald-400"
+                          onClick={async () => {
+                            const p = m.payload!;
+                            if (p.mode === "direct" && p.directPost) {
+                              await sendToQuickBlast(composeDirect(p.directPost));
+                            } else if (p.mode === "story_series" && p.seriesPosts?.length) {
+                              // Quick Blast generally wants one post at a time; send Part 1
+                              await sendToQuickBlast(
+                                `${p.seriesPosts[0].title}\n\n${p.seriesPosts[0].body}\n\n${p.seriesPosts[0].cta || ""}`.trim()
+                              );
+                            }
+                          }}
+                        >
+                          Send to Quick Blast
+                        </button>
+
+                        <button
+                          type="button"
+                          className="text-xs rounded-full border border-slate-600 px-3 py-1 hover:bg-white/10"
+                          onClick={async () => {
+                            const p = m.payload!;
+                            if (p.mode === "direct" && p.directPost) {
+                              await sendToStories({ direct: composeDirect(p.directPost) });
+                            } else if (p.mode === "story_series" && p.seriesPosts?.length) {
+                              await sendToStories({ series: p.seriesPosts });
+                            }
+                          }}
+                        >
+                          Send to Stories
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+
+            {loading ? (
+              <div className="flex justify-start">
+                <div className="max-w-[90%] md:max-w-[70%] rounded-2xl px-4 py-3 text-sm bg-slate-950/60 border border-slate-700 text-slate-100">
+                  Root Coach is thinking…
+                </div>
+              </div>
+            ) : null}
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleGenerate}
-              disabled={!canGenerate}
-              className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
-            >
-              {loading ? "Generating…" : "Generate"}
-            </button>
+          {/* Composer */}
+          <div className="border-t border-slate-700 bg-slate-950/40 px-4 py-4">
+            <div className="flex flex-col gap-2">
+              <textarea
+                className="w-full min-h-[70px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Type your idea… (Enter to send, Shift+Enter for a new line)"
+              />
 
-            {error ? <div className="text-sm text-red-400">{error}</div> : null}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleSend()}
+                  disabled={!canSend}
+                  className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-emerald-400 transition"
+                >
+                  {loading ? "Sending…" : "Send"}
+                </button>
+
+                {lastError ? (
+                  <div className="text-xs text-slate-300">
+                    (If something failed, I’ve already translated it into plain English above.)
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-400">
+                    This is a thinking space — rough drafts welcome.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </section>
 
-        {mode === "direct" ? renderDirect() : renderSeries()}
+        <p className="text-[11px] text-slate-500">
+          Note: “Send to Quick Blast / Stories” stores the draft and copies it to your clipboard, then opens the destination page.
+          Next we can add a 1-click “Paste from Brainstorm” button on those pages to auto-fill.
+        </p>
       </div>
     </div>
   );
