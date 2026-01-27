@@ -39,10 +39,10 @@ type BrainstormApiResponse = {
   error?: string;
 };
 
-type CommonsApiResponse = {
+type CommonsImagesApiResponse = {
   success: boolean;
   query?: string;
-  image?: CommonsImage | null;
+  images?: CommonsImage[];
   error?: string;
 };
 
@@ -70,34 +70,17 @@ function safeUrl(u?: string | null) {
   return s;
 }
 
-// Adds tiny variance so “Find another” often returns a different file.
-function variantQuery(base: string, attempt: number) {
-  const q = (base || "").trim();
-  if (!q) return q;
-
-  const add = [
-    "photo",
-    "workplace",
-    "desk",
-    "sticky notes",
-    "calendar",
-    "brain",
-    "focus",
-    "neurodiversity",
-    "meeting",
-    "laptop",
-  ];
-
-  const pick = add[attempt % add.length];
-  // If query already has the word, don’t spam it
-  if (q.toLowerCase().includes(pick.toLowerCase())) return q;
-  return `${q} ${pick}`.trim();
+function stripHtml(s: string) {
+  // quick cleanup for Artist/Credit often containing html
+  return String(s || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export default function BrainstormPage() {
   const [platform, setPlatform] = useState<ChannelId>("linkedin");
   const [tone, setTone] = useState<string>("Professional & confident");
-
   const [wantImages, setWantImages] = useState<boolean>(true);
 
   const [input, setInput] = useState<string>(
@@ -109,7 +92,7 @@ export default function BrainstormPage() {
       id: uid(),
       role: "assistant",
       content:
-        "Drop your idea in plain English. I’ll riff with you first (angles + hooks), then draft posts you can send into Quick Blast or Stories.",
+        "Drop your idea in plain English. I’ll riff with you first (angles + hooks), then draft posts you can push into Quick Blast or Stories.",
     },
   ]);
 
@@ -119,12 +102,16 @@ export default function BrainstormPage() {
   const [angles, setAngles] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
 
-  // Image state per draft index
+  // chosen image per draft
   const [draftImages, setDraftImages] = useState<Record<number, CommonsImage | null>>({});
-  const [draftImageBusy, setDraftImageBusy] = useState<Record<number, boolean>>({});
-  const [draftImageAttempts, setDraftImageAttempts] = useState<Record<number, number>>({});
   const [draftImageQueryEdits, setDraftImageQueryEdits] = useState<Record<number, string>>({});
-  const [draftImageError, setDraftImageError] = useState<Record<number, string | null>>({});
+
+  // modal picker
+  const [pickerOpenFor, setPickerOpenFor] = useState<number | null>(null);
+  const [pickerQuery, setPickerQuery] = useState<string>("");
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+  const [pickerResults, setPickerResults] = useState<CommonsImage[]>([]);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -136,45 +123,71 @@ export default function BrainstormPage() {
     } catch {}
   };
 
-  const fetchImageForDraft = async (idx: number, query: string) => {
+  const openPicker = async (idx: number) => {
     if (!wantImages) return;
-    const q = (query || "").trim();
-    if (!q) return;
+    setPickerOpenFor(idx);
 
-    setDraftImageBusy((prev) => ({ ...prev, [idx]: true }));
-    setDraftImageError((prev) => ({ ...prev, [idx]: null }));
+    const q = (draftImageQueryEdits[idx] ?? drafts[idx]?.imageQuery ?? "").trim();
+    setPickerQuery(q);
+    setPickerResults([]);
+    setPickerError(null);
 
-    try {
-      const res = await fetch(`/api/media/commons-image?q=${encodeURIComponent(q)}`, {
-        cache: "no-store",
-      });
-      const data: CommonsApiResponse = await res.json().catch(() => null);
-      const img = data?.success ? (data.image || null) : null;
-
-      setDraftImages((prev) => ({ ...prev, [idx]: img }));
-
-      if (!img) {
-        setDraftImageError((prev) => ({
-          ...prev,
-          [idx]: "No image found quickly. Try tweaking the query words.",
-        }));
-      }
-    } catch {
-      setDraftImages((prev) => ({ ...prev, [idx]: null }));
-      setDraftImageError((prev) => ({ ...prev, [idx]: "Image lookup failed. Try again." }));
-    } finally {
-      setDraftImageBusy((prev) => ({ ...prev, [idx]: false }));
+    // auto load results on open
+    if (q) {
+      await searchPicker(q);
     }
   };
 
-  const findAnotherImage = async (idx: number) => {
-    const base = (draftImageQueryEdits[idx] ?? drafts[idx]?.imageQuery ?? "").trim();
-    const attempt = (draftImageAttempts[idx] ?? 0) + 1;
-    setDraftImageAttempts((prev) => ({ ...prev, [idx]: attempt }));
+  const closePicker = () => {
+    setPickerOpenFor(null);
+    setPickerResults([]);
+    setPickerError(null);
+    setPickerLoading(false);
+  };
 
-    const q = variantQuery(base, attempt);
-    setDraftImageQueryEdits((prev) => ({ ...prev, [idx]: q })); // keep what we searched
-    await fetchImageForDraft(idx, q);
+  const searchPicker = async (q: string) => {
+    const query = (q || "").trim();
+    if (!query) {
+      setPickerError("Type a few keywords first (e.g., 'adhd workplace desk').");
+      return;
+    }
+
+    setPickerLoading(true);
+    setPickerError(null);
+    setPickerResults([]);
+
+    try {
+      const res = await fetch(`/api/media/commons-images?q=${encodeURIComponent(query)}&limit=6`, {
+        cache: "no-store",
+      });
+      const data: CommonsImagesApiResponse = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || `Image search failed (${res.status})`);
+      }
+
+      const images = Array.isArray(data.images) ? data.images : [];
+      if (images.length === 0) {
+        setPickerError("No results. Try different words (more concrete nouns).");
+        setPickerResults([]);
+      } else {
+        setPickerResults(images);
+      }
+    } catch (e: any) {
+      setPickerError(e?.message || "Image search failed.");
+      setPickerResults([]);
+    } finally {
+      setPickerLoading(false);
+    }
+  };
+
+  const chooseImage = (idx: number, img: CommonsImage) => {
+    setDraftImages((prev) => ({ ...prev, [idx]: img }));
+    closePicker();
+  };
+
+  const removeImage = (idx: number) => {
+    setDraftImages((prev) => ({ ...prev, [idx]: null }));
   };
 
   const send = async () => {
@@ -214,21 +227,14 @@ export default function BrainstormPage() {
       const nextDrafts = Array.isArray(data.drafts) ? data.drafts : [];
       setDrafts(nextDrafts);
 
-      // reset image state each round
+      // reset chosen images each round (keeps behaviour predictable)
       setDraftImages({});
-      setDraftImageBusy({});
-      setDraftImageAttempts({});
-      setDraftImageQueryEdits({});
-      setDraftImageError({});
-
-      // fetch images AFTER drafts appear
-      if (wantImages && nextDrafts.length) {
-        nextDrafts.forEach((d, idx) => {
-          const q = (d.imageQuery || "").trim();
-          setDraftImageQueryEdits((prev) => ({ ...prev, [idx]: q }));
-          void fetchImageForDraft(idx, q);
-        });
-      }
+      setDraftImageQueryEdits(
+        nextDrafts.reduce((acc, d, i) => {
+          acc[i] = (d.imageQuery || "").trim();
+          return acc;
+        }, {} as Record<number, string>)
+      );
 
       setTimeout(scrollToBottom, 50);
     } catch (e: any) {
@@ -330,7 +336,7 @@ export default function BrainstormPage() {
                   checked={wantImages}
                   onChange={(e) => setWantImages(e.target.checked)}
                 />
-                Find images
+                Image picker
               </label>
             </div>
           </div>
@@ -412,8 +418,6 @@ export default function BrainstormPage() {
                 <div className="space-y-3">
                   {drafts.map((d, idx) => {
                     const img = draftImages[idx] ?? null;
-                    const busy = !!draftImageBusy[idx];
-                    const imgErr = draftImageError[idx] ?? null;
                     const query = draftImageQueryEdits[idx] ?? d.imageQuery ?? "";
 
                     const previewUrl = safeUrl(img?.url);
@@ -452,11 +456,11 @@ export default function BrainstormPage() {
 
                         <pre className="whitespace-pre-wrap text-sm text-slate-100">{joinDraft(d)}</pre>
 
-                        {/* Image area */}
+                        {/* Image chooser */}
                         <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-3 space-y-3">
                           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
                             <div className="flex-1 space-y-1">
-                              <div className="text-[11px] text-slate-400">Image search query</div>
+                              <div className="text-[11px] text-slate-400">Image keywords</div>
                               <input
                                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                                 value={query}
@@ -468,119 +472,97 @@ export default function BrainstormPage() {
                                 }
                                 placeholder="e.g. adhd workplace desk"
                               />
-                              <div className="text-[11px] text-slate-500">
-                                Tip: Use concrete nouns (“desk”, “meeting”, “calendar”, “sticky notes”) for better results.
-                              </div>
                             </div>
 
                             <div className="flex flex-wrap gap-2">
                               <button
                                 type="button"
-                                onClick={() => fetchImageForDraft(idx, query)}
-                                disabled={busy || !wantImages}
-                                className="rounded-full border border-slate-600 bg-slate-950 px-3 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
-                              >
-                                {busy ? "Searching…" : "Search this"}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => void findAnotherImage(idx)}
-                                disabled={busy || !wantImages}
+                                onClick={() => openPicker(idx)}
+                                disabled={!wantImages}
                                 className="rounded-full bg-blue-500 px-3 py-2 text-xs font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60"
                               >
-                                {busy ? "…" : "Find another"}
+                                Choose image
                               </button>
+
+                              {img ? (
+                                <button
+                                  type="button"
+                                  onClick={() => removeImage(idx)}
+                                  className="rounded-full border border-slate-600 bg-slate-950 px-3 py-2 text-xs text-slate-100 hover:bg-white/10"
+                                >
+                                  Remove
+                                </button>
+                              ) : null}
                             </div>
                           </div>
 
-                          {wantImages ? (
-                            busy ? (
-                              <div className="text-sm text-slate-300">Finding an image…</div>
-                            ) : img ? (
-                              <div className="grid md:grid-cols-[140px_1fr] gap-3 items-start">
-                                {/* Preview */}
-                                <div className="rounded-2xl border border-slate-700 bg-slate-950 overflow-hidden">
-                                  {previewUrl ? (
-                                    <a href={previewUrl} target="_blank" rel="noreferrer">
-                                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img
-                                        src={previewUrl}
-                                        alt={img.title || "Commons image"}
-                                        className="w-full h-[140px] object-cover"
-                                      />
+                          {img ? (
+                            <div className="grid md:grid-cols-[140px_1fr] gap-3 items-start">
+                              <div className="rounded-2xl border border-slate-700 bg-slate-950 overflow-hidden">
+                                {previewUrl ? (
+                                  <a href={previewUrl} target="_blank" rel="noreferrer">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={previewUrl}
+                                      alt={img.title || "Commons image"}
+                                      className="w-full h-[140px] object-cover"
+                                    />
+                                  </a>
+                                ) : (
+                                  <div className="h-[140px] flex items-center justify-center text-xs text-slate-400">
+                                    No preview
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="text-[12px] text-slate-200 space-y-1">
+                                <div className="break-all">
+                                  <span className="text-slate-400">Image URL:</span> {previewUrl}
+                                </div>
+                                <div className="break-all">
+                                  <span className="text-slate-400">Commons page:</span>{" "}
+                                  {filePageUrl ? (
+                                    <a
+                                      className="text-emerald-300 hover:text-emerald-200"
+                                      href={filePageUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      {filePageUrl}
                                     </a>
                                   ) : (
-                                    <div className="h-[140px] flex items-center justify-center text-xs text-slate-400">
-                                      No preview
-                                    </div>
+                                    "(missing)"
                                   )}
                                 </div>
-
-                                {/* Meta */}
-                                <div className="text-[12px] text-slate-200 space-y-1">
-                                  <div className="break-all">
-                                    <span className="text-slate-400">Image URL:</span>{" "}
-                                    {previewUrl || "(missing)"}
-                                  </div>
-                                  <div className="break-all">
-                                    <span className="text-slate-400">Commons page:</span>{" "}
-                                    {filePageUrl || "(missing)"}
-                                  </div>
-                                  <div>
-                                    <span className="text-slate-400">License:</span>{" "}
-                                    {img.licenseShortName || "Unknown"}
-                                    {img.licenseUrl ? (
-                                      <>
-                                        {" "}
-                                        <a
-                                          className="text-emerald-300 hover:text-emerald-200"
-                                          href={img.licenseUrl}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                        >
-                                          (view)
-                                        </a>
-                                      </>
-                                    ) : null}
-                                  </div>
-                                  {img.attribution ? (
-                                    <div>
-                                      <span className="text-slate-400">Attribution:</span> {img.attribution}
-                                    </div>
+                                <div>
+                                  <span className="text-slate-400">License:</span>{" "}
+                                  {img.licenseShortName || "Unknown"}
+                                  {img.licenseUrl ? (
+                                    <>
+                                      {" "}
+                                      <a
+                                        className="text-emerald-300 hover:text-emerald-200"
+                                        href={img.licenseUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        (view)
+                                      </a>
+                                    </>
                                   ) : null}
-
-                                  <div className="pt-2 flex flex-wrap gap-2">
-                                    {previewUrl ? (
-                                      <a
-                                        href={previewUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="rounded-full border border-slate-600 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
-                                      >
-                                        Open full image
-                                      </a>
-                                    ) : null}
-                                    {filePageUrl ? (
-                                      <a
-                                        href={filePageUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="rounded-full border border-slate-600 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
-                                      >
-                                        Open Commons page
-                                      </a>
-                                    ) : null}
-                                  </div>
                                 </div>
+                                {img.attribution ? (
+                                  <div>
+                                    <span className="text-slate-400">Attribution:</span>{" "}
+                                    {stripHtml(img.attribution)}
+                                  </div>
+                                ) : null}
                               </div>
-                            ) : (
-                              <div className="text-sm text-slate-400">
-                                {imgErr || "No image found. Try Search this or Find another."}
-                              </div>
-                            )
+                            </div>
                           ) : (
-                            <div className="text-sm text-slate-400">Image search is off.</div>
+                            <div className="text-sm text-slate-400">
+                              No image selected (optional).
+                            </div>
                           )}
                         </div>
                       </div>
@@ -593,8 +575,112 @@ export default function BrainstormPage() {
         </section>
 
         <footer className="text-xs text-slate-500">
-          Click the thumbnail to preview. Use “Find another” to rotate images without slowing down the AI.
+          “Choose image” opens a 6-image picker from Wikimedia Commons.
         </footer>
+
+        {/* Modal */}
+        {pickerOpenFor !== null ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div
+              className="absolute inset-0 bg-black/70"
+              onClick={closePicker}
+              aria-hidden="true"
+            />
+            <div className="relative w-full max-w-4xl rounded-3xl border border-slate-700 bg-slate-950 text-slate-100 shadow-2xl">
+              <div className="p-5 border-b border-slate-700 flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-lg font-semibold">Pick an image</div>
+                  <div className="text-[12px] text-slate-400">
+                    Choose one → it will attach to this draft and travel into Quick Blast / Stories.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closePicker}
+                  className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs hover:bg-white/10"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className="flex flex-col md:flex-row gap-3 md:items-end">
+                  <div className="flex-1">
+                    <div className="text-[11px] text-slate-400 mb-1">Search keywords</div>
+                    <input
+                      value={pickerQuery}
+                      onChange={(e) => setPickerQuery(e.target.value)}
+                      className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none"
+                      placeholder="e.g. adhd workplace focus desk"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => searchPicker(pickerQuery)}
+                    disabled={pickerLoading}
+                    className="rounded-2xl bg-blue-500 px-4 py-2 text-sm font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60"
+                  >
+                    {pickerLoading ? "Searching…" : "Search"}
+                  </button>
+                </div>
+
+                {pickerError ? (
+                  <div className="rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
+                    {pickerError}
+                  </div>
+                ) : null}
+
+                {pickerLoading ? (
+                  <div className="text-sm text-slate-300">Loading results…</div>
+                ) : pickerResults.length === 0 ? (
+                  <div className="text-sm text-slate-400">
+                    No results yet — hit Search.
+                  </div>
+                ) : (
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {pickerResults.map((img, i) => {
+                      const u = safeUrl(img.url);
+                      return (
+                        <button
+                          key={`${i}-${img.title}`}
+                          type="button"
+                          onClick={() => chooseImage(pickerOpenFor, img)}
+                          className="text-left rounded-2xl border border-slate-700 bg-slate-900 hover:bg-slate-800 transition overflow-hidden"
+                        >
+                          <div className="h-[150px] bg-slate-950">
+                            {u ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={u} alt={img.title} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                                No preview
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-3 space-y-1">
+                            <div className="text-xs font-semibold line-clamp-2">
+                              {img.title.replace(/^File:/, "")}
+                            </div>
+                            <div className="text-[11px] text-slate-400">
+                              {img.licenseShortName || "License unknown"}
+                            </div>
+                            <div className="text-[11px] text-emerald-300 line-clamp-1">
+                              Select this
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="text-[11px] text-slate-500">
+                  Licensing varies. We include the Commons file page + license link (when available) for reviewer clarity.
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
