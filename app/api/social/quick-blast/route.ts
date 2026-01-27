@@ -37,6 +37,10 @@ function baseUrl(req: NextRequest) {
   return req.nextUrl.origin;
 }
 
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 async function getSingleTenantOrganisationId() {
   const { data, error } = await supabaseAdmin
     .from("organisations")
@@ -165,7 +169,7 @@ async function postToLinkedIn(args: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      text: args.message, // linkedin route expects "text"
+      text: args.message,
       organisationId: args.organisationId,
     }),
     cache: "no-store",
@@ -186,11 +190,6 @@ async function postToLinkedIn(args: {
 
 /**
  * ✅ Threads direct posting (NO Ayrshare, NO Make)
- * Uses Threads API host: https://graph.threads.net
- *
- * Flow:
- * 1) Create container: POST /me/threads?media_type=TEXT|IMAGE&text=...(&image_url=...)
- * 2) Publish:          POST /me/threads_publish?creation_id=...
  */
 async function postToThreads(args: {
   accessToken: string;
@@ -279,13 +278,8 @@ async function postToThreads(args: {
 /**
  * ✅ Instagram direct posting (NO Ayrshare, NO Make)
  *
- * Requires:
- * - instagram "page_id" in social_accounts to be the IG User ID (Instagram Business Account ID)
- * - "page_access_token" to be a valid token with instagram_basic + instagram_content_publish
- *
- * Flow (image feed post):
- * 1) POST /{ig-user-id}/media?image_url=...&caption=...&access_token=...
- * 2) POST /{ig-user-id}/media_publish?creation_id=...&access_token=...
+ * Fixes "Media ID is not available" by waiting until container is FINISHED
+ * (and also retrying publish a few times if IG is still processing).
  */
 async function postToInstagram(args: {
   igUserId: string;
@@ -342,19 +336,17 @@ async function postToInstagram(args: {
   }
 
   // 1) Create media container
-  const createParams = new URLSearchParams();
-  createParams.set("image_url", imageUrl);
-  createParams.set("caption", args.caption || "");
-  createParams.set("access_token", token);
+  const createBody = new URLSearchParams();
+  createBody.set("image_url", imageUrl);
+  createBody.set("caption", args.caption || "");
+  createBody.set("access_token", token);
 
   const createRes = await fetch(
-    `https://graph.facebook.com/v24.0/${encodeURIComponent(
-      igUserId
-    )}/media`,
+    `https://graph.facebook.com/v24.0/${encodeURIComponent(igUserId)}/media`,
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: createParams,
+      body: createBody,
       cache: "no-store",
     }
   );
@@ -371,26 +363,74 @@ async function postToInstagram(args: {
 
   const creationId = String(createJson.id);
 
-  // 2) Publish container
-  const publishParams = new URLSearchParams();
-  publishParams.set("creation_id", creationId);
-  publishParams.set("access_token", token);
+  // 1.5) Wait for container to be ready (FINISHED)
+  // Backoff: ~2s, 2s, 3s, 5s, 8s, 8s = ~28s max
+  const waitsMs = [2000, 2000, 3000, 5000, 8000, 8000];
+  for (let i = 0; i < waitsMs.length; i++) {
+    const statusRes = await fetch(
+      `https://graph.facebook.com/v24.0/${encodeURIComponent(
+        creationId
+      )}?fields=status_code&access_token=${encodeURIComponent(token)}`,
+      { method: "GET", cache: "no-store" }
+    );
 
-  const publishRes = await fetch(
-    `https://graph.facebook.com/v24.0/${encodeURIComponent(
-      igUserId
-    )}/media_publish`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: publishParams,
-      cache: "no-store",
+    const statusJson: any = await statusRes.json().catch(() => null);
+
+    const statusCode = String(statusJson?.status_code || "").toUpperCase();
+    if (statusRes.ok && statusCode === "FINISHED") break;
+
+    // If IG returns an error while checking, stop early with that error.
+    if (!statusRes.ok && statusJson?.error) {
+      return {
+        ok: false,
+        status: statusRes.status,
+        json: statusJson,
+      };
     }
-  );
 
-  const publishJson: any = await publishRes.json().catch(() => null);
+    // Not ready yet → wait and retry
+    await sleep(waitsMs[i]);
+  }
 
-  if (!publishRes.ok || !publishJson?.id) {
+  // 2) Publish container (retry if still processing)
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const publishBody = new URLSearchParams();
+    publishBody.set("creation_id", creationId);
+    publishBody.set("access_token", token);
+
+    const publishRes = await fetch(
+      `https://graph.facebook.com/v24.0/${encodeURIComponent(
+        igUserId
+      )}/media_publish`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: publishBody,
+        cache: "no-store",
+      }
+    );
+
+    const publishJson: any = await publishRes.json().catch(() => null);
+
+    if (publishRes.ok && publishJson?.id) {
+      return {
+        ok: true,
+        status: publishRes.status,
+        json: {
+          postedId: publishJson.id,
+          containerId: creationId,
+        },
+      };
+    }
+
+    // If it's the known "not ready" error, wait and retry
+    const subcode = publishJson?.error?.error_subcode;
+    if (subcode === 2207027 || publishJson?.error?.code === 9007) {
+      await sleep(1500 * attempt); // small incremental delay
+      continue;
+    }
+
+    // Otherwise: hard fail
     return {
       ok: false,
       status: publishRes.status,
@@ -398,11 +438,13 @@ async function postToInstagram(args: {
     };
   }
 
+  // If we exhausted retries
   return {
-    ok: true,
-    status: publishRes.status,
+    ok: false,
+    status: 400,
     json: {
-      postedId: publishJson.id,
+      error:
+        "Instagram is still processing this media. Please try again in a moment.",
       containerId: creationId,
     },
   };
@@ -523,7 +565,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // --- Instagram (DIRECT ✅) ---
+      // --- Instagram (direct ✅ + wait until ready) ---
       if (p === "instagram") {
         const row = await loadSocialAccount(organisationId, "instagram");
 
@@ -538,12 +580,9 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // IMPORTANT: for IG Graph API we need the IG User ID (Instagram Business Account ID).
-        // We store it in page_id for now.
         const igUserId = row.page_id || "";
         const token = row.page_access_token || "";
 
-        // Instagram requires media (at least image for this flow)
         const ig = await postToInstagram({
           igUserId,
           accessToken: token,
@@ -556,7 +595,7 @@ export async function POST(req: NextRequest) {
             platform: "instagram",
             ok: false,
             status: ig.status,
-            error: ig.json?.error || "Instagram post failed",
+            error: ig.json?.error || ig.json?.error?.message || "Instagram post failed",
             details: ig.json,
           });
           continue;
