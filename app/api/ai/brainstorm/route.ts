@@ -1,144 +1,301 @@
 // app/api/ai/brainstorm/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
 
-type DirectPost = {
-  title: string;
-  body: string;
-  cta?: string;
-  hashtags?: string[];
+export const runtime = "nodejs";
+
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+
+type ProviderId =
+  | "facebook"
+  | "instagram"
+  | "tiktok"
+  | "linkedin"
+  | "google"
+  | "email"
+  | "whatsapp"
+  | "threads"
+  | "reddit";
+
+type BrainstormChatMsg = {
+  role: "user" | "assistant";
+  content: string;
 };
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+type CommonsImage = {
+  url: string; // direct image url (jpg/jpeg/png)
+  title: string; // file title
+  pageUrl: string; // file page on Commons
+  licenseShortName?: string;
+  licenseUrl?: string;
+  attribution?: string;
+};
 
-// NOTE: We keep this endpoint "direct post" only.
-// Stories/series are generated via /api/ai/story-series (already working).
+function clean(s: any) {
+  return String(s ?? "").trim();
+}
+
+/**
+ * Wikimedia Commons search that returns:
+ * - direct image URL (when available)
+ * - file page URL
+ * - license/attribution when the API provides it
+ *
+ * NOTE: Commons licensing can be CC BY / CC BY-SA / Public Domain etc.
+ * We return the attribution text so you can show it in UI / video.
+ */
+async function findCommonsImage(query: string): Promise<CommonsImage | null> {
+  const q = clean(query);
+  if (!q) return null;
+
+  // 1) search files
+  const searchUrl =
+    "https://commons.wikimedia.org/w/api.php?" +
+    new URLSearchParams({
+      action: "query",
+      format: "json",
+      origin: "*",
+      list: "search",
+      srsearch: `${q} filetype:bitmap`,
+      srnamespace: "6", // File:
+      srlimit: "5",
+    }).toString();
+
+  const searchRes = await fetch(searchUrl, { cache: "no-store" });
+  const searchJson: any = await searchRes.json().catch(() => null);
+  const first = searchJson?.query?.search?.[0];
+  const title: string | null = first?.title ? String(first.title) : null;
+  if (!title) return null;
+
+  // 2) fetch imageinfo (url + extmetadata)
+  const infoUrl =
+    "https://commons.wikimedia.org/w/api.php?" +
+    new URLSearchParams({
+      action: "query",
+      format: "json",
+      origin: "*",
+      prop: "imageinfo",
+      titles: title,
+      iiprop: "url|extmetadata",
+      iiurlwidth: "1600",
+    }).toString();
+
+  const infoRes = await fetch(infoUrl, { cache: "no-store" });
+  const infoJson: any = await infoRes.json().catch(() => null);
+
+  const pages = infoJson?.query?.pages || {};
+  const page = Object.values(pages)?.[0] as any;
+  const imageinfo = page?.imageinfo?.[0];
+  if (!imageinfo) return null;
+
+  const url: string | null =
+    imageinfo?.thumburl || imageinfo?.url || null;
+
+  // ensure it's an image link
+  if (!url || !/\.(jpg|jpeg|png|webp)(\?.*)?$/i.test(url)) return null;
+
+  const pageUrl = `https://commons.wikimedia.org/wiki/${encodeURIComponent(
+    title.replace(/ /g, "_")
+  )}`;
+
+  const meta = imageinfo?.extmetadata || {};
+  // These fields vary by file.
+  const licenseShortName =
+    meta?.LicenseShortName?.value
+      ? String(meta.LicenseShortName.value).replace(/<[^>]+>/g, "")
+      : undefined;
+
+  const licenseUrl =
+    meta?.LicenseUrl?.value
+      ? String(meta.LicenseUrl.value).replace(/<[^>]+>/g, "")
+      : undefined;
+
+  const artist =
+    meta?.Artist?.value
+      ? String(meta.Artist.value).replace(/<[^>]+>/g, "").trim()
+      : undefined;
+
+  const credit =
+    meta?.Credit?.value
+      ? String(meta.Credit.value).replace(/<[^>]+>/g, "").trim()
+      : undefined;
+
+  const attribution = [artist, credit].filter(Boolean).join(" · ") || undefined;
+
+  return {
+    url,
+    title,
+    pageUrl,
+    licenseShortName,
+    licenseUrl,
+    attribution,
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => null);
+    if (!OPENAI_API_KEY) {
+      return NextResponse.json(
+        { success: false, error: "Missing OPENAI_API_KEY in Vercel env." },
+        { status: 500 }
+      );
+    }
 
-    const prompt: string | undefined = body?.prompt;
-    const platform: string | undefined = body?.platform;
-    const tone: string | undefined = body?.tone;
-    const goal: string | undefined = body?.goal;
+    const body = await req.json().catch(() => ({}));
 
-    if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+    const prompt = clean(body?.prompt);
+    const platform = clean(body?.platform || "linkedin") as ProviderId;
+    const tone = clean(body?.tone || "Professional & confident");
+    const goal = clean(body?.goal || "Create a strong social post");
+    const wantImage = Boolean(body?.wantImage);
+    const history: BrainstormChatMsg[] = Array.isArray(body?.history)
+      ? body.history
+          .map((m: any) => ({
+            role: m?.role === "assistant" ? "assistant" : "user",
+            content: clean(m?.content),
+          }))
+          .filter((m: any) => m.content)
+      : [];
+
+    if (!prompt) {
       return NextResponse.json(
         { success: false, error: "prompt is required" },
         { status: 400 }
       );
     }
 
-    if (!OPENAI_API_KEY) {
-      return NextResponse.json(
-        { success: false, error: "Missing OPENAI_API_KEY" },
-        { status: 500 }
-      );
-    }
+    // The behaviour you asked for: “riff” BEFORE drafting.
+    const system = [
+      "You are Root Health Ops Brainstorm Coach.",
+      "Act like a friendly texting partner: you riff, expand, propose angles, and ask 1–2 smart questions.",
+      "Be warm, premium, therapist-friendly. UK spelling.",
+      "No medical diagnosis or treatment claims. No crisis advice.",
+      "Do not mention vendors.",
+      "Always produce (1) chat reply (riffing), then (2) 5–8 idea angles, then (3) 3 draft posts.",
+      "Draft posts should be distinct: hook, body, gentle CTA, and optional hashtags (0–6).",
+      "If the platform is instagram, remind that an image is needed for posting.",
+      "Return ONLY valid JSON matching the schema.",
+    ].join(" ");
 
-    const safePlatform = typeof platform === "string" ? platform : "linkedin";
-    const safeTone = typeof tone === "string" ? tone : "Professional & confident";
-    const safeGoal = typeof goal === "string" ? goal : "Direct post to my audience";
+    const userPrompt = [
+      `User message: ${prompt}`,
+      `Platform: ${platform}`,
+      `Tone: ${tone}`,
+      `Goal: ${goal}`,
+      "",
+      "Make the assistant response feel like a real conversation:",
+      "- Start with an enthusiastic, specific reflection (not generic praise).",
+      "- Offer 2–3 creative directions (angles) and 1–2 clarifying questions.",
+      "- Then propose 5–8 'angles' as bullets.",
+      "- Then produce 3 draft posts ready to paste.",
+    ].join("\n");
 
-    const system = `
-You are a senior social copywriter for Root Health Ops.
-Return ONLY valid JSON.
-Do NOT wrap in markdown.
-Do NOT include commentary outside JSON.
+    const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-You are writing a DIRECT SOCIAL POST (not a story, not a case study, not a narrative arc unless explicitly requested).
-The user wants something they could publish today.
-
-JSON schema:
-{
-  "title": "string (optional but recommended)",
-  "body": "string (the main post text)",
-  "cta": "string (optional)",
-  "hashtags": ["string", ...] (optional)
-}
-
-Rules:
-- Keep it platform-appropriate for: ${safePlatform}
-- Tone: ${safeTone}
-- Goal: ${safeGoal}
-- No fake stats. If you mention numbers, they must be framed as examples, not facts.
-- Avoid repetitive lines.
-- No mention of any third-party tools or providers.
-`.trim();
-
-    const user = `
-Write a direct post based on this brief:
-
-${prompt.trim()}
-`.trim();
-
-    // Use OpenAI Responses API format (works with fetch)
-    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+    const schema = {
+      name: "root_health_brainstorm",
+      strict: true,
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["assistantReply", "angles", "drafts"],
+        properties: {
+          assistantReply: { type: "string" },
+          questions: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 0,
+            maxItems: 2,
+          },
+          angles: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 5,
+            maxItems: 8,
+          },
+          drafts: {
+            type: "array",
+            minItems: 3,
+            maxItems: 3,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["title", "text", "cta", "hashtags", "suggestedMode"],
+              properties: {
+                title: { type: "string" },
+                text: { type: "string" },
+                cta: { type: "string" },
+                hashtags: {
+                  type: "array",
+                  items: { type: "string" },
+                  minItems: 0,
+                  maxItems: 6,
+                },
+                suggestedMode: {
+                  type: "string",
+                  enum: ["quick_blast", "story_series"],
+                },
+              },
+            },
+          },
+        },
       },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.7,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
+    } as const;
+
+    // Build conversation input
+    const inputMsgs: any[] = [{ role: "system", content: system }];
+
+    // Add history (keep short to avoid token bloat)
+    for (const m of history.slice(-10)) {
+      inputMsgs.push({ role: m.role, content: m.content });
+    }
+    inputMsgs.push({ role: "user", content: userPrompt });
+
+    const resp = await client.responses.create({
+      model: "gpt-4o-mini",
+      input: inputMsgs,
+      text: { format: { type: "json_schema", ...schema } },
     });
 
-    const aiJson = await aiRes.json().catch(() => null);
-
-    if (!aiRes.ok || !aiJson) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "AI request failed",
-          details: aiJson,
-        },
-        { status: 500 }
-      );
-    }
-
-    const content = aiJson?.choices?.[0]?.message?.content;
-    if (!content || typeof content !== "string") {
-      return NextResponse.json(
-        { success: false, error: "AI response missing content" },
-        { status: 500 }
-      );
-    }
-
-    let parsed: DirectPost | null = null;
+    const raw = resp.output_text || "";
+    let json: any;
     try {
-      parsed = JSON.parse(content);
+      json = JSON.parse(raw);
     } catch {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "AI response was not valid JSON. Try again or slightly shorten your brief.",
-          raw: content,
+          error: "AI output was not valid JSON (unexpected).",
+          raw: raw.slice(0, 2000),
         },
-        { status: 200 }
+        { status: 500 }
       );
     }
 
-    if (!parsed || typeof parsed.body !== "string" || !parsed.body.trim()) {
-      return NextResponse.json(
-        { success: false, error: "AI returned empty body" },
-        { status: 200 }
-      );
+    // Optional: fetch Commons image
+    let image: CommonsImage | null = null;
+    if (wantImage) {
+      // Use the user's prompt as query, but short and topic-y
+      const q = prompt.slice(0, 120);
+      image = await findCommonsImage(q);
     }
 
     return NextResponse.json(
-      { success: true, post: parsed },
+      {
+        success: true,
+        platform,
+        tone,
+        goal,
+        prompt,
+        ...json,
+        image, // may be null
+      },
       { status: 200 }
     );
-  } catch (err) {
-    console.error("[ai/brainstorm] unexpected error", err);
+  } catch (e: any) {
+    console.error("[ai/brainstorm] error", e);
     return NextResponse.json(
-      { success: false, error: "Internal server error in /api/ai/brainstorm" },
+      { success: false, error: e?.message || "Brainstorm failed" },
       { status: 500 }
     );
   }
