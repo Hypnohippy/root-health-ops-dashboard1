@@ -17,22 +17,30 @@ function encodeState(obj: any) {
 export async function GET(req: NextRequest) {
   const provider = (req.nextUrl.searchParams.get("provider") || "facebook") as ProviderId;
 
-  // ----------------------------
-  // Threads (Meta Threads OAuth)
-  // ----------------------------
-  if (provider === "threads") {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-    const clientId = process.env.THREADS_CLIENT_ID || "";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  if (!appUrl) {
+    return NextResponse.json(
+      { error: "Missing NEXT_PUBLIC_APP_URL" },
+      { status: 500 }
+    );
+  }
 
-    if (!appUrl || !clientId) {
+  // ----------------------------
+  // Threads (via Instagram OAuth)
+  // ----------------------------
+  // IMPORTANT:
+  // Threads permissions are granted through Instagram OAuth.
+  // This avoids the “threads.com login -> something went wrong” loop.
+  if (provider === "threads") {
+    // We use your Meta App ID/Secret (same app you use for IG/FB)
+    const clientId =
+      process.env.THREADS_CLIENT_ID ||
+      process.env.FACEBOOK_APP_ID ||
+      "";
+
+    if (!clientId) {
       return NextResponse.json(
-        {
-          error: "Missing THREADS_CLIENT_ID or NEXT_PUBLIC_APP_URL",
-          missing: {
-            THREADS_CLIENT_ID: !clientId,
-            NEXT_PUBLIC_APP_URL: !appUrl,
-          },
-        },
+        { error: "Missing THREADS_CLIENT_ID or FACEBOOK_APP_ID" },
         { status: 500 }
       );
     }
@@ -46,10 +54,12 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
+    // Threads scopes (comma-separated)
     const scope = ["threads_basic", "threads_content_publish"].join(",");
 
+    // Instagram OAuth authorize endpoint (NOT threads.com login)
     const authUrl =
-      "https://www.threads.net/oauth/authorize" +
+      "https://api.instagram.com/oauth/authorize" +
       `?client_id=${encodeURIComponent(clientId)}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
       `&response_type=code` +
@@ -73,18 +83,10 @@ export async function GET(req: NextRequest) {
   // LinkedIn (separate OAuth)
   // ----------------------------
   if (provider === "linkedin") {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
     const clientId = process.env.LINKEDIN_CLIENT_ID || "";
-
-    if (!appUrl || !clientId) {
+    if (!clientId) {
       return NextResponse.json(
-        {
-          error: "Missing LINKEDIN_CLIENT_ID or NEXT_PUBLIC_APP_URL",
-          missing: {
-            LINKEDIN_CLIENT_ID: !clientId,
-            NEXT_PUBLIC_APP_URL: !appUrl,
-          },
-        },
+        { error: "Missing LINKEDIN_CLIENT_ID" },
         { status: 500 }
       );
     }
@@ -133,17 +135,9 @@ export async function GET(req: NextRequest) {
   }
 
   const appId = process.env.FACEBOOK_APP_ID || "";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-
-  if (!appId || !appUrl) {
+  if (!appId) {
     return NextResponse.json(
-      {
-        error: "Missing FACEBOOK_APP_ID or NEXT_PUBLIC_APP_URL",
-        missing: {
-          FACEBOOK_APP_ID: !appId,
-          NEXT_PUBLIC_APP_URL: !appUrl,
-        },
-      },
+      { error: "Missing FACEBOOK_APP_ID" },
       { status: 500 }
     );
   }
@@ -157,29 +151,18 @@ export async function GET(req: NextRequest) {
   };
   const state = encodeState(stateObj);
 
-  /**
-   * ✅ Base scopes
-   * - pages_manage_engagement: needed to manage/act on Page engagement (comments/replies)
-   * - pages_read_engagement: read comments/mentions/insights needed for “Responses” inbox
-   */
   const baseScopes = [
     "public_profile",
     "pages_show_list",
     "pages_read_engagement",
     "pages_manage_posts",
-    "pages_manage_engagement",
     "business_management",
   ];
 
-  /**
-   * ✅ Instagram scopes
-   * - instagram_manage_comments: required to reply to IG comments via Graph API
-   */
-   const instagramScopes = [
+  const instagramScopes = [
     ...baseScopes,
     "instagram_basic",
     "instagram_content_publish",
-    "instagram_manage_comments", // ✅ add this
   ];
 
   const scopes = provider === "instagram" ? instagramScopes : baseScopes;
