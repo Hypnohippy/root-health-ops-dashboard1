@@ -31,6 +31,9 @@ type InboxItem = {
 
   postText?: string | null;
   postId?: string | null;
+
+  // ✅ needed to reply
+  externalId?: string | null;
 };
 
 type ApiResponse = {
@@ -137,7 +140,6 @@ function sanitizeAiReply(raw: string) {
   const t = (raw || "").trim();
   if (!t) return "";
 
-  // If it looks like helper/ops output, we’ll clean aggressively
   const lower = t.toLowerCase();
   const looksBad =
     looksLikeSystemHelper(t) ||
@@ -175,8 +177,6 @@ function sanitizeAiReply(raw: string) {
     .trim();
 
   if (!cleaned) return "";
-
-  // If after cleaning it STILL looks like helper output → reject it
   if (looksLikeSystemHelper(cleaned)) return "";
 
   return cleaned;
@@ -348,41 +348,6 @@ function draftReplyLocal({
   );
 }
 
-function newSeedItem(): InboxItem {
-  const now = new Date();
-  const id = `seed_${now.getTime()}_${Math.random().toString(16).slice(2)}`;
-
-  const platforms: InboxPlatform[] = ["linkedin", "instagram", "threads", "facebook"];
-  const platform = platforms[Math.floor(Math.random() * platforms.length)] || "linkedin";
-
-  const authorNames = ["Alex", "Sam", "Jordan", "Taylor", "Jamie"];
-  const authorName = authorNames[Math.floor(Math.random() * authorNames.length)] || "Alex";
-
-  const samples = [
-    "This really helped — thank you for sharing.",
-    "How do you stay consistent when motivation drops?",
-    "I’ve been feeling overwhelmed lately. Any small first step?",
-    "Love this. Can you share an example routine?",
-    "Not sure I agree — what’s the evidence for this approach?",
-  ];
-
-  const text = samples[Math.floor(Math.random() * samples.length)] || samples[0];
-
-  return {
-    id,
-    platform,
-    status: "needs_reply",
-    kind: "comment",
-    authorName,
-    authorHandle: null,
-    text,
-    permalink: null,
-    createdAt: now.toISOString(),
-    postText: "a quick check-in post",
-    postId: null,
-  };
-}
-
 function readSavedDrafts(): SavedDraft[] {
   if (typeof window === "undefined") return [];
   try {
@@ -399,9 +364,7 @@ function writeSavedDrafts(next: SavedDraft[]) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(STORAGE_KEY_DRAFTS, JSON.stringify(next));
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 type StatusOverrides = Record<string, InboxStatus>;
@@ -422,14 +385,14 @@ function writeStatusOverrides(next: StatusOverrides) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(STORAGE_KEY_STATUS, JSON.stringify(next));
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [sendingReply, setSendingReply] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -447,8 +410,6 @@ export default function ResponsesPage() {
   const [replyDraft, setReplyDraft] = useState("");
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  const [seedCount, setSeedCount] = useState(0);
 
   // Saved drafts
   const [savedDrafts, setSavedDrafts] = useState<SavedDraft[]>([]);
@@ -499,7 +460,7 @@ export default function ResponsesPage() {
         cache: "no-store",
       });
 
-      const data: ApiResponse = await res.json().catch(() => ({ success: false }));
+      const data: ApiResponse = await res.json().catch(() => ({ success: false } as any));
 
       if (!res.ok || data?.success === false) {
         throw new Error(data?.error || `Failed to load inbox (HTTP ${res.status}).`);
@@ -525,6 +486,33 @@ export default function ResponsesPage() {
       await load();
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const pullLatest = async () => {
+    setPulling(true);
+    setError(null);
+    try {
+      const org = organisationId || (await resolveOrg());
+      const res = await fetch("/api/responses/pull", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ organisationId: org }),
+      });
+
+      const data: any = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || `Pull failed (HTTP ${res.status}).`);
+      }
+
+      setAiStatus(`Pulled ${data?.pulled || 0} item(s). Refreshing list…`);
+      await load();
+      setTimeout(() => setAiStatus(null), 2600);
+    } catch (e: any) {
+      setError(e?.message || "Could not pull latest comments.");
+    } finally {
+      setPulling(false);
     }
   };
 
@@ -705,15 +693,12 @@ export default function ResponsesPage() {
   };
 
   const setLocalStatus = (id: string, status: InboxStatus) => {
-    // update in-memory overrides + persist
     const nextOv: StatusOverrides = {
       ...(statusOverridesRef.current || {}),
       [id]: status,
     };
     statusOverridesRef.current = nextOv;
     writeStatusOverrides(nextOv);
-
-    // update visible list immediately
     setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status } : x)));
   };
 
@@ -731,7 +716,6 @@ export default function ResponsesPage() {
     });
 
     const itemSnapshot = {
-      id: selected.id,
       platform: selected.platform,
       kind: selected.kind || "comment",
       text: selected.text,
@@ -750,7 +734,7 @@ export default function ResponsesPage() {
         body: JSON.stringify({
           context: "responses_public_reply_draft_v2",
           userAction:
-            "Write ONLY the reply text that I can paste as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
+            "Write ONLY the reply text that I can post as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
           outcome: "success",
           platform: itemSnapshot.platform,
           item: {
@@ -787,7 +771,6 @@ export default function ResponsesPage() {
       const r1 = await callAi();
       let cleaned1 = sanitizeAiReply(r1.raw);
 
-      // retry once if drift/helper/generic
       if (
         !r1.ok ||
         !cleaned1 ||
@@ -804,7 +787,7 @@ export default function ResponsesPage() {
           !isTooGeneric(cleaned2, itemSnapshot.text)
         ) {
           setReplyDraft(cleaned2);
-          setAiStatus("Draft ready — edit it, then copy/paste.");
+          setAiStatus("Draft ready — edit it, then send.");
           setTimeout(() => setAiStatus(null), 4200);
           return;
         }
@@ -816,7 +799,7 @@ export default function ResponsesPage() {
       }
 
       setReplyDraft(cleaned1);
-      setAiStatus("Draft ready — edit it, then copy/paste.");
+      setAiStatus("Draft ready — edit it, then send.");
       setTimeout(() => setAiStatus(null), 4200);
     } catch {
       setReplyDraft(fallback);
@@ -834,10 +817,68 @@ export default function ResponsesPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
 
-      // ✅ mark replied locally (no backend endpoint required)
+      // local mark
       setLocalStatus(selected.id, "replied");
     } catch {
       setCopied(false);
+    }
+  };
+
+  const sendReply = async () => {
+    if (!selected) return;
+    const msg = (replyDraft || "").trim();
+    if (!msg) {
+      setAiStatus("Type or generate a reply first.");
+      setTimeout(() => setAiStatus(null), 2200);
+      return;
+    }
+
+    if (!selected.externalId) {
+      setAiStatus("This item is missing the platform comment ID. Pull latest again and re-select this item.");
+      setTimeout(() => setAiStatus(null), 3200);
+      return;
+    }
+
+    // Only FB/IG implemented here (safe + predictable)
+    if (selected.platform !== "facebook" && selected.platform !== "instagram") {
+      setAiStatus(`Direct reply is not enabled for ${PLATFORM_LABEL[selected.platform]} yet.`);
+      setTimeout(() => setAiStatus(null), 3200);
+      return;
+    }
+
+    setSendingReply(true);
+    setError(null);
+
+    try {
+      const org = organisationId || (await resolveOrg());
+
+      const res = await fetch("/api/responses/reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          organisationId: org,
+          platform: selected.platform,
+          externalId: selected.externalId,
+          message: msg,
+        }),
+      });
+
+      const data: any = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || `Reply failed (HTTP ${res.status}).`);
+      }
+
+      setAiStatus("Reply sent ✅");
+      setLocalStatus(selected.id, "replied");
+      setTimeout(() => setAiStatus(null), 2400);
+
+      // refresh list so status persists from DB
+      await load();
+    } catch (e: any) {
+      setError(e?.message || "Could not send reply.");
+    } finally {
+      setSendingReply(false);
     }
   };
 
@@ -898,24 +939,6 @@ export default function ResponsesPage() {
     setTimeout(() => setAiStatus(null), 1800);
   };
 
-  const seedOne = () => {
-    const seed = newSeedItem();
-    setItems((prev) => [seed, ...prev]);
-    setSelectedId(seed.id);
-    setSeedCount((n) => n + 1);
-    setError(null);
-    setNote("Seed mode: demo items only (not real platform comments).");
-  };
-
-  const seedFive = () => {
-    const batch = Array.from({ length: 5 }, () => newSeedItem());
-    setItems((prev) => [...batch, ...prev]);
-    setSelectedId(batch[0]?.id || null);
-    setSeedCount((n) => n + 5);
-    setError(null);
-    setNote("Seed mode: demo items only (not real platform comments).");
-  };
-
   const savedForSelected = useMemo(() => {
     if (!selected) return [];
     return savedDrafts.filter((d) => d.inboxItemId === selected.id);
@@ -936,16 +959,32 @@ export default function ResponsesPage() {
               Responses
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Your inbox for comments and messages — separate from Scheduled so staff don’t
-              confuse “planning posts” with “responding”.
+              Your inbox for comments and messages — pull latest, reply inside the dashboard.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Pill>All: {counts.total}</Pill>
-            <Pill tone="warn">Unread: {counts.unread}</Pill>
-            <Pill tone="warn">Needs reply: {counts.needs_reply}</Pill>
-            <Pill tone="good">Replied: {counts.replied}</Pill>
+            <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
+              All: {counts.total}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold text-amber-100">
+              Unread: {counts.unread}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold text-amber-100">
+              Needs reply: {counts.needs_reply}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold text-emerald-100">
+              Replied: {counts.replied}
+            </span>
+
+            <button
+              type="button"
+              onClick={pullLatest}
+              disabled={pulling}
+              className="rounded-2xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
+            >
+              {pulling ? "Pulling…" : "Pull latest"}
+            </button>
 
             <button
               type="button"
@@ -958,12 +997,12 @@ export default function ResponsesPage() {
           </div>
         </div>
 
-        <GlassCard className="p-6">
+        <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search & filters</div>
               <div className="mt-1 text-xs text-slate-300">
-                Find what needs action fast. (Enterprise-safe.)
+                Pull latest to fetch real comments. Refresh just reloads what’s already stored.
               </div>
             </div>
 
@@ -986,11 +1025,11 @@ export default function ResponsesPage() {
                 <option className="bg-slate-950 text-slate-100" value="facebook">
                   Facebook
                 </option>
-                <option className="bg-slate-950 text-slate-100" value="linkedin">
-                  LinkedIn
-                </option>
                 <option className="bg-slate-950 text-slate-100" value="instagram">
                   Instagram
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="linkedin">
+                  LinkedIn
                 </option>
                 <option className="bg-slate-950 text-slate-100" value="threads">
                   Threads
@@ -1027,28 +1066,6 @@ export default function ResponsesPage() {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={seedOne}
-              className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-50 hover:bg-emerald-300/15 transition"
-            >
-              Seed test item
-            </button>
-
-            <button
-              type="button"
-              onClick={seedFive}
-              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
-            >
-              Seed 5
-            </button>
-
-            {seedCount > 0 && (
-              <span className="text-[11px] text-slate-400">Seeded: {seedCount}</span>
-            )}
-          </div>
-
           {note && (
             <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300 whitespace-pre-wrap">
               {note}
@@ -1072,25 +1089,102 @@ export default function ResponsesPage() {
           ) : (
             <div className="mt-4 text-[11px] text-slate-400">Loading workspace…</div>
           )}
-        </GlassCard>
+
+          {!configured && (
+            <div className="mt-3 text-[11px] text-amber-200">
+              If you just created the table: hit <b>Pull latest</b> first.
+            </div>
+          )}
+        </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-3">
             {!loading && filtered.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
-                No items found.
+                No items found. Hit <b>Pull latest</b> to fetch comments into your inbox.
               </div>
             ) : (
-              filtered.map((it) => <Row key={it.id} it={it} />)
+              filtered.map((it) => (
+                <button
+                  key={it.id}
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (typeof window !== "undefined") listScrollYRef.current = window.scrollY || 0;
+                    setSelectedId(it.id);
+                  }}
+                  className={[
+                    "w-full text-left rounded-2xl border p-4 transition",
+                    it.id === selectedId
+                      ? "border-emerald-300/30 bg-emerald-300/5"
+                      : "border-white/10 bg-black/20 hover:bg-white/5",
+                  ].join(" ")}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={[
+                          "h-2 w-2 rounded-full",
+                          PLATFORM_DOT[it.platform] || PLATFORM_DOT.unknown,
+                          "shadow-[0_0_0_4px_rgba(255,255,255,0.06)]",
+                        ].join(" ")}
+                      />
+                      <div className="text-xs font-semibold text-slate-100 truncate">
+                        {PLATFORM_LABEL[it.platform] || "Unknown"}
+                        <span className="ml-2 text-[11px] font-normal text-slate-400">
+                          {it.kind || "activity"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <span
+                      className={[
+                        "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold",
+                        statusTone(it.status) === "good"
+                          ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+                          : statusTone(it.status) === "warn"
+                          ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+                          : "border-white/10 bg-white/5 text-slate-200",
+                      ].join(" ")}
+                    >
+                      {it.status === "needs_reply"
+                        ? "needs reply"
+                        : it.status === "unread"
+                        ? "unread"
+                        : it.status === "replied"
+                        ? "replied"
+                        : it.status}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 text-xs text-slate-400">
+                    {safeDate(it.createdAt)}
+                    {it.authorName || it.authorHandle ? (
+                      <>
+                        {" "}
+                        ·{" "}
+                        <span className="text-slate-300">
+                          {it.authorName || it.authorHandle}
+                          {it.authorHandle && it.authorName ? ` (${it.authorHandle})` : ""}
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">
+                    {it.text || "(empty)"}
+                  </div>
+                </button>
+              ))
             )}
           </div>
 
           <div className="space-y-6">
-            <GlassCard className="p-6">
+            <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
               <div>
                 <div className="text-base font-semibold">Reply assistant</div>
                 <div className="mt-1 text-xs text-slate-300">
-                  Generate a draft, edit it, then copy/paste to reply on the platform.
+                  AI draft → edit → Send reply (Facebook/Instagram).
                 </div>
               </div>
 
@@ -1114,7 +1208,18 @@ export default function ResponsesPage() {
                           {PLATFORM_LABEL[selected.platform] || "Unknown"}
                         </div>
                       </div>
-                      <Pill tone={statusTone(selected.status)}>{selected.status}</Pill>
+                      <span
+                        className={[
+                          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold",
+                          statusTone(selected.status) === "good"
+                            ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+                            : statusTone(selected.status) === "warn"
+                            ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+                            : "border-white/10 bg-white/5 text-slate-200",
+                        ].join(" ")}
+                      >
+                        {selected.status}
+                      </span>
                     </div>
 
                     <div className="mt-2 text-[11px] text-slate-400">
@@ -1146,15 +1251,26 @@ export default function ResponsesPage() {
                     ) : null}
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={runAiSuggest}
-                      className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
+                      className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
                     >
-                      AI Suggest Reply
+                      AI Suggest
                     </button>
 
+                    <button
+                      type="button"
+                      onClick={sendReply}
+                      disabled={sendingReply || !replyDraft.trim()}
+                      className="rounded-2xl bg-blue-500 px-4 py-3 text-sm font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                    >
+                      {sendingReply ? "Sending…" : "Send reply"}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={copyDraft}
@@ -1163,49 +1279,42 @@ export default function ResponsesPage() {
                     >
                       {copied ? "Copied" : "Copy"}
                     </button>
-                  </div>
 
-                  <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={saveDraft}
                       disabled={!replyDraft.trim()}
-                      className="flex-1 rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                      className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
                       Save draft
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowSaved(true)}
-                      className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
-                    >
-                      View saved
-                      {savedForSelected.length > 0 ? (
-                        <span className="ml-2 text-xs text-slate-300">
-                          ({savedForSelected.length})
-                        </span>
-                      ) : null}
-                    </button>
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={clearDraft}
-                      className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
                     >
-                      Clear draft
+                      Clear
                     </button>
 
                     <button
                       type="button"
                       onClick={markNeedsReply}
-                      className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
                     >
                       Mark needs reply
                     </button>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowSaved(true)}
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
+                  >
+                    View saved{savedForSelected.length > 0 ? ` (${savedForSelected.length})` : ""}
+                  </button>
 
                   {aiStatus && (
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300 whitespace-pre-wrap">
@@ -1221,16 +1330,7 @@ export default function ResponsesPage() {
                   />
                 </div>
               )}
-            </GlassCard>
-
-            <GlassCard className="p-6">
-              <div className="text-base font-semibold">Enterprise safety</div>
-              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • AI drafts are editable by staff before posting.{"\n"}
-                • Drafts + statuses are stored locally (browser) for now.{"\n"}
-                • Next step: save drafts/status to Supabase + audit trail.
-              </div>
-            </GlassCard>
+            </div>
           </div>
         </div>
       </div>
@@ -1307,7 +1407,7 @@ export default function ResponsesPage() {
             </div>
 
             <div className="mt-5 text-[11px] text-slate-500">
-              Tip: if AI outputs “posting” language again, hit <b>Clear draft</b> and regenerate.
+              Tip: If AI outputs “posting” language again, hit <b>Clear</b> and regenerate.
             </div>
           </div>
         </div>
