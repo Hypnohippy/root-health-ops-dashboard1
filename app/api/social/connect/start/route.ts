@@ -4,10 +4,9 @@ import crypto from "crypto";
 
 export const runtime = "nodejs";
 
-type ProviderId = "facebook" | "instagram" | "linkedin" | "threads";
-
-function safeBaseUrl(appUrl: string) {
-  return (appUrl || "").replace(/\/$/, "");
+function baseUrl(req: NextRequest) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  return appUrl ? appUrl.replace(/\/$/, "") : req.nextUrl.origin;
 }
 
 function encodeState(obj: any) {
@@ -15,56 +14,47 @@ function encodeState(obj: any) {
 }
 
 export async function GET(req: NextRequest) {
-  const provider = (req.nextUrl.searchParams.get("provider") || "facebook") as ProviderId;
+  const provider = (req.nextUrl.searchParams.get("provider") || "").toLowerCase();
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-  if (!appUrl) {
-    return NextResponse.json(
-      { error: "Missing NEXT_PUBLIC_APP_URL" },
-      { status: 500 }
-    );
-  }
-
-  // ----------------------------
-  // Threads (via Instagram OAuth)
-  // ----------------------------
-  // IMPORTANT:
-  // Threads permissions are granted through Instagram OAuth.
-  // This avoids the “threads.com login -> something went wrong” loop.
+  /**
+   * ============================
+   * THREADS (NATIVE OAUTH ONLY)
+   * ============================
+   */
   if (provider === "threads") {
-    // We use your Meta App ID/Secret (same app you use for IG/FB)
-    const clientId =
-      process.env.THREADS_CLIENT_ID ||
-      process.env.FACEBOOK_APP_ID ||
-      "";
+    const THREADS_CLIENT_ID = process.env.THREADS_CLIENT_ID || "";
+    const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
 
-    if (!clientId) {
+    if (!THREADS_CLIENT_ID || !APP_URL) {
       return NextResponse.json(
-        { error: "Missing THREADS_CLIENT_ID or FACEBOOK_APP_ID" },
+        {
+          error: "Missing THREADS_CLIENT_ID or NEXT_PUBLIC_APP_URL",
+          missing: {
+            THREADS_CLIENT_ID: !THREADS_CLIENT_ID,
+            NEXT_PUBLIC_APP_URL: !APP_URL,
+          },
+        },
         { status: 500 }
       );
     }
 
-    const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/threads/callback`;
+    const redirectUri = `${baseUrl(req)}/api/oauth/threads/callback`;
 
-    const stateObj = {
+    const state = encodeState({
       provider: "threads",
       nonce: crypto.randomUUID(),
       t: Date.now(),
-    };
-    const state = encodeState(stateObj);
+    });
 
-    // Threads scopes (comma-separated)
-    const scope = ["threads_basic", "threads_content_publish"].join(",");
-
-    // Instagram OAuth authorize endpoint (NOT threads.com login)
     const authUrl =
-      "https://api.instagram.com/oauth/authorize" +
-      `?client_id=${encodeURIComponent(clientId)}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&response_type=code` +
-      `&scope=${encodeURIComponent(scope)}` +
-      `&state=${encodeURIComponent(state)}`;
+      "https://www.threads.com/oauth/authorize?" +
+      new URLSearchParams({
+        client_id: THREADS_CLIENT_ID,
+        redirect_uri: redirectUri,
+        response_type: "code",
+        scope: "threads_basic,threads_content_publish",
+        state,
+      }).toString();
 
     const res = NextResponse.redirect(authUrl, { status: 302 });
 
@@ -79,37 +69,40 @@ export async function GET(req: NextRequest) {
     return res;
   }
 
-  // ----------------------------
-  // LinkedIn (separate OAuth)
-  // ----------------------------
+  /**
+   * ============================
+   * LINKEDIN
+   * ============================
+   */
   if (provider === "linkedin") {
     const clientId = process.env.LINKEDIN_CLIENT_ID || "";
-    if (!clientId) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+
+    if (!clientId || !appUrl) {
       return NextResponse.json(
-        { error: "Missing LINKEDIN_CLIENT_ID" },
+        { error: "Missing LINKEDIN_CLIENT_ID or NEXT_PUBLIC_APP_URL" },
         { status: 500 }
       );
     }
 
-    const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/linkedin/callback`;
+    const redirectUri = `${baseUrl(req)}/api/oauth/linkedin/callback`;
 
-    const stateObj = {
+    const state = encodeState({
       provider: "linkedin",
       nonce: crypto.randomUUID(),
       t: Date.now(),
-    };
-    const state = encodeState(stateObj);
-
-    const scope = ["openid", "profile", "email", "w_member_social"].join(" ");
+    });
 
     const authUrl =
-      "https://www.linkedin.com/oauth/v2/authorization" +
-      `?response_type=code` +
-      `&client_id=${encodeURIComponent(clientId)}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&state=${encodeURIComponent(state)}` +
-      `&scope=${encodeURIComponent(scope)}` +
-      `&prompt=consent`;
+      "https://www.linkedin.com/oauth/v2/authorization?" +
+      new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        scope: "openid profile email w_member_social",
+        state,
+        prompt: "consent",
+      }).toString();
 
     const res = NextResponse.redirect(authUrl, { status: 302 });
 
@@ -124,68 +117,76 @@ export async function GET(req: NextRequest) {
     return res;
   }
 
-  // ----------------------------
-  // Meta (Facebook/Instagram)
-  // ----------------------------
-  if (provider !== "facebook" && provider !== "instagram") {
-    return NextResponse.json(
-      { error: `Unsupported provider: ${provider}` },
-      { status: 400 }
-    );
+  /**
+   * ============================
+   * META (FACEBOOK / INSTAGRAM)
+   * ============================
+   */
+  if (provider === "facebook" || provider === "instagram") {
+    const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || "";
+    const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
+
+    if (!FACEBOOK_APP_ID || !APP_URL) {
+      return NextResponse.json(
+        { error: "Missing FACEBOOK_APP_ID or NEXT_PUBLIC_APP_URL" },
+        { status: 500 }
+      );
+    }
+
+    const redirectUri = `${baseUrl(req)}/api/oauth/facebook/callback`;
+
+    const state = encodeState({
+      provider,
+      nonce: crypto.randomUUID(),
+      t: Date.now(),
+    });
+
+    const scopes =
+      provider === "instagram"
+        ? [
+            "public_profile",
+            "pages_show_list",
+            "pages_read_engagement",
+            "pages_manage_posts",
+            "business_management",
+            "instagram_basic",
+            "instagram_content_publish",
+          ]
+        : [
+            "public_profile",
+            "pages_show_list",
+            "pages_read_engagement",
+            "pages_manage_posts",
+            "business_management",
+          ];
+
+    const authUrl =
+      "https://www.facebook.com/v24.0/dialog/oauth?" +
+      new URLSearchParams({
+        client_id: FACEBOOK_APP_ID,
+        redirect_uri: redirectUri,
+        response_type: "code",
+        scope: scopes.join(","),
+        state,
+        auth_type: "rerequest",
+        return_scopes: "true",
+      }).toString();
+
+    const res = NextResponse.redirect(authUrl, { status: 302 });
+
+    res.cookies.set("fb_oauth_state", state, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 10 * 60,
+    });
+
+    return res;
   }
 
-  const appId = process.env.FACEBOOK_APP_ID || "";
-  if (!appId) {
-    return NextResponse.json(
-      { error: "Missing FACEBOOK_APP_ID" },
-      { status: 500 }
-    );
-  }
-
-  const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/facebook/callback`;
-
-  const stateObj = {
-    provider,
-    nonce: crypto.randomUUID(),
-    t: Date.now(),
-  };
-  const state = encodeState(stateObj);
-
-  const baseScopes = [
-    "public_profile",
-    "pages_show_list",
-    "pages_read_engagement",
-    "pages_manage_posts",
-    "business_management",
-  ];
-
-  const instagramScopes = [
-    ...baseScopes,
-    "instagram_basic",
-    "instagram_content_publish",
-  ];
-
-  const scopes = provider === "instagram" ? instagramScopes : baseScopes;
-
-  const authUrl =
-    "https://www.facebook.com/v24.0/dialog/oauth" +
-    `?client_id=${encodeURIComponent(appId)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&state=${encodeURIComponent(state)}` +
-    `&response_type=code` +
-    `&auth_type=rerequest` +
-    `&return_scopes=true` +
-    `&scope=${encodeURIComponent(scopes.join(","))}`;
-
-  const res = NextResponse.redirect(authUrl, { status: 302 });
-
-  res.cookies.set("fb_oauth_state", state, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 10 * 60,
-  });
-
-  return res;
+  return NextResponse.json(
+    { error: `Unsupported provider: ${provider}` },
+    { status: 400 }
+  );
 }
