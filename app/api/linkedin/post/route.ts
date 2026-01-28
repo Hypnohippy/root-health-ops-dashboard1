@@ -1,3 +1,4 @@
+// app/api/linkedin/post/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
@@ -147,9 +148,8 @@ async function registerLinkedInImageUpload(args: {
 }
 
 /**
- * ✅ IMPORTANT FIX
- * TS doesn't like Uint8Array for fetch body in your build.
- * Use ArrayBuffer (which is valid BodyInit).
+ * TS doesn't like Uint8Array for fetch body in some builds.
+ * Use ArrayBuffer (valid BodyInit).
  */
 async function uploadArrayBufferToLinkedIn(
   uploadUrl: string,
@@ -161,7 +161,7 @@ async function uploadArrayBufferToLinkedIn(
     headers: {
       "Content-Type": contentType || "application/octet-stream",
     },
-    body: arrayBuffer, // ✅ ArrayBuffer is accepted as BodyInit
+    body: arrayBuffer,
     cache: "no-store",
   });
 
@@ -176,6 +176,60 @@ async function uploadArrayBufferToLinkedIn(
   }
 
   return { ok: true as const, status: res.status };
+}
+
+function looksLikeDuplicatePost(details: any, status?: number) {
+  // LinkedIn often returns:
+  // - status 422
+  // - message contains "Duplicate post is detected" or "Content is a duplicate of urn:li:share:..."
+  // - inputErrors[].code === "DUPLICATE_POST"
+  const msg =
+    String(details?.message || details?.error || details?.error_description || "")
+      .toLowerCase()
+      .trim();
+
+  const inputErrors = details?.errorDetails?.inputErrors || details?.details?.errorDetails?.inputErrors;
+  const hasCode =
+    Array.isArray(inputErrors) &&
+    inputErrors.some((e: any) => String(e?.code || "").toUpperCase() === "DUPLICATE_POST");
+
+  const hasMsg =
+    msg.includes("duplicate post") ||
+    msg.includes("content is a duplicate") ||
+    msg.includes("duplicate of urn:li:share:");
+
+  return (status === 422 || status === 409) && (hasCode || hasMsg);
+}
+
+function antiDuplicateVariation(original: string) {
+  // Small, human-looking changes (not spammy).
+  // LinkedIn duplicate detection is strict, but changing the first line + adding a micro-line often works.
+  const t = (original || "").trim();
+  if (!t) return t;
+
+  const lines = t.split("\n");
+  const firstLine = (lines[0] || "").trim();
+
+  const altHooks = [
+    "A quick thought for today:",
+    "One thing I’ve noticed lately:",
+    "A small reminder that helps:",
+    "Worth saying out loud:",
+  ];
+
+  // simple deterministic pick (no randomness needed)
+  const hook = altHooks[(firstLine.length + t.length) % altHooks.length];
+
+  // If first line is already a hook-ish line, just prepend a short prefix
+  const newFirstLine = firstLine ? `${hook} ${firstLine}` : hook;
+
+  const rest = lines.slice(1).join("\n").trim();
+
+  // Add a tiny “freshness” line near the end
+  const freshness = "\n\n(Sharing this again with a slightly different angle.)";
+
+  const composed = rest ? `${newFirstLine}\n${rest}${freshness}` : `${newFirstLine}${freshness}`;
+  return composed.trim();
 }
 
 async function createLinkedInUgcPost(args: {
@@ -249,15 +303,23 @@ export async function POST(req: NextRequest) {
 
     if (!organisationId) {
       return NextResponse.json(
-        { ok: false, error: "Missing organisationId" },
-        { status: 400 }
+        {
+          ok: false,
+          error: "Missing organisationId",
+          userMessage: "We couldn’t find your organisation yet. Refresh and try again.",
+        },
+        { status: 200 }
       );
     }
 
     if (!text) {
       return NextResponse.json(
-        { ok: false, error: "Missing post text" },
-        { status: 400 }
+        {
+          ok: false,
+          error: "Missing post text",
+          userMessage: "Your post is empty. Add a message and try again.",
+        },
+        { status: 200 }
       );
     }
 
@@ -268,10 +330,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error:
-            "LinkedIn is not connected (missing access token). Please reconnect LinkedIn on the Connect page.",
+          error: "LinkedIn not connected",
+          userMessage:
+            "LinkedIn isn’t connected yet. Go to Connect → LinkedIn → Connect.",
         },
-        { status: 401 }
+        { status: 200 }
       );
     }
 
@@ -281,10 +344,12 @@ export async function POST(req: NextRequest) {
         {
           ok: false,
           error: author.error,
+          userMessage:
+            "LinkedIn connection looks invalid. Please reconnect LinkedIn on the Connect page.",
           details: author.details,
           status: author.status,
         },
-        { status: 500 }
+        { status: 200 }
       );
     }
 
@@ -297,8 +362,10 @@ export async function POST(req: NextRequest) {
             ok: false,
             error:
               "imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif (not a webpage).",
+            userMessage:
+              "That image link doesn’t look like a direct image file. Pick a JPG/PNG/WebP link and try again.",
           },
-          { status: 400 }
+          { status: 200 }
         );
       }
 
@@ -308,13 +375,15 @@ export async function POST(req: NextRequest) {
           {
             ok: false,
             error: `Could not download imageUrl (HTTP ${imgRes.status})`,
+            userMessage:
+              "We couldn’t fetch that image link. Try a different image or re-host it via Brainstorm.",
           },
-          { status: 400 }
+          { status: 200 }
         );
       }
 
       const contentType = imgRes.headers.get("content-type") || "image/jpeg";
-      const arrayBuffer = await imgRes.arrayBuffer(); // ✅ keep as ArrayBuffer
+      const arrayBuffer = await imgRes.arrayBuffer();
 
       const reg = await registerLinkedInImageUpload({
         token,
@@ -323,8 +392,15 @@ export async function POST(req: NextRequest) {
 
       if (!reg.ok) {
         return NextResponse.json(
-          { ok: false, error: reg.error, details: reg.details, status: reg.status },
-          { status: 500 }
+          {
+            ok: false,
+            error: reg.error,
+            userMessage:
+              "LinkedIn wouldn’t accept the image upload setup. Try again in a minute.",
+            details: reg.details,
+            status: reg.status,
+          },
+          { status: 200 }
         );
       }
 
@@ -336,14 +412,22 @@ export async function POST(req: NextRequest) {
 
       if (!up.ok) {
         return NextResponse.json(
-          { ok: false, error: up.error, details: up.details, status: up.status },
-          { status: 500 }
+          {
+            ok: false,
+            error: up.error,
+            userMessage:
+              "LinkedIn couldn’t upload the image. Try a smaller JPG/PNG or try again shortly.",
+            details: up.details,
+            status: up.status,
+          },
+          { status: 200 }
         );
       }
 
       imageAssetUrn = reg.asset;
     }
 
+    // 1) Try normal post
     const post = await createLinkedInUgcPost({
       token,
       authorUrn: author.authorUrn,
@@ -351,23 +435,71 @@ export async function POST(req: NextRequest) {
       imageAssetUrn,
     });
 
-    if (!post.ok) {
+    if (post.ok) {
+      return NextResponse.json({
+        ok: true,
+        postedId: post.postedId,
+        mode: imageAssetUrn ? "image" : "text",
+      });
+    }
+
+    // 2) If duplicate, retry once with a gentle variation
+    const isDup = looksLikeDuplicatePost(post.details, post.status);
+    if (isDup) {
+      const altText = antiDuplicateVariation(text);
+
+      const retry = await createLinkedInUgcPost({
+        token,
+        authorUrn: author.authorUrn,
+        text: altText,
+        imageAssetUrn,
+      });
+
+      if (retry.ok) {
+        return NextResponse.json({
+          ok: true,
+          postedId: retry.postedId,
+          mode: imageAssetUrn ? "image" : "text",
+          note: "LinkedIn flagged the first attempt as a duplicate — we reposted with a small variation.",
+        });
+      }
+
+      // Still duplicate or still failing
       return NextResponse.json(
-        { ok: false, error: post.error, details: post.details, status: post.status },
-        { status: 500 }
+        {
+          ok: false,
+          error: retry.error || post.error,
+          userMessage:
+            "LinkedIn didn’t publish this because it’s too similar to a recent post. Change the first line or CTA and try again.",
+          details: retry.details || post.details,
+          status: retry.status || post.status,
+        },
+        { status: 200 }
       );
     }
 
-    return NextResponse.json({
-      ok: true,
-      postedId: post.postedId,
-      mode: imageAssetUrn ? "image" : "text",
-    });
+    // Other errors
+    return NextResponse.json(
+      {
+        ok: false,
+        error: post.error,
+        userMessage:
+          "LinkedIn couldn’t publish this post. Try again in a minute, or shorten/edit the text.",
+        details: post.details,
+        status: post.status,
+      },
+      { status: 200 }
+    );
   } catch (err: any) {
     console.error("[linkedin/post] error", err);
     return NextResponse.json(
-      { ok: false, error: err?.message || "Server error" },
-      { status: 500 }
+      {
+        ok: false,
+        error: err?.message || "Server error",
+        userMessage:
+          "Something went wrong sending to LinkedIn. Please try again.",
+      },
+      { status: 200 }
     );
   }
 }
