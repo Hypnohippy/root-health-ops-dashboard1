@@ -18,9 +18,6 @@ async function resolveOrganisationId(explicit?: string | null) {
   const id = (explicit || "").trim();
   if (id) return id;
 
-  // ✅ Dev-friendly fallback: if caller didn't pass organisationId,
-  // pick the most recently created organisation.
-  // (In production we’d bind to signed-in user/org membership.)
   const { data, error } = await supabaseAdmin
     .from("organisations")
     .select("id")
@@ -80,8 +77,7 @@ export async function POST(req: NextRequest) {
     const token_expires_at =
       body?.token_expires_at != null ? String(body.token_expires_at) : null;
 
-    const is_active =
-      body?.is_active === false ? false : true; // default true
+    const is_active = body?.is_active === false ? false : true;
 
     const connection_type =
       body?.connection_type != null ? String(body.connection_type) : null;
@@ -93,7 +89,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ Avoid needing ON CONFLICT constraints: do an explicit upsert flow.
+    // Explicit upsert without ON CONFLICT dependency
     const { data: existing, error: selErr } = await supabaseAdmin
       .from("social_accounts")
       .select("id")
@@ -103,10 +99,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (selErr) {
-      return NextResponse.json(
-        { success: false, error: selErr.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ success: false, error: selErr.message }, { status: 500 });
     }
 
     if (existing?.id) {
@@ -119,15 +112,11 @@ export async function POST(req: NextRequest) {
           page_access_token,
           token_expires_at,
           connection_type,
-          updated_at: new Date().toISOString(),
         })
         .eq("id", existing.id);
 
       if (updErr) {
-        return NextResponse.json(
-          { success: false, error: updErr.message },
-          { status: 500 }
-        );
+        return NextResponse.json({ success: false, error: updErr.message }, { status: 500 });
       }
     } else {
       const { error: insErr } = await supabaseAdmin.from("social_accounts").insert({
@@ -139,22 +128,14 @@ export async function POST(req: NextRequest) {
         page_access_token,
         token_expires_at,
         connection_type,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       });
 
       if (insErr) {
-        return NextResponse.json(
-          { success: false, error: insErr.message },
-          { status: 500 }
-        );
+        return NextResponse.json({ success: false, error: insErr.message }, { status: 500 });
       }
     }
 
-    return NextResponse.json(
-      { success: true, organisationId, platform },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: true, organisationId, platform }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json(
       { success: false, error: e?.message || "Failed saving social connection" },
@@ -176,27 +157,17 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Soft disconnect
     const { error } = await supabaseAdmin
       .from("social_accounts")
-      .update({
-        is_active: false,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ is_active: false })
       .eq("organisation_id", organisationId)
       .eq("platform", platform);
 
     if (error) {
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json(
-      { success: true, organisationId, platform },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: true, organisationId, platform }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json(
       { success: false, error: e?.message || "Failed disconnecting social account" },
