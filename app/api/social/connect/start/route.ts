@@ -175,11 +175,11 @@ export async function GET(req: NextRequest) {
    * ✅ Instagram scopes
    * - instagram_manage_comments: required to reply to IG comments via Graph API
    */
-  const instagramScopes = [
+   const instagramScopes = [
     ...baseScopes,
     "instagram_basic",
     "instagram_content_publish",
-    "instagram_manage_comments",
+    "instagram_manage_comments", // ✅ add this
   ];
 
   const scopes = provider === "instagram" ? instagramScopes : baseScopes;
