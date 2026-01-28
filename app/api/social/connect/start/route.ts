@@ -37,7 +37,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // MUST match your callback route
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/threads/callback`;
 
     const stateObj = {
@@ -47,10 +46,8 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
-    // Threads API scopes (keep minimal but useful for posting)
     const scope = ["threads_basic", "threads_content_publish"].join(",");
 
-    // Threads auth endpoint
     const authUrl =
       "https://www.threads.net/oauth/authorize" +
       `?client_id=${encodeURIComponent(clientId)}` +
@@ -61,7 +58,6 @@ export async function GET(req: NextRequest) {
 
     const res = NextResponse.redirect(authUrl, { status: 302 });
 
-    // Keep a cookie so callback can validate/diagnose later if needed
     res.cookies.set("oauth_state_threads", state, {
       httpOnly: true,
       secure: true,
@@ -93,10 +89,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // IMPORTANT: must match exactly what's in LinkedIn Developer "Authorized redirect URLs"
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/linkedin/callback`;
 
-    // State payload
     const stateObj = {
       provider: "linkedin",
       nonce: crypto.randomUUID(),
@@ -104,9 +98,6 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
-    /**
-     * Use OpenID scopes + posting scope
-     */
     const scope = ["openid", "profile", "email", "w_member_social"].join(" ");
 
     const authUrl =
@@ -166,18 +157,29 @@ export async function GET(req: NextRequest) {
   };
   const state = encodeState(stateObj);
 
+  /**
+   * ✅ Base scopes
+   * - pages_manage_engagement: needed to manage/act on Page engagement (comments/replies)
+   * - pages_read_engagement: read comments/mentions/insights needed for “Responses” inbox
+   */
   const baseScopes = [
     "public_profile",
     "pages_show_list",
     "pages_read_engagement",
     "pages_manage_posts",
+    "pages_manage_engagement",
     "business_management",
   ];
 
+  /**
+   * ✅ Instagram scopes
+   * - instagram_manage_comments: required to reply to IG comments via Graph API
+   */
   const instagramScopes = [
     ...baseScopes,
     "instagram_basic",
     "instagram_content_publish",
+    "instagram_manage_comments",
   ];
 
   const scopes = provider === "instagram" ? instagramScopes : baseScopes;
