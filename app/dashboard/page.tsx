@@ -24,6 +24,8 @@ type SocialAccountRow = {
 type QuickBlastResult = {
   success: boolean;
   organisationId?: string;
+  userMessage?: string; // ✅ new (from routes like LinkedIn)
+  note?: string; // optional
   results?: any[];
   summary?: {
     attempted: number;
@@ -59,22 +61,12 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
-// ✅ Prefill key used by Brainstorm → Quick Blast
-const PREFILL_QUICKBLAST_KEY = "rootops_prefill_quickblast_v1";
-
 type Draft = {
   id: string;
   savedAt: number;
   message: string;
   imageUrl: string;
   selectedPlatforms: ProviderId[];
-};
-
-type PrefillPayload = {
-  message?: string;
-  imageUrl?: string;
-  suggestedPlatforms?: ProviderId[];
-  attribution?: any; // stored for later use (optional)
 };
 
 function loadDrafts(): Draft[] {
@@ -104,19 +96,88 @@ function joinVariant(v: AiVariant) {
   return `${(v.text || "").trim()}${cta}${hash}`.trim();
 }
 
+function formatPlatformName(p: string) {
+  const k = (p || "").toLowerCase().trim() as ProviderId;
+  return PROVIDER_LABELS[k] || p;
+}
+
+function extractFriendlyError(item: any): string {
+  // Prefer explicit userMessage if present
+  const um = String(item?.userMessage || "").trim();
+  if (um) return um;
+
+  // Meta style errors
+  const metaUserMsg = item?.details?.error?.error_user_msg || item?.error?.error_user_msg;
+  if (metaUserMsg) return String(metaUserMsg);
+
+  const metaTitle = item?.details?.error?.error_user_title || item?.error?.error_user_title;
+  const metaMessage = item?.details?.error?.message || item?.error?.message;
+  if (metaTitle && metaMessage) return `${metaTitle}: ${metaMessage}`;
+  if (metaMessage) return String(metaMessage);
+
+  // Generic errors
+  const err = item?.error;
+  if (typeof err === "string" && err.trim()) return err.trim();
+
+  // Sometimes error is an object
+  if (err && typeof err === "object") {
+    const msg = (err as any)?.message;
+    if (msg) return String(msg);
+  }
+
+  // Skipped reasons
+  const reason = String(item?.reason || "").trim();
+  if (reason) return reason;
+
+  return "Something went wrong. Try again in a minute.";
+}
+
+function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
+  // Small UX nudges based on common problems
+  const msg = extractFriendlyError(item).toLowerCase();
+
+  if (platform === "instagram") {
+    if (msg.includes("image") || msg.includes("media") || msg.includes("ready")) {
+      return "Tip: Instagram often needs a real JPG/PNG link, and sometimes it needs a few seconds before publishing. Try again after 10–20 seconds.";
+    }
+  }
+
+  if (platform === "facebook") {
+    if (msg.includes("image required") || msg.includes("invalid image") || msg.includes("missing or invalid")) {
+      return "Tip: Facebook can be picky about image links. Using an image hosted on your own storage (Brainstorm image) is the most reliable.";
+    }
+  }
+
+  if (platform === "threads") {
+    if (msg.includes("media") || msg.includes("resource does not exist") || msg.includes("not found")) {
+      return "Tip: Threads needs a stable, publicly accessible image link. Hosted images (via Brainstorm) work best.";
+    }
+  }
+
+  if (platform === "linkedin") {
+    if (msg.includes("duplicate")) {
+      return "Tip: Change the first line or CTA slightly, then resend. Even small tweaks usually work.";
+    }
+  }
+
+  return null;
+}
+
 export default function DashboardHomePage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
 
   // AI composer controls
   const [aiSubject, setAiSubject] = useState("");
-  const [aiTone, setAiTone] = useState("calm");
-  const [aiLength, setAiLength] = useState("short");
+  const [aiTone, setAiTone] = useState("calm"); // calm | supportive | direct | philosophical | story
+  const [aiLength, setAiLength] = useState("short"); // short | medium | long
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
-  const [message, setMessage] = useState("Quick check-in from Root Health Ops ✅");
+  const [message, setMessage] = useState(
+    "Quick check-in from Root Health Ops Dashboard ✅"
+  );
   const [imageUrl, setImageUrl] = useState("");
   const [selected, setSelected] = useState<ProviderId[]>([]);
 
@@ -131,7 +192,10 @@ export default function DashboardHomePage() {
     return new Set(active.map((r) => r.platform));
   }, [socialAccounts]);
 
-  const connectedCount = useMemo(() => connectedPlatforms.size, [connectedPlatforms]);
+  const connectedCount = useMemo(
+    () => connectedPlatforms.size,
+    [connectedPlatforms]
+  );
 
   const charCount = message.length;
 
@@ -172,8 +236,8 @@ export default function DashboardHomePage() {
     const d: Draft = {
       id: crypto.randomUUID(),
       savedAt: Date.now(),
-      message: message,
-      imageUrl: imageUrl,
+      message,
+      imageUrl,
       selectedPlatforms: selected,
     };
     const next = [d, ...drafts];
@@ -224,7 +288,9 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
+      const vars = Array.isArray((json as any)?.variants)
+        ? (json as any).variants
+        : [];
       if (vars.length === 0) {
         setAiError("AI returned no variants. Try Generate again.");
         return;
@@ -259,55 +325,41 @@ export default function DashboardHomePage() {
         setResult({
           success: false,
           error: json?.error || `Request failed (${res.status})`,
+          userMessage:
+            json?.userMessage ||
+            "We couldn’t send that just now. Try again in a minute.",
         });
         return;
       }
 
-      setResult(json);
+      // Normalize userMessage if present
+      const merged: QuickBlastResult = {
+        ...(json || {}),
+        userMessage:
+          json?.userMessage ||
+          (json?.success
+            ? "Sent."
+            : json?.error
+              ? "Some posts didn’t send. See what to change below."
+              : undefined),
+      };
+
+      setResult(merged);
     } catch (e: any) {
-      setResult({ success: false, error: e?.message || "Send failed" });
+      setResult({
+        success: false,
+        error: e?.message || "Send failed",
+        userMessage:
+          "Network hiccup. Please try again (or refresh the page).",
+      });
     } finally {
       setSending(false);
     }
   }
 
-  // ✅ Load accounts + drafts on mount
   useEffect(() => {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
-  }, []);
-
-  // ✅ Apply Brainstorm → Quick Blast prefill ONCE
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PREFILL_QUICKBLAST_KEY);
-      if (!raw) return;
-
-      const parsed: PrefillPayload = JSON.parse(raw);
-      localStorage.removeItem(PREFILL_QUICKBLAST_KEY);
-
-      const nextMessage = String(parsed?.message ?? "").trim();
-      const nextImageUrl = String(parsed?.imageUrl ?? "").trim();
-      const suggested = Array.isArray(parsed?.suggestedPlatforms)
-        ? (parsed.suggestedPlatforms as ProviderId[])
-        : [];
-
-      if (nextMessage) setMessage(nextMessage);
-      if (nextImageUrl) setImageUrl(nextImageUrl);
-
-      // If they suggested platforms, use them (but only if connected)
-      if (suggested.length > 0) {
-        // if connections not loaded yet, we still set; later auto-select won't overwrite because selected.length > 0
-        setSelected(suggested);
-      }
-    } catch (e) {
-      console.warn("[quick-blast] prefill parse failed", e);
-      try {
-        localStorage.removeItem(PREFILL_QUICKBLAST_KEY);
-      } catch {}
-    }
-    // run once
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-select connected channels if none selected yet
@@ -333,6 +385,30 @@ export default function DashboardHomePage() {
 
   const instagramSelected = selected.includes("instagram");
 
+  const friendlySummary = useMemo(() => {
+    if (!result) return null;
+
+    const attempted = result.summary?.attempted ?? (result.results?.length || 0);
+    const ok = result.summary?.ok ?? (result.results || []).filter((r: any) => r?.ok).length;
+    const failed =
+      result.summary?.failed ??
+      (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
+
+    const headline = result.success
+      ? `Sent successfully (${ok}/${attempted}).`
+      : failed > 0
+        ? `Some channels didn’t send (${ok}/${attempted}).`
+        : "No channels sent.";
+
+    const topMsg =
+      result.userMessage ||
+      (result.success
+        ? "Nice — you’re live."
+        : "No stress — we’ll fix what’s blocking it.");
+
+    return { attempted, ok, failed, headline, topMsg };
+  }, [result]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
@@ -340,7 +416,9 @@ export default function DashboardHomePage() {
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
-              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">Enterprise Beta</h1>
+              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
+                Enterprise Beta
+              </h1>
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
@@ -372,7 +450,9 @@ export default function DashboardHomePage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-semibold">Quick Blast</h2>
-                  <p className="mt-1 text-sm text-slate-300">Write once, choose channels, send.</p>
+                  <p className="mt-1 text-sm text-slate-300">
+                    Write once, choose channels, send.
+                  </p>
                 </div>
                 <div className="text-right text-xs text-slate-400">
                   <div>{charCount} chars</div>
@@ -414,7 +494,9 @@ export default function DashboardHomePage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">Tone</label>
+                      <label className="block text-xs font-medium text-slate-300">
+                        Tone
+                      </label>
                       <select
                         value={aiTone}
                         onChange={(e) => setAiTone(e.target.value)}
@@ -429,7 +511,9 @@ export default function DashboardHomePage() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">Length</label>
+                      <label className="block text-xs font-medium text-slate-300">
+                        Length
+                      </label>
                       <select
                         value={aiLength}
                         onChange={(e) => setAiLength(e.target.value)}
@@ -457,7 +541,9 @@ export default function DashboardHomePage() {
                         className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4"
                       >
                         <div className="flex items-start justify-between gap-3">
-                          <div className="text-sm font-semibold">{v.title || `Variant ${idx + 1}`}</div>
+                          <div className="text-sm font-semibold">
+                            {v.title || `Variant ${idx + 1}`}
+                          </div>
                           <button
                             type="button"
                             onClick={() => setMessage(joinVariant(v))}
@@ -480,7 +566,9 @@ export default function DashboardHomePage() {
 
               <div className="mt-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">Message</label>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Message
+                  </label>
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
@@ -491,7 +579,9 @@ export default function DashboardHomePage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">Image (optional)</label>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Image (optional)
+                  </label>
                   <input
                     value={imageUrl}
                     onChange={(e) => setImageUrl(e.target.value)}
@@ -499,7 +589,7 @@ export default function DashboardHomePage() {
                     placeholder="Paste a direct image URL (JPG/PNG)…"
                   />
                   <div className="mt-1 text-[11px] text-slate-500">
-                    (Instagram posting often requires an image URL.)
+                    (Instagram posting may require an image for some post types.)
                   </div>
                   {instagramSelected && !imageUrl.trim() && (
                     <div className="mt-2 text-[11px] text-amber-300">
@@ -510,7 +600,9 @@ export default function DashboardHomePage() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="block text-xs font-medium text-slate-300">Channels</label>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Channels
+                    </label>
                     <button
                       type="button"
                       onClick={refreshChannels}
@@ -535,8 +627,8 @@ export default function DashboardHomePage() {
                             !isConnected
                               ? "border-slate-800 bg-slate-950/40 text-slate-600 cursor-not-allowed"
                               : isSelected
-                              ? "border-emerald-500/60 bg-emerald-500/10 text-slate-100"
-                              : "border-slate-700 bg-slate-950 text-slate-200 hover:border-slate-600"
+                                ? "border-emerald-500/60 bg-emerald-500/10 text-slate-100"
+                                : "border-slate-700 bg-slate-950 text-slate-200 hover:border-slate-600"
                           }`}
                         >
                           <div>
@@ -550,8 +642,8 @@ export default function DashboardHomePage() {
                               !isConnected
                                 ? "border-slate-800 text-slate-600"
                                 : isSelected
-                                ? "border-emerald-500/60 text-emerald-200"
-                                : "border-slate-600 text-slate-300"
+                                  ? "border-emerald-500/60 text-emerald-200"
+                                  : "border-slate-600 text-slate-300"
                             }`}
                           >
                             {isSelected ? "Selected" : "Select"}
@@ -570,7 +662,9 @@ export default function DashboardHomePage() {
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={sending || message.trim().length === 0 || selected.length === 0}
+                    disabled={
+                      sending || message.trim().length === 0 || selected.length === 0
+                    }
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {sending ? "Sending…" : "Send Quick Blast"}
@@ -593,34 +687,112 @@ export default function DashboardHomePage() {
                   </button>
                 </div>
 
+                {/* ✅ Friendly Results Panel */}
                 {result && (
-                  <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-sm">
-                    {result.success ? (
-                      <div className="text-emerald-200">
-                        Sent.{" "}
-                        {result.summary ? `OK: ${result.summary.ok}, Failed: ${result.summary.failed}` : ""}
+                  <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
+                    <div className="text-sm">
+                      <div
+                        className={
+                          result.success
+                            ? "text-emerald-200"
+                            : "text-amber-200"
+                        }
+                      >
+                        {friendlySummary?.headline || (result.success ? "Sent." : "Not sent.")}
                       </div>
-                    ) : (
-                      <div className="text-red-200">Failed: {result.error || "Unknown error"}</div>
+
+                      <div className="mt-1 text-[12px] text-slate-300">
+                        {friendlySummary?.topMsg ||
+                          (result.success
+                            ? "Nice — you’re live."
+                            : "No stress — we’ll fix what’s blocking it.")}
+                      </div>
+
+                      {result.note ? (
+                        <div className="mt-2 text-[12px] text-emerald-300">
+                          {result.note}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {/* Per-platform status */}
+                    {Array.isArray(result.results) && result.results.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        {result.results.map((r: any, idx: number) => {
+                          const platform = (String(r?.platform || "") as ProviderId) || "facebook";
+                          const ok = !!r?.ok;
+                          const skipped = !!r?.skipped;
+                          const label = formatPlatformName(r?.platform || platform);
+
+                          const friendly = ok
+                            ? "Posted."
+                            : skipped
+                              ? extractFriendlyError(r)
+                              : extractFriendlyError(r);
+
+                          const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
+
+                          return (
+                            <div
+                              key={`${platform}-${idx}`}
+                              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="text-[12px] font-semibold text-slate-200">
+                                  {label}
+                                </div>
+                                <div
+                                  className={[
+                                    "text-[11px] rounded-full border px-2 py-0.5",
+                                    ok
+                                      ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                                      : skipped
+                                        ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                        : "border-red-500/50 text-red-200 bg-red-500/10",
+                                  ].join(" ")}
+                                >
+                                  {ok ? "✅ Posted" : skipped ? "⚠️ Skipped" : "❌ Failed"}
+                                </div>
+                              </div>
+
+                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
+                                {friendly}
+                              </div>
+
+                              {tip ? (
+                                <div className="mt-1 text-[11px] text-slate-400">
+                                  {tip}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
 
-                    <details className="mt-2">
-                      <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-300">
-                        Show details (redacted)
-                      </summary>
-                      <pre className="mt-2 max-h-64 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 text-[11px] text-slate-200">
+                    {/* Admin JSON only */}
+                    {adminOpen && (
+                      <details className="mt-4">
+                        <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-300">
+                          Show technical details (admin)
+                        </summary>
+                        <pre className="mt-2 max-h-72 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 text-[11px] text-slate-200">
 {JSON.stringify(result, null, 2)}
-                      </pre>
-                    </details>
+                        </pre>
+                      </details>
+                    )}
                   </div>
                 )}
 
                 {adminOpen && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
-                    <div className="text-slate-400 mb-2">Safe technical details (redacted).</div>
+                    <div className="text-slate-400 mb-2">
+                      Admin info (safe).
+                    </div>
                     <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
                     <div className="mt-1">
-                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
+                      Connected platforms:{" "}
+                      {Array.from(connectedPlatforms).join(", ") || "(none)"}
                     </div>
                   </div>
                 )}
@@ -633,6 +805,9 @@ export default function DashboardHomePage() {
               <p className="mt-1 text-sm text-slate-300">
                 Drafts are stored on this device. (Later we can sync per org.)
               </p>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Use “Save for later” and we’ll restore the full draft library
+              </p>
 
               <div className="mt-4 space-y-3">
                 {drafts.length === 0 ? (
@@ -641,9 +816,16 @@ export default function DashboardHomePage() {
                   </div>
                 ) : (
                   drafts.map((d) => (
-                    <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                      <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
-                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
+                    <div
+                      key={d.id}
+                      className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
+                    >
+                      <div className="text-[11px] text-slate-500">
+                        {new Date(d.savedAt).toLocaleString()}
+                      </div>
+                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">
+                        {d.message || "(empty)"}
+                      </div>
                       <div className="mt-2 text-[11px] text-slate-500">
                         Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
                       </div>
@@ -671,7 +853,9 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
-          <div className="mt-8 text-xs text-slate-500">Tip: Brainstorm → Send to Quick Blast → tweak → post.</div>
+          <div className="mt-8 text-xs text-slate-500">
+            Tip: Generate with AI → Use a variant → tweak → post.
+          </div>
         </div>
       </div>
     </div>
