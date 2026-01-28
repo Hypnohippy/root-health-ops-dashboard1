@@ -2,117 +2,123 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
-const AYRSHARE_API_KEY = process.env.AYRSHARE_API_KEY;
+export const runtime = "nodejs";
 
-// Supported by Ayrshare reply endpoint (threads is not listed for replies there)
-const ALLOWED_PLATFORMS = new Set([
-  "facebook",
-  "instagram",
-  "linkedin",
-  "tiktok",
-  "twitter",
-  "youtube",
-  "bluesky",
-]);
+type SocialAccountRow = {
+  platform: string;
+  page_id: string | null;
+  page_access_token: string | null;
+  is_active: boolean | null;
+  organisation_id: string;
+};
+
+function okJson(data: any, status = 200) {
+  return NextResponse.json(data, { status });
+}
+
+async function loadAccount(organisationId: string, platform: string): Promise<SocialAccountRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from("social_accounts")
+    .select("platform, page_id, page_access_token, is_active, organisation_id")
+    .eq("organisation_id", organisationId)
+    .eq("platform", platform)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return (data as any) ?? null;
+}
+
+async function graphPost(url: string, body: Record<string, string>) {
+  const params = new URLSearchParams(body);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+    cache: "no-store",
+  });
+  const json: any = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json };
+}
 
 export async function POST(req: NextRequest) {
   try {
-    if (!AYRSHARE_API_KEY) {
-      return NextResponse.json(
-        { success: false, error: "Missing AYRSHARE_API_KEY in env." },
-        { status: 200 }
-      );
-    }
-
     const body = await req.json().catch(() => ({}));
+
     const organisationId = String(body?.organisationId || "").trim();
-    const platform = String(body?.platform || "").toLowerCase().trim();
-    const socialCommentId = String(body?.socialCommentId || "").trim();
-    const replyText = String(body?.replyText || "").trim();
+    const platform = String(body?.platform || "").trim().toLowerCase();
+    const externalId = String(body?.externalId || "").trim(); // comment id
+    const message = String(body?.message || "").trim();
 
-    if (!organisationId) {
-      return NextResponse.json(
-        { success: false, error: "Missing organisationId" },
-        { status: 400 }
+    if (!organisationId) return okJson({ success: false, error: "Missing organisationId" }, 400);
+    if (!platform) return okJson({ success: false, error: "Missing platform" }, 400);
+    if (!externalId) return okJson({ success: false, error: "Missing externalId (comment id)" }, 400);
+    if (!message) return okJson({ success: false, error: "Reply message is empty" }, 400);
+
+    const acct = await loadAccount(organisationId, platform);
+    const token = acct?.page_access_token || null;
+
+    if (!token) {
+      return okJson(
+        { success: false, error: `${platform} not connected (missing access token).` },
+        401
       );
     }
 
-    if (!platform || !ALLOWED_PLATFORMS.has(platform)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unsupported platform for replies. Use: facebook, instagram, linkedin, tiktok, twitter, youtube.",
-        },
-        { status: 400 }
-      );
-    }
+    // Facebook comment reply
+    if (platform === "facebook") {
+      const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(externalId)}/comments`;
+      const r = await graphPost(url, { message, access_token: token });
 
-    if (!socialCommentId) {
-      return NextResponse.json(
-        { success: false, error: "Missing socialCommentId" },
-        { status: 400 }
-      );
-    }
-
-    if (!replyText) {
-      return NextResponse.json(
-        { success: false, error: "Reply text is required" },
-        { status: 400 }
-      );
-    }
-
-    // Reply using Social Comment ID:
-    // - Must set searchPlatformId=true
-    // - Must specify ONE platform
-    const res = await fetch(
-      `https://api.ayrshare.com/api/comments/reply/${encodeURIComponent(socialCommentId)}`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${AYRSHARE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          platforms: [platform],
-          comment: replyText,
-          searchPlatformId: true,
-          objResponse: true,
-        }),
+      if (!r.ok) {
+        return okJson(
+          { success: false, error: r.json?.error?.message || "Facebook reply failed", details: r.json },
+          400
+        );
       }
-    );
 
-    const data = await res.json().catch(() => ({}));
+      // Mark replied in DB
+      await supabaseAdmin
+        .from("inbox_items")
+        .update({ status: "replied", last_reply_text: message, last_replied_at: new Date().toISOString() })
+        .eq("organisation_id", organisationId)
+        .eq("platform", "facebook")
+        .eq("external_id", externalId);
 
-    if (!res.ok || data?.status === "error") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Reply failed",
-          status: res.status,
-          details: data,
-        },
-        { status: 200 }
-      );
+      return okJson({ success: true, platform: "facebook", repliedId: r.json?.id || null });
     }
 
-    // Mark as replied in our inbox (best-effort)
-    await supabaseAdmin
-      .from("inbox_items")
-      .update({ status: "replied" })
-      .eq("organisation_id", organisationId)
-      .eq("platform", platform)
-      .eq("social_comment_id", socialCommentId);
+    // Instagram comment reply (IG Graph)
+    if (platform === "instagram") {
+      const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(externalId)}/replies`;
+      const r = await graphPost(url, { message, access_token: token });
 
-    return NextResponse.json(
-      { success: true, result: data },
-      { status: 200 }
+      if (!r.ok) {
+        return okJson(
+          { success: false, error: r.json?.error?.message || "Instagram reply failed", details: r.json },
+          400
+        );
+      }
+
+      await supabaseAdmin
+        .from("inbox_items")
+        .update({ status: "replied", last_reply_text: message, last_replied_at: new Date().toISOString() })
+        .eq("organisation_id", organisationId)
+        .eq("platform", "instagram")
+        .eq("external_id", externalId);
+
+      return okJson({ success: true, platform: "instagram", repliedId: r.json?.id || null });
+    }
+
+    return okJson(
+      {
+        success: false,
+        error: `Reply not implemented for platform: ${platform}`,
+      },
+      400
     );
-  } catch (err: any) {
-    console.error("[responses/reply] unexpected error", err);
-    return NextResponse.json(
-      { success: false, error: "Internal server error" },
-      { status: 500 }
-    );
+  } catch (e: any) {
+    return okJson({ success: false, error: e?.message || "Reply failed" }, 500);
   }
 }
