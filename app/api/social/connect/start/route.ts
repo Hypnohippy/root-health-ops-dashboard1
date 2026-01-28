@@ -15,7 +15,8 @@ function encodeState(obj: any) {
 }
 
 export async function GET(req: NextRequest) {
-  const provider = (req.nextUrl.searchParams.get("provider") || "facebook") as ProviderId;
+  const provider = (req.nextUrl.searchParams.get("provider") ||
+    "facebook") as ProviderId;
 
   // ----------------------------
   // Threads (Meta Threads OAuth)
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // MUST match your callback route exactly
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/threads/callback`;
 
     const stateObj = {
@@ -46,13 +48,14 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
-    // ✅ IMPORTANT: Threads OAuth is picky — use SPACE-separated scopes (not commas).
-    // (encodeURIComponent will turn spaces into %20)
+    // ✅ Threads OAuth scopes must be SPACE-separated
+    // encodeURIComponent will convert spaces to %20 (what we want)
     const scope = ["threads_basic", "threads_content_publish"].join(" ");
 
-    // ✅ Also explicitly request the IG-login path (helps avoid “Something went wrong” loops)
+    // ✅ IMPORTANT: Use threads.com (NOT threads.net) for OAuth authorize
+    // This aligns with the actual login flow you keep getting redirected into.
     const authUrl =
-      "https://www.threads.net/oauth/authorize" +
+      "https://www.threads.com/oauth/authorize" +
       `?client_id=${encodeURIComponent(clientId)}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
       `&response_type=code` +
@@ -93,6 +96,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // IMPORTANT: must match exactly what's in LinkedIn Developer "Authorized redirect URLs"
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/linkedin/callback`;
 
     const stateObj = {
@@ -102,6 +106,7 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
+    // OpenID scopes + posting scope
     const scope = ["openid", "profile", "email", "w_member_social"].join(" ");
 
     const authUrl =
@@ -169,11 +174,7 @@ export async function GET(req: NextRequest) {
     "business_management",
   ];
 
-  const instagramScopes = [
-    ...baseScopes,
-    "instagram_basic",
-    "instagram_content_publish",
-  ];
+  const instagramScopes = [...baseScopes, "instagram_basic", "instagram_content_publish"];
 
   const scopes = provider === "instagram" ? instagramScopes : baseScopes;
 
