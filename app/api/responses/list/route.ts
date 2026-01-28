@@ -46,6 +46,7 @@ export async function GET(req: NextRequest) {
       createdAt: (r.created_at_platform || r.inserted_at || new Date().toISOString()) as string,
       postText: r.post_text ?? null,
       postId: r.post_id ?? null,
+      externalId: r.external_id ?? null,
     }));
 
     return okJson({
