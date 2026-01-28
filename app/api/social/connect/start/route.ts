@@ -37,7 +37,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // MUST match your callback route + Meta dashboard Redirect Callback URL
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/threads/callback`;
 
     const stateObj = {
@@ -47,22 +46,22 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
-    // ✅ IMPORTANT: Threads scopes should be SPACE-separated (OAuth standard),
-    // not comma-separated. This alone can cause “something went wrong”.
+    // ✅ IMPORTANT: Threads OAuth is picky — use SPACE-separated scopes (not commas).
+    // (encodeURIComponent will turn spaces into %20)
     const scope = ["threads_basic", "threads_content_publish"].join(" ");
 
-    // Use threads.com authorize (what the web login flow uses)
+    // ✅ Also explicitly request the IG-login path (helps avoid “Something went wrong” loops)
     const authUrl =
-      "https://www.threads.com/oauth/authorize" +
+      "https://www.threads.net/oauth/authorize" +
       `?client_id=${encodeURIComponent(clientId)}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
       `&response_type=code` +
       `&scope=${encodeURIComponent(scope)}` +
-      `&state=${encodeURIComponent(state)}`;
+      `&state=${encodeURIComponent(state)}` +
+      `&__coig_login=1`;
 
     const res = NextResponse.redirect(authUrl, { status: 302 });
 
-    // Cookie so callback can validate/diagnose later if needed
     res.cookies.set("oauth_state_threads", state, {
       httpOnly: true,
       secure: true,
@@ -131,7 +130,10 @@ export async function GET(req: NextRequest) {
   // Meta (Facebook/Instagram)
   // ----------------------------
   if (provider !== "facebook" && provider !== "instagram") {
-    return NextResponse.json({ error: `Unsupported provider: ${provider}` }, { status: 400 });
+    return NextResponse.json(
+      { error: `Unsupported provider: ${provider}` },
+      { status: 400 }
+    );
   }
 
   const appId = process.env.FACEBOOK_APP_ID || "";
@@ -167,7 +169,11 @@ export async function GET(req: NextRequest) {
     "business_management",
   ];
 
-  const instagramScopes = [...baseScopes, "instagram_basic", "instagram_content_publish"];
+  const instagramScopes = [
+    ...baseScopes,
+    "instagram_basic",
+    "instagram_content_publish",
+  ];
 
   const scopes = provider === "instagram" ? instagramScopes : baseScopes;
 
