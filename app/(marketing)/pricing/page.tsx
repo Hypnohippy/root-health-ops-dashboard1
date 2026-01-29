@@ -20,6 +20,27 @@ function Feature({ children }: { children: React.ReactNode }) {
   );
 }
 
+function Badge({
+  children,
+  tone = "gold",
+}: {
+  children: React.ReactNode;
+  tone?: "gold" | "emerald" | "neutral";
+}) {
+  const cls =
+    tone === "emerald"
+      ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+      : tone === "neutral"
+      ? "border-white/10 bg-white/5 text-slate-200"
+      : "border-amber-400/30 bg-amber-400/10 text-amber-100";
+
+  return (
+    <span className={["inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold", cls].join(" ")}>
+      {children}
+    </span>
+  );
+}
+
 function PriceCard({
   badge,
   title,
@@ -29,6 +50,7 @@ function PriceCard({
   plan,
   highlight,
   footnote,
+  showBrainstormGold,
 }: {
   badge?: string;
   title: string;
@@ -38,6 +60,7 @@ function PriceCard({
   plan: "solo" | "growth" | "team";
   highlight?: boolean;
   footnote?: React.ReactNode;
+  showBrainstormGold?: boolean;
 }) {
   return (
     <div
@@ -49,10 +72,15 @@ function PriceCard({
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="space-y-2">
           <div className="text-xl font-semibold text-slate-50">{title}</div>
-          <div className="mt-1 text-sm text-slate-300">{subtitle}</div>
+          <div className="text-sm text-slate-300">{subtitle}</div>
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            {showBrainstormGold ? <Badge tone="gold">Brainstorm (Gold)</Badge> : null}
+          </div>
         </div>
+
         {badge ? (
           <span className="inline-flex items-center rounded-full bg-emerald-400 px-3 py-1 text-[11px] font-extrabold text-slate-950">
             {badge}
@@ -210,6 +238,7 @@ export default function PricingPage() {
           subtitle="For one clinician who wants calm momentum."
           price="£49"
           plan="solo"
+          showBrainstormGold
           features={[
             <>Connect your channels once</>,
             <>Post now or schedule from one place</>,
@@ -232,6 +261,7 @@ export default function PricingPage() {
           price="£99"
           plan="growth"
           highlight
+          showBrainstormGold
           features={[
             <>Everything in Solo</>,
             <>Deeper scheduling workflow (steady drumbeat)</>,
@@ -252,6 +282,7 @@ export default function PricingPage() {
           subtitle="For multi-practitioner practices and collectives."
           price="£199"
           plan="team"
+          showBrainstormGold
           features={[
             <>Everything in Growth</>,
             <>Organisation-first setup (multi-user workflows)</>,
