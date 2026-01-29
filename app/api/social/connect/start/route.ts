@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // MUST match your callback route exactly
+    // MUST match exactly what you put in Meta Threads "Redirect Callback URLs"
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/threads/callback`;
 
     const stateObj = {
@@ -48,20 +48,21 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
-    // ✅ Threads OAuth scopes must be SPACE-separated
-    // encodeURIComponent will convert spaces to %20 (what we want)
-    const scope = ["threads_basic", "threads_content_publish"].join(" ");
+    // Threads scopes are typically comma-separated in their own URLs,
+    // BUT space-separated also works depending on their parser.
+    // We'll use comma-separated here to match what their login URL shows.
+    const scope = "threads_basic,threads_content_publish";
 
-    // ✅ IMPORTANT: Use threads.com (NOT threads.net) for OAuth authorize
-    // This aligns with the actual login flow you keep getting redirected into.
-    const authUrl =
-      "https://www.threads.com/oauth/authorize" +
-      `?client_id=${encodeURIComponent(clientId)}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&response_type=code` +
-      `&scope=${encodeURIComponent(scope)}` +
-      `&state=${encodeURIComponent(state)}` +
-      `&__coig_login=1`;
+    const params = new URLSearchParams();
+    params.set("client_id", clientId);
+    params.set("redirect_uri", redirectUri);
+    params.set("response_type", "code");
+    params.set("scope", scope);
+    params.set("state", state);
+
+    // ✅ Use threads.com for auth
+    // ✅ DO NOT force __coig_login (this is where we keep ending up in the weird login loop)
+    const authUrl = `https://www.threads.com/oauth/authorize?${params.toString()}`;
 
     const res = NextResponse.redirect(authUrl, { status: 302 });
 
@@ -96,7 +97,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // IMPORTANT: must match exactly what's in LinkedIn Developer "Authorized redirect URLs"
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/linkedin/callback`;
 
     const stateObj = {
@@ -106,7 +106,6 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
-    // OpenID scopes + posting scope
     const scope = ["openid", "profile", "email", "w_member_social"].join(" ");
 
     const authUrl =
@@ -175,7 +174,6 @@ export async function GET(req: NextRequest) {
   ];
 
   const instagramScopes = [...baseScopes, "instagram_basic", "instagram_content_publish"];
-
   const scopes = provider === "instagram" ? instagramScopes : baseScopes;
 
   const authUrl =
