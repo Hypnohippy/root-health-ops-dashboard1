@@ -1,4 +1,3 @@
-// app/dashboard/approvals/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -38,6 +37,16 @@ function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
   return "neutral";
 }
 
+function getDemoMode() {
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("demo") === "1") return true;
+    return localStorage.getItem("rh_demo_approvals") === "1";
+  } catch {
+    return false;
+  }
+}
+
 export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -49,6 +58,12 @@ export default function ApprovalsPage() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
+
+  // Plan gating
+  const [planLoading, setPlanLoading] = useState(true);
+  const [plan, setPlan] = useState<"solo" | "growth" | "team">("solo");
+  const [planSource, setPlanSource] = useState<"db" | "default">("default");
+  const [demoMode, setDemoMode] = useState(false);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -64,6 +79,33 @@ export default function ApprovalsPage() {
     if (!org) throw new Error("Workspace not loaded yet. Please refresh and try again.");
     setOrganisationId(org);
     return org;
+  };
+
+  const loadPlan = async () => {
+    setPlanLoading(true);
+    try {
+      const org = organisationId || (await resolveOrg());
+      const res = await fetch(`/api/billing/plan?organisationId=${encodeURIComponent(org)}`, {
+        cache: "no-store",
+      });
+      const data: any = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "Plan lookup failed.");
+
+      const p = String(data?.plan || "solo").toLowerCase().trim();
+      const normalized = (p === "team" ? "team" : p === "growth" ? "growth" : "solo") as
+        | "solo"
+        | "growth"
+        | "team";
+
+      setPlan(normalized);
+      setPlanSource(data?.source === "db" ? "db" : "default");
+    } catch {
+      // Fail-safe: allow page to render, but default to Solo
+      setPlan("solo");
+      setPlanSource("default");
+    } finally {
+      setPlanLoading(false);
+    }
   };
 
   const load = async () => {
@@ -101,7 +143,12 @@ export default function ApprovalsPage() {
   };
 
   useEffect(() => {
-    void load();
+    setDemoMode(getDemoMode());
+    void loadPlan().then(() => {
+      // Only load queue if Team OR demo mode
+      // (We still render the page either way.)
+      void load();
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -118,7 +165,6 @@ export default function ApprovalsPage() {
   }, [rows, query]);
 
   const selected = useMemo(() => pending.find((x) => x.id === selectedId) || null, [pending, selectedId]);
-
   useEffect(() => setNote(""), [selectedId]);
 
   const Pill = ({
@@ -155,8 +201,25 @@ export default function ApprovalsPage() {
     </div>
   );
 
+  const isAllowed = plan === "team" || demoMode;
+
+  const goPricing = () => {
+    try {
+      window.location.href = "/pricing?upgrade=approvals";
+    } catch {}
+  };
+
+  const enableDemo = () => {
+    try {
+      localStorage.setItem("rh_demo_approvals", "1");
+      window.location.reload();
+    } catch {}
+  };
+
   const act = async (action: "approve" | "reject") => {
     if (!selected) return;
+    if (!isAllowed) return;
+
     setError(null);
 
     try {
@@ -171,11 +234,9 @@ export default function ApprovalsPage() {
       const data: any = await res.json().catch(() => null);
       if (!res.ok || data?.success === false) throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
 
-      // Optimistic UI update
       const newStatus = action === "approve" ? "queued" : "rejected";
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
 
-      // clear selection so list doesn’t “jump”
       setSelectedId(null);
       setNote("");
     } catch (e: any) {
@@ -196,17 +257,20 @@ export default function ApprovalsPage() {
           <div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Approvals</h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Posts with <span className="text-slate-100 font-semibold">status = pending_approval</span> appear here.
-              Approve → status becomes <span className="text-slate-100 font-semibold">queued</span>.
+              A Team safeguard: posts can be held for review before they’re queued.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Pill tone="warn">Pending: {pending.length}</Pill>
+            <Pill tone={plan === "team" ? "good" : "warn"}>
+              Plan: {planLoading ? "…" : plan.toUpperCase()}
+            </Pill>
+            <Pill tone={demoMode ? "good" : "neutral"}>Demo: {demoMode ? "ON" : "off"}</Pill>
+
             <button
               type="button"
               onClick={refresh}
-              disabled={refreshing}
+              disabled={refreshing || !isAllowed}
               className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
             >
               {refreshing ? "Refreshing…" : "Refresh"}
@@ -214,6 +278,44 @@ export default function ApprovalsPage() {
           </div>
         </div>
 
+        {/* Gate banner */}
+        {!isAllowed ? (
+          <GlassCard className="p-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <div className="text-base font-semibold text-slate-50">Approvals is a Team feature</div>
+                <div className="mt-1 text-sm text-slate-300 leading-relaxed">
+                  This is designed for practices/collectives that need an extra safety step before posts go live.
+                  <span className="block mt-2 text-[12px] text-slate-400">
+                    (Right now your plan is{" "}
+                    <span className="text-slate-100 font-semibold">{plan.toUpperCase()}</span>{" "}
+                    {planSource === "default" ? "— default until billing is connected." : ""}
+                    )
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={goPricing}
+                  className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
+                >
+                  View Team pricing
+                </button>
+                <button
+                  type="button"
+                  onClick={enableDemo}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
+                >
+                  Enable demo mode
+                </button>
+              </div>
+            </div>
+          </GlassCard>
+        ) : null}
+
+        {/* Search + errors */}
         <GlassCard className="p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
@@ -226,6 +328,7 @@ export default function ApprovalsPage() {
               placeholder="Search pending approvals…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              disabled={!isAllowed}
             />
           </div>
 
@@ -244,9 +347,18 @@ export default function ApprovalsPage() {
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-3">
-            {!loading && pending.length === 0 ? (
+            {!isAllowed ? (
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
+                Upgrade to Team (or enable demo mode) to view the approvals queue.
+              </div>
+            ) : !loading && pending.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
                 No pending approvals right now.
+                {demoMode ? (
+                  <div className="mt-2 text-[12px] text-slate-400">
+                    Tip: in demo, create a scheduled post and set its status to <b>pending_approval</b>.
+                  </div>
+                ) : null}
               </div>
             ) : (
               pending.map((p) => {
@@ -266,7 +378,9 @@ export default function ApprovalsPage() {
                         {prettyPlatforms(p.platforms)}
                         <span className="ml-2 text-[11px] font-normal text-slate-400">{safeDate(p.scheduled_for)}</span>
                       </div>
-                      <Pill tone={statusTone(p.status)}>{p.status}</Pill>
+                      <span className="inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-amber-400/30 bg-amber-400/10 text-amber-100">
+                        {p.status}
+                      </span>
                     </div>
 
                     <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{p.message}</div>
@@ -279,9 +393,15 @@ export default function ApprovalsPage() {
           <div className="space-y-6">
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Review</div>
-              <div className="mt-1 text-xs text-slate-300">Approve moves it to publishing queue (queued).</div>
+              <div className="mt-1 text-xs text-slate-300">
+                Approve → status becomes <span className="text-slate-100 font-semibold">queued</span>.
+              </div>
 
-              {!selected ? (
+              {!isAllowed ? (
+                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+                  Locked on your current plan. Upgrade to Team to use approvals.
+                </div>
+              ) : !selected ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
                   Select a pending item to review.
                 </div>
@@ -290,7 +410,9 @@ export default function ApprovalsPage() {
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-sm font-semibold">{prettyPlatforms(selected.platforms)}</div>
-                      <Pill tone="warn">pending_approval</Pill>
+                      <span className="inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-amber-400/30 bg-amber-400/10 text-amber-100">
+                        pending_approval
+                      </span>
                     </div>
                     <div className="mt-2 text-[11px] text-slate-400">{safeDate(selected.scheduled_for)}</div>
                     <div className="mt-3 text-sm whitespace-pre-wrap">{selected.message}</div>
@@ -327,9 +449,9 @@ export default function ApprovalsPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • Approvals do not create posts.\n
+                • Approvals don’t create posts.\n
                 • They only move existing scheduled posts into the publish queue.\n
-                • Next step after this: permissions + audit trail.
+                • Next step: permissions + audit trail per user.
               </div>
             </GlassCard>
           </div>
