@@ -1,4 +1,3 @@
-// app/api/social/connect/start/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 
@@ -15,11 +14,10 @@ function encodeState(obj: any) {
 }
 
 export async function GET(req: NextRequest) {
-  const provider = (req.nextUrl.searchParams.get("provider") ||
-    "facebook") as ProviderId;
+  const provider = (req.nextUrl.searchParams.get("provider") || "facebook") as ProviderId;
 
   // ----------------------------
-  // Threads (Meta Threads OAuth)
+  // Threads (Threads OAuth)
   // ----------------------------
   if (provider === "threads") {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
@@ -38,7 +36,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // MUST match exactly what you put in Meta Threads "Redirect Callback URLs"
+    // MUST match what you set in the Threads app “Redirect Callback URLs”
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/threads/callback`;
 
     const stateObj = {
@@ -48,21 +46,18 @@ export async function GET(req: NextRequest) {
     };
     const state = encodeState(stateObj);
 
-    // Threads scopes are typically comma-separated in their own URLs,
-    // BUT space-separated also works depending on their parser.
-    // We'll use comma-separated here to match what their login URL shows.
-    const scope = "threads_basic,threads_content_publish";
+    // Threads scopes
+    const scope = ["threads_basic", "threads_content_publish"].join(",");
 
-    const params = new URLSearchParams();
-    params.set("client_id", clientId);
-    params.set("redirect_uri", redirectUri);
-    params.set("response_type", "code");
-    params.set("scope", scope);
-    params.set("state", state);
-
-    // ✅ Use threads.com for auth
-    // ✅ DO NOT force __coig_login (this is where we keep ending up in the weird login loop)
-    const authUrl = `https://www.threads.com/oauth/authorize?${params.toString()}`;
+    // Use threads.net (commonly documented); it may redirect to threads.com for login
+    const authUrl =
+      "https://threads.net/oauth/authorize" +
+      `?client_id=${encodeURIComponent(clientId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&response_type=code` +
+      `&scope=${encodeURIComponent(scope)}` +
+      `&state=${encodeURIComponent(state)}` +
+      `&__coig_login=1`;
 
     const res = NextResponse.redirect(authUrl, { status: 302 });
 
@@ -134,10 +129,7 @@ export async function GET(req: NextRequest) {
   // Meta (Facebook/Instagram)
   // ----------------------------
   if (provider !== "facebook" && provider !== "instagram") {
-    return NextResponse.json(
-      { error: `Unsupported provider: ${provider}` },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: `Unsupported provider: ${provider}` }, { status: 400 });
   }
 
   const appId = process.env.FACEBOOK_APP_ID || "";
@@ -158,11 +150,7 @@ export async function GET(req: NextRequest) {
 
   const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/facebook/callback`;
 
-  const stateObj = {
-    provider,
-    nonce: crypto.randomUUID(),
-    t: Date.now(),
-  };
+  const stateObj = { provider, nonce: crypto.randomUUID(), t: Date.now() };
   const state = encodeState(stateObj);
 
   const baseScopes = [
