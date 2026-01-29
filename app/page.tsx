@@ -29,6 +29,14 @@ function Card({
   );
 }
 
+function safeYear() {
+  try {
+    return new Date().getFullYear();
+  } catch {
+    return 2026;
+  }
+}
+
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
@@ -210,7 +218,7 @@ export default function HomePage() {
           </Card>
         </section>
 
-        <section className="rounded-[32px] border border-white/10 bg_attach bg-gradient-to-br from-emerald-400/15 via-white/5 to-white/5 p-8 md:p-10">
+        <section className="rounded-[32px] border border-white/10 bg-gradient-to-br from-emerald-400/15 via-white/5 to-white/5 p-8 md:p-10">
           <div className="grid gap-6 lg:grid-cols-2 lg:items-center">
             <div>
               <div className="text-2xl md:text-3xl font-semibold tracking-tight">
@@ -242,15 +250,11 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* ✅ Footer (TikTok reviewer requirement: visible legal links) */}
+        {/* ✅ Footer with legal links (reviewer-friendly) */}
         <footer className="border-t border-white/10 pt-8 pb-10 text-[12px] text-slate-400">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>© {new Date().getFullYear()} Root Health Ops</div>
-
+            <div>© {safeYear()} Root Health Ops</div>
             <div className="flex flex-wrap gap-3">
-              <Link href="/" className="hover:text-slate-200">
-                Home
-              </Link>
               <Link href="/how-it-works" className="hover:text-slate-200">
                 How it works
               </Link>
@@ -264,6 +268,7 @@ export default function HomePage() {
                 Dashboard
               </Link>
 
+              {/* TikTok / platform reviewers want these clearly visible */}
               <Link href="/terms" className="hover:text-slate-200">
                 Terms of Service
               </Link>
