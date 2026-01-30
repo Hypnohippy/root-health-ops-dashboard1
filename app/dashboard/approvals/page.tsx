@@ -1,7 +1,7 @@
 // app/dashboard/approvals/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type ScheduledPost = {
   id: string;
@@ -120,6 +120,12 @@ export default function ApprovalsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
+  // ✅ refs to force focus to stay put
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
+  const searchHadFocus = useRef(false);
+  const noteHadFocus = useRef(false);
+
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET", cache: "no-store" });
     const data: any = await res.json().catch(() => null);
@@ -189,6 +195,16 @@ export default function ApprovalsPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ✅ if we had focus, keep it after rerenders (this fixes “1 letter then stops”)
+  useEffect(() => {
+    if (searchHadFocus.current) {
+      requestAnimationFrame(() => searchRef.current?.focus());
+    }
+    if (noteHadFocus.current) {
+      requestAnimationFrame(() => noteRef.current?.focus());
+    }
+  }, [query, note, tab, rows.length]);
 
   const counts = useMemo(() => {
     const pending = rows.filter((r) => String(r.status || "").toLowerCase() === "pending_approval").length;
@@ -356,11 +372,16 @@ export default function ApprovalsPage() {
             </div>
 
             <input
+              ref={searchRef}
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search…"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              // ✅ HARDENING: prevent any parent key handlers from interfering
+              onFocus={() => (searchHadFocus.current = true)}
+              onBlur={() => (searchHadFocus.current = false)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                requestAnimationFrame(() => searchRef.current?.focus());
+              }}
               onKeyDownCapture={(e) => e.stopPropagation()}
             />
           </div>
@@ -387,7 +408,6 @@ export default function ApprovalsPage() {
                 return (
                   <div
                     key={p.id}
-                    // ✅ do NOT allow list items to take focus
                     tabIndex={-1}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setSelectedId(p.id)}
@@ -430,11 +450,16 @@ export default function ApprovalsPage() {
                   </div>
 
                   <textarea
+                    ref={noteRef}
                     className="w-full min-h-[110px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Optional note (why approved/rejected)…"
                     value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    // ✅ HARDENING: prevent any parent key handlers from interfering
+                    onFocus={() => (noteHadFocus.current = true)}
+                    onBlur={() => (noteHadFocus.current = false)}
+                    onChange={(e) => {
+                      setNote(e.target.value);
+                      requestAnimationFrame(() => noteRef.current?.focus());
+                    }}
                     onKeyDownCapture={(e) => e.stopPropagation()}
                   />
 
