@@ -1,3 +1,4 @@
+// app/dashboard/approvals/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -39,8 +40,7 @@ function isPending(s: any) {
 }
 
 function isQueued(s: any) {
-  const v = normStatus(s);
-  return v === "queued";
+  return normStatus(s) === "queued";
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number) {
@@ -60,16 +60,15 @@ export default function ApprovalsPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // ✅ UNCONTROLLED INPUTS (browser owns caret) — fixes “one letter then stops” + cursor jump
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  // ✅ Uncontrolled inputs (browser owns caret)
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // We store values separately for filtering + API payloads
+  // We store only the filter value in state (NOT the input value)
   const [queryRaw, setQueryRaw] = useState("");
   const query = useDebouncedValue(queryRaw, 180);
 
   const [tab, setTab] = useState<"pending" | "queued" | "all">("pending");
-
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const resolveOrg = async () => {
@@ -100,7 +99,8 @@ export default function ApprovalsPage() {
       });
       const data: ApiListResp = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
+      // your API returns ok:true/false sometimes even with HTTP 200
+      if (!res.ok || (data && (data as any).ok === false)) {
         throw new Error((data as any)?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
       }
 
@@ -127,16 +127,18 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Clear selection if the selected item no longer exists
+  // Clear selection if it disappears (e.g. approve moves it out of pending view)
   useEffect(() => {
+    if (!selectedId) return;
     const exists = rows.some((r) => r.id === selectedId);
-    if (selectedId && !exists) setSelectedId(null);
+    if (!exists) setSelectedId(null);
   }, [rows, selectedId]);
 
-  // Clear note box when selection changes (uncontrolled)
-  useEffect(() => {
-    if (noteRef.current) noteRef.current.value = "";
-  }, [selectedId]);
+  const counts = useMemo(() => {
+    const pending = rows.filter((r) => isPending(r.status)).length;
+    const queued = rows.filter((r) => isQueued(r.status)).length;
+    return { pending, queued, all: rows.length };
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const q = (query || "").trim().toLowerCase();
@@ -157,11 +159,34 @@ export default function ApprovalsPage() {
 
   const selected = useMemo(() => filtered.find((x) => x.id === selectedId) || null, [filtered, selectedId]);
 
-  const counts = useMemo(() => {
-    const pending = rows.filter((r) => isPending(r.status)).length;
-    const queued = rows.filter((r) => isQueued(r.status)).length;
-    return { pending, queued, all: rows.length };
-  }, [rows]);
+  const act = async (action: "approve" | "reject") => {
+    if (!selected) return;
+    setError(null);
+
+    try {
+      const org = organisationId || (await resolveOrg());
+      const note = (noteRef.current?.value || "").trim() || null;
+
+      const res = await fetch(`/api/approvals/update?organisationId=${encodeURIComponent(org)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selected.id, action, note }),
+      });
+
+      const data: any = await res.json().catch(() => null);
+      if (!res.ok || data?.success === false) throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
+
+      const newStatus = action === "approve" ? "queued" : "rejected";
+
+      // Update in-place so it appears in Queued tab without reloading
+      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
+
+      setSelectedId(null);
+      if (noteRef.current) noteRef.current.value = "";
+    } catch (e: any) {
+      setError(e?.message || "Action failed.");
+    }
+  };
 
   const Pill = ({
     children,
@@ -197,35 +222,8 @@ export default function ApprovalsPage() {
     </div>
   );
 
-  const act = async (action: "approve" | "reject") => {
-    if (!selected) return;
-    setError(null);
-
-    try {
-      const org = organisationId || (await resolveOrg());
-
-      const note = (noteRef.current?.value || "").trim() || null;
-
-      const res = await fetch(`/api/approvals/update?organisationId=${encodeURIComponent(org)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selected.id, action, note }),
-      });
-
-      const data: any = await res.json().catch(() => null);
-      if (!res.ok || data?.success === false) throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
-
-      const newStatus = action === "approve" ? "queued" : "rejected";
-
-      // update in-place so it appears in Queued tab
-      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
-
-      setSelectedId(null);
-      if (noteRef.current) noteRef.current.value = "";
-    } catch (e: any) {
-      setError(e?.message || "Action failed.");
-    }
-  };
+  // ✅ Force normal typing direction on THIS PAGE ONLY
+  const ltrStyle: React.CSSProperties = { direction: "ltr", unicodeBidi: "plaintext" };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -263,60 +261,40 @@ export default function ApprovalsPage() {
             <div>
               <div className="text-base font-semibold">Search</div>
               <div className="mt-1 text-xs text-slate-300">
-                This field is now <span className="text-slate-100 font-semibold">uncontrolled</span> so typing stays stable.
+                This is now <span className="text-slate-100 font-semibold">uncontrolled</span> + forced LTR to stop caret weirdness.
               </div>
             </div>
 
             <input
-              ref={searchInputRef}
+              ref={searchRef}
               dir="ltr"
-              autoComplete="off"
+              style={ltrStyle}
+              autoCapitalize="none"
+              autoCorrect="off"
               spellCheck={false}
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search…"
               defaultValue=""
-              onKeyDown={(e) => e.stopPropagation()}
-              onChange={(e) => setQueryRaw(e.target.value)}
+              onInput={(e) => setQueryRaw((e.target as HTMLInputElement).value)}
             />
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setTab("pending")}
-              className={[
-                "rounded-full px-4 py-2 text-xs font-semibold border transition",
-                tab === "pending"
-                  ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
-                  : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
-              ].join(" ")}
-            >
-              Pending
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("queued")}
-              className={[
-                "rounded-full px-4 py-2 text-xs font-semibold border transition",
-                tab === "queued"
-                  ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
-                  : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
-              ].join(" ")}
-            >
-              Queued
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("all")}
-              className={[
-                "rounded-full px-4 py-2 text-xs font-semibold border transition",
-                tab === "all"
-                  ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
-                  : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
-              ].join(" ")}
-            >
-              All
-            </button>
+            {(["pending", "queued", "all"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setTab(t)}
+                className={[
+                  "rounded-full px-4 py-2 text-xs font-semibold border transition",
+                  tab === t
+                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
+                    : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                ].join(" ")}
+              >
+                {t === "pending" ? "Pending" : t === "queued" ? "Queued" : "All"}
+              </button>
+            ))}
           </div>
 
           {error && (
@@ -344,9 +322,7 @@ export default function ApprovalsPage() {
                     onClick={() => setSelectedId(p.id)}
                     className={[
                       "w-full text-left rounded-2xl border p-4 transition",
-                      isSelected
-                        ? "border-emerald-300/30 bg-emerald-300/5"
-                        : "border-white/10 bg-black/20 hover:bg-white/5",
+                      isSelected ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
                     ].join(" ")}
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -369,12 +345,10 @@ export default function ApprovalsPage() {
           <div className="space-y-6">
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Review</div>
-              <div className="mt-1 text-xs text-slate-300">Approve moves it to queued. Reject marks rejected.</div>
+              <div className="mt-1 text-xs text-slate-300">Approve → queued. Reject → rejected.</div>
 
               {!selected ? (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                  Select an item to review.
-                </div>
+                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Select an item to review.</div>
               ) : (
                 <div className="mt-4 space-y-4">
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -391,12 +365,13 @@ export default function ApprovalsPage() {
                   <textarea
                     ref={noteRef}
                     dir="ltr"
-                    autoComplete="off"
-                    spellCheck={false}
+                    style={ltrStyle}
+                    autoCapitalize="sentences"
+                    autoCorrect="off"
+                    spellCheck={true}
                     className="w-full min-h-[90px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Optional note…"
                     defaultValue=""
-                    onKeyDown={(e) => e.stopPropagation()}
                   />
 
                   <div className="flex gap-2">
@@ -418,18 +393,19 @@ export default function ApprovalsPage() {
                   </div>
 
                   <div className="text-[11px] text-slate-500">
-                    After approving, switch to the <span className="text-slate-200 font-semibold">Queued</span> tab to see it.
+                    Tip: after approving, switch to <span className="text-slate-200 font-semibold">Queued</span> to see it.
                   </div>
                 </div>
               )}
             </GlassCard>
 
             <GlassCard className="p-6">
-              <div className="text-base font-semibold">What “Queued” means</div>
+              <div className="text-base font-semibold">Debug note</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                Approvals only change status.\n
-                Your publish worker can later pick up queued items and post them.\n
-                (So you can demo safely without anything posting.)
+                Search typing issues are now fixed by:
+                {"\n"}• uncontrolled input (no value=)
+                {"\n"}• forced LTR + unicode-bidi plaintext
+                {"\n"}• debounced filtering (less UI churn)
               </div>
             </GlassCard>
           </div>
