@@ -1,4 +1,3 @@
-// app/dashboard/approvals/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -15,7 +14,12 @@ type ScheduledPost = {
   meta?: any;
 };
 
-type ApiListResp = { items?: ScheduledPost[]; error?: string; ok?: boolean; organisationId?: string };
+type ApiListResp = {
+  ok?: boolean;
+  organisationId?: string;
+  items?: ScheduledPost[];
+  error?: string;
+};
 
 function safeDate(iso: string) {
   try {
@@ -38,6 +42,18 @@ function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
   return "neutral";
 }
 
+function readDemoOverrideFromUrl(): boolean | null {
+  try {
+    const url = new URL(window.location.href);
+    const demo = (url.searchParams.get("demo") || "").toLowerCase().trim();
+    if (demo === "1" || demo === "true" || demo === "yes") return true;
+    if (demo === "0" || demo === "false" || demo === "no") return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -50,32 +66,44 @@ export default function ApprovalsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
-  // ✅ Demo override:
-  // /dashboard/approvals?demo=1 -> forces demo mode
-  // /dashboard/approvals?demo=0 -> forces normal mode
-  const [demoMode, setDemoMode] = useState<boolean>(false);
-  const [locked, setLocked] = useState<boolean>(false);
+  // ✅ Demo stays available always
+  const [demoMode, setDemoMode] = useState<boolean>(true);
 
-  const demoItems: ScheduledPost[] = [
-    {
-      id: "demo-1",
-      organisation_id: "demo",
-      message: "🌿 Demo: A gentle reminder — progress is built from small steps, not pressure.",
-      platforms: ["instagram", "facebook"],
-      scheduled_for: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      status: "pending_approval",
-      meta: { demo: true },
-    },
-    {
-      id: "demo-2",
-      organisation_id: "demo",
-      message: "🧠 Demo: ‘Brainstorm’ makes content feel like a conversation, not a chore.",
-      platforms: ["linkedin"],
-      scheduled_for: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-      status: "pending_approval",
-      meta: { demo: true },
-    },
-  ];
+  const demoItems: ScheduledPost[] = useMemo(() => {
+    const now = Date.now();
+    return [
+      {
+        id: "demo-1",
+        organisation_id: "demo",
+        message:
+          "🌿 Demo approval: A calm reminder — clients don’t need perfect. They need you to show up gently and consistently.",
+        platforms: ["instagram", "facebook"],
+        scheduled_for: new Date(now + 45 * 60 * 1000).toISOString(),
+        status: "pending_approval",
+        meta: { demo: true },
+      },
+      {
+        id: "demo-2",
+        organisation_id: "demo",
+        message:
+          "🧠 Demo approval: Brainstorm → turn a rough idea into a post that still sounds like you.",
+        platforms: ["linkedin"],
+        scheduled_for: new Date(now + 2 * 60 * 60 * 1000).toISOString(),
+        status: "pending_approval",
+        meta: { demo: true },
+      },
+      {
+        id: "demo-3",
+        organisation_id: "demo",
+        message:
+          "✅ Demo approval: ‘Little & often’ beats ‘big & perfect’. Schedule one simple post for tomorrow.",
+        platforms: ["instagram"],
+        scheduled_for: new Date(now + 6 * 60 * 60 * 1000).toISOString(),
+        status: "pending_approval",
+        meta: { demo: true },
+      },
+    ];
+  }, []);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET", cache: "no-store" });
@@ -93,53 +121,43 @@ export default function ApprovalsPage() {
     return org;
   };
 
-  const readDemoOverride = () => {
-    try {
-      const url = new URL(window.location.href);
-      const demo = url.searchParams.get("demo");
-      if (demo === "1" || demo === "true") return true;
-      if (demo === "0" || demo === "false") return false;
-      return null; // no override
-    } catch {
-      return null;
-    }
-  };
-
-  const load = async () => {
+  const load = async (force?: { demo?: boolean }) => {
     setLoading(true);
     setError(null);
 
     try {
-      const override = readDemoOverride();
-      const shouldDemo = override === null ? demoMode : override;
+      const override = readDemoOverrideFromUrl();
+      const shouldDemo =
+        typeof force?.demo === "boolean"
+          ? force.demo
+          : override === null
+          ? demoMode
+          : override;
 
-      // ✅ Always honor demo override
+      // ✅ Demo = immediate data, no DB needed
       if (shouldDemo) {
         setRows(demoItems);
-        setLocked(true); // demo means “no real actions”
         return;
       }
 
-      // Normal mode: pull real posts
+      // Live mode: pull real posts
       const org = organisationId || (await resolveOrg());
-
       const res = await fetch(`/api/schedule/list?organisationId=${encodeURIComponent(org)}`, {
         cache: "no-store",
       });
 
       const data: ApiListResp = await res.json().catch(() => ({}));
+
       if (!res.ok || data?.ok === false) {
         throw new Error(data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
       }
 
       setRows(Array.isArray(data?.items) ? data.items : []);
-      setLocked(false);
     } catch (e: any) {
-      // If anything fails, fall back to demo so you can still test UI
-      setError(e?.message || "Could not load approvals queue — showing demo mode.");
-      setRows(demoItems);
-      setLocked(true);
+      // ✅ If live fails, fall back to demo so you can still demo/test
+      setError(e?.message || "Could not load live approvals — showing demo mode.");
       setDemoMode(true);
+      setRows(demoItems);
     } finally {
       setLoading(false);
     }
@@ -155,12 +173,9 @@ export default function ApprovalsPage() {
   };
 
   useEffect(() => {
-    // Initial demo decision:
-    // - if ?demo=1 present, it will force demo
-    // - otherwise default to demo=true so you can test immediately
-    const override = readDemoOverride();
-    setDemoMode(override === null ? true : override);
-    void load();
+    const override = readDemoOverrideFromUrl();
+    if (override !== null) setDemoMode(override);
+    void load({ demo: override !== null ? override : true }); // ✅ default demo on first load
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -217,8 +232,8 @@ export default function ApprovalsPage() {
   const act = async (action: "approve" | "reject") => {
     if (!selected) return;
 
-    // Demo/locked: just simulate
-    if (locked || String(selected.id).startsWith("demo-")) {
+    // ✅ Demo mode: simulate only
+    if (demoMode || String(selected.id).startsWith("demo-")) {
       const newStatus = action === "approve" ? "queued" : "rejected";
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
       setSelectedId(null);
@@ -250,6 +265,14 @@ export default function ApprovalsPage() {
     }
   };
 
+  // ✅ Critical: stop keyboard events escaping to the dashboard shell
+  const stopKeys = {
+    onKeyDownCapture: (e: any) => e.stopPropagation(),
+    onKeyUpCapture: (e: any) => e.stopPropagation(),
+    onPointerDownCapture: (e: any) => e.stopPropagation(),
+    onMouseDownCapture: (e: any) => e.stopPropagation(),
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -269,8 +292,23 @@ export default function ApprovalsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Pill tone={locked ? "warn" : "good"}>{locked ? "Demo mode" : "Live mode"}</Pill>
+            <Pill tone={demoMode ? "warn" : "good"}>{demoMode ? "Demo mode" : "Live mode"}</Pill>
             <Pill tone="warn">Pending: {pending.length}</Pill>
+
+            <button
+              type="button"
+              onClick={() => {
+                const next = !demoMode;
+                setDemoMode(next);
+                setSelectedId(null);
+                setNote("");
+                void load({ demo: next });
+              }}
+              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
+            >
+              Toggle Demo
+            </button>
+
             <button
               type="button"
               onClick={refresh}
@@ -294,6 +332,7 @@ export default function ApprovalsPage() {
             </div>
 
             <input
+              {...stopKeys}
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search pending approvals…"
               value={query}
@@ -376,26 +415,18 @@ export default function ApprovalsPage() {
                   </div>
 
                   <textarea
+                    {...stopKeys}
                     className="w-full min-h-[90px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Optional note (why approved/rejected)…"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    onKeyDown={(e) => e.stopPropagation()}
-                    onKeyUp={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
                   />
 
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => act("approve")}
-                      className={[
-                        "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition",
-                        locked
-                          ? "bg-white/5 text-slate-400 cursor-not-allowed border border-white/10"
-                          : "bg-emerald-500 text-slate-950 hover:bg-emerald-400",
-                      ].join(" ")}
-                      disabled={locked && !String(selected.id).startsWith("demo-")}
+                      className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
                     >
                       Approve
                     </button>
@@ -403,19 +434,28 @@ export default function ApprovalsPage() {
                     <button
                       type="button"
                       onClick={() => act("reject")}
-                      className={[
-                        "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition",
-                        locked
-                          ? "bg-white/5 text-slate-400 cursor-not-allowed border border-white/10"
-                          : "border border-red-400/30 bg-red-400/10 text-red-100 hover:bg-red-400/15",
-                      ].join(" ")}
-                      disabled={locked && !String(selected.id).startsWith("demo-")}
+                      className="flex-1 rounded-2xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm font-semibold text-red-100 hover:bg-red-400/15 transition"
                     >
                       Reject
                     </button>
                   </div>
+
+                  {demoMode ? (
+                    <div className="text-[11px] text-slate-500">
+                      Demo mode: actions are simulated (no real DB changes).
+                    </div>
+                  ) : null}
                 </div>
               )}
+            </GlassCard>
+
+            <GlassCard className="p-6">
+              <div className="text-base font-semibold">Enterprise safety</div>
+              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+                • Approvals do not create posts.\n
+                • They only move existing scheduled posts into the publish queue.\n
+                • Demo mode is always available for testing and sales demos.
+              </div>
             </GlassCard>
           </div>
         </div>
