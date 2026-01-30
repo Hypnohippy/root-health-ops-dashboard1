@@ -38,15 +38,6 @@ function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
   return "neutral";
 }
 
-type PlanKey = "solo" | "growth" | "team" | "unknown";
-
-function planLabel(p: PlanKey) {
-  if (p === "team") return "Team";
-  if (p === "growth") return "Growth";
-  if (p === "solo") return "Solo";
-  return "Unknown";
-}
-
 export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -59,49 +50,11 @@ export default function ApprovalsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
-  // Guardrails
-  const [plan, setPlan] = useState<PlanKey>("unknown");
-  const [locked, setLocked] = useState<boolean>(true);
+  // ✅ Demo override:
+  // /dashboard/approvals?demo=1 -> forces demo mode
+  // /dashboard/approvals?demo=0 -> forces normal mode
   const [demoMode, setDemoMode] = useState<boolean>(false);
-
-  const resolveOrg = async () => {
-    const res = await fetch("/api/social-accounts", { method: "GET", cache: "no-store" });
-    const data: any = await res.json().catch(() => null);
-
-    const org =
-      typeof data?.organisationId === "string"
-        ? data.organisationId
-        : typeof data?.organisation_id === "string"
-        ? data.organisation_id
-        : null;
-
-    if (!org) throw new Error("Workspace not loaded yet. Please refresh and try again.");
-    setOrganisationId(org);
-    return org;
-  };
-
-  const loadPlan = async () => {
-    try {
-      const res = await fetch("/api/org/plan", { cache: "no-store" });
-      const data: any = await res.json().catch(() => null);
-
-      const p = String(data?.plan || "").toLowerCase().trim();
-      const resolved: PlanKey =
-        p === "team" || p === "enterprise" ? "team" : p === "growth" || p === "pro" ? "growth" : p === "solo" || p === "basic" ? "solo" : "unknown";
-
-      setPlan(resolved);
-
-      const isTeam = resolved === "team";
-      setLocked(!isTeam);
-
-      // Demo mode: locked users see demo items
-      setDemoMode(!isTeam);
-    } catch {
-      setPlan("unknown");
-      setLocked(true);
-      setDemoMode(true);
-    }
-  };
+  const [locked, setLocked] = useState<boolean>(false);
 
   const demoItems: ScheduledPost[] = [
     {
@@ -124,19 +77,50 @@ export default function ApprovalsPage() {
     },
   ];
 
+  const resolveOrg = async () => {
+    const res = await fetch("/api/social-accounts", { method: "GET", cache: "no-store" });
+    const data: any = await res.json().catch(() => null);
+
+    const org =
+      typeof data?.organisationId === "string"
+        ? data.organisationId
+        : typeof data?.organisation_id === "string"
+        ? data.organisation_id
+        : null;
+
+    if (!org) throw new Error("Workspace not loaded yet. Please refresh and try again.");
+    setOrganisationId(org);
+    return org;
+  };
+
+  const readDemoOverride = () => {
+    try {
+      const url = new URL(window.location.href);
+      const demo = url.searchParams.get("demo");
+      if (demo === "1" || demo === "true") return true;
+      if (demo === "0" || demo === "false") return false;
+      return null; // no override
+    } catch {
+      return null;
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      await loadPlan();
+      const override = readDemoOverride();
+      const shouldDemo = override === null ? demoMode : override;
 
-      // If locked, show demo items and stop here.
-      if (demoMode) {
+      // ✅ Always honor demo override
+      if (shouldDemo) {
         setRows(demoItems);
+        setLocked(true); // demo means “no real actions”
         return;
       }
 
+      // Normal mode: pull real posts
       const org = organisationId || (await resolveOrg());
 
       const res = await fetch(`/api/schedule/list?organisationId=${encodeURIComponent(org)}`, {
@@ -144,15 +128,18 @@ export default function ApprovalsPage() {
       });
 
       const data: ApiListResp = await res.json().catch(() => ({}));
-
       if (!res.ok || data?.ok === false) {
         throw new Error(data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
       }
 
       setRows(Array.isArray(data?.items) ? data.items : []);
+      setLocked(false);
     } catch (e: any) {
-      setError(e?.message || "Could not load approvals queue.");
-      setRows(demoMode ? demoItems : []);
+      // If anything fails, fall back to demo so you can still test UI
+      setError(e?.message || "Could not load approvals queue — showing demo mode.");
+      setRows(demoItems);
+      setLocked(true);
+      setDemoMode(true);
     } finally {
       setLoading(false);
     }
@@ -168,6 +155,11 @@ export default function ApprovalsPage() {
   };
 
   useEffect(() => {
+    // Initial demo decision:
+    // - if ?demo=1 present, it will force demo
+    // - otherwise default to demo=true so you can test immediately
+    const override = readDemoOverride();
+    setDemoMode(override === null ? true : override);
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -225,9 +217,12 @@ export default function ApprovalsPage() {
   const act = async (action: "approve" | "reject") => {
     if (!selected) return;
 
-    // Locked = show a friendly message and do nothing
-    if (locked) {
-      setError("Approvals are available on the Team plan. This page is in Demo mode right now.");
+    // Demo/locked: just simulate
+    if (locked || String(selected.id).startsWith("demo-")) {
+      const newStatus = action === "approve" ? "queued" : "rejected";
+      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
+      setSelectedId(null);
+      setNote("");
       return;
     }
 
@@ -274,7 +269,7 @@ export default function ApprovalsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Pill tone={locked ? "warn" : "good"}>{locked ? `Locked (${planLabel(plan)}) • Demo mode` : `Enabled (${planLabel(plan)})`}</Pill>
+            <Pill tone={locked ? "warn" : "good"}>{locked ? "Demo mode" : "Live mode"}</Pill>
             <Pill tone="warn">Pending: {pending.length}</Pill>
             <button
               type="button"
@@ -292,6 +287,10 @@ export default function ApprovalsPage() {
             <div>
               <div className="text-base font-semibold">Search</div>
               <div className="mt-1 text-xs text-slate-300">Filter pending approvals by text/platform/date.</div>
+              <div className="mt-2 text-[11px] text-slate-500">
+                Force demo: <span className="text-slate-300">/dashboard/approvals?demo=1</span> • Force live:{" "}
+                <span className="text-slate-300">?demo=0</span>
+              </div>
             </div>
 
             <input
@@ -313,15 +312,6 @@ export default function ApprovalsPage() {
               Loading approvals…
             </div>
           )}
-
-          {locked && (
-            <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
-              Approvals are a <span className="font-semibold">Team</span> feature. You’re viewing <span className="font-semibold">Demo mode</span>.
-              <div className="mt-2">
-                <a href="/pricing" className="underline hover:text-amber-50">View plans →</a>
-              </div>
-            </div>
-          )}
         </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -340,7 +330,6 @@ export default function ApprovalsPage() {
                     tabIndex={0}
                     onClick={() => setSelectedId(p.id)}
                     onKeyDown={(e) => {
-                      // prevents page scroll/focus jumps from keypresses
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
                         setSelectedId(p.id);
@@ -391,10 +380,7 @@ export default function ApprovalsPage() {
                     placeholder="Optional note (why approved/rejected)…"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    onKeyDown={(e) => {
-                      // 🔥 critical: stop key events bubbling into the list (prevents scroll jumps)
-                      e.stopPropagation();
-                    }}
+                    onKeyDown={(e) => e.stopPropagation()}
                     onKeyUp={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}
                   />
@@ -402,7 +388,6 @@ export default function ApprovalsPage() {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      disabled={locked}
                       onClick={() => act("approve")}
                       className={[
                         "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition",
@@ -410,13 +395,13 @@ export default function ApprovalsPage() {
                           ? "bg-white/5 text-slate-400 cursor-not-allowed border border-white/10"
                           : "bg-emerald-500 text-slate-950 hover:bg-emerald-400",
                       ].join(" ")}
+                      disabled={locked && !String(selected.id).startsWith("demo-")}
                     >
                       Approve
                     </button>
 
                     <button
                       type="button"
-                      disabled={locked}
                       onClick={() => act("reject")}
                       className={[
                         "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition",
@@ -424,21 +409,13 @@ export default function ApprovalsPage() {
                           ? "bg-white/5 text-slate-400 cursor-not-allowed border border-white/10"
                           : "border border-red-400/30 bg-red-400/10 text-red-100 hover:bg-red-400/15",
                       ].join(" ")}
+                      disabled={locked && !String(selected.id).startsWith("demo-")}
                     >
                       Reject
                     </button>
                   </div>
                 </div>
               )}
-            </GlassCard>
-
-            <GlassCard className="p-6">
-              <div className="text-base font-semibold">Enterprise safety</div>
-              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • Approvals do not create posts.{"\n"}
-                • They only move existing scheduled posts into the publish queue.{"\n"}
-                • Next step after this: permissions + audit trail.
-              </div>
             </GlassCard>
           </div>
         </div>
