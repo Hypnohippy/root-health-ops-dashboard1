@@ -18,6 +18,8 @@ type ScheduledPost = {
 type ApiListResp = { ok?: boolean; items?: ScheduledPost[]; error?: string; organisationId?: string };
 type ApiUpdateResp = { success?: boolean; id?: string; status?: string; error?: string; details?: string };
 
+type TabKey = "pending" | "queued" | "rejected" | "all";
+
 function safeDate(iso: string) {
   try {
     return new Date(iso).toLocaleString();
@@ -72,7 +74,7 @@ function demoSeed(orgId: string): ScheduledPost[] {
       id: uid("demo"),
       organisation_id: orgId,
       message:
-        "✅ Already queued example: a simple check-in post scheduled for later today.\n\n(Shows how the queued tab looks.)",
+        "✅ Queued example: this shows up after you approve something.\n\n(So you can SEE the queued list.)",
       platforms: ["facebook"],
       scheduled_for: new Date(now + 4 * 60 * 60 * 1000).toISOString(),
       status: "queued",
@@ -83,7 +85,7 @@ function demoSeed(orgId: string): ScheduledPost[] {
       id: uid("demo"),
       organisation_id: orgId,
       message:
-        "❌ Rejected example: too salesy / not aligned.\n\n(Shows how the rejected tab looks.)",
+        "❌ Rejected example: too salesy / not aligned.\n\n(So you can SEE the rejected list.)",
       platforms: ["instagram"],
       scheduled_for: new Date(now + 6 * 60 * 60 * 1000).toISOString(),
       status: "rejected",
@@ -93,8 +95,6 @@ function demoSeed(orgId: string): ScheduledPost[] {
   ];
 }
 
-type TabKey = "pending" | "queued" | "rejected" | "all";
-
 export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -103,20 +103,13 @@ export default function ApprovalsPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  const [query, setQuery] = useState("");
   const [tab, setTab] = useState<TabKey>("pending");
-
+  const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
   const queryRef = useRef<HTMLInputElement | null>(null);
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
-
-  const isDemo = useMemo(() => {
-    // Demo mode is ON whenever we have no real rows loaded, or if we explicitly inject demo rows.
-    // We also treat rows with meta.demo as demo.
-    return rows.some((r) => Boolean(r?.meta?.demo));
-  }, [rows]);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET", cache: "no-store" });
@@ -134,6 +127,23 @@ export default function ApprovalsPage() {
     return org;
   };
 
+  const ensureActionableOrDemo = (orgId: string, incoming: ScheduledPost[]) => {
+    const list = Array.isArray(incoming) ? incoming : [];
+
+    const actionableCount = list.filter((r) => {
+      const s = String(r.status || "").toLowerCase();
+      return s === "pending_approval" || s === "queued" || s === "rejected";
+    }).length;
+
+    // ✅ If you have rows but they’re all posted/failed/etc, inject demo items so you can test.
+    if (actionableCount === 0) {
+      const seeded = demoSeed(orgId);
+      return [...seeded, ...list];
+    }
+
+    return list;
+  };
+
   const load = async () => {
     setLoading(true);
     setError(null);
@@ -147,28 +157,22 @@ export default function ApprovalsPage() {
 
       const data: ApiListResp = await res.json().catch(() => ({}));
 
-      // ✅ Your API returns ok:false even with HTTP 200 — handle that.
+      // ✅ Your endpoint uses ok:true/false, often HTTP 200.
       if (!data?.ok) {
         throw new Error(data?.error || `Failed to load scheduled posts (ok=false).`);
       }
 
       const list = Array.isArray(data?.items) ? data.items : [];
-      setRows(list);
-
-      // ✅ If nothing exists yet, inject demo seed so you can test the UI.
-      if (list.length === 0) {
-        setRows(demoSeed(org));
-      }
+      setRows(ensureActionableOrDemo(org, list));
     } catch (e: any) {
-      // In demo we still want usable UI: if load fails, use demo seed.
+      // Even if API fails, still show demo so you can test UI.
       try {
         const org = organisationId || (await resolveOrg());
         setRows(demoSeed(org));
-        setError(null);
       } catch {
         setRows(demoSeed("demo-org"));
-        setError(e?.message || "Could not load approvals queue.");
       }
+      setError(e?.message || "Could not load approvals queue.");
     } finally {
       setLoading(false);
     }
@@ -188,6 +192,13 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const counts = useMemo(() => {
+    const pending = rows.filter((r) => String(r.status || "").toLowerCase() === "pending_approval").length;
+    const queued = rows.filter((r) => String(r.status || "").toLowerCase() === "queued").length;
+    const rejected = rows.filter((r) => String(r.status || "").toLowerCase() === "rejected").length;
+    return { pending, queued, rejected, all: rows.length };
+  }, [rows]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
 
@@ -206,18 +217,13 @@ export default function ApprovalsPage() {
       const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.scheduled_for || ""} ${r.status || ""}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [rows, query, tab]);
-
-  const counts = useMemo(() => {
-    const p = rows.filter((r) => String(r.status || "").toLowerCase() === "pending_approval").length;
-    const q = rows.filter((r) => String(r.status || "").toLowerCase() === "queued").length;
-    const rj = rows.filter((r) => String(r.status || "").toLowerCase() === "rejected").length;
-    return { pending: p, queued: q, rejected: rj, all: rows.length };
-  }, [rows]);
+  }, [rows, tab, query]);
 
   const selected = useMemo(() => rows.find((x) => x.id === selectedId) || null, [rows, selectedId]);
 
   useEffect(() => setNote(""), [selectedId]);
+
+  const isDemo = useMemo(() => rows.some((r) => Boolean(r?.meta?.demo)), [rows]);
 
   const Pill = ({
     children,
@@ -253,10 +259,22 @@ export default function ApprovalsPage() {
     </div>
   );
 
-  // ✅ Stops the “type one letter then focus jumps” issue.
-  // We aggressively stop propagation so no parent key handlers/buttons steal focus.
-  const stop = (e: any) => {
-    e.stopPropagation();
+  const TabButton = ({ k, label, count }: { k: TabKey; label: string; count: number }) => {
+    const active = tab === k;
+    return (
+      <button
+        type="button"
+        onClick={() => setTab(k)}
+        className={[
+          "rounded-full px-4 py-2 text-xs font-semibold border transition",
+          active
+            ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
+            : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+        ].join(" ")}
+      >
+        {label} <span className="ml-2 text-[11px] text-slate-400">({count})</span>
+      </button>
+    );
   };
 
   const act = async (action: "approve" | "reject") => {
@@ -265,9 +283,10 @@ export default function ApprovalsPage() {
 
     const newStatus = action === "approve" ? "queued" : "rejected";
 
-    // ✅ Demo mode: update locally only.
+    // Demo items: local-only update
     if (selected?.meta?.demo) {
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
+      if (action === "approve") setTab("queued");
       setSelectedId(null);
       setNote("");
       return;
@@ -290,7 +309,6 @@ export default function ApprovalsPage() {
 
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
 
-      // After approving, automatically switch to Queued so you can SEE it.
       if (action === "approve") setTab("queued");
 
       setSelectedId(null);
@@ -298,30 +316,6 @@ export default function ApprovalsPage() {
     } catch (e: any) {
       setError(e?.message || "Action failed.");
     }
-  };
-
-  const TabButton = ({
-    k,
-    label,
-    count,
-  }: {
-    k: TabKey;
-    label: string;
-    count: number;
-  }) => {
-    const active = tab === k;
-    return (
-      <button
-        type="button"
-        onClick={() => setTab(k)}
-        className={[
-          "rounded-full px-4 py-2 text-xs font-semibold border transition",
-          active ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
-        ].join(" ")}
-      >
-        {label} <span className="ml-2 text-[11px] text-slate-400">({count})</span>
-      </button>
-    );
   };
 
   return (
@@ -355,32 +349,27 @@ export default function ApprovalsPage() {
         </div>
 
         <GlassCard className="p-6 space-y-4">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap gap-2">
-              <TabButton k="pending" label="Pending" count={counts.pending} />
-              <TabButton k="queued" label="Queued" count={counts.queued} />
-              <TabButton k="rejected" label="Rejected" count={counts.rejected} />
-              <TabButton k="all" label="All" count={counts.all} />
+          <div className="flex flex-wrap gap-2">
+            <TabButton k="pending" label="Pending" count={counts.pending} />
+            <TabButton k="queued" label="Queued" count={counts.queued} />
+            <TabButton k="rejected" label="Rejected" count={counts.rejected} />
+            <TabButton k="all" label="All" count={counts.all} />
+          </div>
+
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <div className="text-base font-semibold">Search</div>
+              <div className="mt-1 text-xs text-slate-300">Filter by text/platform/date/status.</div>
             </div>
 
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div>
-                <div className="text-base font-semibold">Search</div>
-                <div className="mt-1 text-xs text-slate-300">Filter by text, platform, date, or status.</div>
-              </div>
-
-              <input
-                ref={queryRef}
-                className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
-                placeholder="Search…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={stop}
-                onKeyUp={stop}
-                onKeyPress={stop}
-                onClick={stop}
-              />
-            </div>
+            <input
+              ref={queryRef}
+              className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
+              placeholder="Search…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              // nothing fancy here — focus steal is fixed by removing list-row <button>
+            />
           </div>
 
           {error && (
@@ -407,12 +396,13 @@ export default function ApprovalsPage() {
                 const isSelected = p.id === selectedId;
 
                 return (
-                  <button
+                  <div
                     key={p.id}
-                    type="button"
+                    // ✅ CRITICAL: do not let the row take focus (this is what breaks typing)
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setSelectedId(p.id)}
                     className={[
-                      "w-full text-left rounded-2xl border p-4 transition",
+                      "w-full cursor-pointer text-left rounded-2xl border p-4 transition select-none",
                       isSelected ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
                     ].join(" ")}
                   >
@@ -425,7 +415,7 @@ export default function ApprovalsPage() {
                     </div>
 
                     <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{p.message}</div>
-                  </button>
+                  </div>
                 );
               })
             )}
@@ -434,9 +424,7 @@ export default function ApprovalsPage() {
           <div className="space-y-6">
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Review</div>
-              <div className="mt-1 text-xs text-slate-300">
-                Approve → queued. Reject → rejected. (Queued view shows your approved list.)
-              </div>
+              <div className="mt-1 text-xs text-slate-300">Approve → queued. Reject → rejected.</div>
 
               {!selected ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
@@ -459,10 +447,6 @@ export default function ApprovalsPage() {
                     placeholder="Optional note (why approved/rejected)…"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    onKeyDown={stop}
-                    onKeyUp={stop}
-                    onKeyPress={stop}
-                    onClick={stop}
                   />
 
                   <div className="flex gap-2">
@@ -495,11 +479,10 @@ export default function ApprovalsPage() {
             </GlassCard>
 
             <GlassCard className="p-6">
-              <div className="text-base font-semibold">Publish queue</div>
+              <div className="text-base font-semibold">Queued list</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                Yes — we have a publish queue concept.\n
-                In Root Health Ops, “Queued” means: approved and waiting to be picked up by your publishing worker.\n
-                Next step: wire the publish runner to process queued items and mark posted/failed.
+                After you approve, switch to the <b>Queued</b> tab.\n
+                (This page now auto-switches to Queued after approve.)
               </div>
             </GlassCard>
           </div>
