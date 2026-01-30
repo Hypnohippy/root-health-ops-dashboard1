@@ -1,7 +1,7 @@
 // app/dashboard/approvals/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 type ScheduledPost = {
   id: string;
@@ -120,10 +120,13 @@ export default function ApprovalsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
-  // ✅ refs to force focus to stay put
+  // Search input: keep focus stable
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const noteRef = useRef<HTMLTextAreaElement | null>(null);
   const searchHadFocus = useRef(false);
+
+  // Note textarea: preserve caret (THIS fixes mirrored typing)
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
+  const noteSelectionRef = useRef<{ start: number; end: number } | null>(null);
   const noteHadFocus = useRef(false);
 
   const resolveOrg = async () => {
@@ -196,15 +199,26 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ if we had focus, keep it after rerenders (this fixes “1 letter then stops”)
+  // Keep focus on search after re-renders if it had focus
   useEffect(() => {
     if (searchHadFocus.current) {
       requestAnimationFrame(() => searchRef.current?.focus());
     }
-    if (noteHadFocus.current) {
-      requestAnimationFrame(() => noteRef.current?.focus());
+  }, [query, tab, rows.length]);
+
+  // Restore textarea caret after note updates (no forced focus, just caret restore)
+  useLayoutEffect(() => {
+    if (!noteHadFocus.current) return;
+    const el = noteRef.current;
+    const sel = noteSelectionRef.current;
+    if (!el || !sel) return;
+
+    try {
+      el.setSelectionRange(sel.start, sel.end);
+    } catch {
+      // ignore
     }
-  }, [query, note, tab, rows.length]);
+  }, [note]);
 
   const counts = useMemo(() => {
     const pending = rows.filter((r) => String(r.status || "").toLowerCase() === "pending_approval").length;
@@ -378,10 +392,7 @@ export default function ApprovalsPage() {
               value={query}
               onFocus={() => (searchHadFocus.current = true)}
               onBlur={() => (searchHadFocus.current = false)}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                requestAnimationFrame(() => searchRef.current?.focus());
-              }}
+              onChange={(e) => setQuery(e.target.value)}
               onKeyDownCapture={(e) => e.stopPropagation()}
             />
           </div>
@@ -451,14 +462,21 @@ export default function ApprovalsPage() {
 
                   <textarea
                     ref={noteRef}
+                    dir="ltr"
                     className="w-full min-h-[110px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Optional note (why approved/rejected)…"
                     value={note}
                     onFocus={() => (noteHadFocus.current = true)}
-                    onBlur={() => (noteHadFocus.current = false)}
+                    onBlur={() => {
+                      noteHadFocus.current = false;
+                      noteSelectionRef.current = null;
+                    }}
                     onChange={(e) => {
+                      // capture caret BEFORE state update
+                      const start = e.target.selectionStart ?? 0;
+                      const end = e.target.selectionEnd ?? start;
+                      noteSelectionRef.current = { start, end };
                       setNote(e.target.value);
-                      requestAnimationFrame(() => noteRef.current?.focus());
                     }}
                     onKeyDownCapture={(e) => e.stopPropagation()}
                   />
