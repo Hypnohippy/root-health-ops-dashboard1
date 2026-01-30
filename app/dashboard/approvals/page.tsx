@@ -1,13 +1,7 @@
 // app/dashboard/approvals/page.tsx
 "use client";
 
-import React, {
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type ScheduledPost = {
   id: string;
@@ -126,13 +120,14 @@ export default function ApprovalsPage() {
 
   const [tab, setTab] = useState<TabKey>("pending");
 
-  // ✅ Search: raw input stays instant, filtering uses deferred value to stop “cursor disappears”
-  const [rawQuery, setRawQuery] = useState("");
-  const query = useDeferredValue(rawQuery);
+  // ✅ Search: input is instant; filtering is debounced
+  const [inputQuery, setInputQuery] = useState("");
+  const [filterQuery, setFilterQuery] = useState("");
+  const debounceRef = useRef<any>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // ✅ Uncontrolled comments box (prevents 1-letter + caret jumping)
+  // ✅ Comments box: uncontrolled so it never “locks up”
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
 
   const resolveOrg = async () => {
@@ -149,7 +144,8 @@ export default function ApprovalsPage() {
         ? data.organisation_id
         : null;
 
-    if (!org) throw new Error("Workspace not loaded yet. Please refresh and try again.");
+    if (!org)
+      throw new Error("Workspace not loaded yet. Please refresh and try again.");
     setOrganisationId(org);
     return org;
   };
@@ -209,8 +205,20 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Prebuild a “search text” per row so filtering is cheap
+  // ✅ Debounce: only update filterQuery after the user pauses typing
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setFilterQuery(inputQuery.trim());
+    }, 150);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [inputQuery]);
+
   const searchableRows = useMemo(() => {
+    // Build once per rows change (cheap for 58 rows)
     return rows.map((r) => {
       const platforms = prettyPlatforms(r.platforms);
       const scheduled = String(r.scheduled_for || "");
@@ -235,7 +243,7 @@ export default function ApprovalsPage() {
   }, [rows]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = filterQuery.toLowerCase();
 
     const base =
       tab === "pending"
@@ -253,9 +261,8 @@ export default function ApprovalsPage() {
         : searchableRows;
 
     if (!q) return base.map((x) => x.r);
-
     return base.filter((x) => x.hay.includes(q)).map((x) => x.r);
-  }, [searchableRows, tab, query]);
+  }, [searchableRows, tab, filterQuery]);
 
   const selected = useMemo(
     () => rows.find((x) => x.id === selectedId) || null,
@@ -334,8 +341,7 @@ export default function ApprovalsPage() {
             : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
         ].join(" ")}
       >
-        {label}{" "}
-        <span className="ml-2 text-[11px] text-slate-400">({count})</span>
+        {label} <span className="ml-2 text-[11px] text-slate-400">({count})</span>
       </button>
     );
   };
@@ -389,12 +395,6 @@ export default function ApprovalsPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
-        <div className="absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-sky-500/10 blur-3xl" />
-        <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-pink-500/10 blur-3xl" />
-      </div>
-
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
@@ -439,8 +439,8 @@ export default function ApprovalsPage() {
             <input
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search…"
-              value={rawQuery}
-              onChange={(e) => setRawQuery(e.target.value)}
+              value={inputQuery}
+              onChange={(e) => setInputQuery(e.target.value)}
             />
           </div>
 
@@ -569,17 +569,13 @@ export default function ApprovalsPage() {
             </GlassCard>
 
             <GlassCard className="p-6">
-              <div className="text-base font-semibold">Queued list</div>
+              <div className="text-base font-semibold">Queue</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                After approve, switch to the <b>Queued</b> tab.\n(This page
-                auto-switches to Queued after approve.)
+                Your queue is simply scheduled_posts with status = queued.\n
+                Approving moves it to that queue.
               </div>
             </GlassCard>
           </div>
-        </div>
-
-        <div className="text-[11px] text-slate-500">
-          Organisation IDs remain hidden from users.
         </div>
       </div>
     </div>
