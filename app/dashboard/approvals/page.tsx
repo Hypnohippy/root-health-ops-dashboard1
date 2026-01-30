@@ -1,7 +1,7 @@
 // app/dashboard/approvals/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 type ScheduledPost = {
   id: string;
@@ -15,8 +15,20 @@ type ScheduledPost = {
   meta?: any;
 };
 
-type ApiListResp = { ok?: boolean; items?: ScheduledPost[]; error?: string; organisationId?: string };
-type ApiUpdateResp = { success?: boolean; id?: string; status?: string; error?: string; details?: string };
+type ApiListResp = {
+  ok?: boolean;
+  organisationId?: string;
+  items?: ScheduledPost[];
+  error?: string;
+};
+
+type ApiUpdateResp = {
+  success?: boolean;
+  id?: string;
+  status?: string;
+  error?: string;
+  details?: string;
+};
 
 type TabKey = "pending" | "queued" | "rejected" | "all";
 
@@ -52,7 +64,7 @@ function demoSeed(orgId: string): ScheduledPost[] {
       id: uid("demo"),
       organisation_id: orgId,
       message:
-        "🧠 Brainstorm prompt: “What’s one gentle reframe you’d give someone who feels stuck?”\n\nDraft a calm post inviting clients to take one small step today.",
+        "🧠 Brainstorm prompt: “What’s one gentle reframe for someone who feels stuck?”\n\nDraft a calm post inviting clients to take one small step today.",
       platforms: ["instagram", "facebook"],
       scheduled_for: new Date(now + 60 * 60 * 1000).toISOString(),
       status: "pending_approval",
@@ -74,7 +86,7 @@ function demoSeed(orgId: string): ScheduledPost[] {
       id: uid("demo"),
       organisation_id: orgId,
       message:
-        "✅ Queued example: this shows up after you approve something.\n\n(So you can SEE the queued list.)",
+        "✅ Queued example: after you approve something, it should show here.\n\n(So you can SEE the queued list.)",
       platforms: ["facebook"],
       scheduled_for: new Date(now + 4 * 60 * 60 * 1000).toISOString(),
       status: "queued",
@@ -108,9 +120,6 @@ export default function ApprovalsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
-  const queryRef = useRef<HTMLInputElement | null>(null);
-  const noteRef = useRef<HTMLTextAreaElement | null>(null);
-
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET", cache: "no-store" });
     const data: any = await res.json().catch(() => null);
@@ -129,18 +138,12 @@ export default function ApprovalsPage() {
 
   const ensureActionableOrDemo = (orgId: string, incoming: ScheduledPost[]) => {
     const list = Array.isArray(incoming) ? incoming : [];
-
     const actionableCount = list.filter((r) => {
       const s = String(r.status || "").toLowerCase();
       return s === "pending_approval" || s === "queued" || s === "rejected";
     }).length;
 
-    // ✅ If you have rows but they’re all posted/failed/etc, inject demo items so you can test.
-    if (actionableCount === 0) {
-      const seeded = demoSeed(orgId);
-      return [...seeded, ...list];
-    }
-
+    if (actionableCount === 0) return [...demoSeed(orgId), ...list];
     return list;
   };
 
@@ -154,18 +157,13 @@ export default function ApprovalsPage() {
       const res = await fetch(`/api/schedule/list?organisationId=${encodeURIComponent(org)}`, {
         cache: "no-store",
       });
-
       const data: ApiListResp = await res.json().catch(() => ({}));
 
-      // ✅ Your endpoint uses ok:true/false, often HTTP 200.
-      if (!data?.ok) {
-        throw new Error(data?.error || `Failed to load scheduled posts (ok=false).`);
-      }
+      if (!data?.ok) throw new Error(data?.error || "Failed to load scheduled posts.");
 
       const list = Array.isArray(data?.items) ? data.items : [];
       setRows(ensureActionableOrDemo(org, list));
     } catch (e: any) {
-      // Even if API fails, still show demo so you can test UI.
       try {
         const org = organisationId || (await resolveOrg());
         setRows(demoSeed(org));
@@ -283,7 +281,7 @@ export default function ApprovalsPage() {
 
     const newStatus = action === "approve" ? "queued" : "rejected";
 
-    // Demo items: local-only update
+    // Demo: local update only
     if (selected?.meta?.demo) {
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
       if (action === "approve") setTab("queued");
@@ -302,15 +300,10 @@ export default function ApprovalsPage() {
       });
 
       const data: ApiUpdateResp = await res.json().catch(() => ({}));
-
-      if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || data?.details || `Failed (HTTP ${res.status}).`);
-      }
+      if (!res.ok || data?.success === false) throw new Error(data?.error || data?.details || `Failed (HTTP ${res.status}).`);
 
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
-
       if (action === "approve") setTab("queued");
-
       setSelectedId(null);
       setNote("");
     } catch (e: any) {
@@ -363,12 +356,12 @@ export default function ApprovalsPage() {
             </div>
 
             <input
-              ref={queryRef}
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              // nothing fancy here — focus steal is fixed by removing list-row <button>
+              // ✅ HARDENING: prevent any parent key handlers from interfering
+              onKeyDownCapture={(e) => e.stopPropagation()}
             />
           </div>
 
@@ -379,18 +372,14 @@ export default function ApprovalsPage() {
           )}
 
           {loading && (
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-              Loading approvals…
-            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Loading…</div>
           )}
         </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-3">
             {!loading && filtered.length === 0 ? (
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
-                Nothing in this view.
-              </div>
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">Nothing in this view.</div>
             ) : (
               filtered.map((p) => {
                 const isSelected = p.id === selectedId;
@@ -398,7 +387,8 @@ export default function ApprovalsPage() {
                 return (
                   <div
                     key={p.id}
-                    // ✅ CRITICAL: do not let the row take focus (this is what breaks typing)
+                    // ✅ do NOT allow list items to take focus
+                    tabIndex={-1}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setSelectedId(p.id)}
                     className={[
@@ -427,9 +417,7 @@ export default function ApprovalsPage() {
               <div className="mt-1 text-xs text-slate-300">Approve → queued. Reject → rejected.</div>
 
               {!selected ? (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                  Select an item to review.
-                </div>
+                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Select an item to review.</div>
               ) : (
                 <div className="mt-4 space-y-4">
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -442,11 +430,12 @@ export default function ApprovalsPage() {
                   </div>
 
                   <textarea
-                    ref={noteRef}
                     className="w-full min-h-[110px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Optional note (why approved/rejected)…"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
+                    // ✅ HARDENING: prevent any parent key handlers from interfering
+                    onKeyDownCapture={(e) => e.stopPropagation()}
                   />
 
                   <div className="flex gap-2">
@@ -470,9 +459,7 @@ export default function ApprovalsPage() {
                   </div>
 
                   {selected?.meta?.demo ? (
-                    <div className="text-[11px] text-slate-500">
-                      Demo item — actions update locally only (no database writes).
-                    </div>
+                    <div className="text-[11px] text-slate-500">Demo item — actions update locally only (no DB writes).</div>
                   ) : null}
                 </div>
               )}
@@ -481,8 +468,7 @@ export default function ApprovalsPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Queued list</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                After you approve, switch to the <b>Queued</b> tab.\n
-                (This page now auto-switches to Queued after approve.)
+                After approve, switch to the <b>Queued</b> tab.\n(This page auto-switches to Queued after approve.)
               </div>
             </GlassCard>
           </div>
