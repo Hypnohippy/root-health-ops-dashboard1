@@ -2,6 +2,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
+export const runtime = "nodejs";
+
+type TierKey = "solo" | "growth" | "team";
+
+function normalizeTierFromAny(value: any): TierKey {
+  const v = String(value || "").toLowerCase().trim();
+  if (v.includes("enterprise") || v === "team") return "team";
+  if (v.includes("pro") || v.includes("growth")) return "growth";
+  return "solo";
+}
+
+async function getOrgTier(organisationId: string): Promise<TierKey> {
+  const { data: planRow, error } = await supabaseAdmin
+    .from("organisation_plans")
+    .select("*")
+    .eq("organisation_id", organisationId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[approvals/update] plan lookup error", error);
+    return "solo"; // safe default
+  }
+
+  const raw =
+    (planRow as any)?.plan ??
+    (planRow as any)?.plan_key ??
+    (planRow as any)?.tier ??
+    (planRow as any)?.plan_name ??
+    "";
+
+  return normalizeTierFromAny(raw);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const url = new URL(req.url);
@@ -11,6 +45,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Missing organisationId" },
         { status: 400 }
+      );
+    }
+
+    // ✅ Guard rail: approvals are Team-only (enterprise)
+    const tier = await getOrgTier(organisationId);
+    if (tier !== "team") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Approvals are available on the Team plan.",
+          code: "PLAN_LOCKED",
+          requiredTier: "team",
+          currentTier: tier,
+        },
+        { status: 403 }
       );
     }
 
