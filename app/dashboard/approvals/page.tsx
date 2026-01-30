@@ -51,6 +51,54 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
+/**
+ * ✅ IMPORTANT:
+ * These UI components MUST be defined OUTSIDE the page component.
+ * If defined inside, React sees a new component identity on every render,
+ * and will remount children (inputs lose caret / one-letter typing / cursor jumps).
+ */
+function Pill({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "good" | "warn" | "bad";
+}) {
+  const cls =
+    tone === "good"
+      ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+      : tone === "warn"
+        ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+        : tone === "bad"
+          ? "border-red-400/30 bg-red-400/10 text-red-100"
+          : "border-white/10 bg-white/5 text-slate-200";
+
+  return (
+    <span className={["inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold", cls].join(" ")}>
+      {children}
+    </span>
+  );
+}
+
+function GlassCard({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={[
+        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -59,17 +107,18 @@ export default function ApprovalsPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // ✅ Search is UNCONTROLLED (browser owns caret)
-  const searchRef = useRef<HTMLInputElement | null>(null);
+  // Search (controlled is fine now, because we stopped remounting)
   const [queryRaw, setQueryRaw] = useState("");
-  const query = useDebouncedValue(queryRaw, 200);
-
-  // ✅ Comment stays controlled (it works for you)
-  const noteRef = useRef<HTMLTextAreaElement | null>(null);
-  const [note, setNote] = useState("");
+  const query = useDebouncedValue(queryRaw, 180);
 
   const [tab, setTab] = useState<"pending" | "queued" | "all">("pending");
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+
+  // (Optional) refs just for safety
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -99,6 +148,7 @@ export default function ApprovalsPage() {
       });
       const data: ApiListResp = await res.json().catch(() => ({}));
 
+      // Your API returns ok: true/false, but res.ok can still be true (status 200)
       if (!res.ok || (data as any)?.ok === false) {
         throw new Error((data as any)?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
       }
@@ -126,6 +176,13 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // If selected item disappears (eg you approve it on Pending tab), clear selection
+  useEffect(() => {
+    if (!selectedId) return;
+    const exists = rows.some((r) => r.id === selectedId);
+    if (!exists) setSelectedId(null);
+  }, [rows, selectedId]);
+
   const counts = useMemo(() => {
     const pending = rows.filter((r) => isPending(r.status)).length;
     const queued = rows.filter((r) => isQueued(r.status)).length;
@@ -149,40 +206,6 @@ export default function ApprovalsPage() {
 
   const selected = useMemo(() => filtered.find((x) => x.id === selectedId) || null, [filtered, selectedId]);
 
-  const Pill = ({
-    children,
-    tone = "neutral",
-  }: {
-    children: React.ReactNode;
-    tone?: "neutral" | "good" | "warn" | "bad";
-  }) => {
-    const cls =
-      tone === "good"
-        ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-        : tone === "warn"
-          ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
-          : tone === "bad"
-            ? "border-red-400/30 bg-red-400/10 text-red-100"
-            : "border-white/10 bg-white/5 text-slate-200";
-
-    return (
-      <span className={["inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold", cls].join(" ")}>
-        {children}
-      </span>
-    );
-  };
-
-  const GlassCard = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-    <div
-      className={[
-        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </div>
-  );
-
   const act = async (action: "approve" | "reject") => {
     if (!selected) return;
     setError(null);
@@ -200,16 +223,16 @@ export default function ApprovalsPage() {
       if (!res.ok || data?.success === false) throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
 
       const newStatus = action === "approve" ? "queued" : "rejected";
+
+      // Update in-place so it appears in the Queued tab (and disappears from Pending)
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
+
       setSelectedId(null);
       setNote("");
     } catch (e: any) {
       setError(e?.message || "Action failed.");
     }
   };
-
-  // ✅ Force normal text direction on this page
-  const ltrStyle: React.CSSProperties = { direction: "ltr", unicodeBidi: "plaintext" };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -247,46 +270,56 @@ export default function ApprovalsPage() {
             <div>
               <div className="text-base font-semibold">Search</div>
               <div className="mt-1 text-xs text-slate-300">
-                Search is now UNCONTROLLED (browser owns caret) — should stop “one letter then loses caret”.
+                This should now type normally (we fixed the remount issue).
               </div>
             </div>
 
             <input
               ref={searchRef}
-              dir="ltr"
-              style={ltrStyle}
-              autoCorrect="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              inputMode="text"
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search…"
-              defaultValue=""
-              onInput={(e) => {
-                const v = (e.currentTarget.value || "").toString();
-                setQueryRaw(v);
-              }}
-              onKeyDownCapture={(e) => e.stopPropagation()}
-              onPointerDownCapture={(e) => e.stopPropagation()}
+              value={queryRaw}
+              onChange={(e) => setQueryRaw(e.target.value)}
             />
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {(["pending", "queued", "all"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTab(t)}
-                className={[
-                  "rounded-full px-4 py-2 text-xs font-semibold border transition",
-                  tab === t
-                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
-                    : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
-                ].join(" ")}
-              >
-                {t === "pending" ? "Pending" : t === "queued" ? "Queued" : "All"}
-              </button>
-            ))}
+            <button
+              type="button"
+              onClick={() => setTab("pending")}
+              className={[
+                "rounded-full px-4 py-2 text-xs font-semibold border transition",
+                tab === "pending"
+                  ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
+                  : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+              ].join(" ")}
+            >
+              Pending
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("queued")}
+              className={[
+                "rounded-full px-4 py-2 text-xs font-semibold border transition",
+                tab === "queued"
+                  ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
+                  : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+              ].join(" ")}
+            >
+              Queued
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("all")}
+              className={[
+                "rounded-full px-4 py-2 text-xs font-semibold border transition",
+                tab === "all"
+                  ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
+                  : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+              ].join(" ")}
+            >
+              All
+            </button>
           </div>
 
           {error && (
@@ -311,16 +344,13 @@ export default function ApprovalsPage() {
             ) : (
               filtered.map((p) => {
                 const isSelected = p.id === selectedId;
-
                 return (
-                  <div
+                  <button
                     key={p.id}
-                    role="button"
-                    tabIndex={-1}
-                    onMouseDown={(e) => e.preventDefault()}
+                    type="button"
                     onClick={() => setSelectedId(p.id)}
                     className={[
-                      "w-full cursor-pointer text-left rounded-2xl border p-4 transition select-none",
+                      "w-full text-left rounded-2xl border p-4 transition",
                       isSelected ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
                     ].join(" ")}
                   >
@@ -335,7 +365,7 @@ export default function ApprovalsPage() {
                     </div>
 
                     <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{p.message}</div>
-                  </div>
+                  </button>
                 );
               })
             )}
@@ -365,14 +395,10 @@ export default function ApprovalsPage() {
 
                   <textarea
                     ref={noteRef}
-                    dir="ltr"
-                    style={ltrStyle}
                     className="w-full min-h-[90px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Optional note…"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    onKeyDownCapture={(e) => e.stopPropagation()}
-                    onPointerDownCapture={(e) => e.stopPropagation()}
                   />
 
                   <div className="flex gap-2">
@@ -391,6 +417,10 @@ export default function ApprovalsPage() {
                     >
                       Reject
                     </button>
+                  </div>
+
+                  <div className="text-[11px] text-slate-500">
+                    After approving, switch to the <span className="text-slate-200 font-semibold">Queued</span> tab to see it.
                   </div>
                 </div>
               )}
