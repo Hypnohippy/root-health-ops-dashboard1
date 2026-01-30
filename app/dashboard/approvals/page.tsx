@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 
 type ScheduledPost = {
   id: string;
@@ -16,14 +15,7 @@ type ScheduledPost = {
   meta?: any;
 };
 
-type ApiListResp = { items?: ScheduledPost[]; error?: string };
-type OrgPlanResp = {
-  ok?: boolean;
-  organisationId?: string;
-  tier?: "solo" | "growth" | "team";
-  approvalsEnabled?: boolean;
-  error?: string;
-};
+type ApiListResp = { items?: ScheduledPost[]; error?: string; ok?: boolean; organisationId?: string };
 
 function safeDate(iso: string) {
   try {
@@ -46,24 +38,14 @@ function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
   return "neutral";
 }
 
-const DEMO_PENDING: ScheduledPost[] = [
-  {
-    id: "demo-1",
-    organisation_id: "demo",
-    message: "Demo: A gentle reminder that small steps still count. 🌱",
-    platforms: ["instagram", "facebook"],
-    scheduled_for: new Date(Date.now() + 1000 * 60 * 60 * 6).toISOString(),
-    status: "pending_approval",
-  },
-  {
-    id: "demo-2",
-    organisation_id: "demo",
-    message: "Demo: 3 grounding tips for anxious mornings (save this).",
-    platforms: ["linkedin"],
-    scheduled_for: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
-    status: "pending_approval",
-  },
-];
+type PlanKey = "solo" | "growth" | "team" | "unknown";
+
+function planLabel(p: PlanKey) {
+  if (p === "team") return "Team";
+  if (p === "growth") return "Growth";
+  if (p === "solo") return "Solo";
+  return "Unknown";
+}
 
 export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
@@ -73,12 +55,14 @@ export default function ApprovalsPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  const [tier, setTier] = useState<"solo" | "growth" | "team">("solo");
-  const [approvalsEnabled, setApprovalsEnabled] = useState(false);
-
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
+
+  // Guardrails
+  const [plan, setPlan] = useState<PlanKey>("unknown");
+  const [locked, setLocked] = useState<boolean>(true);
+  const [demoMode, setDemoMode] = useState<boolean>(false);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET", cache: "no-store" });
@@ -96,50 +80,70 @@ export default function ApprovalsPage() {
     return org;
   };
 
-  const loadPlan = async (org: string) => {
-    const res = await fetch(`/api/org/plan?organisationId=${encodeURIComponent(org)}`, {
-      cache: "no-store",
-    });
-    const data: OrgPlanResp = await res.json().catch(() => ({} as any));
+  const loadPlan = async () => {
+    try {
+      const res = await fetch("/api/org/plan", { cache: "no-store" });
+      const data: any = await res.json().catch(() => null);
 
-    if (!data?.ok) {
-      // fail safe: lock approvals
-      setTier("solo");
-      setApprovalsEnabled(false);
-      return;
+      const p = String(data?.plan || "").toLowerCase().trim();
+      const resolved: PlanKey =
+        p === "team" || p === "enterprise" ? "team" : p === "growth" || p === "pro" ? "growth" : p === "solo" || p === "basic" ? "solo" : "unknown";
+
+      setPlan(resolved);
+
+      const isTeam = resolved === "team";
+      setLocked(!isTeam);
+
+      // Demo mode: locked users see demo items
+      setDemoMode(!isTeam);
+    } catch {
+      setPlan("unknown");
+      setLocked(true);
+      setDemoMode(true);
     }
-
-    setTier(data.tier || "solo");
-    setApprovalsEnabled(Boolean(data.approvalsEnabled));
   };
+
+  const demoItems: ScheduledPost[] = [
+    {
+      id: "demo-1",
+      organisation_id: "demo",
+      message: "🌿 Demo: A gentle reminder — progress is built from small steps, not pressure.",
+      platforms: ["instagram", "facebook"],
+      scheduled_for: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      status: "pending_approval",
+      meta: { demo: true },
+    },
+    {
+      id: "demo-2",
+      organisation_id: "demo",
+      message: "🧠 Demo: ‘Brainstorm’ makes content feel like a conversation, not a chore.",
+      platforms: ["linkedin"],
+      scheduled_for: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      status: "pending_approval",
+      meta: { demo: true },
+    },
+  ];
 
   const load = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const org = organisationId || (await resolveOrg());
+      await loadPlan();
 
-      // 1) plan guard
-      await loadPlan(org);
-
-      // 2) if locked, we still allow demo view (no DB calls required)
-      // But we DO load scheduled posts so Team users see real queue.
-      const planRes = await fetch(`/api/org/plan?organisationId=${encodeURIComponent(org)}`, {
-        cache: "no-store",
-      });
-      const planJson: OrgPlanResp = await planRes.json().catch(() => ({} as any));
-      const canLoadReal = Boolean(planJson?.approvalsEnabled);
-
-      if (!canLoadReal) {
-        setRows(DEMO_PENDING);
+      // If locked, show demo items and stop here.
+      if (demoMode) {
+        setRows(demoItems);
         return;
       }
+
+      const org = organisationId || (await resolveOrg());
 
       const res = await fetch(`/api/schedule/list?organisationId=${encodeURIComponent(org)}`, {
         cache: "no-store",
       });
-      const data: any = await res.json().catch(() => ({}));
+
+      const data: ApiListResp = await res.json().catch(() => ({}));
 
       if (!res.ok || data?.ok === false) {
         throw new Error(data?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
@@ -148,7 +152,7 @@ export default function ApprovalsPage() {
       setRows(Array.isArray(data?.items) ? data.items : []);
     } catch (e: any) {
       setError(e?.message || "Could not load approvals queue.");
-      setRows([]);
+      setRows(demoMode ? demoItems : []);
     } finally {
       setLoading(false);
     }
@@ -171,6 +175,7 @@ export default function ApprovalsPage() {
   const pending = useMemo(() => {
     const q = query.trim().toLowerCase();
     const base = rows.filter((r) => String(r.status || "").toLowerCase() === "pending_approval");
+
     if (!q) return base;
 
     return base.filter((r) => {
@@ -220,15 +225,9 @@ export default function ApprovalsPage() {
   const act = async (action: "approve" | "reject") => {
     if (!selected) return;
 
-    // UI guard too
-    if (!approvalsEnabled || tier !== "team") {
-      setError("Approvals are available on the Team plan.");
-      return;
-    }
-
-    // Demo items should not call API
-    if (String(selected.id || "").startsWith("demo-")) {
-      setError("This is a demo item. Upgrade to Team to use approvals on real scheduled posts.");
+    // Locked = show a friendly message and do nothing
+    if (locked) {
+      setError("Approvals are available on the Team plan. This page is in Demo mode right now.");
       return;
     }
 
@@ -246,7 +245,6 @@ export default function ApprovalsPage() {
       const data: any = await res.json().catch(() => null);
       if (!res.ok || data?.success === false) throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
 
-      // Optimistic UI update
       const newStatus = action === "approve" ? "queued" : "rejected";
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
 
@@ -256,8 +254,6 @@ export default function ApprovalsPage() {
       setError(e?.message || "Action failed.");
     }
   };
-
-  const locked = !approvalsEnabled || tier !== "team";
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -272,13 +268,13 @@ export default function ApprovalsPage() {
           <div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Approvals</h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Enterprise guard rail: approvals are a <span className="text-slate-100 font-semibold">Team</span> feature.
-              {locked ? " You can still demo the screen here." : " Approve → status becomes queued."}
+              Posts with <span className="text-slate-100 font-semibold">status = pending_approval</span> appear here.
+              Approve → status becomes <span className="text-slate-100 font-semibold">queued</span>.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Pill tone={locked ? "warn" : "good"}>{locked ? `Locked (${tier})` : "Enabled (team)"}</Pill>
+            <Pill tone={locked ? "warn" : "good"}>{locked ? `Locked (${planLabel(plan)}) • Demo mode` : `Enabled (${planLabel(plan)})`}</Pill>
             <Pill tone="warn">Pending: {pending.length}</Pill>
             <button
               type="button"
@@ -290,34 +286,6 @@ export default function ApprovalsPage() {
             </button>
           </div>
         </div>
-
-        {locked ? (
-          <GlassCard className="p-6">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div>
-                <div className="text-base font-semibold">Team feature</div>
-                <div className="mt-1 text-xs text-slate-300">
-                  Approvals are designed for clinics / collectives where posts need sign-off.
-                </div>
-              </div>
-
-              <div className="flex gap-2 flex-wrap">
-                <Link
-                  href="/pricing"
-                  className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300 transition"
-                >
-                  See Team pricing →
-                </Link>
-                <Link
-                  href="/dashboard/connect"
-                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
-                >
-                  Back to dashboard
-                </Link>
-              </div>
-            </div>
-          </GlassCard>
-        ) : null}
 
         <GlassCard className="p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -345,6 +313,15 @@ export default function ApprovalsPage() {
               Loading approvals…
             </div>
           )}
+
+          {locked && (
+            <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
+              Approvals are a <span className="font-semibold">Team</span> feature. You’re viewing <span className="font-semibold">Demo mode</span>.
+              <div className="mt-2">
+                <a href="/pricing" className="underline hover:text-amber-50">View plans →</a>
+              </div>
+            </div>
+          )}
         </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -357,12 +334,20 @@ export default function ApprovalsPage() {
               pending.map((p) => {
                 const isSelected = p.id === selectedId;
                 return (
-                  <button
+                  <div
                     key={p.id}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedId(p.id)}
+                    onKeyDown={(e) => {
+                      // prevents page scroll/focus jumps from keypresses
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedId(p.id);
+                      }
+                    }}
                     className={[
-                      "w-full text-left rounded-2xl border p-4 transition",
+                      "w-full text-left rounded-2xl border p-4 transition cursor-pointer select-none outline-none",
                       isSelected ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
                     ].join(" ")}
                   >
@@ -375,7 +360,7 @@ export default function ApprovalsPage() {
                     </div>
 
                     <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{p.message}</div>
-                  </button>
+                  </div>
                 );
               })
             )}
@@ -384,9 +369,7 @@ export default function ApprovalsPage() {
           <div className="space-y-6">
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Review</div>
-              <div className="mt-1 text-xs text-slate-300">
-                {locked ? "Demo mode: upgrade to Team to approve/reject real posts." : "Approve moves it to publishing queue (queued)."}
-              </div>
+              <div className="mt-1 text-xs text-slate-300">Approve moves it to publishing queue (queued).</div>
 
               {!selected ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
@@ -408,17 +391,23 @@ export default function ApprovalsPage() {
                     placeholder="Optional note (why approved/rejected)…"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
+                    onKeyDown={(e) => {
+                      // 🔥 critical: stop key events bubbling into the list (prevents scroll jumps)
+                      e.stopPropagation();
+                    }}
+                    onKeyUp={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                   />
 
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => act("approve")}
                       disabled={locked}
+                      onClick={() => act("approve")}
                       className={[
                         "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition",
                         locked
-                          ? "bg-emerald-500/30 text-slate-200 cursor-not-allowed"
+                          ? "bg-white/5 text-slate-400 cursor-not-allowed border border-white/10"
                           : "bg-emerald-500 text-slate-950 hover:bg-emerald-400",
                       ].join(" ")}
                     >
@@ -427,27 +416,18 @@ export default function ApprovalsPage() {
 
                     <button
                       type="button"
-                      onClick={() => act("reject")}
                       disabled={locked}
+                      onClick={() => act("reject")}
                       className={[
-                        "flex-1 rounded-2xl border px-4 py-3 text-sm font-semibold transition",
+                        "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition",
                         locked
-                          ? "border-red-400/20 bg-red-400/5 text-red-200/70 cursor-not-allowed"
-                          : "border-red-400/30 bg-red-400/10 text-red-100 hover:bg-red-400/15",
+                          ? "bg-white/5 text-slate-400 cursor-not-allowed border border-white/10"
+                          : "border border-red-400/30 bg-red-400/10 text-red-100 hover:bg-red-400/15",
                       ].join(" ")}
                     >
                       Reject
                     </button>
                   </div>
-
-                  {locked ? (
-                    <Link
-                      href="/pricing"
-                      className="block text-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
-                    >
-                      Upgrade to Team to unlock approvals →
-                    </Link>
-                  ) : null}
                 </div>
               )}
             </GlassCard>
@@ -455,9 +435,9 @@ export default function ApprovalsPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Enterprise safety</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • Approvals do not create posts.\n
-                • They only move existing scheduled posts into the publish queue.\n
-                • Next step: permissions + audit trail.
+                • Approvals do not create posts.{"\n"}
+                • They only move existing scheduled posts into the publish queue.{"\n"}
+                • Next step after this: permissions + audit trail.
               </div>
             </GlassCard>
           </div>
