@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type ScheduledPost = {
   id: string;
@@ -59,7 +59,12 @@ export default function ApprovalsPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // ✅ Search (simple + stable)
+  // ✅ Focus-stable inputs (we will aggressively keep focus)
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
+  const searchHadFocusRef = useRef(false);
+  const noteHadFocusRef = useRef(false);
+
   const [queryRaw, setQueryRaw] = useState("");
   const query = useDebouncedValue(queryRaw, 200);
 
@@ -96,7 +101,7 @@ export default function ApprovalsPage() {
       });
       const data: ApiListResp = await res.json().catch(() => ({}));
 
-      if (!res.ok || (data && (data as any).ok === false)) {
+      if (!res.ok || (data as any)?.ok === false) {
         throw new Error((data as any)?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
       }
 
@@ -123,7 +128,35 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => setNote(""), [selectedId]);
+  // ✅ If something steals focus during rerenders, steal it back
+  useEffect(() => {
+    if (searchHadFocusRef.current) {
+      requestAnimationFrame(() => {
+        const el = searchRef.current;
+        if (!el) return;
+        el.focus();
+        // keep caret at end
+        const n = el.value.length;
+        try {
+          el.setSelectionRange(n, n);
+        } catch {}
+      });
+    }
+  }, [queryRaw]);
+
+  useEffect(() => {
+    if (noteHadFocusRef.current) {
+      requestAnimationFrame(() => {
+        const el = noteRef.current;
+        if (!el) return;
+        el.focus();
+        const n = el.value.length;
+        try {
+          el.setSelectionRange(n, n);
+        } catch {}
+      });
+    }
+  }, [note]);
 
   const counts = useMemo(() => {
     const pending = rows.filter((r) => isPending(r.status)).length;
@@ -147,34 +180,6 @@ export default function ApprovalsPage() {
   }, [rows, query, tab]);
 
   const selected = useMemo(() => filtered.find((x) => x.id === selectedId) || null, [filtered, selectedId]);
-
-  const act = async (action: "approve" | "reject") => {
-    if (!selected) return;
-    setError(null);
-
-    try {
-      const org = organisationId || (await resolveOrg());
-
-      const res = await fetch(`/api/approvals/update?organisationId=${encodeURIComponent(org)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selected.id, action, note: note.trim() || null }),
-      });
-
-      const data: any = await res.json().catch(() => null);
-      if (!res.ok || data?.success === false) throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
-
-      const newStatus = action === "approve" ? "queued" : "rejected";
-
-      // Update in-place so it appears in Queued tab
-      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
-
-      setSelectedId(null);
-      setNote("");
-    } catch (e: any) {
-      setError(e?.message || "Action failed.");
-    }
-  };
 
   const Pill = ({
     children,
@@ -210,7 +215,32 @@ export default function ApprovalsPage() {
     </div>
   );
 
-  // ✅ Force normal typing direction ONLY here
+  const act = async (action: "approve" | "reject") => {
+    if (!selected) return;
+    setError(null);
+
+    try {
+      const org = organisationId || (await resolveOrg());
+
+      const res = await fetch(`/api/approvals/update?organisationId=${encodeURIComponent(org)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selected.id, action, note: note.trim() || null }),
+      });
+
+      const data: any = await res.json().catch(() => null);
+      if (!res.ok || data?.success === false) throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
+
+      const newStatus = action === "approve" ? "queued" : "rejected";
+      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
+      setSelectedId(null);
+      setNote("");
+    } catch (e: any) {
+      setError(e?.message || "Action failed.");
+    }
+  };
+
+  // ✅ Force normal typing direction on this page only
   const ltrStyle: React.CSSProperties = { direction: "ltr", unicodeBidi: "plaintext" };
 
   return (
@@ -249,11 +279,12 @@ export default function ApprovalsPage() {
             <div>
               <div className="text-base font-semibold">Search</div>
               <div className="mt-1 text-xs text-slate-300">
-                If you can type smoothly here, we’re done with the input bug.
+                This build aggressively keeps focus so the caret can’t “disappear”.
               </div>
             </div>
 
             <input
+              ref={searchRef}
               dir="ltr"
               style={ltrStyle}
               autoCorrect="off"
@@ -263,8 +294,11 @@ export default function ApprovalsPage() {
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search…"
               value={queryRaw}
+              onFocus={() => (searchHadFocusRef.current = true)}
+              onBlur={() => (searchHadFocusRef.current = false)}
               onChange={(e) => setQueryRaw(e.target.value)}
-              onKeyDown={(e) => e.stopPropagation()}
+              onKeyDownCapture={(e) => e.stopPropagation()}
+              onPointerDownCapture={(e) => e.stopPropagation()}
             />
           </div>
 
@@ -293,24 +327,33 @@ export default function ApprovalsPage() {
           )}
 
           {loading && (
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Loading…</div>
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+              Loading…
+            </div>
           )}
         </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-3">
             {!loading && filtered.length === 0 ? (
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">No items in this view.</div>
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
+                No items in this view.
+              </div>
             ) : (
               filtered.map((p) => {
                 const isSelected = p.id === selectedId;
+
+                // ✅ IMPORTANT: use a DIV for list items, not a BUTTON
+                // Buttons can steal focus + react to keypresses in some browsers/conditions.
                 return (
-                  <button
+                  <div
                     key={p.id}
-                    type="button"
+                    role="button"
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setSelectedId(p.id)}
                     className={[
-                      "w-full text-left rounded-2xl border p-4 transition",
+                      "w-full cursor-pointer text-left rounded-2xl border p-4 transition select-none",
                       isSelected ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
                     ].join(" ")}
                   >
@@ -325,7 +368,7 @@ export default function ApprovalsPage() {
                     </div>
 
                     <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{p.message}</div>
-                  </button>
+                  </div>
                 );
               })
             )}
@@ -337,7 +380,9 @@ export default function ApprovalsPage() {
               <div className="mt-1 text-xs text-slate-300">Approve → queued. Reject → rejected.</div>
 
               {!selected ? (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Select an item to review.</div>
+                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+                  Select an item to review.
+                </div>
               ) : (
                 <div className="mt-4 space-y-4">
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -352,12 +397,17 @@ export default function ApprovalsPage() {
                   </div>
 
                   <textarea
+                    ref={noteRef}
                     dir="ltr"
                     style={ltrStyle}
                     className="w-full min-h-[90px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Optional note…"
                     value={note}
+                    onFocus={() => (noteHadFocusRef.current = true)}
+                    onBlur={() => (noteHadFocusRef.current = false)}
                     onChange={(e) => setNote(e.target.value)}
+                    onKeyDownCapture={(e) => e.stopPropagation()}
+                    onPointerDownCapture={(e) => e.stopPropagation()}
                   />
 
                   <div className="flex gap-2">
