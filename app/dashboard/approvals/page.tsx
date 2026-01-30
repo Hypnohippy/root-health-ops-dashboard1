@@ -1,7 +1,13 @@
 // app/dashboard/approvals/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 type ScheduledPost = {
   id: string;
@@ -49,12 +55,15 @@ function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
   const s = String(status || "").toLowerCase();
   if (s.includes("queued") || s.includes("approved")) return "good";
   if (s.includes("pending")) return "warn";
-  if (s.includes("rejected") || s.includes("failed") || s.includes("error")) return "bad";
+  if (s.includes("rejected") || s.includes("failed") || s.includes("error"))
+    return "bad";
   return "neutral";
 }
 
 function uid(prefix = "demo") {
-  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(
+    16
+  )}`;
 }
 
 function demoSeed(orgId: string): ScheduledPost[] {
@@ -116,14 +125,21 @@ export default function ApprovalsPage() {
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
   const [tab, setTab] = useState<TabKey>("pending");
-  const [query, setQuery] = useState("");
+
+  // ✅ Search: raw input stays instant, filtering uses deferred value to stop “cursor disappears”
+  const [rawQuery, setRawQuery] = useState("");
+  const query = useDeferredValue(rawQuery);
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // ✅ UNcontrolled comments box (fixes “1 letter then stops” + mirror typing)
+  // ✅ Uncontrolled comments box (prevents 1-letter + caret jumping)
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
 
   const resolveOrg = async () => {
-    const res = await fetch("/api/social-accounts", { method: "GET", cache: "no-store" });
+    const res = await fetch("/api/social-accounts", {
+      method: "GET",
+      cache: "no-store",
+    });
     const data: any = await res.json().catch(() => null);
 
     const org =
@@ -156,9 +172,10 @@ export default function ApprovalsPage() {
     try {
       const org = organisationId || (await resolveOrg());
 
-      const res = await fetch(`/api/schedule/list?organisationId=${encodeURIComponent(org)}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/schedule/list?organisationId=${encodeURIComponent(org)}`,
+        { cache: "no-store" }
+      );
       const data: ApiListResp = await res.json().catch(() => ({}));
 
       if (!data?.ok) throw new Error(data?.error || "Failed to load scheduled posts.");
@@ -192,10 +209,28 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Prebuild a “search text” per row so filtering is cheap
+  const searchableRows = useMemo(() => {
+    return rows.map((r) => {
+      const platforms = prettyPlatforms(r.platforms);
+      const scheduled = String(r.scheduled_for || "");
+      const status = String(r.status || "");
+      const message = String(r.message || "");
+      const hay = `${message} ${platforms} ${scheduled} ${status}`.toLowerCase();
+      return { r, hay };
+    });
+  }, [rows]);
+
   const counts = useMemo(() => {
-    const pending = rows.filter((r) => String(r.status || "").toLowerCase() === "pending_approval").length;
-    const queued = rows.filter((r) => String(r.status || "").toLowerCase() === "queued").length;
-    const rejected = rows.filter((r) => String(r.status || "").toLowerCase() === "rejected").length;
+    const pending = rows.filter(
+      (r) => String(r.status || "").toLowerCase() === "pending_approval"
+    ).length;
+    const queued = rows.filter(
+      (r) => String(r.status || "").toLowerCase() === "queued"
+    ).length;
+    const rejected = rows.filter(
+      (r) => String(r.status || "").toLowerCase() === "rejected"
+    ).length;
     return { pending, queued, rejected, all: rows.length };
   }, [rows]);
 
@@ -204,24 +239,29 @@ export default function ApprovalsPage() {
 
     const base =
       tab === "pending"
-        ? rows.filter((r) => String(r.status || "").toLowerCase() === "pending_approval")
+        ? searchableRows.filter(
+            (x) => String(x.r.status || "").toLowerCase() === "pending_approval"
+          )
         : tab === "queued"
-        ? rows.filter((r) => String(r.status || "").toLowerCase() === "queued")
+        ? searchableRows.filter(
+            (x) => String(x.r.status || "").toLowerCase() === "queued"
+          )
         : tab === "rejected"
-        ? rows.filter((r) => String(r.status || "").toLowerCase() === "rejected")
-        : rows;
+        ? searchableRows.filter(
+            (x) => String(x.r.status || "").toLowerCase() === "rejected"
+          )
+        : searchableRows;
 
-    if (!q) return base;
+    if (!q) return base.map((x) => x.r);
 
-    return base.filter((r) => {
-      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.scheduled_for || ""} ${r.status || ""}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [rows, tab, query]);
+    return base.filter((x) => x.hay.includes(q)).map((x) => x.r);
+  }, [searchableRows, tab, query]);
 
-  const selected = useMemo(() => rows.find((x) => x.id === selectedId) || null, [rows, selectedId]);
+  const selected = useMemo(
+    () => rows.find((x) => x.id === selectedId) || null,
+    [rows, selectedId]
+  );
 
-  // ✅ when you select a different item, hard-clear the textarea without controlling it
   useEffect(() => {
     if (noteRef.current) noteRef.current.value = "";
   }, [selectedId]);
@@ -245,13 +285,24 @@ export default function ApprovalsPage() {
         : "border-white/10 bg-white/5 text-slate-200";
 
     return (
-      <span className={["inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold", cls].join(" ")}>
+      <span
+        className={[
+          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold",
+          cls,
+        ].join(" ")}
+      >
         {children}
       </span>
     );
   };
 
-  const GlassCard = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
+  const GlassCard = ({
+    children,
+    className = "",
+  }: {
+    children: React.ReactNode;
+    className?: string;
+  }) => (
     <div
       className={[
         "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
@@ -262,7 +313,15 @@ export default function ApprovalsPage() {
     </div>
   );
 
-  const TabButton = ({ k, label, count }: { k: TabKey; label: string; count: number }) => {
+  const TabButton = ({
+    k,
+    label,
+    count,
+  }: {
+    k: TabKey;
+    label: string;
+    count: number;
+  }) => {
     const active = tab === k;
     return (
       <button
@@ -275,7 +334,8 @@ export default function ApprovalsPage() {
             : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
         ].join(" ")}
       >
-        {label} <span className="ml-2 text-[11px] text-slate-400">({count})</span>
+        {label}{" "}
+        <span className="ml-2 text-[11px] text-slate-400">({count})</span>
       </button>
     );
   };
@@ -289,7 +349,9 @@ export default function ApprovalsPage() {
 
     // Demo: local update only
     if (selected?.meta?.demo) {
-      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
+      setRows((prev) =>
+        prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r))
+      );
       if (action === "approve") setTab("queued");
       setSelectedId(null);
       if (noteRef.current) noteRef.current.value = "";
@@ -299,16 +361,24 @@ export default function ApprovalsPage() {
     try {
       const org = organisationId || (await resolveOrg());
 
-      const res = await fetch(`/api/approvals/update?organisationId=${encodeURIComponent(org)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selected.id, action, note }),
-      });
+      const res = await fetch(
+        `/api/approvals/update?organisationId=${encodeURIComponent(org)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: selected.id, action, note }),
+        }
+      );
 
       const data: ApiUpdateResp = await res.json().catch(() => ({}));
-      if (!res.ok || data?.success === false) throw new Error(data?.error || data?.details || `Failed (HTTP ${res.status}).`);
+      if (!res.ok || data?.success === false)
+        throw new Error(
+          data?.error || data?.details || `Failed (HTTP ${res.status}).`
+        );
 
-      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
+      setRows((prev) =>
+        prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r))
+      );
       if (action === "approve") setTab("queued");
       setSelectedId(null);
       if (noteRef.current) noteRef.current.value = "";
@@ -328,9 +398,12 @@ export default function ApprovalsPage() {
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Approvals</h1>
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+              Approvals
+            </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Review scheduled posts before they publish. Approve → moves to <span className="text-slate-100 font-semibold">Queued</span>.
+              Review scheduled posts before they publish. Approve → moves to{" "}
+              <span className="text-slate-100 font-semibold">Queued</span>.
             </p>
           </div>
 
@@ -358,14 +431,16 @@ export default function ApprovalsPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <div className="text-base font-semibold">Search</div>
-              <div className="mt-1 text-xs text-slate-300">Filter by text/platform/date/status.</div>
+              <div className="mt-1 text-xs text-slate-300">
+                Filter by text/platform/date/status.
+              </div>
             </div>
 
             <input
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={rawQuery}
+              onChange={(e) => setRawQuery(e.target.value)}
             />
           </div>
 
@@ -376,14 +451,18 @@ export default function ApprovalsPage() {
           )}
 
           {loading && (
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Loading…</div>
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+              Loading…
+            </div>
           )}
         </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-3">
             {!loading && filtered.length === 0 ? (
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">Nothing in this view.</div>
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
+                Nothing in this view.
+              </div>
             ) : (
               filtered.map((p) => {
                 const isSelected = p.id === selectedId;
@@ -394,18 +473,24 @@ export default function ApprovalsPage() {
                     onClick={() => setSelectedId(p.id)}
                     className={[
                       "w-full cursor-pointer text-left rounded-2xl border p-4 transition select-none",
-                      isSelected ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
+                      isSelected
+                        ? "border-emerald-300/30 bg-emerald-300/5"
+                        : "border-white/10 bg-black/20 hover:bg-white/5",
                     ].join(" ")}
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-xs font-semibold text-slate-100 truncate">
                         {prettyPlatforms(p.platforms)}
-                        <span className="ml-2 text-[11px] font-normal text-slate-400">{safeDate(p.scheduled_for)}</span>
+                        <span className="ml-2 text-[11px] font-normal text-slate-400">
+                          {safeDate(p.scheduled_for)}
+                        </span>
                       </div>
                       <Pill tone={statusTone(p.status)}>{p.status}</Pill>
                     </div>
 
-                    <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{p.message}</div>
+                    <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">
+                      {p.message}
+                    </div>
                   </div>
                 );
               })
@@ -415,19 +500,31 @@ export default function ApprovalsPage() {
           <div className="space-y-6">
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Review</div>
-              <div className="mt-1 text-xs text-slate-300">Approve → queued. Reject → rejected.</div>
+              <div className="mt-1 text-xs text-slate-300">
+                Approve → queued. Reject → rejected.
+              </div>
 
               {!selected ? (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Select an item to review.</div>
+                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+                  Select an item to review.
+                </div>
               ) : (
                 <div className="mt-4 space-y-4">
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm font-semibold">{prettyPlatforms(selected.platforms)}</div>
-                      <Pill tone={statusTone(selected.status)}>{selected.status}</Pill>
+                      <div className="text-sm font-semibold">
+                        {prettyPlatforms(selected.platforms)}
+                      </div>
+                      <Pill tone={statusTone(selected.status)}>
+                        {selected.status}
+                      </Pill>
                     </div>
-                    <div className="mt-2 text-[11px] text-slate-400">{safeDate(selected.scheduled_for)}</div>
-                    <div className="mt-3 text-sm whitespace-pre-wrap">{selected.message}</div>
+                    <div className="mt-2 text-[11px] text-slate-400">
+                      {safeDate(selected.scheduled_for)}
+                    </div>
+                    <div className="mt-3 text-sm whitespace-pre-wrap">
+                      {selected.message}
+                    </div>
                   </div>
 
                   <textarea
@@ -442,7 +539,9 @@ export default function ApprovalsPage() {
                     <button
                       type="button"
                       onClick={() => act("approve")}
-                      disabled={String(selected.status || "").toLowerCase() === "queued"}
+                      disabled={
+                        String(selected.status || "").toLowerCase() === "queued"
+                      }
                       className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       Approve
@@ -451,7 +550,9 @@ export default function ApprovalsPage() {
                     <button
                       type="button"
                       onClick={() => act("reject")}
-                      disabled={String(selected.status || "").toLowerCase() === "rejected"}
+                      disabled={
+                        String(selected.status || "").toLowerCase() === "rejected"
+                      }
                       className="flex-1 rounded-2xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm font-semibold text-red-100 hover:bg-red-400/15 transition disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       Reject
@@ -459,7 +560,9 @@ export default function ApprovalsPage() {
                   </div>
 
                   {selected?.meta?.demo ? (
-                    <div className="text-[11px] text-slate-500">Demo item — actions update locally only (no DB writes).</div>
+                    <div className="text-[11px] text-slate-500">
+                      Demo item — actions update locally only (no DB writes).
+                    </div>
                   ) : null}
                 </div>
               )}
@@ -468,13 +571,16 @@ export default function ApprovalsPage() {
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Queued list</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                After approve, switch to the <b>Queued</b> tab.\n(This page auto-switches to Queued after approve.)
+                After approve, switch to the <b>Queued</b> tab.\n(This page
+                auto-switches to Queued after approve.)
               </div>
             </GlassCard>
           </div>
         </div>
 
-        <div className="text-[11px] text-slate-500">Organisation IDs remain hidden from users.</div>
+        <div className="text-[11px] text-slate-500">
+          Organisation IDs remain hidden from users.
+        </div>
       </div>
     </div>
   );
