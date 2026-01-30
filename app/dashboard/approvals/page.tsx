@@ -59,19 +59,17 @@ export default function ApprovalsPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // ✅ Focus-stable inputs (we will aggressively keep focus)
+  // ✅ Search is UNCONTROLLED (browser owns caret)
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const noteRef = useRef<HTMLTextAreaElement | null>(null);
-  const searchHadFocusRef = useRef(false);
-  const noteHadFocusRef = useRef(false);
-
   const [queryRaw, setQueryRaw] = useState("");
   const query = useDebouncedValue(queryRaw, 200);
 
-  const [tab, setTab] = useState<"pending" | "queued" | "all">("pending");
-
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // ✅ Comment stays controlled (it works for you)
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
   const [note, setNote] = useState("");
+
+  const [tab, setTab] = useState<"pending" | "queued" | "all">("pending");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -127,36 +125,6 @@ export default function ApprovalsPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ✅ If something steals focus during rerenders, steal it back
-  useEffect(() => {
-    if (searchHadFocusRef.current) {
-      requestAnimationFrame(() => {
-        const el = searchRef.current;
-        if (!el) return;
-        el.focus();
-        // keep caret at end
-        const n = el.value.length;
-        try {
-          el.setSelectionRange(n, n);
-        } catch {}
-      });
-    }
-  }, [queryRaw]);
-
-  useEffect(() => {
-    if (noteHadFocusRef.current) {
-      requestAnimationFrame(() => {
-        const el = noteRef.current;
-        if (!el) return;
-        el.focus();
-        const n = el.value.length;
-        try {
-          el.setSelectionRange(n, n);
-        } catch {}
-      });
-    }
-  }, [note]);
 
   const counts = useMemo(() => {
     const pending = rows.filter((r) => isPending(r.status)).length;
@@ -240,7 +208,7 @@ export default function ApprovalsPage() {
     }
   };
 
-  // ✅ Force normal typing direction on this page only
+  // ✅ Force normal text direction on this page
   const ltrStyle: React.CSSProperties = { direction: "ltr", unicodeBidi: "plaintext" };
 
   return (
@@ -279,7 +247,7 @@ export default function ApprovalsPage() {
             <div>
               <div className="text-base font-semibold">Search</div>
               <div className="mt-1 text-xs text-slate-300">
-                This build aggressively keeps focus so the caret can’t “disappear”.
+                Search is now UNCONTROLLED (browser owns caret) — should stop “one letter then loses caret”.
               </div>
             </div>
 
@@ -293,10 +261,11 @@ export default function ApprovalsPage() {
               inputMode="text"
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search…"
-              value={queryRaw}
-              onFocus={() => (searchHadFocusRef.current = true)}
-              onBlur={() => (searchHadFocusRef.current = false)}
-              onChange={(e) => setQueryRaw(e.target.value)}
+              defaultValue=""
+              onInput={(e) => {
+                const v = (e.currentTarget.value || "").toString();
+                setQueryRaw(v);
+              }}
               onKeyDownCapture={(e) => e.stopPropagation()}
               onPointerDownCapture={(e) => e.stopPropagation()}
             />
@@ -343,8 +312,6 @@ export default function ApprovalsPage() {
               filtered.map((p) => {
                 const isSelected = p.id === selectedId;
 
-                // ✅ IMPORTANT: use a DIV for list items, not a BUTTON
-                // Buttons can steal focus + react to keypresses in some browsers/conditions.
                 return (
                   <div
                     key={p.id}
@@ -403,8 +370,6 @@ export default function ApprovalsPage() {
                     className="w-full min-h-[90px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Optional note…"
                     value={note}
-                    onFocus={() => (noteHadFocusRef.current = true)}
-                    onBlur={() => (noteHadFocusRef.current = false)}
                     onChange={(e) => setNote(e.target.value)}
                     onKeyDownCapture={(e) => e.stopPropagation()}
                     onPointerDownCapture={(e) => e.stopPropagation()}
