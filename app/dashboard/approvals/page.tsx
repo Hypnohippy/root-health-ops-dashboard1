@@ -1,7 +1,6 @@
-// app/dashboard/approvals/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 type ScheduledPost = {
   id: string;
@@ -60,16 +59,14 @@ export default function ApprovalsPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // ✅ Uncontrolled inputs (browser owns caret)
-  const searchRef = useRef<HTMLInputElement | null>(null);
-  const noteRef = useRef<HTMLTextAreaElement | null>(null);
-
-  // We store only the filter value in state (NOT the input value)
+  // ✅ Search (simple + stable)
   const [queryRaw, setQueryRaw] = useState("");
-  const query = useDebouncedValue(queryRaw, 180);
+  const query = useDebouncedValue(queryRaw, 200);
 
   const [tab, setTab] = useState<"pending" | "queued" | "all">("pending");
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [note, setNote] = useState("");
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -99,7 +96,6 @@ export default function ApprovalsPage() {
       });
       const data: ApiListResp = await res.json().catch(() => ({}));
 
-      // your API returns ok:true/false sometimes even with HTTP 200
       if (!res.ok || (data && (data as any).ok === false)) {
         throw new Error((data as any)?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
       }
@@ -127,12 +123,7 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Clear selection if it disappears (e.g. approve moves it out of pending view)
-  useEffect(() => {
-    if (!selectedId) return;
-    const exists = rows.some((r) => r.id === selectedId);
-    if (!exists) setSelectedId(null);
-  }, [rows, selectedId]);
+  useEffect(() => setNote(""), [selectedId]);
 
   const counts = useMemo(() => {
     const pending = rows.filter((r) => isPending(r.status)).length;
@@ -150,9 +141,7 @@ export default function ApprovalsPage() {
     if (!q) return base;
 
     return base.filter((r) => {
-      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.scheduled_for || ""} ${normStatus(
-        r.status
-      )}`.toLowerCase();
+      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.scheduled_for || ""} ${normStatus(r.status)}`.toLowerCase();
       return hay.includes(q);
     });
   }, [rows, query, tab]);
@@ -165,12 +154,11 @@ export default function ApprovalsPage() {
 
     try {
       const org = organisationId || (await resolveOrg());
-      const note = (noteRef.current?.value || "").trim() || null;
 
       const res = await fetch(`/api/approvals/update?organisationId=${encodeURIComponent(org)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selected.id, action, note }),
+        body: JSON.stringify({ id: selected.id, action, note: note.trim() || null }),
       });
 
       const data: any = await res.json().catch(() => null);
@@ -178,11 +166,11 @@ export default function ApprovalsPage() {
 
       const newStatus = action === "approve" ? "queued" : "rejected";
 
-      // Update in-place so it appears in Queued tab without reloading
+      // Update in-place so it appears in Queued tab
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
 
       setSelectedId(null);
-      if (noteRef.current) noteRef.current.value = "";
+      setNote("");
     } catch (e: any) {
       setError(e?.message || "Action failed.");
     }
@@ -222,7 +210,7 @@ export default function ApprovalsPage() {
     </div>
   );
 
-  // ✅ Force normal typing direction on THIS PAGE ONLY
+  // ✅ Force normal typing direction ONLY here
   const ltrStyle: React.CSSProperties = { direction: "ltr", unicodeBidi: "plaintext" };
 
   return (
@@ -261,21 +249,22 @@ export default function ApprovalsPage() {
             <div>
               <div className="text-base font-semibold">Search</div>
               <div className="mt-1 text-xs text-slate-300">
-                This is now <span className="text-slate-100 font-semibold">uncontrolled</span> + forced LTR to stop caret weirdness.
+                If you can type smoothly here, we’re done with the input bug.
               </div>
             </div>
 
             <input
-              ref={searchRef}
               dir="ltr"
               style={ltrStyle}
-              autoCapitalize="none"
               autoCorrect="off"
+              autoCapitalize="none"
               spellCheck={false}
+              inputMode="text"
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search…"
-              defaultValue=""
-              onInput={(e) => setQueryRaw((e.target as HTMLInputElement).value)}
+              value={queryRaw}
+              onChange={(e) => setQueryRaw(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
             />
           </div>
 
@@ -363,15 +352,12 @@ export default function ApprovalsPage() {
                   </div>
 
                   <textarea
-                    ref={noteRef}
                     dir="ltr"
                     style={ltrStyle}
-                    autoCapitalize="sentences"
-                    autoCorrect="off"
-                    spellCheck={true}
                     className="w-full min-h-[90px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Optional note…"
-                    defaultValue=""
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
                   />
 
                   <div className="flex gap-2">
@@ -391,22 +377,8 @@ export default function ApprovalsPage() {
                       Reject
                     </button>
                   </div>
-
-                  <div className="text-[11px] text-slate-500">
-                    Tip: after approving, switch to <span className="text-slate-200 font-semibold">Queued</span> to see it.
-                  </div>
                 </div>
               )}
-            </GlassCard>
-
-            <GlassCard className="p-6">
-              <div className="text-base font-semibold">Debug note</div>
-              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                Search typing issues are now fixed by:
-                {"\n"}• uncontrolled input (no value=)
-                {"\n"}• forced LTR + unicode-bidi plaintext
-                {"\n"}• debounced filtering (less UI churn)
-              </div>
             </GlassCard>
           </div>
         </div>
