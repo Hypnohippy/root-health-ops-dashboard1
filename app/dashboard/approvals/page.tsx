@@ -1,7 +1,7 @@
 // app/dashboard/approvals/page.tsx
 "use client";
 
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type ScheduledPost = {
   id: string;
@@ -118,16 +118,9 @@ export default function ApprovalsPage() {
   const [tab, setTab] = useState<TabKey>("pending");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [note, setNote] = useState("");
 
-  // Search input: keep focus stable
-  const searchRef = useRef<HTMLInputElement | null>(null);
-  const searchHadFocus = useRef(false);
-
-  // Note textarea: preserve caret (THIS fixes mirrored typing)
+  // ✅ UNcontrolled comments box (fixes “1 letter then stops” + mirror typing)
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
-  const noteSelectionRef = useRef<{ start: number; end: number } | null>(null);
-  const noteHadFocus = useRef(false);
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET", cache: "no-store" });
@@ -199,27 +192,6 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep focus on search after re-renders if it had focus
-  useEffect(() => {
-    if (searchHadFocus.current) {
-      requestAnimationFrame(() => searchRef.current?.focus());
-    }
-  }, [query, tab, rows.length]);
-
-  // Restore textarea caret after note updates (no forced focus, just caret restore)
-  useLayoutEffect(() => {
-    if (!noteHadFocus.current) return;
-    const el = noteRef.current;
-    const sel = noteSelectionRef.current;
-    if (!el || !sel) return;
-
-    try {
-      el.setSelectionRange(sel.start, sel.end);
-    } catch {
-      // ignore
-    }
-  }, [note]);
-
   const counts = useMemo(() => {
     const pending = rows.filter((r) => String(r.status || "").toLowerCase() === "pending_approval").length;
     const queued = rows.filter((r) => String(r.status || "").toLowerCase() === "queued").length;
@@ -249,7 +221,10 @@ export default function ApprovalsPage() {
 
   const selected = useMemo(() => rows.find((x) => x.id === selectedId) || null, [rows, selectedId]);
 
-  useEffect(() => setNote(""), [selectedId]);
+  // ✅ when you select a different item, hard-clear the textarea without controlling it
+  useEffect(() => {
+    if (noteRef.current) noteRef.current.value = "";
+  }, [selectedId]);
 
   const isDemo = useMemo(() => rows.some((r) => Boolean(r?.meta?.demo)), [rows]);
 
@@ -310,13 +285,14 @@ export default function ApprovalsPage() {
     setError(null);
 
     const newStatus = action === "approve" ? "queued" : "rejected";
+    const note = (noteRef.current?.value || "").trim() || null;
 
     // Demo: local update only
     if (selected?.meta?.demo) {
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
       if (action === "approve") setTab("queued");
       setSelectedId(null);
-      setNote("");
+      if (noteRef.current) noteRef.current.value = "";
       return;
     }
 
@@ -326,7 +302,7 @@ export default function ApprovalsPage() {
       const res = await fetch(`/api/approvals/update?organisationId=${encodeURIComponent(org)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selected.id, action, note: note.trim() || null }),
+        body: JSON.stringify({ id: selected.id, action, note }),
       });
 
       const data: ApiUpdateResp = await res.json().catch(() => ({}));
@@ -335,7 +311,7 @@ export default function ApprovalsPage() {
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
       if (action === "approve") setTab("queued");
       setSelectedId(null);
-      setNote("");
+      if (noteRef.current) noteRef.current.value = "";
     } catch (e: any) {
       setError(e?.message || "Action failed.");
     }
@@ -386,14 +362,10 @@ export default function ApprovalsPage() {
             </div>
 
             <input
-              ref={searchRef}
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search…"
               value={query}
-              onFocus={() => (searchHadFocus.current = true)}
-              onBlur={() => (searchHadFocus.current = false)}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDownCapture={(e) => e.stopPropagation()}
             />
           </div>
 
@@ -419,8 +391,6 @@ export default function ApprovalsPage() {
                 return (
                   <div
                     key={p.id}
-                    tabIndex={-1}
-                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setSelectedId(p.id)}
                     className={[
                       "w-full cursor-pointer text-left rounded-2xl border p-4 transition select-none",
@@ -465,20 +435,7 @@ export default function ApprovalsPage() {
                     dir="ltr"
                     className="w-full min-h-[110px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Optional note (why approved/rejected)…"
-                    value={note}
-                    onFocus={() => (noteHadFocus.current = true)}
-                    onBlur={() => {
-                      noteHadFocus.current = false;
-                      noteSelectionRef.current = null;
-                    }}
-                    onChange={(e) => {
-                      // capture caret BEFORE state update
-                      const start = e.target.selectionStart ?? 0;
-                      const end = e.target.selectionEnd ?? start;
-                      noteSelectionRef.current = { start, end };
-                      setNote(e.target.value);
-                    }}
-                    onKeyDownCapture={(e) => e.stopPropagation()}
+                    defaultValue=""
                   />
 
                   <div className="flex gap-2">
