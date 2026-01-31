@@ -131,11 +131,15 @@ export default function StorySeriesBuilderPage() {
       if (prefill.tone) {
         const t = String(prefill.tone);
         const mapped: ToneOption =
-          t.includes("Warm") ? "Warm & supportive" :
-          t.includes("Inspirational") ? "Inspirational & human" :
-          t.includes("thought") ? "Strong thought-leader" :
-          t.includes("Data") ? "Data-backed but human" :
-          "Professional & confident";
+          t.includes("Warm")
+            ? "Warm & supportive"
+            : t.includes("Inspirational")
+            ? "Inspirational & human"
+            : t.includes("thought")
+            ? "Strong thought-leader"
+            : t.includes("Data")
+            ? "Data-backed but human"
+            : "Professional & confident";
         setTone(mapped);
       }
 
@@ -179,9 +183,13 @@ export default function StorySeriesBuilderPage() {
         const mapped: GeneratedPost[] = prefill.series.map((p) => ({
           title: typeof p.title === "string" ? p.title : "",
           body: typeof p.body === "string" ? p.body : "",
-          platformSuggestion: typeof p.platformSuggestion === "string" ? p.platformSuggestion : undefined,
+          platformSuggestion:
+            typeof p.platformSuggestion === "string"
+              ? p.platformSuggestion
+              : undefined,
           cta: typeof p.cta === "string" ? p.cta : undefined,
-          imagePrompt: typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
+          imagePrompt:
+            typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
         }));
 
         setPosts(mapped);
@@ -349,7 +357,8 @@ export default function StorySeriesBuilderPage() {
     setDispatchError(null);
 
     try {
-      if (!orgId) throw new Error("Organisation not loaded yet. Refresh the page.");
+      if (!orgId)
+        throw new Error("Organisation not loaded yet. Refresh the page.");
       if (posts.length === 0) throw new Error("Generate a story/series first.");
       if (!seriesStart) throw new Error("Choose the first post date/time.");
 
@@ -382,6 +391,15 @@ export default function StorySeriesBuilderPage() {
             platforms: [targetPlatform],
             scheduledAt: whenIso,
             organisationId: orgId,
+
+            // ✅ NEW: poster identity (demo-safe for now)
+            // Later this will come from the clinician user record.
+            createdBy: {
+              user_id: "owner",
+              name: "Clinic Owner",
+              email: "owner@clinic.local",
+            },
+
             meta: {
               series: posts.length > 1,
               part: i + 1,
@@ -396,7 +414,10 @@ export default function StorySeriesBuilderPage() {
         if (!data?.success) {
           failures.push({
             index: i,
-            error: data?.error || data?.message || `Failed scheduling part ${i + 1}`,
+            error:
+              data?.error ||
+              data?.message ||
+              `Failed scheduling part ${i + 1}`,
           });
         } else {
           successCount++;
@@ -440,21 +461,20 @@ export default function StorySeriesBuilderPage() {
               Stories · Advanced Narrative Generator
             </h1>
             <p className="mt-1 text-sm text-slate-300 max-w-xl">
-              Generate → edit → send now or schedule. Auto-variation helps prevent duplicate-content blocks.
+              Generate → edit → send now or schedule. Auto-variation helps
+              prevent duplicate-content blocks.
             </p>
           </div>
         </header>
 
         {importedFromBrainstorm ? (
           <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-            Imported from Brainstorm. You can edit anything before generating/sending.
+            Imported from Brainstorm. You can edit anything before
+            generating/sending.
           </div>
         ) : null}
 
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* --- your existing UI continues unchanged below --- */}
-          {/* (Everything else remains exactly as you pasted, so no surprises.) */}
-
           <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-5">
             <div className="flex items-center justify-between">
               <h2 className="text-base md:text-lg font-semibold">1) Create</h2>
@@ -506,14 +526,24 @@ export default function StorySeriesBuilderPage() {
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={storyType}
-                  onChange={(e) => setStoryType(e.target.value as StoryTypeOption)}
+                  onChange={(e) =>
+                    setStoryType(e.target.value as StoryTypeOption)
+                  }
                 >
-                  <option value="HR director perspective">HR director perspective</option>
-                  <option value="Problem → Solution → Success">Problem → Solution → Success</option>
+                  <option value="HR director perspective">
+                    HR director perspective
+                  </option>
+                  <option value="Problem → Solution → Success">
+                    Problem → Solution → Success
+                  </option>
                   <option value="Professional insight">Professional insight</option>
                   <option value="Personal journey">Personal journey</option>
-                  <option value="Client case (anonymous)">Client case (anonymous)</option>
-                  <option value="Educational mini-series">Educational mini-series</option>
+                  <option value="Client case (anonymous)">
+                    Client case (anonymous)
+                  </option>
+                  <option value="Educational mini-series">
+                    Educational mini-series
+                  </option>
                   <option value="Behind the scenes">Behind the scenes</option>
                   <option value="Trauma recovery arc">Trauma recovery arc</option>
                 </select>
@@ -528,11 +558,19 @@ export default function StorySeriesBuilderPage() {
                   value={tone}
                   onChange={(e) => setTone(e.target.value as ToneOption)}
                 >
-                  <option value="Professional & confident">Professional & confident</option>
+                  <option value="Professional & confident">
+                    Professional & confident
+                  </option>
                   <option value="Warm & supportive">Warm & supportive</option>
-                  <option value="Inspirational & human">Inspirational & human</option>
-                  <option value="Strong thought-leader">Strong thought-leader</option>
-                  <option value="Data-backed but human">Data-backed but human</option>
+                  <option value="Inspirational & human">
+                    Inspirational & human
+                  </option>
+                  <option value="Strong thought-leader">
+                    Strong thought-leader
+                  </option>
+                  <option value="Data-backed but human">
+                    Data-backed but human
+                  </option>
                 </select>
               </div>
             </div>
@@ -545,7 +583,9 @@ export default function StorySeriesBuilderPage() {
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={targetPlatform}
-                  onChange={(e) => setTargetPlatform(e.target.value as ChannelId)}
+                  onChange={(e) =>
+                    setTargetPlatform(e.target.value as ChannelId)
+                  }
                 >
                   <option value="linkedin">LinkedIn</option>
                   <option value="facebook">Facebook</option>
@@ -566,7 +606,9 @@ export default function StorySeriesBuilderPage() {
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={seriesLength}
                   onChange={(e) =>
-                    setSeriesLength(Math.max(1, Math.min(10, Number(e.target.value) || 1)))
+                    setSeriesLength(
+                      Math.max(1, Math.min(10, Number(e.target.value) || 1))
+                    )
                   }
                 />
               </div>
@@ -578,13 +620,25 @@ export default function StorySeriesBuilderPage() {
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={ctaStyle}
-                  onChange={(e) => setCtaStyle(e.target.value as CtaStyleOption)}
+                  onChange={(e) =>
+                    setCtaStyle(e.target.value as CtaStyleOption)
+                  }
                 >
-                  <option value="Comment for more / next part">Comment for more / next part</option>
-                  <option value="Follow for the next part">Follow for the next part</option>
-                  <option value="DM me to talk privately">DM me to talk privately</option>
-                  <option value="Like or share if this resonates">Like or share if this resonates</option>
-                  <option value="Click through to learn more">Click through to learn more</option>
+                  <option value="Comment for more / next part">
+                    Comment for more / next part
+                  </option>
+                  <option value="Follow for the next part">
+                    Follow for the next part
+                  </option>
+                  <option value="DM me to talk privately">
+                    DM me to talk privately
+                  </option>
+                  <option value="Like or share if this resonates">
+                    Like or share if this resonates
+                  </option>
+                  <option value="Click through to learn more">
+                    Click through to learn more
+                  </option>
                 </select>
               </div>
             </div>
@@ -596,7 +650,11 @@ export default function StorySeriesBuilderPage() {
                 disabled={!canGenerate}
                 className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
               >
-                {isGenerating ? "Generating…" : isSingle ? "Generate story" : "Generate series"}
+                {isGenerating
+                  ? "Generating…"
+                  : isSingle
+                  ? "Generate story"
+                  : "Generate series"}
               </button>
 
               <label className="flex items-center gap-2 text-[11px] text-slate-300">
@@ -617,7 +675,9 @@ export default function StorySeriesBuilderPage() {
 
             {mode === "schedule" && posts.length > 0 && (
               <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
-                <div className="text-[11px] font-semibold text-slate-200">Scheduling options</div>
+                <div className="text-[11px] font-semibold text-slate-200">
+                  Scheduling options
+                </div>
 
                 <div className="grid md:grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -643,7 +703,12 @@ export default function StorySeriesBuilderPage() {
                       className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={dailyCadence}
                       onChange={(e) =>
-                        setDailyCadence(Math.max(1, Math.min(14, Number(e.target.value) || 1)))
+                        setDailyCadence(
+                          Math.max(
+                            1,
+                            Math.min(14, Number(e.target.value) || 1)
+                          )
+                        )
                       }
                     />
                   </div>
@@ -660,7 +725,9 @@ export default function StorySeriesBuilderPage() {
                     disabled={isDispatching}
                     className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
                   >
-                    {isDispatching ? "Sending…" : `Send now to ${targetPlatform}`}
+                    {isDispatching
+                      ? "Sending…"
+                      : `Send now to ${targetPlatform}`}
                   </button>
                 ) : (
                   <button
@@ -672,24 +739,36 @@ export default function StorySeriesBuilderPage() {
                     {isDispatching
                       ? "Scheduling…"
                       : orgId
-                        ? `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`
-                        : "Loading org…"}
+                      ? `Schedule ${posts.length} post${
+                          posts.length > 1 ? "s" : ""
+                        }`
+                      : "Loading org…"}
                   </button>
                 )}
               </div>
             )}
 
-            {dispatchStatus && <div className="mt-2 text-[11px] text-emerald-400">{dispatchStatus}</div>}
+            {dispatchStatus && (
+              <div className="mt-2 text-[11px] text-emerald-400">
+                {dispatchStatus}
+              </div>
+            )}
             {dispatchError && (
-              <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">{dispatchError}</div>
+              <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">
+                {dispatchError}
+              </div>
             )}
           </section>
 
           <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-4">
-            <h2 className="text-base md:text-lg font-semibold">2) Edit & preview</h2>
+            <h2 className="text-base md:text-lg font-semibold">
+              2) Edit & preview
+            </h2>
 
             {posts.length === 0 ? (
-              <p className="text-sm text-slate-400">Your generated story/series will appear here.</p>
+              <p className="text-sm text-slate-400">
+                Your generated story/series will appear here.
+              </p>
             ) : (
               <div className="space-y-3 max-h-[620px] overflow-y-auto pr-1">
                 {posts.map((p, idx) => (
@@ -698,20 +777,26 @@ export default function StorySeriesBuilderPage() {
                     className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-2"
                   >
                     <div className="text-[11px] text-slate-400">
-                      {posts.length > 1 ? `Episode ${idx + 1} / ${posts.length}` : "Single post"}
+                      {posts.length > 1
+                        ? `Episode ${idx + 1} / ${posts.length}`
+                        : "Single post"}
                     </div>
 
                     <input
                       className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={p.title || ""}
-                      onChange={(e) => updatePost(idx, { title: e.target.value })}
+                      onChange={(e) =>
+                        updatePost(idx, { title: e.target.value })
+                      }
                       placeholder="Title (optional)"
                     />
 
                     <textarea
                       className="w-full min-h-[140px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none whitespace-pre-wrap"
                       value={p.body || ""}
-                      onChange={(e) => updatePost(idx, { body: e.target.value })}
+                      onChange={(e) =>
+                        updatePost(idx, { body: e.target.value })
+                      }
                       placeholder="Post body"
                     />
 
