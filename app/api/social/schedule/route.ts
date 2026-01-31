@@ -2,23 +2,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
-function safeString(v: any, max = 200) {
-  const s = typeof v === "string" ? v.trim() : "";
-  if (!s) return null;
-  return s.slice(0, max);
-}
-
-function getClientIp(req: NextRequest) {
-  // Best-effort only (behind proxies/CDN may vary)
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
-  const real = req.headers.get("x-real-ip");
-  return real ? real.trim() : null;
-}
-
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = await req.json();
 
     const message: string | undefined = body.message;
     const platforms: string[] | undefined = body.platforms;
@@ -26,15 +12,15 @@ export async function POST(req: NextRequest) {
     const scheduledAt: string | undefined = body.scheduledAt;
     const organisationId: string | undefined = body.organisationId;
 
-    // Optional series / sequence fields
+    // NEW: optional series / sequence fields
     const sequenceId: string | undefined = body.sequenceId || body.sequence_id;
+    const metaIncoming: any = body.meta;
 
-    // Existing meta (can include series info etc.)
-    const metaIn: any = body.meta;
-
-    // NEW: optional submitter payload coming from client
-    // NOTE: we sanitize + stamp captured_at server-side
-    const submitterIn: any = body.submitter;
+    // ✅ NEW: optional poster identity (safe even without auth for now)
+    const poster = body.poster && typeof body.poster === "object" ? body.poster : null;
+    const posterName = typeof body?.posterName === "string" ? body.posterName.trim() : "";
+    const posterEmail = typeof body?.posterEmail === "string" ? body.posterEmail.trim() : "";
+    const posterUserId = typeof body?.posterUserId === "string" ? body.posterUserId.trim() : "";
 
     // 1) Basic validation
     if (!message || typeof message !== "string" || !message.trim()) {
@@ -77,23 +63,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2) Build safe submitter stamp (stored inside meta)
-    const nowIso = new Date().toISOString();
-    const submitter = {
-      id: safeString(submitterIn?.id, 120),
-      name: safeString(submitterIn?.name, 120),
-      email: safeString(submitterIn?.email, 180),
-      source: safeString(submitterIn?.source, 40) || "schedule",
-      captured_at: nowIso,
-      user_agent: safeString(req.headers.get("user-agent") || "", 260),
-      ip: safeString(getClientIp(req) || "", 80),
+    // 2) Build meta safely
+    const meta: any =
+      metaIncoming && typeof metaIncoming === "object" ? { ...metaIncoming } : {};
+
+    // ✅ Always attach created_by if provided
+    const createdByFromBody =
+      poster && typeof poster === "object"
+        ? {
+            user_id: typeof poster.user_id === "string" ? poster.user_id.trim() : undefined,
+            name: typeof poster.name === "string" ? poster.name.trim() : undefined,
+            email: typeof poster.email === "string" ? poster.email.trim() : undefined,
+            source: typeof poster.source === "string" ? poster.source : undefined,
+          }
+        : null;
+
+    const created_by = {
+      user_id: posterUserId || createdByFromBody?.user_id || undefined,
+      name: posterName || createdByFromBody?.name || undefined,
+      email: posterEmail || createdByFromBody?.email || undefined,
+      source: createdByFromBody?.source || (meta?.source ? String(meta.source) : "schedule"),
     };
 
-    // Merge meta safely (never overwrite other fields)
-    const nextMeta =
-      metaIn && typeof metaIn === "object"
-        ? { ...(metaIn || {}), submitter }
-        : { submitter };
+    // Only set if we have *something*
+    if (created_by.user_id || created_by.name || created_by.email) {
+      meta.created_by = created_by;
+    }
 
     // 3) Insert into scheduled_posts
     const insertPayload: Record<string, any> = {
@@ -102,23 +97,17 @@ export async function POST(req: NextRequest) {
       platforms,
       image_url: imageUrl || null,
       scheduled_for: date.toISOString(),
-
-      // keep your existing status usage
       status: "scheduled",
-
-      // meta now includes submitter
-      meta: nextMeta,
+      meta,
     };
 
-    // Only set if provided
     if (sequenceId && typeof sequenceId === "string" && sequenceId.trim()) {
       insertPayload.sequence_id = sequenceId.trim();
     }
 
-    // If meta includes series info, store it neatly too (unchanged)
-    if (metaIn && typeof metaIn === "object") {
-      if (typeof metaIn.part === "number") insertPayload.series_part = metaIn.part;
-      if (typeof metaIn.total === "number") insertPayload.series_total = metaIn.total;
+    if (meta && typeof meta === "object") {
+      if (typeof meta.part === "number") insertPayload.series_part = meta.part;
+      if (typeof meta.total === "number") insertPayload.series_total = meta.total;
     }
 
     const { data, error } = await supabaseAdmin
@@ -140,7 +129,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4) Success
     return NextResponse.json(
       {
         success: true,
