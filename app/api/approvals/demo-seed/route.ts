@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -25,7 +25,6 @@ export async function POST(req: NextRequest) {
         platforms: ["instagram", "facebook"],
         image_url: null,
         scheduled_for: new Date(now + 60 * 60 * 1000).toISOString(),
-        // keep status to a value your DB already allows (likely 'scheduled')
         status: "scheduled",
         meta: { approvals: { state: "pending", seeded: true, seeded_at: new Date().toISOString() } },
       },
