@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 type ScheduledPost = {
   id: string;
@@ -15,6 +15,8 @@ type ScheduledPost = {
 };
 
 type ApiListResp = { items?: ScheduledPost[]; error?: string; ok?: boolean };
+
+type PlanKey = "solo" | "growth" | "team" | "unknown";
 
 function safeDate(iso: string) {
   try {
@@ -42,6 +44,11 @@ function isQueued(s: any) {
   return normStatus(s) === "queued";
 }
 
+function isDemoId(id: string) {
+  return String(id || "").startsWith("demo-");
+}
+
+// Small debounce to keep search smooth
 function useDebouncedValue<T>(value: T, delayMs: number) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -51,52 +58,50 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
-/**
- * ✅ IMPORTANT:
- * These UI components MUST be defined OUTSIDE the page component.
- * If defined inside, React sees a new component identity on every render,
- * and will remount children (inputs lose caret / one-letter typing / cursor jumps).
- */
-function Pill({
-  children,
-  tone = "neutral",
-}: {
-  children: React.ReactNode;
-  tone?: "neutral" | "good" | "warn" | "bad";
-}) {
-  const cls =
-    tone === "good"
-      ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-      : tone === "warn"
-        ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
-        : tone === "bad"
-          ? "border-red-400/30 bg-red-400/10 text-red-100"
-          : "border-white/10 bg-white/5 text-slate-200";
+function buildDemoRows(orgId: string): ScheduledPost[] {
+  const now = Date.now();
+  const in10 = new Date(now + 10 * 60 * 1000).toISOString();
+  const in30 = new Date(now + 30 * 60 * 1000).toISOString();
+  const in60 = new Date(now + 60 * 60 * 1000).toISOString();
 
-  return (
-    <span className={["inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold", cls].join(" ")}>
-      {children}
-    </span>
-  );
-}
-
-function GlassCard({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={[
-        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </div>
-  );
+  return [
+    {
+      id: `demo-${crypto.randomUUID()}`,
+      organisation_id: orgId,
+      message:
+        "Demo: A gentle reminder — you don’t have to carry it all alone. If today is heavy, you can do one small kind thing and call it enough.",
+      platforms: ["instagram", "threads"],
+      image_url: null,
+      scheduled_for: in10,
+      status: "pending_approval",
+      created_at: new Date().toISOString(),
+      meta: { demo: true },
+    },
+    {
+      id: `demo-${crypto.randomUUID()}`,
+      organisation_id: orgId,
+      message:
+        "Demo: ‘Progress’ can be quiet. Showing up consistently — without burning out — is a win.",
+      platforms: ["linkedin"],
+      image_url: null,
+      scheduled_for: in30,
+      status: "pending_approval",
+      created_at: new Date().toISOString(),
+      meta: { demo: true },
+    },
+    {
+      id: `demo-${crypto.randomUUID()}`,
+      organisation_id: orgId,
+      message:
+        "Demo: This one is already queued — imagine it has passed review and is ready to publish at the scheduled time.",
+      platforms: ["facebook"],
+      image_url: null,
+      scheduled_for: in60,
+      status: "queued",
+      created_at: new Date().toISOString(),
+      meta: { demo: true },
+    },
+  ];
 }
 
 export default function ApprovalsPage() {
@@ -107,18 +112,17 @@ export default function ApprovalsPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
-  // Search (controlled is fine now, because we stopped remounting)
+  // Search (debounced)
   const [queryRaw, setQueryRaw] = useState("");
   const query = useDebouncedValue(queryRaw, 180);
 
   const [tab, setTab] = useState<"pending" | "queued" | "all">("pending");
-
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
-  // (Optional) refs just for safety
-  const searchRef = useRef<HTMLInputElement | null>(null);
-  const noteRef = useRef<HTMLTextAreaElement | null>(null);
+  // Plan / gating
+  const [plan, setPlan] = useState<PlanKey>("unknown");
+  const approvalsUnlocked = plan === "team";
 
   const resolveOrg = async () => {
     const res = await fetch("/api/social-accounts", { method: "GET" });
@@ -128,12 +132,30 @@ export default function ApprovalsPage() {
       typeof data?.organisationId === "string"
         ? data.organisationId
         : typeof data?.organisation_id === "string"
-          ? data.organisation_id
-          : null;
+        ? data.organisation_id
+        : null;
 
     if (!org) throw new Error("Workspace not loaded yet. Please refresh and try again.");
     setOrganisationId(org);
     return org;
+  };
+
+  const loadPlan = async () => {
+    try {
+      const res = await fetch("/api/billing/plan", { cache: "no-store" });
+      const data: any = await res.json().catch(() => null);
+      const p = String(data?.plan || "").toLowerCase().trim();
+
+      // Map backend plan -> UI plan keys
+      // Your webhook writes: basic | pro | enterprise
+      if (p === "enterprise" || p === "team") return setPlan("team");
+      if (p === "pro" || p === "growth") return setPlan("growth");
+      if (p === "basic" || p === "solo") return setPlan("solo");
+
+      setPlan("unknown");
+    } catch {
+      setPlan("unknown");
+    }
   };
 
   const load = async () => {
@@ -143,13 +165,15 @@ export default function ApprovalsPage() {
     try {
       const org = organisationId || (await resolveOrg());
 
+      // Load plan in parallel (doesn’t block list)
+      void loadPlan();
+
       const res = await fetch(`/api/schedule/list?organisationId=${encodeURIComponent(org)}`, {
         cache: "no-store",
       });
       const data: ApiListResp = await res.json().catch(() => ({}));
 
-      // Your API returns ok: true/false, but res.ok can still be true (status 200)
-      if (!res.ok || (data as any)?.ok === false) {
+      if (!res.ok) {
         throw new Error((data as any)?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
       }
 
@@ -176,12 +200,13 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // If selected item disappears (eg you approve it on Pending tab), clear selection
+  // Keep selection stable
   useEffect(() => {
-    if (!selectedId) return;
     const exists = rows.some((r) => r.id === selectedId);
-    if (!exists) setSelectedId(null);
+    if (selectedId && !exists) setSelectedId(null);
   }, [rows, selectedId]);
+
+  useEffect(() => setNote(""), [selectedId]);
 
   const counts = useMemo(() => {
     const pending = rows.filter((r) => isPending(r.status)).length;
@@ -199,15 +224,70 @@ export default function ApprovalsPage() {
     if (!q) return base;
 
     return base.filter((r) => {
-      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.scheduled_for || ""} ${normStatus(r.status)}`.toLowerCase();
+      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.scheduled_for || ""} ${normStatus(
+        r.status
+      )}`.toLowerCase();
       return hay.includes(q);
     });
   }, [rows, query, tab]);
 
   const selected = useMemo(() => filtered.find((x) => x.id === selectedId) || null, [filtered, selectedId]);
 
+  const Pill = ({
+    children,
+    tone = "neutral",
+  }: {
+    children: React.ReactNode;
+    tone?: "neutral" | "good" | "warn" | "bad";
+  }) => {
+    const cls =
+      tone === "good"
+        ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+        : tone === "warn"
+        ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+        : tone === "bad"
+        ? "border-red-400/30 bg-red-400/10 text-red-100"
+        : "border-white/10 bg-white/5 text-slate-200";
+
+    return (
+      <span className={["inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold", cls].join(" ")}>
+        {children}
+      </span>
+    );
+  };
+
+  const GlassCard = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
+    <div
+      className={[
+        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </div>
+  );
+
+  const teamTooltip =
+    "Team plan feature: unlocks collaborative approvals + shared workflows.";
+
   const act = async (action: "approve" | "reject") => {
     if (!selected) return;
+
+    // Demo rows: local-only, no API calls
+    if (isDemoId(selected.id)) {
+      const newStatus = action === "approve" ? "queued" : "rejected";
+      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus, meta: { ...(r.meta || {}), note } } : r)));
+      setSelectedId(null);
+      setNote("");
+      return;
+    }
+
+    // Real rows: Team-only actions
+    if (!approvalsUnlocked) {
+      setError("Approvals actions are available on the Team plan.");
+      return;
+    }
+
     setError(null);
 
     try {
@@ -224,13 +304,34 @@ export default function ApprovalsPage() {
 
       const newStatus = action === "approve" ? "queued" : "rejected";
 
-      // Update in-place so it appears in the Queued tab (and disappears from Pending)
+      // Update in-place so it can appear in the Queued tab
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
 
       setSelectedId(null);
       setNote("");
     } catch (e: any) {
       setError(e?.message || "Action failed.");
+    }
+  };
+
+  const injectDemo = async () => {
+    setError(null);
+    try {
+      const org = organisationId || (await resolveOrg());
+      const demo = buildDemoRows(org);
+
+      // Merge demo rows in (avoid duplicating if user clicks twice)
+      setRows((prev) => {
+        const prevNonDemo = prev.filter((r) => !isDemoId(r.id));
+        return [...demo, ...prevNonDemo];
+      });
+
+      // Set a sensible view
+      setTab("pending");
+      setQueryRaw("");
+      setSelectedId(demo[0]?.id || null);
+    } catch (e: any) {
+      setError(e?.message || "Could not load demo items.");
     }
   };
 
@@ -247,35 +348,93 @@ export default function ApprovalsPage() {
           <div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Approvals</h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Review scheduled posts safely. Approve moves items into <span className="text-slate-100 font-semibold">queued</span>.
+              Review scheduled posts safely. Approve moves items into{" "}
+              <span className="text-slate-100 font-semibold">queued</span>.
             </p>
+            <div className="mt-2 text-[12px] text-slate-400">
+              Plan detected:{" "}
+              <span className="text-slate-200 font-semibold">
+                {plan === "unknown" ? "—" : plan.toUpperCase()}
+              </span>
+              {approvalsUnlocked ? (
+                <span className="ml-2 text-emerald-300">• approvals enabled</span>
+              ) : (
+                <span className="ml-2 text-amber-300">• actions locked (Team)</span>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <Pill tone="warn">Pending: {counts.pending}</Pill>
             <Pill tone="good">Queued: {counts.queued}</Pill>
+
+            <button
+              type="button"
+              onClick={injectDemo}
+              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 transition"
+              title="Adds demo approvals (does not touch your database)."
+            >
+              Load demo items
+            </button>
+
             <button
               type="button"
               onClick={refresh}
               disabled={refreshing}
               className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+              title="Reload from your scheduled_posts table."
             >
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>
           </div>
         </div>
 
+        {/* If not Team, show the aspirational upgrade panel (still let them browse the list) */}
+        {!approvalsUnlocked && (
+          <div className="rounded-3xl border border-emerald-400/20 bg-emerald-400/5 p-6">
+            <div className="text-lg font-semibold text-slate-50">Approvals are part of the Team plan</div>
+            <p className="mt-2 text-sm text-slate-300 leading-relaxed max-w-3xl">
+              As practices grow, it can help to slow things down just enough to stay aligned.
+              <br />
+              <br />
+              Approvals add a gentle review step — useful when you’re working with multiple practitioners,
+              or when you want a second set of eyes before posts go live.
+              <br />
+              <br />
+              Many clinicians see this as a future step — something that comes into its own as a practice becomes more collaborative.
+              When the time feels right, Team unlocks approvals and shared workflows designed for clinics and collectives.
+            </p>
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a
+                href="/pricing"
+                className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300 transition"
+              >
+                Move to Team when you’re ready
+              </a>
+              <button
+                type="button"
+                onClick={injectDemo}
+                className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
+              >
+                Try a demo queue
+              </button>
+            </div>
+
+            <div className="mt-3 text-[11px] text-slate-400">
+              You can still browse this page. The approve/reject actions unlock on Team.
+            </div>
+          </div>
+        )}
+
         <GlassCard className="p-6 space-y-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search</div>
-              <div className="mt-1 text-xs text-slate-300">
-                This should now type normally (we fixed the remount issue).
-              </div>
+              <div className="mt-1 text-xs text-slate-300">Filter by message, platforms, date, status.</div>
             </div>
 
             <input
-              ref={searchRef}
               className="w-full md:w-[420px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
               placeholder="Search…"
               value={queryRaw}
@@ -329,21 +488,24 @@ export default function ApprovalsPage() {
           )}
 
           {loading && (
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-              Loading…
-            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Loading…</div>
           )}
         </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
+          {/* List */}
           <div className="lg:col-span-2 space-y-3">
             {!loading && filtered.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
                 No items in this view.
+                <div className="mt-2 text-[12px] text-slate-400">
+                  Tip: click <span className="text-slate-200 font-semibold">Load demo items</span> to test approvals instantly.
+                </div>
               </div>
             ) : (
               filtered.map((p) => {
                 const isSelected = p.id === selectedId;
+                const st = normStatus(p.status) || "scheduled";
                 return (
                   <button
                     key={p.id}
@@ -358,9 +520,10 @@ export default function ApprovalsPage() {
                       <div className="text-xs font-semibold text-slate-100 truncate">
                         {prettyPlatforms(p.platforms)}
                         <span className="ml-2 text-[11px] font-normal text-slate-400">{safeDate(p.scheduled_for)}</span>
+                        {isDemoId(p.id) && <span className="ml-2 text-[11px] text-emerald-300">(demo)</span>}
                       </div>
                       <span className="inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-white/10 bg-white/5 text-slate-200">
-                        {normStatus(p.status) || "scheduled"}
+                        {st}
                       </span>
                     </div>
 
@@ -371,10 +534,14 @@ export default function ApprovalsPage() {
             )}
           </div>
 
+          {/* Review */}
           <div className="space-y-6">
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Review</div>
-              <div className="mt-1 text-xs text-slate-300">Approve → queued. Reject → rejected.</div>
+              <div className="mt-1 text-xs text-slate-300">
+                Approve → queued. Reject → rejected.
+                {!approvalsUnlocked && <span className="ml-2 text-amber-300">(Team unlocks actions)</span>}
+              </div>
 
               {!selected ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
@@ -394,7 +561,6 @@ export default function ApprovalsPage() {
                   </div>
 
                   <textarea
-                    ref={noteRef}
                     className="w-full min-h-[90px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder="Optional note…"
                     value={note}
@@ -405,7 +571,14 @@ export default function ApprovalsPage() {
                     <button
                       type="button"
                       onClick={() => act("approve")}
-                      className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
+                      disabled={!approvalsUnlocked && !isDemoId(selected.id)}
+                      title={!approvalsUnlocked && !isDemoId(selected.id) ? teamTooltip : "Approve"}
+                      className={[
+                        "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition",
+                        !approvalsUnlocked && !isDemoId(selected.id)
+                          ? "bg-emerald-500/40 text-slate-200 cursor-not-allowed"
+                          : "bg-emerald-500 text-slate-950 hover:bg-emerald-400",
+                      ].join(" ")}
                     >
                       Approve
                     </button>
@@ -413,17 +586,49 @@ export default function ApprovalsPage() {
                     <button
                       type="button"
                       onClick={() => act("reject")}
-                      className="flex-1 rounded-2xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm font-semibold text-red-100 hover:bg-red-400/15 transition"
+                      disabled={!approvalsUnlocked && !isDemoId(selected.id)}
+                      title={!approvalsUnlocked && !isDemoId(selected.id) ? teamTooltip : "Reject"}
+                      className={[
+                        "flex-1 rounded-2xl border px-4 py-3 text-sm font-semibold transition",
+                        !approvalsUnlocked && !isDemoId(selected.id)
+                          ? "border-red-400/20 bg-red-400/5 text-red-200/70 cursor-not-allowed"
+                          : "border-red-400/30 bg-red-400/10 text-red-100 hover:bg-red-400/15",
+                      ].join(" ")}
                     >
                       Reject
                     </button>
                   </div>
 
                   <div className="text-[11px] text-slate-500">
-                    After approving, switch to the <span className="text-slate-200 font-semibold">Queued</span> tab to see it.
+                    Tip: after approving, switch to the <span className="text-slate-200 font-semibold">Queued</span> tab to see it.
                   </div>
+
+                  {!approvalsUnlocked && !isDemoId(selected.id) && (
+                    <div className="mt-2 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                      <div className="font-semibold text-slate-100">Team unlocks approvals</div>
+                      <div className="mt-2">
+                        You can browse the queue anytime. When you’re ready to add a review step for collaborative workflows,
+                        Team unlocks approve/reject and clinic-level controls.
+                      </div>
+                      <a
+                        href="/pricing"
+                        className="mt-3 inline-flex items-center justify-center rounded-full bg-emerald-400 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-300 transition"
+                      >
+                        Move to Team when you’re ready
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
+            </GlassCard>
+
+            <GlassCard className="p-6">
+              <div className="text-base font-semibold">What this is for</div>
+              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+                • Solo/Growth: you can explore the feature and demo the workflow.\n
+                • Team: unlocks approve/reject + shared clinic workflows.\n
+                • Demo items never touch your database.
+              </div>
             </GlassCard>
           </div>
         </div>
