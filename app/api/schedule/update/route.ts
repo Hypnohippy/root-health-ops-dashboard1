@@ -1,183 +1,110 @@
+// app/api/schedule/update/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
-const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
-const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY;
-const AIRTABLE_SCHEDULE_TABLE = "Scheduled_Posts";
-const LINKEDIN_ACCESS_TOKEN = process.env.LINKEDIN_ACCESS_TOKEN;
+export const runtime = "nodejs";
 
-async function updateRecord(
-  id: string,
-  fields: Record<string, any>
-): Promise<void> {
-  if (!AIRTABLE_BASE_ID || !AIRTABLE_API_KEY) return;
-
-  await fetch(
-    `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(
-      AIRTABLE_SCHEDULE_TABLE
-    )}/${id}`,
-    {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ fields }),
-    }
-  );
+function cleanStr(v: any, max = 5000) {
+  const s = typeof v === "string" ? v : "";
+  const t = s.trim();
+  return t ? t.slice(0, max) : "";
 }
 
-async function deleteRecord(id: string): Promise<void> {
-  if (!AIRTABLE_BASE_ID || !AIRTABLE_API_KEY) return;
-
-  await fetch(
-    `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(
-      AIRTABLE_SCHEDULE_TABLE
-    )}/${id}`,
-    {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-      },
-    }
-  );
-}
-
-async function getLinkedInAuthorUrn() {
-  if (!LINKEDIN_ACCESS_TOKEN) {
-    throw new Error("LINKEDIN_ACCESS_TOKEN not configured");
-  }
-
-  const res = await fetch("https://api.linkedin.com/v2/userinfo", {
-    headers: {
-      Authorization: `Bearer ${LINKEDIN_ACCESS_TOKEN}`,
-    },
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error_description || data.message || "LinkedIn error");
-  }
-
-  const sub = data.sub as string | undefined;
-  if (!sub) {
-    throw new Error("No 'sub' field in LinkedIn userinfo response");
-  }
-  return `urn:li:person:${sub}`;
-}
-
-async function postToLinkedIn(text: string, authorUrn: string) {
-  if (!LINKEDIN_ACCESS_TOKEN) {
-    throw new Error("LINKEDIN_ACCESS_TOKEN not configured");
-  }
-
-  const postBody = {
-    author: authorUrn,
-    lifecycleState: "PUBLISHED",
-    specificContent: {
-      "com.linkedin.ugc.ShareContent": {
-        shareCommentary: { text },
-        shareMediaCategory: "NONE",
-      },
-    },
-    visibility: {
-      "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
-    },
-  };
-
-  const res = await fetch("https://api.linkedin.com/v2/ugcPosts", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${LINKEDIN_ACCESS_TOKEN}`,
-      "Content-Type": "application/json",
-      "X-Restli-Protocol-Version": "2.0.0",
-      "LinkedIn-Version": "202402",
-    },
-    body: JSON.stringify(postBody),
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.message || "Failed to post on LinkedIn");
-  }
-
-  return data;
+function toIsoOrThrow(s: any) {
+  const d = new Date(String(s || ""));
+  if (isNaN(d.getTime())) throw new Error("Invalid scheduledAt date/time.");
+  return d.toISOString();
 }
 
 export async function POST(req: NextRequest) {
   try {
-    if (!AIRTABLE_BASE_ID || !AIRTABLE_API_KEY) {
-      return NextResponse.json(
-        { error: "Airtable is not configured" },
-        { status: 500 }
-      );
+    const url = new URL(req.url);
+    const organisationId = (url.searchParams.get("organisationId") || "").trim();
+    if (!organisationId) {
+      return NextResponse.json({ success: false, error: "Missing organisationId" }, { status: 400 });
     }
 
-    const body = await req.json();
-    const { id, action, scheduledTime, title, content, platform } = body || {};
+    const body = await req.json().catch(() => ({}));
 
-    if (!id || !action) {
+    const id = cleanStr(body?.id, 120);
+    if (!id) {
+      return NextResponse.json({ success: false, error: "Missing id" }, { status: 400 });
+    }
+
+    // Allowed edits
+    const nextMessage = body?.message !== undefined ? cleanStr(body.message, 5000) : null;
+    const nextImageUrl = body?.imageUrl !== undefined ? cleanStr(body.imageUrl, 1000) : null;
+
+    const nextPlatforms =
+      body?.platforms !== undefined
+        ? Array.isArray(body.platforms)
+          ? body.platforms.map((x: any) => String(x || "").trim()).filter(Boolean)
+          : []
+        : null;
+
+    const nextScheduledFor =
+      body?.scheduledAt !== undefined ? toIsoOrThrow(body.scheduledAt) : null;
+
+    // Build patch payload only with fields provided
+    const patch: Record<string, any> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (nextMessage !== null) {
+      if (!nextMessage) {
+        return NextResponse.json({ success: false, error: "Message cannot be empty." }, { status: 400 });
+      }
+      patch.message = nextMessage;
+    }
+
+    if (nextImageUrl !== null) patch.image_url = nextImageUrl || null;
+
+    if (nextPlatforms !== null) {
+      if (!Array.isArray(nextPlatforms) || nextPlatforms.length === 0) {
+        return NextResponse.json({ success: false, error: "Platforms must include at least one item." }, { status: 400 });
+      }
+      patch.platforms = nextPlatforms;
+    }
+
+    if (nextScheduledFor !== null) patch.scheduled_for = nextScheduledFor;
+
+    // Safety: don’t let edits happen if it has already posted/failed (optional but sensible)
+    // If your table doesn’t have these statuses, this check still works safely (it just won’t match)
+    const { data: rowCheck } = await supabaseAdmin
+      .from("scheduled_posts")
+      .select("id, status")
+      .eq("id", id)
+      .eq("organisation_id", organisationId)
+      .limit(1);
+
+    const existing = rowCheck?.[0];
+    if (!existing?.id) {
+      return NextResponse.json({ success: false, error: "Post not found for this organisation." }, { status: 404 });
+    }
+
+    const status = String(existing.status || "").toLowerCase().trim();
+    if (status === "posted" || status === "failed") {
       return NextResponse.json(
-        { error: "id and action are required" },
+        { success: false, error: "This item is already complete (posted/failed) and can’t be edited." },
         { status: 400 }
       );
     }
 
-    if (action === "reschedule") {
-      if (!scheduledTime) {
-        return NextResponse.json(
-          { error: "scheduledTime is required for reschedule" },
-          { status: 400 }
-        );
-      }
+    const { data, error } = await supabaseAdmin
+      .from("scheduled_posts")
+      .update(patch)
+      .eq("id", id)
+      .eq("organisation_id", organisationId)
+      .select("id, message, platforms, image_url, scheduled_for, status, meta, updated_at")
+      .single();
 
-      await updateRecord(id, {
-        scheduled_time: scheduledTime,
-        status: "pending",
-        executed_at: null,
-      });
-
-      return NextResponse.json({ ok: true });
+    if (error) {
+      console.error("[schedule/update] db error", error);
+      return NextResponse.json({ success: false, error: error.message || "Update failed." }, { status: 500 });
     }
 
-    if (action === "cancel") {
-      await updateRecord(id, {
-        status: "cancelled",
-      });
-      return NextResponse.json({ ok: true });
-    }
-
-    if (action === "delete") {
-      await deleteRecord(id);
-      return NextResponse.json({ ok: true });
-    }
-
-    if (action === "post_now") {
-      if (!title || !content || platform !== "LinkedIn") {
-        return NextResponse.json(
-          { error: "title, content and platform=LinkedIn are required" },
-          { status: 400 }
-        );
-      }
-
-      const authorUrn = await getLinkedInAuthorUrn();
-      const text = `${title}\n\n${content}`;
-      await postToLinkedIn(text, authorUrn);
-      await updateRecord(id, {
-        status: "posted",
-        executed_at: new Date().toISOString(),
-      });
-
-      return NextResponse.json({ ok: true });
-    }
-
-    return NextResponse.json(
-      { error: "Unknown action" },
-      { status: 400 }
-    );
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err?.message || "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, item: data }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ success: false, error: e?.message || "Internal error." }, { status: 500 });
   }
 }
