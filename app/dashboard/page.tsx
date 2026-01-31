@@ -163,9 +163,33 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
   return null;
 }
 
+function isoForDateTimeLocal(dtLocal: string) {
+  // dtLocal format: "YYYY-MM-DDTHH:mm"
+  // Convert to Date in local time, then to ISO
+  if (!dtLocal) return "";
+  const d = new Date(dtLocal);
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString();
+}
+
+function defaultLocalDateTimePlus(minutes: number) {
+  const d = new Date(Date.now() + minutes * 60 * 1000);
+  // Build "YYYY-MM-DDTHH:mm" in local time
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const mm = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mi = pad(d.getMinutes());
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
+type Mode = "now" | "approval";
+
 export default function DashboardHomePage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
+  const [organisationId, setOrganisationId] = useState<string | null>(null);
 
   // AI composer controls
   const [aiSubject, setAiSubject] = useState("");
@@ -175,9 +199,7 @@ export default function DashboardHomePage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
-  const [message, setMessage] = useState(
-    "Quick check-in from Root Health Ops Dashboard ✅"
-  );
+  const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
   const [imageUrl, setImageUrl] = useState("");
   const [selected, setSelected] = useState<ProviderId[]>([]);
 
@@ -187,15 +209,16 @@ export default function DashboardHomePage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
 
+  // ✅ NEW: choose Send Now vs Queue for Approval
+  const [mode, setMode] = useState<Mode>("now");
+  const [scheduledLocal, setScheduledLocal] = useState<string>(defaultLocalDateTimePlus(10));
+
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
     return new Set(active.map((r) => r.platform));
   }, [socialAccounts]);
 
-  const connectedCount = useMemo(
-    () => connectedPlatforms.size,
-    [connectedPlatforms]
-  );
+  const connectedCount = useMemo(() => connectedPlatforms.size, [connectedPlatforms]);
 
   const charCount = message.length;
 
@@ -218,11 +241,22 @@ export default function DashboardHomePage() {
     try {
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
       const data = await res.json().catch(() => null);
+
+      const org =
+        typeof data?.organisationId === "string"
+          ? data.organisationId
+          : typeof data?.organisation_id === "string"
+          ? data.organisation_id
+          : null;
+
+      setOrganisationId(org);
+
       const rows: SocialAccountRow[] = data?.socialAccounts ?? [];
       setSocialAccounts(rows);
     } catch (e) {
       console.error("[dashboard] loadSocialAccounts failed", e);
       setSocialAccounts([]);
+      setOrganisationId(null);
     } finally {
       setLoadingAccounts(false);
     }
@@ -288,9 +322,7 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const vars = Array.isArray((json as any)?.variants)
-        ? (json as any).variants
-        : [];
+      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
       if (vars.length === 0) {
         setAiError("AI returned no variants. Try Generate again.");
         return;
@@ -304,7 +336,7 @@ export default function DashboardHomePage() {
     }
   }
 
-  async function sendQuickBlast() {
+  async function sendQuickBlastNow() {
     setSending(true);
     setResult(null);
 
@@ -325,9 +357,7 @@ export default function DashboardHomePage() {
         setResult({
           success: false,
           error: json?.error || `Request failed (${res.status})`,
-          userMessage:
-            json?.userMessage ||
-            "We couldn’t send that just now. Try again in a minute.",
+          userMessage: json?.userMessage || "We couldn’t send that just now. Try again in a minute.",
         });
         return;
       }
@@ -340,8 +370,8 @@ export default function DashboardHomePage() {
           (json?.success
             ? "Sent."
             : json?.error
-              ? "Some posts didn’t send. See what to change below."
-              : undefined),
+            ? "Some posts didn’t send. See what to change below."
+            : undefined),
       };
 
       setResult(merged);
@@ -349,12 +379,101 @@ export default function DashboardHomePage() {
       setResult({
         success: false,
         error: e?.message || "Send failed",
-        userMessage:
-          "Network hiccup. Please try again (or refresh the page).",
+        userMessage: "Network hiccup. Please try again (or refresh the page).",
       });
     } finally {
       setSending(false);
     }
+  }
+
+  async function queueForApproval() {
+    setSending(true);
+    setResult(null);
+
+    try {
+      if (!organisationId) {
+        setResult({
+          success: false,
+          error: "Organisation not loaded yet.",
+          userMessage: "Workspace not loaded yet. Refresh and try again.",
+        });
+        return;
+      }
+
+      const scheduledIso = isoForDateTimeLocal(scheduledLocal);
+      if (!scheduledIso) {
+        setResult({
+          success: false,
+          error: "Invalid schedule time.",
+          userMessage: "That date/time doesn’t look valid. Pick a new time.",
+        });
+        return;
+      }
+
+      const res = await fetch("/api/social/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          platforms: selected,
+          imageUrl,
+          scheduledAt: scheduledIso,
+          organisationId,
+
+          // ✅ NEW: stamp who created it (demo-safe)
+          createdBy: {
+            user_id: "owner",
+            name: "Clinic Owner",
+            email: null,
+          },
+
+          // ✅ NEW: force this into the approvals flow
+          meta: {
+            approvals: {
+              state: "pending",
+              source: "quick_blast",
+              created_at: new Date().toISOString(),
+            },
+          },
+        }),
+      });
+
+      const json: any = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        setResult({
+          success: false,
+          error: json?.error || `Request failed (${res.status})`,
+          userMessage:
+            json?.userMessage ||
+            json?.message ||
+            "We couldn’t queue that for approval just now. Try again in a minute.",
+        });
+        return;
+      }
+
+      setResult({
+        success: true,
+        organisationId,
+        userMessage:
+          "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
+        note: "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
+      });
+    } catch (e: any) {
+      setResult({
+        success: false,
+        error: e?.message || "Queue failed",
+        userMessage: "Network hiccup. Please try again (or refresh the page).",
+      });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function sendQuickBlast() {
+    // Wrapper keeps your existing button name intact
+    if (mode === "now") return sendQuickBlastNow();
+    return queueForApproval();
   }
 
   useEffect(() => {
@@ -395,16 +514,16 @@ export default function DashboardHomePage() {
       (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
 
     const headline = result.success
-      ? `Sent successfully (${ok}/${attempted}).`
+      ? attempted > 0
+        ? `Sent successfully (${ok}/${attempted}).`
+        : "Success."
       : failed > 0
-        ? `Some channels didn’t send (${ok}/${attempted}).`
-        : "No channels sent.";
+      ? `Some channels didn’t send (${ok}/${attempted}).`
+      : "No channels sent.";
 
     const topMsg =
       result.userMessage ||
-      (result.success
-        ? "Nice — you’re live."
-        : "No stress — we’ll fix what’s blocking it.");
+      (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.");
 
     return { attempted, ok, failed, headline, topMsg };
   }, [result]);
@@ -416,9 +535,7 @@ export default function DashboardHomePage() {
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
-              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
-                Enterprise Beta
-              </h1>
+              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">Enterprise Beta</h1>
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
@@ -428,9 +545,7 @@ export default function DashboardHomePage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-slate-400">Connected:</div>
-                  <div className="text-lg font-semibold text-slate-100">
-                    {loadingAccounts ? "…" : connectedCount}
-                  </div>
+                  <div className="text-lg font-semibold text-slate-100">{loadingAccounts ? "…" : connectedCount}</div>
                 </div>
                 <button
                   type="button"
@@ -450,14 +565,67 @@ export default function DashboardHomePage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-semibold">Quick Blast</h2>
-                  <p className="mt-1 text-sm text-slate-300">
-                    Write once, choose channels, send.
-                  </p>
+                  <p className="mt-1 text-sm text-slate-300">Write once, choose channels, send — or queue for approval.</p>
                 </div>
                 <div className="text-right text-xs text-slate-400">
                   <div>{charCount} chars</div>
                   <div className="mt-1 text-slate-300">{lengthHint}</div>
                 </div>
+              </div>
+
+              {/* ✅ Mode switch */}
+              <div className="mt-5 rounded-3xl border border-slate-700 bg-slate-950 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">Dispatch mode</div>
+                    <div className="text-[11px] text-slate-400 mt-1">
+                      Send now publishes immediately. Queue for approval routes it into your clinic workflow.
+                    </div>
+                  </div>
+
+                  <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setMode("now")}
+                      className={["px-3 py-1.5", mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
+                    >
+                      Send now
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode("approval")}
+                      className={["px-3 py-1.5", mode === "approval" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
+                    >
+                      Queue for approval
+                    </button>
+                  </div>
+                </div>
+
+                {mode === "approval" && (
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300">When should it land in the queue?</label>
+                      <input
+                        type="datetime-local"
+                        value={scheduledLocal}
+                        onChange={(e) => setScheduledLocal(e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      />
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        This is the scheduled time stored on the post (and shown in Approvals/Scheduled).
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-300">
+                      <div className="font-semibold text-slate-200">What happens next</div>
+                      <ul className="mt-2 space-y-1">
+                        <li>• Your post lands in <span className="text-slate-100 font-semibold">Approvals</span> as pending</li>
+                        <li>• Approver sees full content + “Posted by Clinic Owner”</li>
+                        <li>• Approve → it becomes ready → Post now</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* AI Composer */}
@@ -481,9 +649,7 @@ export default function DashboardHomePage() {
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Subject (what’s the post about?)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Subject (what’s the post about?)</label>
                     <input
                       value={aiSubject}
                       onChange={(e) => setAiSubject(e.target.value)}
@@ -494,9 +660,7 @@ export default function DashboardHomePage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">
-                        Tone
-                      </label>
+                      <label className="block text-xs font-medium text-slate-300">Tone</label>
                       <select
                         value={aiTone}
                         onChange={(e) => setAiTone(e.target.value)}
@@ -511,9 +675,7 @@ export default function DashboardHomePage() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">
-                        Length
-                      </label>
+                      <label className="block text-xs font-medium text-slate-300">Length</label>
                       <select
                         value={aiLength}
                         onChange={(e) => setAiLength(e.target.value)}
@@ -536,14 +698,9 @@ export default function DashboardHomePage() {
                 {aiVariants.length > 0 && (
                   <div className="mt-4 space-y-3">
                     {aiVariants.map((v, idx) => (
-                      <div
-                        key={`${idx}-${v.title}`}
-                        className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4"
-                      >
+                      <div key={`${idx}-${v.title}`} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
                         <div className="flex items-start justify-between gap-3">
-                          <div className="text-sm font-semibold">
-                            {v.title || `Variant ${idx + 1}`}
-                          </div>
+                          <div className="text-sm font-semibold">{v.title || `Variant ${idx + 1}`}</div>
                           <button
                             type="button"
                             onClick={() => setMessage(joinVariant(v))}
@@ -552,13 +709,11 @@ export default function DashboardHomePage() {
                             Use this
                           </button>
                         </div>
-                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
-                          {joinVariant(v)}
-                        </div>
+                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{joinVariant(v)}</div>
                       </div>
                     ))}
                     <div className="text-[11px] text-slate-500">
-                      Tip: Click “Use this”, tweak the wording, then hit “Send Quick Blast”.
+                      Tip: Click “Use this”, tweak the wording, then dispatch.
                     </div>
                   </div>
                 )}
@@ -566,9 +721,7 @@ export default function DashboardHomePage() {
 
               <div className="mt-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Message
-                  </label>
+                  <label className="block text-xs font-medium text-slate-300">Message</label>
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
@@ -579,18 +732,14 @@ export default function DashboardHomePage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Image (optional)
-                  </label>
+                  <label className="block text-xs font-medium text-slate-300">Image (optional)</label>
                   <input
                     value={imageUrl}
                     onChange={(e) => setImageUrl(e.target.value)}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                     placeholder="Paste a direct image URL (JPG/PNG)…"
                   />
-                  <div className="mt-1 text-[11px] text-slate-500">
-                    (Instagram posting may require an image for some post types.)
-                  </div>
+                  <div className="mt-1 text-[11px] text-slate-500">(Instagram posting may require an image for some post types.)</div>
                   {instagramSelected && !imageUrl.trim() && (
                     <div className="mt-2 text-[11px] text-amber-300">
                       Instagram selected: if posting fails, add an image URL and try again.
@@ -600,14 +749,8 @@ export default function DashboardHomePage() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="block text-xs font-medium text-slate-300">
-                      Channels
-                    </label>
-                    <button
-                      type="button"
-                      onClick={refreshChannels}
-                      className="text-[11px] text-slate-400 hover:text-slate-300"
-                    >
+                    <label className="block text-xs font-medium text-slate-300">Channels</label>
+                    <button type="button" onClick={refreshChannels} className="text-[11px] text-slate-400 hover:text-slate-300">
                       Refresh
                     </button>
                   </div>
@@ -627,23 +770,21 @@ export default function DashboardHomePage() {
                             !isConnected
                               ? "border-slate-800 bg-slate-950/40 text-slate-600 cursor-not-allowed"
                               : isSelected
-                                ? "border-emerald-500/60 bg-emerald-500/10 text-slate-100"
-                                : "border-slate-700 bg-slate-950 text-slate-200 hover:border-slate-600"
+                              ? "border-emerald-500/60 bg-emerald-500/10 text-slate-100"
+                              : "border-slate-700 bg-slate-950 text-slate-200 hover:border-slate-600"
                           }`}
                         >
                           <div>
                             <div className="font-medium">{PROVIDER_LABELS[p]}</div>
-                            <div className="text-[11px] text-slate-500">
-                              {isConnected ? "connected" : "not connected"}
-                            </div>
+                            <div className="text-[11px] text-slate-500">{isConnected ? "connected" : "not connected"}</div>
                           </div>
                           <div
                             className={`text-[11px] px-2 py-1 rounded-full border ${
                               !isConnected
                                 ? "border-slate-800 text-slate-600"
                                 : isSelected
-                                  ? "border-emerald-500/60 text-emerald-200"
-                                  : "border-slate-600 text-slate-300"
+                                ? "border-emerald-500/60 text-emerald-200"
+                                : "border-slate-600 text-slate-300"
                             }`}
                           >
                             {isSelected ? "Selected" : "Select"}
@@ -653,21 +794,23 @@ export default function DashboardHomePage() {
                     })}
                   </div>
 
-                  <div className="mt-2 text-[11px] text-slate-500">
-                    Only connected channels will actually send.
-                  </div>
+                  <div className="mt-2 text-[11px] text-slate-500">Only connected channels will actually send.</div>
                 </div>
 
                 <div className="flex flex-wrap gap-3 pt-2">
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={
-                      sending || message.trim().length === 0 || selected.length === 0
-                    }
+                    disabled={sending || message.trim().length === 0 || selected.length === 0}
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
-                    {sending ? "Sending…" : "Send Quick Blast"}
+                    {sending
+                      ? mode === "now"
+                        ? "Sending…"
+                        : "Queueing…"
+                      : mode === "now"
+                      ? "Send Quick Blast"
+                      : "Queue for approval"}
                   </button>
 
                   <button
@@ -691,28 +834,16 @@ export default function DashboardHomePage() {
                 {result && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
-                      <div
-                        className={
-                          result.success
-                            ? "text-emerald-200"
-                            : "text-amber-200"
-                        }
-                      >
-                        {friendlySummary?.headline || (result.success ? "Sent." : "Not sent.")}
+                      <div className={result.success ? "text-emerald-200" : "text-amber-200"}>
+                        {friendlySummary?.headline || (result.success ? "Success." : "Not sent.")}
                       </div>
 
                       <div className="mt-1 text-[12px] text-slate-300">
                         {friendlySummary?.topMsg ||
-                          (result.success
-                            ? "Nice — you’re live."
-                            : "No stress — we’ll fix what’s blocking it.")}
+                          (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.")}
                       </div>
 
-                      {result.note ? (
-                        <div className="mt-2 text-[12px] text-emerald-300">
-                          {result.note}
-                        </div>
-                      ) : null}
+                      {result.note ? <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div> : null}
                     </div>
 
                     {/* Per-platform status */}
@@ -724,46 +855,30 @@ export default function DashboardHomePage() {
                           const skipped = !!r?.skipped;
                           const label = formatPlatformName(r?.platform || platform);
 
-                          const friendly = ok
-                            ? "Posted."
-                            : skipped
-                              ? extractFriendlyError(r)
-                              : extractFriendlyError(r);
-
+                          const friendly = ok ? "Posted." : skipped ? extractFriendlyError(r) : extractFriendlyError(r);
                           const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
 
                           return (
-                            <div
-                              key={`${platform}-${idx}`}
-                              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                            >
+                            <div key={`${platform}-${idx}`} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
                               <div className="flex items-start justify-between gap-3">
-                                <div className="text-[12px] font-semibold text-slate-200">
-                                  {label}
-                                </div>
+                                <div className="text-[12px] font-semibold text-slate-200">{label}</div>
                                 <div
                                   className={[
                                     "text-[11px] rounded-full border px-2 py-0.5",
                                     ok
                                       ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
                                       : skipped
-                                        ? "border-slate-600 text-slate-300 bg-slate-900/40"
-                                        : "border-red-500/50 text-red-200 bg-red-500/10",
+                                      ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                      : "border-red-500/50 text-red-200 bg-red-500/10",
                                   ].join(" ")}
                                 >
                                   {ok ? "✅ Posted" : skipped ? "⚠️ Skipped" : "❌ Failed"}
                                 </div>
                               </div>
 
-                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
-                                {friendly}
-                              </div>
+                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">{friendly}</div>
 
-                              {tip ? (
-                                <div className="mt-1 text-[11px] text-slate-400">
-                                  {tip}
-                                </div>
-                              ) : null}
+                              {tip ? <div className="mt-1 text-[11px] text-slate-400">{tip}</div> : null}
                             </div>
                           );
                         })}
@@ -786,14 +901,13 @@ export default function DashboardHomePage() {
 
                 {adminOpen && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
-                    <div className="text-slate-400 mb-2">
-                      Admin info (safe).
-                    </div>
+                    <div className="text-slate-400 mb-2">Admin info (safe).</div>
                     <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
                     <div className="mt-1">
-                      Connected platforms:{" "}
-                      {Array.from(connectedPlatforms).join(", ") || "(none)"}
+                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
                     </div>
+                    <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
+                    <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
                   </div>
                 )}
               </div>
@@ -802,33 +916,18 @@ export default function DashboardHomePage() {
             {/* Drafts */}
             <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <h3 className="text-base font-semibold">Saved drafts</h3>
-              <p className="mt-1 text-sm text-slate-300">
-                Drafts are stored on this device. (Later we can sync per org.)
-              </p>
-              <p className="mt-2 text-[11px] text-slate-500">
-                Use “Save for later” and we’ll restore the full draft library
-              </p>
+              <p className="mt-1 text-sm text-slate-300">Drafts are stored on this device. (Later we can sync per org.)</p>
+              <p className="mt-2 text-[11px] text-slate-500">Use “Save for later” and we’ll restore the full draft library</p>
 
               <div className="mt-4 space-y-3">
                 {drafts.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
-                    No drafts yet.
-                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">No drafts yet.</div>
                 ) : (
                   drafts.map((d) => (
-                    <div
-                      key={d.id}
-                      className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
-                    >
-                      <div className="text-[11px] text-slate-500">
-                        {new Date(d.savedAt).toLocaleString()}
-                      </div>
-                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">
-                        {d.message || "(empty)"}
-                      </div>
-                      <div className="mt-2 text-[11px] text-slate-500">
-                        Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
-                      </div>
+                    <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                      <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
+                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
+                      <div className="mt-2 text-[11px] text-slate-500">Channels: {d.selectedPlatforms?.join(", ") || "(none)"}</div>
 
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
@@ -853,9 +952,7 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
-          <div className="mt-8 text-xs text-slate-500">
-            Tip: Generate with AI → Use a variant → tweak → post.
-          </div>
+          <div className="mt-8 text-xs text-slate-500">Tip: Generate with AI → Use a variant → tweak → post (or queue).</div>
         </div>
       </div>
     </div>
