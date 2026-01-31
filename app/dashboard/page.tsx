@@ -24,8 +24,8 @@ type SocialAccountRow = {
 type QuickBlastResult = {
   success: boolean;
   organisationId?: string;
-  userMessage?: string; // ✅ new (from routes like LinkedIn)
-  note?: string; // optional
+  userMessage?: string;
+  note?: string;
   results?: any[];
   summary?: {
     attempted: number;
@@ -61,13 +61,23 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
+// ✅ Brainstorm prefill keys (we support both, just in case)
+const PREFILL_QUICKBLAST_KEY_A = "rootops_prefill_quickblast_v1";
+const PREFILL_QUICKBLAST_KEY_B = "rh_prefill_quickblast_v1";
+
 type Draft = {
   id: string;
   savedAt: number;
   message: string;
   imageUrl: string;
   selectedPlatforms: ProviderId[];
+
+  // ✅ new (optional) media fields for future video support
+  mediaType?: "text" | "image" | "video";
+  videoUrl?: string;
 };
+
+type MediaType = "text" | "image" | "video";
 
 function loadDrafts(): Draft[] {
   try {
@@ -102,30 +112,28 @@ function formatPlatformName(p: string) {
 }
 
 function extractFriendlyError(item: any): string {
-  // Prefer explicit userMessage if present
   const um = String(item?.userMessage || "").trim();
   if (um) return um;
 
-  // Meta style errors
-  const metaUserMsg = item?.details?.error?.error_user_msg || item?.error?.error_user_msg;
+  const metaUserMsg =
+    item?.details?.error?.error_user_msg || item?.error?.error_user_msg;
   if (metaUserMsg) return String(metaUserMsg);
 
-  const metaTitle = item?.details?.error?.error_user_title || item?.error?.error_user_title;
-  const metaMessage = item?.details?.error?.message || item?.error?.message;
+  const metaTitle =
+    item?.details?.error?.error_user_title || item?.error?.error_user_title;
+  const metaMessage =
+    item?.details?.error?.message || item?.error?.message;
   if (metaTitle && metaMessage) return `${metaTitle}: ${metaMessage}`;
   if (metaMessage) return String(metaMessage);
 
-  // Generic errors
   const err = item?.error;
   if (typeof err === "string" && err.trim()) return err.trim();
 
-  // Sometimes error is an object
   if (err && typeof err === "object") {
     const msg = (err as any)?.message;
     if (msg) return String(msg);
   }
 
-  // Skipped reasons
   const reason = String(item?.reason || "").trim();
   if (reason) return reason;
 
@@ -133,7 +141,6 @@ function extractFriendlyError(item: any): string {
 }
 
 function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
-  // Small UX nudges based on common problems
   const msg = extractFriendlyError(item).toLowerCase();
 
   if (platform === "instagram") {
@@ -143,14 +150,22 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
   }
 
   if (platform === "facebook") {
-    if (msg.includes("image required") || msg.includes("invalid image") || msg.includes("missing or invalid")) {
+    if (
+      msg.includes("image required") ||
+      msg.includes("invalid image") ||
+      msg.includes("missing or invalid")
+    ) {
       return "Tip: Facebook can be picky about image links. Using an image hosted on your own storage (Brainstorm image) is the most reliable.";
     }
   }
 
   if (platform === "threads") {
-    if (msg.includes("media") || msg.includes("resource does not exist") || msg.includes("not found")) {
-      return "Tip: Threads needs a stable, publicly accessible image link. Hosted images (via Brainstorm) work best.";
+    if (
+      msg.includes("media") ||
+      msg.includes("resource does not exist") ||
+      msg.includes("not found")
+    ) {
+      return "Tip: Threads needs a stable, publicly accessible image link. Hosted images work best.";
     }
   }
 
@@ -164,8 +179,6 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
 }
 
 function isoForDateTimeLocal(dtLocal: string) {
-  // dtLocal format: "YYYY-MM-DDTHH:mm"
-  // Convert to Date in local time, then to ISO
   if (!dtLocal) return "";
   const d = new Date(dtLocal);
   if (isNaN(d.getTime())) return "";
@@ -174,7 +187,6 @@ function isoForDateTimeLocal(dtLocal: string) {
 
 function defaultLocalDateTimePlus(minutes: number) {
   const d = new Date(Date.now() + minutes * 60 * 1000);
-  // Build "YYYY-MM-DDTHH:mm" in local time
   const pad = (n: number) => String(n).padStart(2, "0");
   const yyyy = d.getFullYear();
   const mm = pad(d.getMonth() + 1);
@@ -186,6 +198,34 @@ function defaultLocalDateTimePlus(minutes: number) {
 
 type Mode = "now" | "approval";
 
+function safeProviderList(input: any): ProviderId[] {
+  const raw = Array.isArray(input) ? input : [];
+  const allowed: ProviderId[] = [
+    "facebook",
+    "instagram",
+    "linkedin",
+    "threads",
+    "tiktok",
+    "google",
+    "email",
+    "whatsapp",
+  ];
+  const set = new Set<ProviderId>();
+  for (const p of raw) {
+    const k = String(p || "").toLowerCase().trim() as ProviderId;
+    if (allowed.includes(k)) set.add(k);
+  }
+  return Array.from(set);
+}
+
+function looksLikeVideoUrl(u: string) {
+  const s = (u || "").trim();
+  if (!s) return false;
+  if (!/^https?:\/\//i.test(s)) return false;
+  // lightweight heuristic: common video extensions or known CDN patterns
+  return /\.(mp4|mov|m4v|webm)(\?.*)?$/i.test(s) || s.includes("video");
+}
+
 export default function DashboardHomePage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
@@ -193,14 +233,20 @@ export default function DashboardHomePage() {
 
   // AI composer controls
   const [aiSubject, setAiSubject] = useState("");
-  const [aiTone, setAiTone] = useState("calm"); // calm | supportive | direct | philosophical | story
-  const [aiLength, setAiLength] = useState("short"); // short | medium | long
+  const [aiTone, setAiTone] = useState("calm");
+  const [aiLength, setAiLength] = useState("short");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
+  // ✅ Quick Blast content
   const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
+
+  // ✅ media fields (image + video)
+  const [mediaType, setMediaType] = useState<MediaType>("text");
   const [imageUrl, setImageUrl] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+
   const [selected, setSelected] = useState<ProviderId[]>([]);
 
   const [sending, setSending] = useState(false);
@@ -209,7 +255,7 @@ export default function DashboardHomePage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
 
-  // ✅ NEW: choose Send Now vs Queue for Approval
+  // Dispatch mode
   const [mode, setMode] = useState<Mode>("now");
   const [scheduledLocal, setScheduledLocal] = useState<string>(defaultLocalDateTimePlus(10));
 
@@ -273,6 +319,8 @@ export default function DashboardHomePage() {
       message,
       imageUrl,
       selectedPlatforms: selected,
+      mediaType,
+      videoUrl,
     };
     const next = [d, ...drafts];
     setDrafts(next);
@@ -281,8 +329,13 @@ export default function DashboardHomePage() {
 
   function restoreDraft(d: Draft) {
     setMessage(d.message || "");
-    setImageUrl(d.imageUrl || "");
     setSelected(Array.isArray(d.selectedPlatforms) ? d.selectedPlatforms : []);
+
+    const mt = (d.mediaType || "text") as MediaType;
+    setMediaType(mt);
+
+    setImageUrl(d.imageUrl || "");
+    setVideoUrl(d.videoUrl || "");
   }
 
   function deleteDraft(id: string) {
@@ -290,6 +343,48 @@ export default function DashboardHomePage() {
     setDrafts(next);
     saveDrafts(next);
   }
+
+  // ✅ Brainstorm -> Quick Blast import
+  useEffect(() => {
+    try {
+      const rawA = window.localStorage.getItem(PREFILL_QUICKBLAST_KEY_A);
+      const rawB = window.localStorage.getItem(PREFILL_QUICKBLAST_KEY_B);
+      const raw = rawA || rawB;
+
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return;
+
+      const m = typeof parsed?.message === "string" ? parsed.message : "";
+      const img = typeof parsed?.imageUrl === "string" ? parsed.imageUrl : "";
+      const suggested = safeProviderList(parsed?.suggestedPlatforms);
+
+      // Apply
+      if (m.trim()) setMessage(m);
+      if (img.trim()) {
+        setMediaType("image");
+        setImageUrl(img.trim());
+        setVideoUrl("");
+      }
+
+      if (suggested.length > 0) setSelected(suggested);
+
+      // clear so it doesn't re-import forever
+      window.localStorage.removeItem(PREFILL_QUICKBLAST_KEY_A);
+      window.localStorage.removeItem(PREFILL_QUICKBLAST_KEY_B);
+
+      // Friendly heads-up
+      setResult({
+        success: true,
+        userMessage: "Imported draft from Brainstorm ✅ You can tweak it then send.",
+        note: suggested.length ? `Suggested channel(s): ${suggested.join(", ")}` : undefined,
+      });
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function generateAiQuickBlast() {
     setAiBusy(true);
@@ -341,13 +436,21 @@ export default function DashboardHomePage() {
     setResult(null);
 
     try {
+      // For now: the existing API accepts imageUrl, not videoUrl.
+      // We still pass mediaType/videoUrl (backend can ignore safely)
       const res = await fetch("/api/social/quick-blast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
-          imageUrl,
           platforms: selected,
+
+          // ✅ legacy field (keeps current behaviour)
+          imageUrl: mediaType === "image" ? imageUrl : "",
+
+          // ✅ new fields for future wiring
+          mediaType,
+          videoUrl: mediaType === "video" ? videoUrl : "",
         }),
       });
 
@@ -362,7 +465,6 @@ export default function DashboardHomePage() {
         return;
       }
 
-      // Normalize userMessage if present
       const merged: QuickBlastResult = {
         ...(json || {}),
         userMessage:
@@ -373,6 +475,12 @@ export default function DashboardHomePage() {
             ? "Some posts didn’t send. See what to change below."
             : undefined),
       };
+
+      // If user attempted video, be transparent (until backend is wired)
+      if (mediaType === "video") {
+        merged.note =
+          "Video UI is ready, but posting video needs the next backend wiring step. Right now Quick Blast posts text/image only.";
+      }
 
       setResult(merged);
     } catch (e: any) {
@@ -416,23 +524,33 @@ export default function DashboardHomePage() {
         body: JSON.stringify({
           message,
           platforms: selected,
-          imageUrl,
+
+          // ✅ current schema field
+          imageUrl: mediaType === "image" ? imageUrl : "",
+
+          // ✅ future fields (safe if ignored)
+          mediaType,
+          videoUrl: mediaType === "video" ? videoUrl : "",
+
           scheduledAt: scheduledIso,
           organisationId,
 
-          // ✅ NEW: stamp who created it (demo-safe)
           createdBy: {
             user_id: "owner",
             name: "Clinic Owner",
             email: null,
           },
 
-          // ✅ NEW: force this into the approvals flow
           meta: {
             approvals: {
               state: "pending",
               source: "quick_blast",
               created_at: new Date().toISOString(),
+            },
+            media: {
+              type: mediaType,
+              imageUrl: mediaType === "image" ? imageUrl : "",
+              videoUrl: mediaType === "video" ? videoUrl : "",
             },
           },
         }),
@@ -455,9 +573,11 @@ export default function DashboardHomePage() {
       setResult({
         success: true,
         organisationId,
-        userMessage:
-          "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
-        note: "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
+        userMessage: "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
+        note:
+          mediaType === "video"
+            ? "Video UI is ready, but actual video publishing needs the next backend wiring step."
+            : "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
       });
     } catch (e: any) {
       setResult({
@@ -471,7 +591,6 @@ export default function DashboardHomePage() {
   }
 
   async function sendQuickBlast() {
-    // Wrapper keeps your existing button name intact
     if (mode === "now") return sendQuickBlastNow();
     return queueForApproval();
   }
@@ -528,6 +647,17 @@ export default function DashboardHomePage() {
     return { attempted, ok, failed, headline, topMsg };
   }, [result]);
 
+  const showImage = mediaType === "image";
+  const showVideo = mediaType === "video";
+
+  const mediaWarning = useMemo(() => {
+    if (mediaType !== "video") return null;
+    const v = (videoUrl || "").trim();
+    if (!v) return "Video selected: add a direct video URL (ideally .mp4).";
+    if (!looksLikeVideoUrl(v)) return "This doesn’t look like a direct video link. A public .mp4 URL is most reliable.";
+    return null;
+  }, [mediaType, videoUrl]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
@@ -565,7 +695,9 @@ export default function DashboardHomePage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-semibold">Quick Blast</h2>
-                  <p className="mt-1 text-sm text-slate-300">Write once, choose channels, send — or queue for approval.</p>
+                  <p className="mt-1 text-sm text-slate-300">
+                    Write once, choose channels, send — or queue for approval.
+                  </p>
                 </div>
                 <div className="text-right text-xs text-slate-400">
                   <div>{charCount} chars</div>
@@ -573,7 +705,7 @@ export default function DashboardHomePage() {
                 </div>
               </div>
 
-              {/* ✅ Mode switch */}
+              {/* Mode switch */}
               <div className="mt-5 rounded-3xl border border-slate-700 bg-slate-950 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -587,14 +719,20 @@ export default function DashboardHomePage() {
                     <button
                       type="button"
                       onClick={() => setMode("now")}
-                      className={["px-3 py-1.5", mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
+                      className={[
+                        "px-3 py-1.5",
+                        mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                      ].join(" ")}
                     >
                       Send now
                     </button>
                     <button
                       type="button"
                       onClick={() => setMode("approval")}
-                      className={["px-3 py-1.5", mode === "approval" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
+                      className={[
+                        "px-3 py-1.5",
+                        mode === "approval" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                      ].join(" ")}
                     >
                       Queue for approval
                     </button>
@@ -604,7 +742,9 @@ export default function DashboardHomePage() {
                 {mode === "approval" && (
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">When should it land in the queue?</label>
+                      <label className="block text-xs font-medium text-slate-300">
+                        When should it land in the queue?
+                      </label>
                       <input
                         type="datetime-local"
                         value={scheduledLocal}
@@ -712,9 +852,7 @@ export default function DashboardHomePage() {
                         <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{joinVariant(v)}</div>
                       </div>
                     ))}
-                    <div className="text-[11px] text-slate-500">
-                      Tip: Click “Use this”, tweak the wording, then dispatch.
-                    </div>
+                    <div className="text-[11px] text-slate-500">Tip: Click “Use this”, tweak the wording, then dispatch.</div>
                   </div>
                 )}
               </div>
@@ -731,20 +869,95 @@ export default function DashboardHomePage() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-300">Image (optional)</label>
-                  <input
-                    value={imageUrl}
-                    onChange={(e) => setImageUrl(e.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    placeholder="Paste a direct image URL (JPG/PNG)…"
-                  />
-                  <div className="mt-1 text-[11px] text-slate-500">(Instagram posting may require an image for some post types.)</div>
-                  {instagramSelected && !imageUrl.trim() && (
-                    <div className="mt-2 text-[11px] text-amber-300">
-                      Instagram selected: if posting fails, add an image URL and try again.
+                {/* ✅ Media selector */}
+                <div className="rounded-3xl border border-slate-700 bg-slate-950 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">Media</div>
+                      <div className="text-[11px] text-slate-400 mt-1">
+                        Text-only is safest. Images work today. Video publishing is the next backend step.
+                      </div>
+                    </div>
+
+                    <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaType("text");
+                          setImageUrl("");
+                          setVideoUrl("");
+                        }}
+                        className={["px-3 py-1.5", mediaType === "text" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
+                      >
+                        Text
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaType("image");
+                          setVideoUrl("");
+                        }}
+                        className={["px-3 py-1.5", mediaType === "image" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
+                      >
+                        Image
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaType("video");
+                          setImageUrl("");
+                        }}
+                        className={["px-3 py-1.5", mediaType === "video" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
+                      >
+                        Video
+                      </button>
+                    </div>
+                  </div>
+
+                  {showImage && (
+                    <div className="mt-4">
+                      <label className="block text-xs font-medium text-slate-300">Image URL (optional)</label>
+                      <input
+                        value={imageUrl}
+                        onChange={(e) => setImageUrl(e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                        placeholder="Paste a direct image URL (JPG/PNG)…"
+                      />
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        (Instagram posting may require an image for some post types.)
+                      </div>
+                      {instagramSelected && !imageUrl.trim() && (
+                        <div className="mt-2 text-[11px] text-amber-300">
+                          Instagram selected: if posting fails, add an image URL and try again.
+                        </div>
+                      )}
                     </div>
                   )}
+
+                  {showVideo && (
+                    <div className="mt-4">
+                      <label className="block text-xs font-medium text-slate-300">Video URL (mp4 recommended)</label>
+                      <input
+                        value={videoUrl}
+                        onChange={(e) => setVideoUrl(e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                        placeholder="https://…/video.mp4"
+                      />
+                      {mediaWarning ? (
+                        <div className="mt-2 text-[11px] text-amber-300">{mediaWarning}</div>
+                      ) : (
+                        <div className="mt-2 text-[11px] text-slate-500">
+                          Note: This UI is ready; video publishing requires backend wiring per platform.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {mediaType === "text" ? (
+                    <div className="mt-4 text-[11px] text-slate-500">
+                      Text-only selected: fastest + most reliable.
+                    </div>
+                  ) : null}
                 </div>
 
                 <div>
@@ -830,7 +1043,7 @@ export default function DashboardHomePage() {
                   </button>
                 </div>
 
-                {/* ✅ Friendly Results Panel */}
+                {/* Friendly Results Panel */}
                 {result && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
@@ -843,10 +1056,11 @@ export default function DashboardHomePage() {
                           (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.")}
                       </div>
 
-                      {result.note ? <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div> : null}
+                      {result.note ? (
+                        <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div>
+                      ) : null}
                     </div>
 
-                    {/* Per-platform status */}
                     {Array.isArray(result.results) && result.results.length > 0 && (
                       <div className="mt-4 space-y-2">
                         {result.results.map((r: any, idx: number) => {
@@ -855,7 +1069,7 @@ export default function DashboardHomePage() {
                           const skipped = !!r?.skipped;
                           const label = formatPlatformName(r?.platform || platform);
 
-                          const friendly = ok ? "Posted." : skipped ? extractFriendlyError(r) : extractFriendlyError(r);
+                          const friendly = ok ? "Posted." : extractFriendlyError(r);
                           const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
 
                           return (
@@ -877,7 +1091,6 @@ export default function DashboardHomePage() {
                               </div>
 
                               <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">{friendly}</div>
-
                               {tip ? <div className="mt-1 text-[11px] text-slate-400">{tip}</div> : null}
                             </div>
                           );
@@ -885,7 +1098,6 @@ export default function DashboardHomePage() {
                       </div>
                     )}
 
-                    {/* Admin JSON only */}
                     {adminOpen && (
                       <details className="mt-4">
                         <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-300">
@@ -903,11 +1115,10 @@ export default function DashboardHomePage() {
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
                     <div className="text-slate-400 mb-2">Admin info (safe).</div>
                     <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
-                    <div className="mt-1">
-                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
-                    </div>
+                    <div className="mt-1">Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}</div>
                     <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
                     <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
+                    <div className="mt-1">MediaType: {mediaType}</div>
                   </div>
                 )}
               </div>
@@ -927,7 +1138,12 @@ export default function DashboardHomePage() {
                     <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
                       <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
                       <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
-                      <div className="mt-2 text-[11px] text-slate-500">Channels: {d.selectedPlatforms?.join(", ") || "(none)"}</div>
+                      <div className="mt-2 text-[11px] text-slate-500">
+                        Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
+                      </div>
+                      {d.mediaType ? (
+                        <div className="mt-1 text-[11px] text-slate-500">Media: {d.mediaType}</div>
+                      ) : null}
 
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
@@ -952,7 +1168,9 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
-          <div className="mt-8 text-xs text-slate-500">Tip: Generate with AI → Use a variant → tweak → post (or queue).</div>
+          <div className="mt-8 text-xs text-slate-500">
+            Tip: Brainstorm → “Send to Quick Blast” now auto-imports here. Generate with AI → Use a variant → tweak → post (or queue).
+          </div>
         </div>
       </div>
     </div>
