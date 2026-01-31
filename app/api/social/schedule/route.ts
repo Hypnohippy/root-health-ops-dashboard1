@@ -2,6 +2,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
+type CreatedBy = {
+  user_id?: string | null;
+  name?: string | null;
+  email?: string | null;
+};
+
+function normalizeCreatedBy(input: any): CreatedBy | null {
+  if (!input || typeof input !== "object") return null;
+
+  const user_id =
+    input.user_id ?? input.userId ?? input.id ?? input.uid ?? null;
+  const name =
+    input.name ?? input.full_name ?? input.fullName ?? input.display_name ?? null;
+  const email = input.email ?? null;
+
+  const out: CreatedBy = {
+    user_id: user_id ? String(user_id) : null,
+    name: name ? String(name) : null,
+    email: email ? String(email) : null,
+  };
+
+  // If all empty -> null
+  if (!out.user_id && !out.name && !out.email) return null;
+  return out;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -16,11 +42,14 @@ export async function POST(req: NextRequest) {
     const sequenceId: string | undefined = body.sequenceId || body.sequence_id;
     const metaIncoming: any = body.meta;
 
-    // ✅ NEW: optional poster identity (safe even without auth for now)
-    const poster = body.poster && typeof body.poster === "object" ? body.poster : null;
-    const posterName = typeof body?.posterName === "string" ? body.posterName.trim() : "";
-    const posterEmail = typeof body?.posterEmail === "string" ? body.posterEmail.trim() : "";
-    const posterUserId = typeof body?.posterUserId === "string" ? body.posterUserId.trim() : "";
+    // NEW: created-by accepted in multiple shapes
+    const createdBy =
+      normalizeCreatedBy(body.createdBy) ||
+      normalizeCreatedBy(body.created_by) ||
+      normalizeCreatedBy(metaIncoming?.created_by) ||
+      normalizeCreatedBy(metaIncoming?.createdBy) ||
+      normalizeCreatedBy(metaIncoming?.poster) ||
+      null;
 
     // 1) Basic validation
     if (!message || typeof message !== "string" || !message.trim()) {
@@ -63,34 +92,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2) Build meta safely
-    const meta: any =
+    // 2) Merge meta safely (do not wipe existing meta)
+    const metaMerged: any =
       metaIncoming && typeof metaIncoming === "object" ? { ...metaIncoming } : {};
 
-    // ✅ Always attach created_by if provided
-    const createdByFromBody =
-      poster && typeof poster === "object"
-        ? {
-            user_id: typeof poster.user_id === "string" ? poster.user_id.trim() : undefined,
-            name: typeof poster.name === "string" ? poster.name.trim() : undefined,
-            email: typeof poster.email === "string" ? poster.email.trim() : undefined,
-            source: typeof poster.source === "string" ? poster.source : undefined,
-          }
-        : null;
-
-    const created_by = {
-      user_id: posterUserId || createdByFromBody?.user_id || undefined,
-      name: posterName || createdByFromBody?.name || undefined,
-      email: posterEmail || createdByFromBody?.email || undefined,
-      source: createdByFromBody?.source || (meta?.source ? String(meta.source) : "schedule"),
-    };
-
-    // Only set if we have *something*
-    if (created_by.user_id || created_by.name || created_by.email) {
-      meta.created_by = created_by;
+    // Stamp created_by if present
+    if (createdBy) {
+      metaMerged.created_by = {
+        user_id: createdBy.user_id ?? null,
+        name: createdBy.name ?? null,
+        email: createdBy.email ?? null,
+      };
     }
 
-    // 3) Insert into scheduled_posts
     const insertPayload: Record<string, any> = {
       organisation_id: organisationId,
       message: message.trim(),
@@ -98,16 +112,18 @@ export async function POST(req: NextRequest) {
       image_url: imageUrl || null,
       scheduled_for: date.toISOString(),
       status: "scheduled",
-      meta,
+      meta: Object.keys(metaMerged).length ? metaMerged : null,
     };
 
+    // Only set if provided
     if (sequenceId && typeof sequenceId === "string" && sequenceId.trim()) {
       insertPayload.sequence_id = sequenceId.trim();
     }
 
-    if (meta && typeof meta === "object") {
-      if (typeof meta.part === "number") insertPayload.series_part = meta.part;
-      if (typeof meta.total === "number") insertPayload.series_total = meta.total;
+    // If meta includes series info, store it neatly too
+    if (metaMerged && typeof metaMerged === "object") {
+      if (typeof metaMerged.part === "number") insertPayload.series_part = metaMerged.part;
+      if (typeof metaMerged.total === "number") insertPayload.series_total = metaMerged.total;
     }
 
     const { data, error } = await supabaseAdmin
@@ -130,20 +146,13 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      {
-        success: true,
-        scheduled: true,
-        item: data,
-      },
+      { success: true, scheduled: true, item: data },
       { status: 200 }
     );
   } catch (err) {
     console.error("[schedule] unexpected error", err);
     return NextResponse.json(
-      {
-        success: false,
-        error: "Internal server error in /api/social/schedule.",
-      },
+      { success: false, error: "Internal server error in /api/social/schedule." },
       { status: 200 }
     );
   }
