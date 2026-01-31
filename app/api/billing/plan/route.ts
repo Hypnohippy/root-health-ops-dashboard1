@@ -1,61 +1,36 @@
-// app/api/billing/plan/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-async function resolveOrganisationId(explicit?: string | null) {
-  const id = (explicit || "").trim();
-  if (id) return id;
-
-  // Dev-friendly fallback: most recent organisation
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-  if (!data?.id) throw new Error("No organisation found.");
-  return String(data.id);
+async function getSingleTenantOrganisationId() {
+  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
+  if (error) return null;
+  return data?.[0]?.id ? String(data[0].id) : null;
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const organisationId = await resolveOrganisationId(
-      req.nextUrl.searchParams.get("organisationId")
-    );
+    // For now: single-tenant fallback (same pattern you use elsewhere)
+    const organisationId = await getSingleTenantOrganisationId();
+
+    if (!organisationId) {
+      return NextResponse.json({ ok: true, plan: "unknown" }, { status: 200 });
+    }
 
     const { data, error } = await supabaseAdmin
       .from("organisation_plans")
-      .select("plan_key,status,current_period_end")
+      .select("plan, posts_per_month, updated_at")
       .eq("organisation_id", organisationId)
-      .maybeSingle();
+      .limit(1);
 
-    // If no record yet, default to solo (soft gating)
-    if (error && !String(error.message || "").toLowerCase().includes("0 rows")) {
-      return NextResponse.json(
-        { ok: false, error: error.message, organisationId },
-        { status: 500 }
-      );
+    if (error) {
+      return NextResponse.json({ ok: true, plan: "unknown" }, { status: 200 });
     }
 
-    return NextResponse.json(
-      {
-        ok: true,
-        organisationId,
-        plan: data?.plan_key || "solo",
-        status: data?.status || "active",
-        current_period_end: data?.current_period_end || null,
-        source: data ? "db" : "default",
-      },
-      { status: 200 }
-    );
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Failed to load plan" },
-      { status: 500 }
-    );
+    const plan = data?.[0]?.plan ? String(data[0].plan) : "unknown";
+    return NextResponse.json({ ok: true, plan }, { status: 200 });
+  } catch {
+    return NextResponse.json({ ok: true, plan: "unknown" }, { status: 200 });
   }
 }
