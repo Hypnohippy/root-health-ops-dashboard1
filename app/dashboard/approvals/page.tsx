@@ -33,18 +33,20 @@ function normStatus(s: any) {
   return String(s || "").toLowerCase().trim();
 }
 
-function isPending(s: any) {
-  const v = normStatus(s);
-  return v === "pending" || v === "pending_approval" || v === "needs_approval";
+function approvalState(row: ScheduledPost) {
+  return String(row?.meta?.approvals?.state || "").toLowerCase().trim();
 }
 
-function isQueued(s: any) {
-  return normStatus(s) === "queued";
+function isPending(row: ScheduledPost) {
+  return approvalState(row) === "pending";
 }
 
-function isFailed(s: any) {
-  const v = normStatus(s);
-  return v === "failed" || v === "error";
+function isApproved(row: ScheduledPost) {
+  return approvalState(row) === "approved";
+}
+
+function isRejected(row: ScheduledPost) {
+  return approvalState(row) === "rejected";
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number) {
@@ -56,7 +58,6 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
-// ✅ Keep these OUTSIDE to avoid remount/caret chaos
 function Pill({
   children,
   tone = "neutral",
@@ -93,30 +94,22 @@ function GlassCard({ children, className = "" }: { children: React.ReactNode; cl
   );
 }
 
-function StatusTag({ status }: { status?: string | null }) {
-  const s = normStatus(status) || "scheduled";
-  const tone = isQueued(s) ? "good" : isPending(s) ? "warn" : isFailed(s) ? "bad" : "neutral";
-  return <Pill tone={tone}>{s}</Pill>;
-}
-
 export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [working, setWorking] = useState<null | "approve" | "reject" | "postnow">(null);
+  const [working, setWorking] = useState<null | "approve" | "reject" | "postnow" | "seed">(null);
   const [error, setError] = useState<string | null>(null);
 
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
   const [queryRaw, setQueryRaw] = useState("");
-  const query = useDebouncedValue(queryRaw, 160);
+  const query = useDebouncedValue(queryRaw, 140);
 
   const [tab, setTab] = useState<"pending" | "queued" | "all">("pending");
-
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
-  // ✅ checkbox selection for "Post now"
   const [postNowPlatforms, setPostNowPlatforms] = useState<string[]>([]);
 
   const resolveOrg = async () => {
@@ -147,10 +140,7 @@ export default function ApprovalsPage() {
       });
       const data: ApiListResp = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        throw new Error((data as any)?.error || `Failed to load scheduled posts (HTTP ${res.status}).`);
-      }
-
+      if (!res.ok) throw new Error((data as any)?.error || `Failed to load (HTTP ${res.status}).`);
       setRows(Array.isArray((data as any)?.items) ? (data as any).items : []);
     } catch (e: any) {
       setError(e?.message || "Could not load approvals queue.");
@@ -174,50 +164,62 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep selection stable
   useEffect(() => {
     if (!selectedId) return;
     const exists = rows.some((r) => r.id === selectedId);
     if (!exists) setSelectedId(null);
   }, [rows, selectedId]);
 
-  const counts = useMemo(() => {
-    const pending = rows.filter((r) => isPending(r.status)).length;
-    const queued = rows.filter((r) => isQueued(r.status)).length;
-    return { pending, queued, all: rows.length };
-  }, [rows]);
-
   const filtered = useMemo(() => {
     const q = (query || "").trim().toLowerCase();
 
     let base = rows;
-    if (tab === "pending") base = rows.filter((r) => isPending(r.status));
-    if (tab === "queued") base = rows.filter((r) => isQueued(r.status));
+    if (tab === "pending") base = rows.filter(isPending);
+    if (tab === "queued") base = rows.filter((r) => isApproved(r) && normStatus(r.status) !== "posted" && normStatus(r.status) !== "failed");
 
     if (!q) return base;
 
     return base.filter((r) => {
-      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.scheduled_for || ""} ${normStatus(r.status)}`.toLowerCase();
+      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.scheduled_for || ""} ${normStatus(r.status)} ${approvalState(r)}`.toLowerCase();
       return hay.includes(q);
     });
   }, [rows, query, tab]);
 
   const selected = useMemo(() => filtered.find((x) => x.id === selectedId) || null, [filtered, selectedId]);
 
-  // When you select a queued item, default checkbox set = its platforms
   useEffect(() => {
-    if (!selected) return;
-    if (!isQueued(selected.status)) return;
-    const pls = Array.isArray(selected.platforms) ? selected.platforms.map(String) : [];
-    setPostNowPlatforms(pls);
-  }, [selected?.id]); // only on selection change
-
-  useEffect(() => {
-    // Clear note on selection change (keeps UX clean)
     setNote("");
-  }, [selectedId]);
+    if (selected && isApproved(selected)) {
+      setPostNowPlatforms(Array.isArray(selected.platforms) ? selected.platforms.map(String) : []);
+    } else {
+      setPostNowPlatforms([]);
+    }
+  }, [selected?.id]);
+
+  const counts = useMemo(() => {
+    const pending = rows.filter(isPending).length;
+    const approved = rows.filter(isApproved).length;
+    const rejected = rows.filter(isRejected).length;
+    return { pending, approved, rejected, all: rows.length };
+  }, [rows]);
 
   const disabled = loading || refreshing || !!working;
+
+  const seedDemo = async () => {
+    setError(null);
+    setWorking("seed");
+    try {
+      const org = organisationId || (await resolveOrg());
+      const res = await fetch(`/api/approvals/demo-seed?organisationId=${encodeURIComponent(org)}`, { method: "POST" });
+      const data: any = await res.json().catch(() => null);
+      if (!res.ok || data?.success === false) throw new Error(data?.error || `Seed failed (HTTP ${res.status})`);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || "Demo seed failed.");
+    } finally {
+      setWorking(null);
+    }
+  };
 
   const act = async (action: "approve" | "reject") => {
     if (!selected) return;
@@ -236,9 +238,8 @@ export default function ApprovalsPage() {
       const data: any = await res.json().catch(() => null);
       if (!res.ok || data?.success === false) throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
 
-      const newStatus = action === "approve" ? "queued" : "rejected";
-      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
-
+      // refresh list from DB (keeps things consistent)
+      await load();
       setSelectedId(null);
       setNote("");
     } catch (e: any) {
@@ -249,10 +250,7 @@ export default function ApprovalsPage() {
   };
 
   const togglePostNowPlatform = (p: string) => {
-    setPostNowPlatforms((prev) => {
-      if (prev.includes(p)) return prev.filter((x) => x !== p);
-      return [...prev, p];
-    });
+    setPostNowPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
   };
 
   const postNow = async () => {
@@ -262,11 +260,8 @@ export default function ApprovalsPage() {
 
     try {
       const org = organisationId || (await resolveOrg());
-
       const platforms = (postNowPlatforms || []).map(String).filter(Boolean);
-      if (platforms.length === 0) {
-        throw new Error("Pick at least one platform to post now.");
-      }
+      if (platforms.length === 0) throw new Error("Pick at least one platform.");
 
       const res = await fetch(`/api/publish/now?organisationId=${encodeURIComponent(org)}`, {
         method: "POST",
@@ -277,9 +272,7 @@ export default function ApprovalsPage() {
       const data: any = await res.json().catch(() => null);
       if (!res.ok || data?.success === false) throw new Error(data?.error || `Post now failed (HTTP ${res.status}).`);
 
-      const nextStatus = String(data?.status || "posted");
-      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: nextStatus } : r)));
-
+      await load();
       setSelectedId(null);
       setNote("");
     } catch (e: any) {
@@ -287,6 +280,13 @@ export default function ApprovalsPage() {
     } finally {
       setWorking(null);
     }
+  };
+
+  const tagForRow = (r: ScheduledPost) => {
+    if (isPending(r)) return <Pill tone="warn">pending approval</Pill>;
+    if (isApproved(r)) return <Pill tone="good">approved</Pill>;
+    if (isRejected(r)) return <Pill tone="bad">rejected</Pill>;
+    return <Pill>normal</Pill>;
   };
 
   return (
@@ -302,19 +302,30 @@ export default function ApprovalsPage() {
           <div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Approvals</h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Approve moves items into <span className="text-slate-100 font-semibold">queued</span>. Then choose channels and{" "}
-              <span className="text-slate-100 font-semibold">Post now</span>.
+              We keep approvals state in <span className="text-slate-100 font-semibold">meta</span> (safe with your DB constraints).
+              Approve → item becomes “approved” → then you can Post now.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <Pill tone="warn">Pending: {counts.pending}</Pill>
-            <Pill tone="good">Queued: {counts.queued}</Pill>
+            <Pill tone="good">Approved: {counts.approved}</Pill>
+            <Pill tone="bad">Rejected: {counts.rejected}</Pill>
+
+            <button
+              type="button"
+              onClick={seedDemo}
+              disabled={disabled}
+              className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-400/15 disabled:opacity-60"
+            >
+              {working === "seed" ? "Creating…" : "Create demo items"}
+            </button>
+
             <button
               type="button"
               onClick={refresh}
               disabled={disabled}
-              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
+              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60"
             >
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>
@@ -325,7 +336,7 @@ export default function ApprovalsPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search</div>
-              <div className="mt-1 text-xs text-slate-300">Filter by text/platform/date/status.</div>
+              <div className="mt-1 text-xs text-slate-300">Filter by text/platform/date.</div>
             </div>
 
             <input
@@ -360,7 +371,7 @@ export default function ApprovalsPage() {
                   : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
               ].join(" ")}
             >
-              Queued
+              Approved (ready)
             </button>
 
             <button
@@ -382,23 +393,17 @@ export default function ApprovalsPage() {
               {error}
             </div>
           )}
-
-          {loading && (
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-              Loading…
-            </div>
-          )}
         </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-3">
             {!loading && filtered.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
-                No items in this view.
+                No items in this view. Click <span className="text-slate-100 font-semibold">Create demo items</span> to test.
               </div>
             ) : (
               filtered.map((p) => {
-                const isSelected = p.id === selectedId;
+                const isSel = p.id === selectedId;
                 return (
                   <button
                     key={p.id}
@@ -406,7 +411,7 @@ export default function ApprovalsPage() {
                     onClick={() => setSelectedId(p.id)}
                     className={[
                       "w-full text-left rounded-2xl border p-4 transition",
-                      isSelected ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
+                      isSel ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
                     ].join(" ")}
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -414,10 +419,11 @@ export default function ApprovalsPage() {
                         {prettyPlatforms(p.platforms)}
                         <span className="ml-2 text-[11px] font-normal text-slate-400">{safeDate(p.scheduled_for)}</span>
                       </div>
-                      <StatusTag status={p.status} />
+                      {tagForRow(p)}
                     </div>
 
                     <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{p.message}</div>
+                    <div className="mt-2 text-[11px] text-slate-500">DB status: {normStatus(p.status) || "(none)"}</div>
                   </button>
                 );
               })
@@ -427,7 +433,7 @@ export default function ApprovalsPage() {
           <div className="space-y-6">
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Review</div>
-              <div className="mt-1 text-xs text-slate-300">Approve → queued. Then pick channels and Post now.</div>
+              <div className="mt-1 text-xs text-slate-300">Approve → ready. Then choose channels → Post now.</div>
 
               {!selected ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
@@ -438,7 +444,7 @@ export default function ApprovalsPage() {
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-sm font-semibold">{prettyPlatforms(selected.platforms)}</div>
-                      <StatusTag status={selected.status} />
+                      {tagForRow(selected)}
                     </div>
                     <div className="mt-2 text-[11px] text-slate-400">{safeDate(selected.scheduled_for)}</div>
                     <div className="mt-3 text-sm whitespace-pre-wrap">{selected.message}</div>
@@ -451,7 +457,7 @@ export default function ApprovalsPage() {
                     onChange={(e) => setNote(e.target.value)}
                   />
 
-                  {isPending(selected.status) ? (
+                  {isPending(selected) ? (
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -471,18 +477,17 @@ export default function ApprovalsPage() {
                         {working === "reject" ? "Rejecting…" : "Reject"}
                       </button>
                     </div>
-                  ) : isQueued(selected.status) ? (
+                  ) : isApproved(selected) ? (
                     <div className="space-y-3">
                       <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                         <div className="text-sm font-semibold text-slate-100">Post now channels</div>
-                        <div className="mt-1 text-[11px] text-slate-400">
-                          Choose where to publish this approved post.
-                        </div>
+                        <div className="mt-1 text-[11px] text-slate-400">Choose where to publish this approved post.</div>
 
                         <div className="mt-3 grid gap-2 sm:grid-cols-2">
                           {(Array.isArray(selected.platforms) ? selected.platforms : []).map((p) => {
                             const key = String(p);
                             const on = postNowPlatforms.includes(key);
+
                             return (
                               <button
                                 key={key}
@@ -501,10 +506,6 @@ export default function ApprovalsPage() {
                             );
                           })}
                         </div>
-
-                        <div className="mt-2 text-[11px] text-slate-500">
-                          Tip: leave them all on for a full demo.
-                        </div>
                       </div>
 
                       <button
@@ -517,20 +518,19 @@ export default function ApprovalsPage() {
                       </button>
                     </div>
                   ) : (
-                    <div className="text-[11px] text-slate-500">
-                      This item is already {normStatus(selected.status) || "scheduled"}.
-                    </div>
+                    <div className="text-[11px] text-slate-500">This item is not pending/approved (it may be rejected or normal).</div>
                   )}
                 </div>
               )}
             </GlassCard>
 
             <GlassCard className="p-6">
-              <div className="text-base font-semibold">Note</div>
+              <div className="text-base font-semibold">About the 405 error</div>
               <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • Pending → Approve → Queued\n
-                • Queued → Pick channels → Post now → Posted/Failed\n
-                • This keeps compliance safe and demos clean
+                /api/publish/now is a POST endpoint.\n
+                Opening it in a browser triggers GET → server returns 405.\n
+                That is normal.\n\n
+                Use the “Post now” button in the UI to call it correctly.
               </div>
             </GlassCard>
           </div>
