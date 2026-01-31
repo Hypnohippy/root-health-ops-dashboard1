@@ -1,4 +1,3 @@
-// app/(marketing)/pricing/page.tsx
 import Link from "next/link";
 import React from "react";
 import CheckoutButton from "./CheckoutButton";
@@ -20,27 +19,6 @@ function Feature({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Badge({
-  children,
-  tone = "gold",
-}: {
-  children: React.ReactNode;
-  tone?: "gold" | "emerald" | "neutral";
-}) {
-  const cls =
-    tone === "emerald"
-      ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-      : tone === "neutral"
-      ? "border-white/10 bg-white/5 text-slate-200"
-      : "border-amber-400/30 bg-amber-400/10 text-amber-100";
-
-  return (
-    <span className={["inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold", cls].join(" ")}>
-      {children}
-    </span>
-  );
-}
-
 function PriceCard({
   badge,
   title,
@@ -49,8 +27,7 @@ function PriceCard({
   features,
   plan,
   highlight,
-  footnote,
-  showBrainstormGold,
+  footerNote,
 }: {
   badge?: string;
   title: string;
@@ -59,8 +36,7 @@ function PriceCard({
   features: React.ReactNode[];
   plan: "solo" | "growth" | "team";
   highlight?: boolean;
-  footnote?: React.ReactNode;
-  showBrainstormGold?: boolean;
+  footerNote?: React.ReactNode;
 }) {
   return (
     <div
@@ -72,15 +48,10 @@ function PriceCard({
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="space-y-2">
+        <div>
           <div className="text-xl font-semibold text-slate-50">{title}</div>
-          <div className="text-sm text-slate-300">{subtitle}</div>
-
-          <div className="flex flex-wrap gap-2 pt-1">
-            {showBrainstormGold ? <Badge tone="gold">Brainstorm (Gold)</Badge> : null}
-          </div>
+          <div className="mt-1 text-sm text-slate-300">{subtitle}</div>
         </div>
-
         {badge ? (
           <span className="inline-flex items-center rounded-full bg-emerald-400 px-3 py-1 text-[11px] font-extrabold text-slate-950">
             {badge}
@@ -106,9 +77,9 @@ function PriceCard({
         ))}
       </ul>
 
-      {footnote ? (
-        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4 text-[12px] text-slate-300 leading-relaxed">
-          {footnote}
+      {footerNote ? (
+        <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4 text-[12px] text-slate-300 leading-relaxed">
+          {footerNote}
         </div>
       ) : null}
 
@@ -123,33 +94,14 @@ function PriceCard({
   );
 }
 
-function MiniCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-[0_20px_80px_rgba(0,0,0,0.35)]">
-      <div className="text-base font-semibold text-slate-50">{title}</div>
-      <div className="mt-2 text-sm text-slate-300 leading-relaxed">
-        {children}
-      </div>
-    </div>
-  );
-}
-
 export default function PricingPage() {
   return (
     <main className="mx-auto max-w-6xl px-4 py-12 md:py-16 space-y-14">
-      {/* Header */}
       <section className="space-y-6">
         <div className="flex flex-wrap gap-2">
           <Pill>Clinician-first</Pill>
           <Pill>Cancel anytime</Pill>
           <Pill>No hype</Pill>
-          <Pill>Built to reduce overwhelm</Pill>
         </div>
 
         <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-[1.05]">
@@ -157,10 +109,8 @@ export default function PricingPage() {
         </h1>
 
         <p className="text-base md:text-lg text-slate-300 leading-relaxed max-w-3xl">
-          Root Health Ops helps you stay visible without becoming a marketing machine.
-          Calm structure, simple workflows, and a supportive{" "}
-          <span className="text-slate-50 font-semibold">Brainstorm</span>{" "}
-          space that keeps you aligned when energy is low.
+          Root Health Ops is designed to reduce overwhelm and keep you visible
+          consistently — without turning your week into “content work”.
         </p>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -179,77 +129,28 @@ export default function PricingPage() {
           </Link>
         </div>
 
-        <div className="text-[11px] text-slate-500 leading-relaxed">
-          We don’t do “credits” or confusing limits. If you join early, you keep the generous model.
+        <div className="text-[11px] text-slate-500">
+          Tip: colleges can distribute a promo code for 6-month subsidy.
         </div>
       </section>
 
-      {/* Highlight: Brainstorm */}
-      <section className="rounded-[32px] border border-white/10 bg-gradient-to-br from-emerald-400/15 via-white/5 to-white/5 p-8 md:p-10">
-        <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
-          <div>
-            <div className="flex flex-wrap gap-2 mb-3">
-              <Pill>Brainstorm (Gold)</Pill>
-              <Pill>Included in every plan</Pill>
-            </div>
-
-            <div className="text-2xl md:text-3xl font-semibold tracking-tight">
-              Brainstorm is the calm superpower
-            </div>
-
-            <p className="mt-3 text-sm text-slate-300 leading-relaxed">
-              This isn’t “AI content spam”. It’s a conversational space that helps you:
-              find your angle, soften your tone, and turn real expertise into posts that still feel like you.
-              It’s built for the days when you’re tired — not just when you’re “on”.
-            </p>
-
-            <div className="mt-4 text-[12px] text-slate-300 leading-relaxed">
-              <span className="text-slate-50 font-semibold">Early adopter promise:</span>{" "}
-              no surprise paywalls on Brainstorm for early supporters.
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-black/20 p-6">
-            <div className="text-sm font-semibold text-slate-50">
-              What Brainstorm helps you do (fast)
-            </div>
-            <ul className="mt-3 space-y-2 text-sm text-slate-300 leading-relaxed list-disc list-inside">
-              <li>Turn a messy idea into a clear post you can edit</li>
-              <li>Rewrite to sound more “you” (warm, grounded, not salesy)</li>
-              <li>Create a simple weekly rhythm when confidence is low</li>
-              <li>Draft replies without drifting into “marketing robot” language</li>
-            </ul>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Link
-                href="/dashboard"
-                className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
-              >
-                Try the dashboard →
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Plans */}
       <section className="grid gap-6 lg:grid-cols-3">
         <PriceCard
           title="Solo"
-          subtitle="For one clinician who wants calm momentum."
+          subtitle="For a single clinician who wants calm momentum."
           price="£49"
           plan="solo"
-          showBrainstormGold
           features={[
             <>Connect your channels once</>,
-            <>Post now or schedule from one place</>,
-            <>Queue view with clear status (sent / scheduled / failed)</>,
-            <>Brainstorm (Gold): shape posts in a calm conversation</>,
-            <>Designed to reduce overwhelm, not add tasks</>,
+            <>Create Stories and edit before publishing</>,
+            <>Schedule posts so visibility stays steady</>,
+            <>Queue view with clear “sent / scheduled / failed” status</>,
+            <>🧠 Brainstorm (a calm thinking space when energy is low)</>,
           ]}
-          footnote={
+          footerNote={
             <>
-              <span className="text-slate-50 font-semibold">Best for:</span>{" "}
-              solo clinicians who want consistency without turning their week into content work.
+              Built for steady consistency — not hustle. <br />
+              If you grow into a clinic later, Team adds a gentle approvals step.
             </>
           }
         />
@@ -257,22 +158,21 @@ export default function PricingPage() {
         <PriceCard
           badge="Most popular"
           title="Growth"
-          subtitle="For rebuilding confidence and consistency."
+          subtitle="For clinicians rebuilding confidence and consistency."
           price="£99"
           plan="growth"
           highlight
-          showBrainstormGold
           features={[
             <>Everything in Solo</>,
-            <>Deeper scheduling workflow (steady drumbeat)</>,
-            <>More structure for themes + series (coming next)</>,
+            <>More structure for content themes and series</>,
+            <>Deeper scheduling workflows (steady drumbeat)</>,
             <>Priority help getting set up</>,
-            <>Brainstorm (Gold): faster drafts + better tone alignment</>,
+            <>🧠 Brainstorm included</>,
           ]}
-          footnote={
+          footerNote={
             <>
-              <span className="text-slate-50 font-semibold">Note:</span>{" "}
-              “Themes + series” is on the roadmap next — Growth supporters help shape it early.
+              Many clinicians use Growth as the bridge into clinic-level systems. <br />
+              When the time feels right, Team unlocks approvals + shared workflows.
             </>
           }
         />
@@ -282,41 +182,23 @@ export default function PricingPage() {
           subtitle="For multi-practitioner practices and collectives."
           price="£199"
           plan="team"
-          showBrainstormGold
           features={[
             <>Everything in Growth</>,
-            <>Organisation-first setup (multi-user workflows)</>,
-            <>Approvals + governance (enterprise guard rails)</>,
+            <>Organisation-first setup</>,
+            <>Shared visibility workflows</>,
+            <>✅ Approvals: a gentle review step before posts go live</>,
             <>Priority support</>,
-            <>Best for clinics, groups, and larger teams</>,
           ]}
-          footnote={
+          footerNote={
             <>
-              <span className="text-slate-50 font-semibold">Team is for:</span>{" "}
-              practices that need oversight, permissions, and shared visibility workflows.
+              As practices grow, it can help to slow things down just enough to stay aligned.
+              Approvals add a gentle review step — useful when multiple practitioners contribute,
+              or when you want a second set of eyes before posts go live.
             </>
           }
         />
       </section>
 
-      {/* What exists today (trust section) */}
-      <section className="grid gap-6 lg:grid-cols-3">
-        <MiniCard title="What’s live right now">
-          Posting + scheduling from the dashboard, connected channels, queue/status visibility,
-          and Brainstorm drafting support.
-        </MiniCard>
-
-        <MiniCard title="What’s next (without breaking anything)">
-          Approvals workflow, audit trail, permissions, and structured content themes/series —
-          implemented carefully so we don’t destabilise what’s working.
-        </MiniCard>
-
-        <MiniCard title="No nasty surprises">
-          No “token anxiety”, no hidden AI credit traps. We keep it simple and clinician-safe.
-        </MiniCard>
-      </section>
-
-      {/* Colleges */}
       <section className="rounded-[32px] border border-white/10 bg-white/5 p-8 md:p-10">
         <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
           <div>
@@ -326,10 +208,8 @@ export default function PricingPage() {
             <p className="mt-3 text-sm text-slate-300 leading-relaxed">
               Colleges can provide a promo code to students (e.g.{" "}
               <span className="text-slate-50 font-semibold">COLLEGE50</span>).
-              Students enter it during checkout — the discount applies automatically for 6 months.
-            </p>
-            <p className="mt-3 text-sm text-slate-300 leading-relaxed">
-              This is ideal when students need structure and confidence, but money is tight.
+              Students enter it during checkout — the discount applies
+              automatically for 6 months.
             </p>
           </div>
 
@@ -354,58 +234,6 @@ export default function PricingPage() {
           </div>
         </div>
       </section>
-
-      {/* FAQ */}
-      <section className="rounded-[32px] border border-white/10 bg-white/5 p-8 md:p-10">
-        <div className="text-2xl md:text-3xl font-semibold tracking-tight">
-          Common questions
-        </div>
-
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl border border-white/10 bg-black/20 p-6">
-            <div className="text-sm font-semibold text-slate-50">
-              Is Brainstorm included in Solo?
-            </div>
-            <div className="mt-2 text-sm text-slate-300 leading-relaxed">
-              Yes. Brainstorm (Gold) is included across plans because it’s part of the “reduce overwhelm” promise —
-              not an upsell trick.
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-black/20 p-6">
-            <div className="text-sm font-semibold text-slate-50">
-              Will features be locked behind higher tiers?
-            </div>
-            <div className="mt-2 text-sm text-slate-300 leading-relaxed">
-              Team-only features are the ones that require governance (like approvals + permissions).
-              We’ll guide users to the right tier when they try to activate them.
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-black/20 p-6">
-            <div className="text-sm font-semibold text-slate-50">
-              Can I cancel anytime?
-            </div>
-            <div className="mt-2 text-sm text-slate-300 leading-relaxed">
-              Yes. Simple monthly billing. No lock-in.
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-black/20 p-6">
-            <div className="text-sm font-semibold text-slate-50">
-              Is this “AI therapy”?
-            </div>
-            <div className="mt-2 text-sm text-slate-300 leading-relaxed">
-              No. It’s a clinician-first marketing ops cockpit. Brainstorm helps draft and refine content —
-              it does not provide clinical advice or diagnosis.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <div className="text-[11px] text-slate-500">
-        Pricing and features may evolve, but the core promise stays the same: calm, ethical visibility without burnout.
-      </div>
     </main>
   );
 }
