@@ -5,9 +5,8 @@ export const runtime = "nodejs";
 
 /**
  * POST /api/approvals/demo-seed?organisationId=...
- * Creates a few demo posts with meta.approvals.state='pending'
- * Adds meta.created_by so Approvals can show who posted it.
- * Does NOT rely on status being 'queued'/'pending_approval' (avoids constraint issues).
+ * Creates demo posts with meta.approvals.state='pending'
+ * PLUS meta.created_by so Approvals can show "Posted by ____"
  */
 export async function POST(req: NextRequest) {
   try {
@@ -22,14 +21,11 @@ export async function POST(req: NextRequest) {
     }
 
     const now = Date.now();
-    const nowIso = new Date().toISOString();
 
-    // ✅ Demo poster identity (for UI testing)
     const demoPoster = {
-      user_id: "demo-user",
-      name: "Demo Therapist",
-      email: "demo@roothealth.app",
-      source: "demo",
+      user_id: "demo-clinician-001",
+      name: "Demo Clinician",
+      email: "clinician.demo@roothealth.app",
     };
 
     const demo = [
@@ -42,8 +38,8 @@ export async function POST(req: NextRequest) {
         scheduled_for: new Date(now + 60 * 60 * 1000).toISOString(),
         status: "scheduled",
         meta: {
-          approvals: { state: "pending", seeded: true, seeded_at: nowIso },
           created_by: demoPoster,
+          approvals: { state: "pending", seeded: true, seeded_at: new Date().toISOString() },
         },
       },
       {
@@ -55,8 +51,8 @@ export async function POST(req: NextRequest) {
         scheduled_for: new Date(now + 2 * 60 * 60 * 1000).toISOString(),
         status: "scheduled",
         meta: {
-          approvals: { state: "pending", seeded: true, seeded_at: nowIso },
           created_by: demoPoster,
+          approvals: { state: "pending", seeded: true, seeded_at: new Date().toISOString() },
         },
       },
       {
@@ -67,8 +63,8 @@ export async function POST(req: NextRequest) {
         scheduled_for: new Date(now + 3 * 60 * 60 * 1000).toISOString(),
         status: "scheduled",
         meta: {
-          approvals: { state: "pending", seeded: true, seeded_at: nowIso },
           created_by: demoPoster,
+          approvals: { state: "pending", seeded: true, seeded_at: new Date().toISOString() },
         },
       },
     ];
