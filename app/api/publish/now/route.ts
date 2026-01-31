@@ -7,9 +7,8 @@ export const runtime = "nodejs";
  * POST /api/publish/now?organisationId=...
  * Body: { id: string, platforms?: string[] }
  *
- * - Requires the scheduled post to be status=queued
- * - Publishes via your existing /api/social/quick-blast
- * - Updates scheduled_posts.status to posted/failed
+ * Requires meta.approvals.state === 'approved'
+ * Updates status to posted/failed (values your DB likely already allows)
  */
 export async function POST(req: NextRequest) {
   try {
@@ -23,16 +22,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const id = String(body?.id || "").trim();
 
-    // Optional platform override from checkbox UI
     const platformsOverride = Array.isArray(body?.platforms)
       ? (body.platforms as any[]).map((x) => String(x)).filter(Boolean)
       : null;
 
-    if (!id) {
-      return NextResponse.json({ success: false, error: "Missing id" }, { status: 400 });
-    }
+    if (!id) return NextResponse.json({ success: false, error: "Missing id" }, { status: 400 });
 
-    // Load scheduled post
     const { data: rows, error: readErr } = await supabaseAdmin
       .from("scheduled_posts")
       .select("id, organisation_id, message, platforms, image_url, status, meta")
@@ -46,14 +41,12 @@ export async function POST(req: NextRequest) {
     }
 
     const row: any = Array.isArray(rows) ? rows[0] : null;
-    if (!row?.id) {
-      return NextResponse.json({ success: false, error: "Post not found for this organisation" }, { status: 404 });
-    }
+    if (!row?.id) return NextResponse.json({ success: false, error: "Post not found" }, { status: 404 });
 
-    const status = String(row.status || "").toLowerCase().trim();
-    if (status !== "queued") {
+    const approvalState = String(row?.meta?.approvals?.state || "").toLowerCase().trim();
+    if (approvalState !== "approved") {
       return NextResponse.json(
-        { success: false, error: `Post must be queued before posting now (current: ${status || "scheduled"})` },
+        { success: false, error: "This item is not approved yet. Approve it first." },
         { status: 400 }
       );
     }
@@ -69,7 +62,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "No platforms selected to publish." }, { status: 400 });
     }
 
-    // Call your existing quick-blast route
+    // Call your existing publisher
     const origin = req.nextUrl.origin;
 
     const qbRes = await fetch(`${origin}/api/social/quick-blast`, {
@@ -79,7 +72,7 @@ export async function POST(req: NextRequest) {
         message: row.message || "",
         imageUrl: row.image_url || "",
         platforms: platformsToUse,
-        organisationId, // harmless if ignored
+        organisationId,
         source: "approvals_post_now",
         scheduledPostId: row.id,
       }),
@@ -112,16 +105,10 @@ export async function POST(req: NextRequest) {
 
     if (updErr) {
       console.error("[publish/now] update error", updErr);
-      return NextResponse.json(
-        { success: false, error: "Published, but failed to update scheduled_posts status." },
-        { status: 500 }
-      );
+      return NextResponse.json({ success: false, error: "Published, but failed to update status." }, { status: 500 });
     }
 
-    return NextResponse.json(
-      { success: true, id: row.id, status: nextStatus, publish: qbJson || null },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: true, id: row.id, status: nextStatus, publish: qbJson || null }, { status: 200 });
   } catch (err: any) {
     console.error("[publish/now] unexpected", err);
     return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
