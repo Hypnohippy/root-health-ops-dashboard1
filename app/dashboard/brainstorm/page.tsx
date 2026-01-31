@@ -4,7 +4,13 @@
 import React, { useMemo, useRef, useState } from "react";
 import ConnectedChannelsBar from "../components/ConnectedChannelsBar";
 
-type ChannelId = "linkedin" | "facebook" | "instagram" | "reddit" | "tiktok";
+type ChannelId =
+  | "linkedin"
+  | "facebook"
+  | "instagram"
+  | "threads"
+  | "reddit"
+  | "tiktok";
 
 type ChatMsg = {
   id: string;
@@ -46,8 +52,16 @@ type CommonsImagesApiResponse = {
   error?: string;
 };
 
-const PREFILL_QUICKBLAST_KEY = "rootops_prefill_quickblast_v1";
-const PREFILL_STORIES_KEY = "rootops_prefill_stories_v1";
+// ✅ Write to BOTH “rootops_*” and “rh_*” to avoid future mismatches
+const PREFILL_QUICKBLAST_KEYS = [
+  "rootops_prefill_quickblast_v1",
+  "rh_prefill_quickblast_v1",
+];
+
+const PREFILL_STORIES_KEYS = [
+  "rootops_prefill_stories_v1",
+  "rh_prefill_stories_v1",
+];
 
 function uid() {
   try {
@@ -71,11 +85,25 @@ function safeUrl(u?: string | null) {
 }
 
 function stripHtml(s: string) {
-  // quick cleanup for Artist/Credit often containing html
   return String(s || "")
     .replace(/<[^>]*>/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function setLocalStorageMulti(keys: string[], payload: any) {
+  try {
+    const raw = JSON.stringify(payload);
+    for (const k of keys) {
+      try {
+        localStorage.setItem(k, raw);
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export default function BrainstormPage() {
@@ -132,7 +160,6 @@ export default function BrainstormPage() {
     setPickerResults([]);
     setPickerError(null);
 
-    // auto load results on open
     if (q) {
       await searchPicker(q);
     }
@@ -157,9 +184,10 @@ export default function BrainstormPage() {
     setPickerResults([]);
 
     try {
-      const res = await fetch(`/api/media/commons-images?q=${encodeURIComponent(query)}&limit=6`, {
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/media/commons-images?q=${encodeURIComponent(query)}&limit=6`,
+        { cache: "no-store" }
+      );
       const data: CommonsImagesApiResponse = await res.json().catch(() => null);
 
       if (!res.ok || !data?.success) {
@@ -227,7 +255,6 @@ export default function BrainstormPage() {
       const nextDrafts = Array.isArray(data.drafts) ? data.drafts : [];
       setDrafts(nextDrafts);
 
-      // reset chosen images each round (keeps behaviour predictable)
       setDraftImages({});
       setDraftImageQueryEdits(
         nextDrafts.reduce((acc, d, i) => {
@@ -260,16 +287,16 @@ export default function BrainstormPage() {
         : null,
     };
 
-    try {
-      localStorage.setItem(PREFILL_QUICKBLAST_KEY, JSON.stringify(payload));
-    } catch {}
-
+    setLocalStorageMulti(PREFILL_QUICKBLAST_KEYS, payload);
     window.location.href = "/dashboard";
   };
 
   const sendToStories = (d: Draft, img: CommonsImage | null) => {
     const payload = {
+      // ✅ Stories/new currently expects "direct" or "series" shapes.
+      // Keeping "idea" is still useful if you later support it — but we’ll also include "direct".
       idea: joinDraft(d),
+      direct: joinDraft(d), // ✅ helps if your Stories importer expects `direct`
       platform,
       tone,
       imageUrl: img?.url || "",
@@ -284,10 +311,7 @@ export default function BrainstormPage() {
         : null,
     };
 
-    try {
-      localStorage.setItem(PREFILL_STORIES_KEY, JSON.stringify(payload));
-    } catch {}
-
+    setLocalStorageMulti(PREFILL_STORIES_KEYS, payload);
     window.location.href = "/dashboard/stories/new";
   };
 
@@ -314,6 +338,7 @@ export default function BrainstormPage() {
                 <option value="linkedin">LinkedIn</option>
                 <option value="facebook">Facebook</option>
                 <option value="instagram">Instagram</option>
+                <option value="threads">Threads</option>
                 <option value="reddit">Reddit</option>
                 <option value="tiktok">TikTok</option>
               </select>
@@ -560,9 +585,7 @@ export default function BrainstormPage() {
                               </div>
                             </div>
                           ) : (
-                            <div className="text-sm text-slate-400">
-                              No image selected (optional).
-                            </div>
+                            <div className="text-sm text-slate-400">No image selected (optional).</div>
                           )}
                         </div>
                       </div>
@@ -581,11 +604,7 @@ export default function BrainstormPage() {
         {/* Modal */}
         {pickerOpenFor !== null ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-            <div
-              className="absolute inset-0 bg-black/70"
-              onClick={closePicker}
-              aria-hidden="true"
-            />
+            <div className="absolute inset-0 bg-black/70" onClick={closePicker} aria-hidden="true" />
             <div className="relative w-full max-w-4xl rounded-3xl border border-slate-700 bg-slate-950 text-slate-100 shadow-2xl">
               <div className="p-5 border-b border-slate-700 flex items-start justify-between gap-3">
                 <div>
@@ -633,9 +652,7 @@ export default function BrainstormPage() {
                 {pickerLoading ? (
                   <div className="text-sm text-slate-300">Loading results…</div>
                 ) : pickerResults.length === 0 ? (
-                  <div className="text-sm text-slate-400">
-                    No results yet — hit Search.
-                  </div>
+                  <div className="text-sm text-slate-400">No results yet — hit Search.</div>
                 ) : (
                   <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {pickerResults.map((img, i) => {
@@ -664,9 +681,7 @@ export default function BrainstormPage() {
                             <div className="text-[11px] text-slate-400">
                               {img.licenseShortName || "License unknown"}
                             </div>
-                            <div className="text-[11px] text-emerald-300 line-clamp-1">
-                              Select this
-                            </div>
+                            <div className="text-[11px] text-emerald-300 line-clamp-1">Select this</div>
                           </div>
                         </button>
                       );
