@@ -2,6 +2,12 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
+type CreatedBy = {
+  user_id?: string | null;
+  name?: string | null;
+  email?: string | null;
+};
+
 type ScheduledPost = {
   id: string;
   organisation_id: string;
@@ -33,6 +39,55 @@ function normStatus(s: any) {
   return String(s || "").toLowerCase().trim();
 }
 
+// ---------- Poster helpers (tolerant reader) ----------
+function extractCreatedBy(meta: any): CreatedBy | null {
+  if (!meta || typeof meta !== "object") return null;
+
+  // preferred shape
+  const a = meta?.created_by;
+  if (a && typeof a === "object") return a as CreatedBy;
+
+  // tolerant fallbacks
+  const b = meta?.createdBy;
+  if (b && typeof b === "object") return b as CreatedBy;
+
+  const c = meta?.poster;
+  if (c && typeof c === "object") return c as CreatedBy;
+
+  const d = meta?.author;
+  if (d && typeof d === "object") return d as CreatedBy;
+
+  const e = meta?.user;
+  if (e && typeof e === "object") return e as CreatedBy;
+
+  return null;
+}
+
+function posterLabel(row: ScheduledPost) {
+  const cb = extractCreatedBy(row?.meta);
+  const name = String(cb?.name || "").trim();
+  const email = String(cb?.email || "").trim();
+
+  if (name && email) return `${name} (${email})`;
+  if (name) return name;
+  if (email) return email;
+
+  return "Unknown";
+}
+
+function posterSearchBlob(row: ScheduledPost) {
+  const cb = extractCreatedBy(row?.meta);
+  const parts = [
+    cb?.name ? String(cb.name) : "",
+    cb?.email ? String(cb.email) : "",
+    cb?.user_id ? String(cb.user_id) : "",
+  ]
+    .join(" ")
+    .trim();
+  return parts;
+}
+
+// ---------- Approvals state (stored in meta) ----------
 function approvalState(row: ScheduledPost) {
   return String(row?.meta?.approvals?.state || "").toLowerCase().trim();
 }
@@ -47,21 +102,6 @@ function isApproved(row: ScheduledPost) {
 
 function isRejected(row: ScheduledPost) {
   return approvalState(row) === "rejected";
-}
-
-function createdByLabel(row: ScheduledPost) {
-  const cb = row?.meta?.created_by;
-  if (!cb || typeof cb !== "object") return null;
-
-  const name = typeof cb.name === "string" ? cb.name.trim() : "";
-  const email = typeof cb.email === "string" ? cb.email.trim() : "";
-  const userId = typeof cb.user_id === "string" ? cb.user_id.trim() : "";
-
-  if (name && email) return `${name} (${email})`;
-  if (name) return name;
-  if (email) return email;
-  if (userId) return `User ${userId.slice(0, 8)}…`;
-  return null;
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number) {
@@ -123,12 +163,15 @@ function GlassCard({
 export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [working, setWorking] = useState<null | "approve" | "reject" | "postnow" | "seed">(null);
+  const [working, setWorking] = useState<
+    null | "approve" | "reject" | "postnow" | "seed"
+  >(null);
   const [error, setError] = useState<string | null>(null);
 
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [rows, setRows] = useState<ScheduledPost[]>([]);
 
+  // ✅ Keep inputs stable
   const [queryRaw, setQueryRaw] = useState("");
   const query = useDebouncedValue(queryRaw, 140);
 
@@ -139,7 +182,10 @@ export default function ApprovalsPage() {
   const [postNowPlatforms, setPostNowPlatforms] = useState<string[]>([]);
 
   const resolveOrg = async () => {
-    const res = await fetch("/api/social-accounts", { method: "GET", cache: "no-store" });
+    const res = await fetch("/api/social-accounts", {
+      method: "GET",
+      cache: "no-store",
+    });
     const data: any = await res.json().catch(() => null);
 
     const org =
@@ -149,7 +195,10 @@ export default function ApprovalsPage() {
         ? data.organisation_id
         : null;
 
-    if (!org) throw new Error("Workspace not loaded yet. Please refresh and try again.");
+    if (!org)
+      throw new Error(
+        "Workspace not loaded yet. Please refresh and try again."
+      );
     setOrganisationId(org);
     return org;
   };
@@ -161,12 +210,17 @@ export default function ApprovalsPage() {
     try {
       const org = organisationId || (await resolveOrg());
 
-      const res = await fetch(`/api/schedule/list?organisationId=${encodeURIComponent(org)}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/schedule/list?organisationId=${encodeURIComponent(org)}`,
+        { cache: "no-store" }
+      );
       const data: ApiListResp = await res.json().catch(() => ({}));
 
-      if (!res.ok) throw new Error((data as any)?.error || `Failed to load (HTTP ${res.status}).`);
+      if (!res.ok)
+        throw new Error(
+          (data as any)?.error || `Failed to load (HTTP ${res.status}).`
+        );
+
       setRows(Array.isArray((data as any)?.items) ? (data as any).items : []);
     } catch (e: any) {
       setError(e?.message || "Could not load approvals queue.");
@@ -190,6 +244,7 @@ export default function ApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep selection stable
   useEffect(() => {
     if (!selectedId) return;
     const exists = rows.some((r) => r.id === selectedId);
@@ -201,23 +256,40 @@ export default function ApprovalsPage() {
 
     let base = rows;
     if (tab === "pending") base = rows.filter(isPending);
-    if (tab === "queued") base = rows.filter((r) => isApproved(r) && normStatus(r.status) !== "posted" && normStatus(r.status) !== "failed");
+
+    // Approved (ready): approved + not already posted/failed
+    if (tab === "queued")
+      base = rows.filter(
+        (r) =>
+          isApproved(r) &&
+          normStatus(r.status) !== "posted" &&
+          normStatus(r.status) !== "failed"
+      );
 
     if (!q) return base;
 
     return base.filter((r) => {
-      const poster = createdByLabel(r) || "";
-      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${r.scheduled_for || ""} ${normStatus(r.status)} ${approvalState(r)} ${poster}`.toLowerCase();
+      const hay = `${r.message || ""} ${prettyPlatforms(r.platforms)} ${
+        r.scheduled_for || ""
+      } ${normStatus(r.status)} ${approvalState(r)} ${posterSearchBlob(r)}`.toLowerCase();
+
       return hay.includes(q);
     });
   }, [rows, query, tab]);
 
-  const selected = useMemo(() => filtered.find((x) => x.id === selectedId) || null, [filtered, selectedId]);
+  const selected = useMemo(
+    () => filtered.find((x) => x.id === selectedId) || null,
+    [filtered, selectedId]
+  );
 
   useEffect(() => {
     setNote("");
     if (selected && isApproved(selected)) {
-      setPostNowPlatforms(Array.isArray(selected.platforms) ? selected.platforms.map(String) : []);
+      setPostNowPlatforms(
+        Array.isArray(selected.platforms)
+          ? selected.platforms.map(String)
+          : []
+      );
     } else {
       setPostNowPlatforms([]);
     }
@@ -237,9 +309,13 @@ export default function ApprovalsPage() {
     setWorking("seed");
     try {
       const org = organisationId || (await resolveOrg());
-      const res = await fetch(`/api/approvals/demo-seed?organisationId=${encodeURIComponent(org)}`, { method: "POST" });
+      const res = await fetch(
+        `/api/approvals/demo-seed?organisationId=${encodeURIComponent(org)}`,
+        { method: "POST" }
+      );
       const data: any = await res.json().catch(() => null);
-      if (!res.ok || data?.success === false) throw new Error(data?.error || `Seed failed (HTTP ${res.status})`);
+      if (!res.ok || data?.success === false)
+        throw new Error(data?.error || `Seed failed (HTTP ${res.status})`);
       await load();
     } catch (e: any) {
       setError(e?.message || "Demo seed failed.");
@@ -256,14 +332,22 @@ export default function ApprovalsPage() {
     try {
       const org = organisationId || (await resolveOrg());
 
-      const res = await fetch(`/api/approvals/update?organisationId=${encodeURIComponent(org)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selected.id, action, note: note.trim() || null }),
-      });
+      const res = await fetch(
+        `/api/approvals/update?organisationId=${encodeURIComponent(org)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: selected.id,
+            action,
+            note: note.trim() || null,
+          }),
+        }
+      );
 
       const data: any = await res.json().catch(() => null);
-      if (!res.ok || data?.success === false) throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
+      if (!res.ok || data?.success === false)
+        throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
 
       await load();
       setSelectedId(null);
@@ -276,7 +360,9 @@ export default function ApprovalsPage() {
   };
 
   const togglePostNowPlatform = (p: string) => {
-    setPostNowPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
+    setPostNowPlatforms((prev) =>
+      prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
+    );
   };
 
   const postNow = async () => {
@@ -286,17 +372,23 @@ export default function ApprovalsPage() {
 
     try {
       const org = organisationId || (await resolveOrg());
-      const platforms = (postNowPlatforms || []).map(String).filter(Boolean);
+      const platforms = (postNowPlatforms || [])
+        .map(String)
+        .filter(Boolean);
       if (platforms.length === 0) throw new Error("Pick at least one platform.");
 
-      const res = await fetch(`/api/publish/now?organisationId=${encodeURIComponent(org)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selected.id, platforms }),
-      });
+      const res = await fetch(
+        `/api/publish/now?organisationId=${encodeURIComponent(org)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: selected.id, platforms }),
+        }
+      );
 
       const data: any = await res.json().catch(() => null);
-      if (!res.ok || data?.success === false) throw new Error(data?.error || `Post now failed (HTTP ${res.status}).`);
+      if (!res.ok || data?.success === false)
+        throw new Error(data?.error || `Post now failed (HTTP ${res.status}).`);
 
       await load();
       setSelectedId(null);
@@ -326,10 +418,14 @@ export default function ApprovalsPage() {
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Approvals</h1>
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+              Approvals
+            </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Approvals state lives in <span className="text-slate-100 font-semibold">meta</span>. We also store the poster identity in{" "}
-              <span className="text-slate-100 font-semibold">meta.created_by</span>.
+              Approvals state lives in{" "}
+              <span className="text-slate-100 font-semibold">meta</span>.
+              <br />
+              Pending → Approve → Approved (ready) → pick channels → Post now.
             </p>
           </div>
 
@@ -362,7 +458,9 @@ export default function ApprovalsPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="text-base font-semibold">Search</div>
-              <div className="mt-1 text-xs text-slate-300">Filter by text/platform/date/poster.</div>
+              <div className="mt-1 text-xs text-slate-300">
+                Filter by message/platform/date/status or clinician name/email.
+              </div>
             </div>
 
             <input
@@ -425,12 +523,16 @@ export default function ApprovalsPage() {
           <div className="lg:col-span-2 space-y-3">
             {!loading && filtered.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
-                No items in this view. Click <span className="text-slate-100 font-semibold">Create demo items</span> to test.
+                No items in this view. Click{" "}
+                <span className="text-slate-100 font-semibold">
+                  Create demo items
+                </span>{" "}
+                to test.
               </div>
             ) : (
               filtered.map((p) => {
                 const isSel = p.id === selectedId;
-                const poster = createdByLabel(p);
+                const who = posterLabel(p);
 
                 return (
                   <button
@@ -439,27 +541,34 @@ export default function ApprovalsPage() {
                     onClick={() => setSelectedId(p.id)}
                     className={[
                       "w-full text-left rounded-2xl border p-4 transition",
-                      isSel ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
+                      isSel
+                        ? "border-emerald-300/30 bg-emerald-300/5"
+                        : "border-white/10 bg-black/20 hover:bg-white/5",
                     ].join(" ")}
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-xs font-semibold text-slate-100 truncate">
                         {prettyPlatforms(p.platforms)}
-                        <span className="ml-2 text-[11px] font-normal text-slate-400">{safeDate(p.scheduled_for)}</span>
+                        <span className="ml-2 text-[11px] font-normal text-slate-400">
+                          {safeDate(p.scheduled_for)}
+                        </span>
                       </div>
                       {tagForRow(p)}
                     </div>
 
-                    {poster ? (
-                      <div className="mt-2 text-[11px] text-slate-400">
-                        Posted by: <span className="text-slate-200">{poster}</span>
-                      </div>
-                    ) : (
-                      <div className="mt-2 text-[11px] text-slate-500">Posted by: (unknown)</div>
-                    )}
+                    <div className="mt-2 text-[11px] text-slate-400">
+                      Posted by:{" "}
+                      <span className="text-slate-200 font-medium">{who}</span>
+                    </div>
 
-                    <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{p.message}</div>
-                    <div className="mt-2 text-[11px] text-slate-500">DB status: {normStatus(p.status) || "(none)"}</div>
+                    <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">
+                      {p.message}
+                    </div>
+
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      DB status: {normStatus(p.status) || "(none)"} · approvals:{" "}
+                      {approvalState(p) || "(none)"}
+                    </div>
                   </button>
                 );
               })
@@ -469,7 +578,9 @@ export default function ApprovalsPage() {
           <div className="space-y-6">
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Review</div>
-              <div className="mt-1 text-xs text-slate-300">Approve → ready. Then choose channels → Post now.</div>
+              <div className="mt-1 text-xs text-slate-300">
+                Pending → Approve/Reject. Approved → choose channels → Post now.
+              </div>
 
               {!selected ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
@@ -479,20 +590,26 @@ export default function ApprovalsPage() {
                 <div className="mt-4 space-y-4">
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm font-semibold">{prettyPlatforms(selected.platforms)}</div>
+                      <div className="text-sm font-semibold">
+                        {prettyPlatforms(selected.platforms)}
+                      </div>
                       {tagForRow(selected)}
                     </div>
 
-                    <div className="mt-2 text-[11px] text-slate-400">{safeDate(selected.scheduled_for)}</div>
-
                     <div className="mt-2 text-[11px] text-slate-400">
+                      {safeDate(selected.scheduled_for)}
+                    </div>
+
+                    <div className="mt-1 text-[11px] text-slate-400">
                       Posted by:{" "}
-                      <span className="text-slate-200">
-                        {createdByLabel(selected) || "(unknown)"}
+                      <span className="text-slate-200 font-medium">
+                        {posterLabel(selected)}
                       </span>
                     </div>
 
-                    <div className="mt-3 text-sm whitespace-pre-wrap">{selected.message}</div>
+                    <div className="mt-3 text-sm whitespace-pre-wrap">
+                      {selected.message}
+                    </div>
                   </div>
 
                   <textarea
@@ -525,11 +642,18 @@ export default function ApprovalsPage() {
                   ) : isApproved(selected) ? (
                     <div className="space-y-3">
                       <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                        <div className="text-sm font-semibold text-slate-100">Post now channels</div>
-                        <div className="mt-1 text-[11px] text-slate-400">Choose where to publish this approved post.</div>
+                        <div className="text-sm font-semibold text-slate-100">
+                          Post now channels
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-400">
+                          Choose where to publish this approved post.
+                        </div>
 
                         <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                          {(Array.isArray(selected.platforms) ? selected.platforms : []).map((p) => {
+                          {(Array.isArray(selected.platforms)
+                            ? selected.platforms
+                            : []
+                          ).map((p) => {
                             const key = String(p);
                             const on = postNowPlatforms.includes(key);
 
@@ -561,6 +685,11 @@ export default function ApprovalsPage() {
                       >
                         {working === "postnow" ? "Posting…" : "Post now"}
                       </button>
+
+                      <div className="text-[11px] text-slate-500">
+                        Note: opening <span className="text-slate-200">/api/publish/now</span> in a browser gives 405
+                        (GET). The button calls POST correctly.
+                      </div>
                     </div>
                   ) : (
                     <div className="text-[11px] text-slate-500">
@@ -569,14 +698,6 @@ export default function ApprovalsPage() {
                   )}
                 </div>
               )}
-            </GlassCard>
-
-            <GlassCard className="p-6">
-              <div className="text-base font-semibold">Note</div>
-              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                If “Posted by” shows (unknown), that post was created before we started storing meta.created_by
-                or the creator didn’t send poster info. Demo seed will include it.
-              </div>
             </GlassCard>
           </div>
         </div>
