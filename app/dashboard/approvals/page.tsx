@@ -18,6 +18,7 @@ type ApiListResp = { items?: ScheduledPost[]; error?: string; ok?: boolean };
 
 type PlanKey = "solo" | "growth" | "team" | "unknown";
 
+// ---------- helpers (TOP LEVEL — do not define inside component) ----------
 function safeDate(iso: string) {
   try {
     return new Date(iso).toLocaleString();
@@ -48,7 +49,6 @@ function isDemoId(id: string) {
   return String(id || "").startsWith("demo-");
 }
 
-// Small debounce to keep search smooth
 function useDebouncedValue<T>(value: T, delayMs: number) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -104,6 +104,55 @@ function buildDemoRows(orgId: string): ScheduledPost[] {
   ];
 }
 
+// ---------- UI components (TOP LEVEL — stable component identities) ----------
+function Pill({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "good" | "warn" | "bad";
+}) {
+  const cls =
+    tone === "good"
+      ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+      : tone === "warn"
+      ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+      : tone === "bad"
+      ? "border-red-400/30 bg-red-400/10 text-red-100"
+      : "border-white/10 bg-white/5 text-slate-200";
+
+  return (
+    <span
+      className={[
+        "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold",
+        cls,
+      ].join(" ")}
+    >
+      {children}
+    </span>
+  );
+}
+
+function GlassCard({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={[
+        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------
 export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -146,8 +195,6 @@ export default function ApprovalsPage() {
       const data: any = await res.json().catch(() => null);
       const p = String(data?.plan || "").toLowerCase().trim();
 
-      // Map backend plan -> UI plan keys
-      // Your webhook writes: basic | pro | enterprise
       if (p === "enterprise" || p === "team") return setPlan("team");
       if (p === "pro" || p === "growth") return setPlan("growth");
       if (p === "basic" || p === "solo") return setPlan("solo");
@@ -164,8 +211,6 @@ export default function ApprovalsPage() {
 
     try {
       const org = organisationId || (await resolveOrg());
-
-      // Load plan in parallel (doesn’t block list)
       void loadPlan();
 
       const res = await fetch(`/api/schedule/list?organisationId=${encodeURIComponent(org)}`, {
@@ -233,50 +278,15 @@ export default function ApprovalsPage() {
 
   const selected = useMemo(() => filtered.find((x) => x.id === selectedId) || null, [filtered, selectedId]);
 
-  const Pill = ({
-    children,
-    tone = "neutral",
-  }: {
-    children: React.ReactNode;
-    tone?: "neutral" | "good" | "warn" | "bad";
-  }) => {
-    const cls =
-      tone === "good"
-        ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-        : tone === "warn"
-        ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
-        : tone === "bad"
-        ? "border-red-400/30 bg-red-400/10 text-red-100"
-        : "border-white/10 bg-white/5 text-slate-200";
-
-    return (
-      <span className={["inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold", cls].join(" ")}>
-        {children}
-      </span>
-    );
-  };
-
-  const GlassCard = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-    <div
-      className={[
-        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </div>
-  );
-
-  const teamTooltip =
-    "Team plan feature: unlocks collaborative approvals + shared workflows.";
-
   const act = async (action: "approve" | "reject") => {
     if (!selected) return;
 
-    // Demo rows: local-only, no API calls
+    // Demo rows: local-only
     if (isDemoId(selected.id)) {
       const newStatus = action === "approve" ? "queued" : "rejected";
-      setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus, meta: { ...(r.meta || {}), note } } : r)));
+      setRows((prev) =>
+        prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus, meta: { ...(r.meta || {}), note } } : r))
+      );
       setSelectedId(null);
       setNote("");
       return;
@@ -303,8 +313,6 @@ export default function ApprovalsPage() {
       if (!res.ok || data?.success === false) throw new Error(data?.error || `Failed (HTTP ${res.status}).`);
 
       const newStatus = action === "approve" ? "queued" : "rejected";
-
-      // Update in-place so it can appear in the Queued tab
       setRows((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: newStatus } : r)));
 
       setSelectedId(null);
@@ -320,13 +328,11 @@ export default function ApprovalsPage() {
       const org = organisationId || (await resolveOrg());
       const demo = buildDemoRows(org);
 
-      // Merge demo rows in (avoid duplicating if user clicks twice)
       setRows((prev) => {
         const prevNonDemo = prev.filter((r) => !isDemoId(r.id));
         return [...demo, ...prevNonDemo];
       });
 
-      // Set a sensible view
       setTab("pending");
       setQueryRaw("");
       setSelectedId(demo[0]?.id || null);
@@ -334,6 +340,8 @@ export default function ApprovalsPage() {
       setError(e?.message || "Could not load demo items.");
     }
   };
+
+  const teamTooltip = "Team plan feature: unlocks collaborative approvals + shared workflows.";
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -389,7 +397,6 @@ export default function ApprovalsPage() {
           </div>
         </div>
 
-        {/* If not Team, show the aspirational upgrade panel (still let them browse the list) */}
         {!approvalsUnlocked && (
           <div className="rounded-3xl border border-emerald-400/20 bg-emerald-400/5 p-6">
             <div className="text-lg font-semibold text-slate-50">Approvals are part of the Team plan</div>
@@ -488,12 +495,13 @@ export default function ApprovalsPage() {
           )}
 
           {loading && (
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Loading…</div>
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+              Loading…
+            </div>
           )}
         </GlassCard>
 
         <div className="grid gap-6 lg:grid-cols-3">
-          {/* List */}
           <div className="lg:col-span-2 space-y-3">
             {!loading && filtered.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
@@ -513,13 +521,17 @@ export default function ApprovalsPage() {
                     onClick={() => setSelectedId(p.id)}
                     className={[
                       "w-full text-left rounded-2xl border p-4 transition",
-                      isSelected ? "border-emerald-300/30 bg-emerald-300/5" : "border-white/10 bg-black/20 hover:bg-white/5",
+                      isSelected
+                        ? "border-emerald-300/30 bg-emerald-300/5"
+                        : "border-white/10 bg-black/20 hover:bg-white/5",
                     ].join(" ")}
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-xs font-semibold text-slate-100 truncate">
                         {prettyPlatforms(p.platforms)}
-                        <span className="ml-2 text-[11px] font-normal text-slate-400">{safeDate(p.scheduled_for)}</span>
+                        <span className="ml-2 text-[11px] font-normal text-slate-400">
+                          {safeDate(p.scheduled_for)}
+                        </span>
                         {isDemoId(p.id) && <span className="ml-2 text-[11px] text-emerald-300">(demo)</span>}
                       </div>
                       <span className="inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-white/10 bg-white/5 text-slate-200">
@@ -527,14 +539,15 @@ export default function ApprovalsPage() {
                       </span>
                     </div>
 
-                    <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">{p.message}</div>
+                    <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">
+                      {p.message}
+                    </div>
                   </button>
                 );
               })
             )}
           </div>
 
-          {/* Review */}
           <div className="space-y-6">
             <GlassCard className="p-6">
               <div className="text-base font-semibold">Review</div>
@@ -602,33 +615,8 @@ export default function ApprovalsPage() {
                   <div className="text-[11px] text-slate-500">
                     Tip: after approving, switch to the <span className="text-slate-200 font-semibold">Queued</span> tab to see it.
                   </div>
-
-                  {!approvalsUnlocked && !isDemoId(selected.id) && (
-                    <div className="mt-2 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                      <div className="font-semibold text-slate-100">Team unlocks approvals</div>
-                      <div className="mt-2">
-                        You can browse the queue anytime. When you’re ready to add a review step for collaborative workflows,
-                        Team unlocks approve/reject and clinic-level controls.
-                      </div>
-                      <a
-                        href="/pricing"
-                        className="mt-3 inline-flex items-center justify-center rounded-full bg-emerald-400 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-300 transition"
-                      >
-                        Move to Team when you’re ready
-                      </a>
-                    </div>
-                  )}
                 </div>
               )}
-            </GlassCard>
-
-            <GlassCard className="p-6">
-              <div className="text-base font-semibold">What this is for</div>
-              <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
-                • Solo/Growth: you can explore the feature and demo the workflow.\n
-                • Team: unlocks approve/reject + shared clinic workflows.\n
-                • Demo items never touch your database.
-              </div>
             </GlassCard>
           </div>
         </div>
