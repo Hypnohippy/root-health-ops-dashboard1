@@ -1,171 +1,172 @@
 // app/dashboard/components/MediaDropzone.tsx
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 
-type UploadResult = {
-  success: boolean;
-  url?: string;
-  path?: string;
-  bucket?: string;
-  mime?: string;
-  error?: string;
+type UploadedMedia = {
+  url: string;
+  path: string;
+  bucket: string;
+  contentType: string;
+  size: number;
+  kind: "image" | "video" | "other";
 };
 
 type Props = {
-  title?: string;
-  helperText?: string;
-  accept?: string; // e.g. "image/*" or "video/mp4,video/quicktime"
-  value?: string;
-  onChange: (url: string) => void;
+  // ✅ Fixes your build error: content/new/page.tsx passes this prop
+  organisationId?: string;
+
+  // Called when upload succeeds
+  onUploaded: (media: UploadedMedia) => void;
+
+  // Optional UI control
+  label?: string;
+  helpText?: string;
+  maxMb?: number; // defaults to 50
+  accept?: string; // defaults to images + video
 };
 
+function bytesToMb(n: number) {
+  return n / (1024 * 1024);
+}
+
+function inferKind(contentType: string): UploadedMedia["kind"] {
+  const ct = (contentType || "").toLowerCase();
+  if (ct.startsWith("image/")) return "image";
+  if (ct.startsWith("video/")) return "video";
+  return "other";
+}
+
 export default function MediaDropzone({
-  title = "Upload media",
-  helperText = "Drag & drop a file here, or click to choose.",
-  accept = "image/*",
-  value = "",
-  onChange,
+  organisationId, // unused for now but accepted (prevents TS fail)
+  onUploaded,
+  label = "Upload media",
+  helpText = "Drag & drop an image or video (max 50MB).",
+  maxMb = 50,
+  accept = "image/*,video/*",
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [last, setLast] = useState<UploadedMedia | null>(null);
 
-  const isVideo = useMemo(() => (accept || "").includes("video"), [accept]);
+  const maxBytes = useMemo(() => maxMb * 1024 * 1024, [maxMb]);
 
-  async function uploadFile(file: File) {
-    setBusy(true);
-    setError(null);
+  const pick = () => inputRef.current?.click();
 
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
+  const uploadFile = useCallback(
+    async (file: File) => {
+      setErr(null);
 
-      const res = await fetch("/api/media/upload", {
-        method: "POST",
-        body: fd,
-      });
-
-      const json: UploadResult = await res.json().catch(() => null as any);
-
-      if (!json?.success || !json?.url) {
-        throw new Error(json?.error || "Upload failed.");
+      if (!file) return;
+      if (file.size > maxBytes) {
+        setErr(`That file is ${bytesToMb(file.size).toFixed(1)}MB. Max is ${maxMb}MB.`);
+        return;
       }
 
-      onChange(json.url);
-    } catch (e: any) {
-      setError(e?.message || "Upload failed.");
-    } finally {
-      setBusy(false);
+      setBusy(true);
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+
+        // Optional, in case you want org-based foldering later
+        if (organisationId) fd.append("organisationId", organisationId);
+
+        const res = await fetch("/api/media/upload", {
+          method: "POST",
+          body: fd,
+        });
+
+        const json: any = await res.json().catch(() => null);
+        if (!res.ok || !json?.success) {
+          throw new Error(json?.error || `Upload failed (${res.status})`);
+        }
+
+        const media: UploadedMedia = {
+          url: String(json.url || ""),
+          path: String(json.path || ""),
+          bucket: String(json.bucket || "public-media"),
+          contentType: String(json.contentType || file.type || ""),
+          size: Number(json.size || file.size || 0),
+          kind: inferKind(String(json.contentType || file.type || "")),
+        };
+
+        setLast(media);
+        onUploaded(media);
+      } catch (e: any) {
+        setErr(e?.message || "Upload failed.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [maxBytes, maxMb, onUploaded, organisationId]
+  );
+
+  const onDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
       setDragOver(false);
-    }
-  }
 
-  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    void uploadFile(f);
-  }
+      const file = e.dataTransfer.files?.[0];
+      if (!file) return;
 
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    const f = e.dataTransfer.files?.[0];
-    if (!f) return;
-    void uploadFile(f);
-  }
+      await uploadFile(file);
+    },
+    [uploadFile]
+  );
 
   return (
-    <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-slate-200">{title}</div>
-          <div className="text-[11px] text-slate-400">{helperText}</div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={busy}
-          className="rounded-full bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
-        >
-          {busy ? "Uploading…" : "Choose file"}
-        </button>
-
-        <input
-          ref={inputRef}
-          type="file"
-          accept={accept}
-          onChange={onPick}
-          className="hidden"
-        />
-      </div>
+    <div className="space-y-2">
+      <div className="text-sm font-medium">{label}</div>
 
       <div
-        onDragEnter={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
+        onClick={pick}
         onDragOver={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           setDragOver(true);
         }}
         onDragLeave={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           setDragOver(false);
         }}
         onDrop={onDrop}
-        onClick={() => inputRef.current?.click()}
         className={[
-          "cursor-pointer rounded-2xl border border-dashed px-4 py-6 text-sm",
-          dragOver
-            ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-100"
-            : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-white/5",
+          "cursor-pointer rounded-2xl border p-4 transition",
+          dragOver ? "border-emerald-400 bg-emerald-500/10" : "border-slate-700 bg-slate-950",
         ].join(" ")}
       >
-        {busy ? (
-          <div>Uploading…</div>
-        ) : (
-          <div>
-            <div className="font-semibold">
-              Drag & drop {isVideo ? "a video" : "an image"} here
-            </div>
-            <div className="text-[11px] text-slate-400 mt-1">
-              or click to select from your computer
-            </div>
+        <div className="text-sm text-slate-200">
+          {busy ? "Uploading…" : "Drag & drop here (or click to choose)"}
+        </div>
+        <div className="mt-1 text-[11px] text-slate-400">{helpText}</div>
+
+        {last?.url ? (
+          <div className="mt-3 text-[11px] text-slate-300 break-all">
+            <span className="text-slate-500">Uploaded:</span> {last.url}
           </div>
-        )}
+        ) : null}
+
+        {err ? <div className="mt-3 text-[11px] text-red-400">{err}</div> : null}
       </div>
 
-      {value?.trim() ? (
-        <div className="rounded-xl border border-slate-700 bg-slate-950 p-3 text-[12px] text-slate-200 space-y-2">
-          <div className="text-slate-400 text-[11px]">Uploaded URL</div>
-          <div className="break-all">{value}</div>
-
-          {isVideo ? (
-            <video
-              src={value}
-              controls
-              className="w-full max-h-[260px] rounded-xl border border-slate-700 bg-black"
-            />
-          ) : (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={value}
-              alt="Uploaded"
-              className="w-full max-h-[260px] object-cover rounded-xl border border-slate-700"
-            />
-          )}
-        </div>
-      ) : null}
-
-      {error ? (
-        <div className="rounded-xl border border-red-500/40 bg-red-950/30 px-3 py-2 text-[12px] text-red-100">
-          {error}
-        </div>
-      ) : null}
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          // reset input so picking the same file again works
+          e.target.value = "";
+          await uploadFile(file);
+        }}
+      />
     </div>
   );
 }
