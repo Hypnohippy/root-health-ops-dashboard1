@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import MediaDropzone from "./components/MediaDropzone";
 
 type ProviderId =
   | "facebook"
@@ -61,10 +62,8 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
-// ✅ Brainstorm → QuickBlast prefill keys
+// ✅ Brainstorm → Quick Blast prefill key (matches Brainstorm page)
 const PREFILL_QUICKBLAST_KEY = "rootops_prefill_quickblast_v1";
-// legacy fallback (just in case you have older code writing this)
-const PREFILL_QUICKBLAST_KEY_LEGACY = "rh_prefill_quickblast_v1";
 
 type Draft = {
   id: string;
@@ -111,14 +110,11 @@ function extractFriendlyError(item: any): string {
   const um = String(item?.userMessage || "").trim();
   if (um) return um;
 
-  const metaUserMsg =
-    item?.details?.error?.error_user_msg || item?.error?.error_user_msg;
+  const metaUserMsg = item?.details?.error?.error_user_msg || item?.error?.error_user_msg;
   if (metaUserMsg) return String(metaUserMsg);
 
-  const metaTitle =
-    item?.details?.error?.error_user_title || item?.error?.error_user_title;
-  const metaMessage =
-    item?.details?.error?.message || item?.error?.message;
+  const metaTitle = item?.details?.error?.error_user_title || item?.error?.error_user_title;
+  const metaMessage = item?.details?.error?.message || item?.error?.message;
   if (metaTitle && metaMessage) return `${metaTitle}: ${metaMessage}`;
   if (metaMessage) return String(metaMessage);
 
@@ -141,43 +137,30 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
 
   if (platform === "instagram") {
     if (msg.includes("image") || msg.includes("media") || msg.includes("ready")) {
-      return "Tip: Instagram often needs a real JPG/PNG link, and sometimes it needs a few seconds before publishing. Try again after 10–20 seconds.";
-    }
-    if (msg.includes("video") || msg.includes("reels") || msg.includes("container")) {
-      return "Tip: Instagram video (Reels) needs a direct public MP4 link. If you just uploaded it, wait 10–30 seconds and try again.";
+      return "Tip: Instagram may take a few seconds to process media. Try again after 10–20 seconds.";
     }
   }
 
   if (platform === "facebook") {
-    if (
-      msg.includes("image required") ||
-      msg.includes("invalid image") ||
-      msg.includes("missing or invalid")
-    ) {
-      return "Tip: Facebook can be picky about image links. Using an image hosted on your own storage (Brainstorm image) is the most reliable.";
-    }
-    if (msg.includes("video") || msg.includes("file_url")) {
-      return "Tip: Facebook video needs a direct public MP4 link (not a share page).";
+    if (msg.includes("invalid") || msg.includes("missing")) {
+      return "Tip: Facebook is picky about media links. Upload via the dropzone for the most reliable public URL.";
     }
   }
 
   if (platform === "threads") {
-    if (
-      msg.includes("media") ||
-      msg.includes("resource does not exist") ||
-      msg.includes("not found")
-    ) {
-      return "Tip: Threads needs a stable, publicly accessible media link. Hosted images/videos work best.";
+    if (msg.includes("media") || msg.includes("resource does not exist") || msg.includes("not found")) {
+      return "Tip: Threads needs a stable, publicly accessible media link. Upload via the dropzone.";
     }
   }
 
   if (platform === "linkedin") {
     if (msg.includes("duplicate")) {
-      return "Tip: Change the first line or CTA slightly, then resend. Even small tweaks usually work.";
+      return "Tip: Change the first line or CTA slightly, then resend.";
     }
-    if (msg.includes("video")) {
-      return "Tip: LinkedIn video requires a special upload flow. If you want it, paste your /api/linkedin/post route and I’ll upgrade it.";
-    }
+  }
+
+  if (platform === "tiktok") {
+    return "Tip: TikTok video posting is not wired in yet in your backend (we’ll add it next).";
   }
 
   return null;
@@ -203,30 +186,11 @@ function defaultLocalDateTimePlus(minutes: number) {
 
 type Mode = "now" | "approval";
 
-type BrainstormPrefill = {
-  message?: string;
-  imageUrl?: string;
-  videoUrl?: string;
-  suggestedPlatforms?: ProviderId[];
-  attribution?: any;
-};
-
-function safeParseJson(raw: string | null) {
-  try {
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 export default function DashboardHomePage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
-  // AI composer controls
   const [aiSubject, setAiSubject] = useState("");
   const [aiTone, setAiTone] = useState("calm");
   const [aiLength, setAiLength] = useState("short");
@@ -234,13 +198,9 @@ export default function DashboardHomePage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
-  const [message, setMessage] = useState(
-    "Quick check-in from Root Health Ops Dashboard ✅"
-  );
-
+  const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
   const [imageUrl, setImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
-
   const [selected, setSelected] = useState<ProviderId[]>([]);
 
   const [sending, setSending] = useState(false);
@@ -250,9 +210,7 @@ export default function DashboardHomePage() {
   const [adminOpen, setAdminOpen] = useState(false);
 
   const [mode, setMode] = useState<Mode>("now");
-  const [scheduledLocal, setScheduledLocal] = useState<string>(
-    defaultLocalDateTimePlus(10)
-  );
+  const [scheduledLocal, setScheduledLocal] = useState<string>(defaultLocalDateTimePlus(10));
 
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
@@ -365,9 +323,7 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const vars = Array.isArray((json as any)?.variants)
-        ? (json as any).variants
-        : [];
+      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
       if (vars.length === 0) {
         setAiError("AI returned no variants. Try Generate again.");
         return;
@@ -386,15 +342,17 @@ export default function DashboardHomePage() {
     setResult(null);
 
     try {
+      // If both media provided, prefer video (one media per post is safest)
+      const img = videoUrl.trim() ? "" : imageUrl;
+
       const res = await fetch("/api/social/quick-blast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
-          imageUrl,
-          videoUrl,
+          imageUrl: img,
+          videoUrl: videoUrl.trim() || undefined,
           platforms: selected,
-          organisationId,
         }),
       });
 
@@ -404,9 +362,7 @@ export default function DashboardHomePage() {
         setResult({
           success: false,
           error: json?.error || `Request failed (${res.status})`,
-          userMessage:
-            json?.userMessage ||
-            "We couldn’t send that just now. Try again in a minute.",
+          userMessage: json?.userMessage || "We couldn’t send that just now. Try again in a minute.",
         });
         return;
       }
@@ -458,30 +414,31 @@ export default function DashboardHomePage() {
         return;
       }
 
+      const img = videoUrl.trim() ? "" : imageUrl;
+
       const res = await fetch("/api/social/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
           platforms: selected,
-          imageUrl,
+          imageUrl: img,
           scheduledAt: scheduledIso,
           organisationId,
-
-          // ✅ NEW: carry video through schedule via meta (no DB change)
-          meta: {
-            video_url: videoUrl || null,
-            approvals: {
-              state: "pending",
-              source: "quick_blast",
-              created_at: new Date().toISOString(),
-            },
-          },
 
           createdBy: {
             user_id: "owner",
             name: "Clinic Owner",
             email: null,
+          },
+
+          meta: {
+            approvals: {
+              state: "pending",
+              source: "quick_blast",
+              created_at: new Date().toISOString(),
+            },
+            video_url: videoUrl.trim() || null,
           },
         }),
       });
@@ -505,8 +462,7 @@ export default function DashboardHomePage() {
         organisationId,
         userMessage:
           "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
-        note:
-          "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
+        note: "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
       });
     } catch (e: any) {
       setResult({
@@ -524,40 +480,33 @@ export default function DashboardHomePage() {
     return queueForApproval();
   }
 
+  // ✅ Load accounts & drafts
   useEffect(() => {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
   }, []);
 
-  // ✅ FIX: Import Brainstorm → Quick Blast localStorage payload
+  // ✅ Fix: Brainstorm → Quick Blast prefill
   useEffect(() => {
     try {
-      const rawA = localStorage.getItem(PREFILL_QUICKBLAST_KEY);
-      const rawB = localStorage.getItem(PREFILL_QUICKBLAST_KEY_LEGACY);
-      const parsed = (safeParseJson(rawA) || safeParseJson(rawB)) as BrainstormPrefill | null;
-      if (!parsed) return;
+      const raw = window.localStorage.getItem(PREFILL_QUICKBLAST_KEY);
+      if (!raw) return;
 
-      const nextMsg = String(parsed.message || "").trim();
-      const nextImg = String(parsed.imageUrl || "").trim();
-      const nextVid = String((parsed as any).videoUrl || "").trim();
+      const parsed: any = JSON.parse(raw);
 
-      if (nextMsg) setMessage(nextMsg);
-      setImageUrl(nextImg);
-      setVideoUrl(nextVid);
+      if (parsed?.message) setMessage(String(parsed.message));
+      if (parsed?.imageUrl) setImageUrl(String(parsed.imageUrl));
+      if (parsed?.videoUrl) setVideoUrl(String(parsed.videoUrl));
 
-      const sugg = Array.isArray(parsed.suggestedPlatforms)
-        ? parsed.suggestedPlatforms
-        : [];
-
-      if (sugg.length > 0) {
-        // set selected to suggested; if connections aren't loaded yet, we'll keep these and
-        // later the UI will disable non-connected cards anyway.
-        setSelected(sugg);
+      if (Array.isArray(parsed?.suggestedPlatforms) && parsed.suggestedPlatforms.length > 0) {
+        const next = parsed.suggestedPlatforms
+          .map((p: any) => String(p || "").toLowerCase().trim())
+          .filter(Boolean) as ProviderId[];
+        if (next.length) setSelected(next);
       }
 
-      // ✅ Clear so it doesn't re-import forever
-      localStorage.removeItem(PREFILL_QUICKBLAST_KEY);
-      localStorage.removeItem(PREFILL_QUICKBLAST_KEY_LEGACY);
+      // clear so it doesn't re-apply forever
+      window.localStorage.removeItem(PREFILL_QUICKBLAST_KEY);
     } catch {
       // ignore
     }
@@ -585,16 +534,12 @@ export default function DashboardHomePage() {
   ];
 
   const instagramSelected = selected.includes("instagram");
-  const hasVideo = !!videoUrl.trim();
-  const hasImage = !!imageUrl.trim();
 
   const friendlySummary = useMemo(() => {
     if (!result) return null;
 
     const attempted = result.summary?.attempted ?? (result.results?.length || 0);
-    const ok =
-      result.summary?.ok ??
-      (result.results || []).filter((r: any) => r?.ok).length;
+    const ok = result.summary?.ok ?? (result.results || []).filter((r: any) => r?.ok).length;
     const failed =
       result.summary?.failed ??
       (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
@@ -609,9 +554,7 @@ export default function DashboardHomePage() {
 
     const topMsg =
       result.userMessage ||
-      (result.success
-        ? "Nice — you’re live."
-        : "No stress — we’ll fix what’s blocking it.");
+      (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.");
 
     return { attempted, ok, failed, headline, topMsg };
   }, [result]);
@@ -623,9 +566,7 @@ export default function DashboardHomePage() {
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
-              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
-                Enterprise Beta
-              </h1>
+              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">Enterprise Beta</h1>
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
@@ -635,9 +576,7 @@ export default function DashboardHomePage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-slate-400">Connected:</div>
-                  <div className="text-lg font-semibold text-slate-100">
-                    {loadingAccounts ? "…" : connectedCount}
-                  </div>
+                  <div className="text-lg font-semibold text-slate-100">{loadingAccounts ? "…" : connectedCount}</div>
                 </div>
                 <button
                   type="button"
@@ -652,14 +591,11 @@ export default function DashboardHomePage() {
           </div>
 
           <div className="mt-8 grid gap-6 lg:grid-cols-3">
-            {/* Quick Blast Card */}
             <div className="lg:col-span-2 rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-semibold">Quick Blast</h2>
-                  <p className="mt-1 text-sm text-slate-300">
-                    Write once, choose channels, send — or queue for approval.
-                  </p>
+                  <p className="mt-1 text-sm text-slate-300">Write once, choose channels, send — or queue for approval.</p>
                 </div>
                 <div className="text-right text-xs text-slate-400">
                   <div>{charCount} chars</div>
@@ -667,7 +603,6 @@ export default function DashboardHomePage() {
                 </div>
               </div>
 
-              {/* Mode switch */}
               <div className="mt-5 rounded-3xl border border-slate-700 bg-slate-950 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -681,24 +616,14 @@ export default function DashboardHomePage() {
                     <button
                       type="button"
                       onClick={() => setMode("now")}
-                      className={[
-                        "px-3 py-1.5",
-                        mode === "now"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
-                      ].join(" ")}
+                      className={["px-3 py-1.5", mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
                     >
                       Send now
                     </button>
                     <button
                       type="button"
                       onClick={() => setMode("approval")}
-                      className={[
-                        "px-3 py-1.5",
-                        mode === "approval"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
-                      ].join(" ")}
+                      className={["px-3 py-1.5", mode === "approval" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
                     >
                       Queue for approval
                     </button>
@@ -708,9 +633,7 @@ export default function DashboardHomePage() {
                 {mode === "approval" && (
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">
-                        When should it land in the queue?
-                      </label>
+                      <label className="block text-xs font-medium text-slate-300">When should it land in the queue?</label>
                       <input
                         type="datetime-local"
                         value={scheduledLocal}
@@ -734,7 +657,6 @@ export default function DashboardHomePage() {
                 )}
               </div>
 
-              {/* AI Composer */}
               <div className="mt-6 rounded-3xl border border-slate-700 bg-slate-950 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -755,9 +677,7 @@ export default function DashboardHomePage() {
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Subject (what’s the post about?)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Subject (what’s the post about?)</label>
                     <input
                       value={aiSubject}
                       onChange={(e) => setAiSubject(e.target.value)}
@@ -768,9 +688,7 @@ export default function DashboardHomePage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">
-                        Tone
-                      </label>
+                      <label className="block text-xs font-medium text-slate-300">Tone</label>
                       <select
                         value={aiTone}
                         onChange={(e) => setAiTone(e.target.value)}
@@ -785,9 +703,7 @@ export default function DashboardHomePage() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">
-                        Length
-                      </label>
+                      <label className="block text-xs font-medium text-slate-300">Length</label>
                       <select
                         value={aiLength}
                         onChange={(e) => setAiLength(e.target.value)}
@@ -810,14 +726,9 @@ export default function DashboardHomePage() {
                 {aiVariants.length > 0 && (
                   <div className="mt-4 space-y-3">
                     {aiVariants.map((v, idx) => (
-                      <div
-                        key={`${idx}-${v.title}`}
-                        className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4"
-                      >
+                      <div key={`${idx}-${v.title}`} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
                         <div className="flex items-start justify-between gap-3">
-                          <div className="text-sm font-semibold">
-                            {v.title || `Variant ${idx + 1}`}
-                          </div>
+                          <div className="text-sm font-semibold">{v.title || `Variant ${idx + 1}`}</div>
                           <button
                             type="button"
                             onClick={() => setMessage(joinVariant(v))}
@@ -826,9 +737,7 @@ export default function DashboardHomePage() {
                             Use this
                           </button>
                         </div>
-                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
-                          {joinVariant(v)}
-                        </div>
+                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{joinVariant(v)}</div>
                       </div>
                     ))}
                     <div className="text-[11px] text-slate-500">
@@ -840,9 +749,7 @@ export default function DashboardHomePage() {
 
               <div className="mt-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Message
-                  </label>
+                  <label className="block text-xs font-medium text-slate-300">Message</label>
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
@@ -853,57 +760,37 @@ export default function DashboardHomePage() {
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Image (optional)
-                    </label>
-                    <input
-                      value={imageUrl}
-                      onChange={(e) => setImageUrl(e.target.value)}
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="Paste a direct image URL (JPG/PNG)…"
-                    />
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      (Instagram images require a direct image link.)
-                    </div>
-                    {instagramSelected && !imageUrl.trim() && !videoUrl.trim() && (
-                      <div className="mt-2 text-[11px] text-amber-300">
-                        Instagram selected: add an Image URL (JPG/PNG) or a Video URL (MP4), otherwise IG may fail.
-                      </div>
-                    )}
-                  </div>
+                  <MediaDropzone
+                    title="Upload image (optional)"
+                    helperText="Drag & drop an image (JPG/PNG/WebP/GIF). It will upload to Supabase Storage."
+                    accept="image/*"
+                    value={imageUrl}
+                    onChange={(url) => setImageUrl(url)}
+                  />
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Video (optional)
-                    </label>
-                    <input
-                      value={videoUrl}
-                      onChange={(e) => setVideoUrl(e.target.value)}
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="Paste a direct MP4 URL (public)…"
-                    />
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      Video requires a direct public MP4 link (not a web page).
-                    </div>
-                    {hasVideo && hasImage && (
-                      <div className="mt-2 text-[11px] text-slate-400">
-                        Note: If both are set, video takes priority on supported platforms.
-                      </div>
-                    )}
-                  </div>
+                  <MediaDropzone
+                    title="Upload video (optional)"
+                    helperText="Drag & drop a video (MP4 recommended). If video is set, it will be used instead of image."
+                    accept="video/mp4,video/quicktime,video/x-m4v"
+                    value={videoUrl}
+                    onChange={(url) => setVideoUrl(url)}
+                  />
                 </div>
+
+                <div className="text-[11px] text-slate-500">
+                  If both image + video are set, we send the <span className="text-slate-200 font-semibold">video</span>.
+                </div>
+
+                {instagramSelected && !imageUrl.trim() && !videoUrl.trim() && (
+                  <div className="text-[11px] text-amber-300">
+                    Instagram selected: if posting fails for text-only, attach an image or video and try again.
+                  </div>
+                )}
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="block text-xs font-medium text-slate-300">
-                      Channels
-                    </label>
-                    <button
-                      type="button"
-                      onClick={refreshChannels}
-                      className="text-[11px] text-slate-400 hover:text-slate-300"
-                    >
+                    <label className="block text-xs font-medium text-slate-300">Channels</label>
+                    <button type="button" onClick={refreshChannels} className="text-[11px] text-slate-400 hover:text-slate-300">
                       Refresh
                     </button>
                   </div>
@@ -929,9 +816,7 @@ export default function DashboardHomePage() {
                         >
                           <div>
                             <div className="font-medium">{PROVIDER_LABELS[p]}</div>
-                            <div className="text-[11px] text-slate-500">
-                              {isConnected ? "connected" : "not connected"}
-                            </div>
+                            <div className="text-[11px] text-slate-500">{isConnected ? "connected" : "not connected"}</div>
                           </div>
                           <div
                             className={`text-[11px] px-2 py-1 rounded-full border ${
@@ -949,18 +834,14 @@ export default function DashboardHomePage() {
                     })}
                   </div>
 
-                  <div className="mt-2 text-[11px] text-slate-500">
-                    Only connected channels will actually send.
-                  </div>
+                  <div className="mt-2 text-[11px] text-slate-500">Only connected channels will actually send.</div>
                 </div>
 
                 <div className="flex flex-wrap gap-3 pt-2">
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={
-                      sending || message.trim().length === 0 || selected.length === 0
-                    }
+                    disabled={sending || message.trim().length === 0 || selected.length === 0}
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {sending
@@ -989,7 +870,6 @@ export default function DashboardHomePage() {
                   </button>
                 </div>
 
-                {/* Friendly Results Panel */}
                 {result && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
@@ -999,16 +879,10 @@ export default function DashboardHomePage() {
 
                       <div className="mt-1 text-[12px] text-slate-300">
                         {friendlySummary?.topMsg ||
-                          (result.success
-                            ? "Nice — you’re live."
-                            : "No stress — we’ll fix what’s blocking it.")}
+                          (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.")}
                       </div>
 
-                      {result.note ? (
-                        <div className="mt-2 text-[12px] text-emerald-300">
-                          {result.note}
-                        </div>
-                      ) : null}
+                      {result.note ? <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div> : null}
                     </div>
 
                     {Array.isArray(result.results) && result.results.length > 0 && (
@@ -1019,23 +893,13 @@ export default function DashboardHomePage() {
                           const skipped = !!r?.skipped;
                           const label = formatPlatformName(r?.platform || platform);
 
-                          const friendly = ok
-                            ? "Posted."
-                            : skipped
-                            ? extractFriendlyError(r)
-                            : extractFriendlyError(r);
-
+                          const friendly = ok ? "Posted." : skipped ? extractFriendlyError(r) : extractFriendlyError(r);
                           const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
 
                           return (
-                            <div
-                              key={`${platform}-${idx}`}
-                              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                            >
+                            <div key={`${platform}-${idx}`} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
                               <div className="flex items-start justify-between gap-3">
-                                <div className="text-[12px] font-semibold text-slate-200">
-                                  {label}
-                                </div>
+                                <div className="text-[12px] font-semibold text-slate-200">{label}</div>
                                 <div
                                   className={[
                                     "text-[11px] rounded-full border px-2 py-0.5",
@@ -1050,15 +914,9 @@ export default function DashboardHomePage() {
                                 </div>
                               </div>
 
-                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
-                                {friendly}
-                              </div>
+                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">{friendly}</div>
 
-                              {tip ? (
-                                <div className="mt-1 text-[11px] text-slate-400">
-                                  {tip}
-                                </div>
-                              ) : null}
+                              {tip ? <div className="mt-1 text-[11px] text-slate-400">{tip}</div> : null}
                             </div>
                           );
                         })}
@@ -1087,43 +945,25 @@ export default function DashboardHomePage() {
                     </div>
                     <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
                     <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
-                    <div className="mt-1">Has image: {imageUrl.trim() ? "yes" : "no"}</div>
-                    <div className="mt-1">Has video: {videoUrl.trim() ? "yes" : "no"}</div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Drafts */}
             <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <h3 className="text-base font-semibold">Saved drafts</h3>
-              <p className="mt-1 text-sm text-slate-300">
-                Drafts are stored on this device. (Later we can sync per org.)
-              </p>
-              <p className="mt-2 text-[11px] text-slate-500">
-                Use “Save for later” and we’ll restore the full draft library
-              </p>
+              <p className="mt-1 text-sm text-slate-300">Drafts are stored on this device. (Later we can sync per org.)</p>
+              <p className="mt-2 text-[11px] text-slate-500">Use “Save for later” and we’ll restore the full draft library</p>
 
               <div className="mt-4 space-y-3">
                 {drafts.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
-                    No drafts yet.
-                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">No drafts yet.</div>
                 ) : (
                   drafts.map((d) => (
-                    <div
-                      key={d.id}
-                      className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
-                    >
-                      <div className="text-[11px] text-slate-500">
-                        {new Date(d.savedAt).toLocaleString()}
-                      </div>
-                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">
-                        {d.message || "(empty)"}
-                      </div>
-                      <div className="mt-2 text-[11px] text-slate-500">
-                        Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
-                      </div>
+                    <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                      <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
+                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
+                      <div className="mt-2 text-[11px] text-slate-500">Channels: {d.selectedPlatforms?.join(", ") || "(none)"}</div>
 
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
@@ -1148,9 +988,7 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
-          <div className="mt-8 text-xs text-slate-500">
-            Tip: Generate with AI → Use a variant → tweak → post (or queue).
-          </div>
+          <div className="mt-8 text-xs text-slate-500">Tip: Generate with AI → Use a variant → tweak → post (or queue).</div>
         </div>
       </div>
     </div>
