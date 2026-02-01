@@ -3,14 +3,9 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { applyAntiDuplicateVariation } from "../../../../lib/socialText";
+import MediaDropzone from "../../components/MediaDropzone";
 
-type ChannelId =
-  | "facebook"
-  | "instagram"
-  | "linkedin"
-  | "threads"
-  | "tiktok"
-  | "reddit";
+type ChannelId = "facebook" | "instagram" | "linkedin" | "tiktok" | "reddit" | "threads";
 
 type GeneratedPost = {
   title: string;
@@ -61,8 +56,8 @@ type BrainstormPrefill = {
     cta?: string;
     imagePrompt?: string;
   }> | null;
-  imageUrl?: string | null; // optional future use
-  videoUrl?: string | null; // optional future use
+  imageUrl?: string | null;
+  videoUrl?: string | null;
   createdAt?: string;
 };
 
@@ -77,30 +72,15 @@ function safeParsePrefill(raw: string | null): BrainstormPrefill | null {
   }
 }
 
-function isLikelyImageUrl(url: string) {
-  const u = (url || "").trim();
-  if (!u) return false;
-  if (!/^https:\/\/.+/i.test(u)) return false;
-  return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
-}
-
-function isLikelyVideoUrl(url: string) {
-  const u = (url || "").trim();
-  if (!u) return false;
-  if (!/^https:\/\/.+/i.test(u)) return false;
-  return /\.(mp4|mov|m4v)(\?.*)?$/i.test(u);
-}
+const PREFILL_STORIES_KEY = "rootops_prefill_stories_v1";
 
 export default function StorySeriesBuilderPage() {
   const [idea, setIdea] = useState("");
 
-  const [storyType, setStoryType] = useState<StoryTypeOption>(
-    "HR director perspective"
-  );
+  const [storyType, setStoryType] = useState<StoryTypeOption>("HR director perspective");
   const [tone, setTone] = useState<ToneOption>("Professional & confident");
   const [targetPlatform, setTargetPlatform] = useState<ChannelId>("linkedin");
-  const [ctaStyle, setCtaStyle] =
-    useState<CtaStyleOption>("Comment for more / next part");
+  const [ctaStyle, setCtaStyle] = useState<CtaStyleOption>("Comment for more / next part");
   const [seriesLength, setSeriesLength] = useState<number>(3);
 
   const [autoVariation, setAutoVariation] = useState(true);
@@ -117,15 +97,13 @@ export default function StorySeriesBuilderPage() {
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
 
-  // ✅ Media for this story/series (applies to all episodes)
-  const [imageUrl, setImageUrl] = useState<string>("");
-  const [videoUrl, setVideoUrl] = useState<string>("");
-
-  // ✅ Org comes from backend (no hardcoding)
   const [orgId, setOrgId] = useState<string | null>(null);
 
-  // Brainstorm import banner
   const [importedFromBrainstorm, setImportedFromBrainstorm] = useState(false);
+
+  // Media for story posts (optional)
+  const [imageUrl, setImageUrl] = useState<string>("");
+  const [videoUrl, setVideoUrl] = useState<string>("");
 
   useEffect(() => {
     (async () => {
@@ -140,25 +118,17 @@ export default function StorySeriesBuilderPage() {
     })();
   }, []);
 
-  // ✅ Import from Brainstorm (client only)
+  // ✅ Import from Brainstorm
   useEffect(() => {
     try {
-      // Brainstorm currently writes: rootops_prefill_stories_v1
-      // Older code used: rh_prefill_stories_v1
-      const rawA = window.localStorage.getItem("rootops_prefill_stories_v1");
-      const rawB = window.localStorage.getItem("rh_prefill_stories_v1");
-
-      const prefill =
-        safeParsePrefill(rawA) ||
-        safeParsePrefill(rawB);
-
+      const raw = window.localStorage.getItem(PREFILL_STORIES_KEY);
+      const prefill = safeParsePrefill(raw);
       if (!prefill) return;
 
       setImportedFromBrainstorm(true);
 
       if (prefill.platform) setTargetPlatform(prefill.platform);
 
-      // Tone (map string to closest option)
       if (prefill.tone) {
         const t = String(prefill.tone);
         const mapped: ToneOption =
@@ -166,7 +136,7 @@ export default function StorySeriesBuilderPage() {
             ? "Warm & supportive"
             : t.includes("Inspirational")
             ? "Inspirational & human"
-            : t.toLowerCase().includes("thought")
+            : t.includes("thought")
             ? "Strong thought-leader"
             : t.includes("Data")
             ? "Data-backed but human"
@@ -174,7 +144,6 @@ export default function StorySeriesBuilderPage() {
         setTone(mapped);
       }
 
-      // Story type (best-effort match)
       if (prefill.storyType) {
         const st = String(prefill.storyType) as StoryTypeOption;
         const allowed: StoryTypeOption[] = [
@@ -190,7 +159,6 @@ export default function StorySeriesBuilderPage() {
         if (allowed.includes(st)) setStoryType(st);
       }
 
-      // CTA style match
       if (prefill.ctaStyle) {
         const cs = String(prefill.ctaStyle) as CtaStyleOption;
         const allowed: CtaStyleOption[] = [
@@ -203,27 +171,20 @@ export default function StorySeriesBuilderPage() {
         if (allowed.includes(cs)) setCtaStyle(cs);
       }
 
-      // Series length
       if (typeof prefill.seriesLength === "number") {
         setSeriesLength(Math.max(1, Math.min(10, prefill.seriesLength)));
       }
 
-      // Optional future fields (if Brainstorm later sends media)
-      if (typeof prefill.imageUrl === "string") setImageUrl(prefill.imageUrl);
-      if (typeof prefill.videoUrl === "string") setVideoUrl(prefill.videoUrl);
+      if (prefill.imageUrl) setImageUrl(String(prefill.imageUrl));
+      if (prefill.videoUrl) setVideoUrl(String(prefill.videoUrl));
 
-      // If Brainstorm sent a full series, pre-fill posts directly
       if (Array.isArray(prefill.series) && prefill.series.length > 0) {
         const mapped: GeneratedPost[] = prefill.series.map((p) => ({
           title: typeof p.title === "string" ? p.title : "",
           body: typeof p.body === "string" ? p.body : "",
-          platformSuggestion:
-            typeof p.platformSuggestion === "string"
-              ? p.platformSuggestion
-              : undefined,
+          platformSuggestion: typeof p.platformSuggestion === "string" ? p.platformSuggestion : undefined,
           cta: typeof p.cta === "string" ? p.cta : undefined,
-          imagePrompt:
-            typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
+          imagePrompt: typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
         }));
 
         setPosts(mapped);
@@ -235,18 +196,13 @@ export default function StorySeriesBuilderPage() {
         setIdea(prefill.direct.trim());
       }
 
-      // Clear both keys so it doesn’t re-import forever
-      window.localStorage.removeItem("rootops_prefill_stories_v1");
-      window.localStorage.removeItem("rh_prefill_stories_v1");
+      window.localStorage.removeItem(PREFILL_STORIES_KEY);
     } catch {
       // ignore
     }
   }, []);
 
-  const canGenerate = useMemo(
-    () => !!idea.trim() && !isGenerating,
-    [idea, isGenerating]
-  );
+  const canGenerate = useMemo(() => !!idea.trim() && !isGenerating, [idea, isGenerating]);
 
   const normalizeIdea = (raw: string) => raw.replace(/\s+/g, " ").trim();
 
@@ -278,10 +234,7 @@ export default function StorySeriesBuilderPage() {
 
         if (!res.ok || !data?.success) {
           if (attempt === 1) continue;
-          const msg =
-            data?.error ||
-            data?.message ||
-            `AI generation failed (status ${res.status}).`;
+          const msg = data?.error || data?.message || `AI generation failed (status ${res.status}).`;
           throw new Error(msg);
         }
 
@@ -293,32 +246,23 @@ export default function StorySeriesBuilderPage() {
         const mapped: GeneratedPost[] = data.posts.map((p: any) => ({
           title: typeof p.title === "string" ? p.title : "",
           body: typeof p.body === "string" ? p.body : "",
-          platformSuggestion:
-            typeof p.platformSuggestion === "string"
-              ? p.platformSuggestion
-              : undefined,
+          platformSuggestion: typeof p.platformSuggestion === "string" ? p.platformSuggestion : undefined,
           cta: typeof p.cta === "string" ? p.cta : undefined,
-          imagePrompt:
-            typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
+          imagePrompt: typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
         }));
 
         setPosts(mapped);
         setIsGenerating(false);
         return;
       } catch (err: any) {
-        if (attempt === 2) {
-          setGenerationError(err?.message || "Generation failed.");
-        }
+        if (attempt === 2) setGenerationError(err?.message || "Generation failed.");
       }
     }
 
     setIsGenerating(false);
   };
 
-  const buildMessage = (
-    p: GeneratedPost,
-    ctx?: { part?: number; total?: number; whenIso?: string }
-  ) => {
+  const buildMessage = (p: GeneratedPost, ctx?: { part?: number; total?: number; whenIso?: string }) => {
     const parts: string[] = [];
     if (p.title?.trim()) parts.push(p.title.trim());
     if (p.body?.trim()) parts.push(p.body.trim());
@@ -344,9 +288,7 @@ export default function StorySeriesBuilderPage() {
   };
 
   const updatePost = (index: number, patch: Partial<GeneratedPost>) => {
-    setPosts((prev) =>
-      prev.map((p, i) => (i === index ? { ...p, ...patch } : p))
-    );
+    setPosts((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   };
 
   const handleSendNow = async () => {
@@ -361,27 +303,14 @@ export default function StorySeriesBuilderPage() {
       const message = buildMessage(p, { part: 1, total: posts.length });
       if (!message) throw new Error("The post content is empty.");
 
-      const img = imageUrl.trim();
-      const vid = videoUrl.trim();
-
-      if (img && !isLikelyImageUrl(img)) {
-        throw new Error("Image URL must be a direct https link ending .jpg/.png/.webp/.gif");
-      }
-      if (vid && !isLikelyVideoUrl(vid)) {
-        throw new Error("Video URL must be a direct https link ending .mp4/.mov/.m4v (MP4 recommended).");
-      }
-
-      // If both provided, prefer video (most platforms treat one media per post)
-      const sendImageUrl = vid ? "" : img;
-
       const res = await fetch("/api/social/quick-blast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
           platforms: [targetPlatform],
-          imageUrl: sendImageUrl || undefined,
-          videoUrl: vid || undefined,
+          imageUrl: imageUrl || undefined,
+          videoUrl: videoUrl || undefined,
         }),
       });
 
@@ -390,9 +319,7 @@ export default function StorySeriesBuilderPage() {
         throw new Error(data?.error || data?.message || "Quick Blast failed.");
       }
 
-      setDispatchStatus(
-        `Sent now to ${targetPlatform}. Switch to Schedule to queue the full series.`
-      );
+      setDispatchStatus(`Sent now to ${targetPlatform}. Switch to Schedule to queue the full series.`);
     } catch (err: any) {
       setDispatchError(err?.message || "Send now failed.");
     } finally {
@@ -415,33 +342,14 @@ export default function StorySeriesBuilderPage() {
 
       const cadenceDays = Math.max(1, Math.min(14, Number(dailyCadence) || 1));
 
-      const img = imageUrl.trim();
-      const vid = videoUrl.trim();
-
-      if (img && !isLikelyImageUrl(img)) {
-        throw new Error("Image URL must be a direct https link ending .jpg/.png/.webp/.gif");
-      }
-      if (vid && !isLikelyVideoUrl(vid)) {
-        throw new Error("Video URL must be a direct https link ending .mp4/.mov/.m4v (MP4 recommended).");
-      }
-
       let successCount = 0;
       const failures: { index: number; error: string }[] = [];
 
       for (let i = 0; i < posts.length; i++) {
-        const scheduledDate = new Date(
-          base.getTime() + i * cadenceDays * 24 * 60 * 60 * 1000
-        );
-
+        const scheduledDate = new Date(base.getTime() + i * cadenceDays * 24 * 60 * 60 * 1000);
         const whenIso = scheduledDate.toISOString();
-        const message = buildMessage(posts[i], {
-          part: i + 1,
-          total: posts.length,
-          whenIso,
-        });
 
-        // If video exists, prefer video over image for the scheduled payload
-        const scheduleImageUrl = vid ? "" : img;
+        const message = buildMessage(posts[i], { part: i + 1, total: posts.length, whenIso });
 
         const res = await fetch("/api/social/schedule", {
           method: "POST",
@@ -452,46 +360,36 @@ export default function StorySeriesBuilderPage() {
             scheduledAt: whenIso,
             organisationId: orgId,
 
-            // ✅ demo-safe
             createdBy: {
               user_id: "owner",
               name: "Clinic Owner",
               email: "owner@clinic.local",
             },
 
-            // Image is stored in image_url column
-            imageUrl: scheduleImageUrl || undefined,
-
-            // Video stored in meta.video_url (dispatcher carries it forward)
             meta: {
               series: posts.length > 1,
               part: i + 1,
               total: posts.length,
               cadenceDays,
-              video_url: vid || null,
-              source: "stories",
+              // ✅ carry media forward for dispatcher → quick-blast
+              video_url: videoUrl || null,
             },
+
+            // image_url is still a first-class column in scheduled_posts
+            imageUrl: imageUrl || null,
           }),
         });
 
         const data: any = await res.json().catch(() => null);
 
         if (!data?.success) {
-          failures.push({
-            index: i,
-            error:
-              data?.error ||
-              data?.message ||
-              `Failed scheduling part ${i + 1}`,
-          });
+          failures.push({ index: i, error: data?.error || data?.message || `Failed scheduling part ${i + 1}` });
         } else {
           successCount++;
         }
       }
 
-      if (successCount === 0) {
-        throw new Error(failures[0]?.error || "Could not schedule any posts.");
-      }
+      if (successCount === 0) throw new Error(failures[0]?.error || "Could not schedule any posts.");
 
       setDispatchStatus(
         failures.length === 0
@@ -517,25 +415,14 @@ export default function StorySeriesBuilderPage() {
 
   const isSingle = seriesLength === 1;
 
-  const mediaHint = useMemo(() => {
-    const img = imageUrl.trim();
-    const vid = videoUrl.trim();
-    if (vid) return "Video will be used (one media per post).";
-    if (img) return "Image will be used (one media per post).";
-    return "No media attached (text-only).";
-  }, [imageUrl, videoUrl]);
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-8">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold">
-              Stories · Advanced Narrative Generator
-            </h1>
+            <h1 className="text-2xl md:text-3xl font-semibold">Stories · Advanced Narrative Generator</h1>
             <p className="mt-1 text-sm text-slate-300 max-w-xl">
-              Generate → edit → send now or schedule. Auto-variation helps
-              prevent duplicate-content blocks.
+              Generate → edit → send now or schedule. Auto-variation helps prevent duplicate-content blocks.
             </p>
           </div>
         </header>
@@ -555,24 +442,14 @@ export default function StorySeriesBuilderPage() {
                 <button
                   type="button"
                   onClick={() => setMode("now")}
-                  className={[
-                    "px-3 py-1.5",
-                    mode === "now"
-                      ? "bg-emerald-500 text-slate-950"
-                      : "text-slate-300",
-                  ].join(" ")}
+                  className={["px-3 py-1.5", mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
                 >
                   Send now
                 </button>
                 <button
                   type="button"
                   onClick={() => setMode("schedule")}
-                  className={[
-                    "px-3 py-1.5",
-                    mode === "schedule"
-                      ? "bg-emerald-500 text-slate-950"
-                      : "text-slate-300",
-                  ].join(" ")}
+                  className={["px-3 py-1.5", mode === "schedule" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
                 >
                   Schedule
                 </button>
@@ -580,9 +457,7 @@ export default function StorySeriesBuilderPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="block text-[11px] font-medium text-slate-300">
-                Your idea / brief
-              </label>
+              <label className="block text-[11px] font-medium text-slate-300">Your idea / brief</label>
               <textarea
                 className="w-full min-h-[130px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                 value={idea}
@@ -590,17 +465,60 @@ export default function StorySeriesBuilderPage() {
               />
             </div>
 
+            {/* Media */}
+            <div className="rounded-3xl border border-slate-700 bg-slate-950 p-4 space-y-3">
+              <div className="text-sm font-semibold">Media (optional)</div>
+              <div className="text-[11px] text-slate-400">Upload once → use for send-now or scheduling.</div>
+
+              <MediaDropzone
+                organisationId={orgId || undefined}
+                onUploaded={(m) => {
+                  if (m.kind === "video") {
+                    setVideoUrl(m.url);
+                    setImageUrl("");
+                  } else {
+                    setImageUrl(m.url);
+                    setVideoUrl("");
+                  }
+                }}
+              />
+
+              <div className="grid md:grid-cols-2 gap-3">
+                <div>
+                  <div className="text-[11px] text-slate-400 mb-1">Image URL</div>
+                  <input
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none"
+                    value={imageUrl}
+                    onChange={(e) => {
+                      setImageUrl(e.target.value);
+                      if (e.target.value.trim()) setVideoUrl("");
+                    }}
+                    placeholder="Direct image URL (jpg/png)…"
+                  />
+                </div>
+                <div>
+                  <div className="text-[11px] text-slate-400 mb-1">Video URL</div>
+                  <input
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none"
+                    value={videoUrl}
+                    onChange={(e) => {
+                      setVideoUrl(e.target.value);
+                      if (e.target.value.trim()) setImageUrl("");
+                    }}
+                    placeholder="Direct video URL (mp4)…"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Settings */}
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Story type
-                </label>
+                <label className="block text-[11px] font-medium text-slate-300">Story type</label>
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={storyType}
-                  onChange={(e) =>
-                    setStoryType(e.target.value as StoryTypeOption)
-                  }
+                  onChange={(e) => setStoryType(e.target.value as StoryTypeOption)}
                 >
                   <option value="HR director perspective">HR director perspective</option>
                   <option value="Problem → Solution → Success">Problem → Solution → Success</option>
@@ -614,9 +532,7 @@ export default function StorySeriesBuilderPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Tone
-                </label>
+                <label className="block text-[11px] font-medium text-slate-300">Tone</label>
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={tone}
@@ -633,9 +549,7 @@ export default function StorySeriesBuilderPage() {
 
             <div className="grid md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Platform
-                </label>
+                <label className="block text-[11px] font-medium text-slate-300">Platform</label>
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={targetPlatform}
@@ -651,27 +565,19 @@ export default function StorySeriesBuilderPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Series length
-                </label>
+                <label className="block text-[11px] font-medium text-slate-300">Series length</label>
                 <input
                   type="number"
                   min={1}
                   max={10}
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={seriesLength}
-                  onChange={(e) =>
-                    setSeriesLength(
-                      Math.max(1, Math.min(10, Number(e.target.value) || 1))
-                    )
-                  }
+                  onChange={(e) => setSeriesLength(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  CTA style
-                </label>
+                <label className="block text-[11px] font-medium text-slate-300">CTA style</label>
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={ctaStyle}
@@ -686,50 +592,6 @@ export default function StorySeriesBuilderPage() {
               </div>
             </div>
 
-            {/* ✅ Media controls */}
-            <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
-              <div className="text-[11px] font-semibold text-slate-200">Media (optional)</div>
-
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Image URL (direct .jpg/.png/etc)
-                </label>
-                <input
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="https://.../image.jpg"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Video URL (direct .mp4 recommended)
-                </label>
-                <input
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
-                  value={videoUrl}
-                  onChange={(e) => setVideoUrl(e.target.value)}
-                  placeholder="https://.../video.mp4"
-                />
-                <div className="text-[11px] text-slate-500">
-                  {mediaHint} (If you fill both, video wins.)
-                </div>
-              </div>
-
-              {(imageUrl.trim() && !isLikelyImageUrl(imageUrl.trim())) ? (
-                <div className="text-[11px] text-amber-300">
-                  That image link doesn’t look like a direct image file. Use a URL ending .jpg/.png/.webp/.gif
-                </div>
-              ) : null}
-
-              {(videoUrl.trim() && !isLikelyVideoUrl(videoUrl.trim())) ? (
-                <div className="text-[11px] text-amber-300">
-                  That video link doesn’t look like a direct video file. Use a URL ending .mp4 (MP4 recommended).
-                </div>
-              ) : null}
-            </div>
-
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -741,32 +603,20 @@ export default function StorySeriesBuilderPage() {
               </button>
 
               <label className="flex items-center gap-2 text-[11px] text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={autoVariation}
-                  onChange={(e) => setAutoVariation(e.target.checked)}
-                />
+                <input type="checkbox" checked={autoVariation} onChange={(e) => setAutoVariation(e.target.checked)} />
                 Auto-variation (recommended)
               </label>
             </div>
 
-            {generationError && (
-              <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">
-                {generationError}
-              </div>
-            )}
+            {generationError && <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">{generationError}</div>}
 
             {mode === "schedule" && posts.length > 0 && (
               <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
-                <div className="text-[11px] font-semibold text-slate-200">
-                  Scheduling options
-                </div>
+                <div className="text-[11px] font-semibold text-slate-200">Scheduling options</div>
 
                 <div className="grid md:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="block text-[11px] font-medium text-slate-300">
-                      First post date/time
-                    </label>
+                    <label className="block text-[11px] font-medium text-slate-300">First post date/time</label>
                     <input
                       type="datetime-local"
                       className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
@@ -776,20 +626,14 @@ export default function StorySeriesBuilderPage() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-[11px] font-medium text-slate-300">
-                      Cadence (days between episodes)
-                    </label>
+                    <label className="block text-[11px] font-medium text-slate-300">Cadence (days between episodes)</label>
                     <input
                       type="number"
                       min={1}
                       max={14}
                       className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={dailyCadence}
-                      onChange={(e) =>
-                        setDailyCadence(
-                          Math.max(1, Math.min(14, Number(e.target.value) || 1))
-                        )
-                      }
+                      onChange={(e) => setDailyCadence(Math.max(1, Math.min(14, Number(e.target.value) || 1)))}
                     />
                   </div>
                 </div>
@@ -814,48 +658,27 @@ export default function StorySeriesBuilderPage() {
                     disabled={isDispatching || !seriesStart || !orgId}
                     className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
                   >
-                    {isDispatching
-                      ? "Scheduling…"
-                      : orgId
-                      ? `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`
-                      : "Loading org…"}
+                    {isDispatching ? "Scheduling…" : orgId ? `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}` : "Loading org…"}
                   </button>
                 )}
               </div>
             )}
 
-            {dispatchStatus && (
-              <div className="mt-2 text-[11px] text-emerald-400">
-                {dispatchStatus}
-              </div>
-            )}
-            {dispatchError && (
-              <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">
-                {dispatchError}
-              </div>
-            )}
+            {dispatchStatus && <div className="mt-2 text-[11px] text-emerald-400">{dispatchStatus}</div>}
+            {dispatchError && <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">{dispatchError}</div>}
           </section>
 
           <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-4">
-            <h2 className="text-base md:text-lg font-semibold">
-              2) Edit & preview
-            </h2>
+            <h2 className="text-base md:text-lg font-semibold">2) Edit & preview</h2>
 
             {posts.length === 0 ? (
-              <p className="text-sm text-slate-400">
-                Your generated story/series will appear here.
-              </p>
+              <p className="text-sm text-slate-400">Your generated story/series will appear here.</p>
             ) : (
               <div className="space-y-3 max-h-[620px] overflow-y-auto pr-1">
                 {posts.map((p, idx) => (
-                  <div
-                    key={idx}
-                    className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-2"
-                  >
+                  <div key={idx} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-2">
                     <div className="text-[11px] text-slate-400">
-                      {posts.length > 1
-                        ? `Episode ${idx + 1} / ${posts.length}`
-                        : "Single post"}
+                      {posts.length > 1 ? `Episode ${idx + 1} / ${posts.length}` : "Single post"}
                     </div>
 
                     <input
