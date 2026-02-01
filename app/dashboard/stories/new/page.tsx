@@ -473,13 +473,14 @@ export default function StorySeriesBuilderPage() {
               <MediaDropzone
                 organisationId={orgId || undefined}
                 onUploaded={(m) => {
-                  if (m.kind === "video") {
-                    setVideoUrl(m.url);
-                    setImageUrl("");
-                  } else {
-                    setImageUrl(m.url);
-                    setVideoUrl("");
-                  }
+                const ct = String(m?.contentType || "").toLowerCase();
+if (ct.startsWith("video/")) {
+  setVideoUrl(m.url);
+  setImageUrl("");
+} else {
+  setImageUrl(m.url);
+  setVideoUrl("");
+}
                 }}
               />
 
