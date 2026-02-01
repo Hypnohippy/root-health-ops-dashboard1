@@ -4,119 +4,111 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
+const BUCKET = "public-media";
+const MAX_MB = 50;
+const MAX_BYTES = MAX_MB * 1024 * 1024;
+
 function safeName(name: string) {
   return (name || "file")
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+    .replace(/[^\w.\-]+/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 120);
 }
 
 function extFromName(name: string) {
-  const m = (name || "").toLowerCase().match(/\.([a-z0-9]+)$/i);
-  return m?.[1] || "";
+  const m = String(name || "").toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m ? m[1] : "";
 }
 
-function isAllowedMime(mime: string) {
-  const m = (mime || "").toLowerCase();
-  if (m.startsWith("image/")) return true;
-  if (m === "video/mp4") return true;
-  if (m === "video/quicktime") return true; // .mov
-  if (m === "video/x-m4v") return true; // .m4v
-  return false;
-}
-
-function guessFolder(mime: string) {
-  const m = (mime || "").toLowerCase();
-  if (m.startsWith("image/")) return "images";
-  if (m.startsWith("video/")) return "videos";
-  return "files";
+function guessContentType(name: string) {
+  const ext = extFromName(name);
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  if (ext === "gif") return "image/gif";
+  if (ext === "mp4") return "video/mp4";
+  if (ext === "mov") return "video/quicktime";
+  if (ext === "webm") return "video/webm";
+  return "application/octet-stream";
 }
 
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
-
     const file = form.get("file");
-    if (!file || !(file instanceof File)) {
+
+    if (!file || !(file instanceof Blob)) {
+      return NextResponse.json({ success: false, error: "Missing file" }, { status: 400 });
+    }
+
+    const name = "name" in file && typeof (file as any).name === "string" ? (file as any).name : "upload.bin";
+    const size = "size" in file ? (file as any).size : 0;
+
+    if (size > MAX_BYTES) {
       return NextResponse.json(
-        { success: false, error: "Missing file. Send multipart/form-data with field name 'file'." },
-        { status: 200 }
+        { success: false, error: `File too large. Max is ${MAX_MB}MB.` },
+        { status: 400 }
       );
     }
 
-    const mime = String(file.type || "").trim();
-    if (!isAllowedMime(mime)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unsupported file type. Allowed: images (image/*) and video MP4/MOV/M4V.",
-        },
-        { status: 200 }
-      );
-    }
-
-    const bucket =
-      process.env.SUPABASE_STORAGE_BUCKET ||
-      process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET ||
-      "media";
-
-    const folder = guessFolder(mime);
-
-    const original = safeName(file.name || "upload");
-    const ext = extFromName(original) || (mime.startsWith("image/") ? "jpg" : "mp4");
-
-    const id =
-      (globalThis.crypto && "randomUUID" in globalThis.crypto
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
-
-    const path = `${folder}/${id}.${ext}`;
+    const contentType =
+      ("type" in file && typeof (file as any).type === "string" && (file as any).type) ||
+      guessContentType(name);
 
     const arrayBuffer = await file.arrayBuffer();
-    const bytes = Buffer.from(arrayBuffer);
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Organise uploads by date (nice + predictable)
+    const d = new Date();
+    const yyyy = String(d.getFullYear());
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+
+    const safe = safeName(name);
+    const unique = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const path = `uploads/${yyyy}-${mm}-${dd}/${unique}_${safe}`;
 
     const { error: upErr } = await supabaseAdmin.storage
-      .from(bucket)
-      .upload(path, bytes, {
-        contentType: mime || "application/octet-stream",
+      .from(BUCKET)
+      .upload(path, buffer, {
+        contentType,
         upsert: false,
       });
 
     if (upErr) {
       console.error("[media/upload] upload error", upErr);
       return NextResponse.json(
-        { success: false, error: `Upload failed: ${upErr.message}` },
-        { status: 200 }
+        { success: false, error: `Supabase upload failed: ${upErr.message}` },
+        { status: 500 }
       );
     }
 
-    const pub = supabaseAdmin.storage.from(bucket).getPublicUrl(path);
+    const pub = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
     const url = pub?.data?.publicUrl || "";
 
     if (!url) {
       return NextResponse.json(
-        { success: false, error: "Upload succeeded but could not create a public URL." },
-        { status: 200 }
+        { success: false, error: "Uploaded but could not create a public URL." },
+        { status: 500 }
       );
     }
 
     return NextResponse.json(
       {
         success: true,
-        bucket,
+        bucket: BUCKET,
         path,
         url,
-        mime,
+        contentType,
+        size,
       },
       { status: 200 }
     );
   } catch (err: any) {
-    console.error("[media/upload] fatal error", err);
+    console.error("[media/upload] fatal", err);
     return NextResponse.json(
-      { success: false, error: err?.message || "Internal error uploading file." },
-      { status: 200 }
+      { success: false, error: err?.message || "Upload failed" },
+      { status: 500 }
     );
   }
 }
