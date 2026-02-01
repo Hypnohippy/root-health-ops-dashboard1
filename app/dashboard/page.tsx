@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import MediaDropzone, { UploadedMedia } from "./components/MediaDropzone";
 
 type ProviderId =
   | "facebook"
@@ -31,8 +32,6 @@ type QuickBlastResult = {
     attempted: number;
     ok: number;
     failed: number;
-    skipped?: number;
-    pending?: number;
   };
   error?: string;
 };
@@ -63,34 +62,12 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
-// ✅ NEW: store temporary platform blocks (e.g. FB rate-limits)
-const BLOCKS_KEY = "rootops_platform_blocks_v1";
-
-type PlatformBlocks = Partial<Record<ProviderId, number>>; // epoch ms until unblocked
-
-function loadBlocks(): PlatformBlocks {
-  try {
-    const raw = localStorage.getItem(BLOCKS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return {};
-    return parsed as PlatformBlocks;
-  } catch {
-    return {};
-  }
-}
-
-function saveBlocks(blocks: PlatformBlocks) {
-  try {
-    localStorage.setItem(BLOCKS_KEY, JSON.stringify(blocks));
-  } catch {}
-}
-
 type Draft = {
   id: string;
   savedAt: number;
   message: string;
   imageUrl: string;
+  videoUrl: string;
   selectedPlatforms: ProviderId[];
 };
 
@@ -114,9 +91,7 @@ function saveDrafts(drafts: Draft[]) {
 
 function joinVariant(v: AiVariant) {
   const hash =
-    Array.isArray(v.hashtags) && v.hashtags.length > 0
-      ? `\n\n${v.hashtags.join(" ")}`
-      : "";
+    Array.isArray(v.hashtags) && v.hashtags.length > 0 ? `\n\n${v.hashtags.join(" ")}` : "";
   const cta = v.cta ? `\n\n${v.cta}` : "";
   return `${(v.text || "").trim()}${cta}${hash}`.trim();
 }
@@ -126,50 +101,26 @@ function formatPlatformName(p: string) {
   return PROVIDER_LABELS[k] || p;
 }
 
-function isFacebookRateLimit(item: any) {
-  const code = item?.details?.error?.code ?? item?.error?.code ?? null;
-  // Meta spam/rate limit commonly returns code 368
-  return Number(code) === 368;
-}
-
-function isInstagramProcessing(item: any) {
-  if (item?.pending) return true;
-  const msg = String(item?.error || item?.details?.error || "").toLowerCase();
-  return msg.includes("still processing");
-}
-
 function extractFriendlyError(item: any): string {
-  // ✅ Special “pending processing” UX
-  if (item?.pending) {
-    return "Instagram is processing the media container. This can take 1–2 minutes. Try again shortly (we’ll improve this to auto-retry).";
-  }
-
-  // Prefer explicit userMessage if present
   const um = String(item?.userMessage || "").trim();
   if (um) return um;
 
-  // Meta style errors
-  const metaUserMsg =
-    item?.details?.error?.error_user_msg || item?.error?.error_user_msg;
+  const metaUserMsg = item?.details?.error?.error_user_msg || item?.error?.error_user_msg;
   if (metaUserMsg) return String(metaUserMsg);
 
-  const metaTitle =
-    item?.details?.error?.error_user_title || item?.error?.error_user_title;
+  const metaTitle = item?.details?.error?.error_user_title || item?.error?.error_user_title;
   const metaMessage = item?.details?.error?.message || item?.error?.message;
   if (metaTitle && metaMessage) return `${metaTitle}: ${metaMessage}`;
   if (metaMessage) return String(metaMessage);
 
-  // Generic errors
   const err = item?.error;
   if (typeof err === "string" && err.trim()) return err.trim();
 
-  // Sometimes error is an object
   if (err && typeof err === "object") {
     const msg = (err as any)?.message;
     if (msg) return String(msg);
   }
 
-  // Skipped reasons
   const reason = String(item?.reason || "").trim();
   if (reason) return reason;
 
@@ -179,36 +130,33 @@ function extractFriendlyError(item: any): string {
 function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
   const msg = extractFriendlyError(item).toLowerCase();
 
-  if (platform === "facebook") {
-    if (isFacebookRateLimit(item) || msg.includes("limit how often")) {
-      return "Facebook has temporarily rate-limited posting (anti-spam). Wait a while, then post less frequently and change the first line each time.";
+  if (platform === "instagram") {
+    if (msg.includes("processing")) {
+      return "Tip: Instagram can take 10–60s to process media. Try again after a short pause.";
     }
-    if (msg.includes("image required") || msg.includes("invalid image") || msg.includes("missing or invalid")) {
-      return "Tip: Facebook can be picky about image links. Using an image hosted on your own storage (Brainstorm upload) is the most reliable.";
+    if (msg.includes("image") || msg.includes("media") || msg.includes("ready")) {
+      return "Tip: Instagram often needs a real JPG/PNG link for image posts. For video, use the Video uploader.";
     }
   }
 
-  if (platform === "instagram") {
-    if (isInstagramProcessing(item) || msg.includes("still processing")) {
-      return "Tip: Instagram container processing can take 1–2 minutes (sometimes longer). Retry shortly. We’ll upgrade this to auto-retry/pending state.";
+  if (platform === "facebook") {
+    if (msg.includes("limit how often") || msg.includes("spam")) {
+      return "Tip: This is a temporary Meta rate-limit. Wait a bit (often 15–60 mins) then try again.";
     }
-    if (msg.includes("image") || msg.includes("media") || msg.includes("ready")) {
-      return "Tip: Instagram often needs a real JPG/PNG link, and sometimes it needs a few seconds before publishing.";
+    if (msg.includes("invalid") || msg.includes("missing")) {
+      return "Tip: Facebook can be picky about media. Upload via the uploader so you get a clean direct URL.";
     }
   }
 
   if (platform === "threads") {
     if (msg.includes("permission")) {
-      return "Tip: Threads video/image posting may require additional permissions. Text posts confirm your connection is OK.";
-    }
-    if (msg.includes("media") || msg.includes("resource does not exist") || msg.includes("not found")) {
-      return "Tip: Threads needs a stable, publicly accessible media link. Hosted images/videos (via your Storage upload) work best.";
+      return "Tip: This usually means the app/token lacks permission for that content type (e.g., media). Text-only works as you saw.";
     }
   }
 
   if (platform === "linkedin") {
     if (msg.includes("duplicate")) {
-      return "Tip: Change the first line or CTA slightly, then resend. Even small tweaks usually work.";
+      return "Tip: Change the first line or CTA slightly, then resend.";
     }
   }
 
@@ -240,7 +188,7 @@ export default function DashboardHomePage() {
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
-  // AI composer controls
+  // AI composer
   const [aiSubject, setAiSubject] = useState("");
   const [aiTone, setAiTone] = useState("calm");
   const [aiLength, setAiLength] = useState("short");
@@ -250,7 +198,7 @@ export default function DashboardHomePage() {
 
   const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
   const [imageUrl, setImageUrl] = useState("");
-  const [videoUrl, setVideoUrl] = useState(""); // ✅ kept here for future video posting
+  const [videoUrl, setVideoUrl] = useState(""); // ✅ NEW
   const [selected, setSelected] = useState<ProviderId[]>([]);
 
   const [sending, setSending] = useState(false);
@@ -261,23 +209,6 @@ export default function DashboardHomePage() {
 
   const [mode, setMode] = useState<Mode>("now");
   const [scheduledLocal, setScheduledLocal] = useState<string>(defaultLocalDateTimePlus(10));
-
-  // ✅ NEW: platform cooldown blocks
-  const [blocks, setBlocks] = useState<PlatformBlocks>({});
-
-  useEffect(() => {
-    setBlocks(loadBlocks());
-  }, []);
-
-  // tick every 15s so cooldown UI updates naturally
-  useEffect(() => {
-    const t = setInterval(() => {
-      setBlocks((prev) => ({ ...prev }));
-    }, 15000);
-    return () => clearInterval(t);
-  }, []);
-
-  const nowMs = Date.now();
 
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
@@ -295,20 +226,7 @@ export default function DashboardHomePage() {
     return "Very long — consider shortening";
   }, [charCount]);
 
-  function isBlocked(p: ProviderId) {
-    const until = blocks?.[p];
-    return typeof until === "number" && until > nowMs;
-  }
-
-  function blockedLabel(p: ProviderId) {
-    const until = blocks?.[p];
-    if (!until || until <= nowMs) return null;
-    const mins = Math.max(1, Math.ceil((until - nowMs) / 60000));
-    return `cooldown ~${mins}m`;
-  }
-
   function togglePlatform(p: ProviderId) {
-    if (isBlocked(p)) return;
     setSelected((prev) => {
       if (prev.includes(p)) return prev.filter((x) => x !== p);
       return [...prev, p];
@@ -351,6 +269,7 @@ export default function DashboardHomePage() {
       savedAt: Date.now(),
       message,
       imageUrl,
+      videoUrl,
       selectedPlatforms: selected,
     };
     const next = [d, ...drafts];
@@ -361,6 +280,7 @@ export default function DashboardHomePage() {
   function restoreDraft(d: Draft) {
     setMessage(d.message || "");
     setImageUrl(d.imageUrl || "");
+    setVideoUrl(d.videoUrl || "");
     setSelected(Array.isArray(d.selectedPlatforms) ? d.selectedPlatforms : []);
   }
 
@@ -394,7 +314,7 @@ export default function DashboardHomePage() {
         }),
       });
 
-      const json: AiResponse = await res.json().catch(() => null);
+      const json: AiResponse = await res.json().catch(() => null as any);
 
       if (!res.ok) {
         setAiError((json as any)?.error || `AI request failed (${res.status})`);
@@ -415,25 +335,6 @@ export default function DashboardHomePage() {
     }
   }
 
-  function applyCooldownFromResult(r: any) {
-    // If FB returns code 368, set a 60 minute cooldown in UI (you can tune this later)
-    try {
-      const platform = String(r?.platform || "").toLowerCase() as ProviderId;
-      if (platform !== "facebook") return;
-
-      const code = r?.details?.error?.code ?? null;
-      if (Number(code) !== 368) return;
-
-      const until = Date.now() + 60 * 60 * 1000; // 60 minutes
-      const next = { ...(blocks || {}), facebook: until };
-      setBlocks(next);
-      saveBlocks(next);
-
-      // Also deselect facebook to prevent immediate retries
-      setSelected((prev) => prev.filter((p) => p !== "facebook"));
-    } catch {}
-  }
-
   async function sendQuickBlastNow() {
     setSending(true);
     setResult(null);
@@ -445,9 +346,8 @@ export default function DashboardHomePage() {
         body: JSON.stringify({
           message,
           imageUrl,
-          videoUrl, // kept (not fully implemented for all platforms yet)
+          videoUrl, // ✅ pass through
           platforms: selected,
-          organisationId: organisationId || undefined, // ✅ FIX: ensure correct org is used
         }),
       });
 
@@ -461,10 +361,6 @@ export default function DashboardHomePage() {
         });
         return;
       }
-
-      // Apply platform cooldowns (FB code 368 etc.)
-      const rr = Array.isArray(json?.results) ? json.results : [];
-      rr.forEach(applyCooldownFromResult);
 
       const merged: QuickBlastResult = {
         ...(json || {}),
@@ -522,21 +418,19 @@ export default function DashboardHomePage() {
           imageUrl,
           scheduledAt: scheduledIso,
           organisationId,
-
-          createdBy: {
-            user_id: "owner",
-            name: "Clinic Owner",
-            email: null,
-          },
-
           meta: {
             approvals: {
               state: "pending",
               source: "quick_blast",
               created_at: new Date().toISOString(),
             },
-            // keep video_url for later (your dispatcher already carries this)
+            // ✅ carry video URL via meta (since your scheduled_posts table has image_url column)
             ...(videoUrl ? { video_url: videoUrl } : {}),
+          },
+          createdBy: {
+            user_id: "owner",
+            name: "Clinic Owner",
+            email: null,
           },
         }),
       });
@@ -582,10 +476,7 @@ export default function DashboardHomePage() {
 
   useEffect(() => {
     if (selected.length > 0) return;
-    const defaults = socialAccounts
-      .map((r) => r.platform)
-      .filter((p) => connectedPlatforms.has(p))
-      .filter((p) => !isBlocked(p));
+    const defaults = socialAccounts.map((r) => r.platform).filter((p) => connectedPlatforms.has(p));
     if (defaults.length > 0) setSelected(defaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingAccounts, socialAccounts]);
@@ -601,34 +492,39 @@ export default function DashboardHomePage() {
     "whatsapp",
   ];
 
-  const instagramSelected = selected.includes("instagram");
-
   const friendlySummary = useMemo(() => {
     if (!result) return null;
 
     const attempted = result.summary?.attempted ?? (result.results?.length || 0);
     const ok = result.summary?.ok ?? (result.results || []).filter((r: any) => r?.ok).length;
-    const pending = result.summary?.pending ?? (result.results || []).filter((r: any) => r?.pending).length;
-    const failed =
-      result.summary?.failed ??
-      (result.results || []).filter((r: any) => r && !r.ok && !r.skipped && !r.pending).length;
+    const failed = result.summary?.failed ?? (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
 
     const headline = result.success
       ? attempted > 0
         ? `Sent successfully (${ok}/${attempted}).`
         : "Success."
-      : pending > 0
-      ? `Processing (${pending}) — retry soon.`
       : failed > 0
       ? `Some channels didn’t send (${ok}/${attempted}).`
       : "No channels sent.";
 
-    const topMsg =
-      result.userMessage ||
-      (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.");
+    const topMsg = result.userMessage || (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.");
 
-    return { attempted, ok, failed, pending, headline, topMsg };
+    return { attempted, ok, failed, headline, topMsg };
   }, [result]);
+
+  const onUploadedQuickBlast = (m: UploadedMedia) => {
+    const ct = String(m?.contentType || "").toLowerCase();
+    const url = String(m?.url || "").trim();
+    if (!url) return;
+
+    if (ct.startsWith("video/")) {
+      setVideoUrl(url);
+      setImageUrl("");
+    } else {
+      setImageUrl(url);
+      setVideoUrl("");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
@@ -662,7 +558,6 @@ export default function DashboardHomePage() {
           </div>
 
           <div className="mt-8 grid gap-6 lg:grid-cols-3">
-            {/* Quick Blast Card */}
             <div className="lg:col-span-2 rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -675,7 +570,6 @@ export default function DashboardHomePage() {
                 </div>
               </div>
 
-              {/* Mode switch */}
               <div className="mt-5 rounded-3xl border border-slate-700 bg-slate-950 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -713,7 +607,9 @@ export default function DashboardHomePage() {
                         onChange={(e) => setScheduledLocal(e.target.value)}
                         className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                       />
-                      <div className="mt-1 text-[11px] text-slate-500">This is the scheduled time stored on the post.</div>
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        This is the scheduled time stored on the post (and shown in Approvals/Scheduled).
+                      </div>
                     </div>
 
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-300">
@@ -728,12 +624,66 @@ export default function DashboardHomePage() {
                 )}
               </div>
 
+              {/* ✅ Media uploader (image/video) */}
+              <div className="mt-6 rounded-3xl border border-slate-700 bg-slate-950 p-4">
+                <div className="text-sm font-semibold">Media (optional)</div>
+                <div className="mt-1 text-[11px] text-slate-400">
+                  Drop a file here or click “Choose file”. We’ll upload to Supabase and fill the correct URL automatically.
+                </div>
+
+                <div className="mt-3">
+                  <MediaDropzone
+                    organisationId={organisationId || undefined}
+                    label="Upload image or video"
+                    helpText="Drag & drop an image/video here (or click to choose)"
+                    accept="image/*,video/*"
+                    maxMb={50}
+                    disabled={!organisationId || loadingAccounts}
+                    onUploaded={onUploadedQuickBlast}
+                  />
+                </div>
+
+                {(imageUrl || videoUrl) && (
+                  <div className="mt-3 grid gap-2 md:grid-cols-2 text-[11px]">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="text-slate-400">Image URL</div>
+                      <div className="mt-1 break-all text-slate-200">{imageUrl || "—"}</div>
+                      {imageUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard.writeText(imageUrl)}
+                          className="mt-2 rounded-full bg-slate-900 px-3 py-1 text-slate-100 hover:bg-slate-800"
+                        >
+                          Copy
+                        </button>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="text-slate-400">Video URL</div>
+                      <div className="mt-1 break-all text-slate-200">{videoUrl || "—"}</div>
+                      {videoUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard.writeText(videoUrl)}
+                          className="mt-2 rounded-full bg-slate-900 px-3 py-1 text-slate-100 hover:bg-slate-800"
+                        >
+                          Copy
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* AI Composer */}
               <div className="mt-6 rounded-3xl border border-slate-700 bg-slate-950 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold">AI helper</div>
-                    <div className="text-[11px] text-slate-400 mt-1">Type a subject + pick tone/length → Generate → Use.</div>
+                    <div className="text-[11px] text-slate-400 mt-1">
+                      Type a subject + pick tone/length → Generate → Use (then edit if you want).
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -747,7 +697,7 @@ export default function DashboardHomePage() {
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">Subject</label>
+                    <label className="block text-xs font-medium text-slate-300">Subject (what’s the post about?)</label>
                     <input
                       value={aiSubject}
                       onChange={(e) => setAiSubject(e.target.value)}
@@ -810,7 +760,7 @@ export default function DashboardHomePage() {
                         <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{joinVariant(v)}</div>
                       </div>
                     ))}
-                    <div className="text-[11px] text-slate-500">Tip: Use a variant, tweak, then dispatch.</div>
+                    <div className="text-[11px] text-slate-500">Tip: Click “Use this”, tweak the wording, then dispatch.</div>
                   </div>
                 )}
               </div>
@@ -827,33 +777,25 @@ export default function DashboardHomePage() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-300">Image (optional)</label>
-                  <input
-                    value={imageUrl}
-                    onChange={(e) => setImageUrl(e.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    placeholder="Paste a direct image URL (JPG/PNG)…"
-                  />
-                  <div className="mt-1 text-[11px] text-slate-500">(Instagram posting may require an image for some post types.)</div>
-                  {instagramSelected && !imageUrl.trim() && (
-                    <div className="mt-2 text-[11px] text-amber-300">
-                      Instagram selected: if posting fails, add an image URL and try again.
-                    </div>
-                  )}
-                </div>
-
-                {/* ✅ Video URL (kept for now; full video posting engine comes next) */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-300">Video URL (optional)</label>
-                  <input
-                    value={videoUrl}
-                    onChange={(e) => setVideoUrl(e.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    placeholder="Paste a public MP4 URL…"
-                  />
-                  <div className="mt-1 text-[11px] text-slate-500">
-                    Tip: Video posting is being wired platform-by-platform. For now, use it mainly for storage + later flows.
+                {/* Keep manual fields as fallback */}
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Image URL (optional)</label>
+                    <input
+                      value={imageUrl}
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder="Paste a direct image URL…"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Video URL (optional)</label>
+                    <input
+                      value={videoUrl}
+                      onChange={(e) => setVideoUrl(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder="Paste a direct video URL…"
+                    />
                   </div>
                 </div>
 
@@ -869,19 +811,15 @@ export default function DashboardHomePage() {
                     {channelCards.map((p) => {
                       const isConnected = connectedPlatforms.has(p);
                       const isSelected = selected.includes(p);
-                      const blocked = isBlocked(p);
-                      const blockedText = blockedLabel(p);
-
-                      const disabled = !isConnected || blocked;
 
                       return (
                         <button
                           key={p}
                           type="button"
                           onClick={() => togglePlatform(p)}
-                          disabled={disabled}
+                          disabled={!isConnected}
                           className={`flex items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm transition ${
-                            disabled
+                            !isConnected
                               ? "border-slate-800 bg-slate-950/40 text-slate-600 cursor-not-allowed"
                               : isSelected
                               ? "border-emerald-500/60 bg-emerald-500/10 text-slate-100"
@@ -890,29 +828,25 @@ export default function DashboardHomePage() {
                         >
                           <div>
                             <div className="font-medium">{PROVIDER_LABELS[p]}</div>
-                            <div className="text-[11px] text-slate-500">
-                              {!isConnected ? "not connected" : blockedText ? blockedText : "connected"}
-                            </div>
+                            <div className="text-[11px] text-slate-500">{isConnected ? "connected" : "not connected"}</div>
                           </div>
                           <div
                             className={`text-[11px] px-2 py-1 rounded-full border ${
-                              disabled
+                              !isConnected
                                 ? "border-slate-800 text-slate-600"
                                 : isSelected
                                 ? "border-emerald-500/60 text-emerald-200"
                                 : "border-slate-600 text-slate-300"
                             }`}
                           >
-                            {isSelected ? "Selected" : disabled ? "Disabled" : "Select"}
+                            {isSelected ? "Selected" : "Select"}
                           </div>
                         </button>
                       );
                     })}
                   </div>
 
-                  <div className="mt-2 text-[11px] text-slate-500">
-                    Only connected channels will actually send. If a channel hits a platform limit, we temporarily disable it.
-                  </div>
+                  <div className="mt-2 text-[11px] text-slate-500">Only connected channels will actually send.</div>
                 </div>
 
                 <div className="flex flex-wrap gap-3 pt-2">
@@ -942,18 +876,15 @@ export default function DashboardHomePage() {
                   </button>
                 </div>
 
-                {/* Friendly Results Panel */}
                 {result && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
                       <div className={result.success ? "text-emerald-200" : "text-amber-200"}>
                         {friendlySummary?.headline || (result.success ? "Success." : "Not sent.")}
                       </div>
-
                       <div className="mt-1 text-[12px] text-slate-300">
                         {friendlySummary?.topMsg || (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.")}
                       </div>
-
                       {result.note ? <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div> : null}
                     </div>
 
@@ -962,28 +893,27 @@ export default function DashboardHomePage() {
                         {result.results.map((r: any, idx: number) => {
                           const platform = (String(r?.platform || "") as ProviderId) || "facebook";
                           const ok = !!r?.ok;
-                          const pending = !!r?.pending;
                           const skipped = !!r?.skipped;
                           const label = formatPlatformName(r?.platform || platform);
 
-                          const friendly = extractFriendlyError(r);
+                          const friendly = ok ? "Posted." : extractFriendlyError(r);
                           const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
-
-                          const statusLabel = ok ? "✅ Posted" : pending ? "⏳ Processing" : skipped ? "⚠️ Skipped" : "❌ Failed";
-                          const statusClass = ok
-                            ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
-                            : pending
-                            ? "border-amber-500/50 text-amber-200 bg-amber-500/10"
-                            : skipped
-                            ? "border-slate-600 text-slate-300 bg-slate-900/40"
-                            : "border-red-500/50 text-red-200 bg-red-500/10";
 
                           return (
                             <div key={`${platform}-${idx}`} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
                               <div className="flex items-start justify-between gap-3">
                                 <div className="text-[12px] font-semibold text-slate-200">{label}</div>
-                                <div className={["text-[11px] rounded-full border px-2 py-0.5", statusClass].join(" ")}>
-                                  {statusLabel}
+                                <div
+                                  className={[
+                                    "text-[11px] rounded-full border px-2 py-0.5",
+                                    ok
+                                      ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                                      : skipped
+                                      ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                      : "border-red-500/50 text-red-200 bg-red-500/10",
+                                  ].join(" ")}
+                                >
+                                  {ok ? "✅ Posted" : skipped ? "⚠️ Skipped" : "❌ Failed"}
                                 </div>
                               </div>
 
@@ -997,7 +927,9 @@ export default function DashboardHomePage() {
 
                     {adminOpen && (
                       <details className="mt-4">
-                        <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-300">Show technical details (admin)</summary>
+                        <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-300">
+                          Show technical details (admin)
+                        </summary>
                         <pre className="mt-2 max-h-72 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 text-[11px] text-slate-200">
 {JSON.stringify(result, null, 2)}
                         </pre>
@@ -1059,7 +991,7 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
-          <div className="mt-8 text-xs text-slate-500">Tip: Generate with AI → Use a variant → tweak → post (or queue).</div>
+          <div className="mt-8 text-xs text-slate-500">Tip: Upload media → write → choose channels → post (or queue).</div>
         </div>
       </div>
     </div>
