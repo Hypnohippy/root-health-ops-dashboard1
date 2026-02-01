@@ -1,187 +1,205 @@
 // app/dashboard/components/MediaDropzone.tsx
 "use client";
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
+import { supabaseBrowser } from "../../../lib/supabaseBrowser";
 
 export type UploadedMedia = {
-  // ✅ added: used by content/new/page.tsx (acts as a stable “media id”)
-  id: string;
-
   url: string;
-  path: string;
-  bucket: string;
-  contentType: string;
-  size: number;
-  kind: "image" | "video" | "other";
+  path?: string;
+  bucket?: string;
+  contentType?: string;
+  size?: number;
 };
 
 type Props = {
-  // accepted to prevent TS errors where it’s passed
   organisationId?: string;
-
-  // Called when upload succeeds
-  onUploaded: (media: UploadedMedia) => void;
-
-  // Optional UI control
   label?: string;
   helpText?: string;
-  maxMb?: number; // defaults to 50
-  accept?: string; // defaults to images + video
+  accept?: string; // e.g. "image/*" or "video/*"
+  maxMb?: number; // default 50
+  onUploaded: (media: UploadedMedia) => void;
 };
 
-function bytesToMb(n: number) {
-  return n / (1024 * 1024);
-}
-
-function inferKind(contentType: string): UploadedMedia["kind"] {
-  const ct = (contentType || "").toLowerCase();
-  if (ct.startsWith("image/")) return "image";
-  if (ct.startsWith("video/")) return "video";
-  return "other";
-}
+type InitResponse = {
+  success: boolean;
+  bucket?: string;
+  path?: string;
+  token?: string;
+  signedUrl?: string;
+  publicUrl?: string;
+  contentType?: string;
+  size?: number;
+  error?: string;
+};
 
 export default function MediaDropzone({
-  organisationId, // not used yet, but safe
-  onUploaded,
-  label = "Upload media",
-  helpText = "Drag & drop an image or video (max 50MB).",
+  organisationId,
+  label = "Upload",
+  helpText = "Drag & drop a file here",
+  accept = "*/*",
   maxMb = 50,
-  accept = "image/*,video/*",
+  onUploaded,
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  const [dragOver, setDragOver] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [last, setLast] = useState<UploadedMedia | null>(null);
+  const [doneMsg, setDoneMsg] = useState<string | null>(null);
 
   const maxBytes = useMemo(() => maxMb * 1024 * 1024, [maxMb]);
 
-  const pick = () => inputRef.current?.click();
+  function openPicker() {
+    inputRef.current?.click();
+  }
 
-  const uploadFile = useCallback(
-    async (file: File) => {
-      setErr(null);
+  function prettySize(bytes: number) {
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(1)}MB`;
+  }
 
-      if (!file) return;
+  async function uploadFile(file: File) {
+    setErr(null);
+    setDoneMsg(null);
+    setBusy(true);
+
+    try {
+      if (!file) throw new Error("No file selected.");
+
       if (file.size > maxBytes) {
-        setErr(
-          `That file is ${bytesToMb(file.size).toFixed(1)}MB. Max is ${maxMb}MB.`
-        );
-        return;
+        throw new Error(`File too large. Max is ${maxMb}MB.`);
       }
 
-      setBusy(true);
-      try {
-        const fd = new FormData();
-        fd.append("file", file);
+      // 1) Ask server for signed upload token (tiny JSON, no 413)
+      const initRes = await fetch("/api/media/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type,
+          size: file.size,
+          organisationId: organisationId || null,
+        }),
+      });
 
-        // Optional, for future org-based foldering
-        if (organisationId) fd.append("organisationId", organisationId);
+      const initJson: InitResponse = await initRes.json().catch(() => null as any);
 
-        const res = await fetch("/api/media/upload", {
-          method: "POST",
-          body: fd,
+      if (!initRes.ok || !initJson?.success) {
+        throw new Error(initJson?.error || `Upload init failed (${initRes.status}).`);
+      }
+
+      const bucket = String(initJson.bucket || "");
+      const path = String(initJson.path || "");
+      const token = String(initJson.token || "");
+      const publicUrl = String(initJson.publicUrl || "");
+
+      if (!bucket || !path || !token || !publicUrl) {
+        throw new Error("Upload init response missing bucket/path/token/publicUrl.");
+      }
+
+      // 2) Upload directly to Supabase Storage (bypasses Vercel limits)
+      const { error: upErr } = await supabaseBrowser.storage
+        .from(bucket)
+        .uploadToSignedUrl(path, token, file, {
+          contentType: file.type || initJson.contentType || "application/octet-stream",
         });
 
-        const json: any = await res.json().catch(() => null);
-        if (!res.ok || !json?.success) {
-          throw new Error(json?.error || `Upload failed (${res.status})`);
-        }
-
-        const path = String(json.path || "");
-        const url = String(json.url || "");
-        const contentType = String(json.contentType || file.type || "");
-        const size = Number(json.size || file.size || 0);
-        const bucket = String(json.bucket || "public-media");
-
-        // ✅ This is what fixes your deploy:
-        // treat the storage path as a stable “id”
-        const media: UploadedMedia = {
-          id: path || url || `upload_${Date.now()}`,
-          path,
-          url,
-          bucket,
-          contentType,
-          size,
-          kind: inferKind(contentType),
-        };
-
-        setLast(media);
-        onUploaded(media);
-      } catch (e: any) {
-        setErr(e?.message || "Upload failed.");
-      } finally {
-        setBusy(false);
+      if (upErr) {
+        throw new Error(`Supabase upload failed: ${upErr.message}`);
       }
-    },
-    [maxBytes, maxMb, onUploaded, organisationId]
-  );
 
-  const onDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setDragOver(false);
+      // 3) Done
+      onUploaded({
+        url: publicUrl,
+        bucket,
+        path,
+        contentType: file.type || initJson.contentType,
+        size: file.size,
+      });
 
-      const file = e.dataTransfer.files?.[0];
-      if (!file) return;
+      setDoneMsg(`Uploaded: ${file.name} (${prettySize(file.size)})`);
+    } catch (e: any) {
+      setErr(e?.message || "Upload failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
-      await uploadFile(file);
-    },
-    [uploadFile]
-  );
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const file = e.dataTransfer?.files?.[0];
+    if (file) void uploadFile(file);
+  }
+
+  function onDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }
+
+  function onDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }
+
+  function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) void uploadFile(file);
+    // allow selecting the same file again
+    e.target.value = "";
+  }
 
   return (
     <div className="space-y-2">
-      <div className="text-sm font-medium">{label}</div>
+      {label ? <div className="text-xs font-medium text-slate-300">{label}</div> : null}
 
       <div
-        onClick={pick}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setDragOver(true);
-        }}
-        onDragLeave={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setDragOver(false);
-        }}
         onDrop={onDrop}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
         className={[
-          "cursor-pointer rounded-2xl border p-4 transition",
-          dragOver
-            ? "border-emerald-400 bg-emerald-500/10"
+          "rounded-2xl border px-4 py-4 text-sm transition cursor-pointer",
+          isDragging
+            ? "border-emerald-500/70 bg-emerald-500/10"
             : "border-slate-700 bg-slate-950",
         ].join(" ")}
+        onClick={openPicker}
+        role="button"
+        tabIndex={0}
       >
-        <div className="text-sm text-slate-200">
-          {busy ? "Uploading…" : "Drag & drop here (or click to choose)"}
-        </div>
-        <div className="mt-1 text-[11px] text-slate-400">{helpText}</div>
-
-        {last?.url ? (
-          <div className="mt-3 text-[11px] text-slate-300 break-all">
-            <span className="text-slate-500">Uploaded:</span> {last.url}
+        <div className="flex items-center justify-between gap-4">
+          <div className="text-slate-200">
+            {busy ? "Uploading…" : helpText}
+            <div className="mt-1 text-[11px] text-slate-500">
+              Max {maxMb}MB • Accept: {accept}
+            </div>
           </div>
-        ) : null}
 
-        {err ? <div className="mt-3 text-[11px] text-red-400">{err}</div> : null}
+          <div className="text-[11px] rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200">
+            {busy ? "Working…" : "Choose file"}
+          </div>
+        </div>
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept={accept}
+          className="hidden"
+          onChange={onFilePicked}
+        />
       </div>
 
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        className="hidden"
-        onChange={async (e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          e.target.value = "";
-          await uploadFile(file);
-        }}
-      />
+      {err ? (
+        <div className="text-[11px] text-red-400 whitespace-pre-wrap">{err}</div>
+      ) : null}
+
+      {doneMsg ? (
+        <div className="text-[11px] text-emerald-300 whitespace-pre-wrap">{doneMsg}</div>
+      ) : null}
     </div>
   );
 }
