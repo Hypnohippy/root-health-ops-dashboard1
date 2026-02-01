@@ -61,8 +61,6 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 };
 
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
-
-// ✅ Brainstorm → Quick Blast prefill key (matches Brainstorm page)
 const PREFILL_QUICKBLAST_KEY = "rootops_prefill_quickblast_v1";
 
 type Draft = {
@@ -137,19 +135,13 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
 
   if (platform === "instagram") {
     if (msg.includes("image") || msg.includes("media") || msg.includes("ready")) {
-      return "Tip: Instagram may take a few seconds to process media. Try again after 10–20 seconds.";
-    }
-  }
-
-  if (platform === "facebook") {
-    if (msg.includes("invalid") || msg.includes("missing")) {
-      return "Tip: Facebook is picky about media links. Upload via the dropzone for the most reliable public URL.";
+      return "Tip: Instagram can take time to process media. If it fails, try again after 10–20 seconds.";
     }
   }
 
   if (platform === "threads") {
-    if (msg.includes("media") || msg.includes("resource does not exist") || msg.includes("not found")) {
-      return "Tip: Threads needs a stable, publicly accessible media link. Upload via the dropzone.";
+    if (msg.includes("media") || msg.includes("not found") || msg.includes("resource")) {
+      return "Tip: Threads needs a stable, publicly accessible media URL. Supabase Storage public URLs work well.";
     }
   }
 
@@ -157,10 +149,6 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
     if (msg.includes("duplicate")) {
       return "Tip: Change the first line or CTA slightly, then resend.";
     }
-  }
-
-  if (platform === "tiktok") {
-    return "Tip: TikTok video posting is not wired in yet in your backend (we’ll add it next).";
   }
 
   return null;
@@ -191,6 +179,7 @@ export default function DashboardHomePage() {
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
+  // AI composer controls
   const [aiSubject, setAiSubject] = useState("");
   const [aiTone, setAiTone] = useState("calm");
   const [aiLength, setAiLength] = useState("short");
@@ -342,16 +331,13 @@ export default function DashboardHomePage() {
     setResult(null);
 
     try {
-      // If both media provided, prefer video (one media per post is safest)
-      const img = videoUrl.trim() ? "" : imageUrl;
-
       const res = await fetch("/api/social/quick-blast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
-          imageUrl: img,
-          videoUrl: videoUrl.trim() || undefined,
+          imageUrl,
+          videoUrl,
           platforms: selected,
         }),
       });
@@ -414,15 +400,13 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const img = videoUrl.trim() ? "" : imageUrl;
-
       const res = await fetch("/api/social/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
           platforms: selected,
-          imageUrl: img,
+          imageUrl,
           scheduledAt: scheduledIso,
           organisationId,
 
@@ -438,7 +422,8 @@ export default function DashboardHomePage() {
               source: "quick_blast",
               created_at: new Date().toISOString(),
             },
-            video_url: videoUrl.trim() || null,
+            // ✅ carry video forward via meta
+            video_url: videoUrl || null,
           },
         }),
       });
@@ -480,39 +465,35 @@ export default function DashboardHomePage() {
     return queueForApproval();
   }
 
-  // ✅ Load accounts & drafts
   useEffect(() => {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
-  }, []);
 
-  // ✅ Fix: Brainstorm → Quick Blast prefill
-  useEffect(() => {
+    // ✅ Import Brainstorm prefill → Quick Blast
     try {
       const raw = window.localStorage.getItem(PREFILL_QUICKBLAST_KEY);
-      if (!raw) return;
+      if (raw) {
+        const parsed = JSON.parse(raw);
 
-      const parsed: any = JSON.parse(raw);
+        if (parsed?.message) setMessage(String(parsed.message));
+        if (parsed?.imageUrl) setImageUrl(String(parsed.imageUrl));
+        if (parsed?.videoUrl) setVideoUrl(String(parsed.videoUrl));
 
-      if (parsed?.message) setMessage(String(parsed.message));
-      if (parsed?.imageUrl) setImageUrl(String(parsed.imageUrl));
-      if (parsed?.videoUrl) setVideoUrl(String(parsed.videoUrl));
+        // If Brainstorm suggests platforms
+        const suggested = Array.isArray(parsed?.suggestedPlatforms) ? parsed.suggestedPlatforms : null;
+        if (suggested && suggested.length) {
+          setSelected(
+            suggested.map((p: any) => String(p || "").toLowerCase().trim()).filter(Boolean) as ProviderId[]
+          );
+        }
 
-      if (Array.isArray(parsed?.suggestedPlatforms) && parsed.suggestedPlatforms.length > 0) {
-        const next = parsed.suggestedPlatforms
-          .map((p: any) => String(p || "").toLowerCase().trim())
-          .filter(Boolean) as ProviderId[];
-        if (next.length) setSelected(next);
+        window.localStorage.removeItem(PREFILL_QUICKBLAST_KEY);
       }
-
-      // clear so it doesn't re-apply forever
-      window.localStorage.removeItem(PREFILL_QUICKBLAST_KEY);
     } catch {
       // ignore
     }
   }, []);
 
-  // Auto-select connected channels if none selected yet
   useEffect(() => {
     if (selected.length > 0) return;
     const defaults = socialAccounts
@@ -559,6 +540,8 @@ export default function DashboardHomePage() {
     return { attempted, ok, failed, headline, topMsg };
   }, [result]);
 
+  const hasAnyMedia = !!imageUrl.trim() || !!videoUrl.trim();
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
@@ -591,6 +574,7 @@ export default function DashboardHomePage() {
           </div>
 
           <div className="mt-8 grid gap-6 lg:grid-cols-3">
+            {/* Quick Blast Card */}
             <div className="lg:col-span-2 rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -603,6 +587,7 @@ export default function DashboardHomePage() {
                 </div>
               </div>
 
+              {/* Mode switch */}
               <div className="mt-5 rounded-3xl border border-slate-700 bg-slate-950 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -657,6 +642,7 @@ export default function DashboardHomePage() {
                 )}
               </div>
 
+              {/* AI Composer */}
               <div className="mt-6 rounded-3xl border border-slate-700 bg-slate-950 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -759,33 +745,78 @@ export default function DashboardHomePage() {
                   />
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-4">
-                  <MediaDropzone
-                    title="Upload image (optional)"
-                    helperText="Drag & drop an image (JPG/PNG/WebP/GIF). It will upload to Supabase Storage."
-                    accept="image/*"
-                    value={imageUrl}
-                    onChange={(url) => setImageUrl(url)}
-                  />
-
-                  <MediaDropzone
-                    title="Upload video (optional)"
-                    helperText="Drag & drop a video (MP4 recommended). If video is set, it will be used instead of image."
-                    accept="video/mp4,video/quicktime,video/x-m4v"
-                    value={videoUrl}
-                    onChange={(url) => setVideoUrl(url)}
-                  />
-                </div>
-
-                <div className="text-[11px] text-slate-500">
-                  If both image + video are set, we send the <span className="text-slate-200 font-semibold">video</span>.
-                </div>
-
-                {instagramSelected && !imageUrl.trim() && !videoUrl.trim() && (
-                  <div className="text-[11px] text-amber-300">
-                    Instagram selected: if posting fails for text-only, attach an image or video and try again.
+                {/* Upload box */}
+                <div className="rounded-3xl border border-slate-700 bg-slate-950 p-4">
+                  <div className="text-sm font-semibold">Media (optional)</div>
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    Upload an image/video to Supabase Storage (bucket: <span className="text-slate-200">public-media</span>) and we’ll use its public URL.
                   </div>
-                )}
+
+                  <div className="mt-4">
+                    <MediaDropzone
+                      organisationId={organisationId || undefined}
+                      onUploaded={(m) => {
+                        if (m.kind === "video") {
+                          setVideoUrl(m.url);
+                          setImageUrl("");
+                        } else if (m.kind === "image") {
+                          setImageUrl(m.url);
+                          setVideoUrl("");
+                        } else {
+                          // keep it simple: treat as image URL slot
+                          setImageUrl(m.url);
+                          setVideoUrl("");
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <div className="mt-4 grid md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300">Image URL (optional)</label>
+                      <input
+                        value={imageUrl}
+                        onChange={(e) => {
+                          setImageUrl(e.target.value);
+                          if (e.target.value.trim()) setVideoUrl("");
+                        }}
+                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                        placeholder="Paste a direct image URL (JPG/PNG)…"
+                      />
+                      <div className="mt-1 text-[11px] text-slate-500">(If you paste an image URL, we’ll treat it as an image post.)</div>
+                      {instagramSelected && !imageUrl.trim() && !videoUrl.trim() && (
+                        <div className="mt-2 text-[11px] text-amber-300">
+                          Instagram selected: if posting fails, add an image or a video.
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300">Video URL (optional)</label>
+                      <input
+                        value={videoUrl}
+                        onChange={(e) => {
+                          setVideoUrl(e.target.value);
+                          if (e.target.value.trim()) setImageUrl("");
+                        }}
+                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                        placeholder="Paste a direct video URL (MP4)…"
+                      />
+                      <div className="mt-1 text-[11px] text-slate-500">(If you paste a video URL, we’ll treat it as a video post where supported.)</div>
+                    </div>
+                  </div>
+
+                  {hasAnyMedia ? (
+                    <div className="mt-2 text-[11px] text-slate-400">
+                      Using:{" "}
+                      {videoUrl.trim() ? (
+                        <span className="text-slate-200">video</span>
+                      ) : (
+                        <span className="text-slate-200">image</span>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
 
                 <div>
                   <div className="flex items-center justify-between">
@@ -945,11 +976,13 @@ export default function DashboardHomePage() {
                     </div>
                     <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
                     <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
+                    <div className="mt-1">Media: {videoUrl ? "videoUrl set" : imageUrl ? "imageUrl set" : "none"}</div>
                   </div>
                 )}
               </div>
             </div>
 
+            {/* Drafts */}
             <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <h3 className="text-base font-semibold">Saved drafts</h3>
               <p className="mt-1 text-sm text-slate-300">Drafts are stored on this device. (Later we can sync per org.)</p>
@@ -964,6 +997,7 @@ export default function DashboardHomePage() {
                       <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
                       <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
                       <div className="mt-2 text-[11px] text-slate-500">Channels: {d.selectedPlatforms?.join(", ") || "(none)"}</div>
+                      <div className="mt-1 text-[11px] text-slate-500">Media: {d.videoUrl ? "video" : d.imageUrl ? "image" : "none"}</div>
 
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
