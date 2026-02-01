@@ -1,3 +1,4 @@
+// app/dashboard/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -59,6 +60,9 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
   whatsapp: "WhatsApp",
 };
 
+// ✅ Your org id (single-tenant beta mode)
+const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
+
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
 type Draft = {
@@ -112,8 +116,7 @@ function extractFriendlyError(item: any): string {
 
   const metaTitle =
     item?.details?.error?.error_user_title || item?.error?.error_user_title;
-  const metaMessage =
-    item?.details?.error?.message || item?.error?.message;
+  const metaMessage = item?.details?.error?.message || item?.error?.message;
   if (metaTitle && metaMessage) return `${metaTitle}: ${metaMessage}`;
   if (metaMessage) return String(metaMessage);
 
@@ -138,8 +141,15 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
     if (msg.includes("processing")) {
       return "Tip: Instagram can take 10–60s to process media. Try again after a short pause.";
     }
+    if (
+      msg.includes("unsupported media type") ||
+      msg.includes("reels") ||
+      msg.includes("video")
+    ) {
+      return "Tip: Instagram VIDEO must be posted as REELS (not old VIDEO). We’ll fix this in the backend next (Ayrshare instagramOptions).";
+    }
     if (msg.includes("image") || msg.includes("media") || msg.includes("ready")) {
-      return "Tip: For Instagram VIDEO, you must upload a direct MP4 URL (public) — then retry. If it says “requires an image”, your backend is still on the old IG=image-only logic.";
+      return "Tip: Use a direct public URL. If IG says it needs a different media type, we’ll adjust the payload next.";
     }
   }
 
@@ -153,6 +163,9 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
   }
 
   if (platform === "threads") {
+    if (msg.includes("media not found")) {
+      return "Tip: Threads media can fail if the media URL is not a direct, public URL or the upstream container failed. We’ll harden this next.";
+    }
     if (msg.includes("permission")) {
       return "Tip: Text works, but media may require extra Threads/Meta permissions or account eligibility.";
     }
@@ -193,7 +206,7 @@ type Mode = "now" | "approval";
 export default function DashboardHomePage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
-  const [organisationId, setOrganisationId] = useState<string | null>(null);
+  const [organisationId, setOrganisationId] = useState<string | null>(ORG_ID);
 
   // AI composer
   const [aiSubject, setAiSubject] = useState("");
@@ -240,7 +253,10 @@ export default function DashboardHomePage() {
     return new Set(active.map((r) => r.platform));
   }, [socialAccounts]);
 
-  const connectedCount = useMemo(() => connectedPlatforms.size, [connectedPlatforms]);
+  const connectedCount = useMemo(
+    () => connectedPlatforms.size,
+    [connectedPlatforms]
+  );
 
   const charCount = message.length;
 
@@ -261,24 +277,22 @@ export default function DashboardHomePage() {
   async function loadSocialAccounts() {
     setLoadingAccounts(true);
     try {
-      const res = await fetch("/api/social-accounts", { cache: "no-store" });
+      // ✅ CRITICAL FIX: load accounts for THIS org (otherwise you see wrong/empty)
+      const res = await fetch(
+        `/api/social-accounts?organisationId=${encodeURIComponent(ORG_ID)}`,
+        { cache: "no-store" }
+      );
       const data = await res.json().catch(() => null);
 
-      const org =
-        typeof data?.organisationId === "string"
-          ? data.organisationId
-          : typeof data?.organisation_id === "string"
-          ? data.organisation_id
-          : null;
-
-      setOrganisationId(org);
+      // Force the org context for this page
+      setOrganisationId(ORG_ID);
 
       const rows: SocialAccountRow[] = data?.socialAccounts ?? [];
-      setSocialAccounts(rows);
+      setSocialAccounts(Array.isArray(rows) ? rows : []);
     } catch (e) {
       console.error("[dashboard] loadSocialAccounts failed", e);
       setSocialAccounts([]);
-      setOrganisationId(null);
+      setOrganisationId(ORG_ID);
     } finally {
       setLoadingAccounts(false);
     }
@@ -323,9 +337,7 @@ export default function DashboardHomePage() {
     try {
       const subject = aiSubject.trim();
       if (!subject) {
-        setAiError(
-          "Please type a subject first (e.g., 'coping with failure')."
-        );
+        setAiError("Please type a subject first (e.g., 'coping with failure').");
         return;
       }
 
@@ -421,14 +433,7 @@ export default function DashboardHomePage() {
     setResult(null);
 
     try {
-      if (!organisationId) {
-        setResult({
-          success: false,
-          error: "Organisation not loaded yet.",
-          userMessage: "Workspace not loaded yet. Refresh and try again.",
-        });
-        return;
-      }
+      const org = organisationId || ORG_ID;
 
       const scheduledIso = isoForDateTimeLocal(scheduledLocal);
       if (!scheduledIso) {
@@ -448,7 +453,7 @@ export default function DashboardHomePage() {
           platforms: selected,
           imageUrl,
           scheduledAt: scheduledIso,
-          organisationId,
+          organisationId: org,
           meta: {
             approvals: {
               state: "pending",
@@ -481,7 +486,7 @@ export default function DashboardHomePage() {
 
       setResult({
         success: true,
-        organisationId,
+        organisationId: org,
         userMessage:
           "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
         note: "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
@@ -735,7 +740,7 @@ export default function DashboardHomePage() {
 
                 <div className="mt-3">
                   <MediaDropzone
-                    organisationId={organisationId || undefined}
+                    organisationId={organisationId || ORG_ID}
                     label="Upload image or video"
                     helpText="Drag & drop an image/video here (or click to choose)"
                     accept="image/*,video/*"
@@ -804,9 +809,8 @@ export default function DashboardHomePage() {
                 )}
 
                 <div className="mt-3 text-[11px] text-slate-500">
-                  <b>Heads-up:</b> LinkedIn video is not enabled in your LinkedIn
-                  route yet (text/image only). Instagram + Threads video depends
-                  on your updated <code>/api/social/quick-blast</code>.
+                  <b>Heads-up:</b> Instagram VIDEO must be posted as REELS. We’ll
+                  fix that next in <code>/api/social/quick-blast</code>.
                 </div>
               </div>
 
@@ -989,9 +993,7 @@ export default function DashboardHomePage() {
                           }`}
                         >
                           <div>
-                            <div className="font-medium">
-                              {PROVIDER_LABELS[p]}
-                            </div>
+                            <div className="font-medium">{PROVIDER_LABELS[p]}</div>
                             <div className="text-[11px] text-slate-500">
                               {isConnected ? "connected" : "not connected"}
                             </div>
@@ -1022,7 +1024,9 @@ export default function DashboardHomePage() {
                     type="button"
                     onClick={sendQuickBlast}
                     disabled={
-                      sending || message.trim().length === 0 || selected.length === 0
+                      sending ||
+                      message.trim().length === 0 ||
+                      selected.length === 0
                     }
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
@@ -1084,9 +1088,7 @@ export default function DashboardHomePage() {
                           const label = formatPlatformName(r?.platform || platform);
 
                           const friendly = ok ? "Posted." : extractFriendlyError(r);
-                          const tip = !ok
-                            ? friendlySuggestionForPlatform(platform, r)
-                            : null;
+                          const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
 
                           return (
                             <div
