@@ -42,7 +42,11 @@ function sleep(ms: number) {
 }
 
 async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
+
   if (error) {
     console.error("[quick-blast] organisations error", error);
     return null;
@@ -97,9 +101,9 @@ function isLikelyVideoUrl(url: string) {
 }
 
 /**
- * Facebook (Pages) direct
- * - image: /{pageId}/photos (url)
+ * Facebook (Pages) direct:
  * - video: /{pageId}/videos (file_url)
+ * - image: /{pageId}/photos (url)
  * - text:  /{pageId}/feed
  */
 async function postToFacebook(args: {
@@ -109,8 +113,10 @@ async function postToFacebook(args: {
   imageUrl?: string;
   videoUrl?: string;
 }) {
+  // Video post
   if (args.videoUrl && args.videoUrl.trim()) {
     const videoUrl = args.videoUrl.trim();
+
     if (!isLikelyVideoUrl(videoUrl)) {
       return {
         ok: false,
@@ -125,7 +131,9 @@ async function postToFacebook(args: {
       };
     }
 
-    const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(args.pageId)}/videos`;
+    const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+      args.pageId
+    )}/videos`;
 
     const body = new URLSearchParams();
     body.set("file_url", videoUrl);
@@ -143,6 +151,7 @@ async function postToFacebook(args: {
     return { ok: res.ok, status: res.status, json, mode: "video" as const };
   }
 
+  // Photo post
   if (args.imageUrl && args.imageUrl.trim()) {
     const imageUrl = args.imageUrl.trim();
 
@@ -160,7 +169,9 @@ async function postToFacebook(args: {
       };
     }
 
-    const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(args.pageId)}/photos`;
+    const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+      args.pageId
+    )}/photos`;
 
     const body = new URLSearchParams();
     body.set("url", imageUrl);
@@ -179,7 +190,10 @@ async function postToFacebook(args: {
     return { ok: res.ok, status: res.status, json, mode: "photo" as const };
   }
 
-  const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(args.pageId)}/feed`;
+  // Text post
+  const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+    args.pageId
+  )}/feed`;
 
   const body = new URLSearchParams();
   body.set("message", args.message);
@@ -200,9 +214,27 @@ async function postToLinkedIn(args: {
   req: NextRequest;
   message: string;
   organisationId: string;
-  // videoUrl?: string; // not used in this pass
-  // imageUrl?: string; // if you want LI media, paste /api/linkedin/post and we’ll upgrade it
+  imageUrl?: string;
+  videoUrl?: string;
 }) {
+  // ✅ Your LI route supports imageUrl (good)
+  // ❌ Your LI route does NOT yet support videoUrl (different upload recipe)
+  if (args.videoUrl && args.videoUrl.trim()) {
+    return {
+      ok: false,
+      status: 200,
+      json: {
+        ok: false,
+        error: "LinkedIn video not implemented yet",
+        userMessage:
+          "LinkedIn video needs a special upload flow. Paste a direct MP4 URL is supported on FB/IG/Threads for now — we can add LinkedIn video next.",
+      },
+      error: "LinkedIn video not implemented yet",
+      userMessage:
+        "LinkedIn video needs a special upload flow. We can add it next.",
+    };
+  }
+
   const url = `${baseUrl(args.req)}/api/linkedin/post`;
 
   const res = await fetch(url, {
@@ -211,26 +243,30 @@ async function postToLinkedIn(args: {
     body: JSON.stringify({
       text: args.message,
       organisationId: args.organisationId,
+      imageUrl: args.imageUrl || undefined,
     }),
     cache: "no-store",
   });
 
   const json: any = await res.json().catch(() => null);
 
+  // ✅ Important: your LI route returns HTTP 200 even on failures
+  const ok = !!json?.ok && !!json?.postedId;
+
   return {
-    ok: res.ok && !!json?.postedId,
+    ok,
     status: res.status,
     json,
     error:
       json?.error ||
       json?.message ||
-      (!res.ok ? `LinkedIn request failed (${res.status})` : null),
+      (!ok ? "LinkedIn post failed" : null),
+    userMessage: json?.userMessage || null,
   };
 }
 
 /**
- * Threads direct posting
- * - TEXT / IMAGE / VIDEO
+ * Threads direct posting (TEXT / IMAGE / VIDEO)
  */
 async function postToThreads(args: {
   accessToken: string;
@@ -257,9 +293,7 @@ async function postToThreads(args: {
     return {
       ok: false,
       status: 400,
-      json: {
-        error: "Threads videoUrl must be a direct https MP4 link (ending .mp4).",
-      },
+      json: { error: "Threads videoUrl must be a direct https MP4 link (ending .mp4)." },
     };
   }
 
@@ -275,7 +309,10 @@ async function postToThreads(args: {
   }
 
   const createParams = new URLSearchParams();
-  createParams.set("media_type", hasVideo ? "VIDEO" : hasImage ? "IMAGE" : "TEXT");
+  createParams.set(
+    "media_type",
+    hasVideo ? "VIDEO" : hasImage ? "IMAGE" : "TEXT"
+  );
   createParams.set("text", args.message);
   if (hasVideo) createParams.set("video_url", args.videoUrl!.trim());
   if (!hasVideo && hasImage) createParams.set("image_url", args.imageUrl!.trim());
@@ -329,8 +366,8 @@ async function postToThreads(args: {
 
 /**
  * Instagram direct posting
- * - image feed: /{igUserId}/media (image_url) then publish
- * - video reels: /{igUserId}/media (video_url + media_type=REELS) then publish
+ * - image feed
+ * - video reels (REELS)
  */
 async function postToInstagram(args: {
   igUserId: string;
@@ -384,9 +421,7 @@ async function postToInstagram(args: {
     return {
       ok: false,
       status: 400,
-      json: {
-        error: "Instagram videoUrl must be a direct https MP4 link (ending .mp4).",
-      },
+      json: { error: "Instagram videoUrl must be a direct https MP4 link (ending .mp4)." },
     };
   }
 
@@ -467,7 +502,9 @@ async function postToInstagram(args: {
     publishBody.set("access_token", token);
 
     const publishRes = await fetch(
-      `https://graph.facebook.com/v24.0/${encodeURIComponent(igUserId)}/media_publish`,
+      `https://graph.facebook.com/v24.0/${encodeURIComponent(
+        igUserId
+      )}/media_publish`,
       {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -507,7 +544,8 @@ async function postToInstagram(args: {
     ok: false,
     status: 400,
     json: {
-      error: "Instagram is still processing this media. Please try again in a moment.",
+      error:
+        "Instagram is still processing this media. Please try again in a moment.",
       containerId: creationId,
     },
   };
@@ -527,16 +565,25 @@ export async function POST(req: NextRequest) {
       .filter(Boolean) as ProviderId[];
 
     if (!message) {
-      return NextResponse.json({ success: false, error: "Message is required." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Message is required." },
+        { status: 400 }
+      );
     }
 
     if (platforms.length === 0) {
-      return NextResponse.json({ success: false, error: "At least one platform is required." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "At least one platform is required." },
+        { status: 400 }
+      );
     }
 
     const organisationId = await resolveOrganisationId(req, body?.organisationId);
     if (!organisationId) {
-      return NextResponse.json({ success: false, error: "No organisation found in database." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "No organisation found in database." },
+        { status: 400 }
+      );
     }
 
     const results: any[] = [];
@@ -550,7 +597,8 @@ export async function POST(req: NextRequest) {
           results.push({
             platform: "facebook",
             ok: false,
-            error: "Facebook not connected (missing page_id). Go to Connect and connect Facebook.",
+            error:
+              "Facebook not connected (missing page_id). Go to Connect and connect Facebook.",
           });
           continue;
         }
@@ -559,7 +607,8 @@ export async function POST(req: NextRequest) {
           results.push({
             platform: "facebook",
             ok: false,
-            error: "Facebook connected but missing page_access_token. Reconnect Facebook and pick the Page again.",
+            error:
+              "Facebook connected but missing page_access_token. Reconnect Facebook and pick the Page again.",
           });
           continue;
         }
@@ -593,9 +642,15 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // LinkedIn (text only in this pass)
+      // LinkedIn (text + image supported; video not yet)
       if (p === "linkedin") {
-        const li = await postToLinkedIn({ req, message, organisationId });
+        const li = await postToLinkedIn({
+          req,
+          message,
+          organisationId,
+          imageUrl: imageUrl || undefined,
+          videoUrl: videoUrl || undefined,
+        });
 
         if (!li.ok) {
           results.push({
@@ -603,6 +658,7 @@ export async function POST(req: NextRequest) {
             ok: false,
             status: li.status,
             error: li.error || "LinkedIn post failed",
+            userMessage: li.userMessage || undefined,
             details: li.json,
           });
           continue;
@@ -612,7 +668,8 @@ export async function POST(req: NextRequest) {
           platform: "linkedin",
           ok: true,
           postedId: li.json?.postedId || null,
-          mode: "text",
+          mode: li.json?.mode || (imageUrl ? "image" : "text"),
+          details: li.json,
         });
 
         continue;
@@ -627,7 +684,8 @@ export async function POST(req: NextRequest) {
             platform: "instagram",
             ok: false,
             status: 401,
-            error: "Instagram is not connected. Go to Dashboard → Connect and connect Instagram.",
+            error:
+              "Instagram is not connected. Go to Dashboard → Connect and connect Instagram.",
           });
           continue;
         }
@@ -648,7 +706,10 @@ export async function POST(req: NextRequest) {
             platform: "instagram",
             ok: false,
             status: ig.status,
-            error: ig.json?.error || ig.json?.error?.message || "Instagram post failed",
+            error:
+              ig.json?.error ||
+              ig.json?.error?.message ||
+              "Instagram post failed",
             details: ig.json,
           });
           continue;
@@ -674,7 +735,8 @@ export async function POST(req: NextRequest) {
             platform: "threads",
             ok: false,
             status: 401,
-            error: "Threads is not connected (missing access token). Reconnect Threads on the Connect page.",
+            error:
+              "Threads is not connected (missing access token). Reconnect Threads on the Connect page.",
           });
           continue;
         }
