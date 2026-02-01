@@ -4,7 +4,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { applyAntiDuplicateVariation } from "../../../../lib/socialText";
 
-type ChannelId = "facebook" | "instagram" | "linkedin" | "tiktok" | "reddit";
+type ChannelId =
+  | "facebook"
+  | "instagram"
+  | "linkedin"
+  | "threads"
+  | "tiktok"
+  | "reddit";
 
 type GeneratedPost = {
   title: string;
@@ -55,6 +61,8 @@ type BrainstormPrefill = {
     cta?: string;
     imagePrompt?: string;
   }> | null;
+  imageUrl?: string | null; // optional future use
+  videoUrl?: string | null; // optional future use
   createdAt?: string;
 };
 
@@ -67,6 +75,20 @@ function safeParsePrefill(raw: string | null): BrainstormPrefill | null {
   } catch {
     return null;
   }
+}
+
+function isLikelyImageUrl(url: string) {
+  const u = (url || "").trim();
+  if (!u) return false;
+  if (!/^https:\/\/.+/i.test(u)) return false;
+  return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
+}
+
+function isLikelyVideoUrl(url: string) {
+  const u = (url || "").trim();
+  if (!u) return false;
+  if (!/^https:\/\/.+/i.test(u)) return false;
+  return /\.(mp4|mov|m4v)(\?.*)?$/i.test(u);
 }
 
 export default function StorySeriesBuilderPage() {
@@ -95,6 +117,10 @@ export default function StorySeriesBuilderPage() {
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
 
+  // ✅ Media for this story/series (applies to all episodes)
+  const [imageUrl, setImageUrl] = useState<string>("");
+  const [videoUrl, setVideoUrl] = useState<string>("");
+
   // ✅ Org comes from backend (no hardcoding)
   const [orgId, setOrgId] = useState<string | null>(null);
 
@@ -117,14 +143,19 @@ export default function StorySeriesBuilderPage() {
   // ✅ Import from Brainstorm (client only)
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem("rh_prefill_stories_v1");
-      const prefill = safeParsePrefill(raw);
+      // Brainstorm currently writes: rootops_prefill_stories_v1
+      // Older code used: rh_prefill_stories_v1
+      const rawA = window.localStorage.getItem("rootops_prefill_stories_v1");
+      const rawB = window.localStorage.getItem("rh_prefill_stories_v1");
+
+      const prefill =
+        safeParsePrefill(rawA) ||
+        safeParsePrefill(rawB);
+
       if (!prefill) return;
 
-      // Mark banner
       setImportedFromBrainstorm(true);
 
-      // Platform
       if (prefill.platform) setTargetPlatform(prefill.platform);
 
       // Tone (map string to closest option)
@@ -135,7 +166,7 @@ export default function StorySeriesBuilderPage() {
             ? "Warm & supportive"
             : t.includes("Inspirational")
             ? "Inspirational & human"
-            : t.includes("thought")
+            : t.toLowerCase().includes("thought")
             ? "Strong thought-leader"
             : t.includes("Data")
             ? "Data-backed but human"
@@ -146,7 +177,6 @@ export default function StorySeriesBuilderPage() {
       // Story type (best-effort match)
       if (prefill.storyType) {
         const st = String(prefill.storyType) as StoryTypeOption;
-        // only set if it's one of our allowed values
         const allowed: StoryTypeOption[] = [
           "Personal journey",
           "Professional insight",
@@ -178,6 +208,10 @@ export default function StorySeriesBuilderPage() {
         setSeriesLength(Math.max(1, Math.min(10, prefill.seriesLength)));
       }
 
+      // Optional future fields (if Brainstorm later sends media)
+      if (typeof prefill.imageUrl === "string") setImageUrl(prefill.imageUrl);
+      if (typeof prefill.videoUrl === "string") setVideoUrl(prefill.videoUrl);
+
       // If Brainstorm sent a full series, pre-fill posts directly
       if (Array.isArray(prefill.series) && prefill.series.length > 0) {
         const mapped: GeneratedPost[] = prefill.series.map((p) => ({
@@ -198,11 +232,11 @@ export default function StorySeriesBuilderPage() {
         setDispatchStatus(null);
         setDispatchError(null);
       } else if (typeof prefill.direct === "string" && prefill.direct.trim()) {
-        // If Brainstorm sent a direct draft, use it as the idea to generate a series from
         setIdea(prefill.direct.trim());
       }
 
-      // Optional: clear after import so it doesn't re-import forever
+      // Clear both keys so it doesn’t re-import forever
+      window.localStorage.removeItem("rootops_prefill_stories_v1");
       window.localStorage.removeItem("rh_prefill_stories_v1");
     } catch {
       // ignore
@@ -327,12 +361,27 @@ export default function StorySeriesBuilderPage() {
       const message = buildMessage(p, { part: 1, total: posts.length });
       if (!message) throw new Error("The post content is empty.");
 
+      const img = imageUrl.trim();
+      const vid = videoUrl.trim();
+
+      if (img && !isLikelyImageUrl(img)) {
+        throw new Error("Image URL must be a direct https link ending .jpg/.png/.webp/.gif");
+      }
+      if (vid && !isLikelyVideoUrl(vid)) {
+        throw new Error("Video URL must be a direct https link ending .mp4/.mov/.m4v (MP4 recommended).");
+      }
+
+      // If both provided, prefer video (most platforms treat one media per post)
+      const sendImageUrl = vid ? "" : img;
+
       const res = await fetch("/api/social/quick-blast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
           platforms: [targetPlatform],
+          imageUrl: sendImageUrl || undefined,
+          videoUrl: vid || undefined,
         }),
       });
 
@@ -357,16 +406,24 @@ export default function StorySeriesBuilderPage() {
     setDispatchError(null);
 
     try {
-      if (!orgId)
-        throw new Error("Organisation not loaded yet. Refresh the page.");
+      if (!orgId) throw new Error("Organisation not loaded yet. Refresh the page.");
       if (posts.length === 0) throw new Error("Generate a story/series first.");
       if (!seriesStart) throw new Error("Choose the first post date/time.");
 
       const base = new Date(seriesStart);
-      if (isNaN(base.getTime()))
-        throw new Error("Start date/time is not valid.");
+      if (isNaN(base.getTime())) throw new Error("Start date/time is not valid.");
 
       const cadenceDays = Math.max(1, Math.min(14, Number(dailyCadence) || 1));
+
+      const img = imageUrl.trim();
+      const vid = videoUrl.trim();
+
+      if (img && !isLikelyImageUrl(img)) {
+        throw new Error("Image URL must be a direct https link ending .jpg/.png/.webp/.gif");
+      }
+      if (vid && !isLikelyVideoUrl(vid)) {
+        throw new Error("Video URL must be a direct https link ending .mp4/.mov/.m4v (MP4 recommended).");
+      }
 
       let successCount = 0;
       const failures: { index: number; error: string }[] = [];
@@ -383,6 +440,9 @@ export default function StorySeriesBuilderPage() {
           whenIso,
         });
 
+        // If video exists, prefer video over image for the scheduled payload
+        const scheduleImageUrl = vid ? "" : img;
+
         const res = await fetch("/api/social/schedule", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -392,19 +452,24 @@ export default function StorySeriesBuilderPage() {
             scheduledAt: whenIso,
             organisationId: orgId,
 
-            // ✅ NEW: poster identity (demo-safe for now)
-            // Later this will come from the clinician user record.
+            // ✅ demo-safe
             createdBy: {
               user_id: "owner",
               name: "Clinic Owner",
               email: "owner@clinic.local",
             },
 
+            // Image is stored in image_url column
+            imageUrl: scheduleImageUrl || undefined,
+
+            // Video stored in meta.video_url (dispatcher carries it forward)
             meta: {
               series: posts.length > 1,
               part: i + 1,
               total: posts.length,
               cadenceDays,
+              video_url: vid || null,
+              source: "stories",
             },
           }),
         });
@@ -452,6 +517,14 @@ export default function StorySeriesBuilderPage() {
 
   const isSingle = seriesLength === 1;
 
+  const mediaHint = useMemo(() => {
+    const img = imageUrl.trim();
+    const vid = videoUrl.trim();
+    if (vid) return "Video will be used (one media per post).";
+    if (img) return "Image will be used (one media per post).";
+    return "No media attached (text-only).";
+  }, [imageUrl, videoUrl]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-8">
@@ -469,8 +542,7 @@ export default function StorySeriesBuilderPage() {
 
         {importedFromBrainstorm ? (
           <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-            Imported from Brainstorm. You can edit anything before
-            generating/sending.
+            Imported from Brainstorm. You can edit anything before generating/sending.
           </div>
         ) : null}
 
@@ -530,20 +602,12 @@ export default function StorySeriesBuilderPage() {
                     setStoryType(e.target.value as StoryTypeOption)
                   }
                 >
-                  <option value="HR director perspective">
-                    HR director perspective
-                  </option>
-                  <option value="Problem → Solution → Success">
-                    Problem → Solution → Success
-                  </option>
+                  <option value="HR director perspective">HR director perspective</option>
+                  <option value="Problem → Solution → Success">Problem → Solution → Success</option>
                   <option value="Professional insight">Professional insight</option>
                   <option value="Personal journey">Personal journey</option>
-                  <option value="Client case (anonymous)">
-                    Client case (anonymous)
-                  </option>
-                  <option value="Educational mini-series">
-                    Educational mini-series
-                  </option>
+                  <option value="Client case (anonymous)">Client case (anonymous)</option>
+                  <option value="Educational mini-series">Educational mini-series</option>
                   <option value="Behind the scenes">Behind the scenes</option>
                   <option value="Trauma recovery arc">Trauma recovery arc</option>
                 </select>
@@ -558,19 +622,11 @@ export default function StorySeriesBuilderPage() {
                   value={tone}
                   onChange={(e) => setTone(e.target.value as ToneOption)}
                 >
-                  <option value="Professional & confident">
-                    Professional & confident
-                  </option>
+                  <option value="Professional & confident">Professional & confident</option>
                   <option value="Warm & supportive">Warm & supportive</option>
-                  <option value="Inspirational & human">
-                    Inspirational & human
-                  </option>
-                  <option value="Strong thought-leader">
-                    Strong thought-leader
-                  </option>
-                  <option value="Data-backed but human">
-                    Data-backed but human
-                  </option>
+                  <option value="Inspirational & human">Inspirational & human</option>
+                  <option value="Strong thought-leader">Strong thought-leader</option>
+                  <option value="Data-backed but human">Data-backed but human</option>
                 </select>
               </div>
             </div>
@@ -583,13 +639,12 @@ export default function StorySeriesBuilderPage() {
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={targetPlatform}
-                  onChange={(e) =>
-                    setTargetPlatform(e.target.value as ChannelId)
-                  }
+                  onChange={(e) => setTargetPlatform(e.target.value as ChannelId)}
                 >
                   <option value="linkedin">LinkedIn</option>
                   <option value="facebook">Facebook</option>
                   <option value="instagram">Instagram</option>
+                  <option value="threads">Threads</option>
                   <option value="reddit">Reddit</option>
                   <option value="tiktok">TikTok</option>
                 </select>
@@ -620,27 +675,59 @@ export default function StorySeriesBuilderPage() {
                 <select
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                   value={ctaStyle}
-                  onChange={(e) =>
-                    setCtaStyle(e.target.value as CtaStyleOption)
-                  }
+                  onChange={(e) => setCtaStyle(e.target.value as CtaStyleOption)}
                 >
-                  <option value="Comment for more / next part">
-                    Comment for more / next part
-                  </option>
-                  <option value="Follow for the next part">
-                    Follow for the next part
-                  </option>
-                  <option value="DM me to talk privately">
-                    DM me to talk privately
-                  </option>
-                  <option value="Like or share if this resonates">
-                    Like or share if this resonates
-                  </option>
-                  <option value="Click through to learn more">
-                    Click through to learn more
-                  </option>
+                  <option value="Comment for more / next part">Comment for more / next part</option>
+                  <option value="Follow for the next part">Follow for the next part</option>
+                  <option value="DM me to talk privately">DM me to talk privately</option>
+                  <option value="Like or share if this resonates">Like or share if this resonates</option>
+                  <option value="Click through to learn more">Click through to learn more</option>
                 </select>
               </div>
+            </div>
+
+            {/* ✅ Media controls */}
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
+              <div className="text-[11px] font-semibold text-slate-200">Media (optional)</div>
+
+              <div className="space-y-1">
+                <label className="block text-[11px] font-medium text-slate-300">
+                  Image URL (direct .jpg/.png/etc)
+                </label>
+                <input
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="https://.../image.jpg"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-[11px] font-medium text-slate-300">
+                  Video URL (direct .mp4 recommended)
+                </label>
+                <input
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                  value={videoUrl}
+                  onChange={(e) => setVideoUrl(e.target.value)}
+                  placeholder="https://.../video.mp4"
+                />
+                <div className="text-[11px] text-slate-500">
+                  {mediaHint} (If you fill both, video wins.)
+                </div>
+              </div>
+
+              {(imageUrl.trim() && !isLikelyImageUrl(imageUrl.trim())) ? (
+                <div className="text-[11px] text-amber-300">
+                  That image link doesn’t look like a direct image file. Use a URL ending .jpg/.png/.webp/.gif
+                </div>
+              ) : null}
+
+              {(videoUrl.trim() && !isLikelyVideoUrl(videoUrl.trim())) ? (
+                <div className="text-[11px] text-amber-300">
+                  That video link doesn’t look like a direct video file. Use a URL ending .mp4 (MP4 recommended).
+                </div>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -650,11 +737,7 @@ export default function StorySeriesBuilderPage() {
                 disabled={!canGenerate}
                 className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
               >
-                {isGenerating
-                  ? "Generating…"
-                  : isSingle
-                  ? "Generate story"
-                  : "Generate series"}
+                {isGenerating ? "Generating…" : isSingle ? "Generate story" : "Generate series"}
               </button>
 
               <label className="flex items-center gap-2 text-[11px] text-slate-300">
@@ -704,10 +787,7 @@ export default function StorySeriesBuilderPage() {
                       value={dailyCadence}
                       onChange={(e) =>
                         setDailyCadence(
-                          Math.max(
-                            1,
-                            Math.min(14, Number(e.target.value) || 1)
-                          )
+                          Math.max(1, Math.min(14, Number(e.target.value) || 1))
                         )
                       }
                     />
@@ -725,9 +805,7 @@ export default function StorySeriesBuilderPage() {
                     disabled={isDispatching}
                     className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
                   >
-                    {isDispatching
-                      ? "Sending…"
-                      : `Send now to ${targetPlatform}`}
+                    {isDispatching ? "Sending…" : `Send now to ${targetPlatform}`}
                   </button>
                 ) : (
                   <button
@@ -739,9 +817,7 @@ export default function StorySeriesBuilderPage() {
                     {isDispatching
                       ? "Scheduling…"
                       : orgId
-                      ? `Schedule ${posts.length} post${
-                          posts.length > 1 ? "s" : ""
-                        }`
+                      ? `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`
                       : "Loading org…"}
                   </button>
                 )}
@@ -785,18 +861,14 @@ export default function StorySeriesBuilderPage() {
                     <input
                       className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={p.title || ""}
-                      onChange={(e) =>
-                        updatePost(idx, { title: e.target.value })
-                      }
+                      onChange={(e) => updatePost(idx, { title: e.target.value })}
                       placeholder="Title (optional)"
                     />
 
                     <textarea
                       className="w-full min-h-[140px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none whitespace-pre-wrap"
                       value={p.body || ""}
-                      onChange={(e) =>
-                        updatePost(idx, { body: e.target.value })
-                      }
+                      onChange={(e) => updatePost(idx, { body: e.target.value })}
                       placeholder="Post body"
                     />
 
