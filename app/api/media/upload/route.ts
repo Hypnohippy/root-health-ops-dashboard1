@@ -1,4 +1,3 @@
-// app/api/media/upload/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
@@ -34,25 +33,18 @@ function guessContentType(name: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    // ✅ IMPORTANT: only accept JSON metadata (no file)
     const body = await req.json().catch(() => ({}));
 
-    const filename = String(body?.filename || body?.name || "").trim();
+    const filename = String(body?.filename || "").trim();
     const size = Number(body?.size || 0);
-    const contentTypeIncoming = String(body?.contentType || body?.type || "").trim();
+    const organisationId = body?.organisationId ? String(body.organisationId) : null;
 
     if (!filename) {
-      return NextResponse.json(
-        { success: false, error: "Missing filename." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Missing filename" }, { status: 400 });
     }
 
-    if (!size || !Number.isFinite(size)) {
-      return NextResponse.json(
-        { success: false, error: "Missing file size." },
-        { status: 400 }
-      );
+    if (!size || Number.isNaN(size)) {
+      return NextResponse.json({ success: false, error: "Missing size" }, { status: 400 });
     }
 
     if (size > MAX_BYTES) {
@@ -62,7 +54,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const contentType = contentTypeIncoming || guessContentType(filename);
+    const contentType =
+      (typeof body?.contentType === "string" && body.contentType.trim()) ||
+      guessContentType(filename);
 
     // Organise uploads by date (nice + predictable)
     const d = new Date();
@@ -72,39 +66,36 @@ export async function POST(req: NextRequest) {
 
     const safe = safeName(filename);
     const unique = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    const path = `uploads/${yyyy}-${mm}-${dd}/${unique}_${safe}`;
 
-    // ✅ Create a signed upload URL (server-side using service role)
+    // Optional per-org folder
+    const orgPart = organisationId ? `org_${organisationId}` : "org_unknown";
+
+    const path = `uploads/${orgPart}/${yyyy}-${mm}-${dd}/${unique}_${safe}`;
+
+    // ✅ Create signed upload URL/token (no file bytes pass through server)
     const { data, error } = await supabaseAdmin.storage
       .from(BUCKET)
+      // Supabase JS v2: createSignedUploadUrl(path)
       .createSignedUploadUrl(path);
 
     if (error || !data) {
-      console.error("[media/upload] createSignedUploadUrl error", error);
+      console.error("[media/upload:init] signed url error", error);
       return NextResponse.json(
-        { success: false, error: `Could not create signed upload URL: ${error?.message || "unknown error"}` },
+        { success: false, error: `Could not init upload: ${error?.message || "unknown error"}` },
         { status: 500 }
       );
     }
 
-    // ✅ Build the final public URL (bucket is public)
+    // Public URL (your bucket is public)
     const pub = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
     const publicUrl = pub?.data?.publicUrl || "";
-
-    if (!publicUrl) {
-      return NextResponse.json(
-        { success: false, error: "Could not create public URL for uploaded file path." },
-        { status: 500 }
-      );
-    }
 
     return NextResponse.json(
       {
         success: true,
         bucket: BUCKET,
-        path,
-        token: data.token, // used by uploadToSignedUrl(...)
-        signedUrl: data.signedUrl, // optional, useful for debugging
+        path: data.path || path,
+        token: data.token, // required by uploadToSignedUrl()
         publicUrl,
         contentType,
         size,
@@ -112,7 +103,7 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: any) {
-    console.error("[media/upload] fatal", err);
+    console.error("[media/upload:init] fatal", err);
     return NextResponse.json(
       { success: false, error: err?.message || "Upload init failed" },
       { status: 500 }
