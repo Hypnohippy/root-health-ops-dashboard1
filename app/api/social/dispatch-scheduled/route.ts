@@ -18,11 +18,11 @@ export async function GET(req: NextRequest) {
   try {
     const nowIso = new Date().toISOString();
 
-    // 1) Find due scheduled posts
+    // ✅ include meta so we can carry video_url forward
     const { data: items, error } = await supabaseAdmin
       .from("scheduled_posts")
       .select(
-        "id, organisation_id, message, platforms, image_url, scheduled_for, status"
+        "id, organisation_id, message, platforms, image_url, scheduled_for, status, meta"
       )
       .eq("status", "scheduled")
       .lte("scheduled_for", nowIso)
@@ -62,16 +62,15 @@ export async function GET(req: NextRequest) {
       const id = String(item.id);
       const organisationId = String(item.organisation_id);
       const message = String(item.message || "");
-      const platforms: string[] = Array.isArray(item.platforms)
-        ? item.platforms
-        : [];
+      const platforms: string[] = Array.isArray(item.platforms) ? item.platforms : [];
       const imageUrl: string | null = item.image_url || null;
 
+      const meta = item.meta && typeof item.meta === "object" ? item.meta : null;
+      const videoUrl: string | null =
+        meta?.video_url && typeof meta.video_url === "string" ? meta.video_url : null;
+
       try {
-        // Call YOUR posting engine (which uses Supabase social_accounts tokens)
-        const url = `${baseUrl(
-          req
-        )}/api/social/quick-blast?organisationId=${encodeURIComponent(
+        const url = `${baseUrl(req)}/api/social/quick-blast?organisationId=${encodeURIComponent(
           organisationId
         )}`;
 
@@ -82,7 +81,8 @@ export async function GET(req: NextRequest) {
             message,
             platforms,
             imageUrl: imageUrl || undefined,
-            organisationId, // also pass in body (belt + braces)
+            videoUrl: videoUrl || undefined,
+            organisationId,
           }),
           cache: "no-store",
         });
@@ -176,10 +176,7 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     console.error("[dispatch-scheduled] fatal error", err);
     return NextResponse.json(
-      {
-        success: false,
-        error: err?.message || "Internal error running dispatcher.",
-      },
+      { success: false, error: err?.message || "Internal error running dispatcher." },
       { status: 200 }
     );
   }
