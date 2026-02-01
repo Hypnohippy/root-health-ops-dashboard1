@@ -1,3 +1,4 @@
+// app/api/social-accounts/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
@@ -31,14 +32,30 @@ async function resolveOrganisationId(explicit?: string | null) {
   return String(data.id);
 }
 
+function tokenSuffix(token: string | null) {
+  const t = (token || "").trim();
+  if (!t) return null;
+  return t.slice(-6);
+}
+
 export async function GET(req: NextRequest) {
   try {
     const organisationIdFromQuery = req.nextUrl.searchParams.get("organisationId");
     const organisationId = await resolveOrganisationId(organisationIdFromQuery);
 
+    const includeTokens =
+      req.nextUrl.searchParams.get("includeTokens") === "1" ||
+      req.nextUrl.searchParams.get("debug") === "1";
+
+    // Default: return safe fields only.
+    // Debug: include token metadata but NEVER the token itself.
+    const select = includeTokens
+      ? "platform, page_id, page_name, is_active, connection_type, token_expires_at, page_access_token"
+      : "platform, page_id, page_name, is_active, connection_type";
+
     const { data, error } = await supabaseAdmin
       .from("social_accounts")
-      .select("platform, page_id, page_name, is_active, connection_type")
+      .select(select)
       .eq("organisation_id", organisationId)
       .order("platform", { ascending: true });
 
@@ -49,8 +66,27 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    if (!includeTokens) {
+      return NextResponse.json(
+        { success: true, organisationId, socialAccounts: data || [] },
+        { status: 200 }
+      );
+    }
+
+    // Sanitise token output (do not leak secrets)
+    const safe = (data || []).map((r: any) => ({
+      platform: r.platform,
+      page_id: r.page_id,
+      page_name: r.page_name,
+      is_active: r.is_active,
+      connection_type: r.connection_type,
+      token_expires_at: r.token_expires_at || null,
+      has_token: !!(r.page_access_token && String(r.page_access_token).trim()),
+      token_ends: tokenSuffix(r.page_access_token || null),
+    }));
+
     return NextResponse.json(
-      { success: true, organisationId, socialAccounts: data || [] },
+      { success: true, organisationId, socialAccounts: safe, debug: true },
       { status: 200 }
     );
   } catch (e: any) {
@@ -89,7 +125,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Explicit upsert without ON CONFLICT dependency
     const { data: existing, error: selErr } = await supabaseAdmin
       .from("social_accounts")
       .select("id")
@@ -102,40 +137,38 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: selErr.message }, { status: 500 });
     }
 
+    const payload = {
+      organisation_id: organisationId,
+      platform,
+      page_id,
+      page_name,
+      is_active,
+      page_access_token,
+      token_expires_at,
+      connection_type,
+    };
+
     if (existing?.id) {
       const { error: updErr } = await supabaseAdmin
         .from("social_accounts")
-        .update({
-          page_id,
-          page_name,
-          is_active,
-          page_access_token,
-          token_expires_at,
-          connection_type,
-        })
+        .update(payload)
         .eq("id", existing.id);
 
       if (updErr) {
         return NextResponse.json({ success: false, error: updErr.message }, { status: 500 });
       }
     } else {
-      const { error: insErr } = await supabaseAdmin.from("social_accounts").insert({
-        organisation_id: organisationId,
-        platform,
-        page_id,
-        page_name,
-        is_active,
-        page_access_token,
-        token_expires_at,
-        connection_type,
-      });
+      const { error: insErr } = await supabaseAdmin.from("social_accounts").insert(payload);
 
       if (insErr) {
         return NextResponse.json({ success: false, error: insErr.message }, { status: 500 });
       }
     }
 
-    return NextResponse.json({ success: true, organisationId, platform }, { status: 200 });
+    return NextResponse.json(
+      { success: true, organisationId, platform },
+      { status: 200 }
+    );
   } catch (e: any) {
     return NextResponse.json(
       { success: false, error: e?.message || "Failed saving social connection" },
