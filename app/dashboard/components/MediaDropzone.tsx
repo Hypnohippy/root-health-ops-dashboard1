@@ -4,12 +4,16 @@
 import React, { useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "../../../lib/supabaseBrowser";
 
+export type UploadedMediaKind = "image" | "video" | "file";
+
 export type UploadedMedia = {
+  kind: UploadedMediaKind; // ✅ NEW (fixes stories page m.kind usage)
   url: string;
   path?: string;
   bucket?: string;
   contentType?: string;
   size?: number;
+  name?: string;
 };
 
 type Props = {
@@ -32,6 +36,18 @@ type InitResponse = {
   size?: number;
   error?: string;
 };
+
+function classifyKind(contentType?: string, filename?: string): UploadedMediaKind {
+  const ct = String(contentType || "").toLowerCase();
+  if (ct.startsWith("video/")) return "video";
+  if (ct.startsWith("image/")) return "image";
+
+  const name = String(filename || "").toLowerCase();
+  if (/\.(mp4|mov|webm|m4v)$/i.test(name)) return "video";
+  if (/\.(jpg|jpeg|png|gif|webp)$/i.test(name)) return "image";
+
+  return "file";
+}
 
 export default function MediaDropzone({
   organisationId,
@@ -69,6 +85,10 @@ export default function MediaDropzone({
       if (file.size > maxBytes) {
         throw new Error(`File too large. Max is ${maxMb}MB.`);
       }
+
+      // ✅ Stop the browser doing anything “clever” with drops
+      // (we already preventDefault in onDrop, but keep logic tight)
+      const kind = classifyKind(file.type, file.name);
 
       // 1) Ask server for signed upload token (tiny JSON, no 413)
       const initRes = await fetch("/api/media/upload", {
@@ -110,11 +130,13 @@ export default function MediaDropzone({
 
       // 3) Done
       onUploaded({
+        kind, // ✅ NEW
         url: publicUrl,
         bucket,
         path,
         contentType: file.type || initJson.contentType,
         size: file.size,
+        name: file.name,
       });
 
       setDoneMsg(`Uploaded: ${file.name} (${prettySize(file.size)})`);
@@ -137,6 +159,10 @@ export default function MediaDropzone({
   function onDragOver(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     e.stopPropagation();
+    // Ensure drop is treated as copy (prevents browser opening the file)
+    try {
+      e.dataTransfer.dropEffect = "copy";
+    } catch {}
     setIsDragging(true);
   }
 
@@ -163,9 +189,7 @@ export default function MediaDropzone({
         onDragLeave={onDragLeave}
         className={[
           "rounded-2xl border px-4 py-4 text-sm transition cursor-pointer",
-          isDragging
-            ? "border-emerald-500/70 bg-emerald-500/10"
-            : "border-slate-700 bg-slate-950",
+          isDragging ? "border-emerald-500/70 bg-emerald-500/10" : "border-slate-700 bg-slate-950",
         ].join(" ")}
         onClick={openPicker}
         role="button"
@@ -193,13 +217,9 @@ export default function MediaDropzone({
         />
       </div>
 
-      {err ? (
-        <div className="text-[11px] text-red-400 whitespace-pre-wrap">{err}</div>
-      ) : null}
+      {err ? <div className="text-[11px] text-red-400 whitespace-pre-wrap">{err}</div> : null}
 
-      {doneMsg ? (
-        <div className="text-[11px] text-emerald-300 whitespace-pre-wrap">{doneMsg}</div>
-      ) : null}
+      {doneMsg ? <div className="text-[11px] text-emerald-300 whitespace-pre-wrap">{doneMsg}</div> : null}
     </div>
   );
 }
