@@ -1,7 +1,6 @@
-// app/dashboard/components/MediaDropzone.tsx
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "../../../lib/supabaseBrowser";
 
 export type UploadedMedia = {
@@ -10,16 +9,21 @@ export type UploadedMedia = {
   bucket?: string;
   contentType?: string;
   size?: number;
+
+  // ✅ NEW: helps UI decide whether it’s image/video
+  kind?: "image" | "video" | "file";
 };
 
 type Props = {
   organisationId?: string;
   label?: string;
   helpText?: string;
-  accept?: string; // e.g. "image/*" or "video/*" or "image/*,video/*"
+  accept?: string; // e.g. "image/*" or "video/*"
   maxMb?: number; // default 50
-  disabled?: boolean; // ✅ NEW
   onUploaded: (media: UploadedMedia) => void;
+
+  // ✅ NEW: your pages pass this
+  disabled?: boolean;
 };
 
 type InitResponse = {
@@ -39,8 +43,8 @@ export default function MediaDropzone({
   helpText = "Drag & drop a file here",
   accept = "*/*",
   maxMb = 50,
-  disabled = false,
   onUploaded,
+  disabled = false,
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -50,6 +54,20 @@ export default function MediaDropzone({
 
   const maxBytes = useMemo(() => maxMb * 1024 * 1024, [maxMb]);
 
+  // ✅ Prevent browser opening dropped files in a new tab
+  useEffect(() => {
+    function prevent(e: DragEvent) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    window.addEventListener("dragover", prevent);
+    window.addEventListener("drop", prevent);
+    return () => {
+      window.removeEventListener("dragover", prevent);
+      window.removeEventListener("drop", prevent);
+    };
+  }, []);
+
   function openPicker() {
     if (disabled || busy) return;
     inputRef.current?.click();
@@ -58,6 +76,13 @@ export default function MediaDropzone({
   function prettySize(bytes: number) {
     const mb = bytes / (1024 * 1024);
     return `${mb.toFixed(1)}MB`;
+  }
+
+  function kindFromContentType(ct?: string) {
+    const t = String(ct || "").toLowerCase();
+    if (t.startsWith("video/")) return "video" as const;
+    if (t.startsWith("image/")) return "image" as const;
+    return "file" as const;
   }
 
   async function uploadFile(file: File) {
@@ -72,7 +97,7 @@ export default function MediaDropzone({
         throw new Error(`File too large. Max is ${maxMb}MB.`);
       }
 
-      // 1) Ask server for signed upload token (tiny JSON -> avoids 413)
+      // 1) Ask server for signed upload token (tiny JSON, no 413)
       const initRes = await fetch("/api/media/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -94,30 +119,34 @@ export default function MediaDropzone({
       const path = String(initJson.path || "");
       const token = String(initJson.token || "");
       const publicUrl = String(initJson.publicUrl || "");
-      const ct = String(initJson.contentType || file.type || "application/octet-stream");
+      const serverContentType = String(initJson.contentType || "");
 
       if (!bucket || !path || !token || !publicUrl) {
         throw new Error("Upload init response missing bucket/path/token/publicUrl.");
       }
 
-      // 2) Upload directly to Supabase Storage (bypasses Vercel request size limits)
+      // 2) Upload directly to Supabase Storage (bypasses Vercel body limits)
       const { error: upErr } = await supabaseBrowser.storage
         .from(bucket)
         .uploadToSignedUrl(path, token, file, {
-          contentType: ct,
+          contentType: file.type || serverContentType || "application/octet-stream",
         });
 
       if (upErr) {
         throw new Error(`Supabase upload failed: ${upErr.message}`);
       }
 
+      const finalContentType = file.type || serverContentType || "application/octet-stream";
+      const kind = kindFromContentType(finalContentType);
+
       // 3) Done
       onUploaded({
         url: publicUrl,
         bucket,
         path,
-        contentType: ct,
+        contentType: finalContentType,
         size: file.size,
+        kind,
       });
 
       setDoneMsg(`Uploaded: ${file.name} (${prettySize(file.size)})`);
@@ -125,7 +154,6 @@ export default function MediaDropzone({
       setErr(e?.message || "Upload failed.");
     } finally {
       setBusy(false);
-      setIsDragging(false);
     }
   }
 
@@ -133,6 +161,7 @@ export default function MediaDropzone({
     e.preventDefault();
     e.stopPropagation();
     if (disabled || busy) return;
+    setIsDragging(false);
 
     const file = e.dataTransfer?.files?.[0];
     if (file) void uploadFile(file);
@@ -152,9 +181,9 @@ export default function MediaDropzone({
   }
 
   function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
-    if (disabled || busy) return;
     const file = e.target.files?.[0];
     if (file) void uploadFile(file);
+    // allow selecting the same file again
     e.target.value = "";
   }
 
@@ -166,14 +195,16 @@ export default function MediaDropzone({
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
+        className={[
+          "rounded-2xl border px-4 py-4 text-sm transition cursor-pointer select-none",
+          disabled ? "opacity-60 cursor-not-allowed" : "",
+          isDragging
+            ? "border-emerald-500/70 bg-emerald-500/10"
+            : "border-slate-700 bg-slate-950",
+        ].join(" ")}
         onClick={openPicker}
         role="button"
         tabIndex={0}
-        className={[
-          "rounded-2xl border px-4 py-4 text-sm transition",
-          disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
-          isDragging ? "border-emerald-500/70 bg-emerald-500/10" : "border-slate-700 bg-slate-950",
-        ].join(" ")}
       >
         <div className="flex items-center justify-between gap-4">
           <div className="text-slate-200">
