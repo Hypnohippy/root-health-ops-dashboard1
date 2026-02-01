@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import MediaDropzone from "./components/MediaDropzone";
+import MediaDropzone, { UploadedMedia } from "./components/MediaDropzone";
 
 type ProviderId =
   | "facebook"
@@ -61,6 +61,8 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 };
 
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
+
+// ✅ Brainstorm prefill key (matches your Brainstorm page.tsx)
 const PREFILL_QUICKBLAST_KEY = "rootops_prefill_quickblast_v1";
 
 type Draft = {
@@ -135,19 +137,25 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
 
   if (platform === "instagram") {
     if (msg.includes("image") || msg.includes("media") || msg.includes("ready")) {
-      return "Tip: Instagram can take time to process media. If it fails, try again after 10–20 seconds.";
+      return "Tip: Instagram often needs a real JPG/PNG link, and sometimes it needs a few seconds before publishing. Try again after 10–20 seconds.";
+    }
+  }
+
+  if (platform === "facebook") {
+    if (msg.includes("image required") || msg.includes("invalid image") || msg.includes("missing or invalid")) {
+      return "Tip: Facebook can be picky about image links. Using an image hosted on your own storage (Brainstorm image) is the most reliable.";
     }
   }
 
   if (platform === "threads") {
-    if (msg.includes("media") || msg.includes("not found") || msg.includes("resource")) {
-      return "Tip: Threads needs a stable, publicly accessible media URL. Supabase Storage public URLs work well.";
+    if (msg.includes("media") || msg.includes("resource does not exist") || msg.includes("not found")) {
+      return "Tip: Threads needs a stable, publicly accessible media link. Hosted media (via upload) works best.";
     }
   }
 
   if (platform === "linkedin") {
     if (msg.includes("duplicate")) {
-      return "Tip: Change the first line or CTA slightly, then resend.";
+      return "Tip: Change the first line or CTA slightly, then resend. Even small tweaks usually work.";
     }
   }
 
@@ -188,8 +196,11 @@ export default function DashboardHomePage() {
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
   const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
+
+  // ✅ Media URLs (hosted)
   const [imageUrl, setImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
+
   const [selected, setSelected] = useState<ProviderId[]>([]);
 
   const [sending, setSending] = useState(false);
@@ -198,6 +209,7 @@ export default function DashboardHomePage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
 
+  // Mode switch
   const [mode, setMode] = useState<Mode>("now");
   const [scheduledLocal, setScheduledLocal] = useState<string>(defaultLocalDateTimePlus(10));
 
@@ -337,7 +349,7 @@ export default function DashboardHomePage() {
         body: JSON.stringify({
           message,
           imageUrl,
-          videoUrl,
+          videoUrl, // ✅ pass through
           platforms: selected,
         }),
       });
@@ -417,13 +429,12 @@ export default function DashboardHomePage() {
           },
 
           meta: {
+            video_url: videoUrl || null, // ✅ store for dispatcher
             approvals: {
               state: "pending",
               source: "quick_blast",
               created_at: new Date().toISOString(),
             },
-            // ✅ carry video forward via meta
-            video_url: videoUrl || null,
           },
         }),
       });
@@ -469,22 +480,22 @@ export default function DashboardHomePage() {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
 
-    // ✅ Import Brainstorm prefill → Quick Blast
+    // ✅ Brainstorm → Quick Blast prefill import
     try {
       const raw = window.localStorage.getItem(PREFILL_QUICKBLAST_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw);
+        const parsed: any = JSON.parse(raw);
 
         if (parsed?.message) setMessage(String(parsed.message));
         if (parsed?.imageUrl) setImageUrl(String(parsed.imageUrl));
         if (parsed?.videoUrl) setVideoUrl(String(parsed.videoUrl));
 
-        // If Brainstorm suggests platforms
-        const suggested = Array.isArray(parsed?.suggestedPlatforms) ? parsed.suggestedPlatforms : null;
-        if (suggested && suggested.length) {
-          setSelected(
-            suggested.map((p: any) => String(p || "").toLowerCase().trim()).filter(Boolean) as ProviderId[]
-          );
+        // suggestedPlatforms
+        if (Array.isArray(parsed?.suggestedPlatforms)) {
+          const sp = parsed.suggestedPlatforms
+            .map((p: any) => String(p || "").toLowerCase().trim())
+            .filter(Boolean) as ProviderId[];
+          if (sp.length) setSelected(sp);
         }
 
         window.localStorage.removeItem(PREFILL_QUICKBLAST_KEY);
@@ -494,6 +505,7 @@ export default function DashboardHomePage() {
     }
   }, []);
 
+  // Auto-select connected channels if none selected yet
   useEffect(() => {
     if (selected.length > 0) return;
     const defaults = socialAccounts
@@ -540,7 +552,10 @@ export default function DashboardHomePage() {
     return { attempted, ok, failed, headline, topMsg };
   }, [result]);
 
-  const hasAnyMedia = !!imageUrl.trim() || !!videoUrl.trim();
+  const videoNote = useMemo(() => {
+    if (!videoUrl.trim()) return null;
+    return "Video uploaded ✅ (Posting support depends on each channel’s API — we’re wiring that next.)";
+  }, [videoUrl]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
@@ -745,77 +760,64 @@ export default function DashboardHomePage() {
                   />
                 </div>
 
-                {/* Upload box */}
-                <div className="rounded-3xl border border-slate-700 bg-slate-950 p-4">
-                  <div className="text-sm font-semibold">Media (optional)</div>
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    Upload an image/video to Supabase Storage (bucket: <span className="text-slate-200">public-media</span>) and we’ll use its public URL.
+                {/* ✅ Image upload + URL */}
+                <div className="space-y-2">
+                  <MediaDropzone
+                    organisationId={organisationId || undefined}
+                    label="Image (optional)"
+                    helpText="Drag & drop an image (max 50MB). It uploads to Supabase and becomes a URL."
+                    accept="image/*"
+                    maxMb={50}
+                    onUploaded={(media: UploadedMedia) => {
+                      setImageUrl(media.url);
+                    }}
+                  />
+
+                  <input
+                    value={imageUrl}
+                    onChange={(e) => setImageUrl(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    placeholder="...or paste a direct image URL (JPG/PNG)…"
+                  />
+
+                  <div className="text-[11px] text-slate-500">
+                    (Instagram posting may require an image for some post types.)
                   </div>
 
-                  <div className="mt-4">
-                    <MediaDropzone
-                      organisationId={organisationId || undefined}
-                      onUploaded={(m) => {
-                        if (m.kind === "video") {
-                          setVideoUrl(m.url);
-                          setImageUrl("");
-                        } else if (m.kind === "image") {
-                          setImageUrl(m.url);
-                          setVideoUrl("");
-                        } else {
-                          // keep it simple: treat as image URL slot
-                          setImageUrl(m.url);
-                          setVideoUrl("");
-                        }
-                      }}
-                    />
-                  </div>
-
-                  <div className="mt-4 grid md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300">Image URL (optional)</label>
-                      <input
-                        value={imageUrl}
-                        onChange={(e) => {
-                          setImageUrl(e.target.value);
-                          if (e.target.value.trim()) setVideoUrl("");
-                        }}
-                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
-                        placeholder="Paste a direct image URL (JPG/PNG)…"
-                      />
-                      <div className="mt-1 text-[11px] text-slate-500">(If you paste an image URL, we’ll treat it as an image post.)</div>
-                      {instagramSelected && !imageUrl.trim() && !videoUrl.trim() && (
-                        <div className="mt-2 text-[11px] text-amber-300">
-                          Instagram selected: if posting fails, add an image or a video.
-                        </div>
-                      )}
+                  {instagramSelected && !imageUrl.trim() && (
+                    <div className="text-[11px] text-amber-300">
+                      Instagram selected: if posting fails, add an image URL and try again.
                     </div>
+                  )}
+                </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300">Video URL (optional)</label>
-                      <input
-                        value={videoUrl}
-                        onChange={(e) => {
-                          setVideoUrl(e.target.value);
-                          if (e.target.value.trim()) setImageUrl("");
-                        }}
-                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
-                        placeholder="Paste a direct video URL (MP4)…"
-                      />
-                      <div className="mt-1 text-[11px] text-slate-500">(If you paste a video URL, we’ll treat it as a video post where supported.)</div>
-                    </div>
-                  </div>
+                {/* ✅ Video upload + URL */}
+                <div className="space-y-2">
+                  <MediaDropzone
+                    organisationId={organisationId || undefined}
+                    label="Video (optional)"
+                    helpText="Drag & drop an MP4/MOV (max 50MB). It uploads to Supabase and becomes a URL."
+                    accept="video/*"
+                    maxMb={50}
+                    onUploaded={(media: UploadedMedia) => {
+                      setVideoUrl(media.url);
+                    }}
+                  />
 
-                  {hasAnyMedia ? (
-                    <div className="mt-2 text-[11px] text-slate-400">
-                      Using:{" "}
-                      {videoUrl.trim() ? (
-                        <span className="text-slate-200">video</span>
-                      ) : (
-                        <span className="text-slate-200">image</span>
-                      )}
+                  <input
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    placeholder="...or paste a direct video URL (MP4)…"
+                  />
+
+                  {videoNote ? (
+                    <div className="text-[11px] text-emerald-300">{videoNote}</div>
+                  ) : (
+                    <div className="text-[11px] text-slate-500">
+                      Note: uploading gives you a real https URL. Dragging a file onto a normal text box will open it in a new tab (what you saw).
                     </div>
-                  ) : null}
+                  )}
                 </div>
 
                 <div>
@@ -901,6 +903,7 @@ export default function DashboardHomePage() {
                   </button>
                 </div>
 
+                {/* Friendly Results Panel */}
                 {result && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
@@ -971,12 +974,11 @@ export default function DashboardHomePage() {
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
                     <div className="text-slate-400 mb-2">Admin info (safe).</div>
                     <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
-                    <div className="mt-1">
-                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
-                    </div>
+                    <div className="mt-1">Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}</div>
                     <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
                     <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
-                    <div className="mt-1">Media: {videoUrl ? "videoUrl set" : imageUrl ? "imageUrl set" : "none"}</div>
+                    <div className="mt-1">imageUrl: {imageUrl ? "✅ set" : "—"}</div>
+                    <div className="mt-1">videoUrl: {videoUrl ? "✅ set" : "—"}</div>
                   </div>
                 )}
               </div>
@@ -990,14 +992,16 @@ export default function DashboardHomePage() {
 
               <div className="mt-4 space-y-3">
                 {drafts.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">No drafts yet.</div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                    No drafts yet.
+                  </div>
                 ) : (
                   drafts.map((d) => (
                     <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
                       <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
                       <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
                       <div className="mt-2 text-[11px] text-slate-500">Channels: {d.selectedPlatforms?.join(", ") || "(none)"}</div>
-                      <div className="mt-1 text-[11px] text-slate-500">Media: {d.videoUrl ? "video" : d.imageUrl ? "image" : "none"}</div>
+                      <div className="mt-1 text-[11px] text-slate-500">Image: {d.imageUrl ? "✅" : "—"} · Video: {d.videoUrl ? "✅" : "—"}</div>
 
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
