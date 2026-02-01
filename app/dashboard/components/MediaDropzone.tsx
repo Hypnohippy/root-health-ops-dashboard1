@@ -3,7 +3,10 @@
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
 
-type UploadedMedia = {
+export type UploadedMedia = {
+  // ✅ added: used by content/new/page.tsx (acts as a stable “media id”)
+  id: string;
+
   url: string;
   path: string;
   bucket: string;
@@ -13,7 +16,7 @@ type UploadedMedia = {
 };
 
 type Props = {
-  // ✅ Fixes your build error: content/new/page.tsx passes this prop
+  // accepted to prevent TS errors where it’s passed
   organisationId?: string;
 
   // Called when upload succeeds
@@ -38,7 +41,7 @@ function inferKind(contentType: string): UploadedMedia["kind"] {
 }
 
 export default function MediaDropzone({
-  organisationId, // unused for now but accepted (prevents TS fail)
+  organisationId, // not used yet, but safe
   onUploaded,
   label = "Upload media",
   helpText = "Drag & drop an image or video (max 50MB).",
@@ -62,7 +65,9 @@ export default function MediaDropzone({
 
       if (!file) return;
       if (file.size > maxBytes) {
-        setErr(`That file is ${bytesToMb(file.size).toFixed(1)}MB. Max is ${maxMb}MB.`);
+        setErr(
+          `That file is ${bytesToMb(file.size).toFixed(1)}MB. Max is ${maxMb}MB.`
+        );
         return;
       }
 
@@ -71,7 +76,7 @@ export default function MediaDropzone({
         const fd = new FormData();
         fd.append("file", file);
 
-        // Optional, in case you want org-based foldering later
+        // Optional, for future org-based foldering
         if (organisationId) fd.append("organisationId", organisationId);
 
         const res = await fetch("/api/media/upload", {
@@ -84,13 +89,22 @@ export default function MediaDropzone({
           throw new Error(json?.error || `Upload failed (${res.status})`);
         }
 
+        const path = String(json.path || "");
+        const url = String(json.url || "");
+        const contentType = String(json.contentType || file.type || "");
+        const size = Number(json.size || file.size || 0);
+        const bucket = String(json.bucket || "public-media");
+
+        // ✅ This is what fixes your deploy:
+        // treat the storage path as a stable “id”
         const media: UploadedMedia = {
-          url: String(json.url || ""),
-          path: String(json.path || ""),
-          bucket: String(json.bucket || "public-media"),
-          contentType: String(json.contentType || file.type || ""),
-          size: Number(json.size || file.size || 0),
-          kind: inferKind(String(json.contentType || file.type || "")),
+          id: path || url || `upload_${Date.now()}`,
+          path,
+          url,
+          bucket,
+          contentType,
+          size,
+          kind: inferKind(contentType),
         };
 
         setLast(media);
@@ -137,7 +151,9 @@ export default function MediaDropzone({
         onDrop={onDrop}
         className={[
           "cursor-pointer rounded-2xl border p-4 transition",
-          dragOver ? "border-emerald-400 bg-emerald-500/10" : "border-slate-700 bg-slate-950",
+          dragOver
+            ? "border-emerald-400 bg-emerald-500/10"
+            : "border-slate-700 bg-slate-950",
         ].join(" ")}
       >
         <div className="text-sm text-slate-200">
@@ -162,7 +178,6 @@ export default function MediaDropzone({
         onChange={async (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
-          // reset input so picking the same file again works
           e.target.value = "";
           await uploadFile(file);
         }}
