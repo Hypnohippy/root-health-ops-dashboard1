@@ -61,23 +61,19 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
-// ✅ Brainstorm prefill keys (we support both, just in case)
-const PREFILL_QUICKBLAST_KEY_A = "rootops_prefill_quickblast_v1";
-const PREFILL_QUICKBLAST_KEY_B = "rh_prefill_quickblast_v1";
+// ✅ Brainstorm → QuickBlast prefill keys
+const PREFILL_QUICKBLAST_KEY = "rootops_prefill_quickblast_v1";
+// legacy fallback (just in case you have older code writing this)
+const PREFILL_QUICKBLAST_KEY_LEGACY = "rh_prefill_quickblast_v1";
 
 type Draft = {
   id: string;
   savedAt: number;
   message: string;
   imageUrl: string;
+  videoUrl: string;
   selectedPlatforms: ProviderId[];
-
-  // ✅ new (optional) media fields for future video support
-  mediaType?: "text" | "image" | "video";
-  videoUrl?: string;
 };
-
-type MediaType = "text" | "image" | "video";
 
 function loadDrafts(): Draft[] {
   try {
@@ -147,6 +143,9 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
     if (msg.includes("image") || msg.includes("media") || msg.includes("ready")) {
       return "Tip: Instagram often needs a real JPG/PNG link, and sometimes it needs a few seconds before publishing. Try again after 10–20 seconds.";
     }
+    if (msg.includes("video") || msg.includes("reels") || msg.includes("container")) {
+      return "Tip: Instagram video (Reels) needs a direct public MP4 link. If you just uploaded it, wait 10–30 seconds and try again.";
+    }
   }
 
   if (platform === "facebook") {
@@ -157,6 +156,9 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
     ) {
       return "Tip: Facebook can be picky about image links. Using an image hosted on your own storage (Brainstorm image) is the most reliable.";
     }
+    if (msg.includes("video") || msg.includes("file_url")) {
+      return "Tip: Facebook video needs a direct public MP4 link (not a share page).";
+    }
   }
 
   if (platform === "threads") {
@@ -165,13 +167,16 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
       msg.includes("resource does not exist") ||
       msg.includes("not found")
     ) {
-      return "Tip: Threads needs a stable, publicly accessible image link. Hosted images work best.";
+      return "Tip: Threads needs a stable, publicly accessible media link. Hosted images/videos work best.";
     }
   }
 
   if (platform === "linkedin") {
     if (msg.includes("duplicate")) {
       return "Tip: Change the first line or CTA slightly, then resend. Even small tweaks usually work.";
+    }
+    if (msg.includes("video")) {
+      return "Tip: LinkedIn video requires a special upload flow. If you want it, paste your /api/linkedin/post route and I’ll upgrade it.";
     }
   }
 
@@ -198,32 +203,22 @@ function defaultLocalDateTimePlus(minutes: number) {
 
 type Mode = "now" | "approval";
 
-function safeProviderList(input: any): ProviderId[] {
-  const raw = Array.isArray(input) ? input : [];
-  const allowed: ProviderId[] = [
-    "facebook",
-    "instagram",
-    "linkedin",
-    "threads",
-    "tiktok",
-    "google",
-    "email",
-    "whatsapp",
-  ];
-  const set = new Set<ProviderId>();
-  for (const p of raw) {
-    const k = String(p || "").toLowerCase().trim() as ProviderId;
-    if (allowed.includes(k)) set.add(k);
-  }
-  return Array.from(set);
-}
+type BrainstormPrefill = {
+  message?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  suggestedPlatforms?: ProviderId[];
+  attribution?: any;
+};
 
-function looksLikeVideoUrl(u: string) {
-  const s = (u || "").trim();
-  if (!s) return false;
-  if (!/^https?:\/\//i.test(s)) return false;
-  // lightweight heuristic: common video extensions or known CDN patterns
-  return /\.(mp4|mov|m4v|webm)(\?.*)?$/i.test(s) || s.includes("video");
+function safeParseJson(raw: string | null) {
+  try {
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function DashboardHomePage() {
@@ -239,11 +234,10 @@ export default function DashboardHomePage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
-  // ✅ Quick Blast content
-  const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
+  const [message, setMessage] = useState(
+    "Quick check-in from Root Health Ops Dashboard ✅"
+  );
 
-  // ✅ media fields (image + video)
-  const [mediaType, setMediaType] = useState<MediaType>("text");
   const [imageUrl, setImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
 
@@ -255,9 +249,10 @@ export default function DashboardHomePage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
 
-  // Dispatch mode
   const [mode, setMode] = useState<Mode>("now");
-  const [scheduledLocal, setScheduledLocal] = useState<string>(defaultLocalDateTimePlus(10));
+  const [scheduledLocal, setScheduledLocal] = useState<string>(
+    defaultLocalDateTimePlus(10)
+  );
 
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
@@ -318,9 +313,8 @@ export default function DashboardHomePage() {
       savedAt: Date.now(),
       message,
       imageUrl,
-      selectedPlatforms: selected,
-      mediaType,
       videoUrl,
+      selectedPlatforms: selected,
     };
     const next = [d, ...drafts];
     setDrafts(next);
@@ -329,13 +323,9 @@ export default function DashboardHomePage() {
 
   function restoreDraft(d: Draft) {
     setMessage(d.message || "");
-    setSelected(Array.isArray(d.selectedPlatforms) ? d.selectedPlatforms : []);
-
-    const mt = (d.mediaType || "text") as MediaType;
-    setMediaType(mt);
-
     setImageUrl(d.imageUrl || "");
     setVideoUrl(d.videoUrl || "");
+    setSelected(Array.isArray(d.selectedPlatforms) ? d.selectedPlatforms : []);
   }
 
   function deleteDraft(id: string) {
@@ -343,48 +333,6 @@ export default function DashboardHomePage() {
     setDrafts(next);
     saveDrafts(next);
   }
-
-  // ✅ Brainstorm -> Quick Blast import
-  useEffect(() => {
-    try {
-      const rawA = window.localStorage.getItem(PREFILL_QUICKBLAST_KEY_A);
-      const rawB = window.localStorage.getItem(PREFILL_QUICKBLAST_KEY_B);
-      const raw = rawA || rawB;
-
-      if (!raw) return;
-
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") return;
-
-      const m = typeof parsed?.message === "string" ? parsed.message : "";
-      const img = typeof parsed?.imageUrl === "string" ? parsed.imageUrl : "";
-      const suggested = safeProviderList(parsed?.suggestedPlatforms);
-
-      // Apply
-      if (m.trim()) setMessage(m);
-      if (img.trim()) {
-        setMediaType("image");
-        setImageUrl(img.trim());
-        setVideoUrl("");
-      }
-
-      if (suggested.length > 0) setSelected(suggested);
-
-      // clear so it doesn't re-import forever
-      window.localStorage.removeItem(PREFILL_QUICKBLAST_KEY_A);
-      window.localStorage.removeItem(PREFILL_QUICKBLAST_KEY_B);
-
-      // Friendly heads-up
-      setResult({
-        success: true,
-        userMessage: "Imported draft from Brainstorm ✅ You can tweak it then send.",
-        note: suggested.length ? `Suggested channel(s): ${suggested.join(", ")}` : undefined,
-      });
-    } catch {
-      // ignore
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   async function generateAiQuickBlast() {
     setAiBusy(true);
@@ -417,7 +365,9 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
+      const vars = Array.isArray((json as any)?.variants)
+        ? (json as any).variants
+        : [];
       if (vars.length === 0) {
         setAiError("AI returned no variants. Try Generate again.");
         return;
@@ -436,21 +386,15 @@ export default function DashboardHomePage() {
     setResult(null);
 
     try {
-      // For now: the existing API accepts imageUrl, not videoUrl.
-      // We still pass mediaType/videoUrl (backend can ignore safely)
       const res = await fetch("/api/social/quick-blast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
+          imageUrl,
+          videoUrl,
           platforms: selected,
-
-          // ✅ legacy field (keeps current behaviour)
-          imageUrl: mediaType === "image" ? imageUrl : "",
-
-          // ✅ new fields for future wiring
-          mediaType,
-          videoUrl: mediaType === "video" ? videoUrl : "",
+          organisationId,
         }),
       });
 
@@ -460,7 +404,9 @@ export default function DashboardHomePage() {
         setResult({
           success: false,
           error: json?.error || `Request failed (${res.status})`,
-          userMessage: json?.userMessage || "We couldn’t send that just now. Try again in a minute.",
+          userMessage:
+            json?.userMessage ||
+            "We couldn’t send that just now. Try again in a minute.",
         });
         return;
       }
@@ -475,12 +421,6 @@ export default function DashboardHomePage() {
             ? "Some posts didn’t send. See what to change below."
             : undefined),
       };
-
-      // If user attempted video, be transparent (until backend is wired)
-      if (mediaType === "video") {
-        merged.note =
-          "Video UI is ready, but posting video needs the next backend wiring step. Right now Quick Blast posts text/image only.";
-      }
 
       setResult(merged);
     } catch (e: any) {
@@ -524,34 +464,24 @@ export default function DashboardHomePage() {
         body: JSON.stringify({
           message,
           platforms: selected,
-
-          // ✅ current schema field
-          imageUrl: mediaType === "image" ? imageUrl : "",
-
-          // ✅ future fields (safe if ignored)
-          mediaType,
-          videoUrl: mediaType === "video" ? videoUrl : "",
-
+          imageUrl,
           scheduledAt: scheduledIso,
           organisationId,
 
-          createdBy: {
-            user_id: "owner",
-            name: "Clinic Owner",
-            email: null,
-          },
-
+          // ✅ NEW: carry video through schedule via meta (no DB change)
           meta: {
+            video_url: videoUrl || null,
             approvals: {
               state: "pending",
               source: "quick_blast",
               created_at: new Date().toISOString(),
             },
-            media: {
-              type: mediaType,
-              imageUrl: mediaType === "image" ? imageUrl : "",
-              videoUrl: mediaType === "video" ? videoUrl : "",
-            },
+          },
+
+          createdBy: {
+            user_id: "owner",
+            name: "Clinic Owner",
+            email: null,
           },
         }),
       });
@@ -573,11 +503,10 @@ export default function DashboardHomePage() {
       setResult({
         success: true,
         organisationId,
-        userMessage: "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
+        userMessage:
+          "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
         note:
-          mediaType === "video"
-            ? "Video UI is ready, but actual video publishing needs the next backend wiring step."
-            : "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
+          "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
       });
     } catch (e: any) {
       setResult({
@@ -598,6 +527,40 @@ export default function DashboardHomePage() {
   useEffect(() => {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
+  }, []);
+
+  // ✅ FIX: Import Brainstorm → Quick Blast localStorage payload
+  useEffect(() => {
+    try {
+      const rawA = localStorage.getItem(PREFILL_QUICKBLAST_KEY);
+      const rawB = localStorage.getItem(PREFILL_QUICKBLAST_KEY_LEGACY);
+      const parsed = (safeParseJson(rawA) || safeParseJson(rawB)) as BrainstormPrefill | null;
+      if (!parsed) return;
+
+      const nextMsg = String(parsed.message || "").trim();
+      const nextImg = String(parsed.imageUrl || "").trim();
+      const nextVid = String((parsed as any).videoUrl || "").trim();
+
+      if (nextMsg) setMessage(nextMsg);
+      setImageUrl(nextImg);
+      setVideoUrl(nextVid);
+
+      const sugg = Array.isArray(parsed.suggestedPlatforms)
+        ? parsed.suggestedPlatforms
+        : [];
+
+      if (sugg.length > 0) {
+        // set selected to suggested; if connections aren't loaded yet, we'll keep these and
+        // later the UI will disable non-connected cards anyway.
+        setSelected(sugg);
+      }
+
+      // ✅ Clear so it doesn't re-import forever
+      localStorage.removeItem(PREFILL_QUICKBLAST_KEY);
+      localStorage.removeItem(PREFILL_QUICKBLAST_KEY_LEGACY);
+    } catch {
+      // ignore
+    }
   }, []);
 
   // Auto-select connected channels if none selected yet
@@ -622,12 +585,16 @@ export default function DashboardHomePage() {
   ];
 
   const instagramSelected = selected.includes("instagram");
+  const hasVideo = !!videoUrl.trim();
+  const hasImage = !!imageUrl.trim();
 
   const friendlySummary = useMemo(() => {
     if (!result) return null;
 
     const attempted = result.summary?.attempted ?? (result.results?.length || 0);
-    const ok = result.summary?.ok ?? (result.results || []).filter((r: any) => r?.ok).length;
+    const ok =
+      result.summary?.ok ??
+      (result.results || []).filter((r: any) => r?.ok).length;
     const failed =
       result.summary?.failed ??
       (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
@@ -642,21 +609,12 @@ export default function DashboardHomePage() {
 
     const topMsg =
       result.userMessage ||
-      (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.");
+      (result.success
+        ? "Nice — you’re live."
+        : "No stress — we’ll fix what’s blocking it.");
 
     return { attempted, ok, failed, headline, topMsg };
   }, [result]);
-
-  const showImage = mediaType === "image";
-  const showVideo = mediaType === "video";
-
-  const mediaWarning = useMemo(() => {
-    if (mediaType !== "video") return null;
-    const v = (videoUrl || "").trim();
-    if (!v) return "Video selected: add a direct video URL (ideally .mp4).";
-    if (!looksLikeVideoUrl(v)) return "This doesn’t look like a direct video link. A public .mp4 URL is most reliable.";
-    return null;
-  }, [mediaType, videoUrl]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
@@ -665,7 +623,9 @@ export default function DashboardHomePage() {
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
-              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">Enterprise Beta</h1>
+              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
+                Enterprise Beta
+              </h1>
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
@@ -675,7 +635,9 @@ export default function DashboardHomePage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-slate-400">Connected:</div>
-                  <div className="text-lg font-semibold text-slate-100">{loadingAccounts ? "…" : connectedCount}</div>
+                  <div className="text-lg font-semibold text-slate-100">
+                    {loadingAccounts ? "…" : connectedCount}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -721,7 +683,9 @@ export default function DashboardHomePage() {
                       onClick={() => setMode("now")}
                       className={[
                         "px-3 py-1.5",
-                        mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        mode === "now"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
                       ].join(" ")}
                     >
                       Send now
@@ -731,7 +695,9 @@ export default function DashboardHomePage() {
                       onClick={() => setMode("approval")}
                       className={[
                         "px-3 py-1.5",
-                        mode === "approval" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        mode === "approval"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
                       ].join(" ")}
                     >
                       Queue for approval
@@ -789,7 +755,9 @@ export default function DashboardHomePage() {
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">Subject (what’s the post about?)</label>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Subject (what’s the post about?)
+                    </label>
                     <input
                       value={aiSubject}
                       onChange={(e) => setAiSubject(e.target.value)}
@@ -800,7 +768,9 @@ export default function DashboardHomePage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">Tone</label>
+                      <label className="block text-xs font-medium text-slate-300">
+                        Tone
+                      </label>
                       <select
                         value={aiTone}
                         onChange={(e) => setAiTone(e.target.value)}
@@ -815,7 +785,9 @@ export default function DashboardHomePage() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">Length</label>
+                      <label className="block text-xs font-medium text-slate-300">
+                        Length
+                      </label>
                       <select
                         value={aiLength}
                         onChange={(e) => setAiLength(e.target.value)}
@@ -838,9 +810,14 @@ export default function DashboardHomePage() {
                 {aiVariants.length > 0 && (
                   <div className="mt-4 space-y-3">
                     {aiVariants.map((v, idx) => (
-                      <div key={`${idx}-${v.title}`} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
+                      <div
+                        key={`${idx}-${v.title}`}
+                        className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4"
+                      >
                         <div className="flex items-start justify-between gap-3">
-                          <div className="text-sm font-semibold">{v.title || `Variant ${idx + 1}`}</div>
+                          <div className="text-sm font-semibold">
+                            {v.title || `Variant ${idx + 1}`}
+                          </div>
                           <button
                             type="button"
                             onClick={() => setMessage(joinVariant(v))}
@@ -849,17 +826,23 @@ export default function DashboardHomePage() {
                             Use this
                           </button>
                         </div>
-                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{joinVariant(v)}</div>
+                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
+                          {joinVariant(v)}
+                        </div>
                       </div>
                     ))}
-                    <div className="text-[11px] text-slate-500">Tip: Click “Use this”, tweak the wording, then dispatch.</div>
+                    <div className="text-[11px] text-slate-500">
+                      Tip: Click “Use this”, tweak the wording, then dispatch.
+                    </div>
                   </div>
                 )}
               </div>
 
               <div className="mt-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">Message</label>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Message
+                  </label>
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
@@ -869,101 +852,58 @@ export default function DashboardHomePage() {
                   />
                 </div>
 
-                {/* ✅ Media selector */}
-                <div className="rounded-3xl border border-slate-700 bg-slate-950 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold">Media</div>
-                      <div className="text-[11px] text-slate-400 mt-1">
-                        Text-only is safest. Images work today. Video publishing is the next backend step.
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Image (optional)
+                    </label>
+                    <input
+                      value={imageUrl}
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder="Paste a direct image URL (JPG/PNG)…"
+                    />
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      (Instagram images require a direct image link.)
+                    </div>
+                    {instagramSelected && !imageUrl.trim() && !videoUrl.trim() && (
+                      <div className="mt-2 text-[11px] text-amber-300">
+                        Instagram selected: add an Image URL (JPG/PNG) or a Video URL (MP4), otherwise IG may fail.
                       </div>
-                    </div>
-
-                    <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMediaType("text");
-                          setImageUrl("");
-                          setVideoUrl("");
-                        }}
-                        className={["px-3 py-1.5", mediaType === "text" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
-                      >
-                        Text
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMediaType("image");
-                          setVideoUrl("");
-                        }}
-                        className={["px-3 py-1.5", mediaType === "image" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
-                      >
-                        Image
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMediaType("video");
-                          setImageUrl("");
-                        }}
-                        className={["px-3 py-1.5", mediaType === "video" ? "bg-emerald-500 text-slate-950" : "text-slate-300"].join(" ")}
-                      >
-                        Video
-                      </button>
-                    </div>
+                    )}
                   </div>
 
-                  {showImage && (
-                    <div className="mt-4">
-                      <label className="block text-xs font-medium text-slate-300">Image URL (optional)</label>
-                      <input
-                        value={imageUrl}
-                        onChange={(e) => setImageUrl(e.target.value)}
-                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                        placeholder="Paste a direct image URL (JPG/PNG)…"
-                      />
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        (Instagram posting may require an image for some post types.)
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Video (optional)
+                    </label>
+                    <input
+                      value={videoUrl}
+                      onChange={(e) => setVideoUrl(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder="Paste a direct MP4 URL (public)…"
+                    />
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      Video requires a direct public MP4 link (not a web page).
+                    </div>
+                    {hasVideo && hasImage && (
+                      <div className="mt-2 text-[11px] text-slate-400">
+                        Note: If both are set, video takes priority on supported platforms.
                       </div>
-                      {instagramSelected && !imageUrl.trim() && (
-                        <div className="mt-2 text-[11px] text-amber-300">
-                          Instagram selected: if posting fails, add an image URL and try again.
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {showVideo && (
-                    <div className="mt-4">
-                      <label className="block text-xs font-medium text-slate-300">Video URL (mp4 recommended)</label>
-                      <input
-                        value={videoUrl}
-                        onChange={(e) => setVideoUrl(e.target.value)}
-                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                        placeholder="https://…/video.mp4"
-                      />
-                      {mediaWarning ? (
-                        <div className="mt-2 text-[11px] text-amber-300">{mediaWarning}</div>
-                      ) : (
-                        <div className="mt-2 text-[11px] text-slate-500">
-                          Note: This UI is ready; video publishing requires backend wiring per platform.
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {mediaType === "text" ? (
-                    <div className="mt-4 text-[11px] text-slate-500">
-                      Text-only selected: fastest + most reliable.
-                    </div>
-                  ) : null}
+                    )}
+                  </div>
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="block text-xs font-medium text-slate-300">Channels</label>
-                    <button type="button" onClick={refreshChannels} className="text-[11px] text-slate-400 hover:text-slate-300">
+                    <label className="block text-xs font-medium text-slate-300">
+                      Channels
+                    </label>
+                    <button
+                      type="button"
+                      onClick={refreshChannels}
+                      className="text-[11px] text-slate-400 hover:text-slate-300"
+                    >
                       Refresh
                     </button>
                   </div>
@@ -989,7 +929,9 @@ export default function DashboardHomePage() {
                         >
                           <div>
                             <div className="font-medium">{PROVIDER_LABELS[p]}</div>
-                            <div className="text-[11px] text-slate-500">{isConnected ? "connected" : "not connected"}</div>
+                            <div className="text-[11px] text-slate-500">
+                              {isConnected ? "connected" : "not connected"}
+                            </div>
                           </div>
                           <div
                             className={`text-[11px] px-2 py-1 rounded-full border ${
@@ -1007,14 +949,18 @@ export default function DashboardHomePage() {
                     })}
                   </div>
 
-                  <div className="mt-2 text-[11px] text-slate-500">Only connected channels will actually send.</div>
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    Only connected channels will actually send.
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-3 pt-2">
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={sending || message.trim().length === 0 || selected.length === 0}
+                    disabled={
+                      sending || message.trim().length === 0 || selected.length === 0
+                    }
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {sending
@@ -1053,11 +999,15 @@ export default function DashboardHomePage() {
 
                       <div className="mt-1 text-[12px] text-slate-300">
                         {friendlySummary?.topMsg ||
-                          (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.")}
+                          (result.success
+                            ? "Nice — you’re live."
+                            : "No stress — we’ll fix what’s blocking it.")}
                       </div>
 
                       {result.note ? (
-                        <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div>
+                        <div className="mt-2 text-[12px] text-emerald-300">
+                          {result.note}
+                        </div>
                       ) : null}
                     </div>
 
@@ -1069,13 +1019,23 @@ export default function DashboardHomePage() {
                           const skipped = !!r?.skipped;
                           const label = formatPlatformName(r?.platform || platform);
 
-                          const friendly = ok ? "Posted." : extractFriendlyError(r);
+                          const friendly = ok
+                            ? "Posted."
+                            : skipped
+                            ? extractFriendlyError(r)
+                            : extractFriendlyError(r);
+
                           const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
 
                           return (
-                            <div key={`${platform}-${idx}`} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                            <div
+                              key={`${platform}-${idx}`}
+                              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                            >
                               <div className="flex items-start justify-between gap-3">
-                                <div className="text-[12px] font-semibold text-slate-200">{label}</div>
+                                <div className="text-[12px] font-semibold text-slate-200">
+                                  {label}
+                                </div>
                                 <div
                                   className={[
                                     "text-[11px] rounded-full border px-2 py-0.5",
@@ -1090,8 +1050,15 @@ export default function DashboardHomePage() {
                                 </div>
                               </div>
 
-                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">{friendly}</div>
-                              {tip ? <div className="mt-1 text-[11px] text-slate-400">{tip}</div> : null}
+                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
+                                {friendly}
+                              </div>
+
+                              {tip ? (
+                                <div className="mt-1 text-[11px] text-slate-400">
+                                  {tip}
+                                </div>
+                              ) : null}
                             </div>
                           );
                         })}
@@ -1115,10 +1082,13 @@ export default function DashboardHomePage() {
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
                     <div className="text-slate-400 mb-2">Admin info (safe).</div>
                     <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
-                    <div className="mt-1">Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}</div>
+                    <div className="mt-1">
+                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
+                    </div>
                     <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
                     <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
-                    <div className="mt-1">MediaType: {mediaType}</div>
+                    <div className="mt-1">Has image: {imageUrl.trim() ? "yes" : "no"}</div>
+                    <div className="mt-1">Has video: {videoUrl.trim() ? "yes" : "no"}</div>
                   </div>
                 )}
               </div>
@@ -1127,23 +1097,33 @@ export default function DashboardHomePage() {
             {/* Drafts */}
             <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <h3 className="text-base font-semibold">Saved drafts</h3>
-              <p className="mt-1 text-sm text-slate-300">Drafts are stored on this device. (Later we can sync per org.)</p>
-              <p className="mt-2 text-[11px] text-slate-500">Use “Save for later” and we’ll restore the full draft library</p>
+              <p className="mt-1 text-sm text-slate-300">
+                Drafts are stored on this device. (Later we can sync per org.)
+              </p>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Use “Save for later” and we’ll restore the full draft library
+              </p>
 
               <div className="mt-4 space-y-3">
                 {drafts.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">No drafts yet.</div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                    No drafts yet.
+                  </div>
                 ) : (
                   drafts.map((d) => (
-                    <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                      <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
-                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
+                    <div
+                      key={d.id}
+                      className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
+                    >
+                      <div className="text-[11px] text-slate-500">
+                        {new Date(d.savedAt).toLocaleString()}
+                      </div>
+                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">
+                        {d.message || "(empty)"}
+                      </div>
                       <div className="mt-2 text-[11px] text-slate-500">
                         Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
                       </div>
-                      {d.mediaType ? (
-                        <div className="mt-1 text-[11px] text-slate-500">Media: {d.mediaType}</div>
-                      ) : null}
 
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
@@ -1169,7 +1149,7 @@ export default function DashboardHomePage() {
           </div>
 
           <div className="mt-8 text-xs text-slate-500">
-            Tip: Brainstorm → “Send to Quick Blast” now auto-imports here. Generate with AI → Use a variant → tweak → post (or queue).
+            Tip: Generate with AI → Use a variant → tweak → post (or queue).
           </div>
         </div>
       </div>
