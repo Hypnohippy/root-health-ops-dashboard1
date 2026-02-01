@@ -41,10 +41,7 @@ export default function NewContentPage() {
     })();
   }, []);
 
-  const canUpload = useMemo(
-    () => !!organisationId && !loadingOrg,
-    [organisationId, loadingOrg]
-  );
+  const canUpload = useMemo(() => !!organisationId && !loadingOrg, [organisationId, loadingOrg]);
 
   const removeMedia = (url: string) => {
     setMediaUrls((prev) => prev.filter((x) => x !== url));
@@ -76,8 +73,7 @@ export default function NewContentPage() {
         <header className="space-y-2">
           <h1 className="text-2xl md:text-3xl font-semibold">New Content</h1>
           <p className="text-sm text-slate-300">
-            Upload images/videos into Supabase Storage, then copy the public URL
-            into Quick Blast / Stories.
+            Upload images/videos into Supabase Storage, then copy the public URL into Quick Blast / Stories.
           </p>
         </header>
 
@@ -85,30 +81,30 @@ export default function NewContentPage() {
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm font-medium">Upload media</div>
             <div className="text-[11px] text-slate-400">
-              {loadingOrg
-                ? "Loading organisation…"
-                : organisationId
-                ? "Ready"
-                : "No organisation found"}
+              {loadingOrg ? "Loading organisation…" : organisationId ? "Ready" : "No organisation found"}
             </div>
           </div>
 
-          <MediaDropzone
-            organisationId={organisationId || ""}
-            onUploaded={(media: UploadedMedia) => {
-              const u = String(media?.url || "").trim();
-              if (!u) return;
-              setMediaUrls((prev) => (prev.includes(u) ? prev : [...prev, u]));
-            }}
-            disabled={!canUpload}
-          />
+          {!canUpload ? (
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
+              {loadingOrg
+                ? "Loading your organisation…"
+                : "No organisation found yet. Go to Org Setup / Billing, then come back here."}
+            </div>
+          ) : (
+            <MediaDropzone
+              organisationId={organisationId || ""}
+              onUploaded={(media: UploadedMedia) => {
+                const u = String(media?.url || "").trim();
+                if (!u) return;
+                setMediaUrls((prev) => (prev.includes(u) ? prev : [...prev, u]));
+              }}
+            />
+          )}
 
           <div className="text-[11px] text-slate-500">
-            Videos: if you see <b>413</b>, that’s almost always a request-size
-            limit in Vercel/Next route handling (even if Supabase allows 50MB).
-            We’ll fix that next by switching to a “signed upload URL” flow so the
-            browser uploads directly to Supabase (no big file passing through
-            your server).
+            Videos: if you see <b>413</b>, that’s almost always a request-size limit in Vercel/Next route handling
+            (even if Supabase allows 50MB). We’ll fix that by switching to a browser → Supabase direct upload flow.
           </div>
         </section>
 
@@ -116,9 +112,7 @@ export default function NewContentPage() {
           <h2 className="text-base font-semibold">Uploaded media URLs</h2>
 
           {mediaUrls.length === 0 ? (
-            <div className="text-sm text-slate-400">
-              No uploads yet — drop a file above.
-            </div>
+            <div className="text-sm text-slate-400">No uploads yet — drop a file above.</div>
           ) : (
             <div className="space-y-2">
               {mediaUrls.map((u) => (
@@ -157,8 +151,7 @@ export default function NewContentPage() {
           )}
 
           <div className="text-[11px] text-slate-500">
-            Copy a URL → paste it into Quick Blast’s Image/Video field (depending
-            on what you’re posting).
+            Copy a URL → paste it into Quick Blast’s Image/Video field (depending on what you’re posting).
           </div>
         </section>
       </div>
