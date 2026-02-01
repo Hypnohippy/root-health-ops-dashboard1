@@ -34,15 +34,26 @@ function guessContentType(name: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const form = await req.formData();
-    const file = form.get("file");
+    // ✅ IMPORTANT: only accept JSON metadata (no file)
+    const body = await req.json().catch(() => ({}));
 
-    if (!file || !(file instanceof Blob)) {
-      return NextResponse.json({ success: false, error: "Missing file" }, { status: 400 });
+    const filename = String(body?.filename || body?.name || "").trim();
+    const size = Number(body?.size || 0);
+    const contentTypeIncoming = String(body?.contentType || body?.type || "").trim();
+
+    if (!filename) {
+      return NextResponse.json(
+        { success: false, error: "Missing filename." },
+        { status: 400 }
+      );
     }
 
-    const name = "name" in file && typeof (file as any).name === "string" ? (file as any).name : "upload.bin";
-    const size = "size" in file ? (file as any).size : 0;
+    if (!size || !Number.isFinite(size)) {
+      return NextResponse.json(
+        { success: false, error: "Missing file size." },
+        { status: 400 }
+      );
+    }
 
     if (size > MAX_BYTES) {
       return NextResponse.json(
@@ -51,12 +62,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const contentType =
-      ("type" in file && typeof (file as any).type === "string" && (file as any).type) ||
-      guessContentType(name);
-
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const contentType = contentTypeIncoming || guessContentType(filename);
 
     // Organise uploads by date (nice + predictable)
     const d = new Date();
@@ -64,31 +70,30 @@ export async function POST(req: NextRequest) {
     const mm = String(d.getMonth() + 1).padStart(2, "0");
     const dd = String(d.getDate()).padStart(2, "0");
 
-    const safe = safeName(name);
+    const safe = safeName(filename);
     const unique = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const path = `uploads/${yyyy}-${mm}-${dd}/${unique}_${safe}`;
 
-    const { error: upErr } = await supabaseAdmin.storage
+    // ✅ Create a signed upload URL (server-side using service role)
+    const { data, error } = await supabaseAdmin.storage
       .from(BUCKET)
-      .upload(path, buffer, {
-        contentType,
-        upsert: false,
-      });
+      .createSignedUploadUrl(path);
 
-    if (upErr) {
-      console.error("[media/upload] upload error", upErr);
+    if (error || !data) {
+      console.error("[media/upload] createSignedUploadUrl error", error);
       return NextResponse.json(
-        { success: false, error: `Supabase upload failed: ${upErr.message}` },
+        { success: false, error: `Could not create signed upload URL: ${error?.message || "unknown error"}` },
         { status: 500 }
       );
     }
 
+    // ✅ Build the final public URL (bucket is public)
     const pub = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
-    const url = pub?.data?.publicUrl || "";
+    const publicUrl = pub?.data?.publicUrl || "";
 
-    if (!url) {
+    if (!publicUrl) {
       return NextResponse.json(
-        { success: false, error: "Uploaded but could not create a public URL." },
+        { success: false, error: "Could not create public URL for uploaded file path." },
         { status: 500 }
       );
     }
@@ -98,7 +103,9 @@ export async function POST(req: NextRequest) {
         success: true,
         bucket: BUCKET,
         path,
-        url,
+        token: data.token, // used by uploadToSignedUrl(...)
+        signedUrl: data.signedUrl, // optional, useful for debugging
+        publicUrl,
         contentType,
         size,
       },
@@ -107,7 +114,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("[media/upload] fatal", err);
     return NextResponse.json(
-      { success: false, error: err?.message || "Upload failed" },
+      { success: false, error: err?.message || "Upload init failed" },
       { status: 500 }
     );
   }
