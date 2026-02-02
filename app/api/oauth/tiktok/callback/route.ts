@@ -1,24 +1,3 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
-
-export const runtime = "nodejs";
-
-// Safe base URL helper
-function safeBaseUrl(req: NextRequest) {
-  const env = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
-  return env || req.nextUrl.origin;
-}
-
-// Unpack the state token passed by TikTok
-function unpackState(state: string): { org: string | null } {
-  try {
-    const json = JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
-    return { org: typeof json?.org === "string" ? json.org : null };
-  } catch {
-    return { org: null };
-  }
-}
-
 export async function GET(req: NextRequest) {
   try {
     const clientKey = process.env.TIKTOK_CLIENT_KEY;
@@ -34,8 +13,12 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Capture query parameters (code and state)
     const code = req.nextUrl.searchParams.get("code") || "";
     const state = req.nextUrl.searchParams.get("state") || "";
+
+    console.log("Received code:", code);
+    console.log("Received state:", state);
 
     if (!code) {
       console.error("Missing ?code from TikTok callback.");
