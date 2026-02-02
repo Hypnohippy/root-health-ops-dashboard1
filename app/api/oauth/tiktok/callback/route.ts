@@ -1,21 +1,26 @@
-import { NextResponse } from 'next/server';  // Added this import
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
-// Function to get the base URL of the request
-function safeBaseUrl(req: any) {
-  const env = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
-  return env.replace(/\/$/, ""); // Remove any trailing slash
+export const runtime = "nodejs";
+
+function safeBaseUrl(req: NextRequest) {
+  const env = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
+  return env || req.nextUrl.origin;
 }
 
-// Corrected relative import path to supabaseAdmin
-import { supabaseAdmin } from '../../../../lib/supabaseAdmin';  // Use relative import (go up 3 levels)
+function unpackState(state: string): { org: string | null } {
+  try {
+    const json = JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
+    return { org: typeof json?.org === "string" ? json.org : null };
+  } catch {
+    return { org: null };
+  }
+}
 
-export async function GET(req: any) {
+export async function GET(req: NextRequest) {
   try {
     const clientKey = process.env.TIKTOK_CLIENT_KEY;
     const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
-
-    // Debugging log
-    console.log("TikTok Callback initiated...");
 
     if (!clientKey || !clientSecret) {
       return NextResponse.json(
@@ -24,36 +29,18 @@ export async function GET(req: any) {
       );
     }
 
-    // Capture query parameters (code and state)
     const code = req.nextUrl.searchParams.get("code") || "";
     const state = req.nextUrl.searchParams.get("state") || "";
 
-    console.log("Received code:", code);
-    console.log("Received state:", state);
-
     if (!code) {
-      console.error("Missing ?code from TikTok callback.");
       return NextResponse.json(
         { success: false, error: "Missing ?code from TikTok callback." },
         { status: 400 }
       );
     }
 
-    let organisationId = "";
-    try {
-      const decodedState = Buffer.from(state, "base64url").toString("utf-8");
-      const stateData = JSON.parse(decodedState);
-      organisationId = stateData?.org || "";
-    } catch (error) {
-      console.error("Error decoding state:", error);
-      return NextResponse.json(
-        { success: false, error: "Failed to decode state." },
-        { status: 400 }
-      );
-    }
-
+    const { org: organisationId } = unpackState(state);
     if (!organisationId) {
-      console.error("Missing/invalid state (no organisation id).");
       return NextResponse.json(
         { success: false, error: "Missing/invalid state (no organisation id)." },
         { status: 400 }
@@ -62,9 +49,6 @@ export async function GET(req: any) {
 
     const base = safeBaseUrl(req);
     const redirectUri = `${base}/api/oauth/tiktok/callback`;
-
-    // Debugging log
-    console.log("Exchanging code for access token...");
 
     // 1) Exchange code for access token
     const tokenRes = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
@@ -82,10 +66,15 @@ export async function GET(req: any) {
 
     const tokenJson: any = await tokenRes.json().catch(() => null);
 
+    console.log("Token Response: ", tokenJson);  // Add this to log the response
+
     if (!tokenRes.ok || !tokenJson?.access_token) {
-      console.error("TikTok token exchange failed:", tokenJson);
       return NextResponse.json(
-        { success: false, error: "TikTok token exchange failed", details: tokenJson },
+        {
+          success: false,
+          error: "TikTok token exchange failed",
+          details: tokenJson,
+        },
         { status: 400 }
       );
     }
@@ -93,11 +82,10 @@ export async function GET(req: any) {
     const accessToken = String(tokenJson.access_token);
     const openId = String(tokenJson.open_id || "");
 
-    // Debugging log
-    console.log("Fetching TikTok user info...");
-
     // 2) Fetch basic user info (user.info.basic)
-    const infoUrl = "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url";
+    const infoUrl =
+      "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url";
+
     const infoRes = await fetch(infoUrl, {
       method: "GET",
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -106,11 +94,11 @@ export async function GET(req: any) {
 
     const infoJson: any = await infoRes.json().catch(() => null);
 
+    console.log("User Info: ", infoJson);  // Log user info to debug
+
     const user = infoJson?.data?.user;
     const displayName = user?.display_name ? String(user.display_name) : null;
     const avatarUrl = user?.avatar_url ? String(user.avatar_url) : null;
-
-    console.log("User info:", { displayName, avatarUrl });
 
     // 3) Store connection in social_accounts (direct, no vendors)
     const expiresIn = Number(tokenJson.expires_in ?? 0);
@@ -126,7 +114,7 @@ export async function GET(req: any) {
           organisation_id: organisationId,
           platform: "tiktok",
           page_id: openId || null,
-          page_name: displayName,  // Fixed the typo here (previously page_na_)
+          page_name: displayName,
           connection_type: "oauth",
           is_active: true,
           page_access_token: accessToken,
@@ -136,7 +124,6 @@ export async function GET(req: any) {
       );
 
     if (upsertErr) {
-      console.error("Failed to save TikTok connection:", upsertErr.message);
       return NextResponse.json(
         { success: false, error: `Failed to save TikTok connection: ${upsertErr.message}` },
         { status: 500 }
@@ -147,12 +134,11 @@ export async function GET(req: any) {
     const redirectTo = new URL("/dashboard/connect", base);
     redirectTo.searchParams.set("tiktok", "connected");
 
-    // Optional: You can add avatarUrl to query for debugging
+    // (Optional) You can add avatarUrl to query for debugging
     if (avatarUrl) redirectTo.searchParams.set("tiktok_avatar", "1");
 
     return NextResponse.redirect(redirectTo);
   } catch (e: any) {
-    console.error("TikTok callback failed:", e);
     return NextResponse.json(
       { success: false, error: e?.message || "TikTok callback failed" },
       { status: 500 }
