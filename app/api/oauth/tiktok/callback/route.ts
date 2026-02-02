@@ -1,4 +1,3 @@
-// app/api/oauth/tiktok/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
@@ -52,7 +51,6 @@ export async function GET(req: NextRequest) {
     const redirectUri = `${base}/api/oauth/tiktok/callback`;
 
     // 1) Exchange code for access token
-    // TikTok OAuth token endpoint (Login Kit)
     const tokenRes = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -99,11 +97,6 @@ export async function GET(req: NextRequest) {
     const avatarUrl = user?.avatar_url ? String(user.avatar_url) : null;
 
     // 3) Store connection in social_accounts (direct, no vendors)
-    // We map:
-    // - page_id: open_id
-    // - page_name: display name (for UI)
-    // - page_access_token: TikTok access token (later used for posting scopes)
-    // - token_expires_at: if provided
     const expiresIn = Number(tokenJson.expires_in ?? 0);
     const tokenExpiresAt =
       expiresIn && expiresIn > 0
@@ -122,8 +115,7 @@ export async function GET(req: NextRequest) {
           is_active: true,
           page_access_token: accessToken,
           token_expires_at: tokenExpiresAt,
-          // Optional: stash avatar in a column if you have it; otherwise ignore.
-          // avatar_url: avatarUrl,
+          avatar_url: avatarUrl,
         },
         { onConflict: "organisation_id,platform" }
       );
@@ -139,7 +131,6 @@ export async function GET(req: NextRequest) {
     const redirectTo = new URL("/dashboard/connect", base);
     redirectTo.searchParams.set("tiktok", "connected");
 
-    // (Optional) You can add avatarUrl to query for debugging
     if (avatarUrl) redirectTo.searchParams.set("tiktok_avatar", "1");
 
     return NextResponse.redirect(redirectTo);
