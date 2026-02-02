@@ -1,3 +1,5 @@
+import { NextResponse } from 'next/server';  // Added this import
+
 // Commented out supabaseAdmin import temporarily to avoid the build error
 // import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
