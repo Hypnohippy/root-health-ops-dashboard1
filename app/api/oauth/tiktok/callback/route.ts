@@ -126,4 +126,36 @@ export async function GET(req: any) {
           organisation_id: organisationId,
           platform: "tiktok",
           page_id: openId || null,
-          page_na_
+          page_name: displayName,  // Fixed the typo here (previously page_na_)
+          connection_type: "oauth",
+          is_active: true,
+          page_access_token: accessToken,
+          token_expires_at: tokenExpiresAt,
+        },
+        { onConflict: "organisation_id,platform" }
+      );
+
+    if (upsertErr) {
+      console.error("Failed to save TikTok connection:", upsertErr.message);
+      return NextResponse.json(
+        { success: false, error: `Failed to save TikTok connection: ${upsertErr.message}` },
+        { status: 500 }
+      );
+    }
+
+    // 4) Redirect back to Connect page (so your UI can show Connected)
+    const redirectTo = new URL("/dashboard/connect", base);
+    redirectTo.searchParams.set("tiktok", "connected");
+
+    // Optional: You can add avatarUrl to query for debugging
+    if (avatarUrl) redirectTo.searchParams.set("tiktok_avatar", "1");
+
+    return NextResponse.redirect(redirectTo);
+  } catch (e: any) {
+    console.error("TikTok callback failed:", e);
+    return NextResponse.json(
+      { success: false, error: e?.message || "TikTok callback failed" },
+      { status: 500 }
+    );
+  }
+}
