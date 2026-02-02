@@ -7,7 +7,7 @@ function safeBaseUrl(req: any) {
 }
 
 // Corrected import path to supabaseAdmin
-import { supabaseAdmin } from '../../../lib/supabaseAdmin';  // Ensure the relative path is correct
+import { supabaseAdmin } from '../../../../lib/supabaseAdmin';  // Ensure the relative path is correct
 
 export async function GET(req: any) {
   try {
