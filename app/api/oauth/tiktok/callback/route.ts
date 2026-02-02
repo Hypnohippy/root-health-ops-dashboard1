@@ -6,8 +6,8 @@ function safeBaseUrl(req: any) {
   return env.replace(/\/$/, ""); // Remove any trailing slash
 }
 
-// Corrected import path to supabaseAdmin
-import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+// Corrected import path to supabaseAdmin using absolute import
+import { supabaseAdmin } from '@lib/supabaseAdmin';  // Absolute import using alias
 
 export async function GET(req: any) {
   try {
