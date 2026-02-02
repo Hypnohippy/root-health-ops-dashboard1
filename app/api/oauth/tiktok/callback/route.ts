@@ -1,13 +1,16 @@
+// app/api/oauth/tiktok/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
+// Helper function to get the base URL
 function safeBaseUrl(req: NextRequest) {
   const env = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
   return env || req.nextUrl.origin;
 }
 
+// Helper function to unpack state from base64 URL
 function unpackState(state: string): { org: string | null } {
   try {
     const json = JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
@@ -50,7 +53,7 @@ export async function GET(req: NextRequest) {
     const base = safeBaseUrl(req);
     const redirectUri = `${base}/api/oauth/tiktok/callback`;
 
-    // 1) Exchange code for access token
+    // 1) Exchange code for access token (TikTok OAuth token endpoint)
     const tokenRes = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -115,7 +118,7 @@ export async function GET(req: NextRequest) {
           is_active: true,
           page_access_token: accessToken,
           token_expires_at: tokenExpiresAt,
-          avatar_url: avatarUrl,
+          avatar_url: avatarUrl, // Save the avatar URL here
         },
         { onConflict: "organisation_id,platform" }
       );
@@ -131,6 +134,7 @@ export async function GET(req: NextRequest) {
     const redirectTo = new URL("/dashboard/connect", base);
     redirectTo.searchParams.set("tiktok", "connected");
 
+    // (Optional) You can add avatarUrl to query for debugging
     if (avatarUrl) redirectTo.searchParams.set("tiktok_avatar", "1");
 
     return NextResponse.redirect(redirectTo);
