@@ -6,7 +6,7 @@ function safeBaseUrl(req: any) {
   return env.replace(/\/$/, ""); // Remove any trailing slash
 }
 
-import { supabaseAdmin } from "../../../lib/supabaseAdmin"; // Re-added the Supabase import
+import { supabaseAdmin } from '../../../../lib/supabaseAdmin'; // Fixed the import path
 
 export async function GET(req: any) {
   try {
@@ -38,7 +38,6 @@ export async function GET(req: any) {
       );
     }
 
-    // You can still unpack state, just comment out the Supabase code
     let organisationId = "";
     try {
       const decodedState = Buffer.from(state, "base64url").toString("utf-8");
