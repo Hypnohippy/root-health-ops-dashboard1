@@ -1,16 +1,13 @@
-// app/api/oauth/tiktok/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-// Helper function to get the base URL
 function safeBaseUrl(req: NextRequest) {
   const env = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
   return env || req.nextUrl.origin;
 }
 
-// Helper function to unpack state from base64 URL
 function unpackState(state: string): { org: string | null } {
   try {
     const json = JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
@@ -53,7 +50,7 @@ export async function GET(req: NextRequest) {
     const base = safeBaseUrl(req);
     const redirectUri = `${base}/api/oauth/tiktok/callback`;
 
-    // 1) Exchange code for access token (TikTok OAuth token endpoint)
+    // 1) Exchange code for access token
     const tokenRes = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -68,6 +65,8 @@ export async function GET(req: NextRequest) {
     });
 
     const tokenJson: any = await tokenRes.json().catch(() => null);
+
+    console.log("Token Response: ", tokenJson);  // Add this to log the response
 
     if (!tokenRes.ok || !tokenJson?.access_token) {
       return NextResponse.json(
@@ -95,6 +94,8 @@ export async function GET(req: NextRequest) {
 
     const infoJson: any = await infoRes.json().catch(() => null);
 
+    console.log("User Info: ", infoJson);  // Log user info to debug
+
     const user = infoJson?.data?.user;
     const displayName = user?.display_name ? String(user.display_name) : null;
     const avatarUrl = user?.avatar_url ? String(user.avatar_url) : null;
@@ -118,7 +119,6 @@ export async function GET(req: NextRequest) {
           is_active: true,
           page_access_token: accessToken,
           token_expires_at: tokenExpiresAt,
-          avatar_url: avatarUrl, // Save the avatar URL here
         },
         { onConflict: "organisation_id,platform" }
       );
