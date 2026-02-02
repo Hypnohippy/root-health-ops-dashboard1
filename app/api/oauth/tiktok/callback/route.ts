@@ -6,7 +6,8 @@ function safeBaseUrl(req: any) {
   return env.replace(/\/$/, ""); // Remove any trailing slash
 }
 
-import { supabaseAdmin } from '../../../../lib/supabaseAdmin'; // Fixed the import path
+// Corrected import path to supabaseAdmin
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';  // Ensure the relative path is correct
 
 export async function GET(req: any) {
   try {
@@ -125,36 +126,4 @@ export async function GET(req: any) {
           organisation_id: organisationId,
           platform: "tiktok",
           page_id: openId || null,
-          page_name: displayName,
-          connection_type: "oauth",
-          is_active: true,
-          page_access_token: accessToken,
-          token_expires_at: tokenExpiresAt,
-        },
-        { onConflict: "organisation_id,platform" }
-      );
-
-    if (upsertErr) {
-      console.error("Failed to save TikTok connection:", upsertErr.message);
-      return NextResponse.json(
-        { success: false, error: `Failed to save TikTok connection: ${upsertErr.message}` },
-        { status: 500 }
-      );
-    }
-
-    // 4) Redirect back to Connect page (so your UI can show Connected)
-    const redirectTo = new URL("/dashboard/connect", base);
-    redirectTo.searchParams.set("tiktok", "connected");
-
-    // Optional: You can add avatarUrl to query for debugging
-    if (avatarUrl) redirectTo.searchParams.set("tiktok_avatar", "1");
-
-    return NextResponse.redirect(redirectTo);
-  } catch (e: any) {
-    console.error("TikTok callback failed:", e);
-    return NextResponse.json(
-      { success: false, error: e?.message || "TikTok callback failed" },
-      { status: 500 }
-    );
-  }
-}
+          page_na_
