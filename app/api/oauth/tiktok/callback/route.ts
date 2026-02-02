@@ -28,7 +28,20 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { org: organisationId } = unpackState(state);
+    // Unpack state and extract organisationId
+    let organisationId = "";
+    try {
+      const decodedState = Buffer.from(state, "base64url").toString("utf-8");
+      const stateData = JSON.parse(decodedState);
+      organisationId = stateData?.org || "";
+    } catch (error) {
+      console.error("Error decoding state:", error);
+      return NextResponse.json(
+        { success: false, error: "Failed to decode state." },
+        { status: 400 }
+      );
+    }
+
     if (!organisationId) {
       console.error("Missing/invalid state (no organisation id).");
       return NextResponse.json(
