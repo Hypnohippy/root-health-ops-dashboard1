@@ -1,4 +1,3 @@
-// app/dashboard/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -60,9 +59,6 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
   whatsapp: "WhatsApp",
 };
 
-// ✅ Your org id (single-tenant beta mode)
-const ORG_ID = "23a054db-7040-40b1-b193-2f43cfa139de";
-
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
 type Draft = {
@@ -116,7 +112,8 @@ function extractFriendlyError(item: any): string {
 
   const metaTitle =
     item?.details?.error?.error_user_title || item?.error?.error_user_title;
-  const metaMessage = item?.details?.error?.message || item?.error?.message;
+  const metaMessage =
+    item?.details?.error?.message || item?.error?.message;
   if (metaTitle && metaMessage) return `${metaTitle}: ${metaMessage}`;
   if (metaMessage) return String(metaMessage);
 
@@ -141,15 +138,8 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
     if (msg.includes("processing")) {
       return "Tip: Instagram can take 10–60s to process media. Try again after a short pause.";
     }
-    if (
-      msg.includes("unsupported media type") ||
-      msg.includes("reels") ||
-      msg.includes("video")
-    ) {
-      return "Tip: Instagram VIDEO must be posted as REELS (not old VIDEO). We’ll fix this in the backend next (Ayrshare instagramOptions).";
-    }
     if (msg.includes("image") || msg.includes("media") || msg.includes("ready")) {
-      return "Tip: Use a direct public URL. If IG says it needs a different media type, we’ll adjust the payload next.";
+      return "Tip: For Instagram video, upload an MP4 and make sure Video URL is set (not Image URL).";
     }
   }
 
@@ -163,20 +153,14 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
   }
 
   if (platform === "threads") {
-    if (msg.includes("media not found")) {
-      return "Tip: Threads media can fail if the media URL is not a direct, public URL or the upstream container failed. We’ll harden this next.";
-    }
     if (msg.includes("permission")) {
-      return "Tip: Text works, but media may require extra Threads/Meta permissions or account eligibility.";
+      return "Tip: This usually means the app/token lacks permission for that content type (e.g., media).";
     }
   }
 
   if (platform === "linkedin") {
     if (msg.includes("duplicate")) {
       return "Tip: Change the first line or CTA slightly, then resend.";
-    }
-    if (msg.includes("video")) {
-      return "Tip: LinkedIn VIDEO isn’t implemented in your current LinkedIn route yet — it will fall back to text/image.";
     }
   }
 
@@ -202,11 +186,30 @@ function defaultLocalDateTimePlus(minutes: number) {
 }
 
 type Mode = "now" | "approval";
+type MediaMode = "auto" | "image" | "video";
+
+function looksLikeVideoUrl(u: string) {
+  const s = (u || "").trim().toLowerCase();
+  if (!s) return false;
+  return s.includes(".mp4") || s.includes(".mov") || s.includes(".webm");
+}
+
+function looksLikeImageUrl(u: string) {
+  const s = (u || "").trim().toLowerCase();
+  if (!s) return false;
+  return (
+    s.includes(".jpg") ||
+    s.includes(".jpeg") ||
+    s.includes(".png") ||
+    s.includes(".webp") ||
+    s.includes(".gif")
+  );
+}
 
 export default function DashboardHomePage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
-  const [organisationId, setOrganisationId] = useState<string | null>(ORG_ID);
+  const [organisationId, setOrganisationId] = useState<string | null>(null);
 
   // AI composer
   const [aiSubject, setAiSubject] = useState("");
@@ -219,8 +222,12 @@ export default function DashboardHomePage() {
   const [message, setMessage] = useState(
     "Quick check-in from Root Health Ops Dashboard ✅"
   );
+
   const [imageUrl, setImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
+
+  const [mediaMode, setMediaMode] = useState<MediaMode>("auto");
+
   const [selected, setSelected] = useState<ProviderId[]>([]);
 
   const [sending, setSending] = useState(false);
@@ -233,20 +240,6 @@ export default function DashboardHomePage() {
   const [scheduledLocal, setScheduledLocal] = useState<string>(
     defaultLocalDateTimePlus(10)
   );
-
-  // ✅ STOP “drop opens new tab”
-  useEffect(() => {
-    const prevent = (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    window.addEventListener("dragover", prevent);
-    window.addEventListener("drop", prevent);
-    return () => {
-      window.removeEventListener("dragover", prevent);
-      window.removeEventListener("drop", prevent);
-    };
-  }, []);
 
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
@@ -277,22 +270,24 @@ export default function DashboardHomePage() {
   async function loadSocialAccounts() {
     setLoadingAccounts(true);
     try {
-      // ✅ CRITICAL FIX: load accounts for THIS org (otherwise you see wrong/empty)
-      const res = await fetch(
-        `/api/social-accounts?organisationId=${encodeURIComponent(ORG_ID)}`,
-        { cache: "no-store" }
-      );
+      const res = await fetch("/api/social-accounts", { cache: "no-store" });
       const data = await res.json().catch(() => null);
 
-      // Force the org context for this page
-      setOrganisationId(ORG_ID);
+      const org =
+        typeof data?.organisationId === "string"
+          ? data.organisationId
+          : typeof data?.organisation_id === "string"
+          ? data.organisation_id
+          : null;
+
+      setOrganisationId(org);
 
       const rows: SocialAccountRow[] = data?.socialAccounts ?? [];
-      setSocialAccounts(Array.isArray(rows) ? rows : []);
+      setSocialAccounts(rows);
     } catch (e) {
       console.error("[dashboard] loadSocialAccounts failed", e);
       setSocialAccounts([]);
-      setOrganisationId(ORG_ID);
+      setOrganisationId(null);
     } finally {
       setLoadingAccounts(false);
     }
@@ -337,7 +332,9 @@ export default function DashboardHomePage() {
     try {
       const subject = aiSubject.trim();
       if (!subject) {
-        setAiError("Please type a subject first (e.g., 'coping with failure').");
+        setAiError(
+          "Please type a subject first (e.g., 'coping with failure')."
+        );
         return;
       }
 
@@ -376,18 +373,41 @@ export default function DashboardHomePage() {
     }
   }
 
+  function effectiveMediaPayload() {
+    const img = (imageUrl || "").trim();
+    const vid = (videoUrl || "").trim();
+
+    if (mediaMode === "image") {
+      return { imageUrl: img, videoUrl: "" };
+    }
+    if (mediaMode === "video") {
+      return { imageUrl: "", videoUrl: vid };
+    }
+
+    // auto
+    // Prefer video if it looks like a video
+    if (vid && looksLikeVideoUrl(vid)) return { imageUrl: "", videoUrl: vid };
+    if (img && looksLikeImageUrl(img)) return { imageUrl: img, videoUrl: "" };
+
+    // If both filled, prefer video (safer for your use-case)
+    if (vid) return { imageUrl: "", videoUrl: vid };
+    return { imageUrl: img, videoUrl: "" };
+  }
+
   async function sendQuickBlastNow() {
     setSending(true);
     setResult(null);
 
     try {
+      const media = effectiveMediaPayload();
+
       const res = await fetch("/api/social/quick-blast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
-          imageUrl,
-          videoUrl,
+          imageUrl: media.imageUrl,
+          videoUrl: media.videoUrl,
           platforms: selected,
         }),
       });
@@ -433,7 +453,14 @@ export default function DashboardHomePage() {
     setResult(null);
 
     try {
-      const org = organisationId || ORG_ID;
+      if (!organisationId) {
+        setResult({
+          success: false,
+          error: "Organisation not loaded yet.",
+          userMessage: "Workspace not loaded yet. Refresh and try again.",
+        });
+        return;
+      }
 
       const scheduledIso = isoForDateTimeLocal(scheduledLocal);
       if (!scheduledIso) {
@@ -445,22 +472,24 @@ export default function DashboardHomePage() {
         return;
       }
 
+      const media = effectiveMediaPayload();
+
       const res = await fetch("/api/social/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
           platforms: selected,
-          imageUrl,
+          imageUrl: media.imageUrl,
           scheduledAt: scheduledIso,
-          organisationId: org,
+          organisationId,
           meta: {
             approvals: {
               state: "pending",
               source: "quick_blast",
               created_at: new Date().toISOString(),
             },
-            ...(videoUrl ? { video_url: videoUrl } : {}),
+            ...(media.videoUrl ? { video_url: media.videoUrl } : {}),
           },
           createdBy: {
             user_id: "owner",
@@ -486,7 +515,7 @@ export default function DashboardHomePage() {
 
       setResult({
         success: true,
-        organisationId: org,
+        organisationId,
         userMessage:
           "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
         note: "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
@@ -541,9 +570,7 @@ export default function DashboardHomePage() {
       (result.results || []).filter((r: any) => r?.ok).length;
     const failed =
       result.summary?.failed ??
-      (result.results || []).filter(
-        (r: any) => r && !r.ok && !r.skipped
-      ).length;
+      (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
 
     const headline = result.success
       ? attempted > 0
@@ -563,20 +590,54 @@ export default function DashboardHomePage() {
   }, [result]);
 
   const onUploadedQuickBlast = (m: UploadedMedia) => {
-    const ct = String(m?.contentType || "").toLowerCase();
     const url = String(m?.url || "").trim();
     if (!url) return;
 
-    if (ct.startsWith("video/") || m.kind === "video") {
+    const ct = String(m?.contentType || "").toLowerCase();
+    const kind = String((m as any)?.kind || "").toLowerCase();
+
+    const isVideo =
+      kind === "video" ||
+      ct.startsWith("video/") ||
+      looksLikeVideoUrl(url);
+
+    const isImage =
+      kind === "image" ||
+      ct.startsWith("image/") ||
+      looksLikeImageUrl(url);
+
+    // Prefer video if ambiguous
+    if (isVideo && !isImage) {
       setVideoUrl(url);
       setImageUrl("");
-    } else {
+      setMediaMode("video");
+      return;
+    }
+
+    if (isImage && !isVideo) {
       setImageUrl(url);
       setVideoUrl("");
+      setMediaMode("image");
+      return;
     }
+
+    // Ambiguous (no content-type) → decide by extension
+    if (looksLikeVideoUrl(url)) {
+      setVideoUrl(url);
+      setImageUrl("");
+      setMediaMode("video");
+      return;
+    }
+
+    setImageUrl(url);
+    setVideoUrl("");
+    setMediaMode("image");
   };
 
-  const hasMedia = !!(imageUrl || videoUrl);
+  const clearImage = () => setImageUrl("");
+  const clearVideo = () => setVideoUrl("");
+
+  const media = effectiveMediaPayload();
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
@@ -697,9 +758,7 @@ export default function DashboardHomePage() {
                           </span>{" "}
                           as pending
                         </li>
-                        <li>
-                          • Approver sees full content + “Posted by Clinic Owner”
-                        </li>
+                        <li>• Approver sees full content + “Posted by Clinic Owner”</li>
                         <li>• Approve → it becomes ready → Post now</li>
                       </ul>
                     </div>
@@ -713,34 +772,53 @@ export default function DashboardHomePage() {
                   <div>
                     <div className="text-sm font-semibold">Media (optional)</div>
                     <div className="mt-1 text-[11px] text-slate-400">
-                      Drop a file here or click to choose. We upload to Supabase
-                      and fill the URL automatically.
-                    </div>
-                    <div className="mt-2 text-[11px] text-slate-500">
-                      If you ever see the browser open your video in a new tab,
-                      it means the file dropped outside the dropzone — this page
-                      now blocks that globally.
+                      Drop a file here or click “Choose file”. We upload to Supabase and fill the correct URL automatically.
                     </div>
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
                     <button
                       type="button"
-                      onClick={() => {
-                        setImageUrl("");
-                        setVideoUrl("");
-                      }}
-                      className="rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs text-slate-200 hover:border-slate-600"
-                      disabled={!hasMedia}
+                      onClick={() => setMediaMode("auto")}
+                      className={[
+                        "px-3 py-1.5",
+                        mediaMode === "auto"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
+                      ].join(" ")}
                     >
-                      Clear media
+                      Auto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMediaMode("image")}
+                      className={[
+                        "px-3 py-1.5",
+                        mediaMode === "image"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
+                      ].join(" ")}
+                    >
+                      Image
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMediaMode("video")}
+                      className={[
+                        "px-3 py-1.5",
+                        mediaMode === "video"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
+                      ].join(" ")}
+                    >
+                      Video
                     </button>
                   </div>
                 </div>
 
                 <div className="mt-3">
                   <MediaDropzone
-                    organisationId={organisationId || ORG_ID}
+                    organisationId={organisationId || undefined}
                     label="Upload image or video"
                     helpText="Drag & drop an image/video here (or click to choose)"
                     accept="image/*,video/*"
@@ -750,67 +828,47 @@ export default function DashboardHomePage() {
                   />
                 </div>
 
-                {(imageUrl || videoUrl) && (
-                  <div className="mt-3 grid gap-2 md:grid-cols-2 text-[11px]">
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-slate-400">Image URL</div>
-                        {imageUrl ? (
-                          <button
-                            type="button"
-                            onClick={() => setImageUrl("")}
-                            className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-200 hover:bg-white/10"
-                          >
-                            Clear
-                          </button>
-                        ) : null}
-                      </div>
-                      <div className="mt-1 break-all text-slate-200">
-                        {imageUrl || "—"}
-                      </div>
+                <div className="mt-3 grid gap-2 md:grid-cols-2 text-[11px]">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-slate-400">Image URL</div>
                       {imageUrl ? (
                         <button
                           type="button"
-                          onClick={() => navigator.clipboard.writeText(imageUrl)}
-                          className="mt-2 rounded-full bg-slate-900 px-3 py-1 text-slate-100 hover:bg-slate-800"
+                          onClick={clearImage}
+                          className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200 hover:bg-white/10"
                         >
-                          Copy
+                          Clear
                         </button>
                       ) : null}
                     </div>
+                    <div className="mt-1 break-all text-slate-200">
+                      {imageUrl || "—"}
+                    </div>
+                  </div>
 
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-slate-400">Video URL</div>
-                        {videoUrl ? (
-                          <button
-                            type="button"
-                            onClick={() => setVideoUrl("")}
-                            className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-200 hover:bg-white/10"
-                          >
-                            Clear
-                          </button>
-                        ) : null}
-                      </div>
-                      <div className="mt-1 break-all text-slate-200">
-                        {videoUrl || "—"}
-                      </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-slate-400">Video URL</div>
                       {videoUrl ? (
                         <button
                           type="button"
-                          onClick={() => navigator.clipboard.writeText(videoUrl)}
-                          className="mt-2 rounded-full bg-slate-900 px-3 py-1 text-slate-100 hover:bg-slate-800"
+                          onClick={clearVideo}
+                          className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200 hover:bg-white/10"
                         >
-                          Copy
+                          Clear
                         </button>
                       ) : null}
                     </div>
+                    <div className="mt-1 break-all text-slate-200">
+                      {videoUrl || "—"}
+                    </div>
                   </div>
-                )}
+                </div>
 
-                <div className="mt-3 text-[11px] text-slate-500">
-                  <b>Heads-up:</b> Instagram VIDEO must be posted as REELS. We’ll
-                  fix that next in <code>/api/social/quick-blast</code>.
+                <div className="mt-2 text-[11px] text-slate-500">
+                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl:{" "}
+                  {media.videoUrl ? "✅" : "—"}
                 </div>
               </div>
 
@@ -820,8 +878,7 @@ export default function DashboardHomePage() {
                   <div>
                     <div className="text-sm font-semibold">AI helper</div>
                     <div className="text-[11px] text-slate-400 mt-1">
-                      Type a subject + pick tone/length → Generate → Use (then
-                      edit if you want).
+                      Type a subject + pick tone/length → Generate → Use (then edit if you want).
                     </div>
                   </div>
                   <button
@@ -933,7 +990,7 @@ export default function DashboardHomePage() {
                   />
                 </div>
 
-                {/* Manual fields as fallback */}
+                {/* Manual fields remain as fallback */}
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
                     <label className="block text-xs font-medium text-slate-300">
@@ -954,7 +1011,7 @@ export default function DashboardHomePage() {
                       value={videoUrl}
                       onChange={(e) => setVideoUrl(e.target.value)}
                       className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="Paste a direct video URL (mp4)…"
+                      placeholder="Paste a direct video URL…"
                     />
                   </div>
                 </div>
@@ -1024,9 +1081,7 @@ export default function DashboardHomePage() {
                     type="button"
                     onClick={sendQuickBlast}
                     disabled={
-                      sending ||
-                      message.trim().length === 0 ||
-                      selected.length === 0
+                      sending || message.trim().length === 0 || selected.length === 0
                     }
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
@@ -1088,7 +1143,9 @@ export default function DashboardHomePage() {
                           const label = formatPlatformName(r?.platform || platform);
 
                           const friendly = ok ? "Posted." : extractFriendlyError(r);
-                          const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
+                          const tip = !ok
+                            ? friendlySuggestionForPlatform(platform, r)
+                            : null;
 
                           return (
                             <div
@@ -1147,10 +1204,13 @@ export default function DashboardHomePage() {
                     <div className="mt-1">
                       Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
                     </div>
-                    <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
+                    <div className="mt-1">
+                      OrganisationId: {organisationId || "(loading…)"}
+                    </div>
                     <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
-                    <div className="mt-1">imageUrl: {imageUrl ? "✅ set" : "—"}</div>
-                    <div className="mt-1">videoUrl: {videoUrl ? "✅ set" : "—"}</div>
+                    <div className="mt-1">mediaMode: {mediaMode}</div>
+                    <div className="mt-1">imageUrl: {media.imageUrl ? "✅ set" : "—"}</div>
+                    <div className="mt-1">videoUrl: {media.videoUrl ? "✅ set" : "—"}</div>
                   </div>
                 )}
               </div>
