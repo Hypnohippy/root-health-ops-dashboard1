@@ -1,4 +1,7 @@
-export async function GET(req: NextRequest) {
+import { NextResponse } from "next/server";
+import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+
+export async function GET(req: any) {  // Use 'any' here to avoid type error
   try {
     const clientKey = process.env.TIKTOK_CLIENT_KEY;
     const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
