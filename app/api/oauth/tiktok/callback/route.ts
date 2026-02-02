@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';  // Added this import
 
-// Commented out supabaseAdmin import temporarily to avoid the build error
-// import { supabaseAdmin } from "../../../lib/supabaseAdmin";
-
 // Function to get the base URL of the request
 function safeBaseUrl(req: any) {
   const env = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
   return env.replace(/\/$/, ""); // Remove any trailing slash
 }
+
+import { supabaseAdmin } from "../../../lib/supabaseAdmin"; // Re-added the Supabase import
 
 export async function GET(req: any) {
   try {
@@ -114,8 +113,6 @@ export async function GET(req: any) {
     console.log("User info:", { displayName, avatarUrl });
 
     // 3) Store connection in social_accounts (direct, no vendors)
-    // Temporarily comment out this section as well
-    /*
     const expiresIn = Number(tokenJson.expires_in ?? 0);
     const tokenExpiresAt =
       expiresIn && expiresIn > 0
@@ -137,7 +134,14 @@ export async function GET(req: any) {
         },
         { onConflict: "organisation_id,platform" }
       );
-    */
+
+    if (upsertErr) {
+      console.error("Failed to save TikTok connection:", upsertErr.message);
+      return NextResponse.json(
+        { success: false, error: `Failed to save TikTok connection: ${upsertErr.message}` },
+        { status: 500 }
+      );
+    }
 
     // 4) Redirect back to Connect page (so your UI can show Connected)
     const redirectTo = new URL("/dashboard/connect", base);
