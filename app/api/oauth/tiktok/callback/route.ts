@@ -3,6 +3,12 @@ import { NextResponse } from 'next/server';  // Added this import
 // Commented out supabaseAdmin import temporarily to avoid the build error
 // import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
+// Function to get the base URL of the request
+function safeBaseUrl(req: any) {
+  const env = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
+  return env.replace(/\/$/, ""); // Remove any trailing slash
+}
+
 export async function GET(req: any) {
   try {
     const clientKey = process.env.TIKTOK_CLIENT_KEY;
