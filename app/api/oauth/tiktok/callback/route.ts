@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../../lib/supabaseServer";
+import { supabaseService } from "../../../../../lib/supabaseService";
 
 export const runtime = "nodejs";
 
@@ -14,8 +14,6 @@ function unpackState(state: string): { org: string | null } {
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = createSupabaseServerClient();
-
     const clientKey = process.env.TIKTOK_CLIENT_KEY;
     const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
 
@@ -47,6 +45,7 @@ export async function GET(req: NextRequest) {
     const base = (process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin).replace(/\/$/, "");
     const redirectUri = `${base}/api/oauth/tiktok/callback`;
 
+    // 1) Exchange code for access token
     const tokenRes = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -72,6 +71,7 @@ export async function GET(req: NextRequest) {
     const accessToken = String(tokenJson.access_token);
     const openId = String(tokenJson.open_id || "");
 
+    // 2) Fetch user info
     const infoUrl =
       "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url";
 
@@ -89,11 +89,10 @@ export async function GET(req: NextRequest) {
 
     const expiresIn = Number(tokenJson.expires_in ?? 0);
     const tokenExpiresAt =
-      expiresIn && expiresIn > 0
-        ? new Date(Date.now() + expiresIn * 1000).toISOString()
-        : null;
+      expiresIn && expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
 
-    const { error: upsertErr } = await supabase
+    // 3) Save connection using SERVICE ROLE (bypasses RLS recursion)
+    const { error: upsertErr } = await supabaseService
       .from("social_accounts")
       .upsert(
         {
@@ -117,6 +116,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // 4) Redirect back to Connect page
     const redirectTo = new URL("/dashboard/connect", base);
     redirectTo.searchParams.set("tiktok", "connected");
     return NextResponse.redirect(redirectTo);
