@@ -823,7 +823,7 @@ export default function DashboardHomePage() {
                     helpText="Drag & drop an image/video here (or click to choose)"
                     accept="image/*,video/*"
                     maxMb={50}
-                    disabled={!organisationId || loadingAccounts}
+                    disabled={loadingAccounts}
                     onUploaded={onUploadedQuickBlast}
                   />
                 </div>
