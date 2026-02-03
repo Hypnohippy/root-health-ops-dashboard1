@@ -1,3 +1,4 @@
+// app/api/oauth/tiktok/start/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
@@ -9,6 +10,7 @@ function safeBaseUrl(req: NextRequest) {
 }
 
 function randomState() {
+  // simple state token
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
@@ -35,6 +37,8 @@ export async function GET(req: NextRequest) {
     const base = safeBaseUrl(req);
     const redirectUri = `${base}/api/oauth/tiktok/callback`;
 
+    // Single-tenant org id (your current model). If you later go multi-tenant,
+    // we can encode orgId per user in the state.
     const organisationId = await getSingleTenantOrganisationId();
     if (!organisationId) {
       return NextResponse.json(
@@ -45,10 +49,13 @@ export async function GET(req: NextRequest) {
 
     const state = randomState();
 
+    // Encode orgId into state so callback can upsert to the right org
     const packedState = Buffer.from(
       JSON.stringify({ s: state, org: organisationId })
     ).toString("base64url");
 
+    // Sandbox-friendly: start with the minimum needed to prove Login Kit + profile
+    // (We can add video.upload/video.publish once posting is implemented and demonstrable.)
     const scope = ["user.info.basic"].join(",");
 
     const authorizeUrl =
