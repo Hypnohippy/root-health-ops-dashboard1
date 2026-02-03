@@ -4,23 +4,20 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 /**
- * ✅ IMPORTANT:
- * - This GET is ONLY for easy browser testing (so you can see what code is live).
- * - Posting still happens via POST (from your dashboard UI).
+ * ✅ Browser test helper
+ * Open /api/social/quick-blast in the browser to confirm the file deployed.
  */
 export async function GET() {
   return NextResponse.json({
     ok: true,
     route: "app/api/social/quick-blast/route.ts",
-    version: "2026-02-03-debug-get-v1",
-    note: "If you can see this in the browser, the new Quick Blast file is deployed.",
+    version: "2026-02-03-debug-get-v2-no-supabase",
   });
 }
 
 const IG_ACCESS_TOKEN = process.env.IG_ACCESS_TOKEN;
 const IG_USER_ID = process.env.IG_USER_ID;
 
-// NOTE: Instagram publish helpers (kept from your current file)
 async function igCreateContainer(args: {
   caption: string;
   imageUrl?: string | null;
@@ -174,24 +171,15 @@ export async function POST(req: NextRequest) {
       .filter(Boolean);
 
     if (!message.trim()) {
-      return NextResponse.json(
-        { success: false, error: "Message is required." },
-        { status: 200 }
-      );
+      return NextResponse.json({ success: false, error: "Message is required." }, { status: 200 });
     }
 
     if (platforms.length === 0) {
-      return NextResponse.json(
-        { success: false, error: "No platforms selected." },
-        { status: 200 }
-      );
+      return NextResponse.json({ success: false, error: "No platforms selected." }, { status: 200 });
     }
 
     const results: any[] = [];
 
-    // ✅ Key change vs your old file:
-    // We do NOT block everything if Instagram isn't selected.
-    // We return per-platform results so the UI stays sane.
     for (const p of platforms) {
       if (p === "instagram") {
         const created = await igCreateContainer({
@@ -255,14 +243,12 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // For now, we don't claim to post to other platforms from THIS route.
-      // (Your project has other platform routes already.)
       results.push({
         platform: p,
         ok: false,
         skipped: true,
         status: 200,
-        error: `Quick Blast route currently only publishes to Instagram. ${p} is skipped here.`,
+        error: `Quick Blast route only publishes to Instagram right now. ${p} skipped.`,
       });
     }
 
@@ -276,17 +262,11 @@ export async function POST(req: NextRequest) {
         success: ok > 0 && failed === 0,
         results,
         summary: { attempted, ok, failed, skipped },
-        userMessage:
-          ok > 0
-            ? "Posted to Instagram ✅ (others skipped here)."
-            : "No posts sent from this route. (Instagram may be missing/expired.)",
+        userMessage: ok > 0 ? "Instagram sent ✅ (others skipped)." : "No posts sent from this route.",
       },
       { status: 200 }
     );
   } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err?.message || "Quick Blast crashed." },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: false, error: err?.message || "Quick Blast crashed." }, { status: 200 });
   }
 }
