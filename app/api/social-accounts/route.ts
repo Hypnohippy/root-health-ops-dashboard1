@@ -3,25 +3,12 @@ import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-/**
- * SINGLE-TENANT / ENTERPRISE BETA MODE
- * -----------------------------------
- * Your product currently does not use Supabase Auth sessions.
- * So we cannot reliably know "which user" is calling.
- *
- * Therefore this endpoint returns the first organisation it finds
- * (or a specific org if NEXT_PUBLIC_SINGLE_ORG_ID is set),
- * and returns connected social accounts for that organisation.
- *
- * Later, when you add real per-subscriber auth, we will switch this
- * endpoint to use the logged-in user's organisationId.
- */
-
 async function getOrganisationId(): Promise<string | null> {
-  // Optional: force a specific org in Vercel env for safety
+  // Optional: force a specific org via env var (useful in beta)
   const forced = (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
   if (forced) return forced;
 
+  // Otherwise, take the first org (single-tenant beta mode)
   const { data, error } = await supabaseAdmin
     .from("organisations")
     .select("id")
@@ -57,7 +44,7 @@ export async function GET(_req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      organisationId,
+      organisationId, // ✅ THIS is what your dashboard page needs
       socialAccounts: data || [],
     });
   } catch (e: any) {
@@ -88,7 +75,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Soft disconnect: set is_active false and blank token
+    // Soft disconnect (do not delete row)
     const { error } = await supabaseAdmin
       .from("social_accounts")
       .update({
