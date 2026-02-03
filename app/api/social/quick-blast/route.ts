@@ -1,6 +1,6 @@
 // app/api/social/quick-blast/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -36,7 +36,9 @@ async function getSingleTenantOrganisationId(): Promise<string | null> {
 async function getInstagramConnection(organisationId: string) {
   const { data, error } = await supabaseAdmin
     .from("social_accounts")
-    .select("platform,page_id,page_name,page_access_token,is_active,token_expires_at,updated_at")
+    .select(
+      "platform,page_id,page_name,page_access_token,is_active,token_expires_at,updated_at"
+    )
     .eq("organisation_id", organisationId)
     .eq("platform", "instagram")
     .limit(1);
@@ -47,11 +49,19 @@ async function getInstagramConnection(organisationId: string) {
 
   const row = Array.isArray(data) && data.length > 0 ? (data[0] as any) : null;
   if (!row) {
-    return { ok: false as const, error: "Instagram is not connected for this organisation.", row: null };
+    return {
+      ok: false as const,
+      error: "Instagram is not connected for this organisation.",
+      row: null,
+    };
   }
 
   if (row.is_active === false) {
-    return { ok: false as const, error: "Instagram is marked inactive. Reconnect Instagram.", row };
+    return {
+      ok: false as const,
+      error: "Instagram is marked inactive. Reconnect Instagram.",
+      row,
+    };
   }
 
   const igUserId = String(row.page_id || "").trim();
@@ -60,7 +70,8 @@ async function getInstagramConnection(organisationId: string) {
   if (!igUserId || !accessToken) {
     return {
       ok: false as const,
-      error: "Instagram connection exists but is missing page_id or page_access_token. Reconnect Instagram.",
+      error:
+        "Instagram connection exists but is missing page_id or page_access_token. Reconnect Instagram.",
       row,
     };
   }
@@ -233,7 +244,7 @@ export async function POST(req: NextRequest) {
 
     const results: any[] = [];
 
-    // ✅ Instagram only for now (others explicitly skipped to avoid “platform wreckage”)
+    // ✅ Instagram only for now (others explicitly skipped to avoid platform-wide changes)
     for (const p of platforms) {
       if (p !== "instagram") {
         results.push({
