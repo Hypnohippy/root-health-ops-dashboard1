@@ -12,8 +12,8 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     route: "app/api/social/quick-blast/route.ts",
-    version: "2026-02-03-ig-from-supabase-v1",
-    note: "Instagram publishing now uses Supabase social_accounts token instead of IG_ACCESS_TOKEN env var.",
+    version: "2026-02-03-ig-ready-wait-v2",
+    note: "Waits for IG container readiness for BOTH image + video, and retries publish if not ready.",
   });
 }
 
@@ -21,7 +21,6 @@ type Platform = "instagram" | "facebook" | "threads" | "linkedin" | "tiktok";
 
 /**
  * Single-tenant fallback (your current build/testing mode)
- * If the frontend doesn’t pass organisationId, we use the first org in the table.
  */
 async function getSingleTenantOrganisationId(): Promise<string | null> {
   const { data, error } = await supabaseAdmin
@@ -36,32 +35,20 @@ async function getSingleTenantOrganisationId(): Promise<string | null> {
 async function getInstagramConnection(organisationId: string) {
   const { data, error } = await supabaseAdmin
     .from("social_accounts")
-    .select(
-      "platform,page_id,page_name,page_access_token,is_active,token_expires_at,updated_at"
-    )
+    .select("platform,page_id,page_name,page_access_token,is_active,token_expires_at,updated_at")
     .eq("organisation_id", organisationId)
     .eq("platform", "instagram")
     .limit(1);
 
-  if (error) {
-    return { ok: false as const, error: error.message, row: null };
-  }
+  if (error) return { ok: false as const, error: error.message, row: null };
 
   const row = Array.isArray(data) && data.length > 0 ? (data[0] as any) : null;
   if (!row) {
-    return {
-      ok: false as const,
-      error: "Instagram is not connected for this organisation.",
-      row: null,
-    };
+    return { ok: false as const, error: "Instagram is not connected for this organisation.", row: null };
   }
 
   if (row.is_active === false) {
-    return {
-      ok: false as const,
-      error: "Instagram is marked inactive. Reconnect Instagram.",
-      row,
-    };
+    return { ok: false as const, error: "Instagram is marked inactive. Reconnect Instagram.", row };
   }
 
   const igUserId = String(row.page_id || "").trim();
@@ -70,13 +57,11 @@ async function getInstagramConnection(organisationId: string) {
   if (!igUserId || !accessToken) {
     return {
       ok: false as const,
-      error:
-        "Instagram connection exists but is missing page_id or page_access_token. Reconnect Instagram.",
+      error: "Instagram connection exists but is missing page_id or page_access_token. Reconnect Instagram.",
       row,
     };
   }
 
-  // Optional expiry check if you store it
   const exp = row.token_expires_at ? new Date(String(row.token_expires_at)) : null;
   if (exp && !isNaN(exp.getTime()) && exp.getTime() < Date.now()) {
     return {
@@ -86,12 +71,7 @@ async function getInstagramConnection(organisationId: string) {
     };
   }
 
-  return {
-    ok: true as const,
-    igUserId,
-    accessToken,
-    row,
-  };
+  return { ok: true as const, igUserId, accessToken, row };
 }
 
 async function igCreateContainer(args: {
@@ -105,11 +85,7 @@ async function igCreateContainer(args: {
   const hasImage = !!(args.imageUrl && args.imageUrl.trim());
 
   if (!hasVideo && !hasImage) {
-    return {
-      ok: false,
-      status: 400,
-      error: "Instagram requires an image or a video URL for this post.",
-    };
+    return { ok: false, status: 400, error: "Instagram requires an image or a video URL for this post." };
   }
 
   const url = new URL(`https://graph.facebook.com/v24.0/${args.igUserId}/media`);
@@ -136,27 +112,31 @@ async function igCreateContainer(args: {
 
   const creationId = json?.id;
   if (!creationId) {
-    return {
-      ok: false,
-      status: 500,
-      error: "Instagram did not return a creation id.",
-      details: json,
-    };
+    return { ok: false, status: 500, error: "Instagram did not return a creation id.", details: json };
   }
 
-  return { ok: true, status: 200, creationId, details: json };
+  return { ok: true, status: 200, creationId: String(creationId), details: json };
 }
 
-async function igWaitUntilReady(args: { accessToken: string; creationId: string }) {
-  const maxAttempts = 12;
-  const delayMs = 5000;
+/**
+ * ✅ IMPORTANT FIX
+ * Wait until container is actually ready to publish.
+ * (Instagram sometimes needs a short processing window even for images.)
+ */
+async function igWaitUntilReady(args: {
+  accessToken: string;
+  creationId: string;
+  isVideo: boolean;
+}) {
+  const maxAttempts = args.isVideo ? 12 : 8; // video can take longer; images usually quicker
+  const delayMs = args.isVideo ? 5000 : 2000;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const url = new URL(`https://graph.facebook.com/v24.0/${args.creationId}`);
     url.searchParams.set("fields", "status_code");
     url.searchParams.set("access_token", args.accessToken);
 
-    const res = await fetch(url.toString(), { method: "GET" });
+    const res = await fetch(url.toString(), { method: "GET", cache: "no-store" });
     const json = await res.json().catch(() => null);
 
     if (!res.ok) {
@@ -188,11 +168,15 @@ async function igWaitUntilReady(args: { accessToken: string; creationId: string 
   return {
     ok: false,
     status: 408,
-    error: "Instagram is still processing the video. Wait ~1 minute and try again.",
+    error: "Instagram is still processing the media. Wait a moment and try again.",
   };
 }
 
-async function igPublish(args: { accessToken: string; igUserId: string; creationId: string }) {
+async function igPublishOnce(args: {
+  accessToken: string;
+  igUserId: string;
+  creationId: string;
+}) {
   const url = new URL(`https://graph.facebook.com/v24.0/${args.igUserId}/media_publish`);
   url.searchParams.set("creation_id", args.creationId);
   url.searchParams.set("access_token", args.accessToken);
@@ -209,6 +193,46 @@ async function igPublish(args: { accessToken: string; igUserId: string; creation
   }
 
   return { ok: true, status: 200, postedId: json?.id || null, details: json };
+}
+
+/**
+ * If publish says "media not ready", retry a few times.
+ * This matches the exact error you’re seeing:
+ * code 9007 / subcode 2207027 / "Media ID is not available"
+ */
+async function igPublishWithRetry(args: {
+  accessToken: string;
+  igUserId: string;
+  creationId: string;
+  isVideo: boolean;
+}) {
+  const maxPublishAttempts = 4;
+  const delayMs = args.isVideo ? 5000 : 2000;
+
+  for (let i = 1; i <= maxPublishAttempts; i++) {
+    const out = await igPublishOnce(args);
+    if (out.ok) return out;
+
+    const msg = String(out?.error || "").toLowerCase();
+    const detailsMsg = String(out?.details?.error?.message || "").toLowerCase();
+    const userMsg = String(out?.details?.error?.error_user_msg || "").toLowerCase();
+
+    const notReady =
+      msg.includes("not ready") ||
+      userMsg.includes("not ready") ||
+      detailsMsg.includes("media id is not available");
+
+    if (!notReady) return out;
+
+    // wait then retry
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+
+  return {
+    ok: false,
+    status: 400,
+    error: "The media is still not ready to publish. Wait 10–30 seconds and try again.",
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -244,7 +268,6 @@ export async function POST(req: NextRequest) {
 
     const results: any[] = [];
 
-    // ✅ Instagram only for now (others explicitly skipped to avoid platform-wide changes)
     for (const p of platforms) {
       if (p !== "instagram") {
         results.push({
@@ -258,7 +281,6 @@ export async function POST(req: NextRequest) {
       }
 
       const conn = await getInstagramConnection(organisationId);
-
       if (!conn.ok) {
         results.push({
           platform: "instagram",
@@ -294,29 +316,31 @@ export async function POST(req: NextRequest) {
       const creationId = String(created.creationId || "");
       const isVideo = !!(videoUrl && videoUrl.trim());
 
-      if (isVideo) {
-        const ready = await igWaitUntilReady({
-          accessToken: conn.accessToken,
-          creationId,
-        });
+      // ✅ Wait until FINISHED for BOTH images and videos
+      const ready = await igWaitUntilReady({
+        accessToken: conn.accessToken,
+        creationId,
+        isVideo,
+      });
 
-        if (!ready.ok) {
-          results.push({
-            platform: "instagram",
-            ok: false,
-            status: ready.status,
-            mode: "video",
-            error: ready.error,
-            details: ready.details,
-          });
-          continue;
-        }
+      if (!ready.ok) {
+        results.push({
+          platform: "instagram",
+          ok: false,
+          status: ready.status,
+          mode: isVideo ? "video" : imageUrl ? "image" : "text",
+          error: ready.error,
+          details: ready.details,
+        });
+        continue;
       }
 
-      const published = await igPublish({
+      // ✅ Publish with retry if IG still says "not ready"
+      const published = await igPublishWithRetry({
         accessToken: conn.accessToken,
         igUserId: conn.igUserId,
         creationId,
+        isVideo,
       });
 
       if (!published.ok) {
