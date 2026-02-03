@@ -3,11 +3,13 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
+// Safe base URL helper
 function safeBaseUrl(req: NextRequest) {
   const env = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
   return env || req.nextUrl.origin;
 }
 
+// Unpack the state token passed by TikTok
 function unpackState(state: string): { org: string | null } {
   try {
     const json = JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
@@ -22,6 +24,9 @@ export async function GET(req: NextRequest) {
     const clientKey = process.env.TIKTOK_CLIENT_KEY;
     const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
 
+    // Debugging log
+    console.log("TikTok Callback initiated...");
+
     if (!clientKey || !clientSecret) {
       return NextResponse.json(
         { success: false, error: "Missing TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET in env." },
@@ -33,6 +38,7 @@ export async function GET(req: NextRequest) {
     const state = req.nextUrl.searchParams.get("state") || "";
 
     if (!code) {
+      console.error("Missing ?code from TikTok callback.");
       return NextResponse.json(
         { success: false, error: "Missing ?code from TikTok callback." },
         { status: 400 }
@@ -41,6 +47,7 @@ export async function GET(req: NextRequest) {
 
     const { org: organisationId } = unpackState(state);
     if (!organisationId) {
+      console.error("Missing/invalid state (no organisation id).");
       return NextResponse.json(
         { success: false, error: "Missing/invalid state (no organisation id)." },
         { status: 400 }
@@ -49,6 +56,9 @@ export async function GET(req: NextRequest) {
 
     const base = safeBaseUrl(req);
     const redirectUri = `${base}/api/oauth/tiktok/callback`;
+
+    // Debugging log
+    console.log("Exchanging code for access token...");
 
     // 1) Exchange code for access token
     const tokenRes = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
@@ -66,15 +76,10 @@ export async function GET(req: NextRequest) {
 
     const tokenJson: any = await tokenRes.json().catch(() => null);
 
-    console.log("Token Response: ", tokenJson);  // Add this to log the response
-
     if (!tokenRes.ok || !tokenJson?.access_token) {
+      console.error("TikTok token exchange failed:", tokenJson);
       return NextResponse.json(
-        {
-          success: false,
-          error: "TikTok token exchange failed",
-          details: tokenJson,
-        },
+        { success: false, error: "TikTok token exchange failed", details: tokenJson },
         { status: 400 }
       );
     }
@@ -82,10 +87,11 @@ export async function GET(req: NextRequest) {
     const accessToken = String(tokenJson.access_token);
     const openId = String(tokenJson.open_id || "");
 
-    // 2) Fetch basic user info (user.info.basic)
-    const infoUrl =
-      "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url";
+    // Debugging log
+    console.log("Fetching TikTok user info...");
 
+    // 2) Fetch basic user info (user.info.basic)
+    const infoUrl = "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url";
     const infoRes = await fetch(infoUrl, {
       method: "GET",
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -94,11 +100,11 @@ export async function GET(req: NextRequest) {
 
     const infoJson: any = await infoRes.json().catch(() => null);
 
-    console.log("User Info: ", infoJson);  // Log user info to debug
-
     const user = infoJson?.data?.user;
     const displayName = user?.display_name ? String(user.display_name) : null;
     const avatarUrl = user?.avatar_url ? String(user.avatar_url) : null;
+
+    console.log("User info:", { displayName, avatarUrl });
 
     // 3) Store connection in social_accounts (direct, no vendors)
     const expiresIn = Number(tokenJson.expires_in ?? 0);
@@ -124,6 +130,7 @@ export async function GET(req: NextRequest) {
       );
 
     if (upsertErr) {
+      console.error("Failed to save TikTok connection:", upsertErr.message);
       return NextResponse.json(
         { success: false, error: `Failed to save TikTok connection: ${upsertErr.message}` },
         { status: 500 }
@@ -134,11 +141,12 @@ export async function GET(req: NextRequest) {
     const redirectTo = new URL("/dashboard/connect", base);
     redirectTo.searchParams.set("tiktok", "connected");
 
-    // (Optional) You can add avatarUrl to query for debugging
+    // Optional: You can add avatarUrl to query for debugging
     if (avatarUrl) redirectTo.searchParams.set("tiktok_avatar", "1");
 
     return NextResponse.redirect(redirectTo);
   } catch (e: any) {
+    console.error("TikTok callback failed:", e);
     return NextResponse.json(
       { success: false, error: e?.message || "TikTok callback failed" },
       { status: 500 }
