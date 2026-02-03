@@ -16,7 +16,7 @@ type CookieToSet = {
 
 export async function POST(req: NextRequest) {
   try {
-    let response = NextResponse.json({ success: true });
+    const pendingCookies: CookieToSet[] = [];
 
     const supabase = createServerClient(supabaseUrl, supabaseKey, {
       cookies: {
@@ -24,19 +24,20 @@ export async function POST(req: NextRequest) {
           return req.cookies.getAll();
         },
         setAll(cookiesToSet: CookieToSet[]) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
-          });
+          pendingCookies.push(...cookiesToSet);
         },
       },
     });
 
     await supabase.auth.signOut();
 
-    return NextResponse.json(
-      { success: true },
-      { status: 200, headers: response.headers }
-    );
+    const response = NextResponse.json({ success: true }, { status: 200 });
+
+    pendingCookies.forEach(({ name, value, options }) => {
+      response.cookies.set(name, value, options);
+    });
+
+    return response;
   } catch (e: any) {
     return NextResponse.json(
       { success: false, error: e?.message || "Logout failed" },
