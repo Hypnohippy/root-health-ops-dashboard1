@@ -10,7 +10,7 @@ export type UploadedMedia = {
   contentType?: string;
   size?: number;
 
-  // ✅ NEW: helps UI decide whether it’s image/video
+  // helps UI decide whether it’s image/video
   kind?: "image" | "video" | "file";
 };
 
@@ -22,7 +22,6 @@ type Props = {
   maxMb?: number; // default 50
   onUploaded: (media: UploadedMedia) => void;
 
-  // ✅ NEW: your pages pass this
   disabled?: boolean;
 };
 
@@ -54,7 +53,7 @@ export default function MediaDropzone({
 
   const maxBytes = useMemo(() => maxMb * 1024 * 1024, [maxMb]);
 
-  // ✅ Prevent browser opening dropped files in a new tab
+  // Prevent browser opening dropped files in a new tab
   useEffect(() => {
     function prevent(e: DragEvent) {
       e.preventDefault();
@@ -125,7 +124,7 @@ export default function MediaDropzone({
         throw new Error("Upload init response missing bucket/path/token/publicUrl.");
       }
 
-      // 2) Upload directly to Supabase Storage (bypasses Vercel body limits)
+      // 2) Upload directly to Supabase Storage
       const { error: upErr } = await supabaseBrowser.storage
         .from(bucket)
         .uploadToSignedUrl(path, token, file, {
@@ -183,7 +182,6 @@ export default function MediaDropzone({
   function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file) void uploadFile(file);
-    // allow selecting the same file again
     e.target.value = "";
   }
 
@@ -230,7 +228,9 @@ export default function MediaDropzone({
       </div>
 
       {err ? <div className="text-[11px] text-red-400 whitespace-pre-wrap">{err}</div> : null}
-      {doneMsg ? <div className="text-[11px] text-emerald-300 whitespace-pre-wrap">{doneMsg}</div> : null}
+      {doneMsg ? (
+        <div className="text-[11px] text-emerald-300 whitespace-pre-wrap">{doneMsg}</div>
+      ) : null}
     </div>
   );
 }
