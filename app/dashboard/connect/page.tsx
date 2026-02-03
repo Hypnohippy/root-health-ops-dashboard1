@@ -94,11 +94,7 @@ const connectUrls: Record<ProviderId, string> = {
   instagram: "/api/social/connect/start?provider=instagram",
   linkedin: "/api/social/connect/start?provider=linkedin",
   threads: "/api/social/connect/start?provider=threads",
-
-  // ✅ TikTok Login Kit start
   tiktok: "/api/oauth/tiktok/start",
-
-  // Coming soon / placeholders
   google: "#",
   email: "#",
   whatsapp: "#",
@@ -108,29 +104,14 @@ type SocialAccountRow = {
   platform: ProviderId;
   page_id: string | null;
   page_name: string | null;
-};
-
-type StatusApiResponse = {
-  success: boolean;
-  organisationId?: string;
-  platforms?: Record<
-    string,
-    {
-      connected: boolean;
-      page_name: string | null;
-      page_id: string | null;
-      token_expires_at: string | null;
-      updated_at: string | null;
-    }
-  >;
+  is_active?: boolean | null; // ✅ IMPORTANT
 };
 
 export default function DashboardConnectPage() {
   const [providers, setProviders] = useState<Provider[]>(initialProviders);
   const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
 
-  // Keep this for fallback only (does not break other pages)
-  async function loadSocialAccountsFallback() {
+  async function loadSocialAccounts() {
     try {
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
       const data = await res.json().catch(() => null);
@@ -139,7 +120,18 @@ export default function DashboardConnectPage() {
       setProviders((prev) =>
         prev.map((p) => {
           const row = rows.find((r) => r.platform === p.id);
-          if (!row) return { ...p, status: "disconnected", accountName: undefined };
+
+          // ✅ Treat as connected ONLY if row exists AND is_active is not false
+          const isActive = row ? row.is_active !== false : false;
+
+          if (!row || !isActive) {
+            return {
+              ...p,
+              status: "disconnected",
+              accountName: undefined,
+            };
+          }
+
           return {
             ...p,
             status: "connected",
@@ -148,64 +140,12 @@ export default function DashboardConnectPage() {
         })
       );
     } catch (e) {
-      console.error("[dashboard/connect] loadSocialAccounts fallback failed", e);
-    }
-  }
-
-  // Preferred loader: server-side status endpoint (works even if browser reads are blocked by RLS)
-  async function loadConnectionStatuses() {
-    try {
-      const res = await fetch("/api/social-accounts/status", { cache: "no-store" });
-      const data: StatusApiResponse | null = await res.json().catch(() => null);
-
-      if (!data?.success || !data.platforms) {
-        // If anything odd happens, fall back to old endpoint
-        await loadSocialAccountsFallback();
-        return;
-      }
-
-      setProviders((prev) =>
-        prev.map((p) => {
-          // Only social providers are returned by this endpoint
-          const platformData = data.platforms?.[p.id];
-
-          // If this provider isn't managed (google/email/whatsapp), keep as-is
-          if (!platformData) {
-            return p;
-          }
-
-          if (!platformData.connected) {
-            return { ...p, status: "disconnected", accountName: undefined };
-          }
-
-          return {
-            ...p,
-            status: "connected",
-            accountName: platformData.page_name ?? p.accountName,
-          };
-        })
-      );
-    } catch (e) {
-      console.error("[dashboard/connect] loadConnectionStatuses failed", e);
-      // fallback so we never break the page
-      await loadSocialAccountsFallback();
+      console.error("[dashboard/connect] loadSocialAccounts failed", e);
     }
   }
 
   useEffect(() => {
-    // 1) Instant UI update after OAuth redirect (so user sees success immediately)
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const tiktok = params.get("tiktok");
-      if (tiktok === "connected") {
-        setProviders((prev) =>
-          prev.map((p) => (p.id === "tiktok" ? { ...p, status: "connected" } : p))
-        );
-      }
-    } catch {}
-
-    // 2) Then load real truth from server
-    void loadConnectionStatuses();
+    void loadSocialAccounts();
   }, []);
 
   const handleConnectClick = (provider: Provider) => {
@@ -244,8 +184,8 @@ export default function DashboardConnectPage() {
     } catch (e) {
       console.error("[dashboard/connect] disconnect failed", e);
     } finally {
-      // refresh truth after disconnect
-      void loadConnectionStatuses();
+      // ✅ reload to reflect real DB truth
+      await loadSocialAccounts();
     }
   };
 
@@ -301,10 +241,9 @@ export default function DashboardConnectPage() {
                       <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>
                     )}
 
-                    {provider.accountName && (
+                    {provider.accountName && connected && (
                       <p className="mt-2 text-[11px] text-emerald-300">
-                        Connected as{" "}
-                        <span className="font-medium">{provider.accountName}</span>
+                        Connected as <span className="font-medium">{provider.accountName}</span>
                       </p>
                     )}
                   </div>
@@ -334,7 +273,7 @@ export default function DashboardConnectPage() {
 
                   <button
                     type="button"
-                    onClick={() => void loadConnectionStatuses()}
+                    onClick={() => void loadSocialAccounts()}
                     className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
                   >
                     Refresh
