@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../lib/supabaseServer";  // Correct import for server-side client
+import { createSupabaseServerClient } from "../../../../../lib/supabaseServer";
 
 export const runtime = "nodejs";
 
-// Function to decode the state parameter and extract organisation_id
 function unpackState(state: string): { org: string | null } {
   try {
     const json = JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
@@ -15,7 +14,7 @@ function unpackState(state: string): { org: string | null } {
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = createSupabaseServerClient();  // Create Supabase server client for backend
+    const supabase = createSupabaseServerClient();
 
     const clientKey = process.env.TIKTOK_CLIENT_KEY;
     const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
@@ -27,9 +26,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Capture code and state from the callback URL
-    const code = req.nextUrl.searchParams.get("code");
-    const state = req.nextUrl.searchParams.get("state");
+    const code = req.nextUrl.searchParams.get("code") || "";
+    const state = req.nextUrl.searchParams.get("state") || "";
 
     if (!code) {
       return NextResponse.json(
@@ -38,7 +36,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Decode state to extract organisation_id
     const { org: organisationId } = unpackState(state);
     if (!organisationId) {
       return NextResponse.json(
@@ -47,11 +44,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Construct redirect URI
-    const base = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
+    const base = (process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin).replace(/\/$/, "");
     const redirectUri = `${base}/api/oauth/tiktok/callback`;
 
-    // 1) Exchange code for access token
     const tokenRes = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -77,8 +72,9 @@ export async function GET(req: NextRequest) {
     const accessToken = String(tokenJson.access_token);
     const openId = String(tokenJson.open_id || "");
 
-    // 2) Fetch user info using the access token
-    const infoUrl = "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url";
+    const infoUrl =
+      "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url";
+
     const infoRes = await fetch(infoUrl, {
       method: "GET",
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -91,7 +87,6 @@ export async function GET(req: NextRequest) {
     const displayName = user?.display_name ? String(user.display_name) : null;
     const avatarUrl = user?.avatar_url ? String(user.avatar_url) : null;
 
-    // 3) Store the TikTok connection in Supabase (social_accounts table)
     const expiresIn = Number(tokenJson.expires_in ?? 0);
     const tokenExpiresAt =
       expiresIn && expiresIn > 0
@@ -102,7 +97,7 @@ export async function GET(req: NextRequest) {
       .from("social_accounts")
       .upsert(
         {
-          organisation_id: organisationId,  // Ensure you're saving the correct organisation_id
+          organisation_id: organisationId,
           platform: "tiktok",
           page_id: openId || null,
           page_name: displayName,
@@ -110,6 +105,7 @@ export async function GET(req: NextRequest) {
           is_active: true,
           page_access_token: accessToken,
           token_expires_at: tokenExpiresAt,
+          avatar_url: avatarUrl,
         },
         { onConflict: "organisation_id,platform" }
       );
@@ -121,12 +117,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 4) Redirect the user to the Connect page to show that TikTok is connected
     const redirectTo = new URL("/dashboard/connect", base);
     redirectTo.searchParams.set("tiktok", "connected");
-
-    if (avatarUrl) redirectTo.searchParams.set("tiktok_avatar", "1");
-
     return NextResponse.redirect(redirectTo);
   } catch (e: any) {
     return NextResponse.json(
