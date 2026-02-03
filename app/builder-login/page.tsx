@@ -1,16 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { supabaseBrowser } from "../../lib/supabaseBrowser";
+import { useState } from "react";
 
 export default function BuilderLoginPage() {
   const enabled =
     (process.env.NEXT_PUBLIC_BUILDER_LOGIN_ENABLED ?? "").toLowerCase() === "true";
 
   const allowedEmail = process.env.NEXT_PUBLIC_BUILDER_LOGIN_EMAIL ?? "";
-
-  // Keep a stable reference (no functional change, just clarity)
-  const supabase = useMemo(() => supabaseBrowser, []);
 
   const [email, setEmail] = useState(allowedEmail);
   const [password, setPassword] = useState("");
@@ -35,29 +31,26 @@ export default function BuilderLoginPage() {
       return;
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), password }),
     });
 
-    if (error) {
-      setStatus(error.message);
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok || !json?.success) {
+      setStatus(json?.error || "Login failed.");
       return;
     }
 
-    if (data?.session) {
-      setStatus("Logged in. Redirecting to /dashboard…");
-      window.location.href = "/dashboard";
-      return;
-    }
-
-    // Rare, but handle it
-    setStatus("Login complete, but no session returned. Try refreshing.");
+    setStatus("Logged in. Redirecting to /dashboard…");
+    window.location.href = "/dashboard";
   }
 
   async function handleLogout() {
     setStatus("");
-    await supabase.auth.signOut();
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
     setStatus("Signed out.");
   }
 
