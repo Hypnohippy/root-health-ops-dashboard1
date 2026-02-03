@@ -1,20 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseBrowser } from "../../lib/supabaseBrowser";
 
 export default function BuilderLoginPage() {
   const enabled =
-    (process.env.NEXT_PUBLIC_BUILDER_LOGIN_ENABLED ?? "").toLowerCase() ===
-    "true";
+    (process.env.NEXT_PUBLIC_BUILDER_LOGIN_ENABLED ?? "").toLowerCase() === "true";
 
   const allowedEmail = process.env.NEXT_PUBLIC_BUILDER_LOGIN_EMAIL ?? "";
 
-  const supabase = useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-    return createClient(url, anon);
-  }, []);
+  // Keep a stable reference (no functional change, just clarity)
+  const supabase = useMemo(() => supabaseBrowser, []);
 
   const [email, setEmail] = useState(allowedEmail);
   const [password, setPassword] = useState("");
@@ -22,6 +18,7 @@ export default function BuilderLoginPage() {
 
   async function handleLogin() {
     setStatus("");
+
     if (!enabled) {
       setStatus("Builder login is disabled.");
       return;
@@ -30,7 +27,10 @@ export default function BuilderLoginPage() {
       setStatus("Please enter email + password.");
       return;
     }
-    if (allowedEmail && email.trim().toLowerCase() !== allowedEmail.trim().toLowerCase()) {
+    if (
+      allowedEmail &&
+      email.trim().toLowerCase() !== allowedEmail.trim().toLowerCase()
+    ) {
       setStatus("This email is not allowed for builder login.");
       return;
     }
@@ -46,12 +46,12 @@ export default function BuilderLoginPage() {
     }
 
     if (data?.session) {
-      setStatus("Logged in. Now open /dashboard in the same browser tab.");
-      // Optional convenience redirect:
+      setStatus("Logged in. Redirecting to /dashboard…");
       window.location.href = "/dashboard";
       return;
     }
 
+    // Rare, but handle it
     setStatus("Login complete, but no session returned. Try refreshing.");
   }
 
@@ -66,7 +66,8 @@ export default function BuilderLoginPage() {
       <main style={{ maxWidth: 520, margin: "40px auto", padding: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>Builder Login</h1>
         <p style={{ marginTop: 10 }}>
-          Builder login is disabled. Set <code>NEXT_PUBLIC_BUILDER_LOGIN_ENABLED=true</code>.
+          Builder login is disabled. Set{" "}
+          <code>NEXT_PUBLIC_BUILDER_LOGIN_ENABLED=true</code>.
         </p>
       </main>
     );
