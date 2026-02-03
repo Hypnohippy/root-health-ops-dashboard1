@@ -27,7 +27,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let response = NextResponse.json({ success: true });
+    // Collect cookies Supabase wants to set, then apply them to the final response.
+    const pendingCookies: CookieToSet[] = [];
 
     const supabase = createServerClient(supabaseUrl, supabaseKey, {
       cookies: {
@@ -35,9 +36,7 @@ export async function POST(req: NextRequest) {
           return req.cookies.getAll();
         },
         setAll(cookiesToSet: CookieToSet[]) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
-          });
+          pendingCookies.push(...cookiesToSet);
         },
       },
     });
@@ -54,14 +53,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Return session info (no secrets), cookies are already set via setAll()
-    return NextResponse.json(
-      {
-        success: true,
-        userId: data.user?.id ?? null,
-      },
-      { status: 200, headers: response.headers }
+    const response = NextResponse.json(
+      { success: true, userId: data.user?.id ?? null },
+      { status: 200 }
     );
+
+    // Apply cookies to the response we are returning
+    pendingCookies.forEach(({ name, value, options }) => {
+      response.cookies.set(name, value, options);
+    });
+
+    return response;
   } catch (e: any) {
     return NextResponse.json(
       { success: false, error: e?.message || "Login failed" },
