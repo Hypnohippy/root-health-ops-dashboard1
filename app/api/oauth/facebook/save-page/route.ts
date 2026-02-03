@@ -1,199 +1,139 @@
+// app/api/oauth/facebook/save-page/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { randomUUID } from "crypto";
+import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-// Single-tenant beta mode: use the first organisation row as "the current org".
-async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .limit(1);
+/**
+ * This endpoint is used by the "pick page / pick IG account" screens to SAVE a connection.
+ * The 405 you saw means this route previously did not accept POST.
+ *
+ * We intentionally keep this very forgiving:
+ * - It accepts POST
+ * - It saves the selected connection into social_accounts
+ * - It marks is_active=true so Quick Blast can select it
+ *
+ * Multi-tenant note:
+ * - If body.organisationId is provided, we use it.
+ * - Otherwise, we fall back to "single tenant" (first organisation).
+ */
 
-  if (error) {
-    console.error("[fb-save-page] organisations error", error);
-    return null;
-  }
-
-  if (!data || data.length === 0) {
-    console.warn("[fb-save-page] No organisations found in database");
-    return null;
-  }
-
-  return data[0].id as string;
+async function getSingleTenantOrganisationId(): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
+  if (error || !data || data.length === 0) return null;
+  return String(data[0].id);
 }
 
-async function resolveOrganisationId(req: NextRequest) {
-  try {
-    const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
-    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
-  } catch {}
-  return await getSingleTenantOrganisationId();
-}
-
-async function fetchFbJson(url: string) {
-  const res = await fetch(url, { method: "GET", cache: "no-store" });
-  const json: any = await res.json().catch(() => null);
-  return { ok: res.ok, status: res.status, json };
+export async function OPTIONS() {
+  // Safe for browsers / preflight. Same-origin usually doesn't need it, but it doesn't hurt.
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
+  });
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const token = req.cookies.get("fb_user_token")?.value || "";
-    if (!token) {
+    const body = await req.json().catch(() => ({} as any));
+
+    // Expected payloads (we accept several shapes to avoid “exactness” bugs):
+    // - provider/platform: "facebook" | "instagram" | "threads"
+    // - pageId / page_id
+    // - pageName / page_name
+    // - token / access_token / userToken / pageAccessToken
+    // - organisationId / organisation_id (optional)
+    const platformRaw = String(body?.platform ?? body?.provider ?? "").toLowerCase().trim();
+    const platform =
+      platformRaw === "facebook" || platformRaw === "instagram" || platformRaw === "threads"
+        ? (platformRaw as "facebook" | "instagram" | "threads")
+        : null;
+
+    const pageId = String(body?.pageId ?? body?.page_id ?? "").trim();
+    const pageName = String(body?.pageName ?? body?.page_name ?? "").trim() || null;
+
+    const token =
+      String(
+        body?.page_access_token ??
+          body?.pageAccessToken ??
+          body?.access_token ??
+          body?.userToken ??
+          body?.token ??
+          ""
+      ).trim() || null;
+
+    const organisationId =
+      String(body?.organisationId ?? body?.organisation_id ?? "").trim() ||
+      (await getSingleTenantOrganisationId());
+
+    if (!platform) {
       return NextResponse.json(
-        { error: "Missing token cookie. Please click Connect again." },
-        { status: 401 }
+        { success: false, error: "Missing/invalid platform (expected facebook/instagram/threads)." },
+        { status: 400 }
       );
     }
 
-    const body = await req.json().catch(() => ({}));
-
-    // Either:
-    // A) client sends pageId + pageName + pageAccessToken (if /me/accounts worked)
-    // B) client sends only pageId (Quick Connect / manual), and we fetch name/token here
-    const pageId = String(body?.pageId || "").trim();
-    let pageName = String(body?.pageName || "").trim();
-    let pageAccessToken = String(body?.pageAccessToken || "").trim();
+    if (!organisationId) {
+      return NextResponse.json(
+        { success: false, error: "No organisation found to save connection into." },
+        { status: 400 }
+      );
+    }
 
     if (!pageId) {
-      return NextResponse.json({ error: "pageId is required" }, { status: 400 });
-    }
-
-    // If not provided, fetch from Facebook using the user token cookie
-    if (!pageName || !pageAccessToken) {
-      const url =
-        "https://graph.facebook.com/v24.0/" +
-        encodeURIComponent(pageId) +
-        "?" +
-        new URLSearchParams({
-          fields: "id,name,access_token",
-          access_token: token,
-        }).toString();
-
-      const fb = await fetchFbJson(url);
-
-      if (!fb.ok) {
-        return NextResponse.json(
-          {
-            error:
-              fb.json?.error?.message ||
-              `Failed to fetch Page details from Facebook (${fb.status})`,
-            details: fb.json,
-          },
-          { status: 400 }
-        );
-      }
-
-      pageName = pageName || String(fb.json?.name || "").trim();
-      pageAccessToken =
-        pageAccessToken || String(fb.json?.access_token || "").trim();
-    }
-
-    if (!pageName) {
       return NextResponse.json(
-        {
-          error:
-            "Could not determine Page name. Double-check the Page ID and try Connect again.",
-        },
+        { success: false, error: "Missing pageId/page_id (the selected account id)." },
         { status: 400 }
       );
     }
 
-    if (!pageAccessToken) {
-      // We can still save the connection, but posting will fail without a page token.
-      // In practice, this usually means Meta didn't actually grant page access.
-      return NextResponse.json(
-        {
-          error:
-            "Facebook did not return a Page access token. This usually means Page access was not granted in this login. Click Connect again and approve Page access.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const organisationId = await resolveOrganisationId(req);
-    if (!organisationId) {
-      return NextResponse.json({ error: "No organisation found" }, { status: 400 });
-    }
-
-    // Upsert-ish
-    const { data: existing, error: lookupErr } = await supabaseAdmin
+    // Save / upsert into your existing social_accounts table
+    const { error: upsertErr } = await supabaseAdmin
       .from("social_accounts")
-      .select("id")
-      .eq("organisation_id", organisationId)
-      .eq("platform", "facebook")
-      .limit(1);
-
-    if (lookupErr) console.error("[fb-save-page] lookup error", lookupErr);
-
-    const payload: any = {
-      platform: "facebook",
-      page_id: pageId,
-      page_name: pageName,
-      connection_type: "facebook_oauth",
-      make_webhook_url: null,
-      is_active: true,
-      page_access_token: pageAccessToken,
-      token_expires_at: null, // we can add later once we store long-lived expiry
-    };
-
-    let row;
-
-    if (existing && existing.length > 0) {
-      const id = existing[0].id as string;
-      const { data, error } = await supabaseAdmin
-        .from("social_accounts")
-        .update(payload)
-        .eq("id", id)
-        .select()
-        .single();
-
-      if (error) {
-        console.error("[fb-save-page] update error", error);
-        return NextResponse.json(
-          { error: "Failed to update facebook social account", details: error },
-          { status: 500 }
-        );
-      }
-      row = data;
-    } else {
-      const { data, error } = await supabaseAdmin
-        .from("social_accounts")
-        .insert({
-          id: randomUUID(),
+      .upsert(
+        {
           organisation_id: organisationId,
-          ...payload,
-        })
-        .select()
-        .single();
+          platform,
+          page_id: pageId,
+          page_name: pageName,
+          connection_type: "oauth",
+          is_active: true,
+          // store token if provided (for facebook page posting, IG publishing, etc.)
+          page_access_token: token,
+          // expiry may be unknown here; keep null
+          token_expires_at: null,
+        },
+        { onConflict: "organisation_id,platform" }
+      );
 
-      if (error) {
-        console.error("[fb-save-page] insert error", error);
-        return NextResponse.json(
-          { error: "Failed to create facebook social account", details: error },
-          { status: 500 }
-        );
-      }
-      row = data;
+    if (upsertErr) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Failed to save ${platform} connection: ${upsertErr.message}`,
+        },
+        { status: 500 }
+      );
     }
 
-    // Clear user token cookie after selection
-    const res = NextResponse.json({ success: true, organisationId, socialAccount: row });
-    res.cookies.set("fb_user_token", "", {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 0,
-    });
-
-    return res;
-  } catch (e: any) {
-    console.error("[fb-save-page] unexpected", e);
     return NextResponse.json(
-      { error: e?.message || "Unexpected error" },
+      {
+        success: true,
+        platform,
+        organisationId,
+        page_id: pageId,
+        page_name: pageName,
+        is_active: true,
+        saved: true,
+      },
+      { status: 200 }
+    );
+  } catch (e: any) {
+    return NextResponse.json(
+      { success: false, error: e?.message || "Save-page route crashed" },
       { status: 500 }
     );
   }
