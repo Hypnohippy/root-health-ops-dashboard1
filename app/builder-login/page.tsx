@@ -34,6 +34,7 @@ export default function BuilderLoginPage() {
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ email: email.trim(), password }),
     });
 
@@ -50,7 +51,9 @@ export default function BuilderLoginPage() {
 
   async function handleLogout() {
     setStatus("");
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(
+      () => null
+    );
     setStatus("Signed out.");
   }
 
