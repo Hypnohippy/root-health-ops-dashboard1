@@ -99,7 +99,7 @@ export default function PickInstagramAccountClient() {
 
         setPagesCount(pages.length);
 
-        // Root Health Ops: simplest path = pick first page (you have pagesCount: 1 anyway)
+        // Root Health Ops: simplest path = pick first page (you usually have 1 anyway)
         const page = pages[0];
         const pageId = String(page?.id || "").trim();
         const pageToken = String(page?.access_token || "").trim();
@@ -120,7 +120,6 @@ export default function PickInstagramAccountClient() {
         const igId = String(ig?.id || "").trim();
 
         if (!igRes.ok || !igId) {
-          // Helpful hint when they connected “personal IG” not business / not linked to page
           throw new Error(
             igRes.json?.error?.message ||
               "No Instagram Business account detected on this Page. Ensure IG is a Business/Creator account linked to the Page."
@@ -135,23 +134,20 @@ export default function PickInstagramAccountClient() {
 
         setDetectedIg(igObj);
 
-        // 3) Save to Supabase via your existing API
+        // 3) SAVE using the correct API route:
+        //    ✅ /api/oauth/facebook/save-page
+        //    This avoids the /api/social-accounts POST 405 problem.
         setSaving(true);
-        const saveRes = await fetch("/api/social-accounts", {
+
+        const saveRes = await fetch("/api/oauth/facebook/save-page", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             platform: "instagram",
-            page_id: igObj.id, // store IG user id here (used for posting)
-            page_name: igObj.username || igObj.name || "Instagram",
-            page_access_token: pageToken, // IMPORTANT: page token is what IG publishing uses
-            is_active: true,
-            connection_type: "meta_instagram",
-            meta: {
-              facebook_page_id: pageId,
-              facebook_page_name: page?.name || null,
-              ig_username: igObj.username || null,
-            },
+            pageId: igObj.id, // store IG user id here (used for posting)
+            pageName: igObj.username || igObj.name || "Instagram",
+            token: pageToken, // IMPORTANT: page token is what IG publishing uses
+            // organisationId intentionally omitted (single-tenant fallback handles it)
           }),
         });
 
@@ -165,8 +161,8 @@ export default function PickInstagramAccountClient() {
 
         setSaved(true);
 
-        // 4) Send them back to Connect page (so it shows Connected)
-        window.location.href = "/dashboard/connect?connected=instagram";
+        // 4) Return to Connect page so UI can refresh and show Connected
+        window.location.href = "/dashboard/connect?instagram=connected";
       } catch (e: any) {
         if (cancelled) return;
         setError(e?.message || "Instagram connect failed.");
@@ -219,7 +215,7 @@ export default function PickInstagramAccountClient() {
               <ul className="list-disc pl-5 mt-1 space-y-1">
                 <li>IG must be Business/Creator and linked to a Facebook Page.</li>
                 <li>Disconnect + reconnect Instagram from Dashboard → Connect (to refresh permissions).</li>
-                <li>Make sure you’re signed into the dashboard when you start the connect flow.</li>
+                <li>Start connect flow from inside the Dashboard (don’t bookmark OAuth URLs).</li>
               </ul>
             </div>
           </div>
