@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { createSupabaseServerClient } from "../../../../lib/supabaseServer";  // Correct import for server-side client
 
 export const runtime = "nodejs";
 
@@ -15,6 +15,8 @@ function unpackState(state: string): { org: string | null } {
 
 export async function GET(req: NextRequest) {
   try {
+    const supabase = createSupabaseServerClient();  // Create Supabase server client for backend
+
     const clientKey = process.env.TIKTOK_CLIENT_KEY;
     const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
 
@@ -96,7 +98,7 @@ export async function GET(req: NextRequest) {
         ? new Date(Date.now() + expiresIn * 1000).toISOString()
         : null;
 
-    const { error: upsertErr } = await supabaseAdmin
+    const { error: upsertErr } = await supabase
       .from("social_accounts")
       .upsert(
         {
