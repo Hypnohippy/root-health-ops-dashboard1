@@ -1,5 +1,6 @@
+// app/api/media/upload/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
@@ -31,9 +32,28 @@ function guessContentType(name: string) {
   return "application/octet-stream";
 }
 
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const service =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE;
+
+  if (!url || !service) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env var."
+    );
+  }
+
+  return createClient(url, service, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const supabase = getSupabase();
+    const body = await req.json().catch(() => ({} as any));
 
     const filename = String(body?.filename || "").trim();
     const size = Number(body?.size || 0);
@@ -58,7 +78,6 @@ export async function POST(req: NextRequest) {
       (typeof body?.contentType === "string" && body.contentType.trim()) ||
       guessContentType(filename);
 
-    // Organise uploads by date (nice + predictable)
     const d = new Date();
     const yyyy = String(d.getFullYear());
     const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -67,15 +86,12 @@ export async function POST(req: NextRequest) {
     const safe = safeName(filename);
     const unique = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
-    // Optional per-org folder
     const orgPart = organisationId ? `org_${organisationId}` : "org_unknown";
-
     const path = `uploads/${orgPart}/${yyyy}-${mm}-${dd}/${unique}_${safe}`;
 
-    // ✅ Create signed upload URL/token (no file bytes pass through server)
-    const { data, error } = await supabaseAdmin.storage
+    // ✅ Signed upload URL/token (no file bytes through server)
+    const { data, error } = await supabase.storage
       .from(BUCKET)
-      // Supabase JS v2: createSignedUploadUrl(path)
       .createSignedUploadUrl(path);
 
     if (error || !data) {
@@ -86,8 +102,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Public URL (your bucket is public)
-    const pub = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
+    // Public URL (bucket is public)
+    const pub = supabase.storage.from(BUCKET).getPublicUrl(path);
     const publicUrl = pub?.data?.publicUrl || "";
 
     return NextResponse.json(
@@ -95,7 +111,7 @@ export async function POST(req: NextRequest) {
         success: true,
         bucket: BUCKET,
         path: data.path || path,
-        token: data.token, // required by uploadToSignedUrl()
+        token: data.token,
         publicUrl,
         contentType,
         size,
