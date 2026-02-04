@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 type SocialAccountRow = {
   organisation_id: string;
   platform: string;
-  page_id: string | null; // for TikTok we store open_id here
+  page_id: string | null; // TikTok open_id stored here
   page_name: string | null;
   is_active: boolean | null;
   page_access_token: string | null; // TikTok user access token
@@ -22,7 +22,12 @@ function looksLikeVideoUrl(url: string) {
   const u = (url || "").trim().toLowerCase();
   if (!u) return false;
   if (!/^https:\/\/.+/i.test(u)) return false;
-  return /\.(mp4|mov|webm)(\?.*)?$/i.test(u) || u.includes(".mp4") || u.includes(".mov") || u.includes(".webm");
+  return (
+    /\.(mp4|mov|webm)(\?.*)?$/i.test(u) ||
+    u.includes(".mp4") ||
+    u.includes(".mov") ||
+    u.includes(".webm")
+  );
 }
 
 async function loadTikTokAccount(organisationId: string): Promise<SocialAccountRow | null> {
@@ -42,6 +47,9 @@ async function loadTikTokAccount(organisationId: string): Promise<SocialAccountR
   return (data as any) ?? null;
 }
 
+/**
+ * TikTok Content Posting API - init upload (FILE_UPLOAD)
+ */
 async function tiktokInitVideoUpload(args: {
   accessToken: string;
   title: string;
@@ -56,9 +64,7 @@ async function tiktokInitVideoUpload(args: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      post_info: {
-        title: args.title,
-      },
+      post_info: { title: args.title },
       source_info: {
         source: "FILE_UPLOAD",
         video_size: args.videoSize,
@@ -72,14 +78,10 @@ async function tiktokInitVideoUpload(args: {
   const json: any = await res.json().catch(() => null);
 
   if (!res.ok) {
-    const msg =
-      json?.error?.message ||
-      json?.message ||
-      `TikTok init failed (HTTP ${res.status}).`;
+    const msg = json?.error?.message || json?.message || `TikTok init failed (HTTP ${res.status}).`;
     return { ok: false as const, status: res.status, error: msg, details: json };
   }
 
-  // TikTok responses are usually nested under data
   const publishId = json?.data?.publish_id || json?.publish_id || null;
   const uploadUrl = json?.data?.upload_url || json?.upload_url || null;
 
@@ -92,24 +94,69 @@ async function tiktokInitVideoUpload(args: {
     };
   }
 
-  return { ok: true as const, status: 200, publishId: String(publishId), uploadUrl: String(uploadUrl), details: json };
+  return {
+    ok: true as const,
+    status: 200,
+    publishId: String(publishId),
+    uploadUrl: String(uploadUrl),
+    details: json,
+  };
 }
 
+/**
+ * Compute chunk plan that matches TikTok rules:
+ * - chunk_size must be 5MB–64MB (except whole upload <5MB uses full size)
+ * - total_chunk_count must be floor(video_size / chunk_size) (TikTok docs)
+ * - last chunk can be > chunk_size (up to 128MB) to absorb remainder
+ */
+function buildChunkPlan(videoSize: number) {
+  const MB = 1024 * 1024;
+  const MIN = 5 * MB;
+  const MAX = 64 * MB;
+
+  // If <= 64MB, do a single whole upload (simplest + valid).
+  if (videoSize <= MAX) {
+    return { chunkSize: videoSize, totalChunks: 1 };
+  }
+
+  // For big videos, pick a safe chunk size within 5–64MB.
+  // Using 32MB keeps last chunk <= 64MB + remainder <= 96MB (always < 128MB).
+  let chunkSize = 32 * MB;
+
+  // Ensure chunkSize stays within [MIN, MAX]
+  if (chunkSize < MIN) chunkSize = MIN;
+  if (chunkSize > MAX) chunkSize = MAX;
+
+  // TikTok expects floor(video_size / chunk_size)
+  let totalChunks = Math.floor(videoSize / chunkSize);
+
+  // Safety: at least 1, max 1000 (TikTok docs)
+  totalChunks = Math.max(1, Math.min(1000, totalChunks));
+
+  return { chunkSize, totalChunks };
+}
+
+/**
+ * Upload exactly totalChunks chunks sequentially.
+ * The final chunk includes all remaining bytes.
+ */
 async function tiktokUploadChunks(args: {
   uploadUrl: string;
   bytes: Uint8Array;
   contentType: string;
   chunkSize: number;
+  totalChunks: number;
 }) {
   const total = args.bytes.byteLength;
-  const chunkSize = Math.max(1, args.chunkSize);
 
-  let start = 0;
-  let part = 0;
+  for (let part = 0; part < args.totalChunks; part++) {
+    const start = part * args.chunkSize;
 
-  while (start < total) {
-    const endExclusive = Math.min(total, start + chunkSize);
-    const endInclusive = endExclusive - 1;
+    // Final chunk absorbs all remaining bytes
+    const endExclusive =
+      part === args.totalChunks - 1 ? total : Math.min(total, start + args.chunkSize);
+
+    const endInclusive = Math.max(start, endExclusive - 1);
 
     const chunk = args.bytes.slice(start, endExclusive);
 
@@ -118,27 +165,24 @@ async function tiktokUploadChunks(args: {
       headers: {
         "Content-Type": args.contentType || "video/mp4",
         "Content-Length": String(chunk.byteLength),
-        // TikTok expects Content-Range for chunked uploads
         "Content-Range": `bytes ${start}-${endInclusive}/${total}`,
       },
       body: chunk as any,
       cache: "no-store",
     });
 
+    // TikTok often returns 206 for partial, 201 for final — both count as ok
     if (!putRes.ok) {
       const text = await putRes.text().catch(() => "");
       return {
         ok: false as const,
         status: putRes.status,
-        error: `TikTok upload failed on chunk ${part} (HTTP ${putRes.status})`,
+        error: `TikTok upload failed on chunk ${part + 1}/${args.totalChunks} (HTTP ${putRes.status})`,
         details: text,
       };
     }
 
-    part += 1;
-    start = endExclusive;
-
-    // tiny pause can help avoid edge throttles
+    // tiny pause helps stability
     await sleep(120);
   }
 
@@ -157,9 +201,6 @@ async function tiktokFetchStatus(args: { accessToken: string; publishId: string 
   });
 
   const json: any = await res.json().catch(() => null);
-
-  // This endpoint can return useful status info even when not "ok" in a strict sense,
-  // but we’ll keep it simple:
   return { ok: res.ok, status: res.status, details: json };
 }
 
@@ -208,8 +249,6 @@ export async function POST(req: NextRequest) {
 
     const acct = await loadTikTokAccount(organisationId);
     const accessToken = String(acct?.page_access_token || "").trim();
-
-    // NOTE: we store open_id in page_id (as your connect flow already does)
     const openId = String(acct?.page_id || "").trim();
 
     if (!accessToken || !openId) {
@@ -223,7 +262,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1) Download the video bytes (from your Supabase public URL)
+    // 1) Download video bytes (from Supabase public URL)
     const vidRes = await fetch(videoUrl, { cache: "no-store" });
     if (!vidRes.ok) {
       return NextResponse.json(
@@ -241,17 +280,16 @@ export async function POST(req: NextRequest) {
     const bytes = new Uint8Array(arrayBuffer);
     const size = bytes.byteLength;
 
-    // 2) Init TikTok upload (chunked)
-    const CHUNK = 10 * 1024 * 1024; // 10MB chunks (safe default)
-    const chunkSize = Math.min(CHUNK, size);
-    const totalChunks = Math.max(1, Math.ceil(size / chunkSize));
+    // 2) Build chunk plan that matches TikTok’s expectations
+    const plan = buildChunkPlan(size);
 
+    // 3) Init TikTok upload
     const init = await tiktokInitVideoUpload({
       accessToken,
       title: message.slice(0, 150),
       videoSize: size,
-      chunkSize,
-      totalChunks,
+      chunkSize: plan.chunkSize,
+      totalChunks: plan.totalChunks,
     });
 
     if (!init.ok) {
@@ -267,12 +305,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3) Upload bytes to the upload_url
+    // 4) Upload chunks
     const up = await tiktokUploadChunks({
       uploadUrl: init.uploadUrl,
       bytes,
       contentType,
-      chunkSize,
+      chunkSize: plan.chunkSize,
+      totalChunks: plan.totalChunks,
     });
 
     if (!up.ok) {
@@ -280,7 +319,7 @@ export async function POST(req: NextRequest) {
         {
           ok: false,
           error: up.error,
-          userMessage: "TikTok upload failed. Try a smaller MP4, or try again in a minute.",
+          userMessage: "TikTok upload failed. Try again in a minute or try a smaller MP4.",
           details: up.details,
           status: up.status,
         },
@@ -288,15 +327,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4) Fetch status once (you can poll again if you want)
+    // 5) Optional: fetch status once
     const status = await tiktokFetchStatus({ accessToken, publishId: init.publishId });
 
     return NextResponse.json(
       {
         ok: true,
-        postedId: init.publishId, // publish_id (TikTok returns post_id later after processing/moderation)
+        postedId: init.publishId, // publish_id returned immediately
         mode: "video",
         note: "TikTok returns publish_id immediately. Final post_id can appear later after processing/moderation.",
+        chunkPlan: { videoSize: size, chunkSize: plan.chunkSize, totalChunks: plan.totalChunks },
         statusCheck: status.details,
       },
       { status: 200 }
