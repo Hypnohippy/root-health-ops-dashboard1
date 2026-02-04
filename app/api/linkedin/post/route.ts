@@ -1,6 +1,6 @@
 // app/api/linkedin/post/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { supabaseService } from "../../../../lib/supabaseService";
 
 export const runtime = "nodejs";
 
@@ -22,10 +22,8 @@ function isLikelyImageUrl(url: string) {
   return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
 }
 
-async function loadLinkedInAccount(
-  organisationId: string
-): Promise<SocialAccountRow | null> {
-  const { data, error } = await supabaseAdmin
+async function loadLinkedInAccount(organisationId: string): Promise<SocialAccountRow | null> {
+  const { data, error } = await supabaseService
     .from("social_accounts")
     .select(
       "id, organisation_id, platform, page_id, page_name, is_active, page_access_token, token_expires_at"
@@ -80,10 +78,7 @@ async function getLinkedInAuthorUrn(token: string) {
   };
 }
 
-async function registerLinkedInImageUpload(args: {
-  token: string;
-  authorUrn: string;
-}) {
+async function registerLinkedInImageUpload(args: { token: string; authorUrn: string }) {
   const registerBody = {
     registerUploadRequest: {
       recipes: ["urn:li:digitalmediaRecipe:feedshare-image"],
@@ -97,19 +92,16 @@ async function registerLinkedInImageUpload(args: {
     },
   };
 
-  const res = await fetch(
-    "https://api.linkedin.com/v2/assets?action=registerUpload",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.token}`,
-        "Content-Type": "application/json",
-        "X-Restli-Protocol-Version": "2.0.0",
-      },
-      body: JSON.stringify(registerBody),
-      cache: "no-store",
-    }
-  );
+  const res = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${args.token}`,
+      "Content-Type": "application/json",
+      "X-Restli-Protocol-Version": "2.0.0",
+    },
+    body: JSON.stringify(registerBody),
+    cache: "no-store",
+  });
 
   const json: any = await res.json().catch(() => null);
 
@@ -124,9 +116,7 @@ async function registerLinkedInImageUpload(args: {
 
   const value = json?.value;
   const uploadMechanism =
-    value?.uploadMechanism?.[
-      "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
-    ];
+    value?.uploadMechanism?.["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"];
   const uploadUrl = uploadMechanism?.uploadUrl as string | undefined;
   const asset = value?.asset as string | undefined;
 
@@ -139,12 +129,7 @@ async function registerLinkedInImageUpload(args: {
     };
   }
 
-  return {
-    ok: true as const,
-    uploadUrl,
-    asset,
-    status: 200,
-  };
+  return { ok: true as const, uploadUrl, asset, status: 200 };
 }
 
 async function uploadArrayBufferToLinkedIn(
@@ -154,9 +139,7 @@ async function uploadArrayBufferToLinkedIn(
 ) {
   const res = await fetch(uploadUrl, {
     method: "PUT",
-    headers: {
-      "Content-Type": contentType || "application/octet-stream",
-    },
+    headers: { "Content-Type": contentType || "application/octet-stream" },
     body: arrayBuffer,
     cache: "no-store",
   });
@@ -175,19 +158,16 @@ async function uploadArrayBufferToLinkedIn(
 }
 
 function looksLikeDuplicatePost(details: any, status?: number) {
-  const msg =
-    String(details?.message || details?.error || details?.error_description || "")
-      .toLowerCase()
-      .trim();
+  const msg = String(details?.message || details?.error || details?.error_description || "")
+    .toLowerCase()
+    .trim();
 
   const inputErrors =
     details?.errorDetails?.inputErrors || details?.details?.errorDetails?.inputErrors;
 
   const hasCode =
     Array.isArray(inputErrors) &&
-    inputErrors.some(
-      (e: any) => String(e?.code || "").toUpperCase() === "DUPLICATE_POST"
-    );
+    inputErrors.some((e: any) => String(e?.code || "").toUpperCase() === "DUPLICATE_POST");
 
   const hasMsg =
     msg.includes("duplicate post") ||
@@ -213,7 +193,6 @@ function antiDuplicateVariation(original: string) {
 
   const hook = altHooks[(firstLine.length + t.length) % altHooks.length];
   const newFirstLine = firstLine ? `${hook} ${firstLine}` : hook;
-
   const rest = lines.slice(1).join("\n").trim();
   const freshness = "\n\n(Sharing this again with a slightly different angle.)";
 
@@ -245,11 +224,7 @@ async function createLinkedInUgcPost(args: {
 
   if (hasImage) {
     postBody.specificContent["com.linkedin.ugc.ShareContent"].media = [
-      {
-        status: "READY",
-        media: args.imageAssetUrn,
-        title: { text: "Image" },
-      },
+      { status: "READY", media: args.imageAssetUrn, title: { text: "Image" } },
     ];
   }
 
@@ -266,8 +241,7 @@ async function createLinkedInUgcPost(args: {
   });
 
   const json: any = await res.json().catch(() => null);
-  const headerId =
-    res.headers.get("x-restli-id") || res.headers.get("x-linkedin-id");
+  const headerId = res.headers.get("x-restli-id") || res.headers.get("x-linkedin-id");
   const postedId = json?.id || headerId || null;
 
   if (!res.ok) {
@@ -303,11 +277,7 @@ export async function POST(req: NextRequest) {
 
     if (!text) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Missing post text",
-          userMessage: "Your post is empty. Add a message and try again.",
-        },
+        { ok: false, error: "Missing post text", userMessage: "Your post is empty. Add a message and try again." },
         { status: 200 }
       );
     }
@@ -369,11 +339,7 @@ export async function POST(req: NextRequest) {
       const contentType = imgRes.headers.get("content-type") || "image/jpeg";
       const arrayBuffer = await imgRes.arrayBuffer();
 
-      const reg = await registerLinkedInImageUpload({
-        token,
-        authorUrn: author.authorUrn,
-      });
-
+      const reg = await registerLinkedInImageUpload({ token, authorUrn: author.authorUrn });
       if (!reg.ok) {
         return NextResponse.json(
           {
@@ -387,12 +353,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const up = await uploadArrayBufferToLinkedIn(
-        reg.uploadUrl,
-        arrayBuffer,
-        contentType
-      );
-
+      const up = await uploadArrayBufferToLinkedIn(reg.uploadUrl, arrayBuffer, contentType);
       if (!up.ok) {
         return NextResponse.json(
           {
@@ -417,17 +378,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (post.ok) {
-      return NextResponse.json({
-        ok: true,
-        postedId: post.postedId,
-        mode: imageAssetUrn ? "image" : "text",
-      });
+      return NextResponse.json({ ok: true, postedId: post.postedId, mode: imageAssetUrn ? "image" : "text" });
     }
 
     const isDup = looksLikeDuplicatePost(post.details, post.status);
     if (isDup) {
       const altText = antiDuplicateVariation(text);
-
       const retry = await createLinkedInUgcPost({
         token,
         authorUrn: author.authorUrn,
@@ -448,7 +404,8 @@ export async function POST(req: NextRequest) {
         {
           ok: false,
           error: retry.error || post.error,
-          userMessage: "LinkedIn didn’t publish this because it’s too similar to a recent post. Change the first line or CTA and try again.",
+          userMessage:
+            "LinkedIn didn’t publish this because it’s too similar to a recent post. Change the first line or CTA and try again.",
           details: retry.details || post.details,
           status: retry.status || post.status,
         },
