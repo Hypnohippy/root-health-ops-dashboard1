@@ -69,6 +69,9 @@ type Draft = {
   imageUrl: string;
   videoUrl: string;
   selectedPlatforms: ProviderId[];
+  // NEW (safe to store locally; server can ignore for now)
+  igPublishMode?: IgPublishMode;
+  montageImageUrls?: string[];
 };
 
 function loadDrafts(): Draft[] {
@@ -107,10 +110,12 @@ function extractFriendlyError(item: any): string {
   const um = String(item?.userMessage || "").trim();
   if (um) return um;
 
-  const metaUserMsg = item?.details?.error?.error_user_msg || item?.error?.error_user_msg;
+  const metaUserMsg =
+    item?.details?.error?.error_user_msg || item?.error?.error_user_msg;
   if (metaUserMsg) return String(metaUserMsg);
 
-  const metaTitle = item?.details?.error?.error_user_title || item?.error?.error_user_title;
+  const metaTitle =
+    item?.details?.error?.error_user_title || item?.error?.error_user_title;
   const metaMessage = item?.details?.error?.message || item?.error?.message;
   if (metaTitle && metaMessage) return `${metaTitle}: ${metaMessage}`;
   if (metaMessage) return String(metaMessage);
@@ -186,6 +191,16 @@ function defaultLocalDateTimePlus(minutes: number) {
 type Mode = "now" | "approval";
 type MediaMode = "auto" | "image" | "video";
 
+/**
+ * NEW:
+ * Instagram publishing choice (comfort toggle)
+ * - feed_video: normal video post to feed (when supported by backend)
+ * - reel: post as reel
+ * - auto: backend decides (default)
+ * - montage_reel: multiple photos -> reel (we’ll wire server-side later)
+ */
+type IgPublishMode = "auto" | "feed_video" | "reel" | "montage_reel";
+
 function looksLikeVideoUrl(u: string) {
   const s = (u || "").trim().toLowerCase();
   if (!s) return false;
@@ -217,16 +232,20 @@ export default function DashboardHomePage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
-  const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
+  const [message, setMessage] = useState(
+    "Quick check-in from Root Health Ops Dashboard ✅"
+  );
 
   const [imageUrl, setImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
 
   const [mediaMode, setMediaMode] = useState<MediaMode>("auto");
 
-  // ✅ NEW: choose publish type for video platforms (only used when videoUrl is present)
-  const [igVideoType, setIgVideoType] = useState<"reels" | "video">("reels");
-  const [fbVideoType, setFbVideoType] = useState<"reels" | "video">("video");
+  // NEW
+  const [igPublishMode, setIgPublishMode] = useState<IgPublishMode>("auto");
+
+  // NEW: montage image list
+  const [montageImages, setMontageImages] = useState<UploadedMedia[]>([]);
 
   const [selected, setSelected] = useState<ProviderId[]>([]);
 
@@ -237,14 +256,19 @@ export default function DashboardHomePage() {
   const [adminOpen, setAdminOpen] = useState(false);
 
   const [mode, setMode] = useState<Mode>("now");
-  const [scheduledLocal, setScheduledLocal] = useState<string>(defaultLocalDateTimePlus(10));
+  const [scheduledLocal, setScheduledLocal] = useState<string>(
+    defaultLocalDateTimePlus(10)
+  );
 
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
     return new Set(active.map((r) => r.platform));
   }, [socialAccounts]);
 
-  const connectedCount = useMemo(() => connectedPlatforms.size, [connectedPlatforms]);
+  const connectedCount = useMemo(
+    () => connectedPlatforms.size,
+    [connectedPlatforms]
+  );
 
   const charCount = message.length;
 
@@ -300,6 +324,8 @@ export default function DashboardHomePage() {
       imageUrl,
       videoUrl,
       selectedPlatforms: selected,
+      igPublishMode,
+      montageImageUrls: montageImages.map((m) => String(m.url || "").trim()).filter(Boolean),
     };
     const next = [d, ...drafts];
     setDrafts(next);
@@ -311,6 +337,14 @@ export default function DashboardHomePage() {
     setImageUrl(d.imageUrl || "");
     setVideoUrl(d.videoUrl || "");
     setSelected(Array.isArray(d.selectedPlatforms) ? d.selectedPlatforms : []);
+    setIgPublishMode((d.igPublishMode as IgPublishMode) || "auto");
+
+    const urls = Array.isArray(d.montageImageUrls) ? d.montageImageUrls : [];
+    const rebuilt: UploadedMedia[] = urls
+      .map((u) => String(u || "").trim())
+      .filter(Boolean)
+      .map((u) => ({ url: u, kind: "image" as const }));
+    setMontageImages(rebuilt);
   }
 
   function deleteDraft(id: string) {
@@ -327,7 +361,9 @@ export default function DashboardHomePage() {
     try {
       const subject = aiSubject.trim();
       if (!subject) {
-        setAiError("Please type a subject first (e.g., 'coping with failure').");
+        setAiError(
+          "Please type a subject first (e.g., 'coping with failure')."
+        );
         return;
       }
 
@@ -350,7 +386,9 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
+      const vars = Array.isArray((json as any)?.variants)
+        ? (json as any).variants
+        : [];
       if (vars.length === 0) {
         setAiError("AI returned no variants. Try Generate again.");
         return;
@@ -376,14 +414,22 @@ export default function DashboardHomePage() {
     }
 
     // auto
-    // Prefer video if it looks like a video
     if (vid && looksLikeVideoUrl(vid)) return { imageUrl: "", videoUrl: vid };
     if (img && looksLikeImageUrl(img)) return { imageUrl: img, videoUrl: "" };
 
-    // If both filled, prefer video (safer for your use-case)
     if (vid) return { imageUrl: "", videoUrl: vid };
     return { imageUrl: img, videoUrl: "" };
   }
+
+  const isMontageMode = igPublishMode === "montage_reel";
+  const montageUrls = useMemo(
+    () => montageImages.map((m) => String(m?.url || "").trim()).filter(Boolean),
+    [montageImages]
+  );
+
+  // If montage mode is on but we only have 0/1 images, we can still post normally,
+  // but we warn the user it’s not a true montage yet.
+  const montageReady = montageUrls.length >= 2;
 
   async function sendQuickBlastNow() {
     setSending(true);
@@ -400,8 +446,10 @@ export default function DashboardHomePage() {
           imageUrl: media.imageUrl,
           videoUrl: media.videoUrl,
           platforms: selected,
-          igVideoType,
-          fbVideoType,
+
+          // NEW (safe): backend can ignore until you wire it
+          igPublishMode,
+          montageImageUrls: montageUrls,
         }),
       });
 
@@ -411,7 +459,9 @@ export default function DashboardHomePage() {
         setResult({
           success: false,
           error: json?.error || `Request failed (${res.status})`,
-          userMessage: json?.userMessage || "We couldn’t send that just now. Try again in a minute.",
+          userMessage:
+            json?.userMessage ||
+            "We couldn’t send that just now. Try again in a minute.",
         });
         return;
       }
@@ -481,7 +531,9 @@ export default function DashboardHomePage() {
               created_at: new Date().toISOString(),
             },
             ...(media.videoUrl ? { video_url: media.videoUrl } : {}),
-            ...(media.videoUrl ? { ig_video_type: igVideoType, fb_video_type: fbVideoType } : {}),
+            // NEW (safe): stored in meta for later use
+            ig_publish_mode: igPublishMode,
+            montage_image_urls: montageUrls,
           },
           createdBy: {
             user_id: "owner",
@@ -508,7 +560,8 @@ export default function DashboardHomePage() {
       setResult({
         success: true,
         organisationId,
-        userMessage: "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
+        userMessage:
+          "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
         note: "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
       });
     } catch (e: any) {
@@ -534,7 +587,9 @@ export default function DashboardHomePage() {
 
   useEffect(() => {
     if (selected.length > 0) return;
-    const defaults = socialAccounts.map((r) => r.platform).filter((p) => connectedPlatforms.has(p));
+    const defaults = socialAccounts
+      .map((r) => r.platform)
+      .filter((p) => connectedPlatforms.has(p));
     if (defaults.length > 0) setSelected(defaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingAccounts, socialAccounts]);
@@ -554,7 +609,9 @@ export default function DashboardHomePage() {
     if (!result) return null;
 
     const attempted = result.summary?.attempted ?? (result.results?.length || 0);
-    const ok = result.summary?.ok ?? (result.results || []).filter((r: any) => r?.ok).length;
+    const ok =
+      result.summary?.ok ??
+      (result.results || []).filter((r: any) => r?.ok).length;
     const failed =
       result.summary?.failed ??
       (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
@@ -568,7 +625,10 @@ export default function DashboardHomePage() {
       : "No channels sent.";
 
     const topMsg =
-      result.userMessage || (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.");
+      result.userMessage ||
+      (result.success
+        ? "Nice — you’re live."
+        : "No stress — we’ll fix what’s blocking it.");
 
     return { attempted, ok, failed, headline, topMsg };
   }, [result]);
@@ -580,10 +640,37 @@ export default function DashboardHomePage() {
     const ct = String(m?.contentType || "").toLowerCase();
     const kind = String((m as any)?.kind || "").toLowerCase();
 
-    const isVideo = kind === "video" || ct.startsWith("video/") || looksLikeVideoUrl(url);
-    const isImage = kind === "image" || ct.startsWith("image/") || looksLikeImageUrl(url);
+    const isVideo =
+      kind === "video" || ct.startsWith("video/") || looksLikeVideoUrl(url);
 
-    // Prefer video if ambiguous
+    const isImage =
+      kind === "image" || ct.startsWith("image/") || looksLikeImageUrl(url);
+
+    // If montage mode: collect images into a list (don’t overwrite)
+    if (isMontageMode) {
+      if (isImage) {
+        setMontageImages((prev) => {
+          const exists = prev.some((x) => String(x?.url || "").trim() === url);
+          if (exists) return prev;
+          return [...prev, { ...m, url, kind: "image" }];
+        });
+        // Keep primary imageUrl set to the first montage image so normal posts still work
+        setImageUrl((prev) => (prev ? prev : url));
+        setVideoUrl("");
+        setMediaMode("image");
+        return;
+      }
+
+      // If user drops a video while in montage mode, treat it as a normal video post
+      if (isVideo) {
+        setVideoUrl(url);
+        setImageUrl("");
+        setMediaMode("video");
+        return;
+      }
+    }
+
+    // Normal behavior
     if (isVideo && !isImage) {
       setVideoUrl(url);
       setImageUrl("");
@@ -598,7 +685,6 @@ export default function DashboardHomePage() {
       return;
     }
 
-    // Ambiguous (no content-type) → decide by extension
     if (looksLikeVideoUrl(url)) {
       setVideoUrl(url);
       setImageUrl("");
@@ -614,7 +700,39 @@ export default function DashboardHomePage() {
   const clearImage = () => setImageUrl("");
   const clearVideo = () => setVideoUrl("");
 
+  function clearMontage() {
+    setMontageImages([]);
+  }
+
+  function removeMontageAt(i: number) {
+    setMontageImages((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
   const media = effectiveMediaPayload();
+
+  // Comfort: always show the IG options, but disable when not applicable
+  const hasEffectiveVideo = !!media.videoUrl;
+  const hasEffectiveImage = !!media.imageUrl;
+
+  const igChoiceHint = useMemo(() => {
+    if (igPublishMode === "montage_reel") {
+      if (montageUrls.length === 0) return "Add 2+ images for a montage.";
+      if (montageUrls.length === 1) return "Add at least one more image to form a montage.";
+      return "Montage selected (multiple images).";
+    }
+
+    if (igPublishMode === "reel") return "Reel selected.";
+    if (igPublishMode === "feed_video") return "Feed video selected.";
+    return "Auto (recommended).";
+  }, [igPublishMode, montageUrls.length]);
+
+  // Safety: if user switches away from montage mode, keep the list but don’t force it.
+  useEffect(() => {
+    if (!isMontageMode) return;
+    // If montage mode and we have montage images, keep imageUrl set for compatibility
+    if (!imageUrl && montageUrls.length > 0) setImageUrl(montageUrls[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMontageMode]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
@@ -623,9 +741,12 @@ export default function DashboardHomePage() {
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
-              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">Enterprise Beta</h1>
+              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
+                Enterprise Beta
+              </h1>
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-                A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
+                A calm, premium cockpit for social momentum. Send fast. Recover
+                cleanly. Keep going.
               </p>
             </div>
 
@@ -633,7 +754,9 @@ export default function DashboardHomePage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-slate-400">Connected:</div>
-                  <div className="text-lg font-semibold text-slate-100">{loadingAccounts ? "…" : connectedCount}</div>
+                  <div className="text-lg font-semibold text-slate-100">
+                    {loadingAccounts ? "…" : connectedCount}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -667,7 +790,8 @@ export default function DashboardHomePage() {
                   <div>
                     <div className="text-sm font-semibold">Dispatch mode</div>
                     <div className="text-[11px] text-slate-400 mt-1">
-                      Send now publishes immediately. Queue for approval routes it into your clinic workflow.
+                      Send now publishes immediately. Queue for approval routes
+                      it into your clinic workflow.
                     </div>
                   </div>
 
@@ -677,7 +801,9 @@ export default function DashboardHomePage() {
                       onClick={() => setMode("now")}
                       className={[
                         "px-3 py-1.5",
-                        mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        mode === "now"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
                       ].join(" ")}
                     >
                       Send now
@@ -687,7 +813,9 @@ export default function DashboardHomePage() {
                       onClick={() => setMode("approval")}
                       className={[
                         "px-3 py-1.5",
-                        mode === "approval" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        mode === "approval"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
                       ].join(" ")}
                     >
                       Queue for approval
@@ -708,16 +836,22 @@ export default function DashboardHomePage() {
                         className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                       />
                       <div className="mt-1 text-[11px] text-slate-500">
-                        This is the scheduled time stored on the post (and shown in Approvals/Scheduled).
+                        This is the scheduled time stored on the post (and shown
+                        in Approvals/Scheduled).
                       </div>
                     </div>
 
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-300">
-                      <div className="font-semibold text-slate-200">What happens next</div>
+                      <div className="font-semibold text-slate-200">
+                        What happens next
+                      </div>
                       <ul className="mt-2 space-y-1">
                         <li>
                           • Your post lands in{" "}
-                          <span className="text-slate-100 font-semibold">Approvals</span> as pending
+                          <span className="text-slate-100 font-semibold">
+                            Approvals
+                          </span>{" "}
+                          as pending
                         </li>
                         <li>• Approver sees full content + “Posted by Clinic Owner”</li>
                         <li>• Approve → it becomes ready → Post now</li>
@@ -743,7 +877,9 @@ export default function DashboardHomePage() {
                       onClick={() => setMediaMode("auto")}
                       className={[
                         "px-3 py-1.5",
-                        mediaMode === "auto" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        mediaMode === "auto"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
                       ].join(" ")}
                     >
                       Auto
@@ -753,7 +889,9 @@ export default function DashboardHomePage() {
                       onClick={() => setMediaMode("image")}
                       className={[
                         "px-3 py-1.5",
-                        mediaMode === "image" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        mediaMode === "image"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
                       ].join(" ")}
                     >
                       Image
@@ -763,7 +901,9 @@ export default function DashboardHomePage() {
                       onClick={() => setMediaMode("video")}
                       className={[
                         "px-3 py-1.5",
-                        mediaMode === "video" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        mediaMode === "video"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
                       ].join(" ")}
                     >
                       Video
@@ -771,11 +911,146 @@ export default function DashboardHomePage() {
                   </div>
                 </div>
 
+                {/* NEW: Instagram publish choice (ALWAYS VISIBLE) */}
+                <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">Instagram posting style</div>
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        Comfort toggle — always visible. We’ll keep today’s stable posting, and evolve this safely.
+                      </div>
+                      <div className="mt-2 text-[11px] text-slate-300">
+                        Current: <span className="text-slate-100 font-semibold">{igChoiceHint}</span>
+                      </div>
+                    </div>
+
+                    <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setIgPublishMode("auto")}
+                        className={[
+                          "px-3 py-1.5",
+                          igPublishMode === "auto"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
+                        ].join(" ")}
+                      >
+                        Auto
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIgPublishMode("feed_video")}
+                        disabled={!hasEffectiveVideo}
+                        className={[
+                          "px-3 py-1.5",
+                          igPublishMode === "feed_video"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
+                          !hasEffectiveVideo ? "opacity-50 cursor-not-allowed" : "",
+                        ].join(" ")}
+                        title={!hasEffectiveVideo ? "Upload/select a video first" : ""}
+                      >
+                        Video post
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIgPublishMode("reel")}
+                        disabled={!hasEffectiveVideo}
+                        className={[
+                          "px-3 py-1.5",
+                          igPublishMode === "reel"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
+                          !hasEffectiveVideo ? "opacity-50 cursor-not-allowed" : "",
+                        ].join(" ")}
+                        title={!hasEffectiveVideo ? "Upload/select a video first" : ""}
+                      >
+                        Reel
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIgPublishMode("montage_reel")}
+                        className={[
+                          "px-3 py-1.5",
+                          igPublishMode === "montage_reel"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
+                        ].join(" ")}
+                        title="Add multiple images to build a montage reel"
+                      >
+                        Montage
+                      </button>
+                    </div>
+                  </div>
+
+                  {igPublishMode === "montage_reel" && (
+                    <div className="mt-3 text-[11px] text-slate-300">
+                      <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
+                        <div className="font-semibold text-slate-200">Montage builder</div>
+                        <div className="mt-1 text-slate-400">
+                          Upload multiple images one-by-one. We’ll store a list here and send it to the API as{" "}
+                          <span className="text-slate-200 font-semibold">montageImageUrls</span>.
+                        </div>
+
+                        {!montageReady ? (
+                          <div className="mt-2 text-amber-200">
+                            Add <span className="font-semibold">2+</span> images for a real montage.
+                            (Right now, your existing posting still works using the first image — we’ll wire true montage-to-reel server-side next.)
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-emerald-200">
+                            Montage ready ✅ ({montageUrls.length} images)
+                          </div>
+                        )}
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={clearMontage}
+                            className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-600"
+                          >
+                            Clear montage
+                          </button>
+                        </div>
+
+                        {montageUrls.length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {montageUrls.map((u, idx) => (
+                              <div
+                                key={`${u}-${idx}`}
+                                className="flex items-start justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                              >
+                                <div className="text-[11px] text-slate-200 break-all">
+                                  {idx + 1}. {u}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => removeMontageAt(idx)}
+                                  className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 hover:border-red-500 hover:text-red-200"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="mt-3">
                   <MediaDropzone
                     organisationId={organisationId || undefined}
                     label="Upload image or video"
-                    helpText="Drag & drop an image/video here (or click to choose)"
+                    helpText={
+                      igPublishMode === "montage_reel"
+                        ? "Montage mode: drop multiple images one-by-one (or click to choose)"
+                        : "Drag & drop an image/video here (or click to choose)"
+                    }
                     accept="image/*,video/*"
                     maxMb={50}
                     disabled={loadingAccounts}
@@ -797,7 +1072,9 @@ export default function DashboardHomePage() {
                         </button>
                       ) : null}
                     </div>
-                    <div className="mt-1 break-all text-slate-200">{imageUrl || "—"}</div>
+                    <div className="mt-1 break-all text-slate-200">
+                      {imageUrl || "—"}
+                    </div>
                   </div>
 
                   <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
@@ -813,84 +1090,22 @@ export default function DashboardHomePage() {
                         </button>
                       ) : null}
                     </div>
-                    <div className="mt-1 break-all text-slate-200">{videoUrl || "—"}</div>
+                    <div className="mt-1 break-all text-slate-200">
+                      {videoUrl || "—"}
+                    </div>
                   </div>
                 </div>
 
                 <div className="mt-2 text-[11px] text-slate-500">
-                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl: {media.videoUrl ? "✅" : "—"}
+                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl:{" "}
+                  {media.videoUrl ? "✅" : "—"}
                 </div>
 
-                {/* ✅ NEW: Only show when video is present */}
-                {media.videoUrl ? (
-                  <div className="mt-3 grid gap-2 md:grid-cols-2 text-[11px]">
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
-                      <div className="text-slate-400 mb-2">Instagram video publish as</div>
-                      <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden">
-                        <button
-                          type="button"
-                          onClick={() => setIgVideoType("reels")}
-                          className={[
-                            "px-3 py-1.5",
-                            igVideoType === "reels"
-                              ? "bg-emerald-500 text-slate-950"
-                              : "text-slate-300",
-                          ].join(" ")}
-                        >
-                          Reel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIgVideoType("video")}
-                          className={[
-                            "px-3 py-1.5",
-                            igVideoType === "video"
-                              ? "bg-emerald-500 text-slate-950"
-                              : "text-slate-300",
-                          ].join(" ")}
-                        >
-                          Feed video
-                        </button>
-                      </div>
-                      <div className="mt-2 text-slate-500">
-                        Reel = best reach. Feed video = normal post video.
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
-                      <div className="text-slate-400 mb-2">Facebook video publish as</div>
-                      <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden">
-                        <button
-                          type="button"
-                          onClick={() => setFbVideoType("video")}
-                          className={[
-                            "px-3 py-1.5",
-                            fbVideoType === "video"
-                              ? "bg-emerald-500 text-slate-950"
-                              : "text-slate-300",
-                          ].join(" ")}
-                        >
-                          Page video
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setFbVideoType("reels")}
-                          className={[
-                            "px-3 py-1.5",
-                            fbVideoType === "reels"
-                              ? "bg-emerald-500 text-slate-950"
-                              : "text-slate-300",
-                          ].join(" ")}
-                        >
-                          Reel (best effort)
-                        </button>
-                      </div>
-                      <div className="mt-2 text-slate-500">
-                        Safe mode: posts as a Page video either way (keeps current posting stable).
-                      </div>
-                    </div>
+                {igPublishMode === "montage_reel" && !hasEffectiveImage && montageUrls.length > 0 && (
+                  <div className="mt-2 text-[11px] text-amber-200">
+                    Note: Montage has images, but Image URL is blank — refresh or upload one more image to set the first image as the primary imageUrl.
                   </div>
-                ) : null}
+                )}
               </div>
 
               {/* AI Composer */}
@@ -999,7 +1214,9 @@ export default function DashboardHomePage() {
 
               <div className="mt-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">Message</label>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Message
+                  </label>
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
@@ -1012,7 +1229,9 @@ export default function DashboardHomePage() {
                 {/* Manual fields remain as fallback */}
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">Image URL (optional)</label>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Image URL (optional)
+                    </label>
                     <input
                       value={imageUrl}
                       onChange={(e) => setImageUrl(e.target.value)}
@@ -1021,7 +1240,9 @@ export default function DashboardHomePage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">Video URL (optional)</label>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Video URL (optional)
+                    </label>
                     <input
                       value={videoUrl}
                       onChange={(e) => setVideoUrl(e.target.value)}
@@ -1033,7 +1254,9 @@ export default function DashboardHomePage() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="block text-xs font-medium text-slate-300">Channels</label>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Channels
+                    </label>
                     <button
                       type="button"
                       onClick={refreshChannels}
@@ -1093,7 +1316,9 @@ export default function DashboardHomePage() {
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={sending || message.trim().length === 0 || selected.length === 0}
+                    disabled={
+                      sending || message.trim().length === 0 || selected.length === 0
+                    }
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {sending
@@ -1125,28 +1350,38 @@ export default function DashboardHomePage() {
                 {result && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
-                      <div className={result.success ? "text-emerald-200" : "text-amber-200"}>
-                        {friendlySummary?.headline || (result.success ? "Success." : "Not sent.")}
+                      <div
+                        className={result.success ? "text-emerald-200" : "text-amber-200"}
+                      >
+                        {friendlySummary?.headline ||
+                          (result.success ? "Success." : "Not sent.")}
                       </div>
                       <div className="mt-1 text-[12px] text-slate-300">
                         {friendlySummary?.topMsg ||
-                          (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.")}
+                          (result.success
+                            ? "Nice — you’re live."
+                            : "No stress — we’ll fix what’s blocking it.")}
                       </div>
                       {result.note ? (
-                        <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div>
+                        <div className="mt-2 text-[12px] text-emerald-300">
+                          {result.note}
+                        </div>
                       ) : null}
                     </div>
 
                     {Array.isArray(result.results) && result.results.length > 0 && (
                       <div className="mt-4 space-y-2">
                         {result.results.map((r: any, idx: number) => {
-                          const platform = (String(r?.platform || "") as ProviderId) || "facebook";
+                          const platform =
+                            (String(r?.platform || "") as ProviderId) || "facebook";
                           const ok = !!r?.ok;
                           const skipped = !!r?.skipped;
                           const label = formatPlatformName(r?.platform || platform);
 
                           const friendly = ok ? "Posted." : extractFriendlyError(r);
-                          const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
+                          const tip = !ok
+                            ? friendlySuggestionForPlatform(platform, r)
+                            : null;
 
                           return (
                             <div
@@ -1154,7 +1389,9 @@ export default function DashboardHomePage() {
                               className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
                             >
                               <div className="flex items-start justify-between gap-3">
-                                <div className="text-[12px] font-semibold text-slate-200">{label}</div>
+                                <div className="text-[12px] font-semibold text-slate-200">
+                                  {label}
+                                </div>
                                 <div
                                   className={[
                                     "text-[11px] rounded-full border px-2 py-0.5",
@@ -1169,9 +1406,13 @@ export default function DashboardHomePage() {
                                 </div>
                               </div>
 
-                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">{friendly}</div>
+                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
+                                {friendly}
+                              </div>
                               {tip ? (
-                                <div className="mt-1 text-[11px] text-slate-400">{tip}</div>
+                                <div className="mt-1 text-[11px] text-slate-400">
+                                  {tip}
+                                </div>
                               ) : null}
                             </div>
                           );
@@ -1199,13 +1440,15 @@ export default function DashboardHomePage() {
                     <div className="mt-1">
                       Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
                     </div>
-                    <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
+                    <div className="mt-1">
+                      OrganisationId: {organisationId || "(loading…)"}
+                    </div>
                     <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
                     <div className="mt-1">mediaMode: {mediaMode}</div>
+                    <div className="mt-1">igPublishMode: {igPublishMode}</div>
+                    <div className="mt-1">montageImages: {montageUrls.length}</div>
                     <div className="mt-1">imageUrl: {media.imageUrl ? "✅ set" : "—"}</div>
                     <div className="mt-1">videoUrl: {media.videoUrl ? "✅ set" : "—"}</div>
-                    <div className="mt-1">igVideoType: {igVideoType}</div>
-                    <div className="mt-1">fbVideoType: {fbVideoType}</div>
                   </div>
                 )}
               </div>
@@ -1228,11 +1471,16 @@ export default function DashboardHomePage() {
                   </div>
                 ) : (
                   drafts.map((d) => (
-                    <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                    <div
+                      key={d.id}
+                      className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
+                    >
                       <div className="text-[11px] text-slate-500">
                         {new Date(d.savedAt).toLocaleString()}
                       </div>
-                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
+                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">
+                        {d.message || "(empty)"}
+                      </div>
                       <div className="mt-2 text-[11px] text-slate-500">
                         Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
                       </div>
@@ -1260,7 +1508,9 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
-          <div className="mt-8 text-xs text-slate-500">Tip: Upload media → write → choose channels → post (or queue).</div>
+          <div className="mt-8 text-xs text-slate-500">
+            Tip: Upload media → write → choose channels → post (or queue).
+          </div>
         </div>
       </div>
     </div>
