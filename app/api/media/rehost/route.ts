@@ -6,7 +6,36 @@ export const runtime = "nodejs";
 
 const BUCKET = "public-media";
 const MAX_MB = 15; // keep rehost safe for serverless (images only)
-const MAX_BYTES = MAX_MB * 1024 * 1024;
+const MAX_BYTES = MAX_MB * 1024 * 1024;// app/api/media/rehost/route.ts
+import { NextRequest, NextResponse } from "next/server";
+
+export const runtime = "nodejs";
+
+/**
+ * ✅ Browser test
+ * Visiting /api/media/rehost in the browser should NOT be 405 anymore.
+ */
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    route: "app/api/media/rehost/route.ts",
+    message: "Route is live. Use POST to rehost a remote media URL into Supabase.",
+  });
+}
+
+/**
+ * POST will be implemented next (Step 2) once GET is confirmed live.
+ */
+export async function POST(req: NextRequest) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error: "POST not implemented yet. Confirm GET works first.",
+    },
+    { status: 501 }
+  );
+}
+
 
 function safeName(name: string) {
   return (name || "file")
