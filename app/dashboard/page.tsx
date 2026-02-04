@@ -68,6 +68,9 @@ type Draft = {
   imageUrl: string;
   videoUrl: string;
   selectedPlatforms: ProviderId[];
+
+  // NEW: remember video intent
+  videoIntent: VideoIntent;
 };
 
 function loadDrafts(): Draft[] {
@@ -112,8 +115,7 @@ function extractFriendlyError(item: any): string {
 
   const metaTitle =
     item?.details?.error?.error_user_title || item?.error?.error_user_title;
-  const metaMessage =
-    item?.details?.error?.message || item?.error?.message;
+  const metaMessage = item?.details?.error?.message || item?.error?.message;
   if (metaTitle && metaMessage) return `${metaTitle}: ${metaMessage}`;
   if (metaMessage) return String(metaMessage);
 
@@ -188,6 +190,13 @@ function defaultLocalDateTimePlus(minutes: number) {
 type Mode = "now" | "approval";
 type MediaMode = "auto" | "image" | "video";
 
+/**
+ * NEW: user-friendly “video destination” intent
+ * - default keeps your current working behaviour (reels-first)
+ * - backend can interpret this later without breaking payload
+ */
+type VideoIntent = "auto" | "reels" | "page_video";
+
 function looksLikeVideoUrl(u: string) {
   const s = (u || "").trim().toLowerCase();
   if (!s) return false;
@@ -227,6 +236,9 @@ export default function DashboardHomePage() {
   const [videoUrl, setVideoUrl] = useState("");
 
   const [mediaMode, setMediaMode] = useState<MediaMode>("auto");
+
+  // NEW: video destination intent (default keeps current behaviour = reels-first)
+  const [videoIntent, setVideoIntent] = useState<VideoIntent>("reels");
 
   const [selected, setSelected] = useState<ProviderId[]>([]);
 
@@ -305,6 +317,7 @@ export default function DashboardHomePage() {
       imageUrl,
       videoUrl,
       selectedPlatforms: selected,
+      videoIntent,
     };
     const next = [d, ...drafts];
     setDrafts(next);
@@ -316,6 +329,7 @@ export default function DashboardHomePage() {
     setImageUrl(d.imageUrl || "");
     setVideoUrl(d.videoUrl || "");
     setSelected(Array.isArray(d.selectedPlatforms) ? d.selectedPlatforms : []);
+    setVideoIntent((d as any)?.videoIntent || "reels");
   }
 
   function deleteDraft(id: string) {
@@ -384,12 +398,11 @@ export default function DashboardHomePage() {
       return { imageUrl: "", videoUrl: vid };
     }
 
-    // auto
-    // Prefer video if it looks like a video
+    // auto: prefer video if it looks like a video
     if (vid && looksLikeVideoUrl(vid)) return { imageUrl: "", videoUrl: vid };
     if (img && looksLikeImageUrl(img)) return { imageUrl: img, videoUrl: "" };
 
-    // If both filled, prefer video (safer for your use-case)
+    // If both filled, prefer video
     if (vid) return { imageUrl: "", videoUrl: vid };
     return { imageUrl: img, videoUrl: "" };
   }
@@ -409,6 +422,9 @@ export default function DashboardHomePage() {
           imageUrl: media.imageUrl,
           videoUrl: media.videoUrl,
           platforms: selected,
+
+          // NEW: pass intent to backend (safe, won’t break anything)
+          videoIntent,
         }),
       });
 
@@ -490,6 +506,8 @@ export default function DashboardHomePage() {
               created_at: new Date().toISOString(),
             },
             ...(media.videoUrl ? { video_url: media.videoUrl } : {}),
+            // NEW: save intent with the scheduled post meta
+            video_intent: videoIntent,
           },
           createdBy: {
             user_id: "owner",
@@ -597,16 +615,12 @@ export default function DashboardHomePage() {
     const kind = String((m as any)?.kind || "").toLowerCase();
 
     const isVideo =
-      kind === "video" ||
-      ct.startsWith("video/") ||
-      looksLikeVideoUrl(url);
+      kind === "video" || ct.startsWith("video/") || looksLikeVideoUrl(url);
 
     const isImage =
-      kind === "image" ||
-      ct.startsWith("image/") ||
-      looksLikeImageUrl(url);
+      kind === "image" || ct.startsWith("image/") || looksLikeImageUrl(url);
 
-    // Prefer video if ambiguous
+    // Prefer video if unambiguous
     if (isVideo && !isImage) {
       setVideoUrl(url);
       setImageUrl("");
@@ -621,7 +635,7 @@ export default function DashboardHomePage() {
       return;
     }
 
-    // Ambiguous (no content-type) → decide by extension
+    // Ambiguous → decide by extension
     if (looksLikeVideoUrl(url)) {
       setVideoUrl(url);
       setImageUrl("");
@@ -638,6 +652,7 @@ export default function DashboardHomePage() {
   const clearVideo = () => setVideoUrl("");
 
   const media = effectiveMediaPayload();
+  const hasEffectiveVideo = !!media.videoUrl;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
@@ -758,7 +773,9 @@ export default function DashboardHomePage() {
                           </span>{" "}
                           as pending
                         </li>
-                        <li>• Approver sees full content + “Posted by Clinic Owner”</li>
+                        <li>
+                          • Approver sees full content + “Posted by Clinic Owner”
+                        </li>
                         <li>• Approve → it becomes ready → Post now</li>
                       </ul>
                     </div>
@@ -826,6 +843,72 @@ export default function DashboardHomePage() {
                     disabled={loadingAccounts}
                     onUploaded={onUploadedQuickBlast}
                   />
+                </div>
+
+                {/* NEW: Video destination toggle */}
+                <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">If this is a video…</div>
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        Choose how we treat video posts. Default keeps your current behaviour.
+                      </div>
+                    </div>
+
+                    <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setVideoIntent("auto")}
+                        className={[
+                          "px-3 py-1.5",
+                          videoIntent === "auto"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
+                        ].join(" ")}
+                      >
+                        Auto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVideoIntent("reels")}
+                        className={[
+                          "px-3 py-1.5",
+                          videoIntent === "reels"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
+                        ].join(" ")}
+                      >
+                        Reels
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVideoIntent("page_video")}
+                        className={[
+                          "px-3 py-1.5",
+                          videoIntent === "page_video"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
+                        ].join(" ")}
+                      >
+                        Page video
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    {hasEffectiveVideo ? (
+                      <>
+                        Video detected ✅ Using:{" "}
+                        <span className="text-slate-200 font-semibold">{videoIntent}</span>
+                      </>
+                    ) : (
+                      <>No video detected — this setting is ignored.</>
+                    )}
+                  </div>
+
+                  <div className="mt-2 text-[11px] text-slate-400">
+                    Note: Instagram “video vs reel” isn’t a perfect API toggle — but we keep this setting so your product UX is clean and future-proof.
+                  </div>
                 </div>
 
                 <div className="mt-3 grid gap-2 md:grid-cols-2 text-[11px]">
@@ -1031,15 +1114,25 @@ export default function DashboardHomePage() {
                   </div>
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {channelCards.map((p) => {
-                      const isConnected = connectedPlatforms.has(p);
-                      const isSelected = selected.includes(p);
+                    {[
+                      "facebook",
+                      "linkedin",
+                      "instagram",
+                      "threads",
+                      "tiktok",
+                      "google",
+                      "email",
+                      "whatsapp",
+                    ].map((p) => {
+                      const pp = p as ProviderId;
+                      const isConnected = connectedPlatforms.has(pp);
+                      const isSelected = selected.includes(pp);
 
                       return (
                         <button
-                          key={p}
+                          key={pp}
                           type="button"
-                          onClick={() => togglePlatform(p)}
+                          onClick={() => togglePlatform(pp)}
                           disabled={!isConnected}
                           className={`flex items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm transition ${
                             !isConnected
@@ -1050,7 +1143,9 @@ export default function DashboardHomePage() {
                           }`}
                         >
                           <div>
-                            <div className="font-medium">{PROVIDER_LABELS[p]}</div>
+                            <div className="font-medium">
+                              {PROVIDER_LABELS[pp]}
+                            </div>
                             <div className="text-[11px] text-slate-500">
                               {isConnected ? "connected" : "not connected"}
                             </div>
@@ -1081,7 +1176,9 @@ export default function DashboardHomePage() {
                     type="button"
                     onClick={sendQuickBlast}
                     disabled={
-                      sending || message.trim().length === 0 || selected.length === 0
+                      sending ||
+                      message.trim().length === 0 ||
+                      selected.length === 0
                     }
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
@@ -1115,7 +1212,9 @@ export default function DashboardHomePage() {
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
                       <div
-                        className={result.success ? "text-emerald-200" : "text-amber-200"}
+                        className={
+                          result.success ? "text-emerald-200" : "text-amber-200"
+                        }
                       >
                         {friendlySummary?.headline ||
                           (result.success ? "Success." : "Not sent.")}
@@ -1133,56 +1232,66 @@ export default function DashboardHomePage() {
                       ) : null}
                     </div>
 
-                    {Array.isArray(result.results) && result.results.length > 0 && (
-                      <div className="mt-4 space-y-2">
-                        {result.results.map((r: any, idx: number) => {
-                          const platform =
-                            (String(r?.platform || "") as ProviderId) || "facebook";
-                          const ok = !!r?.ok;
-                          const skipped = !!r?.skipped;
-                          const label = formatPlatformName(r?.platform || platform);
+                    {Array.isArray(result.results) &&
+                      result.results.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                          {result.results.map((r: any, idx: number) => {
+                            const platform =
+                              (String(r?.platform || "") as ProviderId) ||
+                              "facebook";
+                            const ok = !!r?.ok;
+                            const skipped = !!r?.skipped;
+                            const label = formatPlatformName(
+                              r?.platform || platform
+                            );
 
-                          const friendly = ok ? "Posted." : extractFriendlyError(r);
-                          const tip = !ok
-                            ? friendlySuggestionForPlatform(platform, r)
-                            : null;
+                            const friendly = ok
+                              ? "Posted."
+                              : extractFriendlyError(r);
+                            const tip = !ok
+                              ? friendlySuggestionForPlatform(platform, r)
+                              : null;
 
-                          return (
-                            <div
-                              key={`${platform}-${idx}`}
-                              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="text-[12px] font-semibold text-slate-200">
-                                  {label}
-                                </div>
-                                <div
-                                  className={[
-                                    "text-[11px] rounded-full border px-2 py-0.5",
-                                    ok
-                                      ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                            return (
+                              <div
+                                key={`${platform}-${idx}`}
+                                className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="text-[12px] font-semibold text-slate-200">
+                                    {label}
+                                  </div>
+                                  <div
+                                    className={[
+                                      "text-[11px] rounded-full border px-2 py-0.5",
+                                      ok
+                                        ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                                        : skipped
+                                        ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                        : "border-red-500/50 text-red-200 bg-red-500/10",
+                                    ].join(" ")}
+                                  >
+                                    {ok
+                                      ? "✅ Posted"
                                       : skipped
-                                      ? "border-slate-600 text-slate-300 bg-slate-900/40"
-                                      : "border-red-500/50 text-red-200 bg-red-500/10",
-                                  ].join(" ")}
-                                >
-                                  {ok ? "✅ Posted" : skipped ? "⚠️ Skipped" : "❌ Failed"}
+                                      ? "⚠️ Skipped"
+                                      : "❌ Failed"}
+                                  </div>
                                 </div>
-                              </div>
 
-                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
-                                {friendly}
-                              </div>
-                              {tip ? (
-                                <div className="mt-1 text-[11px] text-slate-400">
-                                  {tip}
+                                <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
+                                  {friendly}
                                 </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                                {tip ? (
+                                  <div className="mt-1 text-[11px] text-slate-400">
+                                    {tip}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
 
                     {adminOpen && (
                       <details className="mt-4">
@@ -1200,15 +1309,21 @@ export default function DashboardHomePage() {
                 {adminOpen && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
                     <div className="text-slate-400 mb-2">Admin info (safe).</div>
-                    <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
+                    <div>
+                      Selected platforms: {selected.join(", ") || "(none)"}
+                    </div>
                     <div className="mt-1">
-                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
+                      Connected platforms:{" "}
+                      {Array.from(connectedPlatforms).join(", ") || "(none)"}
                     </div>
                     <div className="mt-1">
                       OrganisationId: {organisationId || "(loading…)"}
                     </div>
-                    <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
+                    <div className="mt-1">
+                      Mode: {mode === "now" ? "Send now" : "Queue for approval"}
+                    </div>
                     <div className="mt-1">mediaMode: {mediaMode}</div>
+                    <div className="mt-1">videoIntent: {videoIntent}</div>
                     <div className="mt-1">imageUrl: {media.imageUrl ? "✅ set" : "—"}</div>
                     <div className="mt-1">videoUrl: {media.videoUrl ? "✅ set" : "—"}</div>
                   </div>
@@ -1245,6 +1360,9 @@ export default function DashboardHomePage() {
                       </div>
                       <div className="mt-2 text-[11px] text-slate-500">
                         Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        Video intent: {(d as any)?.videoIntent || "reels"}
                       </div>
 
                       <div className="mt-3 flex flex-wrap gap-2">
