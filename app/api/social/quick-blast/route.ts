@@ -1,6 +1,5 @@
 // app/api/social/quick-blast/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -12,8 +11,8 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     route: "app/api/social/quick-blast/route.ts",
-    version: "2026-02-03-ig-ready-wait-v3-typed",
-    note: "Fixes TS build error + waits for FINISHED (image+video) + retries publish if not ready.",
+    version: "2026-02-03-ig-ready-wait-v3-typed-no-supabase-import",
+    note: "Fixes TS build error (details field), waits for FINISHED, retries publish if not ready.",
   });
 }
 
@@ -36,73 +35,47 @@ type IgSuccess = {
 type IgPublishResult = IgFailure | IgSuccess;
 
 /**
- * Single-tenant fallback (your current build/testing mode)
+ * IMPORTANT:
+ * This route is currently Instagram-only for publishing.
+ * Other platforms are returned as "skipped" so Quick Blast UI can show what happened.
+ *
+ * Instagram credentials are taken from ENV for now:
+ * - IG_ACCESS_TOKEN
+ * - IG_USER_ID
+ *
+ * (Later we can switch this to per-org tokens from Supabase once your auth/session flow is stable.)
  */
-async function getSingleTenantOrganisationId(): Promise<string | null> {
-  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
-  if (error || !data || data.length === 0) return null;
-  return String((data as any)[0].id);
-}
-
-async function getInstagramConnection(organisationId: string) {
-  const { data, error } = await supabaseAdmin
-    .from("social_accounts")
-    .select("platform,page_id,page_name,page_access_token,is_active,token_expires_at,updated_at")
-    .eq("organisation_id", organisationId)
-    .eq("platform", "instagram")
-    .limit(1);
-
-  if (error) return { ok: false as const, error: error.message, row: null };
-
-  const row = Array.isArray(data) && data.length > 0 ? (data[0] as any) : null;
-
-  if (!row) {
-    return { ok: false as const, error: "Instagram is not connected for this organisation.", row: null };
-  }
-
-  if (row.is_active === false) {
-    return { ok: false as const, error: "Instagram is marked inactive. Reconnect Instagram.", row };
-  }
-
-  const igUserId = String(row.page_id || "").trim();
-  const accessToken = String(row.page_access_token || "").trim();
-
-  if (!igUserId || !accessToken) {
-    return {
-      ok: false as const,
-      error: "Instagram connection exists but is missing page_id or page_access_token. Reconnect Instagram.",
-      row,
-    };
-  }
-
-  const exp = row.token_expires_at ? new Date(String(row.token_expires_at)) : null;
-  if (exp && !isNaN(exp.getTime()) && exp.getTime() < Date.now()) {
-    return {
-      ok: false as const,
-      error: "Instagram token is expired in Supabase. Disconnect + reconnect Instagram.",
-      row,
-    };
-  }
-
-  return { ok: true as const, igUserId, accessToken, row };
-}
+const IG_ACCESS_TOKEN = process.env.IG_ACCESS_TOKEN || "";
+const IG_USER_ID = process.env.IG_USER_ID || "";
 
 async function igCreateContainer(args: {
-  accessToken: string;
-  igUserId: string;
   caption: string;
   imageUrl?: string | null;
   videoUrl?: string | null;
 }) {
+  if (!IG_ACCESS_TOKEN || !IG_USER_ID) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Instagram not configured (missing IG_USER_ID or IG_ACCESS_TOKEN).",
+      details: null,
+    };
+  }
+
   const hasVideo = !!(args.videoUrl && args.videoUrl.trim());
   const hasImage = !!(args.imageUrl && args.imageUrl.trim());
 
   if (!hasVideo && !hasImage) {
-    return { ok: false, status: 400, error: "Instagram requires an image or a video URL for this post.", details: null };
+    return {
+      ok: false,
+      status: 400,
+      error: "Instagram requires an image or a video URL for this post.",
+      details: null,
+    };
   }
 
-  const url = new URL(`https://graph.facebook.com/v24.0/${args.igUserId}/media`);
-  url.searchParams.set("access_token", args.accessToken);
+  const url = new URL(`https://graph.facebook.com/v24.0/${IG_USER_ID}/media`);
+  url.searchParams.set("access_token", IG_ACCESS_TOKEN);
   url.searchParams.set("caption", args.caption);
 
   if (hasVideo) {
@@ -125,27 +98,33 @@ async function igCreateContainer(args: {
 
   const creationId = json?.id;
   if (!creationId) {
-    return { ok: false, status: 500, error: "Instagram did not return a creation id.", details: json };
+    return {
+      ok: false,
+      status: 500,
+      error: "Instagram did not return a creation id.",
+      details: json,
+    };
   }
 
   return { ok: true, status: 200, creationId: String(creationId), details: json };
 }
 
 /**
- * ✅ Wait until container is ready (FINISHED) — for BOTH images and videos.
+ * ✅ Wait until container is ready (FINISHED)
+ * Do this for BOTH images and videos to reduce “not ready” errors.
  */
-async function igWaitUntilReady(args: {
-  accessToken: string;
-  creationId: string;
-  isVideo: boolean;
-}) {
-  const maxAttempts = args.isVideo ? 12 : 10; // give images a bit more headroom too
+async function igWaitUntilReady(args: { creationId: string; isVideo: boolean }) {
+  if (!IG_ACCESS_TOKEN) {
+    return { ok: false, status: 400, error: "Instagram not configured (missing IG_ACCESS_TOKEN).", details: null };
+  }
+
+  const maxAttempts = args.isVideo ? 12 : 10;
   const delayMs = args.isVideo ? 5000 : 2500;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const url = new URL(`https://graph.facebook.com/v24.0/${args.creationId}`);
     url.searchParams.set("fields", "status_code");
-    url.searchParams.set("access_token", args.accessToken);
+    url.searchParams.set("access_token", IG_ACCESS_TOKEN);
 
     const res = await fetch(url.toString(), { method: "GET", cache: "no-store" });
     const json = await res.json().catch(() => null);
@@ -165,7 +144,12 @@ async function igWaitUntilReady(args: {
     }
 
     if (statusCode === "ERROR") {
-      return { ok: false, status: 400, error: "Instagram reported processing ERROR for this media.", details: json };
+      return {
+        ok: false,
+        status: 400,
+        error: "Instagram reported processing ERROR for this media.",
+        details: json,
+      };
     }
 
     await new Promise((r) => setTimeout(r, delayMs));
@@ -179,14 +163,19 @@ async function igWaitUntilReady(args: {
   };
 }
 
-async function igPublishOnce(args: {
-  accessToken: string;
-  igUserId: string;
-  creationId: string;
-}): Promise<IgPublishResult> {
-  const url = new URL(`https://graph.facebook.com/v24.0/${args.igUserId}/media_publish`);
+async function igPublishOnce(args: { creationId: string }): Promise<IgPublishResult> {
+  if (!IG_ACCESS_TOKEN || !IG_USER_ID) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Instagram not configured (missing IG_USER_ID or IG_ACCESS_TOKEN).",
+      details: null,
+    };
+  }
+
+  const url = new URL(`https://graph.facebook.com/v24.0/${IG_USER_ID}/media_publish`);
   url.searchParams.set("creation_id", args.creationId);
-  url.searchParams.set("access_token", args.accessToken);
+  url.searchParams.set("access_token", IG_ACCESS_TOKEN);
 
   const res = await fetch(url.toString(), { method: "POST" });
   const json = await res.json().catch(() => null);
@@ -203,20 +192,15 @@ async function igPublishOnce(args: {
 }
 
 /**
- * ✅ Retry publish if IG says "media not ready".
- * This matches your exact error: code 9007 / subcode 2207027 / "Media ID is not available".
+ * ✅ Retry publish if IG says "not ready"
+ * Fixes your: code 9007 / subcode 2207027 ("Media ID is not available")
  */
-async function igPublishWithRetry(args: {
-  accessToken: string;
-  igUserId: string;
-  creationId: string;
-  isVideo: boolean;
-}): Promise<IgPublishResult> {
+async function igPublishWithRetry(args: { creationId: string; isVideo: boolean }): Promise<IgPublishResult> {
   const maxPublishAttempts = 6;
   const delayMs = args.isVideo ? 5000 : 2500;
 
   for (let i = 1; i <= maxPublishAttempts; i++) {
-    const out = await igPublishOnce(args);
+    const out = await igPublishOnce({ creationId: args.creationId });
     if (out.ok) return out;
 
     const msg = String(out?.error || "").toLowerCase();
@@ -234,7 +218,7 @@ async function igPublishWithRetry(args: {
     await new Promise((r) => setTimeout(r, delayMs));
   }
 
-  // ✅ IMPORTANT: return shape MUST include details to satisfy TS and avoid build failure
+  // ✅ CRITICAL: Always include details so TS never fails the build
   return {
     ok: false,
     status: 400,
@@ -256,18 +240,8 @@ export async function POST(req: NextRequest) {
       .map((p) => String(p || "").toLowerCase().trim())
       .filter(Boolean) as Platform[];
 
-    const organisationIdFromBody = String(body?.organisationId ?? body?.organisation_id ?? "").trim();
-    const organisationId = organisationIdFromBody || (await getSingleTenantOrganisationId());
-
     if (!message.trim()) {
       return NextResponse.json({ success: false, error: "Message is required." }, { status: 200 });
-    }
-
-    if (!organisationId) {
-      return NextResponse.json(
-        { success: false, error: "No organisationId available. Refresh dashboard and try again." },
-        { status: 200 }
-      );
     }
 
     if (platforms.length === 0) {
@@ -288,22 +262,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const conn = await getInstagramConnection(organisationId);
-      if (!conn.ok) {
-        results.push({
-          platform: "instagram",
-          ok: false,
-          status: 400,
-          mode: videoUrl ? "video" : imageUrl ? "image" : "text",
-          error: conn.error,
-          details: conn.row || null,
-        });
-        continue;
-      }
-
       const created = await igCreateContainer({
-        accessToken: conn.accessToken,
-        igUserId: conn.igUserId,
         caption: message,
         imageUrl: imageUrl || null,
         videoUrl: videoUrl || null,
@@ -324,12 +283,8 @@ export async function POST(req: NextRequest) {
       const creationId = String((created as any).creationId || "");
       const isVideo = !!(videoUrl && videoUrl.trim());
 
-      const ready = await igWaitUntilReady({
-        accessToken: conn.accessToken,
-        creationId,
-        isVideo,
-      });
-
+      // ✅ Wait until FINISHED for both image and video
+      const ready = await igWaitUntilReady({ creationId, isVideo });
       if (!ready.ok) {
         results.push({
           platform: "instagram",
@@ -342,12 +297,8 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const published = await igPublishWithRetry({
-        accessToken: conn.accessToken,
-        igUserId: conn.igUserId,
-        creationId,
-        isVideo,
-      });
+      // ✅ Publish with retry if not ready
+      const published = await igPublishWithRetry({ creationId, isVideo });
 
       if (!published.ok) {
         results.push({
@@ -379,22 +330,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: ok > 0 && failed === 0,
-        organisationId,
         results,
         summary: { attempted, ok, failed, skipped },
-        userMessage:
-          ok > 0
-            ? "Instagram sent ✅"
-            : failed > 0
-            ? "Instagram didn’t send. See the error details."
-            : "No posts sent from this route.",
+        userMessage: ok > 0 ? "Instagram sent ✅ (others skipped)." : "No posts sent from this route.",
       },
       { status: 200 }
     );
   } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err?.message || "Quick Blast crashed." },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: false, error: err?.message || "Quick Blast crashed." }, { status: 200 });
   }
 }
