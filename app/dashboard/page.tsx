@@ -1,3 +1,4 @@
+// app/dashboard/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -68,9 +69,6 @@ type Draft = {
   imageUrl: string;
   videoUrl: string;
   selectedPlatforms: ProviderId[];
-
-  // NEW: remember video intent
-  videoIntent: VideoIntent;
 };
 
 function loadDrafts(): Draft[] {
@@ -109,12 +107,10 @@ function extractFriendlyError(item: any): string {
   const um = String(item?.userMessage || "").trim();
   if (um) return um;
 
-  const metaUserMsg =
-    item?.details?.error?.error_user_msg || item?.error?.error_user_msg;
+  const metaUserMsg = item?.details?.error?.error_user_msg || item?.error?.error_user_msg;
   if (metaUserMsg) return String(metaUserMsg);
 
-  const metaTitle =
-    item?.details?.error?.error_user_title || item?.error?.error_user_title;
+  const metaTitle = item?.details?.error?.error_user_title || item?.error?.error_user_title;
   const metaMessage = item?.details?.error?.message || item?.error?.message;
   if (metaTitle && metaMessage) return `${metaTitle}: ${metaMessage}`;
   if (metaMessage) return String(metaMessage);
@@ -190,13 +186,6 @@ function defaultLocalDateTimePlus(minutes: number) {
 type Mode = "now" | "approval";
 type MediaMode = "auto" | "image" | "video";
 
-/**
- * NEW: user-friendly “video destination” intent
- * - default keeps your current working behaviour (reels-first)
- * - backend can interpret this later without breaking payload
- */
-type VideoIntent = "auto" | "reels" | "page_video";
-
 function looksLikeVideoUrl(u: string) {
   const s = (u || "").trim().toLowerCase();
   if (!s) return false;
@@ -228,17 +217,16 @@ export default function DashboardHomePage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
-  const [message, setMessage] = useState(
-    "Quick check-in from Root Health Ops Dashboard ✅"
-  );
+  const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
 
   const [imageUrl, setImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
 
   const [mediaMode, setMediaMode] = useState<MediaMode>("auto");
 
-  // NEW: video destination intent (default keeps current behaviour = reels-first)
-  const [videoIntent, setVideoIntent] = useState<VideoIntent>("reels");
+  // ✅ NEW: choose publish type for video platforms (only used when videoUrl is present)
+  const [igVideoType, setIgVideoType] = useState<"reels" | "video">("reels");
+  const [fbVideoType, setFbVideoType] = useState<"reels" | "video">("video");
 
   const [selected, setSelected] = useState<ProviderId[]>([]);
 
@@ -249,19 +237,14 @@ export default function DashboardHomePage() {
   const [adminOpen, setAdminOpen] = useState(false);
 
   const [mode, setMode] = useState<Mode>("now");
-  const [scheduledLocal, setScheduledLocal] = useState<string>(
-    defaultLocalDateTimePlus(10)
-  );
+  const [scheduledLocal, setScheduledLocal] = useState<string>(defaultLocalDateTimePlus(10));
 
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
     return new Set(active.map((r) => r.platform));
   }, [socialAccounts]);
 
-  const connectedCount = useMemo(
-    () => connectedPlatforms.size,
-    [connectedPlatforms]
-  );
+  const connectedCount = useMemo(() => connectedPlatforms.size, [connectedPlatforms]);
 
   const charCount = message.length;
 
@@ -317,7 +300,6 @@ export default function DashboardHomePage() {
       imageUrl,
       videoUrl,
       selectedPlatforms: selected,
-      videoIntent,
     };
     const next = [d, ...drafts];
     setDrafts(next);
@@ -329,7 +311,6 @@ export default function DashboardHomePage() {
     setImageUrl(d.imageUrl || "");
     setVideoUrl(d.videoUrl || "");
     setSelected(Array.isArray(d.selectedPlatforms) ? d.selectedPlatforms : []);
-    setVideoIntent((d as any)?.videoIntent || "reels");
   }
 
   function deleteDraft(id: string) {
@@ -346,9 +327,7 @@ export default function DashboardHomePage() {
     try {
       const subject = aiSubject.trim();
       if (!subject) {
-        setAiError(
-          "Please type a subject first (e.g., 'coping with failure')."
-        );
+        setAiError("Please type a subject first (e.g., 'coping with failure').");
         return;
       }
 
@@ -371,9 +350,7 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const vars = Array.isArray((json as any)?.variants)
-        ? (json as any).variants
-        : [];
+      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
       if (vars.length === 0) {
         setAiError("AI returned no variants. Try Generate again.");
         return;
@@ -398,11 +375,12 @@ export default function DashboardHomePage() {
       return { imageUrl: "", videoUrl: vid };
     }
 
-    // auto: prefer video if it looks like a video
+    // auto
+    // Prefer video if it looks like a video
     if (vid && looksLikeVideoUrl(vid)) return { imageUrl: "", videoUrl: vid };
     if (img && looksLikeImageUrl(img)) return { imageUrl: img, videoUrl: "" };
 
-    // If both filled, prefer video
+    // If both filled, prefer video (safer for your use-case)
     if (vid) return { imageUrl: "", videoUrl: vid };
     return { imageUrl: img, videoUrl: "" };
   }
@@ -422,9 +400,8 @@ export default function DashboardHomePage() {
           imageUrl: media.imageUrl,
           videoUrl: media.videoUrl,
           platforms: selected,
-
-          // NEW: pass intent to backend (safe, won’t break anything)
-          videoIntent,
+          igVideoType,
+          fbVideoType,
         }),
       });
 
@@ -434,9 +411,7 @@ export default function DashboardHomePage() {
         setResult({
           success: false,
           error: json?.error || `Request failed (${res.status})`,
-          userMessage:
-            json?.userMessage ||
-            "We couldn’t send that just now. Try again in a minute.",
+          userMessage: json?.userMessage || "We couldn’t send that just now. Try again in a minute.",
         });
         return;
       }
@@ -506,8 +481,7 @@ export default function DashboardHomePage() {
               created_at: new Date().toISOString(),
             },
             ...(media.videoUrl ? { video_url: media.videoUrl } : {}),
-            // NEW: save intent with the scheduled post meta
-            video_intent: videoIntent,
+            ...(media.videoUrl ? { ig_video_type: igVideoType, fb_video_type: fbVideoType } : {}),
           },
           createdBy: {
             user_id: "owner",
@@ -534,8 +508,7 @@ export default function DashboardHomePage() {
       setResult({
         success: true,
         organisationId,
-        userMessage:
-          "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
+        userMessage: "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
         note: "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
       });
     } catch (e: any) {
@@ -561,9 +534,7 @@ export default function DashboardHomePage() {
 
   useEffect(() => {
     if (selected.length > 0) return;
-    const defaults = socialAccounts
-      .map((r) => r.platform)
-      .filter((p) => connectedPlatforms.has(p));
+    const defaults = socialAccounts.map((r) => r.platform).filter((p) => connectedPlatforms.has(p));
     if (defaults.length > 0) setSelected(defaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingAccounts, socialAccounts]);
@@ -583,9 +554,7 @@ export default function DashboardHomePage() {
     if (!result) return null;
 
     const attempted = result.summary?.attempted ?? (result.results?.length || 0);
-    const ok =
-      result.summary?.ok ??
-      (result.results || []).filter((r: any) => r?.ok).length;
+    const ok = result.summary?.ok ?? (result.results || []).filter((r: any) => r?.ok).length;
     const failed =
       result.summary?.failed ??
       (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
@@ -599,10 +568,7 @@ export default function DashboardHomePage() {
       : "No channels sent.";
 
     const topMsg =
-      result.userMessage ||
-      (result.success
-        ? "Nice — you’re live."
-        : "No stress — we’ll fix what’s blocking it.");
+      result.userMessage || (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.");
 
     return { attempted, ok, failed, headline, topMsg };
   }, [result]);
@@ -614,13 +580,10 @@ export default function DashboardHomePage() {
     const ct = String(m?.contentType || "").toLowerCase();
     const kind = String((m as any)?.kind || "").toLowerCase();
 
-    const isVideo =
-      kind === "video" || ct.startsWith("video/") || looksLikeVideoUrl(url);
+    const isVideo = kind === "video" || ct.startsWith("video/") || looksLikeVideoUrl(url);
+    const isImage = kind === "image" || ct.startsWith("image/") || looksLikeImageUrl(url);
 
-    const isImage =
-      kind === "image" || ct.startsWith("image/") || looksLikeImageUrl(url);
-
-    // Prefer video if unambiguous
+    // Prefer video if ambiguous
     if (isVideo && !isImage) {
       setVideoUrl(url);
       setImageUrl("");
@@ -635,7 +598,7 @@ export default function DashboardHomePage() {
       return;
     }
 
-    // Ambiguous → decide by extension
+    // Ambiguous (no content-type) → decide by extension
     if (looksLikeVideoUrl(url)) {
       setVideoUrl(url);
       setImageUrl("");
@@ -652,7 +615,6 @@ export default function DashboardHomePage() {
   const clearVideo = () => setVideoUrl("");
 
   const media = effectiveMediaPayload();
-  const hasEffectiveVideo = !!media.videoUrl;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
@@ -661,12 +623,9 @@ export default function DashboardHomePage() {
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
-              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
-                Enterprise Beta
-              </h1>
+              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">Enterprise Beta</h1>
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-                A calm, premium cockpit for social momentum. Send fast. Recover
-                cleanly. Keep going.
+                A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
             </div>
 
@@ -674,9 +633,7 @@ export default function DashboardHomePage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-slate-400">Connected:</div>
-                  <div className="text-lg font-semibold text-slate-100">
-                    {loadingAccounts ? "…" : connectedCount}
-                  </div>
+                  <div className="text-lg font-semibold text-slate-100">{loadingAccounts ? "…" : connectedCount}</div>
                 </div>
                 <button
                   type="button"
@@ -710,8 +667,7 @@ export default function DashboardHomePage() {
                   <div>
                     <div className="text-sm font-semibold">Dispatch mode</div>
                     <div className="text-[11px] text-slate-400 mt-1">
-                      Send now publishes immediately. Queue for approval routes
-                      it into your clinic workflow.
+                      Send now publishes immediately. Queue for approval routes it into your clinic workflow.
                     </div>
                   </div>
 
@@ -721,9 +677,7 @@ export default function DashboardHomePage() {
                       onClick={() => setMode("now")}
                       className={[
                         "px-3 py-1.5",
-                        mode === "now"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
+                        mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                       ].join(" ")}
                     >
                       Send now
@@ -733,9 +687,7 @@ export default function DashboardHomePage() {
                       onClick={() => setMode("approval")}
                       className={[
                         "px-3 py-1.5",
-                        mode === "approval"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
+                        mode === "approval" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                       ].join(" ")}
                     >
                       Queue for approval
@@ -756,26 +708,18 @@ export default function DashboardHomePage() {
                         className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                       />
                       <div className="mt-1 text-[11px] text-slate-500">
-                        This is the scheduled time stored on the post (and shown
-                        in Approvals/Scheduled).
+                        This is the scheduled time stored on the post (and shown in Approvals/Scheduled).
                       </div>
                     </div>
 
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-300">
-                      <div className="font-semibold text-slate-200">
-                        What happens next
-                      </div>
+                      <div className="font-semibold text-slate-200">What happens next</div>
                       <ul className="mt-2 space-y-1">
                         <li>
                           • Your post lands in{" "}
-                          <span className="text-slate-100 font-semibold">
-                            Approvals
-                          </span>{" "}
-                          as pending
+                          <span className="text-slate-100 font-semibold">Approvals</span> as pending
                         </li>
-                        <li>
-                          • Approver sees full content + “Posted by Clinic Owner”
-                        </li>
+                        <li>• Approver sees full content + “Posted by Clinic Owner”</li>
                         <li>• Approve → it becomes ready → Post now</li>
                       </ul>
                     </div>
@@ -799,9 +743,7 @@ export default function DashboardHomePage() {
                       onClick={() => setMediaMode("auto")}
                       className={[
                         "px-3 py-1.5",
-                        mediaMode === "auto"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
+                        mediaMode === "auto" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                       ].join(" ")}
                     >
                       Auto
@@ -811,9 +753,7 @@ export default function DashboardHomePage() {
                       onClick={() => setMediaMode("image")}
                       className={[
                         "px-3 py-1.5",
-                        mediaMode === "image"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
+                        mediaMode === "image" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                       ].join(" ")}
                     >
                       Image
@@ -823,9 +763,7 @@ export default function DashboardHomePage() {
                       onClick={() => setMediaMode("video")}
                       className={[
                         "px-3 py-1.5",
-                        mediaMode === "video"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
+                        mediaMode === "video" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                       ].join(" ")}
                     >
                       Video
@@ -845,72 +783,6 @@ export default function DashboardHomePage() {
                   />
                 </div>
 
-                {/* NEW: Video destination toggle */}
-                <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold">If this is a video…</div>
-                      <div className="mt-1 text-[11px] text-slate-400">
-                        Choose how we treat video posts. Default keeps your current behaviour.
-                      </div>
-                    </div>
-
-                    <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
-                      <button
-                        type="button"
-                        onClick={() => setVideoIntent("auto")}
-                        className={[
-                          "px-3 py-1.5",
-                          videoIntent === "auto"
-                            ? "bg-emerald-500 text-slate-950"
-                            : "text-slate-300",
-                        ].join(" ")}
-                      >
-                        Auto
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setVideoIntent("reels")}
-                        className={[
-                          "px-3 py-1.5",
-                          videoIntent === "reels"
-                            ? "bg-emerald-500 text-slate-950"
-                            : "text-slate-300",
-                        ].join(" ")}
-                      >
-                        Reels
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setVideoIntent("page_video")}
-                        className={[
-                          "px-3 py-1.5",
-                          videoIntent === "page_video"
-                            ? "bg-emerald-500 text-slate-950"
-                            : "text-slate-300",
-                        ].join(" ")}
-                      >
-                        Page video
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 text-[11px] text-slate-500">
-                    {hasEffectiveVideo ? (
-                      <>
-                        Video detected ✅ Using:{" "}
-                        <span className="text-slate-200 font-semibold">{videoIntent}</span>
-                      </>
-                    ) : (
-                      <>No video detected — this setting is ignored.</>
-                    )}
-                  </div>
-
-                  <div className="mt-2 text-[11px] text-slate-400">
-                    Note: Instagram “video vs reel” isn’t a perfect API toggle — but we keep this setting so your product UX is clean and future-proof.
-                  </div>
-                </div>
-
                 <div className="mt-3 grid gap-2 md:grid-cols-2 text-[11px]">
                   <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
                     <div className="flex items-center justify-between">
@@ -925,9 +797,7 @@ export default function DashboardHomePage() {
                         </button>
                       ) : null}
                     </div>
-                    <div className="mt-1 break-all text-slate-200">
-                      {imageUrl || "—"}
-                    </div>
+                    <div className="mt-1 break-all text-slate-200">{imageUrl || "—"}</div>
                   </div>
 
                   <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
@@ -943,16 +813,84 @@ export default function DashboardHomePage() {
                         </button>
                       ) : null}
                     </div>
-                    <div className="mt-1 break-all text-slate-200">
-                      {videoUrl || "—"}
-                    </div>
+                    <div className="mt-1 break-all text-slate-200">{videoUrl || "—"}</div>
                   </div>
                 </div>
 
                 <div className="mt-2 text-[11px] text-slate-500">
-                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl:{" "}
-                  {media.videoUrl ? "✅" : "—"}
+                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl: {media.videoUrl ? "✅" : "—"}
                 </div>
+
+                {/* ✅ NEW: Only show when video is present */}
+                {media.videoUrl ? (
+                  <div className="mt-3 grid gap-2 md:grid-cols-2 text-[11px]">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="text-slate-400 mb-2">Instagram video publish as</div>
+                      <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setIgVideoType("reels")}
+                          className={[
+                            "px-3 py-1.5",
+                            igVideoType === "reels"
+                              ? "bg-emerald-500 text-slate-950"
+                              : "text-slate-300",
+                          ].join(" ")}
+                        >
+                          Reel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIgVideoType("video")}
+                          className={[
+                            "px-3 py-1.5",
+                            igVideoType === "video"
+                              ? "bg-emerald-500 text-slate-950"
+                              : "text-slate-300",
+                          ].join(" ")}
+                        >
+                          Feed video
+                        </button>
+                      </div>
+                      <div className="mt-2 text-slate-500">
+                        Reel = best reach. Feed video = normal post video.
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="text-slate-400 mb-2">Facebook video publish as</div>
+                      <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setFbVideoType("video")}
+                          className={[
+                            "px-3 py-1.5",
+                            fbVideoType === "video"
+                              ? "bg-emerald-500 text-slate-950"
+                              : "text-slate-300",
+                          ].join(" ")}
+                        >
+                          Page video
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFbVideoType("reels")}
+                          className={[
+                            "px-3 py-1.5",
+                            fbVideoType === "reels"
+                              ? "bg-emerald-500 text-slate-950"
+                              : "text-slate-300",
+                          ].join(" ")}
+                        >
+                          Reel (best effort)
+                        </button>
+                      </div>
+                      <div className="mt-2 text-slate-500">
+                        Safe mode: posts as a Page video either way (keeps current posting stable).
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {/* AI Composer */}
@@ -1061,9 +999,7 @@ export default function DashboardHomePage() {
 
               <div className="mt-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Message
-                  </label>
+                  <label className="block text-xs font-medium text-slate-300">Message</label>
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
@@ -1076,9 +1012,7 @@ export default function DashboardHomePage() {
                 {/* Manual fields remain as fallback */}
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Image URL (optional)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Image URL (optional)</label>
                     <input
                       value={imageUrl}
                       onChange={(e) => setImageUrl(e.target.value)}
@@ -1087,9 +1021,7 @@ export default function DashboardHomePage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Video URL (optional)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Video URL (optional)</label>
                     <input
                       value={videoUrl}
                       onChange={(e) => setVideoUrl(e.target.value)}
@@ -1101,9 +1033,7 @@ export default function DashboardHomePage() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="block text-xs font-medium text-slate-300">
-                      Channels
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Channels</label>
                     <button
                       type="button"
                       onClick={refreshChannels}
@@ -1114,25 +1044,15 @@ export default function DashboardHomePage() {
                   </div>
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {[
-                      "facebook",
-                      "linkedin",
-                      "instagram",
-                      "threads",
-                      "tiktok",
-                      "google",
-                      "email",
-                      "whatsapp",
-                    ].map((p) => {
-                      const pp = p as ProviderId;
-                      const isConnected = connectedPlatforms.has(pp);
-                      const isSelected = selected.includes(pp);
+                    {channelCards.map((p) => {
+                      const isConnected = connectedPlatforms.has(p);
+                      const isSelected = selected.includes(p);
 
                       return (
                         <button
-                          key={pp}
+                          key={p}
                           type="button"
-                          onClick={() => togglePlatform(pp)}
+                          onClick={() => togglePlatform(p)}
                           disabled={!isConnected}
                           className={`flex items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm transition ${
                             !isConnected
@@ -1143,9 +1063,7 @@ export default function DashboardHomePage() {
                           }`}
                         >
                           <div>
-                            <div className="font-medium">
-                              {PROVIDER_LABELS[pp]}
-                            </div>
+                            <div className="font-medium">{PROVIDER_LABELS[p]}</div>
                             <div className="text-[11px] text-slate-500">
                               {isConnected ? "connected" : "not connected"}
                             </div>
@@ -1175,11 +1093,7 @@ export default function DashboardHomePage() {
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={
-                      sending ||
-                      message.trim().length === 0 ||
-                      selected.length === 0
-                    }
+                    disabled={sending || message.trim().length === 0 || selected.length === 0}
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {sending
@@ -1211,87 +1125,59 @@ export default function DashboardHomePage() {
                 {result && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
-                      <div
-                        className={
-                          result.success ? "text-emerald-200" : "text-amber-200"
-                        }
-                      >
-                        {friendlySummary?.headline ||
-                          (result.success ? "Success." : "Not sent.")}
+                      <div className={result.success ? "text-emerald-200" : "text-amber-200"}>
+                        {friendlySummary?.headline || (result.success ? "Success." : "Not sent.")}
                       </div>
                       <div className="mt-1 text-[12px] text-slate-300">
                         {friendlySummary?.topMsg ||
-                          (result.success
-                            ? "Nice — you’re live."
-                            : "No stress — we’ll fix what’s blocking it.")}
+                          (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.")}
                       </div>
                       {result.note ? (
-                        <div className="mt-2 text-[12px] text-emerald-300">
-                          {result.note}
-                        </div>
+                        <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div>
                       ) : null}
                     </div>
 
-                    {Array.isArray(result.results) &&
-                      result.results.length > 0 && (
-                        <div className="mt-4 space-y-2">
-                          {result.results.map((r: any, idx: number) => {
-                            const platform =
-                              (String(r?.platform || "") as ProviderId) ||
-                              "facebook";
-                            const ok = !!r?.ok;
-                            const skipped = !!r?.skipped;
-                            const label = formatPlatformName(
-                              r?.platform || platform
-                            );
+                    {Array.isArray(result.results) && result.results.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        {result.results.map((r: any, idx: number) => {
+                          const platform = (String(r?.platform || "") as ProviderId) || "facebook";
+                          const ok = !!r?.ok;
+                          const skipped = !!r?.skipped;
+                          const label = formatPlatformName(r?.platform || platform);
 
-                            const friendly = ok
-                              ? "Posted."
-                              : extractFriendlyError(r);
-                            const tip = !ok
-                              ? friendlySuggestionForPlatform(platform, r)
-                              : null;
+                          const friendly = ok ? "Posted." : extractFriendlyError(r);
+                          const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
 
-                            return (
-                              <div
-                                key={`${platform}-${idx}`}
-                                className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="text-[12px] font-semibold text-slate-200">
-                                    {label}
-                                  </div>
-                                  <div
-                                    className={[
-                                      "text-[11px] rounded-full border px-2 py-0.5",
-                                      ok
-                                        ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
-                                        : skipped
-                                        ? "border-slate-600 text-slate-300 bg-slate-900/40"
-                                        : "border-red-500/50 text-red-200 bg-red-500/10",
-                                    ].join(" ")}
-                                  >
-                                    {ok
-                                      ? "✅ Posted"
+                          return (
+                            <div
+                              key={`${platform}-${idx}`}
+                              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="text-[12px] font-semibold text-slate-200">{label}</div>
+                                <div
+                                  className={[
+                                    "text-[11px] rounded-full border px-2 py-0.5",
+                                    ok
+                                      ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
                                       : skipped
-                                      ? "⚠️ Skipped"
-                                      : "❌ Failed"}
-                                  </div>
+                                      ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                      : "border-red-500/50 text-red-200 bg-red-500/10",
+                                  ].join(" ")}
+                                >
+                                  {ok ? "✅ Posted" : skipped ? "⚠️ Skipped" : "❌ Failed"}
                                 </div>
-
-                                <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
-                                  {friendly}
-                                </div>
-                                {tip ? (
-                                  <div className="mt-1 text-[11px] text-slate-400">
-                                    {tip}
-                                  </div>
-                                ) : null}
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
+
+                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">{friendly}</div>
+                              {tip ? (
+                                <div className="mt-1 text-[11px] text-slate-400">{tip}</div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     {adminOpen && (
                       <details className="mt-4">
@@ -1309,23 +1195,17 @@ export default function DashboardHomePage() {
                 {adminOpen && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
                     <div className="text-slate-400 mb-2">Admin info (safe).</div>
-                    <div>
-                      Selected platforms: {selected.join(", ") || "(none)"}
-                    </div>
+                    <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
                     <div className="mt-1">
-                      Connected platforms:{" "}
-                      {Array.from(connectedPlatforms).join(", ") || "(none)"}
+                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
                     </div>
-                    <div className="mt-1">
-                      OrganisationId: {organisationId || "(loading…)"}
-                    </div>
-                    <div className="mt-1">
-                      Mode: {mode === "now" ? "Send now" : "Queue for approval"}
-                    </div>
+                    <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
+                    <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
                     <div className="mt-1">mediaMode: {mediaMode}</div>
-                    <div className="mt-1">videoIntent: {videoIntent}</div>
                     <div className="mt-1">imageUrl: {media.imageUrl ? "✅ set" : "—"}</div>
                     <div className="mt-1">videoUrl: {media.videoUrl ? "✅ set" : "—"}</div>
+                    <div className="mt-1">igVideoType: {igVideoType}</div>
+                    <div className="mt-1">fbVideoType: {fbVideoType}</div>
                   </div>
                 )}
               </div>
@@ -1348,21 +1228,13 @@ export default function DashboardHomePage() {
                   </div>
                 ) : (
                   drafts.map((d) => (
-                    <div
-                      key={d.id}
-                      className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
-                    >
+                    <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
                       <div className="text-[11px] text-slate-500">
                         {new Date(d.savedAt).toLocaleString()}
                       </div>
-                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">
-                        {d.message || "(empty)"}
-                      </div>
+                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
                       <div className="mt-2 text-[11px] text-slate-500">
                         Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
-                      </div>
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        Video intent: {(d as any)?.videoIntent || "reels"}
                       </div>
 
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -1388,9 +1260,7 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
-          <div className="mt-8 text-xs text-slate-500">
-            Tip: Upload media → write → choose channels → post (or queue).
-          </div>
+          <div className="mt-8 text-xs text-slate-500">Tip: Upload media → write → choose channels → post (or queue).</div>
         </div>
       </div>
     </div>
