@@ -1,6 +1,6 @@
 // app/api/publish/now/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseService } from "../../../../lib/supabaseService";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -35,8 +35,11 @@ function isLikelyImageUrl(url: string) {
   return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
 }
 
-async function loadSocialAccount(organisationId: string, platform: ProviderId): Promise<SocialAccountRow | null> {
-  const { data, error } = await supabaseService
+async function loadSocialAccount(
+  organisationId: string,
+  platform: ProviderId
+): Promise<SocialAccountRow | null> {
+  const { data, error } = await supabaseAdmin
     .from("social_accounts")
     .select("id, organisation_id, platform, page_id, page_name, is_active, page_access_token")
     .eq("organisation_id", organisationId)
@@ -60,15 +63,23 @@ async function postToFacebook(args: {
 }) {
   if (args.imageUrl && args.imageUrl.trim()) {
     const imageUrl = args.imageUrl.trim();
+
     if (!isLikelyImageUrl(imageUrl)) {
       return {
         ok: false,
         status: 400,
-        json: { error: { message: "Facebook imageUrl must be a direct https image link (ending .jpg/.png etc)." } },
+        json: {
+          error: {
+            message:
+              "Facebook imageUrl must be a direct https image link (ending .jpg/.png etc).",
+          },
+        },
       };
     }
 
-    const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(args.pageId)}/photos`;
+    const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+      args.pageId
+    )}/photos`;
     const body = new URLSearchParams();
     body.set("url", imageUrl);
     body.set("caption", args.message);
@@ -86,7 +97,9 @@ async function postToFacebook(args: {
     return { ok: res.ok, status: res.status, json, mode: "photo" as const };
   }
 
-  const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(args.pageId)}/feed`;
+  const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+    args.pageId
+  )}/feed`;
   const body = new URLSearchParams();
   body.set("message", args.message);
   body.set("access_token", args.pageAccessToken);
@@ -102,53 +115,133 @@ async function postToFacebook(args: {
   return { ok: res.ok, status: res.status, json, mode: "text" as const };
 }
 
-async function postToThreads(args: { accessToken: string; message: string; imageUrl?: string }) {
+/**
+ * ✅ FIXED THREADS FLOW
+ * - Resolve Threads User ID from token
+ * - Use /v1.0/{threadsUserId}/threads and /threads_publish
+ * - Tiny delay for IMAGE containers before publish
+ */
+async function getThreadsUserId(accessToken: string) {
+  const token = (accessToken || "").trim();
+  const url = `https://graph.threads.net/v1.0/me?fields=id,username&access_token=${encodeURIComponent(
+    token
+  )}`;
+
+  const res = await fetch(url, { method: "GET", cache: "no-store" });
+  const json: any = await res.json().catch(() => null);
+
+  if (!res.ok || !json?.id) {
+    return {
+      ok: false as const,
+      status: res.status,
+      error:
+        json?.error?.message ||
+        json?.message ||
+        "Could not resolve Threads user id (token invalid?)",
+      details: json,
+    };
+  }
+
+  return { ok: true as const, status: 200, threadsUserId: String(json.id) };
+}
+
+async function postToThreads(args: {
+  accessToken: string;
+  message: string;
+  imageUrl?: string;
+}) {
   const token = (args.accessToken || "").trim();
   if (!token) {
-    return { ok: false, status: 401, json: { error: "Threads is not connected (missing access token)." } };
+    return {
+      ok: false,
+      status: 401,
+      json: { error: "Threads is not connected (missing access token)." },
+    };
   }
+
+  const who = await getThreadsUserId(token);
+  if (!who.ok) {
+    return { ok: false, status: who.status, json: { error: who.error, details: who.details } };
+  }
+
+  const threadsUserId = who.threadsUserId;
 
   const isImage = !!(args.imageUrl && args.imageUrl.trim());
   if (isImage && !isLikelyImageUrl(args.imageUrl!)) {
-    return { ok: false, status: 400, json: { error: "Threads imageUrl must be a direct https image link (ending .jpg/.png etc)." } };
+    return {
+      ok: false,
+      status: 400,
+      json: {
+        error:
+          "Threads imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif",
+      },
+    };
   }
 
+  // 1) Create container
   const createParams = new URLSearchParams();
   createParams.set("media_type", isImage ? "IMAGE" : "TEXT");
   createParams.set("text", args.message);
   if (isImage) createParams.set("image_url", args.imageUrl!.trim());
   createParams.set("access_token", token);
 
-  const createRes = await fetch(`https://graph.threads.net/me/threads?${createParams.toString()}`, {
-    method: "POST",
-    cache: "no-store",
-  });
-  const createJson: any = await createRes.json().catch(() => null);
+  const createRes = await fetch(
+    `https://graph.threads.net/v1.0/${encodeURIComponent(
+      threadsUserId
+    )}/threads?${createParams.toString()}`,
+    { method: "POST", cache: "no-store" }
+  );
 
+  const createJson: any = await createRes.json().catch(() => null);
   if (!createRes.ok || !createJson?.id) {
-    return { ok: false, status: createRes.status, json: createJson || { error: "Threads create container failed" } };
+    return {
+      ok: false,
+      status: createRes.status,
+      json: createJson || { error: "Threads create container failed" },
+    };
   }
 
   const creationId = String(createJson.id);
 
+  // 1.5) Give IMAGE a beat to exist before publish (prevents “not found”)
+  if (isImage) {
+    await sleep(1200);
+  }
+
+  // 2) Publish
   const publishParams = new URLSearchParams();
   publishParams.set("creation_id", creationId);
   publishParams.set("access_token", token);
 
-  const pubRes = await fetch(`https://graph.threads.net/me/threads_publish?${publishParams.toString()}`, {
-    method: "POST",
-    cache: "no-store",
-  });
+  const pubRes = await fetch(
+    `https://graph.threads.net/v1.0/${encodeURIComponent(
+      threadsUserId
+    )}/threads_publish?${publishParams.toString()}`,
+    { method: "POST", cache: "no-store" }
+  );
   const pubJson: any = await pubRes.json().catch(() => null);
 
   if (!pubRes.ok || !pubJson?.id) {
-    return { ok: false, status: pubRes.status, json: pubJson || { error: "Threads publish failed" } };
+    return {
+      ok: false,
+      status: pubRes.status,
+      json: pubJson || { error: "Threads publish failed" },
+    };
   }
 
-  return { ok: true, status: pubRes.status, json: { postedId: pubJson.id, containerId: creationId } };
+  return {
+    ok: true,
+    status: pubRes.status,
+    json: { postedId: pubJson.id, containerId: creationId, threadsUserId },
+  };
 }
 
-async function postToInstagram(args: { igUserId: string; accessToken: string; caption: string; imageUrl: string }) {
+async function postToInstagram(args: {
+  igUserId: string;
+  accessToken: string;
+  caption: string;
+  imageUrl: string;
+}) {
   const token = (args.accessToken || "").trim();
   const igUserId = (args.igUserId || "").trim();
   const imageUrl = (args.imageUrl || "").trim();
@@ -156,20 +249,17 @@ async function postToInstagram(args: { igUserId: string; accessToken: string; ca
   if (!token) return { ok: false, status: 401, json: { error: "Instagram missing access token." } };
   if (!igUserId) return { ok: false, status: 400, json: { error: "Instagram missing IG User ID." } };
   if (!imageUrl) return { ok: false, status: 400, json: { error: "Instagram requires an image URL." } };
-  if (!isLikelyImageUrl(imageUrl))
-    return { ok: false, status: 400, json: { error: "Instagram imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif" } };
+  if (!isLikelyImageUrl(imageUrl)) return { ok: false, status: 400, json: { error: "Instagram imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif" } };
 
   const createBody = new URLSearchParams();
   createBody.set("image_url", imageUrl);
   createBody.set("caption", args.caption || "");
   createBody.set("access_token", token);
 
-  const createRes = await fetch(`https://graph.facebook.com/v24.0/${encodeURIComponent(igUserId)}/media`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: createBody,
-    cache: "no-store",
-  });
+  const createRes = await fetch(
+    `https://graph.facebook.com/v24.0/${encodeURIComponent(igUserId)}/media`,
+    { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: createBody, cache: "no-store" }
+  );
   const createJson: any = await createRes.json().catch(() => null);
 
   if (!createRes.ok || !createJson?.id) {
@@ -201,12 +291,10 @@ async function postToInstagram(args: { igUserId: string; accessToken: string; ca
     publishBody.set("creation_id", creationId);
     publishBody.set("access_token", token);
 
-    const publishRes = await fetch(`https://graph.facebook.com/v24.0/${encodeURIComponent(igUserId)}/media_publish`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: publishBody,
-      cache: "no-store",
-    });
+    const publishRes = await fetch(
+      `https://graph.facebook.com/v24.0/${encodeURIComponent(igUserId)}/media_publish`,
+      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: publishBody, cache: "no-store" }
+    );
     const publishJson: any = await publishRes.json().catch(() => null);
 
     if (publishRes.ok && publishJson?.id) {
@@ -265,7 +353,7 @@ export async function POST(req: NextRequest) {
     if (!id) return NextResponse.json({ success: false, error: "Missing id" }, { status: 400 });
     if (platforms.length === 0) return NextResponse.json({ success: false, error: "Pick at least one platform" }, { status: 400 });
 
-    const { data: row, error: readErr } = await supabaseService
+    const { data: row, error: readErr } = await supabaseAdmin
       .from("scheduled_posts")
       .select("id, organisation_id, message, platforms, image_url, scheduled_for, status, meta")
       .eq("id", id)
@@ -340,7 +428,7 @@ export async function POST(req: NextRequest) {
         });
 
         if (!th.ok) {
-          results.push({ platform: "threads", ok: false, status: th.status, error: th.json?.error || "Threads post failed", details: th.json });
+          results.push({ platform: "threads", ok: false, status: th.status, error: th.json?.error || th.json?.error?.message || "Threads post failed", details: th.json });
         } else {
           results.push({ platform: "threads", ok: true, postedId: th.json?.postedId || null, mode: imageUrl ? "image" : "text", details: th.json });
         }
@@ -363,6 +451,7 @@ export async function POST(req: NextRequest) {
     const okCount = results.filter((r) => r.ok).length;
     const failCount = results.filter((r) => !r.ok && !r.skipped).length;
     const skippedCount = results.filter((r) => r.skipped).length;
+
     const success = okCount > 0 && failCount === 0;
 
     const nowIso = new Date().toISOString();
@@ -389,7 +478,7 @@ export async function POST(req: NextRequest) {
       updatePayload.status = "failed";
     }
 
-    const { error: upErr } = await supabaseService
+    const { error: upErr } = await supabaseAdmin
       .from("scheduled_posts")
       .update(updatePayload)
       .eq("id", id)
@@ -409,7 +498,11 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { success, results, summary: { attempted: results.length, ok: okCount, failed: failCount, skipped: skippedCount } },
+      {
+        success,
+        results,
+        summary: { attempted: results.length, ok: okCount, failed: failCount, skipped: skippedCount },
+      },
       { status: 200 }
     );
   } catch (err: any) {
