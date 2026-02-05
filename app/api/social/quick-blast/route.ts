@@ -8,9 +8,9 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     route: "app/api/social/quick-blast/route.ts",
-    version: "2026-02-04-quickblast-multipost-v2-video-types",
+    version: "2026-02-05-quickblast-multipost-v3-carousel-threads-retry",
     note:
-      "Multi-platform Quick Blast with video modes. IG: reels/feed-video. FB: page video. Threads: text+image. LinkedIn: via /api/linkedin/post. TikTok: via /api/tiktok/post.",
+      "Multi-platform Quick Blast with safe upgrades: IG carousel (multi-image montage), Threads publish retry, IG reels/feed-video, FB page video, LinkedIn via /api/linkedin/post, TikTok via /api/tiktok/post.",
   });
 }
 
@@ -67,8 +67,17 @@ function looksLikeVideoUrl(url: string) {
   );
 }
 
+function asStringArray(input: any): string[] {
+  if (!Array.isArray(input)) return [];
+  return input.map((x) => String(x || "").trim()).filter(Boolean);
+}
+
 async function getSingleTenantOrganisationId(): Promise<string | null> {
-  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
+
   if (error || !data || data.length === 0) return null;
   return String((data as any)[0].id);
 }
@@ -79,7 +88,9 @@ async function loadActiveAccount(
 ): Promise<SocialAccountRow | null> {
   const { data, error } = await supabaseAdmin
     .from("social_accounts")
-    .select("organisation_id, platform, page_id, page_name, is_active, page_access_token, token_expires_at")
+    .select(
+      "organisation_id, platform, page_id, page_name, is_active, page_access_token, token_expires_at"
+    )
     .eq("organisation_id", organisationId)
     .eq("platform", platform)
     .eq("is_active", true)
@@ -95,13 +106,20 @@ async function loadActiveAccount(
 
 /* -----------------------------
    FACEBOOK (text / image / video)
+   + SAFE multi-image post (attached_media)
 -------------------------------- */
 async function postToFacebookTextOrImage(args: {
   pageId: string;
   pageAccessToken: string;
   message: string;
   imageUrl?: string;
-}): Promise<{ ok: boolean; status: number; postedId?: string | null; details?: any | null; mode: "text" | "image" }> {
+}): Promise<{
+  ok: boolean;
+  status: number;
+  postedId?: string | null;
+  details?: any | null;
+  mode: "text" | "image";
+}> {
   const token = (args.pageAccessToken || "").trim();
   const pageId = (args.pageId || "").trim();
   if (!token || !pageId) return { ok: false, status: 401, details: null, mode: "text" };
@@ -115,7 +133,12 @@ async function postToFacebookTextOrImage(args: {
         ok: false,
         status: 400,
         mode: "image",
-        details: { error: { message: "Facebook imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif" } },
+        details: {
+          error: {
+            message:
+              "Facebook imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif",
+          },
+        },
       };
     }
 
@@ -163,25 +186,130 @@ async function postToFacebookTextOrImage(args: {
   return { ok: true, status: res.status, mode: "text", postedId: json?.id || null, details: json };
 }
 
+async function postToFacebookMultiImage(args: {
+  pageId: string;
+  pageAccessToken: string;
+  message: string;
+  imageUrls: string[];
+}): Promise<{
+  ok: boolean;
+  status: number;
+  postedId?: string | null;
+  details?: any | null;
+  mode: "image";
+}> {
+  const token = (args.pageAccessToken || "").trim();
+  const pageId = (args.pageId || "").trim();
+  const urls = (args.imageUrls || []).map((u) => String(u || "").trim()).filter(Boolean);
+
+  if (!token || !pageId) return { ok: false, status: 401, details: null, mode: "image" };
+  if (urls.length < 2) {
+    return {
+      ok: false,
+      status: 400,
+      mode: "image",
+      details: { error: { message: "Facebook multi-image requires 2+ imageUrls." } },
+    };
+  }
+
+  for (const u of urls) {
+    if (!isLikelyImageUrl(u)) {
+      return {
+        ok: false,
+        status: 400,
+        mode: "image",
+        details: {
+          error: {
+            message:
+              "Facebook montage imageUrls must be direct https image links ending .jpg/.png/.webp/.gif",
+          },
+        },
+      };
+    }
+  }
+
+  // 1) Upload each photo as unpublished, get media_fbid
+  const mediaFbIds: string[] = [];
+  for (const u of urls) {
+    const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(pageId)}/photos`;
+    const body = new URLSearchParams();
+    body.set("url", u);
+    body.set("published", "false");
+    body.set("access_token", token);
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      cache: "no-store",
+    });
+
+    const json: any = await res.json().catch(() => null);
+    if (!res.ok || !json?.id) {
+      return { ok: false, status: res.status, mode: "image", details: json };
+    }
+    mediaFbIds.push(String(json.id));
+    await sleep(150);
+  }
+
+  // 2) Create feed post with attached_media
+  const feedUrl = `https://graph.facebook.com/v24.0/${encodeURIComponent(pageId)}/feed`;
+  const body = new URLSearchParams();
+  body.set("message", args.message || "");
+  mediaFbIds.forEach((id, idx) => {
+    body.set(`attached_media[${idx}]`, JSON.stringify({ media_fbid: id }));
+  });
+  body.set("access_token", token);
+
+  const res = await fetch(feedUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+    cache: "no-store",
+  });
+
+  const json: any = await res.json().catch(() => null);
+  if (!res.ok) return { ok: false, status: res.status, mode: "image", details: json };
+
+  return { ok: true, status: res.status, mode: "image", postedId: json?.id || null, details: json };
+}
+
 async function postToFacebookVideo(args: {
   pageId: string;
   pageAccessToken: string;
   message: string;
   videoUrl: string;
   fbVideoType: FbVideoType;
-}): Promise<{ ok: boolean; status: number; postedId?: string | null; details?: any | null; mode: "video"; note?: string }> {
+}): Promise<{
+  ok: boolean;
+  status: number;
+  postedId?: string | null;
+  details?: any | null;
+  mode: "video";
+  note?: string;
+}> {
   const token = (args.pageAccessToken || "").trim();
   const pageId = (args.pageId || "").trim();
   const videoUrl = (args.videoUrl || "").trim();
 
   if (!token || !pageId) return { ok: false, status: 401, details: null, mode: "video" };
-  if (!videoUrl) return { ok: false, status: 400, details: { error: { message: "Facebook requires videoUrl for video posts." } }, mode: "video" };
+  if (!videoUrl) {
+    return {
+      ok: false,
+      status: 400,
+      details: { error: { message: "Facebook requires videoUrl for video posts." } },
+      mode: "video",
+    };
+  }
   if (!looksLikeVideoUrl(videoUrl)) {
-    return { ok: false, status: 400, details: { error: { message: "Facebook videoUrl must be a direct https MP4/MOV/WEBM link." } }, mode: "video" };
+    return {
+      ok: false,
+      status: 400,
+      details: { error: { message: "Facebook videoUrl must be a direct https MP4/MOV/WEBM link." } },
+      mode: "video",
+    };
   }
 
-  // Reliable Page video publishing:
-  // POST /{page-id}/videos with file_url + description
   const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(pageId)}/videos`;
   const body = new URLSearchParams();
   body.set("file_url", videoUrl);
@@ -200,31 +328,38 @@ async function postToFacebookVideo(args: {
 
   const note =
     args.fbVideoType === "reels"
-      ? "FB video posted. (If you need guaranteed 'Reels' placement, we may need the dedicated Reels upload flow depending on your Meta app setup.)"
+      ? "FB video posted. (This uses Page /videos. ‘Guaranteed Reels placement’ may require Meta’s dedicated Reels flow depending on your app setup.)"
       : null;
 
-  return { ok: true, status: res.status, mode: "video", postedId: json?.id || null, details: json, ...(note ? { note } : {}) };
+  return {
+    ok: true,
+    status: res.status,
+    mode: "video",
+    postedId: json?.id || null,
+    details: json,
+    ...(note ? { note } : {}),
+  };
 }
 
 /* -----------------------------
    THREADS (direct Graph)
+   + retry publish when "Media Not Found"
 -------------------------------- */
-async function postToThreads(args: {
+async function threadsCreateContainer(args: {
   accessToken: string;
   message: string;
   imageUrl?: string;
-}): Promise<{ ok: boolean; status: number; postedId?: string | null; details?: any | null; mode: "text" | "image" }> {
+}) {
   const token = (args.accessToken || "").trim();
-  if (!token) return { ok: false, status: 401, details: { error: "Threads missing access token" }, mode: "text" };
+  if (!token) return { ok: false as const, status: 401, details: { error: "Threads missing access token" } };
 
   const imageUrl = (args.imageUrl || "").trim();
   const hasImage = !!imageUrl;
 
   if (hasImage && !isLikelyImageUrl(imageUrl)) {
     return {
-      ok: false,
+      ok: false as const,
       status: 400,
-      mode: "image",
       details: { error: "Threads imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif" },
     };
   }
@@ -242,45 +377,93 @@ async function postToThreads(args: {
 
   const createJson: any = await createRes.json().catch(() => null);
   if (!createRes.ok || !createJson?.id) {
-    return { ok: false, status: createRes.status, mode: hasImage ? "image" : "text", details: createJson };
+    return { ok: false as const, status: createRes.status, details: createJson };
   }
 
-  const creationId = String(createJson.id);
+  return { ok: true as const, status: createRes.status, creationId: String(createJson.id), hasImage };
+}
 
-  // Tiny wait helps avoid "media not found" races
-  await sleep(800);
+async function threadsPublishWithRetry(args: { accessToken: string; creationId: string }) {
+  const token = (args.accessToken || "").trim();
+  if (!token) return { ok: false as const, status: 401, details: { error: "Threads missing access token" } };
 
-  const publishParams = new URLSearchParams();
-  publishParams.set("creation_id", creationId);
-  publishParams.set("access_token", token);
+  // The “media not found” error is usually a race. We retry.
+  const maxAttempts = 6;
+  for (let i = 1; i <= maxAttempts; i++) {
+    const publishParams = new URLSearchParams();
+    publishParams.set("creation_id", args.creationId);
+    publishParams.set("access_token", token);
 
-  const pubRes = await fetch(`https://graph.threads.net/me/threads_publish?${publishParams.toString()}`, {
-    method: "POST",
-    cache: "no-store",
-  });
+    const pubRes = await fetch(`https://graph.threads.net/me/threads_publish?${publishParams.toString()}`, {
+      method: "POST",
+      cache: "no-store",
+    });
 
-  const pubJson: any = await pubRes.json().catch(() => null);
-  if (!pubRes.ok || !pubJson?.id) {
-    return { ok: false, status: pubRes.status, mode: hasImage ? "image" : "text", details: pubJson };
+    const pubJson: any = await pubRes.json().catch(() => null);
+
+    if (pubRes.ok && pubJson?.id) {
+      return { ok: true as const, status: pubRes.status, postedId: String(pubJson.id), details: pubJson };
+    }
+
+    const code = pubJson?.error?.code;
+    const sub = pubJson?.error?.error_subcode;
+    const msg = String(pubJson?.error?.message || "").toLowerCase();
+
+    const isMediaNotFound =
+      code === 24 ||
+      sub === 4279009 ||
+      msg.includes("media") && msg.includes("not") && msg.includes("found");
+
+    if (!isMediaNotFound) {
+      return { ok: false as const, status: pubRes.status, details: pubJson };
+    }
+
+    await sleep(1200 + i * 400);
+  }
+
+  return { ok: false as const, status: 400, details: { error: { message: "Threads publish timed out (media not ready). Try again in 10–30s." } } };
+}
+
+async function postToThreads(args: {
+  accessToken: string;
+  message: string;
+  imageUrl?: string;
+}): Promise<{ ok: boolean; status: number; postedId?: string | null; details?: any | null; mode: "text" | "image" }> {
+  const created = await threadsCreateContainer(args);
+  if (!created.ok) {
+    const hasImage = !!(args.imageUrl || "").trim();
+    return { ok: false, status: created.status, postedId: null, details: created.details, mode: hasImage ? "image" : "text" };
+  }
+
+  // small initial wait helps
+  await sleep(900);
+
+  const published = await threadsPublishWithRetry({ accessToken: args.accessToken, creationId: created.creationId });
+  if (!published.ok) {
+    return { ok: false, status: published.status, postedId: null, details: published.details, mode: created.hasImage ? "image" : "text" };
   }
 
   return {
     ok: true,
-    status: pubRes.status,
-    mode: hasImage ? "image" : "text",
-    postedId: String(pubJson.id),
-    details: { postedId: pubJson.id, containerId: creationId },
+    status: published.status,
+    mode: created.hasImage ? "image" : "text",
+    postedId: published.postedId,
+    details: { postedId: published.postedId, containerId: created.creationId },
   };
 }
 
 /* -----------------------------
-   INSTAGRAM (image + REELS + feed-video)
+   INSTAGRAM (image + carousel + reels + feed-video)
 -------------------------------- */
 type IgCreateOut =
   | { ok: true; status: number; creationId: string; details: any | null }
   | { ok: false; status: number; error: string; details: any | null };
 
-async function igCreateContainer(args: {
+type IgPublishOut =
+  | { ok: true; status: number; postedId: string | null; details: any | null }
+  | { ok: false; status: number; error: string; details: any | null };
+
+async function igCreateSingleContainer(args: {
   igUserId: string;
   accessToken: string;
   caption: string;
@@ -315,7 +498,6 @@ async function igCreateContainer(args: {
   url.searchParams.set("caption", args.caption);
 
   if (hasVideo) {
-    // reels or feed-video
     url.searchParams.set("media_type", args.igVideoType === "video" ? "VIDEO" : "REELS");
     url.searchParams.set("video_url", args.videoUrl!.trim());
   } else {
@@ -336,11 +518,75 @@ async function igCreateContainer(args: {
   return { ok: true, status: 200, creationId: String(creationId), details: json };
 }
 
+async function igCreateCarousel(args: {
+  igUserId: string;
+  accessToken: string;
+  caption: string;
+  imageUrls: string[];
+}): Promise<IgCreateOut> {
+  const token = (args.accessToken || "").trim();
+  const igUserId = (args.igUserId || "").trim();
+  const urls = (args.imageUrls || []).map((u) => String(u || "").trim()).filter(Boolean);
+
+  if (!token || !igUserId) {
+    return { ok: false, status: 401, error: "Instagram not connected (missing IG user id or access token).", details: null };
+  }
+  if (urls.length < 2) {
+    return { ok: false, status: 400, error: "Instagram carousel requires 2+ imageUrls.", details: null };
+  }
+  for (const u of urls) {
+    if (!isLikelyImageUrl(u)) {
+      return { ok: false, status: 400, error: "Carousel imageUrls must be direct https image links ending .jpg/.png/.webp/.gif", details: null };
+    }
+  }
+
+  // 1) Create child containers (is_carousel_item=true)
+  const children: string[] = [];
+  for (const u of urls) {
+    const url = new URL(`https://graph.facebook.com/v24.0/${encodeURIComponent(igUserId)}/media`);
+    url.searchParams.set("access_token", token);
+    url.searchParams.set("image_url", u);
+    url.searchParams.set("is_carousel_item", "true");
+
+    const res = await fetch(url.toString(), { method: "POST", cache: "no-store" });
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok || !json?.id) {
+      const friendly = json?.error?.error_user_msg || json?.error?.message || "Instagram carousel item failed.";
+      return { ok: false, status: res.status, error: String(friendly), details: json };
+    }
+
+    children.push(String(json.id));
+    await sleep(250);
+  }
+
+  // 2) Create parent carousel container
+  const parent = new URL(`https://graph.facebook.com/v24.0/${encodeURIComponent(igUserId)}/media`);
+  parent.searchParams.set("access_token", token);
+  parent.searchParams.set("media_type", "CAROUSEL");
+  parent.searchParams.set("caption", args.caption || "");
+  parent.searchParams.set("children", children.join(","));
+
+  const res = await fetch(parent.toString(), { method: "POST", cache: "no-store" });
+  const json = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    const friendly = json?.error?.error_user_msg || json?.error?.message || "Instagram carousel creation failed.";
+    return { ok: false, status: res.status, error: String(friendly), details: json };
+  }
+
+  if (!json?.id) {
+    return { ok: false, status: 500, error: "Instagram carousel did not return a creation id.", details: json };
+  }
+
+  return { ok: true, status: 200, creationId: String(json.id), details: { ...json, children } };
+}
+
 async function igWaitUntilReady(args: { creationId: string; accessToken: string; isVideo: boolean }) {
   const token = (args.accessToken || "").trim();
   if (!token) return { ok: false as const, status: 401, error: "Instagram missing access token.", details: null as any };
 
-  const maxAttempts = args.isVideo ? 12 : 10;
+  const maxAttempts = args.isVideo ? 12 : 12; // carousel/images can also need a bit
   const delayMs = args.isVideo ? 5000 : 2500;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -365,10 +611,6 @@ async function igWaitUntilReady(args: { creationId: string; accessToken: string;
 
   return { ok: false as const, status: 408, error: "Instagram is still processing the media. Wait 10–30 seconds and try again.", details: null };
 }
-
-type IgPublishOut =
-  | { ok: true; status: number; postedId: string | null; details: any | null }
-  | { ok: false; status: number; error: string; details: any | null };
 
 async function igPublishOnce(args: { igUserId: string; accessToken: string; creationId: string }): Promise<IgPublishOut> {
   const token = (args.accessToken || "").trim();
@@ -465,13 +707,7 @@ async function postToTikTokViaInternal(args: { req: NextRequest; organisationId:
   });
 
   if (res.status === 404 || res.status === 405) {
-    return {
-      ok: false,
-      status: res.status,
-      postedId: null,
-      details: null,
-      error: "TikTok post route not found at /api/tiktok/post.",
-    };
+    return { ok: false, status: res.status, postedId: null, details: null, error: "TikTok post route not found at /api/tiktok/post." };
   }
 
   const json: any = await res.json().catch(() => null);
@@ -497,8 +733,15 @@ export async function POST(req: NextRequest) {
     const imageUrl: string = String(body?.imageUrl ?? "").trim();
     const videoUrl: string = String(body?.videoUrl ?? "").trim();
 
-    const igVideoType: IgVideoType = (String(body?.igVideoType || "reels").toLowerCase() === "video" ? "video" : "reels");
-    const fbVideoType: FbVideoType = (String(body?.fbVideoType || "video").toLowerCase() === "reels" ? "reels" : "video");
+    // NEW (SAFE): montage images for IG carousel and FB multi-image
+    const montageImageUrlsRaw = asStringArray(body?.montageImageUrls);
+    const montageImageUrls = montageImageUrlsRaw.filter((u) => isLikelyImageUrl(u));
+
+    const igVideoType: IgVideoType =
+      String(body?.igVideoType || "reels").toLowerCase() === "video" ? "video" : "reels";
+
+    const fbVideoType: FbVideoType =
+      String(body?.fbVideoType || "video").toLowerCase() === "reels" ? "reels" : "video";
 
     const platformsRaw: any[] = Array.isArray(body?.platforms) ? body.platforms : [];
     const platforms = platformsRaw.map((p) => String(p || "").toLowerCase().trim()).filter(Boolean) as Platform[];
@@ -516,6 +759,7 @@ export async function POST(req: NextRequest) {
 
     const hasImage = !!imageUrl;
     const hasVideo = !!videoUrl;
+    const hasMontage = montageImageUrls.length >= 2;
 
     const results: ResultRow[] = [];
 
@@ -524,10 +768,18 @@ export async function POST(req: NextRequest) {
       if (p === "facebook") {
         const acct = await loadActiveAccount(organisationId, "facebook");
         if (!acct?.page_id || !acct?.page_access_token) {
-          results.push({ platform: "facebook", ok: false, status: 401, mode: hasVideo ? "video" : hasImage ? "image" : "text", error: "Facebook not connected.", details: null });
+          results.push({
+            platform: "facebook",
+            ok: false,
+            status: 401,
+            mode: hasVideo ? "video" : hasMontage || hasImage ? "image" : "text",
+            error: "Facebook not connected.",
+            details: null,
+          });
           continue;
         }
 
+        // Video wins if present
         if (hasVideo) {
           const fbv = await postToFacebookVideo({
             pageId: acct.page_id,
@@ -538,9 +790,61 @@ export async function POST(req: NextRequest) {
           });
 
           if (!fbv.ok) {
-            results.push({ platform: "facebook", ok: false, status: fbv.status, mode: "video", error: fbv.details?.error?.message || "Facebook didn’t accept this video.", details: fbv.details ?? null });
+            results.push({
+              platform: "facebook",
+              ok: false,
+              status: fbv.status,
+              mode: "video",
+              error: fbv.details?.error?.message || "Facebook didn’t accept this video.",
+              details: fbv.details ?? null,
+            });
           } else {
-            results.push({ platform: "facebook", ok: true, status: fbv.status, mode: "video", postedId: fbv.postedId ?? null, details: fbv.details ?? null, note: fbv.note || null });
+            results.push({
+              platform: "facebook",
+              ok: true,
+              status: fbv.status,
+              mode: "video",
+              postedId: fbv.postedId ?? null,
+              details: fbv.details ?? null,
+              note: fbv.note || null,
+            });
+          }
+          continue;
+        }
+
+        // Montage → multi-image post (2+)
+        if (hasMontage) {
+          const fbm = await postToFacebookMultiImage({
+            pageId: acct.page_id,
+            pageAccessToken: acct.page_access_token,
+            message,
+            imageUrls: montageImageUrls,
+          });
+
+          if (!fbm.ok) {
+            const errMsg =
+              fbm.details?.error?.message ||
+              fbm.details?.error?.error_user_msg ||
+              fbm.details?.error?.message ||
+              "Facebook didn’t accept this montage.";
+            results.push({
+              platform: "facebook",
+              ok: false,
+              status: fbm.status,
+              mode: "image",
+              error: String(errMsg),
+              details: fbm.details ?? null,
+            });
+          } else {
+            results.push({
+              platform: "facebook",
+              ok: true,
+              status: fbm.status,
+              mode: "image",
+              postedId: fbm.postedId ?? null,
+              details: fbm.details ?? null,
+              note: "Posted as Facebook multi-photo post.",
+            });
           }
           continue;
         }
@@ -553,9 +857,23 @@ export async function POST(req: NextRequest) {
         });
 
         if (!fb.ok) {
-          results.push({ platform: "facebook", ok: false, status: fb.status, mode: fb.mode, error: fb.details?.error?.message || "Facebook didn’t accept this post.", details: fb.details ?? null });
+          results.push({
+            platform: "facebook",
+            ok: false,
+            status: fb.status,
+            mode: fb.mode,
+            error: fb.details?.error?.message || "Facebook didn’t accept this post.",
+            details: fb.details ?? null,
+          });
         } else {
-          results.push({ platform: "facebook", ok: true, status: fb.status, mode: fb.mode, postedId: fb.postedId ?? null, details: fb.details ?? null });
+          results.push({
+            platform: "facebook",
+            ok: true,
+            status: fb.status,
+            mode: fb.mode,
+            postedId: fb.postedId ?? null,
+            details: fb.details ?? null,
+          });
         }
         continue;
       }
@@ -564,11 +882,23 @@ export async function POST(req: NextRequest) {
       if (p === "threads") {
         const acct = await loadActiveAccount(organisationId, "threads");
         if (!acct?.page_access_token) {
-          results.push({ platform: "threads", ok: false, status: 401, mode: hasImage ? "image" : "text", error: "Threads not connected (missing access token).", details: null });
+          results.push({
+            platform: "threads",
+            ok: false,
+            status: 401,
+            mode: hasMontage || hasImage ? "image" : "text",
+            error: "Threads not connected (missing access token).",
+            details: null,
+          });
           continue;
         }
 
-        const th = await postToThreads({ accessToken: acct.page_access_token, message, imageUrl: hasImage ? imageUrl : undefined });
+        // Threads API supports single image_url, not montage → use imageUrl if present
+        const th = await postToThreads({
+          accessToken: acct.page_access_token,
+          message,
+          imageUrl: hasImage ? imageUrl : undefined,
+        });
 
         if (!th.ok) {
           const err =
@@ -576,20 +906,54 @@ export async function POST(req: NextRequest) {
             th.details?.error?.message ||
             th.details?.error ||
             "Threads didn’t accept this post.";
-          results.push({ platform: "threads", ok: false, status: th.status, mode: th.mode, error: String(err), details: th.details ?? null });
+          results.push({
+            platform: "threads",
+            ok: false,
+            status: th.status,
+            mode: th.mode,
+            error: String(err),
+            details: th.details ?? null,
+          });
         } else {
-          results.push({ platform: "threads", ok: true, status: th.status, mode: th.mode, postedId: th.postedId ?? null, details: th.details ?? null });
+          results.push({
+            platform: "threads",
+            ok: true,
+            status: th.status,
+            mode: th.mode,
+            postedId: th.postedId ?? null,
+            details: th.details ?? null,
+          });
         }
         continue;
       }
 
       /* ---- LINKEDIN ---- */
       if (p === "linkedin") {
-        const li = await postToLinkedInViaInternal({ req, organisationId, message, imageUrl: hasImage ? imageUrl : undefined });
+        const li = await postToLinkedInViaInternal({
+          req,
+          organisationId,
+          message,
+          imageUrl: hasImage ? imageUrl : undefined,
+        });
+
         if (!li.ok) {
-          results.push({ platform: "linkedin", ok: false, status: li.status, mode: hasImage ? "image" : "text", error: li.error || "LinkedIn didn’t publish this post.", details: li.details ?? null });
+          results.push({
+            platform: "linkedin",
+            ok: false,
+            status: li.status,
+            mode: hasImage ? "image" : "text",
+            error: li.error || "LinkedIn didn’t publish this post.",
+            details: li.details ?? null,
+          });
         } else {
-          results.push({ platform: "linkedin", ok: true, status: li.status, mode: hasImage ? "image" : "text", postedId: li.postedId ?? null, details: li.details ?? null });
+          results.push({
+            platform: "linkedin",
+            ok: true,
+            status: li.status,
+            mode: hasImage ? "image" : "text",
+            postedId: li.postedId ?? null,
+            details: li.details ?? null,
+          });
         }
         continue;
       }
@@ -598,35 +962,215 @@ export async function POST(req: NextRequest) {
       if (p === "instagram") {
         const acct = await loadActiveAccount(organisationId, "instagram");
         if (!acct?.page_id || !acct?.page_access_token) {
-          results.push({ platform: "instagram", ok: false, status: 401, mode: hasVideo ? "video" : hasImage ? "image" : "text", error: "Instagram not connected.", details: null });
+          results.push({
+            platform: "instagram",
+            ok: false,
+            status: 401,
+            mode: hasVideo ? "video" : hasMontage || hasImage ? "image" : "text",
+            error: "Instagram not connected.",
+            details: null,
+          });
           continue;
         }
 
-        const created = await igCreateContainer({
+        // Video wins if present
+        if (hasVideo) {
+          const created = await igCreateSingleContainer({
+            igUserId: acct.page_id,
+            accessToken: acct.page_access_token,
+            caption: message,
+            imageUrl: null,
+            videoUrl,
+            igVideoType,
+          });
+
+          if (!created.ok) {
+            results.push({
+              platform: "instagram",
+              ok: false,
+              status: created.status,
+              mode: "video",
+              error: created.error,
+              details: created.details ?? null,
+            });
+            continue;
+          }
+
+          const ready = await igWaitUntilReady({
+            creationId: created.creationId,
+            accessToken: acct.page_access_token,
+            isVideo: true,
+          });
+
+          if (!ready.ok) {
+            results.push({
+              platform: "instagram",
+              ok: false,
+              status: ready.status,
+              mode: "video",
+              error: ready.error,
+              details: ready.details ?? null,
+            });
+            continue;
+          }
+
+          const published = await igPublishWithRetry({
+            igUserId: acct.page_id,
+            accessToken: acct.page_access_token,
+            creationId: created.creationId,
+            isVideo: true,
+          });
+
+          if (!published.ok) {
+            results.push({
+              platform: "instagram",
+              ok: false,
+              status: published.status,
+              mode: "video",
+              error: published.error,
+              details: published.details ?? null,
+            });
+            continue;
+          }
+
+          results.push({
+            platform: "instagram",
+            ok: true,
+            status: published.status,
+            mode: "video",
+            postedId: published.postedId ?? null,
+            details: published.details ?? null,
+            note: igVideoType === "reels" ? "Posted as Instagram Reel." : "Posted as Instagram feed video.",
+          });
+          continue;
+        }
+
+        // Montage (2+) → IG carousel
+        if (hasMontage) {
+          const created = await igCreateCarousel({
+            igUserId: acct.page_id,
+            accessToken: acct.page_access_token,
+            caption: message,
+            imageUrls: montageImageUrls,
+          });
+
+          if (!created.ok) {
+            results.push({
+              platform: "instagram",
+              ok: false,
+              status: created.status,
+              mode: "image",
+              error: created.error,
+              details: created.details ?? null,
+            });
+            continue;
+          }
+
+          const ready = await igWaitUntilReady({
+            creationId: created.creationId,
+            accessToken: acct.page_access_token,
+            isVideo: false,
+          });
+
+          if (!ready.ok) {
+            results.push({
+              platform: "instagram",
+              ok: false,
+              status: ready.status,
+              mode: "image",
+              error: ready.error,
+              details: ready.details ?? null,
+            });
+            continue;
+          }
+
+          const published = await igPublishWithRetry({
+            igUserId: acct.page_id,
+            accessToken: acct.page_access_token,
+            creationId: created.creationId,
+            isVideo: false,
+          });
+
+          if (!published.ok) {
+            results.push({
+              platform: "instagram",
+              ok: false,
+              status: published.status,
+              mode: "image",
+              error: published.error,
+              details: published.details ?? null,
+            });
+            continue;
+          }
+
+          results.push({
+            platform: "instagram",
+            ok: true,
+            status: published.status,
+            mode: "image",
+            postedId: published.postedId ?? null,
+            details: published.details ?? null,
+            note: "Posted as Instagram carousel (multi-photo post).",
+          });
+          continue;
+        }
+
+        // Single image (or none)
+        const created = await igCreateSingleContainer({
           igUserId: acct.page_id,
           accessToken: acct.page_access_token,
           caption: message,
           imageUrl: hasImage ? imageUrl : null,
-          videoUrl: hasVideo ? videoUrl : null,
+          videoUrl: null,
           igVideoType,
         });
 
         if (!created.ok) {
-          results.push({ platform: "instagram", ok: false, status: created.status, mode: hasVideo ? "video" : hasImage ? "image" : "text", error: created.error, details: created.details ?? null });
+          results.push({
+            platform: "instagram",
+            ok: false,
+            status: created.status,
+            mode: hasImage ? "image" : "text",
+            error: created.error,
+            details: created.details ?? null,
+          });
           continue;
         }
 
-        const isVideo = hasVideo;
+        const ready = await igWaitUntilReady({
+          creationId: created.creationId,
+          accessToken: acct.page_access_token,
+          isVideo: false,
+        });
 
-        const ready = await igWaitUntilReady({ creationId: created.creationId, accessToken: acct.page_access_token, isVideo });
         if (!ready.ok) {
-          results.push({ platform: "instagram", ok: false, status: ready.status, mode: isVideo ? "video" : "image", error: ready.error, details: ready.details ?? null });
+          results.push({
+            platform: "instagram",
+            ok: false,
+            status: ready.status,
+            mode: hasImage ? "image" : "text",
+            error: ready.error,
+            details: ready.details ?? null,
+          });
           continue;
         }
 
-        const published = await igPublishWithRetry({ igUserId: acct.page_id, accessToken: acct.page_access_token, creationId: created.creationId, isVideo });
+        const published = await igPublishWithRetry({
+          igUserId: acct.page_id,
+          accessToken: acct.page_access_token,
+          creationId: created.creationId,
+          isVideo: false,
+        });
+
         if (!published.ok) {
-          results.push({ platform: "instagram", ok: false, status: published.status, mode: isVideo ? "video" : "image", error: published.error, details: published.details ?? null });
+          results.push({
+            platform: "instagram",
+            ok: false,
+            status: published.status,
+            mode: hasImage ? "image" : "text",
+            error: published.error,
+            details: published.details ?? null,
+          });
           continue;
         }
 
@@ -634,26 +1178,54 @@ export async function POST(req: NextRequest) {
           platform: "instagram",
           ok: true,
           status: published.status,
-          mode: isVideo ? "video" : "image",
+          mode: hasImage ? "image" : "text",
           postedId: published.postedId ?? null,
           details: published.details ?? null,
-          note: isVideo ? (igVideoType === "reels" ? "Posted as Instagram Reel." : "Posted as Instagram feed video.") : null,
         });
         continue;
       }
 
       /* ---- TIKTOK ---- */
       if (p === "tiktok") {
-        const tk = await postToTikTokViaInternal({ req, organisationId, message, imageUrl: hasImage ? imageUrl : undefined, videoUrl: hasVideo ? videoUrl : undefined });
+        const tk = await postToTikTokViaInternal({
+          req,
+          organisationId,
+          message,
+          imageUrl: hasImage ? imageUrl : undefined,
+          videoUrl: hasVideo ? videoUrl : undefined,
+        });
+
         if (!tk.ok) {
-          results.push({ platform: "tiktok", ok: false, status: tk.status, mode: hasVideo ? "video" : hasImage ? "image" : "text", error: tk.error || "TikTok didn’t publish this post.", details: tk.details ?? null });
+          results.push({
+            platform: "tiktok",
+            ok: false,
+            status: tk.status,
+            mode: hasVideo ? "video" : hasImage ? "image" : "text",
+            error: tk.error || "TikTok didn’t publish this post.",
+            details: tk.details ?? null,
+          });
         } else {
-          results.push({ platform: "tiktok", ok: true, status: tk.status, mode: hasVideo ? "video" : hasImage ? "image" : "text", postedId: tk.postedId ?? null, details: tk.details ?? null });
+          results.push({
+            platform: "tiktok",
+            ok: true,
+            status: tk.status,
+            mode: hasVideo ? "video" : hasImage ? "image" : "text",
+            postedId: tk.postedId ?? null,
+            details: tk.details ?? null,
+          });
         }
         continue;
       }
 
-      results.push({ platform: p, ok: false, skipped: true, status: 200, mode: hasVideo ? "video" : hasImage ? "image" : "text", error: `Unknown platform '${p}' skipped.`, details: null });
+      results.push({
+        platform: p,
+        ok: false,
+        skipped: true,
+        status: 200,
+        mode: hasVideo ? "video" : hasMontage || hasImage ? "image" : "text",
+        error: `Unknown platform '${p}' skipped.`,
+        details: null,
+      });
     }
 
     const attempted = results.length;
@@ -669,12 +1241,20 @@ export async function POST(req: NextRequest) {
         organisationId,
         results,
         summary: { attempted, ok, failed, skipped },
-        userMessage: ok > 0 ? (failed === 0 ? "Posted ✅" : "Some posts didn’t send. See details below.") : "No posts sent from this route.",
+        userMessage:
+          ok > 0
+            ? failed === 0
+              ? "Posted ✅"
+              : "Some posts didn’t send. See details below."
+            : "No posts sent from this route.",
       },
       { status: 200 }
     );
   } catch (err: any) {
     console.error("[quick-blast] crashed", err);
-    return NextResponse.json({ success: false, error: err?.message || "Quick Blast crashed." }, { status: 200 });
+    return NextResponse.json(
+      { success: false, error: err?.message || "Quick Blast crashed." },
+      { status: 200 }
+    );
   }
 }
