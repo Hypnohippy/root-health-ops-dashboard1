@@ -8,7 +8,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     route: "app/api/social/quick-blast/route.ts",
-    version: "2026-02-05-quickblast-multipost-v3-threads-video-readywait",
+    version: "2026-02-05-quickblast-multipost-v3-threads-video-readywait-fix1",
     note:
       "Multi-platform Quick Blast with video modes. IG: reels/feed-video. FB: page video. Threads: text/image/video with ready-wait. LinkedIn: via /api/linkedin/post. TikTok: via /api/tiktok/post.",
   });
@@ -71,7 +71,10 @@ function looksLikeVideoUrl(url: string) {
 }
 
 async function getSingleTenantOrganisationId(): Promise<string | null> {
-  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
   if (error || !data || data.length === 0) return null;
   return String((data as any)[0].id);
 }
@@ -82,7 +85,9 @@ async function loadActiveAccount(
 ): Promise<SocialAccountRow | null> {
   const { data, error } = await supabaseAdmin
     .from("social_accounts")
-    .select("organisation_id, platform, page_id, page_name, is_active, page_access_token, token_expires_at")
+    .select(
+      "organisation_id, platform, page_id, page_name, is_active, page_access_token, token_expires_at"
+    )
     .eq("organisation_id", organisationId)
     .eq("platform", platform)
     .eq("is_active", true)
@@ -104,10 +109,17 @@ async function postToFacebookTextOrImage(args: {
   pageAccessToken: string;
   message: string;
   imageUrl?: string;
-}): Promise<{ ok: boolean; status: number; postedId?: string | null; details?: any | null; mode: "text" | "image" }> {
+}): Promise<{
+  ok: boolean;
+  status: number;
+  postedId?: string | null;
+  details?: any | null;
+  mode: "text" | "image";
+}> {
   const token = (args.pageAccessToken || "").trim();
   const pageId = (args.pageId || "").trim();
-  if (!token || !pageId) return { ok: false, status: 401, details: null, mode: "text" };
+  if (!token || !pageId)
+    return { ok: false, status: 401, details: null, mode: "text" };
 
   const imageUrl = (args.imageUrl || "").trim();
   const hasImage = !!imageUrl;
@@ -118,11 +130,18 @@ async function postToFacebookTextOrImage(args: {
         ok: false,
         status: 400,
         mode: "image",
-        details: { error: { message: "Facebook imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif" } },
+        details: {
+          error: {
+            message:
+              "Facebook imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif",
+          },
+        },
       };
     }
 
-    const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(pageId)}/photos`;
+    const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(
+      pageId
+    )}/photos`;
     const body = new URLSearchParams();
     body.set("url", imageUrl);
     body.set("caption", args.message);
@@ -172,15 +191,33 @@ async function postToFacebookVideo(args: {
   message: string;
   videoUrl: string;
   fbVideoType: FbVideoType;
-}): Promise<{ ok: boolean; status: number; postedId?: string | null; details?: any | null; mode: "video"; note?: string }> {
+}): Promise<{
+  ok: boolean;
+  status: number;
+  postedId?: string | null;
+  details?: any | null;
+  mode: "video";
+  note?: string;
+}> {
   const token = (args.pageAccessToken || "").trim();
   const pageId = (args.pageId || "").trim();
   const videoUrl = (args.videoUrl || "").trim();
 
   if (!token || !pageId) return { ok: false, status: 401, details: null, mode: "video" };
-  if (!videoUrl) return { ok: false, status: 400, details: { error: { message: "Facebook requires videoUrl for video posts." } }, mode: "video" };
+  if (!videoUrl)
+    return {
+      ok: false,
+      status: 400,
+      details: { error: { message: "Facebook requires videoUrl for video posts." } },
+      mode: "video",
+    };
   if (!looksLikeVideoUrl(videoUrl)) {
-    return { ok: false, status: 400, details: { error: { message: "Facebook videoUrl must be a direct https MP4/MOV/WEBM link." } }, mode: "video" };
+    return {
+      ok: false,
+      status: 400,
+      details: { error: { message: "Facebook videoUrl must be a direct https MP4/MOV/WEBM link." } },
+      mode: "video",
+    };
   }
 
   const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(pageId)}/videos`;
@@ -202,7 +239,7 @@ async function postToFacebookVideo(args: {
   const note =
     args.fbVideoType === "reels"
       ? "FB video posted. (If you need guaranteed 'Reels' placement, we may need the dedicated Reels upload flow depending on your Meta app setup.)"
-      : null;
+      : undefined;
 
   return { ok: true, status: res.status, mode: "video", postedId: json?.id || null, details: json, ...(note ? { note } : {}) };
 }
@@ -210,7 +247,6 @@ async function postToFacebookVideo(args: {
 /* -----------------------------
    THREADS (text / image / video) — FIXED: wait/poll until ready
 -------------------------------- */
-// Threads Graph API base (versioned)
 const THREADS_API_BASE = "https://graph.threads.net/v1.0";
 
 type ThreadsCreateOut =
@@ -242,8 +278,6 @@ async function threadsCreateContainer(args: {
   }
 
   const url = new URL(`${THREADS_API_BASE}/${encodeURIComponent(tuid)}/threads`);
-
-  // Docs-style: send params in querystring (Graph style)
   url.searchParams.set("access_token", token);
   url.searchParams.set("text", args.message);
 
@@ -275,11 +309,9 @@ async function threadsWaitUntilReady(args: { creationId: string; accessToken: st
   const token = (args.accessToken || "").trim();
   if (!token) return { ok: false as const, status: 401, error: "Threads missing access token.", details: null as any };
 
-  // Threads media can take time. The user’s error is exactly “media cannot be found” when publishing too early.
-  const maxAttempts = args.isMedia ? 18 : 3; // up to ~90s for media
+  const maxAttempts = args.isMedia ? 18 : 3; // up to ~90s
   const delayMs = args.isMedia ? 5000 : 800;
 
-  // We query the container by ID for status (Graph style)
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const url = new URL(`${THREADS_API_BASE}/${encodeURIComponent(args.creationId)}`);
     url.searchParams.set("fields", "status");
@@ -288,9 +320,7 @@ async function threadsWaitUntilReady(args: { creationId: string; accessToken: st
     const res = await fetch(url.toString(), { method: "GET", cache: "no-store" });
     const json: any = await res.json().catch(() => null);
 
-    // If this endpoint isn’t available for some apps, we still fall back to a safe delay.
     if (!res.ok) {
-      // Fallback: wait a bit longer then break and try publishing anyway
       await sleep(delayMs);
       continue;
     }
@@ -302,7 +332,6 @@ async function threadsWaitUntilReady(args: { creationId: string; accessToken: st
     await sleep(delayMs);
   }
 
-  // If we didn’t get FINISHED, we still try to publish once — but warn it may fail transiently.
   return {
     ok: false as const,
     status: 408,
@@ -337,7 +366,14 @@ async function postToThreads(args: {
   message: string;
   imageUrl?: string;
   videoUrl?: string;
-}): Promise<{ ok: boolean; status: number; postedId?: string | null; details?: any | null; mode: "text" | "image" | "video"; note?: string }> {
+}): Promise<{
+  ok: boolean;
+  status: number;
+  postedId?: string | null;
+  details?: any | null;
+  mode: "text" | "image" | "video";
+  note?: string; // IMPORTANT: string | undefined (no null)
+}> {
   const token = (args.accessToken || "").trim();
 
   const imageUrl = (args.imageUrl || "").trim();
@@ -356,12 +392,18 @@ async function postToThreads(args: {
   });
 
   if (!created.ok) {
-    return { ok: false, status: created.status, mode, details: created.details, note: null, postedId: null, ...(created.error ? { note: null } : {}) };
+    // FIX: note must be string|undefined, NOT null
+    return {
+      ok: false,
+      status: created.status,
+      mode,
+      postedId: null,
+      details: created.details,
+      note: created.error,
+    };
   }
 
-  // BIG FIX: wait properly before publish (media especially)
   if (mode !== "text") {
-    // Give it an initial buffer as well (Threads is fussy)
     await sleep(2500);
 
     const ready = await threadsWaitUntilReady({
@@ -371,7 +413,6 @@ async function postToThreads(args: {
     });
 
     if (!ready.ok) {
-      // We’ll still attempt publish once — but we return the ready warning if publish fails.
       const pubTry = await threadsPublish({
         threadsUserId: args.threadsUserId,
         accessToken: token,
@@ -383,9 +424,9 @@ async function postToThreads(args: {
           ok: false,
           status: pubTry.status,
           mode,
-          details: pubTry.details,
           postedId: null,
-          note: ready.error,
+          details: pubTry.details,
+          note: ready.error, // string
         };
       }
 
@@ -407,7 +448,7 @@ async function postToThreads(args: {
   });
 
   if (!pub.ok) {
-    return { ok: false, status: pub.status, mode, details: pub.details, postedId: null, note: null };
+    return { ok: false, status: pub.status, mode, details: pub.details, postedId: null };
   }
 
   return {
@@ -642,30 +683,30 @@ export async function POST(req: NextRequest) {
     const imageUrlRaw: string = String(body?.imageUrl ?? "").trim();
     const videoUrlRaw: string = String(body?.videoUrl ?? "").trim();
 
-    // NEW (from UI): igPublishMode + montage list (safe)
     const igPublishMode: IgPublishMode = (String(body?.igPublishMode || "auto").trim() as any) || "auto";
     const montageImageUrls: string[] = Array.isArray(body?.montageImageUrls)
       ? body.montageImageUrls.map((u: any) => String(u || "").trim()).filter(Boolean)
       : [];
 
-    // Pick effective imageUrl if montage is used
-    const imageUrl = (igPublishMode === "montage_reel" && montageImageUrls.length > 0)
-      ? montageImageUrls[0]
-      : imageUrlRaw;
+    const imageUrl =
+      igPublishMode === "montage_reel" && montageImageUrls.length > 0
+        ? montageImageUrls[0]
+        : imageUrlRaw;
 
     const videoUrl = videoUrlRaw;
 
-    // Map UI mode -> backend igVideoType (keeps stability)
     const igVideoType: IgVideoType =
       igPublishMode === "feed_video" ? "video" :
       igPublishMode === "reel" ? "reels" :
-      // auto or montage -> default to reels when video exists (your previous stable default)
       (String(body?.igVideoType || "reels").toLowerCase() === "video" ? "video" : "reels");
 
-    const fbVideoType: FbVideoType = (String(body?.fbVideoType || "video").toLowerCase() === "reels" ? "reels" : "video");
+    const fbVideoType: FbVideoType =
+      String(body?.fbVideoType || "video").toLowerCase() === "reels" ? "reels" : "video";
 
     const platformsRaw: any[] = Array.isArray(body?.platforms) ? body.platforms : [];
-    const platforms = platformsRaw.map((p) => String(p || "").toLowerCase().trim()).filter(Boolean) as Platform[];
+    const platforms = platformsRaw
+      .map((p) => String(p || "").toLowerCase().trim())
+      .filter(Boolean) as Platform[];
 
     if (!message) return NextResponse.json({ success: false, error: "Message is required." }, { status: 200 });
     if (platforms.length === 0) return NextResponse.json({ success: false, error: "No platforms selected." }, { status: 200 });
@@ -684,7 +725,7 @@ export async function POST(req: NextRequest) {
     const results: ResultRow[] = [];
     const montageNote =
       igPublishMode === "montage_reel"
-        ? "Montage selected. (We currently post the first image as a normal image while we wire true multi-image → reel safely next.)"
+        ? "Montage selected. (Currently posts the first image as a normal image while we wire true multi-image → reel safely next.)"
         : null;
 
     for (const p of platforms) {
@@ -731,8 +772,6 @@ export async function POST(req: NextRequest) {
       /* ---- THREADS ---- */
       if (p === "threads") {
         const acct = await loadActiveAccount(organisationId, "threads");
-        // IMPORTANT: Threads needs BOTH a token and a Threads user id.
-        // We store Threads user id in page_id (same pattern as other platforms).
         const threadsUserId = String(acct?.page_id || "").trim();
         const token = String(acct?.page_access_token || "").trim();
 
