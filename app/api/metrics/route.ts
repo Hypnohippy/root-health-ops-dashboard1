@@ -4,241 +4,339 @@ import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function safeStr(x: any) {
-  return String(x ?? "").trim();
-}
+type MetricsResponse = {
+  ok: boolean;
+  organisationId?: string;
+  windowDays?: number;
+  error?: string;
 
-function safeArr(x: any): string[] {
-  if (Array.isArray(x)) return x.map((v) => safeStr(v)).filter(Boolean);
-  if (typeof x === "string" && x.trim()) return x.split(",").map((v) => v.trim()).filter(Boolean);
-  return [];
-}
+  kpis?: {
+    totalItems: number;
+    repliesSent: number;
+    postsQueued: number;
+    postsPosted: number;
+    postsFailed: number;
+  };
+
+  breakdowns?: {
+    statusCounts: Record<string, number>;
+    platformCounts: Record<string, number>;
+  };
+
+  charts?: {
+    last7Days: { date: string; value: number }[];
+  };
+
+  topContent?: {
+    id: string;
+    status: string;
+    platforms: string[];
+    message_preview: string;
+    created_at: string;
+    imageUrl?: string;
+    videoUrl?: string;
+  }[];
+
+  recommendations?: { title: string; detail: string; tone: "good" | "warn" | "info" }[];
+};
 
 function toDateStr(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
+function safeStr(v: any) {
+  const s = String(v ?? "").trim();
+  return s ? s : "";
+}
+
+function safeArr(v: any): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => safeStr(x)).filter(Boolean);
+}
+
+function previewText(s: string, n = 140) {
+  const t = safeStr(s).replace(/\s+/g, " ").trim();
+  if (t.length <= n) return t;
+  return t.slice(0, n - 1).trim() + "…";
+}
+
+function getVideoUrlFromMeta(meta: any): string | undefined {
+  if (!meta || typeof meta !== "object") return undefined;
+  // we’ve used meta.video_url in schedule queue
+  const v =
+    meta.video_url ||
+    meta.videoUrl ||
+    meta?.coach?.video_url ||
+    meta?.coach?.videoUrl ||
+    null;
+  const s = safeStr(v);
+  return s ? s : undefined;
+}
+
 async function getSingleTenantOrganisationId(): Promise<string | null> {
-  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
+
   if (error || !data || data.length === 0) return null;
   return String((data as any)[0].id);
 }
 
-type ScheduledPostRow = {
-  id: string;
-  organisation_id: string;
-  message: string | null;
-  platforms: any;
-  image_url: string | null;
-  video_url?: string | null; // might exist
-  created_at?: string | null; // might exist
-  scheduled_at?: string | null; // might exist
-};
-
-type PostEventRow = {
-  id?: string;
-  organisation_id?: string | null;
-  post_id?: string | null;
-  platform?: string | null;
-  event_type?: string | null;
-  created_at?: string | null; // might exist
-  [key: string]: any;
-};
-
-function normalizeEventType(s: string) {
-  const t = (s || "").toLowerCase().trim();
-  if (!t) return "—";
-  if (t.includes("posted") || t.includes("published")) return "posted";
-  if (t.includes("sent")) return "sent";
-  if (t.includes("queued") || t.includes("to_post") || t.includes("pending")) return "to_post";
-  if (t.includes("approved")) return "approved";
-  if (t.includes("fail") || t.includes("error")) return "failed";
-  return s || "—";
+function withinLastNDays(iso: string, days: number) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return false;
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return d.getTime() >= cutoff;
 }
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+    const windowDays = Math.max(7, Math.min(365, Number(searchParams.get("days") || 30)));
 
     const orgFromQuery = safeStr(searchParams.get("organisationId"));
-    const days = Math.max(7, Math.min(365, Number(searchParams.get("days") || "90")));
     const organisationId = orgFromQuery || (await getSingleTenantOrganisationId());
 
     if (!organisationId) {
-      return NextResponse.json({ ok: false, error: "No organisation found." }, { status: 200 });
+      const out: MetricsResponse = {
+        ok: false,
+        error: "No organisation found (missing organisationId).",
+      };
+      return NextResponse.json(out, { status: 200 });
     }
 
-    const since = new Date();
-    since.setDate(since.getDate() - days);
+    // ----------------------------
+    // 1) Load scheduled_posts
+    // ----------------------------
+    const cutoffIso = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
 
-    // --- scheduled_posts -----------------------------------------------------
-    const sp = await supabaseAdmin
-      .from("scheduled_posts")
-      .select("*")
-      .eq("organisation_id", organisationId)
-      .order("id", { ascending: false })
-      .limit(2000);
+    // Some schemas may not have created_at; we’ll try it first, then fallback.
+    let posts: any[] = [];
 
-    if (sp.error) {
-      return NextResponse.json(
-        { ok: false, error: sp.error.message, hint: "Could not read scheduled_posts." },
-        { status: 200 }
-      );
+    {
+      const attempt = await supabaseAdmin
+        .from("scheduled_posts")
+        .select("id, organisation_id, message, platforms, image_url, status, scheduled_for, created_at, meta")
+        .eq("organisation_id", organisationId)
+        .gte("scheduled_for", cutoffIso)
+        .order("scheduled_for", { ascending: false })
+        .limit(500);
+
+      if (!attempt.error) {
+        posts = (attempt.data as any[]) || [];
+      } else {
+        // fallback: remove created_at
+        const fallback = await supabaseAdmin
+          .from("scheduled_posts")
+          .select("id, organisation_id, message, platforms, image_url, status, scheduled_for, meta")
+          .eq("organisation_id", organisationId)
+          .gte("scheduled_for", cutoffIso)
+          .order("scheduled_for", { ascending: false })
+          .limit(500);
+
+        if (fallback.error) {
+          const out: MetricsResponse = {
+            ok: false,
+            organisationId,
+            windowDays,
+            error: fallback.error.message || "Could not load scheduled_posts",
+          };
+          return NextResponse.json(out, { status: 200 });
+        }
+
+        posts = (fallback.data as any[]) || [];
+      }
     }
 
-    const scheduled = (sp.data || []) as ScheduledPostRow[];
+    // ----------------------------
+    // 2) Load post_events (optional but powerful)
+    // ----------------------------
+    // If table is missing or schema differs, we just treat as empty.
+    let events: any[] = [];
+    try {
+      const ev = await supabaseAdmin
+        .from("post_events")
+        .select("id, organisation_id, post_id, platform, event_type, created_at")
+        .eq("organisation_id", organisationId)
+        .gte("created_at", cutoffIso)
+        .order("created_at", { ascending: false })
+        .limit(2000);
 
-    // --- post_events (empty right now, but we wire it properly) --------------
-    const pe = await supabaseAdmin
-      .from("post_events")
-      .select("*")
-      .eq("organisation_id", organisationId)
-      .gte("created_at", since.toISOString())
-      .order("id", { ascending: false })
-      .limit(5000);
-
-    const events = pe.error ? ([] as PostEventRow[]) : ((pe.data || []) as PostEventRow[]);
-
-    // Group events by post_id
-    const eventsByPostId: Record<string, PostEventRow[]> = {};
-    for (const e of events) {
-      const pid = safeStr(e.post_id);
-      if (!pid) continue;
-      if (!eventsByPostId[pid]) eventsByPostId[pid] = [];
-      eventsByPostId[pid].push(e);
+      if (!ev.error) events = (ev.data as any[]) || [];
+    } catch {
+      events = [];
     }
 
-    // last 7 days activity window
-    const last7: Record<string, number> = {};
+    // ----------------------------
+    // 3) Derive KPIs / breakdowns
+    // ----------------------------
+    const statusCounts: Record<string, number> = {};
+    const platformCounts: Record<string, number> = {};
+
+    // 7 day activity (by scheduled_for)
+    const byDay: Record<string, number> = {};
     const today = new Date();
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
-      last7[toDateStr(d)] = 0;
+      byDay[toDateStr(d)] = 0;
     }
 
-    const statusCounts: Record<string, number> = {};
-    const platformCounts: Record<string, number> = {};
-
-    let postsTotal = scheduled.length;
     let postsQueued = 0;
-    let postsPosted = 0;
-    let postsFailed = 0;
-    let repliesSent = 0; // later, when you log reply events
 
-    const normalized = scheduled.map((p) => {
-      const id = safeStr(p.id);
-      const platforms = safeArr((p as any).platforms);
-      const message = safeStr((p as any).message);
-      const imageUrl = safeStr((p as any).image_url);
-      const videoUrl = safeStr((p as any).video_url || "");
+    for (const row of posts) {
+      const status = safeStr(row?.status || "—") || "—";
+      const platforms = safeArr(row?.platforms);
 
-      // If events exist for this post id, latest event decides status.
-      // If no events, it’s effectively queued/pending.
-      const ev = (eventsByPostId[id] || [])[0] || null;
-      const status = ev ? normalizeEventType(safeStr(ev.event_type)) : "to_post";
-
-      const createdAt =
-        safeStr((p as any).created_at) ||
-        safeStr((p as any).scheduled_at) ||
-        safeStr(ev?.created_at) ||
-        "";
-
-      return {
-        id,
-        status,
-        platforms,
-        message_preview: message.slice(0, 180),
-        created_at: createdAt,
-        imageUrl,
-        videoUrl,
-      };
-    });
-
-    for (const item of normalized) {
-      const status = safeStr(item.status) || "—";
       statusCounts[status] = (statusCounts[status] || 0) + 1;
 
-      for (const plat of item.platforms) {
-        if (!plat) continue;
-        platformCounts[plat] = (platformCounts[plat] || 0) + 1;
+      for (const p of platforms) {
+        platformCounts[p] = (platformCounts[p] || 0) + 1;
       }
 
       const s = status.toLowerCase();
-      if (s === "to_post" || s.includes("queued") || s.includes("pending")) postsQueued++;
-      if (s === "posted") postsPosted++;
-      if (s === "failed") postsFailed++;
-      if (s === "sent") repliesSent++;
+      if (
+        s.includes("scheduled") ||
+        s.includes("to_post") ||
+        s.includes("queued") ||
+        s.includes("pending")
+      ) {
+        postsQueued += 1;
+      }
 
-      const dt = item.created_at ? new Date(item.created_at) : null;
-      if (dt && !isNaN(dt.getTime())) {
-        const key = toDateStr(dt);
-        if (key in last7) last7[key] += 1;
+      const scheduledFor = safeStr(row?.scheduled_for);
+      if (scheduledFor) {
+        const key = toDateStr(new Date(scheduledFor));
+        if (key in byDay) byDay[key] += 1;
       }
     }
 
-    const last7Days = Object.entries(last7).map(([date, value]) => ({ date, value }));
+    // Posted/failed derived from post_events (best source of truth once you log)
+    const postedEvents = events.filter((e) => String(e?.event_type || "").toLowerCase() === "posted");
+    const failedEvents = events.filter((e) => {
+      const t = String(e?.event_type || "").toLowerCase();
+      return t === "failed" || t === "error";
+    });
 
-    const recommendations: { title: string; detail: string; tone: "good" | "warn" | "info" }[] = [];
+    // If you haven’t started logging post_events, these will be 0 (and Metrics page already hints that)
+    const postsPosted = postedEvents.length;
+    const postsFailed = failedEvents.length;
 
-    if (postsTotal === 0) {
+    const totalItems = posts.length;
+    const repliesSent = 0; // (we’ll wire this once you show me where replies live in Supabase)
+
+    // Last 7 days chart data
+    const last7Days = Object.entries(byDay).map(([date, value]) => ({ date, value }));
+
+    // Top content (most recent scheduled items)
+    const topContent = posts.slice(0, 10).map((p) => {
+      const createdAt = safeStr(p?.created_at) || safeStr(p?.scheduled_for) || new Date().toISOString();
+      const meta = p?.meta;
+      return {
+        id: safeStr(p?.id),
+        status: safeStr(p?.status || "—") || "—",
+        platforms: safeArr(p?.platforms),
+        message_preview: previewText(safeStr(p?.message)),
+        created_at: createdAt,
+        imageUrl: safeStr(p?.image_url) || undefined,
+        videoUrl: getVideoUrlFromMeta(meta),
+      };
+    });
+
+    // ----------------------------
+    // 4) Coach-style recommendations (simple rules, real signal)
+    // ----------------------------
+    const recommendations: MetricsResponse["recommendations"] = [];
+
+    // A) If there’s queue but no posted events logged -> remind user what’s missing
+    if (postsQueued > 0 && postsPosted === 0) {
       recommendations.push({
-        title: "No posts yet",
-        detail: "Create your first Scheduled post or send a Quick Blast to start building momentum.",
+        tone: "warn",
+        title: "You’re scheduling, but publish tracking is off",
+        detail:
+          "You have queued/scheduled posts, but no ‘posted’ events logged yet. Next upgrade: log publish attempts into post_events so this page can coach you on what worked.",
+      });
+    }
+
+    // B) If failures exist -> advise tightening workflow
+    if (postsFailed > 0) {
+      recommendations.push({
+        tone: "warn",
+        title: "Delivery issues detected",
+        detail:
+          "Some publish attempts failed in this window. Focus on one platform for the next 3 posts, keep the media format consistent, and improve reliability before scaling campaigns.",
+      });
+    }
+
+    // C) If activity is very low in last 7 days
+    const last7Total = last7Days.reduce((s, d) => s + (d.value || 0), 0);
+    if (last7Total === 0 && totalItems > 0) {
+      recommendations.push({
         tone: "info",
+        title: "Quiet week",
+        detail:
+          "No activity in the last 7 days. If your goal is steady growth, aim for 3 posts/week: one educational, one story, one CTA.",
       });
-    } else {
-      recommendations.push({
-        title: "Output momentum",
-        detail: `You have ${postsTotal} scheduled items. Keep a steady cadence: 3–5 posts/week is a strong baseline.`,
-        tone: "good",
-      });
+    }
 
-      if (events.length === 0) {
+    // D) Platform concentration insight
+    const sortedPlatforms = Object.entries(platformCounts).sort((a, b) => b[1] - a[1]);
+    if (sortedPlatforms.length > 0) {
+      const [topPlatform, topCount] = sortedPlatforms[0];
+      const totalPlatformItems = sortedPlatforms.reduce((s, [, v]) => s + v, 0) || 1;
+      const share = Math.round((topCount / totalPlatformItems) * 100);
+
+      if (share >= 70) {
         recommendations.push({
-          title: "Unlock ‘Posted / Failed’ tracking",
-          detail:
-            "Your post_events table is empty, so we can’t confirm what actually posted yet. Next step: write one event row per platform when posting happens.",
-          tone: "warn",
+          tone: "info",
+          title: "You’re concentrated on one channel",
+          detail: `${topPlatform} accounts for ~${share}% of your output. That’s fine for focus — but once consistent, test a second channel with 1–2 posts/week to widen reach.`,
         });
       } else {
         recommendations.push({
-          title: "Tracking is live",
-          detail: `post_events has ${events.length} rows in the last ${days} days — your status analytics will now be accurate.`,
           tone: "good",
+          title: "Healthy channel mix",
+          detail: "Your posting is distributed across platforms. Keep this up, then optimise by campaign (goal + CTA) rather than platform alone.",
         });
       }
+    } else {
+      recommendations.push({
+        tone: "info",
+        title: "No platform breakdown yet",
+        detail:
+          "Once scheduled_posts contains platforms on each post (and you log post_events), you’ll see what worked where and get campaign coaching.",
+      });
     }
 
-    // Top content (recent)
-    const topContent = normalized.slice(0, 20);
-
-    return NextResponse.json(
-      {
-        ok: true,
-        organisationId,
-        windowDays: days,
-        kpis: {
-          totalItems: postsTotal,
-          repliesSent,
-          postsQueued,
-          postsPosted,
-          postsFailed,
-        },
-        breakdowns: {
-          statusCounts,
-          platformCounts,
-        },
-        charts: {
-          last7Days,
-        },
-        topContent,
-        recommendations,
+    const out: MetricsResponse = {
+      ok: true,
+      organisationId,
+      windowDays,
+      kpis: {
+        totalItems,
+        repliesSent,
+        postsQueued,
+        postsPosted,
+        postsFailed,
       },
-      { status: 200 }
-    );
+      breakdowns: {
+        statusCounts,
+        platformCounts,
+      },
+      charts: {
+        last7Days,
+      },
+      topContent,
+      recommendations,
+    };
+
+    return NextResponse.json(out, { status: 200 });
   } catch (err: any) {
-    console.error("[api/metrics] crashed", err);
-    return NextResponse.json({ ok: false, error: err?.message || "Metrics route crashed" }, { status: 200 });
+    const out: MetricsResponse = {
+      ok: false,
+      error: err?.message || "Metrics route crashed",
+    };
+    return NextResponse.json(out, { status: 200 });
   }
 }
