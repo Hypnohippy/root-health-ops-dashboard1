@@ -15,14 +15,32 @@ type SocialAccountRow = {
   token_expires_at: string | null;
 };
 
+function isHttps(url: string) {
+  return /^https:\/\/.+/i.test((url || "").trim());
+}
+
 function isLikelyImageUrl(url: string) {
   const u = (url || "").trim();
   if (!u) return false;
-  if (!/^https:\/\/.+/i.test(u)) return false;
+  if (!isHttps(u)) return false;
   return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
 }
 
-async function loadLinkedInAccount(organisationId: string): Promise<SocialAccountRow | null> {
+function isLikelyVideoUrl(url: string) {
+  const u = (url || "").trim();
+  if (!u) return false;
+  if (!isHttps(u)) return false;
+  return (
+    /\.(mp4|mov|webm)(\?.*)?$/i.test(u) ||
+    u.toLowerCase().includes(".mp4") ||
+    u.toLowerCase().includes(".mov") ||
+    u.toLowerCase().includes(".webm")
+  );
+}
+
+async function loadLinkedInAccount(
+  organisationId: string
+): Promise<SocialAccountRow | null> {
   const { data, error } = await supabaseService
     .from("social_accounts")
     .select(
@@ -78,10 +96,19 @@ async function getLinkedInAuthorUrn(token: string) {
   };
 }
 
-async function registerLinkedInImageUpload(args: { token: string; authorUrn: string }) {
+async function registerLinkedInUpload(args: {
+  token: string;
+  authorUrn: string;
+  kind: "image" | "video";
+}) {
+  const recipe =
+    args.kind === "video"
+      ? "urn:li:digitalmediaRecipe:feedshare-video"
+      : "urn:li:digitalmediaRecipe:feedshare-image";
+
   const registerBody = {
     registerUploadRequest: {
-      recipes: ["urn:li:digitalmediaRecipe:feedshare-image"],
+      recipes: [recipe],
       owner: args.authorUrn,
       serviceRelationships: [
         {
@@ -92,23 +119,26 @@ async function registerLinkedInImageUpload(args: { token: string; authorUrn: str
     },
   };
 
-  const res = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${args.token}`,
-      "Content-Type": "application/json",
-      "X-Restli-Protocol-Version": "2.0.0",
-    },
-    body: JSON.stringify(registerBody),
-    cache: "no-store",
-  });
+  const res = await fetch(
+    "https://api.linkedin.com/v2/assets?action=registerUpload",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.token}`,
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0",
+      },
+      body: JSON.stringify(registerBody),
+      cache: "no-store",
+    }
+  );
 
   const json: any = await res.json().catch(() => null);
 
   if (!res.ok) {
     return {
       ok: false as const,
-      error: json?.message || "Failed to register LinkedIn image upload",
+      error: json?.message || `Failed to register LinkedIn ${args.kind} upload`,
       details: json,
       status: res.status,
     };
@@ -116,7 +146,9 @@ async function registerLinkedInImageUpload(args: { token: string; authorUrn: str
 
   const value = json?.value;
   const uploadMechanism =
-    value?.uploadMechanism?.["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"];
+    value?.uploadMechanism?.[
+      "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
+    ];
   const uploadUrl = uploadMechanism?.uploadUrl as string | undefined;
   const asset = value?.asset as string | undefined;
 
@@ -148,7 +180,7 @@ async function uploadArrayBufferToLinkedIn(
     const text = await res.text().catch(() => "");
     return {
       ok: false as const,
-      error: "Failed uploading image bytes to LinkedIn",
+      error: "Failed uploading bytes to LinkedIn",
       details: text,
       status: res.status,
     };
@@ -158,7 +190,9 @@ async function uploadArrayBufferToLinkedIn(
 }
 
 function looksLikeDuplicatePost(details: any, status?: number) {
-  const msg = String(details?.message || details?.error || details?.error_description || "")
+  const msg = String(
+    details?.message || details?.error || details?.error_description || ""
+  )
     .toLowerCase()
     .trim();
 
@@ -167,7 +201,9 @@ function looksLikeDuplicatePost(details: any, status?: number) {
 
   const hasCode =
     Array.isArray(inputErrors) &&
-    inputErrors.some((e: any) => String(e?.code || "").toUpperCase() === "DUPLICATE_POST");
+    inputErrors.some(
+      (e: any) => String(e?.code || "").toUpperCase() === "DUPLICATE_POST"
+    );
 
   const hasMsg =
     msg.includes("duplicate post") ||
@@ -196,7 +232,9 @@ function antiDuplicateVariation(original: string) {
   const rest = lines.slice(1).join("\n").trim();
   const freshness = "\n\n(Sharing this again with a slightly different angle.)";
 
-  const composed = rest ? `${newFirstLine}\n${rest}${freshness}` : `${newFirstLine}${freshness}`;
+  const composed = rest
+    ? `${newFirstLine}\n${rest}${freshness}`
+    : `${newFirstLine}${freshness}`;
   return composed.trim();
 }
 
@@ -205,8 +243,10 @@ async function createLinkedInUgcPost(args: {
   authorUrn: string;
   text: string;
   imageAssetUrn?: string;
+  videoAssetUrn?: string;
 }) {
-  const hasImage = !!args.imageAssetUrn;
+  const hasVideo = !!args.videoAssetUrn;
+  const hasImage = !!args.imageAssetUrn && !hasVideo;
 
   const postBody: any = {
     author: args.authorUrn,
@@ -214,7 +254,7 @@ async function createLinkedInUgcPost(args: {
     specificContent: {
       "com.linkedin.ugc.ShareContent": {
         shareCommentary: { text: args.text },
-        shareMediaCategory: hasImage ? "IMAGE" : "NONE",
+        shareMediaCategory: hasVideo ? "VIDEO" : hasImage ? "IMAGE" : "NONE",
       },
     },
     visibility: {
@@ -222,7 +262,11 @@ async function createLinkedInUgcPost(args: {
     },
   };
 
-  if (hasImage) {
+  if (hasVideo) {
+    postBody.specificContent["com.linkedin.ugc.ShareContent"].media = [
+      { status: "READY", media: args.videoAssetUrn, title: { text: "Video" } },
+    ];
+  } else if (hasImage) {
     postBody.specificContent["com.linkedin.ugc.ShareContent"].media = [
       { status: "READY", media: args.imageAssetUrn, title: { text: "Image" } },
     ];
@@ -262,7 +306,9 @@ export async function POST(req: NextRequest) {
 
     const text = String(body?.text ?? body?.message ?? "").trim();
     const organisationId = String(body?.organisationId ?? "").trim();
+
     const imageUrl = String(body?.imageUrl ?? "").trim();
+    const videoUrl = String(body?.videoUrl ?? "").trim();
 
     if (!organisationId) {
       return NextResponse.json(
@@ -277,7 +323,11 @@ export async function POST(req: NextRequest) {
 
     if (!text) {
       return NextResponse.json(
-        { ok: false, error: "Missing post text", userMessage: "Your post is empty. Add a message and try again." },
+        {
+          ok: false,
+          error: "Missing post text",
+          userMessage: "Your post is empty. Add a message and try again.",
+        },
         { status: 200 }
       );
     }
@@ -290,7 +340,8 @@ export async function POST(req: NextRequest) {
         {
           ok: false,
           error: "LinkedIn not connected",
-          userMessage: "LinkedIn isn’t connected yet. Go to Connect → LinkedIn → Connect.",
+          userMessage:
+            "LinkedIn isn’t connected yet. Go to Connect → LinkedIn → Connect.",
         },
         { status: 200 }
       );
@@ -302,7 +353,8 @@ export async function POST(req: NextRequest) {
         {
           ok: false,
           error: author.error,
-          userMessage: "LinkedIn connection looks invalid. Please reconnect LinkedIn on the Connect page.",
+          userMessage:
+            "LinkedIn connection looks invalid. Please reconnect LinkedIn on the Connect page.",
           details: author.details,
           status: author.status,
         },
@@ -310,15 +362,108 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let imageAssetUrn: string | undefined = undefined;
+    // Prefer video if both provided
+    const wantsVideo = !!videoUrl;
+    const wantsImage = !!imageUrl && !wantsVideo;
 
-    if (imageUrl) {
+    let imageAssetUrn: string | undefined = undefined;
+    let videoAssetUrn: string | undefined = undefined;
+
+    if (wantsVideo) {
+      if (!isLikelyVideoUrl(videoUrl)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "videoUrl must be a direct https video file link ending .mp4/.mov/.webm (not a webpage).",
+            userMessage:
+              "That video link doesn’t look like a direct MP4/MOV/WEBM file. Upload via the uploader and try again.",
+          },
+          { status: 200 }
+        );
+      }
+
+      const vidRes = await fetch(videoUrl, { cache: "no-store" });
+      if (!vidRes.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Could not download videoUrl (HTTP ${vidRes.status})`,
+            userMessage:
+              "We couldn’t fetch that video link. Try re-uploading it and try again.",
+          },
+          { status: 200 }
+        );
+      }
+
+      const contentType = vidRes.headers.get("content-type") || "video/mp4";
+      const arrayBuffer = await vidRes.arrayBuffer();
+
+      // Simple guardrail (keeps builds safe)
+      const sizeMb =
+        Math.round((arrayBuffer.byteLength / (1024 * 1024)) * 10) / 10;
+      if (sizeMb > 150) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Video is too large for this simple upload flow (${sizeMb}MB).`,
+            userMessage:
+              "That video is quite large. Try a smaller MP4 (under ~150MB) for now.",
+          },
+          { status: 200 }
+        );
+      }
+
+      const reg = await registerLinkedInUpload({
+        token,
+        authorUrn: author.authorUrn,
+        kind: "video",
+      });
+      if (!reg.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: reg.error,
+            userMessage:
+              "LinkedIn wouldn’t accept the video upload setup. Try again in a minute.",
+            details: reg.details,
+            status: reg.status,
+          },
+          { status: 200 }
+        );
+      }
+
+      const up = await uploadArrayBufferToLinkedIn(
+        reg.uploadUrl,
+        arrayBuffer,
+        contentType
+      );
+      if (!up.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: up.error,
+            userMessage:
+              "LinkedIn couldn’t upload the video. Try a smaller MP4 or try again shortly.",
+            details: up.details,
+            status: up.status,
+          },
+          { status: 200 }
+        );
+      }
+
+      videoAssetUrn = reg.asset;
+    }
+
+    if (wantsImage) {
       if (!isLikelyImageUrl(imageUrl)) {
         return NextResponse.json(
           {
             ok: false,
-            error: "imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif (not a webpage).",
-            userMessage: "That image link doesn’t look like a direct image file. Pick a JPG/PNG/WebP link and try again.",
+            error:
+              "imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif (not a webpage).",
+            userMessage:
+              "That image link doesn’t look like a direct image file. Pick a JPG/PNG/WebP link and try again.",
           },
           { status: 200 }
         );
@@ -330,7 +475,8 @@ export async function POST(req: NextRequest) {
           {
             ok: false,
             error: `Could not download imageUrl (HTTP ${imgRes.status})`,
-            userMessage: "We couldn’t fetch that image link. Try a different image or re-host it via Brainstorm.",
+            userMessage:
+              "We couldn’t fetch that image link. Try a different image or re-host it via Brainstorm.",
           },
           { status: 200 }
         );
@@ -339,13 +485,18 @@ export async function POST(req: NextRequest) {
       const contentType = imgRes.headers.get("content-type") || "image/jpeg";
       const arrayBuffer = await imgRes.arrayBuffer();
 
-      const reg = await registerLinkedInImageUpload({ token, authorUrn: author.authorUrn });
+      const reg = await registerLinkedInUpload({
+        token,
+        authorUrn: author.authorUrn,
+        kind: "image",
+      });
       if (!reg.ok) {
         return NextResponse.json(
           {
             ok: false,
             error: reg.error,
-            userMessage: "LinkedIn wouldn’t accept the image upload setup. Try again in a minute.",
+            userMessage:
+              "LinkedIn wouldn’t accept the image upload setup. Try again in a minute.",
             details: reg.details,
             status: reg.status,
           },
@@ -353,13 +504,18 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const up = await uploadArrayBufferToLinkedIn(reg.uploadUrl, arrayBuffer, contentType);
+      const up = await uploadArrayBufferToLinkedIn(
+        reg.uploadUrl,
+        arrayBuffer,
+        contentType
+      );
       if (!up.ok) {
         return NextResponse.json(
           {
             ok: false,
             error: up.error,
-            userMessage: "LinkedIn couldn’t upload the image. Try a smaller JPG/PNG or try again shortly.",
+            userMessage:
+              "LinkedIn couldn’t upload the image. Try a smaller JPG/PNG or try again shortly.",
             details: up.details,
             status: up.status,
           },
@@ -375,10 +531,15 @@ export async function POST(req: NextRequest) {
       authorUrn: author.authorUrn,
       text,
       imageAssetUrn,
+      videoAssetUrn,
     });
 
     if (post.ok) {
-      return NextResponse.json({ ok: true, postedId: post.postedId, mode: imageAssetUrn ? "image" : "text" });
+      return NextResponse.json({
+        ok: true,
+        postedId: post.postedId,
+        mode: videoAssetUrn ? "video" : imageAssetUrn ? "image" : "text",
+      });
     }
 
     const isDup = looksLikeDuplicatePost(post.details, post.status);
@@ -389,13 +550,14 @@ export async function POST(req: NextRequest) {
         authorUrn: author.authorUrn,
         text: altText,
         imageAssetUrn,
+        videoAssetUrn,
       });
 
       if (retry.ok) {
         return NextResponse.json({
           ok: true,
           postedId: retry.postedId,
-          mode: imageAssetUrn ? "image" : "text",
+          mode: videoAssetUrn ? "video" : imageAssetUrn ? "image" : "text",
           note: "LinkedIn flagged the first attempt as a duplicate — we reposted with a small variation.",
         });
       }
@@ -417,7 +579,8 @@ export async function POST(req: NextRequest) {
       {
         ok: false,
         error: post.error,
-        userMessage: "LinkedIn couldn’t publish this post. Try again in a minute, or shorten/edit the text.",
+        userMessage:
+          "LinkedIn couldn’t publish this post. Try again in a minute, or shorten/edit the text.",
         details: post.details,
         status: post.status,
       },
@@ -429,7 +592,8 @@ export async function POST(req: NextRequest) {
       {
         ok: false,
         error: err?.message || "Server error",
-        userMessage: "Something went wrong sending to LinkedIn. Please try again.",
+        userMessage:
+          "Something went wrong sending to LinkedIn. Please try again.",
       },
       { status: 200 }
     );
