@@ -143,19 +143,16 @@ function deltaBadge(label: string, d: number | null | undefined) {
 
   const up = d > 0;
   const down = d < 0;
-
-  // NOTE: for CTR, "up" is good. for CPL, "down" is good.
-  const isCtr = label.toLowerCase().includes("ctr");
-  const good = isCtr ? up : down;
-
-  const toneClass = good
+  const toneClass = up
+    ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+    : down
     ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-    : "border-amber-500/40 bg-amber-500/10 text-amber-200";
+    : "border-white/10 bg-white/5 text-slate-300";
 
   const arrow = up ? "▲" : down ? "▼" : "•";
   const valAbs = Math.abs(d);
 
-  const pretty = isCtr ? formatPct(valAbs) : formatMoney(valAbs);
+  const pretty = label.toLowerCase().includes("ctr") ? formatPct(valAbs) : formatMoney(valAbs);
 
   return (
     <span className={`text-[11px] px-2 py-0.5 rounded-full border ${toneClass}`}>
@@ -259,6 +256,14 @@ function MiniLine({
   );
 }
 
+/** ---- helper: safe number parse ---- */
+function parseOptionalNumber(raw: string): number | null {
+  const s = (raw || "").trim();
+  if (s === "") return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function MetricsPage() {
   const [loading, setLoading] = useState(false);
   const [json, setJson] = useState<MetricsResponse | null>(null);
@@ -269,20 +274,20 @@ export default function MetricsPage() {
   const [to, setTo] = useState(""); // YYYY-MM-DD
   const [windowDays, setWindowDays] = useState<number>(30);
 
-  // ✅ Log Results modal
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalCampaignId, setModalCampaignId] = useState<string | null>(null);
-  const [modalCampaignName, setModalCampaignName] = useState<string | null>(null);
-  const [modalVariantId, setModalVariantId] = useState<string | null>(null);
-  const [modalVariantLabel, setModalVariantLabel] = useState<string | null>(null);
+  // ✅ Optional: inline “Log results” modal (future-ready)
+  const [logOpen, setLogOpen] = useState(false);
+  const [logVariantId, setLogVariantId] = useState<string | null>(null);
+  const [logCampaignName, setLogCampaignName] = useState<string | null>(null);
+  const [logAb, setLogAb] = useState<string | null>(null);
 
+  const [reportedAt, setReportedAt] = useState("");
   const [ctr, setCtr] = useState("");
   const [cpl, setCpl] = useState("");
   const [spend, setSpend] = useState("");
   const [clicks, setClicks] = useState("");
   const [impressions, setImpressions] = useState("");
   const [leads, setLeads] = useState("");
-  const [reportedAt, setReportedAt] = useState("");
+
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -296,7 +301,14 @@ export default function MetricsPage() {
     return `/api/metrics${qs ? `?${qs}` : ""}`;
   }
 
-  async function load() {
+  async function load(custom?: { reset?: boolean }) {
+    if (custom?.reset) {
+      setQ("");
+      setFrom("");
+      setTo("");
+      setWindowDays(30);
+    }
+
     setLoading(true);
     try {
       const res = await fetch(buildUrl(), { cache: "no-store" });
@@ -313,84 +325,6 @@ export default function MetricsPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function openLogModal(args: { campaignId: string; campaignName: string; variantId: string; variantLabel: string }) {
-    setSaveError(null);
-    setModalCampaignId(args.campaignId);
-    setModalCampaignName(args.campaignName);
-    setModalVariantId(args.variantId);
-    setModalVariantLabel(args.variantLabel);
-    setCtr("");
-    setCpl("");
-    setSpend("");
-    setClicks("");
-    setImpressions("");
-    setLeads("");
-    setReportedAt("");
-    setModalOpen(true);
-  }
-
-  function closeLogModal() {
-    setModalOpen(false);
-  }
-
-  async function submitLog() {
-    if (!modalCampaignId || !modalVariantId) return;
-
-    setSaving(true);
-    setSaveError(null);
-
-    try {
-      const payload: any = {
-        campaignId: modalCampaignId,
-        variantId: modalVariantId,
-        source: "manual",
-      };
-
-      if (reportedAt) payload.reported_at = new Date(reportedAt).toISOString();
-
-      const ctrN = ctr.trim() === "" ? null : Number(ctr);
-      const cplN = cpl.trim() === "" ? null : Number(cpl);
-
-      if (ctr.trim() !== "" && !Number.isFinite(ctrN)) throw new Error("CTR must be a number (e.g. 1.25)");
-      if (cpl.trim() !== "" && !Number.isFinite(cplN)) throw new Error("CPL must be a number (e.g. 6.40)");
-
-      payload.ctr = ctr.trim() === "" ? null : ctrN;
-      payload.cpl = cpl.trim() === "" ? null : cplN;
-
-      const spendN = spend.trim() === "" ? null : Number(spend);
-      if (spend.trim() !== "" && !Number.isFinite(spendN)) throw new Error("Spend must be a number");
-
-      const clicksN = clicks.trim() === "" ? null : Number(clicks);
-      const impressionsN = impressions.trim() === "" ? null : Number(impressions);
-      const leadsN = leads.trim() === "" ? null : Number(leads);
-
-      if (clicks.trim() !== "" && (!Number.isFinite(clicksN) || clicksN < 0)) throw new Error("Clicks must be a whole number");
-      if (impressions.trim() !== "" && (!Number.isFinite(impressionsN) || impressionsN < 0)) throw new Error("Impressions must be a whole number");
-      if (leads.trim() !== "" && (!Number.isFinite(leadsN) || leadsN < 0)) throw new Error("Leads must be a whole number");
-
-      payload.spend = spend.trim() === "" ? null : spendN;
-      payload.clicks = clicks.trim() === "" ? null : Math.round(clicksN as number);
-      payload.impressions = impressions.trim() === "" ? null : Math.round(impressionsN as number);
-      payload.leads = leads.trim() === "" ? null : Math.round(leadsN as number);
-
-      const res = await fetch("/api/campaigns/results", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const out = await res.json().catch(() => null);
-      if (!res.ok || !out?.ok) throw new Error(out?.error || "Failed to log results");
-
-      closeLogModal();
-      await load();
-    } catch (e: any) {
-      setSaveError(e?.message || "Failed to log results");
-    } finally {
-      setSaving(false);
-    }
-  }
 
   const derived = useMemo(() => {
     const kpis = json?.kpis || {
@@ -413,10 +347,74 @@ export default function MetricsPage() {
 
     const topContent = json?.topContent || [];
     const recs = json?.recommendations || [];
+    const scoreboard = json?.campaignScoreboard || [];
     const insights = json?.campaignInsights || [];
 
-    return { kpis, donutData, lineData, statusList, topContent, recs, insights };
+    return { kpis, donutData, lineData, statusList, topContent, recs, scoreboard, insights };
   }, [json]);
+
+  // ---- (optional) results logger for later wiring ----
+  async function submitLog() {
+    setSaveError(null);
+    if (!logVariantId) return;
+
+    try {
+      setSaving(true);
+
+      const ctrN = parseOptionalNumber(ctr);
+      const cplN = parseOptionalNumber(cpl);
+      const spendN = parseOptionalNumber(spend);
+
+      const clicksN = parseOptionalNumber(clicks);
+      const impressionsN = parseOptionalNumber(impressions);
+      const leadsN = parseOptionalNumber(leads);
+
+      // ✅ Validate only when user typed something
+      if (clicks.trim() !== "" && (clicksN === null || clicksN < 0)) throw new Error("Clicks must be a whole number");
+      if (impressions.trim() !== "" && (impressionsN === null || impressionsN < 0)) throw new Error("Impressions must be a whole number");
+      if (leads.trim() !== "" && (leadsN === null || leadsN < 0)) throw new Error("Leads must be a whole number");
+
+      const payload: any = {
+        variantId: logVariantId,
+        reported_at: reportedAt ? new Date(reportedAt).toISOString() : null,
+        ctr: ctrN,
+        cpl: cplN,
+        spend: spendN,
+        clicks: clicksN === null ? null : Math.round(clicksN),
+        impressions: impressionsN === null ? null : Math.round(impressionsN),
+        leads: leadsN === null ? null : Math.round(leadsN),
+        source: "manual",
+      };
+
+      const res = await fetch("/api/campaigns/results", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const out = await res.json().catch(() => null);
+      if (!res.ok || !out?.ok) throw new Error(out?.error || "Failed to log results");
+
+      setLogOpen(false);
+      setLogVariantId(null);
+      setLogCampaignName(null);
+      setLogAb(null);
+
+      setReportedAt("");
+      setCtr("");
+      setCpl("");
+      setSpend("");
+      setClicks("");
+      setImpressions("");
+      setLeads("");
+
+      await load();
+    } catch (e: any) {
+      setSaveError(e?.message || "Failed to save results");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-900 text-slate-50 p-6 space-y-6">
@@ -424,24 +422,31 @@ export default function MetricsPage() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Metrics & KPIs</h1>
-            <p className="text-slate-300 text-sm mt-1">
-              Campaign coaching + performance signal. Powered by your Supabase data.
-            </p>
+            <p className="text-slate-300 text-sm mt-1">Campaign coaching + performance signal.</p>
             {json?.organisationId ? (
               <p className="text-[11px] text-slate-400 mt-1">
                 Org: <span className="text-slate-200">{json.organisationId}</span>
                 {typeof json.windowDays === "number" ? (
-                  <> · Window: <span className="text-slate-200">{json.windowDays}d</span></>
+                  <>
+                    {" "}
+                    · Window: <span className="text-slate-200">{json.windowDays}d</span>
+                  </>
                 ) : null}
                 {json?.query ? (
-                  <> · Search: <span className="text-slate-200">“{json.query}”</span></>
+                  <>
+                    {" "}
+                    · Search: <span className="text-slate-200">“{json.query}”</span>
+                  </>
                 ) : null}
               </p>
             ) : null}
           </div>
 
           <div className="flex gap-2">
-            <a href="/dashboard" className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-sm border border-white/10">
+            <a
+              href="/dashboard"
+              className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-sm border border-white/10"
+            >
               ← Back to Dashboard
             </a>
             <button
@@ -536,9 +541,7 @@ export default function MetricsPage() {
       </header>
 
       {!json?.ok && json?.error ? (
-        <div className="rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-100">
-          {json.error}
-        </div>
+        <div className="rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-100">{json.error}</div>
       ) : null}
 
       {/* KPI tiles */}
@@ -591,17 +594,13 @@ export default function MetricsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-base font-semibold">Campaign coach</h3>
-            <p className="text-[11px] text-slate-400 mt-1">
-              This is the “what worked, where, what to repeat” layer.
-            </p>
+            <p className="text-[11px] text-slate-400 mt-1">This is the “what worked, where, what to repeat” layer.</p>
           </div>
           <span className="text-[11px] text-slate-400">Top 10 campaigns</span>
         </div>
 
         {derived.insights.length === 0 ? (
-          <p className="text-sm text-slate-300">
-            No campaign insights yet. Create a campaign and save variants A/B/C.
-          </p>
+          <p className="text-sm text-slate-300">No campaign insights yet. Create a campaign and save variants A/B/C.</p>
         ) : (
           <div className="space-y-4">
             {derived.insights.map((c) => (
@@ -616,9 +615,7 @@ export default function MetricsPage() {
                       {c.objective ? (
                         <span className="px-2 py-0.5 rounded-full border border-white/10 bg-white/5">{c.objective}</span>
                       ) : null}
-                      {c.status ? (
-                        <span className={`px-2 py-0.5 rounded-full border ${statusPill(c.status)}`}>{c.status}</span>
-                      ) : null}
+                      {c.status ? <span className={`px-2 py-0.5 rounded-full border ${statusPill(c.status)}`}>{c.status}</span> : null}
                     </div>
                   </div>
 
@@ -629,82 +626,52 @@ export default function MetricsPage() {
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-3">
-                  {c.variants.map((v) => {
-                    const variantLabel = `Variant ${v.ab_group || "—"}`;
-                    return (
-                      <div
-                        key={v.variantId}
-                        className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] px-2 py-0.5 rounded-full border border-white/10 bg-black/20">
-                              {variantLabel}
+                  {c.variants.map((v) => (
+                    <div key={v.variantId} className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] px-2 py-0.5 rounded-full border border-white/10 bg-black/20">
+                            Variant {v.ab_group || "—"}
+                          </span>
+                          {v.isWinner ? (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-200">
+                              Winner
                             </span>
-                            {v.isWinner ? (
-                              <span className="text-[11px] px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-200">
-                                Winner
-                              </span>
-                            ) : null}
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                openLogModal({
-                                  campaignId: c.campaignId,
-                                  campaignName: c.name,
-                                  variantId: v.variantId,
-                                  variantLabel,
-                                })
-                              }
-                              className="text-[11px] px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/10"
-                              title="Log CTR/CPL results for this variant"
-                            >
-                              Log results
-                            </button>
-
-                            <div className="text-[11px] text-slate-400">
-                              {v.latest?.at ? niceDate(v.latest.at) : "—"}
-                            </div>
-                          </div>
+                          ) : null}
                         </div>
 
-                        <div className="space-y-1">
-                          <div className="text-[12px] font-semibold text-slate-100 line-clamp-2">
-                            {v.headline || "No headline"}
-                          </div>
-                          <div className="text-[11px] text-slate-300 line-clamp-4">
-                            {v.primary_text_preview || "(no text)"}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <span className="text-[11px] px-2 py-0.5 rounded-full border border-white/10 bg-black/20 text-slate-200">
-                            CTR: <span className="text-slate-100">{formatPct(v.latest?.ctr ?? null)}</span>
-                          </span>
-                          <span className="text-[11px] px-2 py-0.5 rounded-full border border-white/10 bg-black/20 text-slate-200">
-                            CPL: <span className="text-slate-100">{formatMoney(v.latest?.cpl ?? null)}</span>
-                          </span>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          {deltaBadge("CTR Δ", v.trend?.ctrDelta ?? null)}
-                          {deltaBadge("CPL Δ", v.trend?.cplDelta ?? null)}
-                        </div>
-
-                        <div className={`rounded-2xl border p-3 ${pillClasses(v.coachNote.tone)}`}>
-                          <div className="text-[12px] font-semibold">{v.coachNote.title}</div>
-                          <div className="text-[11px] mt-1 text-slate-200/90">{v.coachNote.detail}</div>
-                        </div>
+                        <div className="text-[11px] text-slate-400">{v.latest?.at ? niceDate(v.latest.at) : "—"}</div>
                       </div>
-                    );
-                  })}
+
+                      <div className="space-y-1">
+                        <div className="text-[12px] font-semibold text-slate-100 line-clamp-2">{v.headline || "No headline"}</div>
+                        <div className="text-[11px] text-slate-300 line-clamp-4">{v.primary_text_preview || "(no text)"}</div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <span className="text-[11px] px-2 py-0.5 rounded-full border border-white/10 bg-black/20 text-slate-200">
+                          CTR: <span className="text-slate-100">{formatPct(v.latest?.ctr ?? null)}</span>
+                        </span>
+                        <span className="text-[11px] px-2 py-0.5 rounded-full border border-white/10 bg-black/20 text-slate-200">
+                          CPL: <span className="text-slate-100">{formatMoney(v.latest?.cpl ?? null)}</span>
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {deltaBadge("CTR Δ", v.trend?.ctrDelta ?? null)}
+                        {deltaBadge("CPL Δ", v.trend?.cplDelta ?? null)}
+                      </div>
+
+                      <div className={`rounded-2xl border p-3 ${pillClasses(v.coachNote.tone)}`}>
+                        <div className="text-[12px] font-semibold">{v.coachNote.title}</div>
+                        <div className="text-[11px] mt-1 text-slate-200/90">{v.coachNote.detail}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="text-[11px] text-slate-500">
-                  Tip: log CTR/CPL once per variant and you’ll immediately get trend coaching.
+                  Tip: results are written by UI buttons (no Supabase access). Next: connect Meta/LinkedIn APIs to auto-import.
                 </div>
               </div>
             ))}
@@ -765,9 +732,7 @@ export default function MetricsPage() {
                   <div className="text-sm font-semibold text-slate-100 line-clamp-2">
                     {p.message_preview || "(empty message)"}
                   </div>
-                  <div className={`text-[11px] px-2 py-1 rounded-full border ${statusPill(p.status)}`}>
-                    {p.status || "—"}
-                  </div>
+                  <div className={`text-[11px] px-2 py-1 rounded-full border ${statusPill(p.status)}`}>{p.status || "—"}</div>
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
@@ -808,9 +773,17 @@ export default function MetricsPage() {
 
                 {(p.imageUrl || p.videoUrl) ? (
                   <div className="mt-2 text-[11px] text-slate-400 break-all">
-                    {p.videoUrl ? <>Video: <span className="text-slate-200">{p.videoUrl}</span></> : null}
+                    {p.videoUrl ? (
+                      <>
+                        Video: <span className="text-slate-200">{p.videoUrl}</span>
+                      </>
+                    ) : null}
                     {p.videoUrl && p.imageUrl ? <span className="text-slate-500"> · </span> : null}
-                    {p.imageUrl ? <>Image: <span className="text-slate-200">{p.imageUrl}</span></> : null}
+                    {p.imageUrl ? (
+                      <>
+                        Image: <span className="text-slate-200">{p.imageUrl}</span>
+                      </>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -819,51 +792,37 @@ export default function MetricsPage() {
         )}
       </section>
 
-      {/* ✅ Log Results Modal */}
-      {modalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={closeLogModal} />
-          <div className="relative w-full max-w-xl rounded-2xl border border-white/10 bg-slate-950/80 backdrop-blur-xl p-4 shadow-2xl">
+      {/* (optional) Log modal - currently not opened by UI here */}
+      {logOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-slate-950 p-5 shadow-2xl space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-slate-100">Log Results</div>
-                <div className="mt-1 text-[12px] text-slate-300">
-                  {modalCampaignName || "Campaign"} · {modalVariantLabel || "Variant"}
+                <div className="text-sm font-semibold text-slate-100">
+                  Log Results — {logCampaignName} / Variant {logAb}
                 </div>
+                <div className="text-[11px] text-slate-400 mt-1">Add what the platform reported.</div>
               </div>
               <button
-                type="button"
-                onClick={closeLogModal}
-                className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-100 hover:bg-white/10"
+                onClick={() => setLogOpen(false)}
+                className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs hover:bg-white/10"
               >
                 Close
               </button>
             </div>
 
             {saveError ? (
-              <div className="mt-3 rounded-xl border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-100">
-                {saveError}
-              </div>
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{saveError}</div>
             ) : null}
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
-                <label className="text-[11px] text-slate-300">CTR (%)</label>
+                <label className="text-[11px] text-slate-300">Reported at (optional)</label>
                 <input
-                  value={ctr}
-                  onChange={(e) => setCtr(e.target.value)}
-                  placeholder="e.g. 1.25"
-                  className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-slate-300">CPL (£)</label>
-                <input
-                  value={cpl}
-                  onChange={(e) => setCpl(e.target.value)}
-                  placeholder="e.g. 6.40"
-                  className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none"
+                  type="datetime-local"
+                  value={reportedAt}
+                  onChange={(e) => setReportedAt(e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100"
                 />
               </div>
 
@@ -872,8 +831,25 @@ export default function MetricsPage() {
                 <input
                   value={spend}
                   onChange={(e) => setSpend(e.target.value)}
-                  placeholder="e.g. 25"
-                  className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none"
+                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300">CTR (%) (optional)</label>
+                <input
+                  value={ctr}
+                  onChange={(e) => setCtr(e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300">CPL (£) (optional)</label>
+                <input
+                  value={cpl}
+                  onChange={(e) => setCpl(e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100"
                 />
               </div>
 
@@ -882,8 +858,7 @@ export default function MetricsPage() {
                 <input
                   value={clicks}
                   onChange={(e) => setClicks(e.target.value)}
-                  placeholder="e.g. 40"
-                  className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none"
+                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100"
                 />
               </div>
 
@@ -892,52 +867,33 @@ export default function MetricsPage() {
                 <input
                   value={impressions}
                   onChange={(e) => setImpressions(e.target.value)}
-                  placeholder="e.g. 2000"
-                  className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-slate-300">Leads (optional)</label>
-                <input
-                  value={leads}
-                  onChange={(e) => setLeads(e.target.value)}
-                  placeholder="e.g. 3"
-                  className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none"
+                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100"
                 />
               </div>
 
               <div className="space-y-1 md:col-span-2">
-                <label className="text-[11px] text-slate-300">
-                  Reported at (optional) <span className="text-slate-500">(leave blank = now)</span>
-                </label>
+                <label className="text-[11px] text-slate-300">Leads (optional)</label>
                 <input
-                  type="datetime-local"
-                  value={reportedAt}
-                  onChange={(e) => setReportedAt(e.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none"
+                  value={leads}
+                  onChange={(e) => setLeads(e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100"
                 />
               </div>
             </div>
 
-            <div className="mt-4 flex items-center justify-between">
-              <div className="text-[11px] text-slate-500">Saved to your history — users never touch Supabase.</div>
+            <div className="flex items-center justify-between gap-2 pt-2">
+              <div className="text-[11px] text-slate-500">You can log just CTR + CPL — the rest is optional.</div>
               <button
-                type="button"
-                onClick={submitLog}
+                onClick={() => void submitLog()}
                 disabled={saving}
-                className="rounded-lg bg-indigo-500/30 hover:bg-indigo-500/40 border border-indigo-400/30 px-4 py-2 text-sm text-slate-50 disabled:opacity-60"
+                className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300 disabled:opacity-60"
               >
-                {saving ? "Saving…" : "Save result"}
+                {saving ? "Saving…" : "Save results"}
               </button>
             </div>
           </div>
         </div>
       ) : null}
-
-      <div className="text-[11px] text-slate-500">
-        Next: we can auto-pull CTR/CPL from ad platforms later (Meta + LinkedIn APIs), but the UI logging path is the safe first step.
-      </div>
     </div>
   );
 }
