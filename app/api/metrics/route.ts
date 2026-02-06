@@ -4,6 +4,8 @@ import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
+type Tone = "good" | "warn" | "info";
+
 type MetricsResponse = {
   ok: boolean;
   organisationId?: string;
@@ -53,7 +55,6 @@ type MetricsResponse = {
     lastActivityAt?: string | null;
   }[];
 
-  // ✅ NEW: campaign analytics “coach” view (history-aware)
   campaignInsights?: {
     campaignId: string;
     name: string;
@@ -76,12 +77,12 @@ type MetricsResponse = {
       };
 
       trend?: {
-        ctrDelta?: number | null; // latest - previous
-        cplDelta?: number | null; // latest - previous
+        ctrDelta?: number | null;
+        cplDelta?: number | null;
       };
 
       coachNote: {
-        tone: "good" | "warn" | "info";
+        tone: Tone;
         title: string;
         detail: string;
       };
@@ -89,13 +90,13 @@ type MetricsResponse = {
     }[];
 
     coachSummary: {
-      tone: "good" | "warn" | "info";
+      tone: Tone;
       title: string;
       detail: string;
     };
   }[];
 
-  recommendations?: { title: string; detail: string; tone: "good" | "warn" | "info" }[];
+  recommendations?: { title: string; detail: string; tone: Tone }[];
 };
 
 function toDateStr(d: Date) {
@@ -131,15 +132,29 @@ function parseDateMaybe(input: string | null): Date | null {
   const s = input.trim();
   if (!s) return null;
 
-  // Accept YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
     const d = new Date(s + "T00:00:00.000Z");
     return isNaN(d.getTime()) ? null : d;
   }
 
-  // Accept ISO
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : d;
+}
+
+function toNumOrNull(v: any): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatPct(n: number | null | undefined) {
+  if (n === null || n === undefined) return "—";
+  if (n <= 1) return `${Math.round(n * 1000) / 10}%`;
+  return `${Math.round(n * 10) / 10}%`;
+}
+
+function formatMoney(n: number | null | undefined) {
+  if (n === null || n === undefined) return "—";
+  return `£${Math.round(n * 100) / 100}`;
 }
 
 async function getSingleTenantOrganisationId(): Promise<string | null> {
@@ -193,21 +208,32 @@ function rowMatchesQuery(row: any, q: string) {
   );
 }
 
-function toNumOrNull(v: any): number | null {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+function textIncludes(hay: any, needle: string) {
+  const h = String(hay || "").toLowerCase();
+  const n = String(needle || "").toLowerCase().trim();
+  if (!n) return true;
+  return h.includes(n);
 }
 
-function formatPct(n: number | null | undefined) {
-  if (n === null || n === undefined) return "—";
-  // assume ctr might be provided as 0.012 or 1.2 depending on user; we’ll display intelligently
-  if (n <= 1) return `${Math.round(n * 1000) / 10}%`; // 0.012 => 1.2%
-  return `${Math.round(n * 10) / 10}%`; // 1.2 => 1.2%
+function objectivePrefersCpl(objective: any): boolean {
+  const o = String(objective || "").toLowerCase();
+  // leads = CPL, traffic/awareness = CTR
+  return o.includes("lead");
 }
 
-function formatMoney(n: number | null | undefined) {
-  if (n === null || n === undefined) return "—";
-  return `£${Math.round(n * 100) / 100}`;
+// Calculate CTR/CPL from raw numbers if missing
+function calcCtr(clicks: number | null, impressions: number | null, fallbackCtr: number | null) {
+  if (fallbackCtr !== null) return fallbackCtr;
+  if (clicks === null || impressions === null) return null;
+  if (impressions <= 0) return null;
+  return clicks / impressions;
+}
+
+function calcCpl(spend: number | null, leads: number | null, fallbackCpl: number | null) {
+  if (fallbackCpl !== null) return fallbackCpl;
+  if (spend === null || leads === null) return null;
+  if (leads <= 0) return null;
+  return spend / leads;
 }
 
 export async function GET(req: NextRequest) {
@@ -228,20 +254,20 @@ export async function GET(req: NextRequest) {
 
     const now = new Date();
 
-    // Default window: last windowDays
     const defaultFrom = new Date(now);
     defaultFrom.setDate(now.getDate() - windowDays);
 
-    // Optional overrides
     const fromOverride = parseDateMaybe(url.searchParams.get("from"));
     const toOverride = parseDateMaybe(url.searchParams.get("to"));
 
     const from = fromOverride ?? defaultFrom;
     const to = toOverride ?? null;
 
+    // ---------------------------
+    // Scheduled posts (activity layer)
+    // ---------------------------
     const scheduledPosts = await fetchScheduledPosts(organisationId, 800);
 
-    // Apply window + query
     const inWindow = (scheduledPosts || [])
       .filter((r: any) => isInWindow(r, from, to))
       .filter((r: any) => (q ? rowMatchesQuery(r, q) : true));
@@ -253,7 +279,6 @@ export async function GET(req: NextRequest) {
     let postsPosted = 0;
     let postsFailed = 0;
 
-    // campaign scoreboard map (based on scheduled_posts tags)
     const camp: Record<
       string,
       { campaignName: string; objective?: string | null; posted: number; failed: number; queued: number; total: number; lastActivityAt?: string | null }
@@ -296,7 +321,6 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // last 7 days chart (always last 7 relative to now)
     const byDay: Record<string, number> = {};
     const days: string[] = [];
     for (let i = 6; i >= 0; i--) {
@@ -336,7 +360,6 @@ export async function GET(req: NextRequest) {
       }))
       .filter((x) => x.id);
 
-    // recommendations (coach-style)
     const recs: MetricsResponse["recommendations"] = [];
     const total7 = last7Days.reduce((s, p) => s + p.value, 0);
 
@@ -363,34 +386,35 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Replies are still 0 until you wire replies in Supabase
     const repliesSent = 0;
 
-    // ✅ NEW: Campaign Insights from campaigns + variants + metrics history
-    // We keep it light and stable: only latest + previous metric per variant, then coach notes.
-
-    // 1) load campaigns for org (optional search)
-    let campaignsQuery = supabaseAdmin
+    // ---------------------------
+    // Campaign Coach (campaigns + variants + metrics rows)
+    // ---------------------------
+    const { data: campaigns, error: campErr } = await supabaseAdmin
       .from("campaigns")
       .select("id, organisation_id, name, platform, objective, status, created_at, updated_at")
       .eq("organisation_id", organisationId)
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (q) {
-      // if your Supabase complains about ilike here, tell me and I'll switch to client-side filtering
-      campaignsQuery = campaignsQuery.ilike("name", `%${q}%`);
-    }
-
-    const { data: campaigns, error: campErr } = await campaignsQuery;
     if (campErr) {
-      // Don’t fail the whole metrics page if campaign tables are mid-migration
       console.warn("[api/metrics] campaigns load warning", campErr.message);
     }
 
-    const campaignIds = (campaigns || []).map((c: any) => String(c.id)).filter(Boolean);
+    // Apply search client-side so this can’t break
+    const filteredCampaigns = (campaigns || []).filter((c: any) => {
+      if (!q) return true;
+      return (
+        textIncludes(c?.name, q) ||
+        textIncludes(c?.platform, q) ||
+        textIncludes(c?.objective, q) ||
+        textIncludes(c?.status, q)
+      );
+    });
 
-    // 2) load variants for those campaigns
+    const campaignIds = filteredCampaigns.map((c: any) => String(c.id)).filter(Boolean);
+
     let variants: any[] = [];
     if (campaignIds.length > 0) {
       const { data: vData, error: vErr } = await supabaseAdmin
@@ -406,87 +430,126 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 3) load metrics history for those variants (latest 2 each)
-    const variantIds = variants.map((v) => String(v.id)).filter(Boolean);
+    // Filter variants by q too (headline/text)
+    const filteredVariants = (variants || []).filter((v: any) => {
+      if (!q) return true;
+      return textIncludes(v?.headline, q) || textIncludes(v?.primary_text, q) || textIncludes(v?.ab_group, q);
+    });
 
+    const variantIds = filteredVariants.map((v) => String(v.id)).filter(Boolean);
+
+    // Pull latest metric rows (we’ll compute CTR/CPL from raw values if needed)
     let metricsRows: any[] = [];
     if (variantIds.length > 0) {
       const { data: mData, error: mErr } = await supabaseAdmin
         .from("campaign_variant_metrics")
-        .select("id, variant_id, ctr, cpl, meta, created_at")
+        .select("id, variant_id, campaign_id, ctr, cpl, impressions, clicks, leads, spend, source, period_start, period_end, meta, created_at")
         .in("variant_id", variantIds)
         .order("created_at", { ascending: false })
-        .limit(500);
+        .limit(800);
 
       if (mErr) {
         console.warn("[api/metrics] campaign_variant_metrics load warning", mErr.message);
       } else {
-        metricsRows = mData || [];
+        // optional: apply same date window to metric rows too
+        metricsRows = (mData || []).filter((r: any) => isInWindow({ created_at: r?.created_at }, from, to));
       }
     }
 
+    // Keep only latest 2 per variant
     const metricsByVariant: Record<string, any[]> = {};
     for (const r of metricsRows) {
       const vid = String(r?.variant_id || "");
       if (!vid) continue;
       if (!metricsByVariant[vid]) metricsByVariant[vid] = [];
-      // keep only latest 2
       if (metricsByVariant[vid].length < 2) metricsByVariant[vid].push(r);
     }
 
-    // Helper: determine winner (prefer CPL lowest, else CTR highest)
-    function computeWinner(variantSummaries: any[]) {
-      const withCpl = variantSummaries.filter((v) => v.latest?.cpl !== null && v.latest?.cpl !== undefined);
-      if (withCpl.length >= 1) {
-        withCpl.sort((a, b) => (a.latest.cpl ?? 1e9) - (b.latest.cpl ?? 1e9));
-        return withCpl[0]?.variantId || null;
-      }
-      const withCtr = variantSummaries.filter((v) => v.latest?.ctr !== null && v.latest?.ctr !== undefined);
-      if (withCtr.length >= 1) {
-        withCtr.sort((a, b) => (b.latest.ctr ?? -1) - (a.latest.ctr ?? -1));
-        return withCtr[0]?.variantId || null;
-      }
-      return null;
-    }
-
     const variantsByCampaign: Record<string, any[]> = {};
-    for (const v of variants) {
+    for (const v of filteredVariants) {
       const cid = String(v?.campaign_id || "");
       if (!cid) continue;
       if (!variantsByCampaign[cid]) variantsByCampaign[cid] = [];
       variantsByCampaign[cid].push(v);
     }
 
-    const campaignInsights: MetricsResponse["campaignInsights"] = (campaigns || [])
+    function computeWinner(variantSummaries: any[], objective: any) {
+      const prefersCpl = objectivePrefersCpl(objective);
+
+      if (prefersCpl) {
+        const withCpl = variantSummaries.filter((v) => v.latest?.cpl !== null && v.latest?.cpl !== undefined);
+        if (withCpl.length) {
+          withCpl.sort((a, b) => (a.latest.cpl ?? 1e9) - (b.latest.cpl ?? 1e9));
+          return withCpl[0]?.variantId || null;
+        }
+        // fallback
+        const withCtr = variantSummaries.filter((v) => v.latest?.ctr !== null && v.latest?.ctr !== undefined);
+        if (withCtr.length) {
+          withCtr.sort((a, b) => (b.latest.ctr ?? -1) - (a.latest.ctr ?? -1));
+          return withCtr[0]?.variantId || null;
+        }
+        return null;
+      }
+
+      // CTR-first
+      const withCtr = variantSummaries.filter((v) => v.latest?.ctr !== null && v.latest?.ctr !== undefined);
+      if (withCtr.length) {
+        withCtr.sort((a, b) => (b.latest.ctr ?? -1) - (a.latest.ctr ?? -1));
+        return withCtr[0]?.variantId || null;
+      }
+      // fallback
+      const withCpl = variantSummaries.filter((v) => v.latest?.cpl !== null && v.latest?.cpl !== undefined);
+      if (withCpl.length) {
+        withCpl.sort((a, b) => (a.latest.cpl ?? 1e9) - (b.latest.cpl ?? 1e9));
+        return withCpl[0]?.variantId || null;
+      }
+      return null;
+    }
+
+    const campaignInsights: MetricsResponse["campaignInsights"] = (filteredCampaigns || [])
       .slice(0, 10)
       .map((c: any) => {
         const cid = String(c.id);
-        const vList = (variantsByCampaign[cid] || []).slice(0, 6);
+        const vList = (variantsByCampaign[cid] || [])
+          .slice()
+          .sort((a: any, b: any) => String(a?.ab_group || "").localeCompare(String(b?.ab_group || "")))
+          .slice(0, 6);
 
         const variantSummaries = vList.map((v: any) => {
           const vid = String(v.id);
           const m = metricsByVariant[vid] || [];
-          const latest = m[0] || null;
-          const prev = m[1] || null;
+          const latestRow = m[0] || null;
+          const prevRow = m[1] || null;
 
-          const latestCtr = latest ? toNumOrNull(latest.ctr) : null;
-          const latestCpl = latest ? toNumOrNull(latest.cpl) : null;
+          // prefer explicit ctr/cpl, else calculate from raw
+          const latestClicks = latestRow ? toNumOrNull(latestRow.clicks) : null;
+          const latestImpr = latestRow ? toNumOrNull(latestRow.impressions) : null;
+          const latestLeads = latestRow ? toNumOrNull(latestRow.leads) : null;
+          const latestSpend = latestRow ? toNumOrNull(latestRow.spend) : null;
 
-          const prevCtr = prev ? toNumOrNull(prev.ctr) : null;
-          const prevCpl = prev ? toNumOrNull(prev.cpl) : null;
+          const prevClicks = prevRow ? toNumOrNull(prevRow.clicks) : null;
+          const prevImpr = prevRow ? toNumOrNull(prevRow.impressions) : null;
+          const prevLeads = prevRow ? toNumOrNull(prevRow.leads) : null;
+          const prevSpend = prevRow ? toNumOrNull(prevRow.spend) : null;
+
+          const latestCtr = latestRow ? calcCtr(latestClicks, latestImpr, toNumOrNull(latestRow.ctr)) : null;
+          const latestCpl = latestRow ? calcCpl(latestSpend, latestLeads, toNumOrNull(latestRow.cpl)) : null;
+
+          const prevCtr = prevRow ? calcCtr(prevClicks, prevImpr, toNumOrNull(prevRow.ctr)) : null;
+          const prevCpl = prevRow ? calcCpl(prevSpend, prevLeads, toNumOrNull(prevRow.cpl)) : null;
 
           const ctrDelta = latestCtr !== null && prevCtr !== null ? latestCtr - prevCtr : null;
           const cplDelta = latestCpl !== null && prevCpl !== null ? latestCpl - prevCpl : null;
 
-          // Coach note per variant
-          let tone: "good" | "warn" | "info" = "info";
+          let tone: Tone = "info";
           let title = "Add results to unlock coaching";
           let detail =
             "This variant has no CTR/CPL history yet. Add one result entry and I’ll start recommending winners.";
 
+          const prefersCpl = objectivePrefersCpl(c?.objective);
+
           if (latestCtr !== null || latestCpl !== null) {
-            // If CPL exists: lower is better
-            if (latestCpl !== null) {
+            if (prefersCpl && latestCpl !== null) {
               if (cplDelta !== null && cplDelta < 0) {
                 tone = "good";
                 title = "Cost improving";
@@ -494,27 +557,34 @@ export async function GET(req: NextRequest) {
               } else if (cplDelta !== null && cplDelta > 0) {
                 tone = "warn";
                 title = "Cost rising";
-                detail = `Latest CPL is ${formatMoney(latestCpl)} (up vs previous). Consider changing the hook or audience keywords.`;
+                detail = `Latest CPL is ${formatMoney(latestCpl)} (up vs previous). Tighten your hook + clarify the offer.`;
               } else {
                 tone = "info";
                 title = "Cost snapshot";
                 detail = `Latest CPL is ${formatMoney(latestCpl)}. Add another datapoint later to see trend.`;
               }
-            } else if (latestCtr !== null) {
-              // CTR exists: higher is better
+            } else if (!prefersCpl && latestCtr !== null) {
               if (ctrDelta !== null && ctrDelta > 0) {
                 tone = "good";
                 title = "Engagement improving";
-                detail = `Latest CTR is ${formatPct(latestCtr)} (up vs previous). Keep this angle and test a stronger headline.`;
+                detail = `Latest CTR is ${formatPct(latestCtr)} (up vs previous). Keep this angle and test a sharper headline.`;
               } else if (ctrDelta !== null && ctrDelta < 0) {
                 tone = "warn";
                 title = "Engagement dropping";
-                detail = `Latest CTR is ${formatPct(latestCtr)} (down vs previous). Consider a new opening line (first 10 words).`;
+                detail = `Latest CTR is ${formatPct(latestCtr)} (down vs previous). Try a new first line (first 10 words).`;
               } else {
                 tone = "info";
                 title = "Engagement snapshot";
                 detail = `Latest CTR is ${formatPct(latestCtr)}. Add another datapoint later to see trend.`;
               }
+            } else {
+              // Fallback when objective wants CPL but only CTR exists, or vice versa
+              tone = "info";
+              title = "Partial signal";
+              const bits: string[] = [];
+              if (latestCpl !== null) bits.push(`CPL ${formatMoney(latestCpl)}`);
+              if (latestCtr !== null) bits.push(`CTR ${formatPct(latestCtr)}`);
+              detail = `You have some signal (${bits.join(" · ")}). Add leads/spend (for CPL) or impressions/clicks (for CTR) to improve confidence.`;
             }
           }
 
@@ -525,8 +595,8 @@ export async function GET(req: NextRequest) {
             primary_text_preview: previewText(v?.primary_text, 140),
             media_url: v?.media_url ?? null,
             video_url: v?.video_url ?? null,
-            latest: latest
-              ? { ctr: latestCtr, cpl: latestCpl, at: String(latest.created_at || "") || null }
+            latest: latestRow
+              ? { ctr: latestCtr, cpl: latestCpl, at: String(latestRow.created_at || "") || null }
               : { ctr: null, cpl: null, at: null },
             trend: { ctrDelta, cplDelta },
             coachNote: { tone, title, detail },
@@ -534,17 +604,16 @@ export async function GET(req: NextRequest) {
           };
         });
 
-        const winnerId = computeWinner(variantSummaries);
+        const winnerId = computeWinner(variantSummaries, c?.objective);
         const withWinner = variantSummaries.map((v: any) => ({
           ...v,
           isWinner: winnerId ? v.variantId === winnerId : false,
         }));
 
-        // Campaign-level summary
         const anyData = withWinner.some((v: any) => (v.latest?.ctr ?? null) !== null || (v.latest?.cpl ?? null) !== null);
         const winner = withWinner.find((v: any) => v.isWinner);
 
-        let campTone: "good" | "warn" | "info" = "info";
+        let campTone: Tone = "info";
         let campTitle = "No results logged yet";
         let campDetail =
           "This campaign is ready for history tracking. Add CTR/CPL results for variants to identify what to repeat.";
@@ -555,7 +624,11 @@ export async function GET(req: NextRequest) {
           const bits: string[] = [];
           if (winner.latest?.cpl !== null && winner.latest?.cpl !== undefined) bits.push(`CPL ${formatMoney(winner.latest.cpl)}`);
           if (winner.latest?.ctr !== null && winner.latest?.ctr !== undefined) bits.push(`CTR ${formatPct(winner.latest.ctr)}`);
-          campDetail = `Variant ${winner.ab_group || "?"} is currently strongest (${bits.join(" · ") || "has data"}). Repeat this angle and test 1 new headline + 1 new hook.`;
+
+          const prefersCpl = objectivePrefersCpl(c?.objective);
+          const why = prefersCpl ? "lowest CPL" : "highest CTR";
+
+          campDetail = `Variant ${winner.ab_group || "?"} is currently strongest (${why}${bits.length ? ` · ${bits.join(" · ")}` : ""}). Repeat this angle and test 1 new headline + 1 new hook.`;
         } else if (anyData) {
           campTone = "info";
           campTitle = "Some signal, not enough trend";
