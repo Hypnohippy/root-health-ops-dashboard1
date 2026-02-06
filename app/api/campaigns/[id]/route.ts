@@ -17,17 +17,25 @@ async function getOrganisationId(): Promise<string | null> {
   return String(data[0].id);
 }
 
-export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
+export async function GET(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
   try {
     const orgId =
       (req.nextUrl.searchParams.get("organisationId") || "").trim() ||
       (await getOrganisationId());
 
     if (!orgId) {
-      return NextResponse.json({ error: "No organisation found." }, { status: 400 });
+      return NextResponse.json(
+        { error: "No organisation found." },
+        { status: 400 }
+      );
     }
 
-    const id = String(ctx?.params?.id || "").trim();
+    const params = await context.params;
+    const id = String(params?.id || "").trim();
+
     if (!id) {
       return NextResponse.json({ error: "Missing campaign id" }, { status: 400 });
     }
@@ -47,11 +55,18 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
       .eq("id", id)
       .maybeSingle();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    if (!data) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    if (!data) {
+      return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
+    }
 
     return NextResponse.json({ ok: true, campaign: data }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Failed to load campaign" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Failed to load campaign" },
+      { status: 500 }
+    );
   }
 }
