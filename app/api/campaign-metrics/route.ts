@@ -19,6 +19,81 @@ async function getOrganisationId(): Promise<string | null> {
   return String(data[0].id);
 }
 
+function safeNum(v: any): number | null {
+  if (v === "" || v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * GET /api/campaign-metrics?variantId=...&q=...&limit=20
+ * - variantId optional (but recommended)
+ * - q optional (searches note + source inside meta)
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const organisationId =
+      String(url.searchParams.get("organisationId") || "").trim() ||
+      (await getOrganisationId());
+
+    if (!organisationId) {
+      return NextResponse.json({ ok: false, error: "No organisation found." }, { status: 200 });
+    }
+
+    const variantId = String(url.searchParams.get("variantId") || "").trim();
+    const q = String(url.searchParams.get("q") || "").trim().toLowerCase();
+    const limitRaw = Number(url.searchParams.get("limit") || "20");
+    const limit = Math.max(1, Math.min(100, Number.isFinite(limitRaw) ? limitRaw : 20));
+
+    const { data, error } = await supabaseAdmin
+      .from("campaign_variant_metrics")
+      .select("id, ctr, cpl, meta, created_at")
+      .order("created_at", { ascending: false })
+      .limit(800);
+
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 200 });
+    }
+
+    const rows = (data || []).filter((r: any) => {
+      const meta = r?.meta && typeof r.meta === "object" ? r.meta : {};
+      const orgOk = String(meta?.organisation_id || "") === organisationId;
+      if (!orgOk) return false;
+
+      if (variantId) {
+        if (String(meta?.variant_id || "") !== variantId) return false;
+      }
+
+      if (q) {
+        const hay = [
+          String(meta?.note || ""),
+          String(meta?.source || ""),
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+
+      return true;
+    });
+
+    return NextResponse.json(
+      { ok: true, organisationId, records: rows.slice(0, limit) },
+      { status: 200 }
+    );
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Failed to load campaign metrics." },
+      { status: 200 }
+    );
+  }
+}
+
+/**
+ * POST /api/campaign-metrics
+ * body: { variantId, ctr?, cpl?, note?, source?, organisationId? }
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -35,35 +110,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing variantId." }, { status: 200 });
     }
 
-    // ✅ Optional fields (you can log one or both)
-    const ctrRaw = body.ctr;
-    const cplRaw = body.cpl;
+    const ctr = safeNum(body.ctr);
+    const cpl = safeNum(body.cpl);
 
-    const ctr =
-      ctrRaw === "" || ctrRaw === null || ctrRaw === undefined
-        ? null
-        : Number(ctrRaw);
-
-    const cpl =
-      cplRaw === "" || cplRaw === null || cplRaw === undefined
-        ? null
-        : Number(cplRaw);
-
-    if (ctr !== null && (isNaN(ctr) || ctr < 0)) {
+    if (ctr !== null && ctr < 0) {
       return NextResponse.json({ ok: false, error: "CTR must be a number >= 0." }, { status: 200 });
     }
-
-    if (cpl !== null && (isNaN(cpl) || cpl < 0)) {
+    if (cpl !== null && cpl < 0) {
       return NextResponse.json({ ok: false, error: "CPL must be a number >= 0." }, { status: 200 });
     }
 
-    // ✅ IMPORTANT: your table currently has columns: id, cpl, ctr, meta, created_at
-    // So we store variantId + orgId safely in meta.
     const meta = {
       variant_id: variantId,
       organisation_id: organisationId,
       note: typeof body.note === "string" ? body.note.trim() : null,
-      source: body.source || "manual_log",
+      source: typeof body.source === "string" ? body.source.trim() : "manual_log",
     };
 
     const { data, error } = await supabaseAdmin
