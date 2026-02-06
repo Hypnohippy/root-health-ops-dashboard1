@@ -1,15 +1,12 @@
-// app/api/campaigns/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
 async function getOrganisationId(): Promise<string | null> {
-  // Optional: force a specific org via env var (useful in beta)
   const forced = (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
   if (forced) return forced;
 
-  // Otherwise, take the first org (single-tenant beta mode)
   const { data, error } = await supabaseAdmin
     .from("organisations")
     .select("id")
@@ -22,86 +19,100 @@ async function getOrganisationId(): Promise<string | null> {
 
 export async function GET(req: NextRequest) {
   try {
-    const organisationId = await getOrganisationId();
-    if (!organisationId) {
-      return NextResponse.json(
-        { ok: false, error: "No organisation found." },
-        { status: 400 }
-      );
-    }
+    const orgId = (req.nextUrl.searchParams.get("organisationId") || "").trim() || (await getOrganisationId());
+    if (!orgId) return NextResponse.json({ error: "No organisation found." }, { status: 400 });
 
-    const url = new URL(req.url);
-    const platform = (url.searchParams.get("platform") || "").trim();
-    const objective = (url.searchParams.get("objective") || "").trim();
-    const status = (url.searchParams.get("status") || "").trim();
-
-    // 1) Load campaigns
-    let q = supabaseAdmin
+    // Return campaigns + variants in one hit
+    const { data, error } = await supabaseAdmin
       .from("campaigns")
-      .select(
-        "id, organisation_id, name, platform, objective, status, budget_daily, start_date, end_date, url, utm_source, utm_medium, utm_campaign, meta, created_at, updated_at"
-      )
-      .eq("organisation_id", organisationId)
+      .select(`
+        id, organisation_id, name, platform, objective, status,
+        budget_daily, start_date, end_date, landing_url,
+        utm_source, utm_medium, utm_campaign,
+        created_at, updated_at,
+        campaign_variants (
+          id, campaign_id, ab_group, headline, primary_text, media_url, video_url, status, created_at, updated_at
+        )
+      `)
+      .eq("organisation_id", orgId)
       .order("created_at", { ascending: false });
 
-    if (platform) q = q.eq("platform", platform);
-    if (objective) q = q.eq("objective", objective);
-    if (status) q = q.eq("status", status);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    const { data: campaigns, error: cErr } = await q;
-
-    if (cErr) {
-      return NextResponse.json(
-        { ok: false, error: cErr.message },
-        { status: 500 }
-      );
-    }
-
-    const ids = (campaigns || []).map((c: any) => c.id).filter(Boolean);
-
-    // 2) Load variants for those campaigns
-    let variants: any[] = [];
-    if (ids.length > 0) {
-      const { data: vData, error: vErr } = await supabaseAdmin
-        .from("campaign_variants")
-        .select(
-          "id, campaign_id, ab_group, headline, primary_text, status, media_url, video_url, meta, created_at, updated_at"
-        )
-        .in("campaign_id", ids)
-        .order("created_at", { ascending: true });
-
-      if (vErr) {
-        return NextResponse.json(
-          { ok: false, error: vErr.message },
-          { status: 500 }
-        );
-      }
-
-      variants = vData || [];
-    }
-
-    const variantsByCampaign: Record<string, any[]> = {};
-    for (const v of variants) {
-      const k = String(v.campaign_id || "");
-      if (!k) continue;
-      if (!variantsByCampaign[k]) variantsByCampaign[k] = [];
-      variantsByCampaign[k].push(v);
-    }
-
-    const out = (campaigns || []).map((c: any) => ({
-      ...c,
-      variants: variantsByCampaign[String(c.id)] || [],
-    }));
-
-    return NextResponse.json({
-      ok: true,
-      organisationId,
-      campaigns: out,
-    });
+    return NextResponse.json({ records: data || [], organisationId: orgId });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Failed to load campaigns" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: e?.message || "Failed to load campaigns" }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const orgId = String(body.organisationId || "").trim() || (await getOrganisationId());
+    if (!orgId) return NextResponse.json({ error: "No organisation found." }, { status: 400 });
+
+    const name = String(body.name || "").trim();
+    const platform = String(body.platform || "").trim();
+    const objective = String(body.objective || "").trim() || null;
+
+    if (!name) return NextResponse.json({ error: "Campaign name is required." }, { status: 400 });
+    if (!platform) return NextResponse.json({ error: "Campaign platform is required (e.g. meta/linkedin)." }, { status: 400 });
+
+    const campaignPayload: any = {
+      organisation_id: orgId,
+      name,
+      platform,
+      objective,
+      status: body.status || "draft",
+      budget_daily: body.budget_daily ?? null,
+      start_date: body.start_date ?? null,
+      end_date: body.end_date ?? null,
+      location: body.location ?? null,
+      age_min: body.age_min ?? null,
+      age_max: body.age_max ?? null,
+      audience_keywords: Array.isArray(body.audience_keywords) ? body.audience_keywords : null,
+      landing_url: body.landing_url ?? null,
+      utm_source: body.utm_source ?? null,
+      utm_medium: body.utm_medium ?? null,
+      utm_campaign: body.utm_campaign ?? null,
+      meta: body.meta && typeof body.meta === "object" ? body.meta : null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: campaign, error: cErr } = await supabaseAdmin
+      .from("campaigns")
+      .insert(campaignPayload)
+      .select()
+      .single();
+
+    if (cErr || !campaign) return NextResponse.json({ error: cErr?.message || "Failed to create campaign" }, { status: 500 });
+
+    const variantsIncoming = Array.isArray(body.variants) ? body.variants : [];
+    if (variantsIncoming.length > 0) {
+      const variantRows = variantsIncoming.map((v: any) => ({
+        campaign_id: campaign.id,
+        ab_group: String(v.ab_group || "A").toUpperCase(),
+        headline: v.headline ?? null,
+        primary_text: v.primary_text ?? null,
+        media_url: v.media_url ?? null,
+        video_url: v.video_url ?? null,
+        status: v.status ?? "draft",
+        meta: v.meta && typeof v.meta === "object" ? v.meta : null,
+        updated_at: new Date().toISOString(),
+      }));
+
+      const { error: vErr } = await supabaseAdmin.from("campaign_variants").insert(variantRows);
+      if (vErr) {
+        return NextResponse.json({
+          error: "Campaign created but variants failed to save",
+          detail: vErr.message,
+          campaign,
+        }, { status: 500 });
+      }
+    }
+
+    return NextResponse.json({ ok: true, campaignId: campaign.id });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Failed to create campaign" }, { status: 500 });
   }
 }
