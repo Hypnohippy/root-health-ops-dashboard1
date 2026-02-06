@@ -1,141 +1,113 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import ConnectedChannelsBar from "../components/ConnectedChannelsBar";
 
-type CampaignRecord = {
+type CampaignVariant = {
   id: string;
-  name?: string;
-  platform?: string;
-  objective?: string;
-  primary_text?: string;
-  headline?: string;
-  status?: string;
-  ab_group?: string;
-  start_date?: string | null;
-  end_date?: string | null;
-  budget_daily?: number | string | null;
-  url?: string;
+  campaign_id: string;
+  ab_group: string;
+  headline?: string | null;
+  primary_text?: string | null;
+  status?: string | null;
+  media_url?: string | null;
+  video_url?: string | null;
+  created_at?: string | null;
 };
 
-type GroupedCampaign = {
-  key: string;
+type Campaign = {
+  id: string;
+  organisation_id: string;
   name: string;
   platform: string;
   objective: string;
-  campaigns: CampaignRecord[];
+  status: string;
+  budget_daily?: number | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  url?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  created_at?: string | null;
+  variants: CampaignVariant[];
 };
 
+type ApiResponse = {
+  ok: boolean;
+  organisationId?: string;
+  error?: string;
+  campaigns?: Campaign[];
+};
+
+function abOrder(ab: string) {
+  const x = String(ab || "").toUpperCase();
+  if (x === "A") return 1;
+  if (x === "B") return 2;
+  if (x === "C") return 3;
+  return 99;
+}
+
 export default function CampaignsPage() {
-  const [campaigns, setCampaigns] = useState<CampaignRecord[]>([]);
-  const [grouped, setGrouped] = useState<GroupedCampaign[]>([]);
+  const [json, setJson] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<string>("all");
   const [objectiveFilter, setObjectiveFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  async function load() {
+    try {
+      setLoading(true);
+
+      const params = new URLSearchParams();
+      if (platformFilter !== "all") params.set("platform", platformFilter);
+      if (objectiveFilter !== "all") params.set("objective", objectiveFilter);
+      if (statusFilter !== "all") params.set("status", statusFilter);
+
+      const res = await fetch(`/api/campaigns?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const data: ApiResponse = await res.json().catch(() => ({} as any));
+      setJson(data);
+    } catch (e: any) {
+      setJson({ ok: false, error: e?.message || "Failed to load campaigns" });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    async function load() {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const res = await fetch("/api/campaigns", {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
-
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || "Failed to load campaigns");
-        }
-
-        const rows: any[] = Array.isArray(data)
-          ? data
-          : Array.isArray(data.records)
-          ? data.records
-          : [];
-
-        const mapped: CampaignRecord[] = rows.map((row: any) => {
-          const fields = row.fields ?? row;
-          return {
-            id: String(row.id || fields.id || Math.random().toString(36)),
-            name: fields.name ?? "",
-            platform: fields.platform ?? "",
-            objective: fields.objective ?? "",
-            primary_text: fields.primary_text ?? "",
-            headline: fields.headline ?? "",
-            status: fields.status ?? "",
-            ab_group: fields.ab_group ?? "",
-            start_date: fields.start_date ?? null,
-            end_date: fields.end_date ?? null,
-            budget_daily: fields.budget_daily ?? null,
-            url: fields.url ?? "",
-          };
-        });
-
-        setCampaigns(mapped);
-      } catch (e: any) {
-        setError(e?.message || "Error loading campaigns");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    load();
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const byGroup: Record<string, GroupedCampaign> = {};
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platformFilter, objectiveFilter, statusFilter]);
 
-    campaigns
-      .filter((c) =>
-        platformFilter === "all" ? true : c.platform === platformFilter
-      )
-      .filter((c) =>
-        objectiveFilter === "all" ? true : c.objective === objectiveFilter
-      )
-      .forEach((c) => {
-        const key = `${c.name ?? "Untitled"}|${c.platform ?? ""}|${
-          c.objective ?? ""
-        }`;
-        if (!byGroup[key]) {
-          byGroup[key] = {
-            key,
-            name: c.name || "Untitled campaign",
-            platform: c.platform || "Unknown",
-            objective: c.objective || "",
-            campaigns: [],
-          };
-        }
-        byGroup[key].campaigns.push(c);
-      });
+  const campaigns = json?.campaigns || [];
 
-    const groupsArr = Object.values(byGroup).map((g) => ({
-      ...g,
-      campaigns: [...g.campaigns].sort((a, b) => {
-        const order: Record<string, number> = { A: 1, B: 2, C: 3 };
-        const aKey = (a.ab_group || "").toUpperCase();
-        const bKey = (b.ab_group || "").toUpperCase();
-        return (order[aKey] || 99) - (order[bKey] || 99);
-      }),
+  const allPlatforms = useMemo(() => {
+    return Array.from(new Set(campaigns.map((c) => c.platform).filter(Boolean))).sort();
+  }, [campaigns]);
+
+  const allObjectives = useMemo(() => {
+    return Array.from(new Set(campaigns.map((c) => c.objective).filter(Boolean))).sort();
+  }, [campaigns]);
+
+  const allStatuses = useMemo(() => {
+    return Array.from(new Set(campaigns.map((c) => c.status).filter(Boolean))).sort();
+  }, [campaigns]);
+
+  const grouped = useMemo(() => {
+    // Each campaign is already a “group” in the new schema.
+    // Sort variants A/B/C.
+    return campaigns.map((c) => ({
+      ...c,
+      variants: [...(c.variants || [])].sort((a, b) => abOrder(a.ab_group) - abOrder(b.ab_group)),
     }));
-
-    groupsArr.sort((a, b) => {
-      const aDate = a.campaigns[0]?.start_date || a.campaigns[0]?.id || "";
-      const bDate = b.campaigns[0]?.start_date || b.campaigns[0]?.id || "";
-      return String(bDate).localeCompare(String(aDate));
-    });
-
-    setGrouped(groupsArr);
-  }, [campaigns, platformFilter, objectiveFilter]);
-
-  const allPlatforms = Array.from(
-    new Set(campaigns.map((c) => c.platform).filter(Boolean))
-  );
-  const allObjectives = Array.from(
-    new Set(campaigns.map((c) => c.objective).filter(Boolean))
-  );
+  }, [campaigns]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -145,10 +117,15 @@ export default function CampaignsPage() {
             <div>
               <h1 className="text-2xl font-semibold">Campaigns</h1>
               <p className="text-sm text-gray-600">
-                See your split tests at a glance. Each card groups variants by
-                campaign name, platform and objective.
+                Your campaign library (Supabase). Variants A/B/C are grouped inside each campaign.
               </p>
+              {json?.organisationId ? (
+                <p className="mt-1 text-[11px] text-gray-500">
+                  Org: <span className="text-gray-800 font-medium">{json.organisationId}</span>
+                </p>
+              ) : null}
             </div>
+
             <a
               href="/dashboard/campaigns/new"
               className="rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white"
@@ -157,10 +134,17 @@ export default function CampaignsPage() {
             </a>
           </div>
 
-          {/* ✅ Option A: Connections bar everywhere */}
+          {/* Connections bar */}
           <ConnectedChannelsBar title="Social connections" />
         </header>
 
+        {!json?.ok && json?.error ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {json.error}
+          </div>
+        ) : null}
+
+        {/* Filters */}
         <section className="rounded-xl border bg-white p-4 flex flex-wrap gap-4 items-center text-xs">
           <div className="space-y-1">
             <p className="font-semibold text-gray-700">Platform</p>
@@ -168,11 +152,7 @@ export default function CampaignsPage() {
               <button
                 type="button"
                 onClick={() => setPlatformFilter("all")}
-                className={`rounded-full px-3 py-1 border ${
-                  platformFilter === "all"
-                    ? "bg-black text-white"
-                    : "bg-white text-gray-800"
-                }`}
+                className={`rounded-full px-3 py-1 border ${platformFilter === "all" ? "bg-black text-white" : "bg-white text-gray-800"}`}
               >
                 All
               </button>
@@ -180,12 +160,8 @@ export default function CampaignsPage() {
                 <button
                   key={p}
                   type="button"
-                  onClick={() => setPlatformFilter(p || "")}
-                  className={`rounded-full px-3 py-1 border ${
-                    platformFilter === p
-                      ? "bg-black text-white"
-                      : "bg-white text-gray-800"
-                  }`}
+                  onClick={() => setPlatformFilter(p)}
+                  className={`rounded-full px-3 py-1 border ${platformFilter === p ? "bg-black text-white" : "bg-white text-gray-800"}`}
                 >
                   {p}
                 </button>
@@ -199,11 +175,7 @@ export default function CampaignsPage() {
               <button
                 type="button"
                 onClick={() => setObjectiveFilter("all")}
-                className={`rounded-full px-3 py-1 border ${
-                  objectiveFilter === "all"
-                    ? "bg-black text-white"
-                    : "bg-white text-gray-800"
-                }`}
+                className={`rounded-full px-3 py-1 border ${objectiveFilter === "all" ? "bg-black text-white" : "bg-white text-gray-800"}`}
               >
                 All
               </button>
@@ -211,14 +183,33 @@ export default function CampaignsPage() {
                 <button
                   key={o}
                   type="button"
-                  onClick={() => setObjectiveFilter(o || "")}
-                  className={`rounded-full px-3 py-1 border ${
-                    objectiveFilter === o
-                      ? "bg-black text-white"
-                      : "bg-white text-gray-800"
-                  }`}
+                  onClick={() => setObjectiveFilter(o)}
+                  className={`rounded-full px-3 py-1 border ${objectiveFilter === o ? "bg-black text-white" : "bg-white text-gray-800"}`}
                 >
                   {o}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <p className="font-semibold text-gray-700">Status</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setStatusFilter("all")}
+                className={`rounded-full px-3 py-1 border ${statusFilter === "all" ? "bg-black text-white" : "bg-white text-gray-800"}`}
+              >
+                All
+              </button>
+              {allStatuses.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setStatusFilter(s)}
+                  className={`rounded-full px-3 py-1 border ${statusFilter === s ? "bg-black text-white" : "bg-white text-gray-800"}`}
+                >
+                  {s}
                 </button>
               ))}
             </div>
@@ -226,81 +217,76 @@ export default function CampaignsPage() {
         </section>
 
         {loading && <p className="text-sm text-gray-500">Loading campaigns…</p>}
-        {error && (
-          <p className="text-sm text-red-600">Error loading campaigns: {error}</p>
-        )}
 
-        {!loading && !error && grouped.length === 0 && (
-          <p className="text-sm text-gray-500">
-            No campaigns yet. Create one from the top-right button.
-          </p>
-        )}
+        {!loading && grouped.length === 0 ? (
+          <p className="text-sm text-gray-500">No campaigns yet. Create one from the top-right button.</p>
+        ) : null}
 
         <div className="space-y-4">
-          {grouped.map((group) => (
-            <div
-              key={group.key}
-              className="rounded-xl border bg-white p-4 space-y-3"
-            >
-              <div className="flex items-center justify-between gap-2">
+          {grouped.map((c) => (
+            <div key={c.id} className="rounded-xl border bg-white p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-semibold">{group.name}</h2>
+                  <h2 className="text-sm font-semibold">{c.name || "Untitled campaign"}</h2>
                   <p className="text-xs text-gray-500">
-                    {group.platform} · {group.objective}
+                    {c.platform || "—"} · {c.objective || "—"} · <span className="font-medium">{c.status || "draft"}</span>
                   </p>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-gray-600">
+                    {c.budget_daily != null ? (
+                      <span className="rounded-full border px-2 py-0.5">£{c.budget_daily}/day</span>
+                    ) : null}
+                    {c.start_date ? <span className="rounded-full border px-2 py-0.5">Start: {c.start_date}</span> : null}
+                    {c.end_date ? <span className="rounded-full border px-2 py-0.5">End: {c.end_date}</span> : null}
+                    {c.url ? (
+                      <a
+                        href={c.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-full border px-2 py-0.5 text-blue-600 underline"
+                      >
+                        Landing URL
+                      </a>
+                    ) : null}
+                  </div>
                 </div>
+
                 <div className="flex gap-2">
-                  {group.campaigns.map((c) => (
-                    <span
-                      key={c.id}
-                      className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] gap-1"
-                    >
-                      <span className="font-semibold">{c.ab_group || "–"}</span>
-                      <span className="text-gray-500">{c.status || "draft"}</span>
-                    </span>
-                  ))}
+                  <a
+                    href={`/dashboard/campaigns/${c.id}`}
+                    className="rounded-md border px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50"
+                    title="(Optional) We can build a campaign detail page later"
+                  >
+                    View
+                  </a>
                 </div>
               </div>
 
               <div className="grid gap-3 md:grid-cols-3">
-                {group.campaigns.map((c) => (
-                  <div
-                    key={c.id}
-                    className="rounded-lg border bg-gray-50 p-3 space-y-2 text-xs"
-                  >
+                {(c.variants || []).map((v) => (
+                  <div key={v.id} className="rounded-lg border bg-gray-50 p-3 space-y-2 text-xs">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-semibold">
-                        Variant {c.ab_group || "–"}
-                      </span>
-                      {c.budget_daily && (
-                        <span className="text-[11px] text-gray-500">
-                          £{c.budget_daily}/day
-                        </span>
-                      )}
+                      <span className="text-[11px] font-semibold">Variant {v.ab_group || "–"}</span>
+                      <span className="text-[11px] text-gray-500">{v.status || "draft"}</span>
                     </div>
-                    <p className="text-[11px] text-gray-500">
-                      {c.headline || "No headline"}
-                    </p>
-                    <p className="line-clamp-4 whitespace-pre-wrap">
-                      {c.primary_text || "No primary text"}
-                    </p>
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[11px] text-gray-500">
-                        {c.start_date || "No date"}
-                      </span>
-                      {c.url && (
-                        <a
-                          href={c.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[11px] text-blue-600 underline"
-                        >
-                          View URL
-                        </a>
-                      )}
-                    </div>
+
+                    <p className="text-[11px] text-gray-500">{v.headline || "No headline"}</p>
+                    <p className="line-clamp-4 whitespace-pre-wrap">{v.primary_text || "No primary text"}</p>
+
+                    {(v.video_url || v.media_url) ? (
+                      <div className="pt-1 text-[11px] text-gray-600 break-all">
+                        {v.video_url ? <>Video: <span className="text-gray-800">{v.video_url}</span></> : null}
+                        {v.video_url && v.media_url ? <span className="text-gray-400"> · </span> : null}
+                        {v.media_url ? <>Media: <span className="text-gray-800">{v.media_url}</span></> : null}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
+
+                {(c.variants || []).length === 0 ? (
+                  <div className="rounded-lg border bg-gray-50 p-3 text-xs text-gray-600">
+                    No variants yet for this campaign.
+                  </div>
+                ) : null}
               </div>
             </div>
           ))}
