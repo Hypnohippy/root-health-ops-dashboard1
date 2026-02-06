@@ -3,21 +3,24 @@
 import React, { useEffect, useMemo, useState } from "react";
 import ConnectedChannelsBar from "../components/ConnectedChannelsBar";
 
-type Variant = {
+type VariantRow = {
   id: string;
   campaign_id: string;
-  ab_group?: string;
-  headline?: string;
-  primary_text?: string;
-  status?: string;
-  media_url?: string | null;
-  video_url?: string | null;
+  ab_group: string | null;
+  headline: string | null;
+  primary_text: string | null;
+  media_url: string | null;
+  video_url: string | null;
+  status: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
-type Campaign = {
+type CampaignRow = {
   id: string;
-  name: string;
-  platform: string;
+  organisation_id: string;
+  name: string | null;
+  platform?: string | null;
   objective?: string | null;
   status?: string | null;
   budget_daily?: number | null;
@@ -27,28 +30,57 @@ type Campaign = {
   utm_source?: string | null;
   utm_medium?: string | null;
   utm_campaign?: string | null;
-  created_at?: string;
-  campaign_variants?: Variant[];
+  meta?: any | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  campaign_variants?: VariantRow[] | null;
 };
 
 type GroupedCampaign = {
   key: string;
+  id: string;
   name: string;
   platform: string;
   objective: string;
-  campaigns: Variant[];
-  meta: {
-    campaignId: string;
-    status?: string | null;
-    budget?: number | null;
-    start?: string | null;
-    end?: string | null;
-    url?: string | null;
-  };
+  status: string;
+  budgetDaily?: string;
+  dateRange?: string;
+  landingUrl?: string;
+  campaigns: {
+    id: string;
+    ab_group: string;
+    status: string;
+    headline: string;
+    primary_text: string;
+    media_url?: string | null;
+    video_url?: string | null;
+    updated_at?: string | null;
+  }[];
 };
 
+function safeStr(v: any, fallback = "") {
+  const s = String(v ?? "").trim();
+  return s ? s : fallback;
+}
+
+function previewText(s: string, n = 140) {
+  const t = (s || "").trim().replace(/\s+/g, " ");
+  if (!t) return "";
+  return t.length > n ? t.slice(0, n - 1) + "…" : t;
+}
+
+function pill(status: string) {
+  const s = (status || "").toLowerCase();
+  if (s.includes("live") || s.includes("active")) return "bg-emerald-500/15 text-emerald-200 border-emerald-500/30";
+  if (s.includes("draft")) return "bg-white/5 text-slate-200 border-white/10";
+  if (s.includes("paused")) return "bg-amber-500/15 text-amber-200 border-amber-500/30";
+  if (s.includes("error") || s.includes("fail")) return "bg-red-500/15 text-red-200 border-red-500/30";
+  return "bg-white/5 text-slate-200 border-white/10";
+}
+
 export default function CampaignsPage() {
-  const [rows, setRows] = useState<Campaign[]>([]);
+  const [rows, setRows] = useState<CampaignRow[]>([]);
+  const [grouped, setGrouped] = useState<GroupedCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,70 +93,141 @@ export default function CampaignsPage() {
         setLoading(true);
         setError(null);
 
-        const res = await fetch("/api/campaigns", { method: "GET", headers: { "Content-Type": "application/json" } });
-        const data = await res.json().catch(() => ({}));
+        const res = await fetch("/api/campaigns", {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+        });
 
-        if (!res.ok) throw new Error(data.error || "Failed to load campaigns");
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to load campaigns");
+        }
 
-        const records: Campaign[] = Array.isArray(data.records) ? data.records : [];
-        setRows(records);
+        const list: CampaignRow[] = Array.isArray(data)
+          ? data
+          : Array.isArray(data.records)
+          ? data.records
+          : [];
+
+        setRows(list);
       } catch (e: any) {
         setError(e?.message || "Error loading campaigns");
       } finally {
         setLoading(false);
       }
     }
+
     load();
   }, []);
 
-  const grouped = useMemo(() => {
-    const byGroup: Record<string, GroupedCampaign> = {};
+  const allPlatforms = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of rows) {
+      const p = safeStr(c.platform || c.meta?.platform || c.meta?.platform_name || "", "");
+      if (p) set.add(p);
+    }
+    return Array.from(set);
+  }, [rows]);
+
+  const allObjectives = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of rows) {
+      const o = safeStr(c.objective || "", "");
+      if (o) set.add(o);
+    }
+    return Array.from(set);
+  }, [rows]);
+
+  useEffect(() => {
+    const groups: Record<string, GroupedCampaign> = {};
 
     const filtered = rows
-      .filter((c) => (platformFilter === "all" ? true : c.platform === platformFilter))
-      .filter((c) => (objectiveFilter === "all" ? true : (c.objective || "") === objectiveFilter));
+      .filter((c) => {
+        const p = safeStr(c.platform || c.meta?.platform || "", "Unknown");
+        return platformFilter === "all" ? true : p === platformFilter;
+      })
+      .filter((c) => {
+        const o = safeStr(c.objective || "", "");
+        return objectiveFilter === "all" ? true : o === objectiveFilter;
+      });
 
     for (const c of filtered) {
-      const key = `${c.name}|${c.platform}|${c.objective || ""}`;
+      const name = safeStr(c.name, "Untitled campaign");
+      const platform = safeStr(c.platform || c.meta?.platform || c.meta?.platform_name, "Unknown");
+      const objective = safeStr(c.objective, "—");
+      const status = safeStr(c.status || c.meta?.status, "draft");
 
-      if (!byGroup[key]) {
-        byGroup[key] = {
+      const key = `${c.id}|${name}|${platform}|${objective}`;
+
+      if (!groups[key]) {
+        const budget = c.budget_daily != null ? `£${c.budget_daily}/day` : "";
+        const start = safeStr(c.start_date, "");
+        const end = safeStr(c.end_date, "");
+        const dateRange = start ? (end ? `${start} → ${end}` : `${start}`) : "";
+
+        groups[key] = {
           key,
-          name: c.name || "Untitled campaign",
-          platform: c.platform || "Unknown",
-          objective: c.objective || "",
+          id: c.id,
+          name,
+          platform,
+          objective,
+          status,
+          budgetDaily: budget || undefined,
+          dateRange: dateRange || undefined,
+          landingUrl: safeStr(c.landing_url, "") || undefined,
           campaigns: [],
-          meta: {
-            campaignId: c.id,
-            status: c.status,
-            budget: c.budget_daily ?? null,
-            start: c.start_date ?? null,
-            end: c.end_date ?? null,
-            url: c.landing_url ?? null,
-          },
         };
       }
 
       const variants = Array.isArray(c.campaign_variants) ? c.campaign_variants : [];
-      byGroup[key].campaigns.push(...variants);
+
+      // If there are no variants yet, show a placeholder “Draft – No variants”
+      if (variants.length === 0) {
+        groups[key].campaigns.push({
+          id: `${c.id}-no-variants`,
+          ab_group: "—",
+          status: status || "draft",
+          headline: "No variants yet",
+          primary_text: "Generate A/B/C variants on the New Campaign page to see snapshots here.",
+          media_url: null,
+          video_url: null,
+          updated_at: c.updated_at || c.created_at || null,
+        });
+        continue;
+      }
+
+      for (const v of variants) {
+        groups[key].campaigns.push({
+          id: v.id,
+          ab_group: safeStr(v.ab_group, "—"),
+          status: safeStr(v.status, status || "draft"),
+          headline: safeStr(v.headline, "No headline"),
+          primary_text: safeStr(v.primary_text, ""),
+          media_url: v.media_url ?? null,
+          video_url: v.video_url ?? null,
+          updated_at: v.updated_at || v.created_at || null,
+        });
+      }
     }
 
-    const groupsArr = Object.values(byGroup).map((g) => ({
-      ...g,
-      campaigns: [...g.campaigns].sort((a, b) => {
-        const order: Record<string, number> = { A: 1, B: 2, C: 3 };
-        const aKey = String(a.ab_group || "").toUpperCase();
-        const bKey = String(b.ab_group || "").toUpperCase();
-        return (order[aKey] || 99) - (order[bKey] || 99);
-      }),
-    }));
+    const out = Object.values(groups);
 
-    groupsArr.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-    return groupsArr;
+    // Sort newest first (by any variant updated_at, fallback campaign key)
+    out.sort((a, b) => {
+      const aT = a.campaigns[0]?.updated_at || "";
+      const bT = b.campaigns[0]?.updated_at || "";
+      return String(bT).localeCompare(String(aT));
+    });
+
+    // Sort variants A/B/C order inside each group
+    for (const g of out) {
+      const order: Record<string, number> = { A: 1, B: 2, C: 3 };
+      g.campaigns.sort((x, y) => (order[(x.ab_group || "").toUpperCase()] || 99) - (order[(y.ab_group || "").toUpperCase()] || 99));
+    }
+
+    setGrouped(out);
   }, [rows, platformFilter, objectiveFilter]);
-
-  const allPlatforms = useMemo(() => Array.from(new Set(rows.map((c) => c.platform).filter(Boolean))), [rows]);
-  const allObjectives = useMemo(() => Array.from(new Set(rows.map((c) => c.objective || "").filter(Boolean))), [rows]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -134,10 +237,13 @@ export default function CampaignsPage() {
             <div>
               <h1 className="text-2xl font-semibold">Campaigns</h1>
               <p className="text-sm text-gray-600">
-                Split tests at a glance. Each card groups variants by campaign name, platform and objective.
+                Your campaign library. Each card groups A/B/C variants and shows a real snapshot of what you’re sending.
               </p>
             </div>
-            <a href="/dashboard/campaigns/new" className="rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white">
+            <a
+              href="/dashboard/campaigns/new"
+              className="rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white"
+            >
               + New campaign
             </a>
           </div>
@@ -152,7 +258,9 @@ export default function CampaignsPage() {
               <button
                 type="button"
                 onClick={() => setPlatformFilter("all")}
-                className={`rounded-full px-3 py-1 border ${platformFilter === "all" ? "bg-black text-white" : "bg-white text-gray-800"}`}
+                className={`rounded-full px-3 py-1 border ${
+                  platformFilter === "all" ? "bg-black text-white" : "bg-white text-gray-800"
+                }`}
               >
                 All
               </button>
@@ -160,8 +268,10 @@ export default function CampaignsPage() {
                 <button
                   key={p}
                   type="button"
-                  onClick={() => setPlatformFilter(p || "")}
-                  className={`rounded-full px-3 py-1 border ${platformFilter === p ? "bg-black text-white" : "bg-white text-gray-800"}`}
+                  onClick={() => setPlatformFilter(p)}
+                  className={`rounded-full px-3 py-1 border ${
+                    platformFilter === p ? "bg-black text-white" : "bg-white text-gray-800"
+                  }`}
                 >
                   {p}
                 </button>
@@ -175,7 +285,9 @@ export default function CampaignsPage() {
               <button
                 type="button"
                 onClick={() => setObjectiveFilter("all")}
-                className={`rounded-full px-3 py-1 border ${objectiveFilter === "all" ? "bg-black text-white" : "bg-white text-gray-800"}`}
+                className={`rounded-full px-3 py-1 border ${
+                  objectiveFilter === "all" ? "bg-black text-white" : "bg-white text-gray-800"
+                }`}
               >
                 All
               </button>
@@ -183,8 +295,10 @@ export default function CampaignsPage() {
                 <button
                   key={o}
                   type="button"
-                  onClick={() => setObjectiveFilter(o || "")}
-                  className={`rounded-full px-3 py-1 border ${objectiveFilter === o ? "bg-black text-white" : "bg-white text-gray-800"}`}
+                  onClick={() => setObjectiveFilter(o)}
+                  className={`rounded-full px-3 py-1 border ${
+                    objectiveFilter === o ? "bg-black text-white" : "bg-white text-gray-800"
+                  }`}
                 >
                   {o}
                 </button>
@@ -197,53 +311,59 @@ export default function CampaignsPage() {
         {error && <p className="text-sm text-red-600">Error loading campaigns: {error}</p>}
 
         {!loading && !error && grouped.length === 0 && (
-          <p className="text-sm text-gray-500">No campaigns yet. Create one from the top-right button.</p>
+          <p className="text-sm text-gray-500">
+            No campaigns yet. Create one from the top-right button.
+          </p>
         )}
 
         <div className="space-y-4">
           {grouped.map((group) => (
             <div key={group.key} className="rounded-xl border bg-white p-4 space-y-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-semibold">{group.name}</h2>
-                  <p className="text-xs text-gray-500">{group.platform} · {group.objective || "—"}</p>
-                  <p className="text-[11px] text-gray-400">
-                    Status: {group.meta.status || "draft"}
-                    {group.meta.budget ? <> · £{group.meta.budget}/day</> : null}
-                    {group.meta.start ? <> · {group.meta.start}</> : null}
-                    {group.meta.end ? <> → {group.meta.end}</> : null}
+                  <p className="text-xs text-gray-500">
+                    {group.platform} · {group.objective}
+                    {group.budgetDaily ? <> · {group.budgetDaily}</> : null}
+                    {group.dateRange ? <> · {group.dateRange}</> : null}
                   </p>
+                  {group.landingUrl ? (
+                    <p className="text-[11px] text-gray-500 mt-1 break-all">
+                      Landing: <span className="text-gray-700">{group.landingUrl}</span>
+                    </p>
+                  ) : null}
                 </div>
-                <div className="flex gap-2">
-                  {group.campaigns.map((v) => (
-                    <span key={v.id} className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] gap-1">
-                      <span className="font-semibold">{(v.ab_group || "–").toUpperCase()}</span>
-                      <span className="text-gray-500">{v.status || "draft"}</span>
-                    </span>
-                  ))}
-                </div>
+
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${pill(group.status)}`}>
+                  {group.status || "draft"}
+                </span>
               </div>
 
               <div className="grid gap-3 md:grid-cols-3">
-                {group.campaigns.map((v) => (
-                  <div key={v.id} className="rounded-lg border bg-gray-50 p-3 space-y-2 text-xs">
+                {group.campaigns.map((c) => (
+                  <div key={c.id} className="rounded-lg border bg-gray-50 p-3 space-y-2 text-xs">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-semibold">Variant {(v.ab_group || "–").toUpperCase()}</span>
+                      <span className="text-[11px] font-semibold">Variant {c.ab_group || "—"}</span>
+                      <span className={`text-[11px] rounded-full border px-2 py-0.5 ${pill(c.status)}`}>
+                        {c.status || "draft"}
+                      </span>
                     </div>
 
-                    <p className="text-[11px] text-gray-500">{v.headline || "No headline"}</p>
-                    <p className="line-clamp-4 whitespace-pre-wrap">{v.primary_text || "No primary text"}</p>
+                    <p className="text-[11px] text-gray-600 font-semibold">
+                      {c.headline || "No headline"}
+                    </p>
 
-                    <div className="flex items-center justify-between pt-1">
-                      {group.meta.url ? (
-                        <a href={group.meta.url} target="_blank" rel="noreferrer" className="text-[11px] text-blue-600 underline">
-                          View landing URL
-                        </a>
-                      ) : (
-                        <span className="text-[11px] text-gray-500">No landing URL</span>
-                      )}
-                      <span className="text-[11px] text-gray-400">{v.status || "draft"}</span>
-                    </div>
+                    <p className="text-[11px] text-gray-700 whitespace-pre-wrap">
+                      {c.primary_text ? previewText(c.primary_text, 170) : "No primary text"}
+                    </p>
+
+                    {(c.media_url || c.video_url) ? (
+                      <div className="text-[11px] text-gray-500 break-all pt-1">
+                        {c.video_url ? <>Video: <span className="text-gray-700">{c.video_url}</span></> : null}
+                        {c.video_url && c.media_url ? <span className="text-gray-400"> · </span> : null}
+                        {c.media_url ? <>Media: <span className="text-gray-700">{c.media_url}</span></> : null}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
