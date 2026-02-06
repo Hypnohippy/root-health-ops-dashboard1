@@ -35,6 +35,13 @@ function formatMoney(n: number | null | undefined) {
   return `£${Math.round(n * 100) / 100}`;
 }
 
+function toNumOrNull(v: string) {
+  const t = String(v || "").trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
 type Variant = {
   id: string;
   ab_group: string | null;
@@ -66,6 +73,13 @@ type ApiOut = {
   latestByVariant?: Record<string, { ctr: number | null; cpl: number | null; at: string | null }>;
 };
 
+type LogModalState = {
+  open: boolean;
+  variantId: string;
+  ab: string;
+  headline: string;
+};
+
 export default function CampaignDetailPage() {
   const params = useParams();
   const campaignId = useMemo(() => {
@@ -77,6 +91,21 @@ export default function CampaignDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ApiOut | null>(null);
+
+  // Quick Log modal
+  const [logModal, setLogModal] = useState<LogModalState>({ open: false, variantId: "", ab: "—", headline: "" });
+  const [logSaving, setLogSaving] = useState(false);
+  const [logMsg, setLogMsg] = useState<string | null>(null);
+  const [logErr, setLogErr] = useState<string | null>(null);
+
+  // Minimal fields (coach friendly)
+  const [spend, setSpend] = useState("");
+  const [impressions, setImpressions] = useState("");
+  const [clicks, setClicks] = useState("");
+  const [leads, setLeads] = useState("");
+  const [source, setSource] = useState("Meta");
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
 
   async function load() {
     if (!campaignId) {
@@ -131,14 +160,14 @@ export default function CampaignDetailPage() {
       return {
         tone: "info",
         title: "No results logged yet",
-        detail: "This campaign is ready for history tracking. Add CTR/CPL results for variants to identify what to repeat.",
+        detail: "Tap “Quick log” and add 4 numbers (spend, impressions, clicks, leads). We calculate CTR/CPL for you.",
       };
     }
 
     const ctr = latest.ctr;
     const cpl = latest.cpl;
 
-    if ((ctr ?? 0) > 0 && (cpl ?? 9999) > 0) {
+    if ((ctr ?? 0) > 0 || (cpl ?? 0) > 0) {
       return {
         tone: "good",
         title: "Results detected",
@@ -153,6 +182,108 @@ export default function CampaignDetailPage() {
     };
   }
 
+  function openQuickLog(v: Variant) {
+    setLogMsg(null);
+    setLogErr(null);
+
+    setSpend("");
+    setImpressions("");
+    setClicks("");
+    setLeads("");
+    setSource((campaign?.platform || "Meta") as any);
+
+    // default dates blank (optional)
+    setPeriodStart("");
+    setPeriodEnd("");
+
+    setLogModal({
+      open: true,
+      variantId: v.id,
+      ab: v.ab_group || "—",
+      headline: v.headline || "",
+    });
+  }
+
+  function closeQuickLog() {
+    if (logSaving) return;
+    setLogModal({ open: false, variantId: "", ab: "—", headline: "" });
+  }
+
+  async function submitQuickLog() {
+    setLogMsg(null);
+    setLogErr(null);
+
+    if (!campaign?.id || !logModal.variantId) {
+      setLogErr("Missing campaign/variant. Try refresh.");
+      return;
+    }
+
+    // validate gently (no TS null issues)
+    const spendN = toNumOrNull(spend);
+    const impressionsN = toNumOrNull(impressions);
+    const clicksN = toNumOrNull(clicks);
+    const leadsN = toNumOrNull(leads);
+
+    if (spend.trim() !== "" && (spendN === null || spendN < 0)) {
+      setLogErr("Spend must be a number (0 or more).");
+      return;
+    }
+    if (impressions.trim() !== "" && (impressionsN === null || impressionsN < 0)) {
+      setLogErr("Impressions must be a whole number (0 or more).");
+      return;
+    }
+    if (clicks.trim() !== "" && (clicksN === null || clicksN < 0)) {
+      setLogErr("Clicks must be a whole number (0 or more).");
+      return;
+    }
+    if (leads.trim() !== "" && (leadsN === null || leadsN < 0)) {
+      setLogErr("Leads must be a whole number (0 or more).");
+      return;
+    }
+
+    // require at least one “pair” so we can calculate something
+    const canCtr = clicksN !== null && impressionsN !== null;
+    const canCpl = spendN !== null && leadsN !== null;
+
+    if (!canCtr && !canCpl) {
+      setLogErr("Add either (clicks + impressions) for CTR or (spend + leads) for CPL. Ideally add all 4.");
+      return;
+    }
+
+    setLogSaving(true);
+    try {
+      const res = await fetch("/api/campaign-variant-metrics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId: campaign.id,
+          variantId: logModal.variantId,
+          impressions: impressionsN,
+          clicks: clicksN,
+          leads: leadsN,
+          spend: spendN,
+          source: source || null,
+          period_start: periodStart || null,
+          period_end: periodEnd || null,
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!json?.ok) {
+        setLogErr(json?.error || "Failed to save results.");
+        return;
+      }
+
+      setLogMsg("Saved ✅ Results logged. Updating view…");
+      await load();
+      setTimeout(() => closeQuickLog(), 300);
+    } catch (e: any) {
+      setLogErr(e?.message || "Failed to save results.");
+    } finally {
+      setLogSaving(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
       <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
@@ -165,7 +296,8 @@ export default function CampaignDetailPage() {
               <span className="text-slate-100">{campaign?.status || "—"}</span>
             </p>
             <p className="text-[11px] text-slate-400 mt-2">
-              Updated: <span className="text-slate-200">{niceDate(campaign?.updated_at || campaign?.created_at || null)}</span>
+              Updated:{" "}
+              <span className="text-slate-200">{niceDate(campaign?.updated_at || campaign?.created_at || null)}</span>
             </p>
             <p className="text-[11px] text-slate-500 mt-1">ID: {campaignId || "—"}</p>
           </div>
@@ -196,6 +328,9 @@ export default function CampaignDetailPage() {
           <div className="space-y-4">
             <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg">
               <div className="text-sm font-semibold text-slate-100">{campaign.name || "Untitled campaign"}</div>
+              <div className="text-[11px] text-slate-400 mt-1">
+                Tip: coaches only need 4 numbers. We calculate CTR/CPL automatically and your Metrics page turns into plain-English insights.
+              </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
@@ -204,12 +339,17 @@ export default function CampaignDetailPage() {
                 const note = coachNoteFor(v);
 
                 return (
-                  <div key={v.id} className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg space-y-3">
+                  <div
+                    key={v.id}
+                    className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-lg space-y-3"
+                  >
                     <div className="flex items-center justify-between">
                       <div className="text-[11px] px-2 py-0.5 rounded-full border border-white/10 bg-black/20">
                         Variant {v.ab_group || "—"}
                       </div>
-                      <div className="text-[11px] text-slate-400">{niceDate(latest?.at || v.updated_at || v.created_at || null)}</div>
+                      <div className="text-[11px] text-slate-400">
+                        {niceDate(latest?.at || v.updated_at || v.created_at || null)}
+                      </div>
                     </div>
 
                     <div>
@@ -228,6 +368,22 @@ export default function CampaignDetailPage() {
                       </span>
                     </div>
 
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => openQuickLog(v)}
+                        className="rounded-lg bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-300"
+                      >
+                        Quick log
+                      </button>
+
+                      <a
+                        href="/dashboard/metrics"
+                        className="rounded-lg border border-white/15 bg-black/20 px-3 py-1.5 text-xs text-slate-100 hover:bg-black/30"
+                      >
+                        View coaching
+                      </a>
+                    </div>
+
                     <div className={`rounded-2xl border p-3 ${pillClasses(note.tone)}`}>
                       <div className="text-[12px] font-semibold">{note.title}</div>
                       <div className="text-[11px] mt-1 text-slate-200/90">{note.detail}</div>
@@ -239,6 +395,156 @@ export default function CampaignDetailPage() {
           </div>
         ) : null}
       </div>
+
+      {/* Quick Log Modal */}
+      {logModal.open ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/70" onClick={closeQuickLog} />
+
+          <div className="relative w-full max-w-lg rounded-2xl border border-white/10 bg-slate-950/90 backdrop-blur-xl shadow-2xl p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-100">Quick log results</div>
+                <div className="text-[12px] text-slate-300 mt-1">
+                  Variant <span className="text-slate-100 font-semibold">{logModal.ab}</span>
+                  {logModal.headline ? (
+                    <>
+                      {" "}
+                      · <span className="text-slate-200">{clampText(logModal.headline, 80)}</span>
+                    </>
+                  ) : null}
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  Add 4 numbers. We compute CTR (clicks/impressions) and CPL (spend/leads) automatically.
+                </div>
+              </div>
+
+              <button
+                onClick={closeQuickLog}
+                className="rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-xs text-slate-100 hover:bg-white/10"
+              >
+                ✕
+              </button>
+            </div>
+
+            {(logMsg || logErr) ? (
+              <div className="mt-3 space-y-2">
+                {logMsg ? (
+                  <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+                    {logMsg}
+                  </div>
+                ) : null}
+                {logErr ? (
+                  <div className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                    {logErr}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300">Spend (£)</label>
+                <input
+                  value={spend}
+                  onChange={(e) => setSpend(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="e.g. 25.00"
+                  className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300">Leads</label>
+                <input
+                  value={leads}
+                  onChange={(e) => setLeads(e.target.value)}
+                  inputMode="numeric"
+                  placeholder="e.g. 4"
+                  className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300">Impressions</label>
+                <input
+                  value={impressions}
+                  onChange={(e) => setImpressions(e.target.value)}
+                  inputMode="numeric"
+                  placeholder="e.g. 12000"
+                  className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300">Clicks</label>
+                <input
+                  value={clicks}
+                  onChange={(e) => setClicks(e.target.value)}
+                  inputMode="numeric"
+                  placeholder="e.g. 145"
+                  className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300">Source</label>
+                <select
+                  value={source}
+                  onChange={(e) => setSource(e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/30"
+                >
+                  <option>Meta</option>
+                  <option>LinkedIn</option>
+                  <option>Google</option>
+                  <option>TikTok</option>
+                  <option>Other</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300">Period (optional)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="date"
+                    value={periodStart}
+                    onChange={(e) => setPeriodStart(e.target.value)}
+                    className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                  <input
+                    type="date"
+                    value={periodEnd}
+                    onChange={(e) => setPeriodEnd(e.target.value)}
+                    className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <button
+                onClick={closeQuickLog}
+                disabled={logSaving}
+                className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-slate-100 hover:bg-white/10 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={submitQuickLog}
+                disabled={logSaving}
+                className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300 disabled:opacity-60"
+              >
+                {logSaving ? "Saving…" : "Save results"}
+              </button>
+            </div>
+
+            <div className="mt-3 text-[11px] text-slate-500">
+              Tip: If you only have spend+leads, we’ll calculate CPL. If you only have clicks+impressions, we’ll calculate CTR. All 4 is best.
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
