@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 
 type Variant = {
   primary_text: string;
@@ -44,18 +44,14 @@ function PlatformPreview({
             <div className="text-xs text-slate-300">Sponsored · Meta</div>
           </div>
         </div>
-        <p className="text-sm whitespace-pre-wrap text-slate-50">
-          {primaryText}
-        </p>
+        <p className="text-sm whitespace-pre-wrap text-slate-50">{primaryText}</p>
         <div className="border border-white/10 rounded-xl overflow-hidden bg-black/20">
           <div className="h-36 bg-gradient-to-br from-slate-600/70 via-slate-500/60 to-emerald-500/40" />
           <div className="p-3">
             <div className="text-[11px] uppercase text-slate-300 tracking-wide">
               {url?.replace(/^https?:\/\//, "") || "roothealth.app"}
             </div>
-            <div className="text-sm font-semibold text-slate-50">
-              {headline}
-            </div>
+            <div className="text-sm font-semibold text-slate-50">{headline}</div>
           </div>
         </div>
       </div>
@@ -72,18 +68,14 @@ function PlatformPreview({
             <div className="text-xs text-slate-300">Promoted · LinkedIn</div>
           </div>
         </div>
-        <p className="text-sm whitespace-pre-wrap text-slate-50">
-          {primaryText}
-        </p>
+        <p className="text-sm whitespace-pre-wrap text-slate-50">{primaryText}</p>
         <div className="border border-white/10 rounded-xl overflow-hidden bg-black/20">
           <div className="h-32 bg-gradient-to-br from-sky-600/70 via-sky-500/60 to-emerald-500/40" />
           <div className="p-3">
             <div className="text-xs text-slate-300">
               {url?.replace(/^https?:\/\//, "") || "roothealth.app"}
             </div>
-            <div className="text-sm font-semibold text-slate-50">
-              {headline}
-            </div>
+            <div className="text-sm font-semibold text-slate-50">{headline}</div>
           </div>
         </div>
       </div>
@@ -98,29 +90,40 @@ function PlatformPreview({
         {url?.replace(/^https?:\/\//, "") || "roothealth.app"}
       </div>
       <div className="text-base font-semibold text-slate-50">{headline}</div>
-      <p className="text-sm text-slate-100 whitespace-pre-wrap">
-        {primaryText}
-      </p>
+      <p className="text-sm text-slate-100 whitespace-pre-wrap">{primaryText}</p>
     </div>
   );
+}
+
+function safeSlug(s: string) {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 60);
+}
+
+// Map your UI labels → canonical platform key stored in DB
+function toPlatformKey(ui: string): "meta" | "linkedin" | "google" | "tiktok" {
+  const v = String(ui || "").toLowerCase();
+  if (v.includes("meta") || v.includes("facebook") || v.includes("ig")) return "meta";
+  if (v.includes("linkedin")) return "linkedin";
+  if (v.includes("google")) return "google";
+  return "tiktok";
 }
 
 export default function NewCampaignPage() {
   // core fields
   const [name, setName] = useState("Root Health – December Stress Relief");
-  const [platform, setPlatform] = useState("Meta (Facebook/IG)");
-  const [objective, setObjective] = useState<"Leads" | "Traffic" | "Awareness">(
-    "Leads"
-  );
+  const [platformUi, setPlatformUi] = useState("Meta (Facebook/IG)");
+  const [objective, setObjective] = useState<"Leads" | "Traffic" | "Awareness">("Leads");
   const [budgetDaily, setBudgetDaily] = useState("10");
   const [url, setUrl] = useState("https://roothealth.app");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [location, setLocation] = useState("United Kingdom");
   const [ageRange, setAgeRange] = useState("25-54");
-  const [audienceKeywords, setAudienceKeywords] = useState(
-    "burnout, stress, anxiety, self care, therapy"
-  );
+  const [audienceKeywords, setAudienceKeywords] = useState("burnout, stress, anxiety, self care, therapy");
   const [mediaUrl, setMediaUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
 
@@ -134,10 +137,8 @@ export default function NewCampaignPage() {
 
   // variants
   const [variants, setVariants] = useState<Variant[]>([]);
-  const [selectedVariantIndex, setSelectedVariantIndex] =
-    useState<number | null>(null);
-  const [previewPlatform, setPreviewPlatform] =
-    useState<PlatformPreviewType>("meta");
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState<number | null>(null);
+  const [previewPlatform, setPreviewPlatform] = useState<PlatformPreviewType>("meta");
 
   // status
   const [isGenerating, setIsGenerating] = useState(false);
@@ -145,6 +146,8 @@ export default function NewCampaignPage() {
   const [isPostingLinkedIn, setIsPostingLinkedIn] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const platformKey = useMemo(() => toPlatformKey(platformUi), [platformUi]);
 
   function resetNotices() {
     setMessage(null);
@@ -172,7 +175,7 @@ export default function NewCampaignPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          platform,
+          platform: platformUi,
           objective,
           url,
           audienceKeywords,
@@ -197,11 +200,7 @@ export default function NewCampaignPage() {
       setSelectedVariantIndex(0);
       setMessage(
         `Generated 3 ${
-          lengthMode === "short"
-            ? "short"
-            : lengthMode === "long"
-            ? "long-form"
-            : "medium-length"
+          lengthMode === "short" ? "short" : lengthMode === "long" ? "long-form" : "medium-length"
         } ad variants.`
       );
     } catch (e: any) {
@@ -211,58 +210,93 @@ export default function NewCampaignPage() {
     }
   }
 
-  function baseCampaignPayload() {
+  function parseAgeRange(range: string): { age_min: number | null; age_max: number | null } {
+    const m = String(range || "").match(/(\d+)\s*-\s*(\d+)/);
+    if (!m) return { age_min: null, age_max: null };
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return { age_min: null, age_max: null };
+    return { age_min: a, age_max: b };
+  }
+
+  function basePayload() {
+    const { age_min, age_max } = parseAgeRange(ageRange);
+    const keywords = audienceKeywords
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
     return {
+      // campaigns table
       name: name || "Root Health campaign",
-      platform,
-      objective,
-      budget_daily: budgetDaily || null,
+      platform: platformKey, // ✅ canonical
+      objective: String(objective || "").toLowerCase(),
+      status: "draft",
+      budget_daily: budgetDaily ? Number(budgetDaily) : null,
       start_date: startDate || null,
       end_date: endDate || null,
-      location,
-      age_range: ageRange,
-      audience_keywords: audienceKeywords,
-      url,
-      media_url: mediaUrl || null,
-      video_url: videoUrl || null,
-      button_label: "Find out more",
+      location: location || null,
+      age_min,
+      age_max,
+      audience_keywords: keywords.length ? keywords : null,
+      landing_url: url || null,
       utm_source: utmSource || null,
       utm_medium: utmMedium || null,
-      utm_campaign: utmCampaign || null,
-      status: "draft",
+      utm_campaign: utmCampaign || safeSlug(name),
+      // keep any extras in meta (future-proof)
+      meta: {
+        platform_ui: platformUi,
+        age_range_ui: ageRange,
+        button_label: "Find out more",
+      },
+      // variant defaults (we pass per variant)
+      media_url: mediaUrl || null,
+      video_url: videoUrl || null,
     };
   }
 
-  async function saveCampaign(payload: any) {
+  async function saveCampaignWithVariants(variantsToSave: { ab_group: "A" | "B" | "C"; primary_text: string; headline: string }[]) {
+    const base = basePayload();
+
+    // The /api/campaigns route expects:
+    // { name, platform, objective, ... , variants: [{ab_group, primary_text, headline, media_url, video_url}] }
+    const payload = {
+      name: base.name,
+      platform: base.platform,
+      objective: base.objective,
+      status: base.status,
+      budget_daily: base.budget_daily,
+      start_date: base.start_date,
+      end_date: base.end_date,
+      location: base.location,
+      age_min: base.age_min,
+      age_max: base.age_max,
+      audience_keywords: base.audience_keywords,
+      landing_url: base.landing_url,
+      utm_source: base.utm_source,
+      utm_medium: base.utm_medium,
+      utm_campaign: base.utm_campaign,
+      meta: base.meta,
+      variants: variantsToSave.map((v) => ({
+        ab_group: v.ab_group,
+        primary_text: v.primary_text,
+        headline: v.headline,
+        media_url: base.media_url,
+        video_url: base.video_url,
+        status: "draft",
+      })),
+    };
+
     const res = await fetch("/api/campaigns", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || "Failed to save campaign");
-    }
-  }
 
-  async function saveFromVariant(index: number, abGroup: "A" | "B" | "C") {
-    const v = variants[index];
-    if (!v) return;
+    const data = await res.json().catch(() => ({} as any));
+    if (!res.ok) throw new Error(data.error || "Failed to save campaign");
 
-    const payload = {
-      ...baseCampaignPayload(),
-      primary_text: v.primary_text,
-      headline: v.headline,
-      hook: null,
-      before_items: null,
-      after_items: null,
-      explainer: null,
-      ctas_text: null,
-      long_form: null,
-      ab_group: abGroup,
-    };
-
-    await saveCampaign(payload);
+    return data?.campaignId as string | undefined;
   }
 
   async function handleSaveSelected() {
@@ -271,10 +305,17 @@ export default function NewCampaignPage() {
       setError("No variant selected");
       return;
     }
+
+    const v = variants[selectedVariantIndex];
+    if (!v) {
+      setError("Selected variant missing");
+      return;
+    }
+
     setIsSaving(true);
     try {
-      await saveFromVariant(selectedVariantIndex, "A");
-      setMessage("Selected variant saved as A.");
+      const campaignId = await saveCampaignWithVariants([{ ab_group: "A", primary_text: v.primary_text, headline: v.headline }]);
+      setMessage(campaignId ? "Saved selected variant as A ✅" : "Saved selected variant as A ✅");
     } catch (e: any) {
       setError(e?.message || "Error saving selected variant");
     } finally {
@@ -292,15 +333,59 @@ export default function NewCampaignPage() {
     setIsSaving(true);
     try {
       const labels: ("A" | "B" | "C")[] = ["A", "B", "C"];
-      const toSave = variants.slice(0, 3);
-      await Promise.all(
-        toSave.map((_, idx) => saveFromVariant(idx, labels[idx]))
-      );
-      setMessage("Saved variants A, B, C.");
+      const toSave = variants.slice(0, 3).map((v, idx) => ({
+        ab_group: labels[idx],
+        primary_text: v.primary_text,
+        headline: v.headline,
+      }));
+      await saveCampaignWithVariants(toSave);
+      setMessage("Saved variants A, B, C ✅");
     } catch (e: any) {
       setError(e?.message || "Error saving all variants");
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  // ✅ Export “plan” as JSON + copy to clipboard (the booking happens on platform side)
+  async function handleExportSelected() {
+    resetNotices();
+    if (selectedVariantIndex === null || !variants[selectedVariantIndex]) {
+      setError("No variant selected");
+      return;
+    }
+
+    const v = variants[selectedVariantIndex];
+    const exportObj = {
+      campaign: {
+        name,
+        platform: platformKey,
+        objective,
+        budget_daily_gbp: budgetDaily ? Number(budgetDaily) : null,
+        start_date: startDate || null,
+        end_date: endDate || null,
+        location,
+        age_range: ageRange,
+        audience_keywords: audienceKeywords,
+        landing_url: url,
+        utm_source: utmSource,
+        utm_medium: utmMedium,
+        utm_campaign: utmCampaign,
+        media_url: mediaUrl || null,
+        video_url: videoUrl || null,
+      },
+      variant: {
+        ab_group: ["A", "B", "C"][selectedVariantIndex] || "A",
+        headline: v.headline,
+        primary_text: v.primary_text,
+      },
+    };
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(exportObj, null, 2));
+      setMessage("Export copied to clipboard ✅ (paste into your ads manager setup)");
+    } catch {
+      setError("Could not copy to clipboard. Your browser may be blocking it.");
     }
   }
 
@@ -312,14 +397,12 @@ export default function NewCampaignPage() {
       return;
     }
 
-    if (platform !== "LinkedIn") {
+    if (platformKey !== "linkedin") {
       setError("Set platform to LinkedIn to post directly.");
       return;
     }
 
     const v = variants[selectedVariantIndex];
-
-    // Compose the post: ad text + URL on a new line so people can click through
     const text = `${v.primary_text}\n\n${url}`;
 
     try {
@@ -330,7 +413,7 @@ export default function NewCampaignPage() {
         body: JSON.stringify({ text }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({} as any));
       if (!res.ok) {
         setError(data.error || "Failed to post to LinkedIn");
         return;
@@ -344,24 +427,17 @@ export default function NewCampaignPage() {
     }
   }
 
-  const selectedVariant =
-    selectedVariantIndex !== null ? variants[selectedVariantIndex] : null;
-
-  const canPostToLinkedIn =
-    !!selectedVariant && platform === "LinkedIn" && !isPostingLinkedIn;
+  const selectedVariant = selectedVariantIndex !== null ? variants[selectedVariantIndex] : null;
+  const canPostToLinkedIn = !!selectedVariant && platformKey === "linkedin" && !isPostingLinkedIn;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
       <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
         <header className="flex items-center justify-between gap-2">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-50">
-              New Campaign – Root Health
-            </h1>
+            <h1 className="text-2xl font-semibold text-slate-50">New Campaign – Root Health</h1>
             <p className="text-sm text-slate-300">
-              Your glass cockpit for ad creation. Choose ad length, generate
-              performance copy, preview by platform, save A/B/C variants – and
-              post to LinkedIn in one click.
+              Plan, generate, preview, save A/B/C variants — then export and book the ad directly on the platform.
             </p>
           </div>
           <a
@@ -388,18 +464,16 @@ export default function NewCampaignPage() {
         )}
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)]">
-          {/* LEFT SIDE */}
+          {/* LEFT */}
           <div className="space-y-6">
             {/* Campaign settings */}
             <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
-              <h2 className="text-sm font-semibold text-slate-50">
-                Campaign settings
-              </h2>
+              <h2 className="text-sm font-semibold text-slate-50">Campaign settings</h2>
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
-                    Campaign name
-                    <HelpTip text="Internal name only – used so you and your team can recognise this campaign later." />
+                    Campaign name <HelpTip text="Internal name only – used so you can recognise this campaign later." />
                   </label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
@@ -407,45 +481,45 @@ export default function NewCampaignPage() {
                     onChange={(e) => setName(e.target.value)}
                   />
                 </div>
+
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
-                    Platform
-                    <HelpTip text="Where this campaign will run. Used to shape the tone (e.g. more emotional for Meta, more stats-led for LinkedIn)." />
+                    Platform <HelpTip text="Used to shape tone. Stored as meta/linkedin/google/tiktok." />
                   </label>
                   <select
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
-                    value={platform}
-                    onChange={(e) => setPlatform(e.target.value)}
+                    value={platformUi}
+                    onChange={(e) => setPlatformUi(e.target.value)}
                   >
                     <option>Meta (Facebook/IG)</option>
                     <option>LinkedIn</option>
                     <option>Google</option>
                     <option>TikTok</option>
                   </select>
+
+                  <p className="text-[11px] text-slate-400">
+                    Saved as: <span className="text-slate-200 font-semibold">{platformKey}</span>
+                  </p>
                 </div>
+
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
-                    Objective
-                    <HelpTip text="Leads = capture signups/interest, Traffic = drive clicks, Awareness = get seen and remembered." />
+                    Objective <HelpTip text="Leads = signups, Traffic = clicks, Awareness = seen and remembered." />
                   </label>
                   <select
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={objective}
-                    onChange={(e) =>
-                      setObjective(
-                        e.target.value as "Leads" | "Traffic" | "Awareness"
-                      )
-                    }
+                    onChange={(e) => setObjective(e.target.value as any)}
                   >
                     <option>Leads</option>
                     <option>Traffic</option>
                     <option>Awareness</option>
                   </select>
                 </div>
+
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-200">
-                    Daily budget (£)
-                    <HelpTip text="Planning only – this is stored for reporting and ad planning, not sent to ad networks." />
+                    Daily budget (£) <HelpTip text="Planning only – stored for reporting (not sent to ad networks)." />
                   </label>
                   <input
                     type="number"
@@ -454,10 +528,9 @@ export default function NewCampaignPage() {
                     onChange={(e) => setBudgetDaily(e.target.value)}
                   />
                 </div>
+
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Start date
-                  </label>
+                  <label className="text-xs font-medium text-slate-200">Start date</label>
                   <input
                     type="date"
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
@@ -465,10 +538,9 @@ export default function NewCampaignPage() {
                     onChange={(e) => setStartDate(e.target.value)}
                   />
                 </div>
+
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    End date (optional)
-                  </label>
+                  <label className="text-xs font-medium text-slate-200">End date (optional)</label>
                   <input
                     type="date"
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
@@ -476,20 +548,18 @@ export default function NewCampaignPage() {
                     onChange={(e) => setEndDate(e.target.value)}
                   />
                 </div>
+
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Location
-                  </label>
+                  <label className="text-xs font-medium text-slate-200">Location</label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
                   />
                 </div>
+
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Age range
-                  </label>
+                  <label className="text-xs font-medium text-slate-200">Age range</label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
                     value={ageRange}
@@ -501,7 +571,7 @@ export default function NewCampaignPage() {
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-200">
                   Audience keywords (comma-separated)
-                  <HelpTip text="Rough description of who this is for – job roles, struggles or interests. Used to point the AI at the right person." />
+                  <HelpTip text="Used to aim the AI at the right person. Also saved for reporting." />
                 </label>
                 <textarea
                   className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400 min-h-[60px]"
@@ -509,21 +579,18 @@ export default function NewCampaignPage() {
                   onChange={(e) => setAudienceKeywords(e.target.value)}
                 />
                 <p className="text-[11px] text-slate-300">
-                  Example: "burnout, NHS staff, senior leaders, new mums, ADHD,
-                  small business owners".
+                  Example: "burnout, NHS staff, senior leaders, new mums, ADHD, small business owners".
                 </p>
               </div>
             </section>
 
             {/* URL + UTM */}
             <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
-              <h2 className="text-sm font-semibold text-slate-50">
-                Landing URL & tracking
-              </h2>
+              <h2 className="text-sm font-semibold text-slate-50">Landing URL & tracking</h2>
+
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-200">
-                  Landing URL
-                  <HelpTip text="Where the ad sends people. Usually a Root Health landing page, quiz or signup page." />
+                  Landing URL <HelpTip text="Where the ad sends people." />
                 </label>
                 <input
                   className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
@@ -531,12 +598,10 @@ export default function NewCampaignPage() {
                   onChange={(e) => setUrl(e.target.value)}
                 />
               </div>
+
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    utm_source
-                    <HelpTip text="Where the click comes from (e.g. facebook, linkedin). Shows up in analytics." />
-                  </label>
+                  <label className="text-xs font-medium text-slate-200">utm_source</label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={utmSource}
@@ -544,10 +609,7 @@ export default function NewCampaignPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    utm_medium
-                    <HelpTip text="Type of traffic (e.g. paid_social, email, referral)." />
-                  </label>
+                  <label className="text-xs font-medium text-slate-200">utm_medium</label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={utmMedium}
@@ -555,10 +617,7 @@ export default function NewCampaignPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    utm_campaign
-                    <HelpTip text="Name of this campaign in analytics. Matches what you use in ads so reporting is clean." />
-                  </label>
+                  <label className="text-xs font-medium text-slate-200">utm_campaign</label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50"
                     value={utmCampaign}
@@ -566,6 +625,7 @@ export default function NewCampaignPage() {
                   />
                 </div>
               </div>
+
               <button
                 type="button"
                 onClick={applyUtmToUrl}
@@ -576,10 +636,7 @@ export default function NewCampaignPage() {
 
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Media URL (optional)
-                    <HelpTip text="Image URL for the ad preview and future automatic posting." />
-                  </label>
+                  <label className="text-xs font-medium text-slate-200">Media URL (optional)</label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
                     value={mediaUrl}
@@ -587,10 +644,7 @@ export default function NewCampaignPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Video URL (optional)
-                    <HelpTip text="Video file URL if you're using video creative with this copy." />
-                  </label>
+                  <label className="text-xs font-medium text-slate-200">Video URL (optional)</label>
                   <input
                     className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm text-slate-50 placeholder:text-slate-400"
                     value={videoUrl}
@@ -600,16 +654,13 @@ export default function NewCampaignPage() {
               </div>
             </section>
 
-            {/* Variants + Length + Actions */}
+            {/* Variants */}
             <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-sm font-semibold text-slate-50">
-                    Ad variants (A/B/C)
-                  </h2>
+                  <h2 className="text-sm font-semibold text-slate-50">Ad variants (A/B/C)</h2>
                   <p className="text-[11px] text-slate-300">
-                    3 creative angles, same audience & settings. Perfect for
-                    testing what actually converts.
+                    3 angles, same audience & settings. Save them, export one, then book the ad directly on the platform.
                   </p>
                 </div>
                 <button
@@ -622,46 +673,23 @@ export default function NewCampaignPage() {
                 </button>
               </div>
 
-              {/* Ad length selector */}
               <div className="space-y-2">
-                <p className="text-[11px] font-medium text-slate-200">
-                  Ad length
-                  <HelpTip text="Short = punchy and fast. Medium = full but scannable. Long = story-style ad with deeper emotional build." />
-                </p>
+                <p className="text-[11px] font-medium text-slate-200">Ad length</p>
                 <div className="inline-flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setLengthMode("short")}
-                    className={`rounded-full px-3 py-1 text-xs border ${
-                      lengthMode === "short"
-                        ? "bg-emerald-400 text-slate-950 border-emerald-300"
-                        : "bg-black/30 text-slate-100 border-white/20"
-                    }`}
-                  >
-                    Short (2–4 sentences)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLengthMode("medium")}
-                    className={`rounded-full px-3 py-1 text-xs border ${
-                      lengthMode === "medium"
-                        ? "bg-emerald-400 text-slate-950 border-emerald-300"
-                        : "bg-black/30 text-slate-100 border-white/20"
-                    }`}
-                  >
-                    Medium (120–220 words)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLengthMode("long")}
-                    className={`rounded-full px-3 py-1 text-xs border ${
-                      lengthMode === "long"
-                        ? "bg-emerald-400 text-slate-950 border-emerald-300"
-                        : "bg-black/30 text-slate-100 border-white/20"
-                    }`}
-                  >
-                    Long (story-style)
-                  </button>
+                  {(["short", "medium", "long"] as LengthMode[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setLengthMode(m)}
+                      className={`rounded-full px-3 py-1 text-xs border ${
+                        lengthMode === m
+                          ? "bg-emerald-400 text-slate-950 border-emerald-300"
+                          : "bg-black/30 text-slate-100 border-white/20"
+                      }`}
+                    >
+                      {m === "short" ? "Short (2–4 sentences)" : m === "medium" ? "Medium (120–220 words)" : "Long (story-style)"}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -684,6 +712,7 @@ export default function NewCampaignPage() {
                         </button>
                       ))}
                     </div>
+
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -693,6 +722,7 @@ export default function NewCampaignPage() {
                       >
                         Save selected
                       </button>
+
                       <button
                         type="button"
                         onClick={handleSaveAll}
@@ -701,6 +731,20 @@ export default function NewCampaignPage() {
                       >
                         Save all 3 (A/B/C)
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={handleExportSelected}
+                        disabled={!selectedVariant}
+                        className={`rounded-md px-3 py-1.5 text-xs font-medium shadow-md ${
+                          selectedVariant
+                            ? "bg-white/10 text-slate-50 hover:bg-white/20 border border-white/15"
+                            : "bg-black/30 text-slate-400 cursor-not-allowed border border-white/15"
+                        }`}
+                      >
+                        Export selected (copy)
+                      </button>
+
                       <button
                         type="button"
                         onClick={handlePostSelectedToLinkedIn}
@@ -711,9 +755,7 @@ export default function NewCampaignPage() {
                             : "bg-black/30 text-slate-400 cursor-not-allowed border border-white/15"
                         }`}
                       >
-                        {isPostingLinkedIn
-                          ? "Posting to LinkedIn..."
-                          : "Post selected to LinkedIn"}
+                        {isPostingLinkedIn ? "Posting to LinkedIn..." : "Post selected to LinkedIn"}
                       </button>
                     </div>
                   </div>
@@ -721,20 +763,12 @@ export default function NewCampaignPage() {
                   {selectedVariant && (
                     <div className="rounded-xl border border-white/15 bg-black/30 p-3 space-y-3">
                       <div>
-                        <p className="text-[11px] font-semibold text-slate-300">
-                          Primary text (generated)
-                        </p>
-                        <p className="text-sm whitespace-pre-wrap text-slate-50">
-                          {selectedVariant.primary_text}
-                        </p>
+                        <p className="text-[11px] font-semibold text-slate-300">Primary text (generated)</p>
+                        <p className="text-sm whitespace-pre-wrap text-slate-50">{selectedVariant.primary_text}</p>
                       </div>
                       <div>
-                        <p className="text-[11px] font-semibold text-slate-300">
-                          Headline
-                        </p>
-                        <p className="text-sm text-slate-50">
-                          {selectedVariant.headline}
-                        </p>
+                        <p className="text-[11px] font-semibold text-slate-300">Headline</p>
+                        <p className="text-sm text-slate-50">{selectedVariant.headline}</p>
                       </div>
                     </div>
                   )}
@@ -743,47 +777,24 @@ export default function NewCampaignPage() {
             </section>
           </div>
 
-          {/* RIGHT SIDE – PREVIEW + INFO */}
+          {/* RIGHT */}
           <div className="space-y-4">
             <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 space-y-4 shadow-lg">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold text-slate-50">
-                  Platform preview
-                </h2>
+                <h2 className="text-sm font-semibold text-slate-50">Platform preview</h2>
                 <div className="inline-flex rounded-full border border-white/20 bg-black/30 p-1 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={() => setPreviewPlatform("meta")}
-                    className={`px-3 py-1 rounded-full ${
-                      previewPlatform === "meta"
-                        ? "bg-emerald-400 text-slate-950"
-                        : "text-slate-100"
-                    }`}
-                  >
-                    Meta
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewPlatform("linkedin")}
-                    className={`px-3 py-1 rounded-full ${
-                      previewPlatform === "linkedin"
-                        ? "bg-emerald-400 text-slate-950"
-                        : "text-slate-100"
-                    }`}
-                  >
-                    LinkedIn
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewPlatform("google")}
-                    className={`px-3 py-1 rounded-full ${
-                      previewPlatform === "google"
-                        ? "bg-emerald-400 text-slate-950"
-                        : "text-slate-100"
-                    }`}
-                  >
-                    Google
-                  </button>
+                  {(["meta", "linkedin", "google"] as PlatformPreviewType[]).map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setPreviewPlatform(p)}
+                      className={`px-3 py-1 rounded-full ${
+                        previewPlatform === p ? "bg-emerald-400 text-slate-950" : "text-slate-100"
+                      }`}
+                    >
+                      {p[0].toUpperCase() + p.slice(1)}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -797,36 +808,25 @@ export default function NewCampaignPage() {
                 />
               ) : (
                 <p className="text-xs text-slate-300">
-                  Generate variants and select one to see how it will look on
-                  each platform.
+                  Generate variants and select one to see how it will look on each platform.
                 </p>
               )}
             </section>
 
             <section className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 text-xs text-slate-200 space-y-2 shadow-lg">
-              <p className="font-semibold text-slate-50">
-                How this connects to Airtable
-              </p>
+              <p className="font-semibold text-slate-50">How this works (Supabase)</p>
               <ul className="list-disc pl-4 space-y-1">
                 <li>
-                  Each variant is saved as a row in <code>Campaigns</code> with{" "}
-                  <code>primary_text</code>, <code>headline</code> and{" "}
-                  <code>ab_group</code> (A/B/C).
+                  The campaign settings are saved to <code>campaigns</code>.
                 </li>
                 <li>
-                  Core fields like <code>name</code>, <code>platform</code>,{" "}
-                  <code>objective</code>, <code>budget_daily</code>,{" "}
-                  <code>start_date</code>, <code>end_date</code> and{" "}
-                  <code>audience_keywords</code> are shared across the group.
+                  Each A/B/C variant is saved to <code>campaign_variants</code> linked to that campaign.
                 </li>
                 <li>
-                  URL & UTM go into <code>url</code>, <code>utm_source</code>,{" "}
-                  <code>utm_medium</code>, <code>utm_campaign</code>.
+                  Export copies your setup + copy to clipboard so you can recreate it quickly in Meta / LinkedIn / Google Ads.
                 </li>
                 <li>
-                  When platform is set to <strong>LinkedIn</strong>, you can
-                  post the selected variant straight from this page using your
-                  connected LinkedIn account.
+                  (Optional) If platform is <strong>LinkedIn</strong>, you can post the selected variant organically from here.
                 </li>
               </ul>
             </section>
