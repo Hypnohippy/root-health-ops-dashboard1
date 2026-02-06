@@ -3,76 +3,103 @@ import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function nOrNull(v: any) {
-  const s = String(v ?? "").trim();
-  if (!s) return null;
-  const n = Number(s);
+async function getOrganisationId(): Promise<string | null> {
+  const forced = (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
+  if (forced) return forced;
+
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (error || !data || data.length === 0) return null;
+  return String((data as any)[0].id);
+}
+
+function toNumOrNull(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string" && v.trim() === "") return null;
+  const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
-function iOrNull(v: any) {
-  const s = String(v ?? "").trim();
-  if (!s) return null;
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-  const i = Math.floor(n);
-  return i >= 0 ? i : null;
+function calcCtr(clicks: number | null, impressions: number | null, fallbackCtr: number | null) {
+  if (fallbackCtr !== null) return fallbackCtr;
+  if (clicks === null || impressions === null) return null;
+  if (impressions <= 0) return null;
+  return clicks / impressions;
+}
+
+function calcCpl(spend: number | null, leads: number | null, fallbackCpl: number | null) {
+  if (fallbackCpl !== null) return fallbackCpl;
+  if (spend === null || leads === null) return null;
+  if (leads <= 0) return null;
+  return spend / leads;
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({} as any));
+    const body = await req.json().catch(() => ({}));
 
-    const variantId = String(body.variantId || "").trim();
+    const organisationId = await getOrganisationId();
+    if (!organisationId) {
+      return NextResponse.json({ ok: false, error: "No organisation found." }, { status: 200 });
+    }
+
     const campaignId = String(body.campaignId || "").trim();
+    const variantId = String(body.variantId || "").trim();
+    if (!campaignId) return NextResponse.json({ ok: false, error: "Missing campaignId." }, { status: 200 });
+    if (!variantId) return NextResponse.json({ ok: false, error: "Missing variantId." }, { status: 200 });
 
-    if (!variantId) {
-      return NextResponse.json({ ok: false, error: "Missing variantId" }, { status: 400 });
-    }
-    if (!campaignId) {
-      return NextResponse.json({ ok: false, error: "Missing campaignId" }, { status: 400 });
-    }
+    // Validate campaign belongs to org
+    const { data: campaign, error: cErr } = await supabaseAdmin
+      .from("campaigns")
+      .select("id, organisation_id")
+      .eq("id", campaignId)
+      .single();
 
-    const impressions = iOrNull(body.impressions);
-    const clicks = iOrNull(body.clicks);
-    const leads = iOrNull(body.leads);
-    const spend = nOrNull(body.spend);
-
-    // Basic validation (only validate if provided)
-    if (impressions !== null && impressions < 0) {
-      return NextResponse.json({ ok: false, error: "Impressions must be >= 0" }, { status: 400 });
-    }
-    if (clicks !== null && clicks < 0) {
-      return NextResponse.json({ ok: false, error: "Clicks must be >= 0" }, { status: 400 });
-    }
-    if (leads !== null && leads < 0) {
-      return NextResponse.json({ ok: false, error: "Leads must be >= 0" }, { status: 400 });
-    }
-    if (spend !== null && spend < 0) {
-      return NextResponse.json({ ok: false, error: "Spend must be >= 0" }, { status: 400 });
+    if (cErr || !campaign) {
+      return NextResponse.json({ ok: false, error: cErr?.message || "Campaign not found." }, { status: 200 });
     }
 
-    // Auto-calc CTR/CPL when possible
-    const ctr =
-      impressions && clicks !== null && impressions > 0
-        ? clicks / impressions
-        : null;
+    if (String((campaign as any).organisation_id) !== organisationId) {
+      return NextResponse.json({ ok: false, error: "Campaign does not belong to this organisation." }, { status: 200 });
+    }
 
-    const cpl =
-      leads && spend !== null && leads > 0
-        ? spend / leads
-        : null;
+    // Validate variant belongs to campaign
+    const { data: variant, error: vErr } = await supabaseAdmin
+      .from("campaign_variants")
+      .select("id, campaign_id")
+      .eq("id", variantId)
+      .single();
+
+    if (vErr || !variant) {
+      return NextResponse.json({ ok: false, error: vErr?.message || "Variant not found." }, { status: 200 });
+    }
+
+    if (String((variant as any).campaign_id) !== campaignId) {
+      return NextResponse.json({ ok: false, error: "Variant does not belong to this campaign." }, { status: 200 });
+    }
+
+    const impressions = toNumOrNull(body.impressions);
+    const clicks = toNumOrNull(body.clicks);
+    const leads = toNumOrNull(body.leads);
+    const spend = toNumOrNull(body.spend);
+
+    const ctrProvided = toNumOrNull(body.ctr);
+    const cplProvided = toNumOrNull(body.cpl);
+
+    const ctr = calcCtr(clicks, impressions, ctrProvided);
+    const cpl = calcCpl(spend, leads, cplProvided);
 
     const source = String(body.source || "").trim() || null;
-    const periodStart = String(body.period_start || "").trim() || null;
-    const periodEnd = String(body.period_end || "").trim() || null;
-
-    const meta =
-      body.meta && typeof body.meta === "object" ? body.meta : null;
+    const period_start = String(body.period_start || "").trim() || null;
+    const period_end = String(body.period_end || "").trim() || null;
 
     const payload: any = {
-      variant_id: variantId,
       campaign_id: campaignId,
+      variant_id: variantId,
       impressions,
       clicks,
       leads,
@@ -80,44 +107,24 @@ export async function POST(req: NextRequest) {
       ctr,
       cpl,
       source,
-      period_start: periodStart,
-      period_end: periodEnd,
-      meta,
+      period_start,
+      period_end,
+      meta: body.meta && typeof body.meta === "object" ? body.meta : null,
       created_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabaseAdmin
+    const { data: inserted, error: iErr } = await supabaseAdmin
       .from("campaign_variant_metrics")
       .insert(payload)
-      .select()
+      .select("id, variant_id, campaign_id, ctr, cpl, created_at")
       .single();
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    if (iErr || !inserted) {
+      return NextResponse.json({ ok: false, error: iErr?.message || "Failed to log results." }, { status: 200 });
     }
 
-    return NextResponse.json({ ok: true, record: data }, { status: 200 });
+    return NextResponse.json({ ok: true, record: inserted }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Failed to log results" }, { status: 500 });
-  }
-}
-
-export async function GET(req: NextRequest) {
-  try {
-    const variantId = String(req.nextUrl.searchParams.get("variantId") || "").trim();
-    if (!variantId) return NextResponse.json({ ok: false, error: "Missing variantId" }, { status: 400 });
-
-    const { data, error } = await supabaseAdmin
-      .from("campaign_variant_metrics")
-      .select("id, variant_id, campaign_id, impressions, clicks, leads, spend, ctr, cpl, source, period_start, period_end, meta, created_at")
-      .eq("variant_id", variantId)
-      .order("created_at", { ascending: false })
-      .limit(20);
-
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-
-    return NextResponse.json({ ok: true, records: data || [] }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Failed to load variant metrics" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "Failed to log results." }, { status: 200 });
   }
 }
