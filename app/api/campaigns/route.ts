@@ -1,98 +1,129 @@
+// app/api/campaigns/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
-/** Healthcheck so you can hit /api/ai/campaign in a browser */
-export async function GET() {
-  return NextResponse.json({ ok: true, route: "/api/ai/campaign" });
-}
+export const runtime = "nodejs";
 
 /**
- * Strict ad-copy generator for campaigns.
- * Always returns JSON: { variants: [{ primary_text, headline }, ...] }
- * Guardrails to prevent "support reply" tone.
+ * Returns a flat list of "campaign records" shaped like your UI expects:
+ * Each variant row becomes one record containing campaign fields + variant fields.
+ *
+ * This is deliberately NOT touching any posting logic.
  */
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    const { platform, objective, url, audienceKeywords, brandVoice = "Root Health founder" } = await req.json();
+    const url = new URL(req.url);
 
-    const prompt = `
-You are a senior PERFORMANCE MARKETING copywriter for ${brandVoice}.
-Task: Generate 3 DISTINCT ad variants for ${platform} with objective ${objective}.
-Audience: people navigating stress/burnout who want practical, hopeful help.
-Style: punchy, specific, motivating; NEVER apologetic; NEVER clinical; NOT a therapist reply.
-CTA: clear, action-oriented; suitable for ads.
+    // Optional: allow filtering
+    const organisationId = (url.searchParams.get("organisationId") || "").trim();
+    const platform = (url.searchParams.get("platform") || "").trim();
+    const objective = (url.searchParams.get("objective") || "").trim();
 
-VERY IMPORTANT RULES:
-- DO NOT write supportive replies like "I'm sorry you're feeling..." or "What you're experiencing..."
-- DO NOT ask reflective questions; this is not a comment reply.
-- Keep PRIMARY_TEXT to 2–4 short sentences (hook first).
-- HEADLINE: 4–8 words, scroll-stopping (e.g., "Take Control of Your Health").
-- Include ONE clear benefit + ONE CTA in PRIMARY_TEXT.
-- Align to objective:
-  - Leads: urgency + value + trust ("Get your plan")
-  - Traffic: curiosity + benefit + soft CTA ("Learn more")
-  - Awareness: bold promise + identity ("Feel like yourself again")
+    if (!organisationId) {
+      return NextResponse.json(
+        {
+          error: "Missing organisationId",
+          userMessage:
+            "No organisation context. Pass ?organisationId=... or we can auto-resolve from your session next.",
+        },
+        { status: 400 }
+      );
+    }
 
-Landing page: ${url}
-Audience keywords: ${audienceKeywords}
+    // 1) Load campaigns for org
+    let q = supabaseAdmin
+      .from("campaigns")
+      .select(
+        "id, organisation_id, name, platform, objective, status, budget_daily, start_date, end_date, url, created_at"
+      )
+      .eq("organisation_id", organisationId)
+      .order("created_at", { ascending: false });
 
-Return ONLY valid JSON with exactly this shape:
-{
-  "variants": [
-    { "primary_text": "...", "headline": "..." },
-    { "primary_text": "...", "headline": "..." },
-    { "primary_text": "...", "headline": "..." }
-  ]
-}
-    `.trim();
+    if (platform) q = q.eq("platform", platform);
+    if (objective) q = q.eq("objective", objective);
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.8,
-        top_p: 0.9,
-        max_tokens: 500,
-        response_format: { type: "json_object" },
-        messages: [
+    const { data: campaigns, error: cErr } = await q;
+    if (cErr) {
+      console.error("[api/campaigns] campaigns load error", cErr);
+      return NextResponse.json(
+        { error: cErr.message || "Failed loading campaigns" },
+        { status: 500 }
+      );
+    }
+
+    const campaignIds = (campaigns || []).map((c: any) => c.id);
+    if (campaignIds.length === 0) {
+      return NextResponse.json({ records: [] }, { status: 200 });
+    }
+
+    // 2) Load variants for those campaigns
+    const { data: variants, error: vErr } = await supabaseAdmin
+      .from("campaign_variants")
+      .select("id, campaign_id, ab_group, headline, primary_text, status")
+      .in("campaign_id", campaignIds);
+
+    if (vErr) {
+      console.error("[api/campaigns] variants load error", vErr);
+      return NextResponse.json(
+        { error: vErr.message || "Failed loading campaign variants" },
+        { status: 500 }
+      );
+    }
+
+    const byCampaign: Record<string, any[]> = {};
+    for (const v of variants || []) {
+      const cid = String((v as any).campaign_id || "");
+      if (!cid) continue;
+      if (!byCampaign[cid]) byCampaign[cid] = [];
+      byCampaign[cid].push(v);
+    }
+
+    // 3) Flatten: each variant becomes one record for your UI
+    const records = (campaigns || []).flatMap((c: any) => {
+      const vs = byCampaign[String(c.id)] || [];
+
+      // If no variants exist yet, still return 1 "campaign record" so it shows up
+      if (vs.length === 0) {
+        return [
           {
-            role: "system",
-            content:
-              "You write high-converting ad copy. You NEVER produce therapy-style replies. Output strictly JSON matching the requested schema."
+            id: String(c.id),
+            name: c.name || "",
+            platform: c.platform || "",
+            objective: c.objective || "",
+            primary_text: "",
+            headline: "",
+            status: c.status || "draft",
+            ab_group: "",
+            start_date: c.start_date,
+            end_date: c.end_date,
+            budget_daily: c.budget_daily,
+            url: c.url || "",
           },
-          { role: "user", content: prompt },
-        ],
-      }),
+        ];
+      }
+
+      return vs.map((v: any) => ({
+        id: String(v.id),
+        name: c.name || "",
+        platform: c.platform || "",
+        objective: c.objective || "",
+        primary_text: v.primary_text || "",
+        headline: v.headline || "",
+        status: v.status || c.status || "draft",
+        ab_group: v.ab_group || "",
+        start_date: c.start_date,
+        end_date: c.end_date,
+        budget_daily: c.budget_daily,
+        url: c.url || "",
+      }));
     });
 
-    const raw = await res.json();
-    if (!res.ok) {
-      return NextResponse.json({ error: raw.error?.message || "AI request failed" }, { status: res.status });
-    }
-
-    // Parse JSON content
-    let payload: any = {};
-    try {
-      const content = raw.choices?.[0]?.message?.content || "{}";
-      payload = JSON.parse(content);
-    } catch {
-      return NextResponse.json({ error: "AI returned non-JSON content" }, { status: 500 });
-    }
-
-    // Basic validation + trimming
-    if (!payload?.variants || !Array.isArray(payload.variants) || payload.variants.length < 1) {
-      return NextResponse.json({ error: "AI returned no variants" }, { status: 500 });
-    }
-    const variants = payload.variants.slice(0, 3).map((v: any) => ({
-      primary_text: String(v.primary_text || "").trim(),
-      headline: String(v.headline || "").trim(),
-    }));
-
-    return NextResponse.json({ variants });
+    return NextResponse.json({ records }, { status: 200 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
+    console.error("[api/campaigns] error", err);
+    return NextResponse.json(
+      { error: err?.message || "Server error" },
+      { status: 500 }
+    );
   }
 }
