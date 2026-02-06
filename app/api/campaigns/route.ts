@@ -87,29 +87,28 @@ export async function POST(req: NextRequest) {
 
     if (cErr || !campaign) return NextResponse.json({ error: cErr?.message || "Failed to create campaign" }, { status: 500 });
 
-    const variantsIncoming = Array.isArray(body.variants) ? body.variants : [];
-    if (variantsIncoming.length > 0) {
-      const variantRows = variantsIncoming.map((v: any) => ({
-        campaign_id: campaign.id,
-        ab_group: String(v.ab_group || "A").toUpperCase(),
-        headline: v.headline ?? null,
-        primary_text: v.primary_text ?? null,
-        media_url: v.media_url ?? null,
-        video_url: v.video_url ?? null,
-        status: v.status ?? "draft",
-        meta: v.meta && typeof v.meta === "object" ? v.meta : null,
-        updated_at: new Date().toISOString(),
-      }));
+   const variantsIncoming = Array.isArray(body.variants) ? body.variants : [];
+if (variantsIncoming.length > 0) {
+  const variantRows = variantsIncoming.map((v: any) => ({
+    campaign_id: campaign.id,
+    ab_group: String(v.ab_group || "A").toUpperCase(),
+    headline: v.headline ?? null,
+    primary_text: v.primary_text ?? null,
+    media_url: v.media_url ?? null,
+    video_url: v.video_url ?? null,
+    status: v.status ?? "draft",
+    meta: v.meta && typeof v.meta === "object" ? v.meta : null,
+    updated_at: new Date().toISOString(),
+  }));
 
-      const { error: vErr } = await supabaseAdmin.from("campaign_variants").insert(variantRows);
-      if (vErr) {
-        return NextResponse.json({
-          error: "Campaign created but variants failed to save",
-          detail: vErr.message,
-          campaign,
-        }, { status: 500 });
-      }
-    }
+  const { error: vErr } = await supabaseAdmin.from("campaign_variants").insert(variantRows);
+  if (vErr) {
+    return NextResponse.json(
+      { error: "Campaign created but variants failed to save", detail: vErr.message, campaign },
+      { status: 500 }
+    );
+  }
+}
 
     return NextResponse.json({ ok: true, campaignId: campaign.id });
   } catch (e: any) {
