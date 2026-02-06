@@ -1,140 +1,88 @@
-// app/api/campaign-variant-metrics/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-async function getOrganisationId(): Promise<string | null> {
-  const forced = (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
-  if (forced) return forced;
-
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (error || !data || data.length === 0) return null;
-  return String(data[0].id);
-}
-
-function toNumberOrNull(v: any) {
-  const n = Number(v);
+function nOrNull(v: any) {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
 
-export async function GET(req: NextRequest) {
-  try {
-    const orgId =
-      (req.nextUrl.searchParams.get("organisationId") || "").trim() ||
-      (await getOrganisationId());
-
-    if (!orgId) {
-      return NextResponse.json({ ok: false, error: "No organisation found." }, { status: 200 });
-    }
-
-    const q = (req.nextUrl.searchParams.get("q") || "").trim();
-    const campaignId = (req.nextUrl.searchParams.get("campaignId") || "").trim();
-    const variantId = (req.nextUrl.searchParams.get("variantId") || "").trim();
-
-    const limit = Math.max(
-      1,
-      Math.min(500, Number(req.nextUrl.searchParams.get("limit") || "50"))
-    );
-
-    // Date filtering (optional)
-    const from = (req.nextUrl.searchParams.get("from") || "").trim(); // ISO date/time or YYYY-MM-DD
-    const to = (req.nextUrl.searchParams.get("to") || "").trim();
-
-    // Join: metrics -> variants -> campaigns (so search works)
-    let query = supabaseAdmin
-      .from("campaign_variant_metrics")
-      .select(
-        `
-        id, ctr, cpl, meta, created_at, variant_id,
-        campaign_variants (
-          id, ab_group, headline, primary_text, campaign_id,
-          campaigns ( id, organisation_id, name, platform, objective )
-        )
-      `
-      )
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    if (variantId) query = query.eq("variant_id", variantId);
-    if (campaignId) query = query.eq("campaign_variants.campaign_id", campaignId);
-
-    // ensure org scope via joined campaigns table
-    query = query.eq("campaign_variants.campaigns.organisation_id", orgId);
-
-    if (from) query = query.gte("created_at", from);
-    if (to) query = query.lte("created_at", to);
-
-    if (q) {
-      // Search across campaign name + variant headline/primary_text
-      // (Supabase supports ilike on joined fields in many setups; if yours complains, tell me and I'll adjust.)
-      query = query.or(
-        [
-          `campaign_variants.headline.ilike.%${q}%`,
-          `campaign_variants.primary_text.ilike.%${q}%`,
-          `campaign_variants.campaigns.name.ilike.%${q}%`,
-        ].join(",")
-      );
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 200 });
-    }
-
-    return NextResponse.json({ ok: true, organisationId: orgId, records: data || [] }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Failed to load metrics history" }, { status: 200 });
-  }
+function iOrNull(v: any) {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  const i = Math.floor(n);
+  return i >= 0 ? i : null;
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-
-    const orgId = String(body.organisationId || "").trim() || (await getOrganisationId());
-    if (!orgId) return NextResponse.json({ ok: false, error: "No organisation found." }, { status: 200 });
+    const body = await req.json().catch(() => ({} as any));
 
     const variantId = String(body.variantId || "").trim();
-    if (!variantId) return NextResponse.json({ ok: false, error: "Missing variantId" }, { status: 200 });
+    const campaignId = String(body.campaignId || "").trim();
 
-    // Guard: ensure variant belongs to org (prevents cross-org writes)
-    const { data: vRow, error: vErr } = await supabaseAdmin
-      .from("campaign_variants")
-      .select(`id, campaign_id, campaigns ( id, organisation_id )`)
-      .eq("id", variantId)
-      .maybeSingle();
-
-    if (vErr || !vRow) {
-      return NextResponse.json({ ok: false, error: "Variant not found." }, { status: 200 });
+    if (!variantId) {
+      return NextResponse.json({ ok: false, error: "Missing variantId" }, { status: 400 });
+    }
+    if (!campaignId) {
+      return NextResponse.json({ ok: false, error: "Missing campaignId" }, { status: 400 });
     }
 
-    const vOrg = (vRow as any)?.campaigns?.organisation_id;
-    if (!vOrg || String(vOrg) !== orgId) {
-      return NextResponse.json({ ok: false, error: "Variant does not belong to this organisation." }, { status: 200 });
+    const impressions = iOrNull(body.impressions);
+    const clicks = iOrNull(body.clicks);
+    const leads = iOrNull(body.leads);
+    const spend = nOrNull(body.spend);
+
+    // Basic validation (only validate if provided)
+    if (impressions !== null && impressions < 0) {
+      return NextResponse.json({ ok: false, error: "Impressions must be >= 0" }, { status: 400 });
+    }
+    if (clicks !== null && clicks < 0) {
+      return NextResponse.json({ ok: false, error: "Clicks must be >= 0" }, { status: 400 });
+    }
+    if (leads !== null && leads < 0) {
+      return NextResponse.json({ ok: false, error: "Leads must be >= 0" }, { status: 400 });
+    }
+    if (spend !== null && spend < 0) {
+      return NextResponse.json({ ok: false, error: "Spend must be >= 0" }, { status: 400 });
     }
 
-    const ctr = toNumberOrNull(body.ctr);
-    const cpl = toNumberOrNull(body.cpl);
+    // Auto-calc CTR/CPL when possible
+    const ctr =
+      impressions && clicks !== null && impressions > 0
+        ? clicks / impressions
+        : null;
 
-    if (ctr === null && cpl === null) {
-      return NextResponse.json(
-        { ok: false, error: "Provide at least one metric: ctr or cpl" },
-        { status: 200 }
-      );
-    }
+    const cpl =
+      leads && spend !== null && leads > 0
+        ? spend / leads
+        : null;
+
+    const source = String(body.source || "").trim() || null;
+    const periodStart = String(body.period_start || "").trim() || null;
+    const periodEnd = String(body.period_end || "").trim() || null;
+
+    const meta =
+      body.meta && typeof body.meta === "object" ? body.meta : null;
 
     const payload: any = {
       variant_id: variantId,
+      campaign_id: campaignId,
+      impressions,
+      clicks,
+      leads,
+      spend,
       ctr,
       cpl,
-      meta: body.meta && typeof body.meta === "object" ? body.meta : null,
+      source,
+      period_start: periodStart,
+      period_end: periodEnd,
+      meta,
       created_at: new Date().toISOString(),
     };
 
@@ -144,12 +92,32 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
 
-    if (error || !data) {
-      return NextResponse.json({ ok: false, error: error?.message || "Failed to save metric row" }, { status: 200 });
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, saved: data }, { status: 200 });
+    return NextResponse.json({ ok: true, record: data }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Failed to save metric row" }, { status: 200 });
+    return NextResponse.json({ ok: false, error: e?.message || "Failed to log results" }, { status: 500 });
+  }
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const variantId = String(req.nextUrl.searchParams.get("variantId") || "").trim();
+    if (!variantId) return NextResponse.json({ ok: false, error: "Missing variantId" }, { status: 400 });
+
+    const { data, error } = await supabaseAdmin
+      .from("campaign_variant_metrics")
+      .select("id, variant_id, campaign_id, impressions, clicks, leads, spend, ctr, cpl, source, period_start, period_end, meta, created_at")
+      .eq("variant_id", variantId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+    return NextResponse.json({ ok: true, records: data || [] }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "Failed to load variant metrics" }, { status: 500 });
   }
 }
