@@ -67,7 +67,7 @@ async function pullFacebook(organisationId: string, pageId: string, token: strin
   // ✅ Use /posts (page-authored posts) instead of /feed
   const postsUrl =
     `https://graph.facebook.com/${API_VER}/${encodeURIComponent(pageId)}/posts` +
-    `?fields=id,message,permalink_url,created_time&limit=12&access_token=${encodeURIComponent(token)}`;
+    `?fields=id,message,permalink_url,created_time&limit=50&access_token=${encodeURIComponent(token)}`;
 
   const postsRes = await graphGet(postsUrl);
 
