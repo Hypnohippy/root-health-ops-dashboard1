@@ -1,6 +1,6 @@
 // app/api/oauth/facebook/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -9,8 +9,6 @@ function norm(s: any) {
 }
 
 async function getOrganisationIdFromState(req: NextRequest): Promise<string | null> {
-  // We support state containing org id in a few formats.
-  // state can be: orgId OR JSON string { organisationId, pageId? }
   const state = norm(new URL(req.url).searchParams.get("state"));
   if (!state) return null;
 
@@ -22,7 +20,6 @@ async function getOrganisationIdFromState(req: NextRequest): Promise<string | nu
     }
   } catch {}
 
-  // fallback: plain string
   return state || null;
 }
 
@@ -37,6 +34,7 @@ async function getPreferredPageIdFromState(req: NextRequest): Promise<string | n
       return pid || null;
     }
   } catch {}
+
   return null;
 }
 
@@ -104,8 +102,7 @@ export async function GET(req: NextRequest) {
     const appId = norm(process.env.META_APP_ID);
     const appSecret = norm(process.env.META_APP_SECRET);
     const redirectUri =
-      norm(process.env.META_FACEBOOK_REDIRECT_URI) ||
-      `${url.origin}/api/oauth/facebook/callback`;
+      norm(process.env.META_FACEBOOK_REDIRECT_URI) || `${url.origin}/api/oauth/facebook/callback`;
 
     if (!appId || !appSecret) {
       return NextResponse.redirect(new URL(`/dashboard/connect?error=Missing+META+app+envs`, req.url));
@@ -163,9 +160,7 @@ export async function GET(req: NextRequest) {
     const pageAccessToken = norm(chosen?.access_token) || null;
 
     if (!pageId || !pageAccessToken) {
-      return NextResponse.redirect(
-        new URL(`/dashboard/connect?error=Could+not+select+a+page+token`, req.url)
-      );
+      return NextResponse.redirect(new URL(`/dashboard/connect?error=Could+not+select+a+page+token`, req.url));
     }
 
     // 4) Save PAGE token for Facebook
@@ -175,13 +170,10 @@ export async function GET(req: NextRequest) {
       page_id: pageId,
       page_name: pageName,
       page_access_token: pageAccessToken,
-      token_expires_at: null, // can be added later if you track expiry
+      token_expires_at: null,
     });
 
-    // ✅ Done
-    return NextResponse.redirect(
-      new URL(`/dashboard/connect?success=facebook_connected`, req.url)
-    );
+    return NextResponse.redirect(new URL(`/dashboard/connect?success=facebook_connected`, req.url));
   } catch (e: any) {
     return NextResponse.redirect(
       new URL(`/dashboard/connect?error=${encodeURIComponent(e?.message || "Facebook connect failed")}`, req.url)
