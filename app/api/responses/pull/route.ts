@@ -57,7 +57,7 @@ async function upsertInboxItems(rows: any[]) {
 }
 
 /**
- * Convert USER token -> PAGE token, then persist it.
+ * Convert a USER token to a PAGE token and save it.
  */
 async function resolveFacebookPageToken(opts: {
   organisationId: string;
@@ -109,92 +109,80 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
 
   const token = tokenInfo.token;
 
-  const sinceUnix = Math.floor((Date.now() - sinceDays * 24 * 60 * 60 * 1000) / 1000);
-
-  // ✅ Pull from BOTH /posts and /feed, then dedupe
+  // ✅ Ask FB for comment totals on each post (summary only)
   const postsUrl =
     `https://graph.facebook.com/${API_VER}/${encodeURIComponent(pageId)}/posts` +
-    `?fields=id,message,permalink_url,created_time&limit=25&access_token=${encodeURIComponent(token)}`;
+    `?fields=id,message,permalink_url,created_time,comments.limit(0).summary(true)` +
+    `&limit=25&access_token=${encodeURIComponent(token)}`;
 
-  const feedUrl =
-    `https://graph.facebook.com/${API_VER}/${encodeURIComponent(pageId)}/feed` +
-    `?fields=id,message,permalink_url,created_time&limit=25&access_token=${encodeURIComponent(token)}`;
+  const postsRes = await graphGet(postsUrl);
 
-  const [postsRes, feedRes] = await Promise.all([graphGet(postsUrl), graphGet(feedUrl)]);
-
-  if (!postsRes.ok && !feedRes.ok) {
+  if (!postsRes.ok) {
     return {
       ok: false,
       platform: "facebook",
-      error: postsRes.json?.error?.message || feedRes.json?.error?.message || "Facebook posts/feed fetch failed",
-      status: postsRes.status || feedRes.status,
-      details: { posts: postsRes.json, feed: feedRes.json },
+      error: postsRes.json?.error?.message || "Facebook posts fetch failed",
+      status: postsRes.status,
+      details: postsRes.json,
       tokenUpgraded: tokenInfo.upgraded,
       hint:
-        "If this fails, the saved token still isn’t usable for this Page. Ensure you granted pages_read_engagement + pages_read_user_content + pages_manage_posts and connected the correct Page.",
+        "If this fails, the saved token still isn’t usable for this Page. Ensure the Page is correct and permissions include pages_read_engagement + pages_read_user_content.",
     };
   }
 
-  const postsA: any[] = Array.isArray(postsRes.json?.data) ? postsRes.json.data : [];
-  const postsB: any[] = Array.isArray(feedRes.json?.data) ? feedRes.json.data : [];
-  const merged = [...postsA, ...postsB];
-
-  const seen: Record<string, boolean> = {};
-  const posts: any[] = [];
-  for (const p of merged) {
-    const id = norm(p?.id);
-    if (!id) continue;
-    if (seen[id]) continue;
-    seen[id] = true;
-    posts.push(p);
-  }
+  const posts: any[] = Array.isArray(postsRes.json?.data) ? postsRes.json.data : [];
 
   const upsertRows: any[] = [];
   const perPostErrors: any[] = [];
-  const perPostStats: any[] = [];
 
+  // sinceDays support
+  const sinceUnix = Math.floor((Date.now() - Math.max(1, sinceDays) * 24 * 60 * 60 * 1000) / 1000);
+
+  // Build debug first (so you can see totals even when comments fetch fails)
+  const debugTopPosts = posts.slice(0, 12).map((p: any) => {
+    const total = p?.comments?.summary?.total_count;
+    return {
+      id: norm(p?.id) || null,
+      created_time: p?.created_time || null,
+      permalink_url: p?.permalink_url || null,
+      commentsTotalCount: typeof total === "number" ? total : null,
+      commentsReturned: 0, // filled later
+    };
+  });
+
+  // Pull comments for each post
   for (const p of posts) {
     const postId = norm(p?.id);
     if (!postId) continue;
 
     const postText = typeof p?.message === "string" ? p.message : null;
     const postPermalink = typeof p?.permalink_url === "string" ? p.permalink_url : null;
-    const postCreated = safeIso(p?.created_time);
 
-    // ✅ Add summary + stream filter for better signal
     const commentsUrl =
       `https://graph.facebook.com/${API_VER}/${encodeURIComponent(postId)}/comments` +
-      `?fields=id,message,from,created_time,permalink_url&limit=100&since=${sinceUnix}&filter=stream&summary=1&access_token=${encodeURIComponent(
-        token
-      )}`;
+      `?fields=id,message,from,created_time,permalink_url&limit=100&since=${sinceUnix}&access_token=${encodeURIComponent(token)}`;
 
     const commentsRes = await graphGet(commentsUrl);
 
     if (!commentsRes.ok) {
       perPostErrors.push({
         postId,
-        postPermalink,
-        postCreated,
         error: commentsRes.json?.error?.message || "Comments fetch failed",
         status: commentsRes.status,
       });
       continue;
     }
 
-    const totalCount = Number(commentsRes.json?.summary?.total_count ?? 0);
     const items: any[] = Array.isArray(commentsRes.json?.data) ? commentsRes.json.data : [];
 
-    perPostStats.push({
-      postId,
-      postPermalink,
-      postCreated,
-      commentsReturned: items.length,
-      commentsTotalCount: totalCount,
-    });
+    // update debug row (best effort)
+    const dbg = debugTopPosts.find((x: any) => x.id === postId);
+    if (dbg) dbg.commentsReturned = items.length;
 
     for (const c of items) {
       const commentId = norm(c?.id);
       const text = norm(c?.message);
+
       if (!commentId || !text) continue;
 
       const fromName = c?.from?.name ? String(c.from.name) : null;
@@ -225,19 +213,17 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
     ok: true,
     platform: "facebook",
     tokenUpgraded: tokenInfo.upgraded,
-    sinceDays,
     postsSeen: posts.length,
     pulled: up.upserted,
     perPostErrors,
-    // ✅ This is the money: you’ll SEE whether FB thinks there are comments or not
+    sinceDays,
     debug: {
       sources: {
-        postsOk: postsRes.ok,
-        feedOk: feedRes.ok,
-        postsCount: postsA.length,
-        feedCount: postsB.length,
+        pageId,
+        apiVer: API_VER,
+        sinceUnix,
       },
-      topPosts: perPostStats.slice(0, 12),
+      topPosts: debugTopPosts,
     },
     note:
       up.upserted === 0
@@ -317,11 +303,8 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const organisationId = norm(body?.organisationId);
-
-    // You can override to test older comments:
-    // POST { organisationId, sinceDays: 30 }
-    const sinceDaysRaw = Number(body?.sinceDays ?? 14);
-    const sinceDays = Math.max(1, Math.min(90, isNaN(sinceDaysRaw) ? 14 : sinceDaysRaw));
+    const sinceDaysRaw = Number(body?.sinceDays ?? 30);
+    const sinceDays = Math.max(1, Math.min(90, isNaN(sinceDaysRaw) ? 30 : sinceDaysRaw));
 
     if (!organisationId) {
       return okJson({ success: false, error: "Missing organisationId" }, 400);
@@ -364,7 +347,7 @@ export async function POST(req: NextRequest) {
       pulled,
       results,
       note:
-        "Pulled latest comments and stored them in Supabase (inbox_items). Facebook now includes debug.topPosts with comment counts so we can see why FB=0.",
+        "Pulled latest comments and stored them in Supabase (inbox_items). Facebook debug now includes real post ids + comment totals (summary).",
     });
   } catch (e: any) {
     return okJson({ success: false, error: e?.message || "Pull failed" }, 500);
