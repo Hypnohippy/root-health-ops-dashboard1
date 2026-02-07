@@ -23,7 +23,8 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("inbox_items")
       .select(
-        "id, organisation_id, platform, status, kind, author_name, author_handle, text, permalink, created_at_platform, post_text, post_id, external_id, last_reply_text, last_replied_at"
+        "id, organisation_id, platform, status, kind, author_name, author_handle, text, permalink, created_at_platform, inserted_at, post_text, post_id, external_id, last_reply_text, last_replied_at"
+
       )
       .eq("organisation_id", organisationId)
       .order("created_at_platform", { ascending: false, nullsFirst: false })
