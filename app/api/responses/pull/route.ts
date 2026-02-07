@@ -48,7 +48,6 @@ async function graphGet(url: string) {
 async function upsertInboxItems(rows: any[]) {
   if (!rows.length) return { upserted: 0 };
 
-  // Upsert by unique index (org_id + platform + external_id)
   const { error } = await supabaseAdmin
     .from("inbox_items")
     .upsert(rows, { onConflict: "organisation_id,platform,external_id" });
@@ -58,9 +57,7 @@ async function upsertInboxItems(rows: any[]) {
 }
 
 /**
- * ✅ KEY FIX:
- * Convert a USER token to a PAGE token (for the selected page_id),
- * then save it back into social_accounts so future pulls work.
+ * Convert USER token -> PAGE token, then persist it.
  */
 async function resolveFacebookPageToken(opts: {
   organisationId: string;
@@ -70,8 +67,6 @@ async function resolveFacebookPageToken(opts: {
 }) {
   const { organisationId, pageId, maybeUserOrPageToken, apiVer } = opts;
 
-  // Try to fetch page access_token using whatever token we have.
-  // If we already have a page token, this usually still works (or returns no access_token).
   const url =
     `https://graph.facebook.com/${apiVer}/${encodeURIComponent(pageId)}` +
     `?fields=access_token&access_token=${encodeURIComponent(maybeUserOrPageToken)}`;
@@ -80,7 +75,6 @@ async function resolveFacebookPageToken(opts: {
 
   const pageToken = norm(r.json?.access_token);
   if (r.ok && pageToken) {
-    // Save upgraded token back to Supabase
     await supabaseAdmin
       .from("social_accounts")
       .update({
@@ -93,7 +87,6 @@ async function resolveFacebookPageToken(opts: {
     return { ok: true, token: pageToken, upgraded: pageToken !== maybeUserOrPageToken };
   }
 
-  // If it failed, just return the original token (so we can still attempt calls)
   return {
     ok: false,
     token: maybeUserOrPageToken,
@@ -104,10 +97,9 @@ async function resolveFacebookPageToken(opts: {
   };
 }
 
-async function pullFacebook(organisationId: string, pageId: string, storedToken: string) {
+async function pullFacebook(organisationId: string, pageId: string, storedToken: string, sinceDays: number) {
   const API_VER = "v24.0";
 
-  // ✅ upgrade token if needed
   const tokenInfo = await resolveFacebookPageToken({
     organisationId,
     pageId,
@@ -117,32 +109,49 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
 
   const token = tokenInfo.token;
 
-  // Pull page-authored posts
+  const sinceUnix = Math.floor((Date.now() - sinceDays * 24 * 60 * 60 * 1000) / 1000);
+
+  // ✅ Pull from BOTH /posts and /feed, then dedupe
   const postsUrl =
     `https://graph.facebook.com/${API_VER}/${encodeURIComponent(pageId)}/posts` +
     `?fields=id,message,permalink_url,created_time&limit=25&access_token=${encodeURIComponent(token)}`;
 
-  const postsRes = await graphGet(postsUrl);
+  const feedUrl =
+    `https://graph.facebook.com/${API_VER}/${encodeURIComponent(pageId)}/feed` +
+    `?fields=id,message,permalink_url,created_time&limit=25&access_token=${encodeURIComponent(token)}`;
 
-  if (!postsRes.ok) {
+  const [postsRes, feedRes] = await Promise.all([graphGet(postsUrl), graphGet(feedUrl)]);
+
+  if (!postsRes.ok && !feedRes.ok) {
     return {
       ok: false,
       platform: "facebook",
-      error: postsRes.json?.error?.message || "Facebook posts fetch failed",
-      status: postsRes.status,
-      details: postsRes.json,
+      error: postsRes.json?.error?.message || feedRes.json?.error?.message || "Facebook posts/feed fetch failed",
+      status: postsRes.status || feedRes.status,
+      details: { posts: postsRes.json, feed: feedRes.json },
       tokenUpgraded: tokenInfo.upgraded,
       hint:
-        "If this fails, the saved token still isn’t usable for this Page. Ensure you connected the correct Page and granted pages_read_engagement + pages_read_user_content.",
+        "If this fails, the saved token still isn’t usable for this Page. Ensure you granted pages_read_engagement + pages_read_user_content + pages_manage_posts and connected the correct Page.",
     };
   }
 
-  const posts: any[] = Array.isArray(postsRes.json?.data) ? postsRes.json.data : [];
+  const postsA: any[] = Array.isArray(postsRes.json?.data) ? postsRes.json.data : [];
+  const postsB: any[] = Array.isArray(feedRes.json?.data) ? feedRes.json.data : [];
+  const merged = [...postsA, ...postsB];
+
+  const seen: Record<string, boolean> = {};
+  const posts: any[] = [];
+  for (const p of merged) {
+    const id = norm(p?.id);
+    if (!id) continue;
+    if (seen[id]) continue;
+    seen[id] = true;
+    posts.push(p);
+  }
+
   const upsertRows: any[] = [];
   const perPostErrors: any[] = [];
-
-  // ✅ widen time coverage a bit — last 14 days worth of comments
-  const sinceUnix = Math.floor((Date.now() - 14 * 24 * 60 * 60 * 1000) / 1000);
+  const perPostStats: any[] = [];
 
   for (const p of posts) {
     const postId = norm(p?.id);
@@ -150,10 +159,12 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
 
     const postText = typeof p?.message === "string" ? p.message : null;
     const postPermalink = typeof p?.permalink_url === "string" ? p.permalink_url : null;
+    const postCreated = safeIso(p?.created_time);
 
+    // ✅ Add summary + stream filter for better signal
     const commentsUrl =
       `https://graph.facebook.com/${API_VER}/${encodeURIComponent(postId)}/comments` +
-      `?fields=id,message,from,created_time,permalink_url&limit=100&since=${sinceUnix}&access_token=${encodeURIComponent(
+      `?fields=id,message,from,created_time,permalink_url&limit=100&since=${sinceUnix}&filter=stream&summary=1&access_token=${encodeURIComponent(
         token
       )}`;
 
@@ -162,18 +173,28 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
     if (!commentsRes.ok) {
       perPostErrors.push({
         postId,
+        postPermalink,
+        postCreated,
         error: commentsRes.json?.error?.message || "Comments fetch failed",
         status: commentsRes.status,
       });
       continue;
     }
 
+    const totalCount = Number(commentsRes.json?.summary?.total_count ?? 0);
     const items: any[] = Array.isArray(commentsRes.json?.data) ? commentsRes.json.data : [];
+
+    perPostStats.push({
+      postId,
+      postPermalink,
+      postCreated,
+      commentsReturned: items.length,
+      commentsTotalCount: totalCount,
+    });
+
     for (const c of items) {
       const commentId = norm(c?.id);
       const text = norm(c?.message);
-
-      // keep non-empty comments only
       if (!commentId || !text) continue;
 
       const fromName = c?.from?.name ? String(c.from.name) : null;
@@ -204,12 +225,23 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
     ok: true,
     platform: "facebook",
     tokenUpgraded: tokenInfo.upgraded,
+    sinceDays,
     postsSeen: posts.length,
     pulled: up.upserted,
     perPostErrors,
+    // ✅ This is the money: you’ll SEE whether FB thinks there are comments or not
+    debug: {
+      sources: {
+        postsOk: postsRes.ok,
+        feedOk: feedRes.ok,
+        postsCount: postsA.length,
+        feedCount: postsB.length,
+      },
+      topPosts: perPostStats.slice(0, 12),
+    },
     note:
       up.upserted === 0
-        ? "Facebook posts were fetched but no comments were returned for those posts in the last 14 days."
+        ? "Facebook posts were fetched but no comments were returned. Check debug.topPosts: if commentsTotalCount > 0 but commentsReturned = 0, the comment is likely on a different object (profile post, different Page, or not accessible)."
         : undefined,
   };
 }
@@ -286,6 +318,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const organisationId = norm(body?.organisationId);
 
+    // You can override to test older comments:
+    // POST { organisationId, sinceDays: 30 }
+    const sinceDaysRaw = Number(body?.sinceDays ?? 14);
+    const sinceDays = Math.max(1, Math.min(90, isNaN(sinceDaysRaw) ? 14 : sinceDaysRaw));
+
     if (!organisationId) {
       return okJson({ success: false, error: "Missing organisationId" }, 400);
     }
@@ -298,7 +335,7 @@ export async function POST(req: NextRequest) {
     const results: any[] = [];
 
     if (fb?.page_id && fb?.page_access_token) {
-      results.push(await pullFacebook(organisationId, fb.page_id, fb.page_access_token));
+      results.push(await pullFacebook(organisationId, fb.page_id, fb.page_access_token, sinceDays));
     } else {
       results.push({
         ok: false,
@@ -327,7 +364,7 @@ export async function POST(req: NextRequest) {
       pulled,
       results,
       note:
-        "Pulled latest comments and stored them in Supabase (inbox_items). If Facebook pulled=0 but you expect FB comments, the stored token is likely not a PAGE access token (this route now tries to auto-upgrade it).",
+        "Pulled latest comments and stored them in Supabase (inbox_items). Facebook now includes debug.topPosts with comment counts so we can see why FB=0.",
     });
   } catch (e: any) {
     return okJson({ success: false, error: e?.message || "Pull failed" }, 500);
