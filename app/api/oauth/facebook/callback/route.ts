@@ -1,108 +1,190 @@
 // app/api/oauth/facebook/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
-const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || "";
-const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET || "";
-
-function baseUrl(req: NextRequest) {
-  try {
-    return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
-  } catch {
-    return APP_URL ? APP_URL.replace(/\/$/, "") : "";
-  }
+function norm(s: any) {
+  return String(s || "").trim();
 }
 
-async function fetchJson(url: string) {
-  const res = await fetch(url, { method: "GET", cache: "no-store" });
+async function getOrganisationIdFromState(req: NextRequest): Promise<string | null> {
+  // We support state containing org id in a few formats.
+  // state can be: orgId OR JSON string { organisationId, pageId? }
+  const state = norm(new URL(req.url).searchParams.get("state"));
+  if (!state) return null;
+
+  try {
+    if (state.startsWith("{")) {
+      const parsed = JSON.parse(state);
+      const org = norm(parsed.organisationId || parsed.organisation_id || parsed.orgId);
+      return org || null;
+    }
+  } catch {}
+
+  // fallback: plain string
+  return state || null;
+}
+
+async function getPreferredPageIdFromState(req: NextRequest): Promise<string | null> {
+  const state = norm(new URL(req.url).searchParams.get("state"));
+  if (!state) return null;
+
+  try {
+    if (state.startsWith("{")) {
+      const parsed = JSON.parse(state);
+      const pid = norm(parsed.pageId || parsed.page_id);
+      return pid || null;
+    }
+  } catch {}
+  return null;
+}
+
+async function upsertSocialAccount(args: {
+  organisationId: string;
+  platform: string;
+  page_id: string | null;
+  page_name: string | null;
+  page_access_token: string | null;
+  token_expires_at: string | null;
+}) {
+  const now = new Date().toISOString();
+
+  const row: any = {
+    organisation_id: args.organisationId,
+    platform: args.platform,
+    page_id: args.page_id,
+    page_name: args.page_name,
+    page_access_token: args.page_access_token,
+    token_expires_at: args.token_expires_at,
+    is_active: true,
+    updated_at: now,
+  };
+
+  const up = await supabaseAdmin
+    .from("social_accounts")
+    .upsert(row, { onConflict: "organisation_id,platform" })
+    .select()
+    .maybeSingle();
+
+  if (up.error) throw new Error(up.error.message);
+  return up.data ?? null;
+}
+
+async function graphGet(url: string) {
+  const res = await fetch(url, { cache: "no-store" });
   const json: any = await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, json };
 }
 
-function decodeStateProvider(state: string): "facebook" | "instagram" | "threads" | null {
-  try {
-    if (!state) return null;
-    // state is base64url(JSON)
-    const jsonStr = Buffer.from(state, "base64url").toString("utf8");
-    const obj = JSON.parse(jsonStr);
-    const p = String(obj?.provider || "").toLowerCase().trim();
-    if (p === "facebook" || p === "instagram" || p === "threads") return p;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 export async function GET(req: NextRequest) {
   try {
-    if (!FACEBOOK_APP_ID || !FACEBOOK_APP_SECRET) {
-      return NextResponse.json(
-        { error: "Missing FACEBOOK_APP_ID or FACEBOOK_APP_SECRET" },
-        { status: 400 }
+    const url = new URL(req.url);
+    const code = norm(url.searchParams.get("code"));
+    const errorParam = norm(url.searchParams.get("error"));
+    const errorDesc = norm(url.searchParams.get("error_description"));
+
+    if (errorParam) {
+      return NextResponse.redirect(
+        new URL(`/dashboard/connect?error=${encodeURIComponent(errorDesc || errorParam)}`, req.url)
       );
     }
 
-    const code = req.nextUrl.searchParams.get("code") || "";
-    const state = req.nextUrl.searchParams.get("state") || "";
-
     if (!code) {
-      // If user hits callback without code, send them back to Connect (no JSON dead-end)
-      const back = new URL(`${baseUrl(req)}/dashboard/connect`);
-      back.searchParams.set("error", "missing_code");
-      return NextResponse.redirect(back.toString(), { status: 302 });
+      return NextResponse.redirect(new URL(`/dashboard/connect?error=Missing+code`, req.url));
     }
 
-    const redirectUri = `${baseUrl(req)}/api/oauth/facebook/callback`;
-
-    // 1) code -> short-lived user token
-    const shortUrl =
-      "https://graph.facebook.com/v24.0/oauth/access_token?" +
-      new URLSearchParams({
-        client_id: FACEBOOK_APP_ID,
-        client_secret: FACEBOOK_APP_SECRET,
-        redirect_uri: redirectUri,
-        code,
-      }).toString();
-
-    const shortTok = await fetchJson(shortUrl);
-
-    if (!shortTok.ok || !shortTok.json?.access_token) {
-      const back = new URL(`${baseUrl(req)}/dashboard/connect`);
-      back.searchParams.set("error", "token_exchange_failed");
-      return NextResponse.redirect(back.toString(), { status: 302 });
+    const organisationId = await getOrganisationIdFromState(req);
+    if (!organisationId) {
+      return NextResponse.redirect(new URL(`/dashboard/connect?error=Missing+state+organisationId`, req.url));
     }
 
-    const shortUserToken = String(shortTok.json.access_token);
+    const preferredPageId = await getPreferredPageIdFromState(req);
 
-    // 2) short -> long-lived user token (~60 days)
-    const longUrl =
-      "https://graph.facebook.com/v24.0/oauth/access_token?" +
-      new URLSearchParams({
-        grant_type: "fb_exchange_token",
-        client_id: FACEBOOK_APP_ID,
-        client_secret: FACEBOOK_APP_SECRET,
-        fb_exchange_token: shortUserToken,
-      }).toString();
+    const appId = norm(process.env.META_APP_ID);
+    const appSecret = norm(process.env.META_APP_SECRET);
+    const redirectUri =
+      norm(process.env.META_FACEBOOK_REDIRECT_URI) ||
+      `${url.origin}/api/oauth/facebook/callback`;
 
-    const longTok = await fetchJson(longUrl);
-    const userToken = String(longTok.json?.access_token || shortUserToken);
+    if (!appId || !appSecret) {
+      return NextResponse.redirect(new URL(`/dashboard/connect?error=Missing+META+app+envs`, req.url));
+    }
 
-    // Decide where to send them next based on state.provider
-    const provider = decodeStateProvider(state) || "facebook";
+    const API_VER = "v24.0";
 
-    let nextPath = "/oauth/facebook/pick-page";
-    if (provider === "instagram") nextPath = "/oauth/instagram/pick-account";
-    if (provider === "threads") nextPath = "/oauth/threads/finish";
+    // 1) Exchange code -> USER access token
+    const tokenUrl =
+      `https://graph.facebook.com/${API_VER}/oauth/access_token` +
+      `?client_id=${encodeURIComponent(appId)}` +
+      `&client_secret=${encodeURIComponent(appSecret)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&code=${encodeURIComponent(code)}`;
 
-    const nextUrl = new URL(`${baseUrl(req)}${nextPath}`);
-    nextUrl.searchParams.set("token", userToken);
-    if (state) nextUrl.searchParams.set("state", state);
+    const tokenRes = await graphGet(tokenUrl);
+    if (!tokenRes.ok) {
+      const msg = tokenRes.json?.error?.message || "Failed to exchange code for token.";
+      return NextResponse.redirect(new URL(`/dashboard/connect?error=${encodeURIComponent(msg)}`, req.url));
+    }
 
-    return NextResponse.redirect(nextUrl.toString(), { status: 302 });
+    const userAccessToken = norm(tokenRes.json?.access_token);
+    if (!userAccessToken) {
+      return NextResponse.redirect(new URL(`/dashboard/connect?error=Missing+user+access+token`, req.url));
+    }
+
+    // 2) Fetch pages + PAGE access tokens
+    const pagesUrl =
+      `https://graph.facebook.com/${API_VER}/me/accounts` +
+      `?fields=id,name,access_token` +
+      `&access_token=${encodeURIComponent(userAccessToken)}`;
+
+    const pagesRes = await graphGet(pagesUrl);
+    if (!pagesRes.ok) {
+      const msg = pagesRes.json?.error?.message || "Failed to load pages for this user.";
+      return NextResponse.redirect(new URL(`/dashboard/connect?error=${encodeURIComponent(msg)}`, req.url));
+    }
+
+    const pages: any[] = Array.isArray(pagesRes.json?.data) ? pagesRes.json.data : [];
+    if (pages.length === 0) {
+      return NextResponse.redirect(
+        new URL(`/dashboard/connect?error=No+Facebook+Pages+found+for+this+account`, req.url)
+      );
+    }
+
+    // 3) Pick the page
+    let chosen = pages[0];
+    if (preferredPageId) {
+      const match = pages.find((p) => norm(p?.id) === preferredPageId);
+      if (match) chosen = match;
+    }
+
+    const pageId = norm(chosen?.id) || null;
+    const pageName = chosen?.name ? String(chosen.name) : null;
+    const pageAccessToken = norm(chosen?.access_token) || null;
+
+    if (!pageId || !pageAccessToken) {
+      return NextResponse.redirect(
+        new URL(`/dashboard/connect?error=Could+not+select+a+page+token`, req.url)
+      );
+    }
+
+    // 4) Save PAGE token for Facebook
+    await upsertSocialAccount({
+      organisationId,
+      platform: "facebook",
+      page_id: pageId,
+      page_name: pageName,
+      page_access_token: pageAccessToken,
+      token_expires_at: null, // can be added later if you track expiry
+    });
+
+    // ✅ Done
+    return NextResponse.redirect(
+      new URL(`/dashboard/connect?success=facebook_connected`, req.url)
+    );
   } catch (e: any) {
-    const msg = e?.message || "Callback crashed";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.redirect(
+      new URL(`/dashboard/connect?error=${encodeURIComponent(e?.message || "Facebook connect failed")}`, req.url)
+    );
   }
 }
