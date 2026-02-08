@@ -1,6 +1,6 @@
 // app/api/oauth/facebook/connect-page/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -34,16 +34,10 @@ async function getOrganisationId(): Promise<string | null> {
 
 /**
  * Connect a Facebook Page:
- * Input body can be ANY of these shapes (we normalize):
- * {
- *   token: "<USER_ACCESS_TOKEN>", pageId: "<PAGE_ID>"
- * }
- * or
- * {
- *   userToken: "<USER_ACCESS_TOKEN>", page_id: "<PAGE_ID>"
- * }
- * optional:
- *   organisationId (otherwise we resolve single-tenant org)
+ * Body accepts:
+ * { token: "<USER_TOKEN>", pageId: "<PAGE_ID>" }
+ * or { userToken: "<USER_TOKEN>", page_id: "<PAGE_ID>" }
+ * optional: organisationId
  */
 export async function POST(req: NextRequest) {
   try {
@@ -56,20 +50,10 @@ export async function POST(req: NextRequest) {
     const userToken = norm(body.userToken) || norm(body.token) || norm(body.access_token);
     const pageId = norm(body.pageId) || norm(body.page_id);
 
-    if (!userToken) {
-      return okJson(
-        { success: false, error: "Missing user token (token/userToken)." },
-        400
-      );
-    }
-    if (!pageId) {
-      return okJson(
-        { success: false, error: "Missing page id (pageId/page_id)." },
-        400
-      );
-    }
+    if (!userToken) return okJson({ success: false, error: "Missing user token (token/userToken)." }, 400);
+    if (!pageId) return okJson({ success: false, error: "Missing page id (pageId/page_id)." }, 400);
 
-    // ✅ Fetch Page name + PAGE access token using the USER token
+    // Fetch Page name + PAGE access token using the USER token
     const graphUrl =
       `https://graph.facebook.com/${API_VER}/${encodeURIComponent(pageId)}` +
       "?" +
@@ -84,12 +68,8 @@ export async function POST(req: NextRequest) {
       return okJson(
         {
           success: false,
-          error:
-            r.json?.error?.message ||
-            "Could not fetch Page access token from Facebook.",
+          error: r.json?.error?.message || "Could not fetch Page access token from Facebook.",
           details: r.json,
-          hint:
-            "This usually means the user token is missing permissions, or the Page selection is wrong.",
         },
         400
       );
@@ -104,14 +84,11 @@ export async function POST(req: NextRequest) {
           success: false,
           error: "Facebook did not return a Page access token.",
           details: r.json,
-          hint:
-            "Ensure you granted: pages_show_list, pages_read_engagement, pages_read_user_content, pages_manage_posts, pages_manage_engagement (and business_management if applicable).",
         },
         400
       );
     }
 
-    // ✅ Save / reactivate in Supabase
     const now = new Date().toISOString();
     const row: any = {
       organisation_id: organisationId,
@@ -124,7 +101,7 @@ export async function POST(req: NextRequest) {
       updated_at: now,
     };
 
-    // Try upsert first (requires unique constraint on organisation_id+platform)
+    // Upsert first (needs unique constraint on organisation_id+platform)
     const up = await supabaseAdmin
       .from("social_accounts")
       .upsert(row, { onConflict: "organisation_id,platform" })
@@ -173,9 +150,7 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
 
-    if (iErr) {
-      return okJson({ success: false, error: iErr.message }, 500);
-    }
+    if (iErr) return okJson({ success: false, error: iErr.message }, 500);
 
     return okJson({
       success: true,
@@ -185,9 +160,6 @@ export async function POST(req: NextRequest) {
       note: "Facebook saved via insert fallback.",
     });
   } catch (e: any) {
-    return okJson(
-      { success: false, error: e?.message || "Failed to connect Facebook Page" },
-      500
-    );
+    return okJson({ success: false, error: e?.message || "Failed to connect Facebook Page" }, 500);
   }
 }
