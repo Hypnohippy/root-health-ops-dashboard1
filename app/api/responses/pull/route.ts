@@ -48,6 +48,7 @@ async function graphGet(url: string) {
 async function upsertInboxItems(rows: any[]) {
   if (!rows.length) return { upserted: 0 };
 
+  // Upsert by unique index (org_id + platform + external_id)
   const { error } = await supabaseAdmin
     .from("inbox_items")
     .upsert(rows, { onConflict: "organisation_id,platform,external_id" });
@@ -57,7 +58,8 @@ async function upsertInboxItems(rows: any[]) {
 }
 
 /**
- * Convert a USER token to a PAGE token and save it.
+ * ✅ Convert a USER token to a PAGE token (for the selected page_id),
+ * then save it back into social_accounts so future pulls work.
  */
 async function resolveFacebookPageToken(opts: {
   organisationId: string;
@@ -97,9 +99,18 @@ async function resolveFacebookPageToken(opts: {
   };
 }
 
+function safeArr<T = any>(v: any): T[] {
+  return Array.isArray(v) ? (v as T[]) : [];
+}
+
+function uniq<T>(arr: T[]) {
+  return Array.from(new Set(arr));
+}
+
 async function pullFacebook(organisationId: string, pageId: string, storedToken: string, sinceDays: number) {
   const API_VER = "v24.0";
 
+  // ✅ upgrade token if needed
   const tokenInfo = await resolveFacebookPageToken({
     organisationId,
     pageId,
@@ -109,77 +120,128 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
 
   const token = tokenInfo.token;
 
-  // ✅ Ask FB for comment totals on each post (summary only)
-  const postsUrl =
-    `https://graph.facebook.com/${API_VER}/${encodeURIComponent(pageId)}/posts` +
-    `?fields=id,message,permalink_url,created_time,comments.limit(0).summary(true)` +
-    `&limit=25&access_token=${encodeURIComponent(token)}`;
+  const sinceUnix = Math.floor((Date.now() - sinceDays * 24 * 60 * 60 * 1000) / 1000);
 
-  const postsRes = await graphGet(postsUrl);
+  /**
+   * ✅ KEY FIX:
+   * Pull from /feed WITH attachments.target.id
+   * Because photo posts often have comments on the PHOTO object, not the feed object.
+   */
+  const feedUrl =
+    `https://graph.facebook.com/${API_VER}/${encodeURIComponent(pageId)}/feed` +
+    `?fields=` +
+    encodeURIComponent(
+      [
+        "id",
+        "message",
+        "permalink_url",
+        "created_time",
+        "attachments{target{id},type,media_type,url}",
+        "comments.limit(0).summary(true)",
+      ].join(",")
+    ) +
+    `&limit=25&since=${sinceUnix}&access_token=${encodeURIComponent(token)}`;
 
-  if (!postsRes.ok) {
+  const feedRes = await graphGet(feedUrl);
+
+  if (!feedRes.ok) {
     return {
       ok: false,
       platform: "facebook",
-      error: postsRes.json?.error?.message || "Facebook posts fetch failed",
-      status: postsRes.status,
-      details: postsRes.json,
+      error: feedRes.json?.error?.message || "Facebook feed fetch failed",
+      status: feedRes.status,
+      details: feedRes.json,
       tokenUpgraded: tokenInfo.upgraded,
       hint:
-        "If this fails, the saved token still isn’t usable for this Page. Ensure the Page is correct and permissions include pages_read_engagement + pages_read_user_content.",
+        "If this fails, the saved token still isn’t usable for this Page. Ensure you granted pages_read_engagement + pages_read_user_content + pages_manage_posts.",
     };
   }
 
-  const posts: any[] = Array.isArray(postsRes.json?.data) ? postsRes.json.data : [];
-
+  const feedItems: any[] = safeArr(feedRes.json?.data);
   const upsertRows: any[] = [];
   const perPostErrors: any[] = [];
 
-  // sinceDays support
-  const sinceUnix = Math.floor((Date.now() - Math.max(1, sinceDays) * 24 * 60 * 60 * 1000) / 1000);
+  // Debug view you can inspect in the browser console
+  const debugTopPosts: any[] = [];
 
-  // Build debug first (so you can see totals even when comments fetch fails)
-  const debugTopPosts = posts.slice(0, 12).map((p: any) => {
-    const total = p?.comments?.summary?.total_count;
-    return {
-      id: norm(p?.id) || null,
-      created_time: p?.created_time || null,
-      permalink_url: p?.permalink_url || null,
-      commentsTotalCount: typeof total === "number" ? total : null,
-      commentsReturned: 0, // filled later
-    };
-  });
-
-  // Pull comments for each post
-  for (const p of posts) {
-    const postId = norm(p?.id);
-    if (!postId) continue;
+  for (const p of feedItems) {
+    const feedId = norm(p?.id);
+    if (!feedId) continue;
 
     const postText = typeof p?.message === "string" ? p.message : null;
     const postPermalink = typeof p?.permalink_url === "string" ? p.permalink_url : null;
+    const createdTime = safeIso(p?.created_time);
 
-    const commentsUrl =
-      `https://graph.facebook.com/${API_VER}/${encodeURIComponent(postId)}/comments` +
-      `?fields=id,message,from,created_time,permalink_url&limit=100&since=${sinceUnix}&access_token=${encodeURIComponent(token)}`;
+    // Try to find attachment target id (photo/video object id)
+    const att = safeArr<any>(p?.attachments?.data)[0] || null;
+    const targetId = norm(att?.target?.id) || null;
 
-    const commentsRes = await graphGet(commentsUrl);
+    const commentsTotalCountFeed = Number(p?.comments?.summary?.total_count ?? 0) || 0;
 
-    if (!commentsRes.ok) {
-      perPostErrors.push({
-        postId,
-        error: commentsRes.json?.error?.message || "Comments fetch failed",
-        status: commentsRes.status,
-      });
-      continue;
+    // 1) Try comments on the feed object itself
+    const commentsUrlFeed =
+      `https://graph.facebook.com/${API_VER}/${encodeURIComponent(feedId)}/comments` +
+      `?fields=id,message,from,created_time,permalink_url&limit=100&since=${sinceUnix}&access_token=${encodeURIComponent(
+        token
+      )}`;
+
+    const commentsResFeed = await graphGet(commentsUrlFeed);
+
+    let feedComments: any[] = [];
+    if (commentsResFeed.ok) feedComments = safeArr(commentsResFeed.json?.data);
+
+    // 2) ALSO try comments on the attachment target object (often where photo comments live)
+    let targetComments: any[] = [];
+    let commentsTotalCountTarget = 0;
+
+    if (targetId) {
+      // Ask for summary total_count on target too
+      const targetSummaryUrl =
+        `https://graph.facebook.com/${API_VER}/${encodeURIComponent(targetId)}` +
+        `?fields=comments.limit(0).summary(true)&access_token=${encodeURIComponent(token)}`;
+
+      const targetSummaryRes = await graphGet(targetSummaryUrl);
+      if (targetSummaryRes.ok) {
+        commentsTotalCountTarget = Number(targetSummaryRes.json?.comments?.summary?.total_count ?? 0) || 0;
+      }
+
+      const commentsUrlTarget =
+        `https://graph.facebook.com/${API_VER}/${encodeURIComponent(targetId)}/comments` +
+        `?fields=id,message,from,created_time,permalink_url&limit=100&since=${sinceUnix}&access_token=${encodeURIComponent(
+          token
+        )}`;
+
+      const commentsResTarget = await graphGet(commentsUrlTarget);
+      if (commentsResTarget.ok) targetComments = safeArr(commentsResTarget.json?.data);
     }
 
-    const items: any[] = Array.isArray(commentsRes.json?.data) ? commentsRes.json.data : [];
+    // Combine both sources (avoid dupes)
+    const allComments = uniq(
+      [...feedComments, ...targetComments].filter(Boolean).map((c) => c)
+    );
 
-    // update debug row (best effort)
-    const dbg = debugTopPosts.find((x: any) => x.id === postId);
-    if (dbg) dbg.commentsReturned = items.length;
+    debugTopPosts.push({
+      postId: feedId,
+      postPermalink,
+      postCreated: createdTime,
+      targetId,
+      commentsTotalCountFeed,
+      commentsReturnedFeed: feedComments.length,
+      commentsTotalCountTarget,
+      commentsReturnedTarget: targetComments.length,
+    });
 
-    for (const c of items) {
+    // If both calls failed, keep a per-post error note
+    if (!commentsResFeed.ok && targetId) {
+      perPostErrors.push({
+        postId: feedId,
+        targetId,
+        error: commentsResFeed.json?.error?.message || "Comments fetch failed (feed object)",
+        status: commentsResFeed.status,
+      });
+    }
+
+    for (const c of allComments) {
       const commentId = norm(c?.id);
       const text = norm(c?.message);
 
@@ -187,7 +249,10 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
 
       const fromName = c?.from?.name ? String(c.from.name) : null;
       const createdAt = safeIso(c?.created_time);
-      const permalink = typeof c?.permalink_url === "string" ? c.permalink_url : postPermalink;
+      const permalink =
+        typeof c?.permalink_url === "string"
+          ? c.permalink_url
+          : postPermalink;
 
       upsertRows.push({
         organisation_id: organisationId,
@@ -195,7 +260,7 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
         status: "needs_reply",
         kind: "comment",
         external_id: commentId,
-        post_id: postId,
+        post_id: feedId,
         post_text: postText,
         author_name: fromName,
         author_handle: null,
@@ -213,27 +278,27 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
     ok: true,
     platform: "facebook",
     tokenUpgraded: tokenInfo.upgraded,
-    postsSeen: posts.length,
+    postsSeen: feedItems.length,
     pulled: up.upserted,
-    perPostErrors,
     sinceDays,
+    perPostErrors,
     debug: {
       sources: {
-        pageId,
-        apiVer: API_VER,
-        sinceUnix,
+        feed: true,
+        attachmentTarget: true,
       },
-      topPosts: debugTopPosts,
+      topPosts: debugTopPosts.slice(0, 12),
     },
     note:
       up.upserted === 0
-        ? "Facebook posts were fetched but no comments were returned. Check debug.topPosts: if commentsTotalCount > 0 but commentsReturned = 0, the comment is likely on a different object (profile post, different Page, or not accessible)."
+        ? "Facebook feed items were fetched but no comments were returned. Check debug.topPosts: if commentsTotalCountTarget > 0 but commentsReturnedTarget = 0, permissions/object access is blocking comments."
         : undefined,
   };
 }
 
-async function pullInstagram(organisationId: string, igUserId: string, token: string) {
+async function pullInstagram(organisationId: string, igUserId: string, token: string, sinceDays: number) {
   const API_VER = "v24.0";
+  const sinceUnix = Math.floor((Date.now() - sinceDays * 24 * 60 * 60 * 1000) / 1000);
 
   const mediaUrl =
     `https://graph.facebook.com/${API_VER}/${encodeURIComponent(igUserId)}/media` +
@@ -250,7 +315,7 @@ async function pullInstagram(organisationId: string, igUserId: string, token: st
     };
   }
 
-  const mediaItems: any[] = Array.isArray(media.json?.data) ? media.json.data : [];
+  const mediaItems: any[] = safeArr(media.json?.data);
   const upsertRows: any[] = [];
 
   for (const m of mediaItems) {
@@ -262,12 +327,12 @@ async function pullInstagram(organisationId: string, igUserId: string, token: st
 
     const commentsUrl =
       `https://graph.facebook.com/${API_VER}/${encodeURIComponent(mediaId)}/comments` +
-      `?fields=id,text,username,timestamp,permalink&limit=50&access_token=${encodeURIComponent(token)}`;
+      `?fields=id,text,username,timestamp,permalink&limit=50&since=${sinceUnix}&access_token=${encodeURIComponent(token)}`;
 
     const comments = await graphGet(commentsUrl);
     if (!comments.ok) continue;
 
-    const items: any[] = Array.isArray(comments.json?.data) ? comments.json.data : [];
+    const items: any[] = safeArr(comments.json?.data);
     for (const c of items) {
       const commentId = norm(c?.id);
       const text = norm(c?.text);
@@ -296,15 +361,15 @@ async function pullInstagram(organisationId: string, igUserId: string, token: st
   }
 
   const up = await upsertInboxItems(upsertRows);
-  return { ok: true, platform: "instagram", pulled: up.upserted, mediaSeen: mediaItems.length };
+  return { ok: true, platform: "instagram", pulled: up.upserted, mediaSeen: mediaItems.length, sinceDays };
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const organisationId = norm(body?.organisationId);
-    const sinceDaysRaw = Number(body?.sinceDays ?? 30);
-    const sinceDays = Math.max(1, Math.min(90, isNaN(sinceDaysRaw) ? 30 : sinceDaysRaw));
+    const sinceDaysRaw = Number(body?.sinceDays ?? 14);
+    const sinceDays = Math.max(1, Math.min(90, isNaN(sinceDaysRaw) ? 14 : sinceDaysRaw));
 
     if (!organisationId) {
       return okJson({ success: false, error: "Missing organisationId" }, 400);
@@ -328,7 +393,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (ig?.page_id && ig?.page_access_token) {
-      results.push(await pullInstagram(organisationId, ig.page_id, ig.page_access_token));
+      results.push(await pullInstagram(organisationId, ig.page_id, ig.page_access_token, sinceDays));
     } else {
       results.push({
         ok: false,
@@ -347,7 +412,7 @@ export async function POST(req: NextRequest) {
       pulled,
       results,
       note:
-        "Pulled latest comments and stored them in Supabase (inbox_items). Facebook debug now includes real post ids + comment totals (summary).",
+        "Pulled latest comments and stored them in Supabase (inbox_items). Facebook now pulls comments from BOTH the feed object and attachment target object (photo/video), which fixes the ‘photo comments not found’ issue.",
     });
   } catch (e: any) {
     return okJson({ success: false, error: e?.message || "Pull failed" }, 500);
