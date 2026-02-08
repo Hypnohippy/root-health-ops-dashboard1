@@ -149,7 +149,15 @@ export async function GET(req: NextRequest) {
   const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/facebook/callback`;
 
   // NOTE: we are NOT storing organisationId here; callback can still work if it’s already handling org lookup/state
-  const stateObj = { provider, nonce: crypto.randomUUID(), t: Date.now() };
+  const forcedOrgId = (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
+
+const stateObj = {
+  provider,
+  organisationId: forcedOrgId || null,
+  nonce: crypto.randomUUID(),
+  t: Date.now(),
+};
+
   const state = encodeState(stateObj);
 
   const baseScopes = [
