@@ -1,171 +1,193 @@
+// app/api/oauth/facebook/connect-page/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-type Body = {
-  token: string;
-  pageId: string;
-  organisationId?: string | null;
-};
+function okJson(data: any, status = 200) {
+  return NextResponse.json(data, { status });
+}
 
-async function getSingleTenantOrganisationId() {
+function norm(v: any) {
+  return String(v || "").trim();
+}
+
+async function graphGet(url: string) {
+  const res = await fetch(url, { cache: "no-store" });
+  const json: any = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json };
+}
+
+async function getOrganisationId(): Promise<string | null> {
+  const forced = norm(process.env.NEXT_PUBLIC_SINGLE_ORG_ID);
+  if (forced) return forced;
+
   const { data, error } = await supabaseAdmin
     .from("organisations")
     .select("id")
+    .order("created_at", { ascending: true })
     .limit(1);
 
-  if (error) {
-    console.error("[fb-connect-page] organisations error", error);
-    return null;
-  }
-  if (!data || data.length === 0) return null;
-  return data[0].id as string;
+  if (error || !data || data.length === 0) return null;
+  return String((data as any)[0].id);
 }
 
+/**
+ * Connect a Facebook Page:
+ * Input body can be ANY of these shapes (we normalize):
+ * {
+ *   token: "<USER_ACCESS_TOKEN>", pageId: "<PAGE_ID>"
+ * }
+ * or
+ * {
+ *   userToken: "<USER_ACCESS_TOKEN>", page_id: "<PAGE_ID>"
+ * }
+ * optional:
+ *   organisationId (otherwise we resolve single-tenant org)
+ */
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json().catch(() => ({}))) as Partial<Body>;
+    const API_VER = "v24.0";
+    const body = await req.json().catch(() => ({} as any));
 
-    const token = String(body.token || "").trim();
-    const pageId = String(body.pageId || "").trim();
+    const organisationId = norm(body.organisationId) || (await getOrganisationId());
+    if (!organisationId) return okJson({ success: false, error: "No organisation found." }, 400);
 
-    if (!token) {
-      return NextResponse.json({ success: false, error: "Missing token" }, { status: 400 });
+    const userToken = norm(body.userToken) || norm(body.token) || norm(body.access_token);
+    const pageId = norm(body.pageId) || norm(body.page_id);
+
+    if (!userToken) {
+      return okJson(
+        { success: false, error: "Missing user token (token/userToken)." },
+        400
+      );
     }
     if (!pageId) {
-      return NextResponse.json({ success: false, error: "Missing pageId" }, { status: 400 });
-    }
-
-    const organisationId =
-      (body.organisationId && String(body.organisationId).trim()) ||
-      (await getSingleTenantOrganisationId());
-
-    if (!organisationId) {
-      return NextResponse.json(
-        { success: false, error: "No organisation found" },
-        { status: 400 }
+      return okJson(
+        { success: false, error: "Missing page id (pageId/page_id)." },
+        400
       );
     }
 
-    // ✅ Use user token to fetch page name + page access token
+    // ✅ Fetch Page name + PAGE access token using the USER token
     const graphUrl =
-      "https://graph.facebook.com/v24.0/" +
-      encodeURIComponent(pageId) +
+      `https://graph.facebook.com/${API_VER}/${encodeURIComponent(pageId)}` +
       "?" +
       new URLSearchParams({
         fields: "id,name,access_token",
-        access_token: token,
-      }).toString();
+        access_token: userToken,
+      });
 
-    const pageRes = await fetch(graphUrl, { method: "GET", cache: "no-store" });
-    const pageJson: any = await pageRes.json().catch(() => null);
+    const r = await graphGet(graphUrl);
 
-    if (!pageRes.ok || !pageJson?.id) {
-      return NextResponse.json(
+    if (!r.ok) {
+      return okJson(
         {
           success: false,
           error:
-            "Could not load Facebook Page details. Usually: token issue or missing Page access.",
-          details: pageJson,
+            r.json?.error?.message ||
+            "Could not fetch Page access token from Facebook.",
+          details: r.json,
+          hint:
+            "This usually means the user token is missing permissions, or the Page selection is wrong.",
         },
-        { status: 400 }
+        400
       );
     }
 
-    const pageName = String(pageJson.name || "Facebook Page");
-    const pageAccessToken = String(pageJson.access_token || "").trim();
+    const page_name = norm(r.json?.name) || null;
+    const page_access_token = norm(r.json?.access_token) || null;
 
-    if (!pageAccessToken) {
-      return NextResponse.json(
+    if (!page_access_token) {
+      return okJson(
         {
           success: false,
-          error:
-            "Facebook did not return a Page access token. Usually: missing pages_show_list / Page access not granted.",
-          details: pageJson,
+          error: "Facebook did not return a Page access token.",
+          details: r.json,
+          hint:
+            "Ensure you granted: pages_show_list, pages_read_engagement, pages_read_user_content, pages_manage_posts, pages_manage_engagement (and business_management if applicable).",
         },
-        { status: 400 }
+        400
       );
     }
 
-    // ✅ Store into social_accounts (you already have these columns)
-    // Columns: id, organisation_id, platform, page_id, page_name, connection_type, make_webhook_url, is_active, created_at
-    const upsertPayload: any = {
+    // ✅ Save / reactivate in Supabase
+    const now = new Date().toISOString();
+    const row: any = {
       organisation_id: organisationId,
       platform: "facebook",
       page_id: pageId,
-      page_name: pageName,
-      connection_type: "facebook_oauth",
+      page_name,
+      page_access_token,
+      token_expires_at: null,
       is_active: true,
-      // keep make_webhook_url as-is if you already use it elsewhere
+      updated_at: now,
     };
 
-    // If you have a dedicated secrets table later, move pageAccessToken there.
-    // For now, store it inside page_id/page_name only? (Not ideal)
-    // ✅ Minimal safe approach: stash token in page_name meta would be wrong.
-    // We'll store it in social_accounts.meta if you have it; otherwise skip persisting.
-    // If you DO have a column like "access_token", add it here.
-    // upsertPayload.access_token = pageAccessToken;
-
-    const { data: existing, error: existingErr } = await supabaseAdmin
+    // Try upsert first (requires unique constraint on organisation_id+platform)
+    const up = await supabaseAdmin
       .from("social_accounts")
-      .select("id")
+      .upsert(row, { onConflict: "organisation_id,platform" })
+      .select()
+      .maybeSingle();
+
+    if (!up.error) {
+      return okJson({
+        success: true,
+        organisationId,
+        saved: true,
+        socialAccount: up.data ?? null,
+        note: "Facebook Page connected and token saved.",
+      });
+    }
+
+    // Fallback if no unique constraint
+    const { data: updated, error: uErr } = await supabaseAdmin
+      .from("social_accounts")
+      .update({
+        page_id: pageId,
+        page_name,
+        page_access_token,
+        token_expires_at: null,
+        is_active: true,
+        updated_at: now,
+      })
       .eq("organisation_id", organisationId)
       .eq("platform", "facebook")
-      .limit(1);
+      .select()
+      .maybeSingle();
 
-    if (existingErr) {
-      console.error("[fb-connect-page] lookup error", existingErr);
+    if (!uErr && updated) {
+      return okJson({
+        success: true,
+        organisationId,
+        saved: true,
+        socialAccount: updated,
+        note: "Facebook saved via update fallback.",
+      });
     }
 
-    let saved;
-    if (existing && existing.length > 0) {
-      const id = existing[0].id;
-      const { data, error } = await supabaseAdmin
-        .from("social_accounts")
-        .update(upsertPayload)
-        .eq("id", id)
-        .select()
-        .single();
+    const { data: inserted, error: iErr } = await supabaseAdmin
+      .from("social_accounts")
+      .insert(row)
+      .select()
+      .single();
 
-      if (error) {
-        console.error("[fb-connect-page] update error", error);
-        return NextResponse.json(
-          { success: false, error: "Failed to save connection", details: error },
-          { status: 500 }
-        );
-      }
-      saved = data;
-    } else {
-      const { data, error } = await supabaseAdmin
-        .from("social_accounts")
-        .insert(upsertPayload)
-        .select()
-        .single();
-
-      if (error) {
-        console.error("[fb-connect-page] insert error", error);
-        return NextResponse.json(
-          { success: false, error: "Failed to save connection", details: error },
-          { status: 500 }
-        );
-      }
-      saved = data;
+    if (iErr) {
+      return okJson({ success: false, error: iErr.message }, 500);
     }
 
-    return NextResponse.json({
+    return okJson({
       success: true,
       organisationId,
-      pageId,
-      pageName,
-      saved,
-      // We deliberately do NOT return the page token to the browser.
+      saved: true,
+      socialAccount: inserted,
+      note: "Facebook saved via insert fallback.",
     });
   } catch (e: any) {
-    console.error("[fb-connect-page] unexpected", e);
-    return NextResponse.json(
-      { success: false, error: e?.message || "Unexpected error" },
-      { status: 500 }
+    return okJson(
+      { success: false, error: e?.message || "Failed to connect Facebook Page" },
+      500
     );
   }
 }
