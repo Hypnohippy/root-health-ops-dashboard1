@@ -1,5 +1,7 @@
+// app/api/social/connect/start/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -11,6 +13,20 @@ function safeBaseUrl(appUrl: string) {
 
 function encodeState(obj: any) {
   return Buffer.from(JSON.stringify(obj)).toString("base64url");
+}
+
+async function getOrganisationId(): Promise<string | null> {
+  const forced = (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
+  if (forced) return forced;
+
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (error || !data || data.length === 0) return null;
+  return String((data as any)[0].id);
 }
 
 export async function GET(req: NextRequest) {
@@ -27,29 +43,19 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           error: "Missing THREADS_CLIENT_ID or NEXT_PUBLIC_APP_URL",
-          missing: {
-            THREADS_CLIENT_ID: !clientId,
-            NEXT_PUBLIC_APP_URL: !appUrl,
-          },
+          missing: { THREADS_CLIENT_ID: !clientId, NEXT_PUBLIC_APP_URL: !appUrl },
         },
         { status: 500 }
       );
     }
 
-    // MUST match what you set in the Threads app “Redirect Callback URLs”
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/threads/callback`;
 
-    const stateObj = {
-      provider: "threads",
-      nonce: crypto.randomUUID(),
-      t: Date.now(),
-    };
+    const stateObj = { provider: "threads", nonce: crypto.randomUUID(), t: Date.now() };
     const state = encodeState(stateObj);
 
-    // Threads scopes
     const scope = ["threads_basic", "threads_content_publish"].join(",");
 
-    // Use threads.net (commonly documented); it may redirect to threads.com for login
     const authUrl =
       "https://threads.net/oauth/authorize" +
       `?client_id=${encodeURIComponent(clientId)}` +
@@ -60,7 +66,6 @@ export async function GET(req: NextRequest) {
       `&__coig_login=1`;
 
     const res = NextResponse.redirect(authUrl, { status: 302 });
-
     res.cookies.set("oauth_state_threads", state, {
       httpOnly: true,
       secure: true,
@@ -68,7 +73,6 @@ export async function GET(req: NextRequest) {
       path: "/",
       maxAge: 10 * 60,
     });
-
     return res;
   }
 
@@ -83,10 +87,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           error: "Missing LINKEDIN_CLIENT_ID or NEXT_PUBLIC_APP_URL",
-          missing: {
-            LINKEDIN_CLIENT_ID: !clientId,
-            NEXT_PUBLIC_APP_URL: !appUrl,
-          },
+          missing: { LINKEDIN_CLIENT_ID: !clientId, NEXT_PUBLIC_APP_URL: !appUrl },
         },
         { status: 500 }
       );
@@ -94,11 +95,7 @@ export async function GET(req: NextRequest) {
 
     const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/linkedin/callback`;
 
-    const stateObj = {
-      provider: "linkedin",
-      nonce: crypto.randomUUID(),
-      t: Date.now(),
-    };
+    const stateObj = { provider: "linkedin", nonce: crypto.randomUUID(), t: Date.now() };
     const state = encodeState(stateObj);
 
     const scope = ["openid", "profile", "email", "w_member_social"].join(" ");
@@ -113,7 +110,6 @@ export async function GET(req: NextRequest) {
       `&prompt=consent`;
 
     const res = NextResponse.redirect(authUrl, { status: 302 });
-
     res.cookies.set("oauth_state_linkedin", state, {
       httpOnly: true,
       secure: true,
@@ -121,7 +117,6 @@ export async function GET(req: NextRequest) {
       path: "/",
       maxAge: 10 * 60,
     });
-
     return res;
   }
 
@@ -132,25 +127,33 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: `Unsupported provider: ${provider}` }, { status: 400 });
   }
 
-  const appId = process.env.FACEBOOK_APP_ID || "";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  const appId = (process.env.META_APP_ID || process.env.FACEBOOK_APP_ID || "").trim();
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
 
   if (!appId || !appUrl) {
     return NextResponse.json(
       {
-        error: "Missing FACEBOOK_APP_ID or NEXT_PUBLIC_APP_URL",
-        missing: {
-          FACEBOOK_APP_ID: !appId,
-          NEXT_PUBLIC_APP_URL: !appUrl,
-        },
+        error: "Missing META_APP_ID/FACEBOOK_APP_ID or NEXT_PUBLIC_APP_URL",
+        missing: { APP_ID: !appId, NEXT_PUBLIC_APP_URL: !appUrl },
       },
       { status: 500 }
     );
   }
 
+  const organisationId = await getOrganisationId();
+  if (!organisationId) {
+    return NextResponse.json({ error: "No organisation found (needed for OAuth state)." }, { status: 400 });
+  }
+
   const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/facebook/callback`;
 
-  const stateObj = { provider, nonce: crypto.randomUUID(), t: Date.now() };
+  // ✅ include organisationId in state so callback can save tokens
+  const stateObj = {
+    provider,
+    organisationId,
+    nonce: crypto.randomUUID(),
+    t: Date.now(),
+  };
   const state = encodeState(stateObj);
 
   const baseScopes = [
@@ -158,6 +161,8 @@ export async function GET(req: NextRequest) {
     "pages_show_list",
     "pages_read_engagement",
     "pages_manage_posts",
+    "pages_read_user_content",
+    "pages_manage_engagement",
     "business_management",
   ];
 
