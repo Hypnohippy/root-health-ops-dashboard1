@@ -8,34 +8,27 @@ function norm(s: any) {
   return String(s || "").trim();
 }
 
-async function getOrganisationIdFromState(req: NextRequest): Promise<string | null> {
-  const state = norm(new URL(req.url).searchParams.get("state"));
-  if (!state) return null;
+function decodeStateMaybe(state: string): any | null {
+  const s = norm(state);
+  if (!s) return null;
 
-  try {
-    if (state.startsWith("{")) {
-      const parsed = JSON.parse(state);
-      const org = norm(parsed.organisationId || parsed.organisation_id || parsed.orgId);
-      return org || null;
+  // If raw JSON
+  if (s.startsWith("{")) {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
     }
-  } catch {}
+  }
 
-  return state || null;
-}
-
-async function getPreferredPageIdFromState(req: NextRequest): Promise<string | null> {
-  const state = norm(new URL(req.url).searchParams.get("state"));
-  if (!state) return null;
-
+  // If base64url JSON
   try {
-    if (state.startsWith("{")) {
-      const parsed = JSON.parse(state);
-      const pid = norm(parsed.pageId || parsed.page_id);
-      return pid || null;
-    }
-  } catch {}
-
-  return null;
+    const json = Buffer.from(s, "base64url").toString("utf8");
+    if (!json.startsWith("{")) return null;
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
 }
 
 async function upsertSocialAccount(args: {
@@ -92,20 +85,26 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(new URL(`/dashboard/connect?error=Missing+code`, req.url));
     }
 
-    const organisationId = await getOrganisationIdFromState(req);
+    const stateRaw = norm(url.searchParams.get("state"));
+    const parsed = decodeStateMaybe(stateRaw);
+
+    // ✅ support: state could be just an org id string (older flows), or JSON/base64 JSON
+    const organisationId =
+      norm(parsed?.organisationId || parsed?.organisation_id || parsed?.orgId) || (stateRaw && !parsed ? stateRaw : "");
+
     if (!organisationId) {
       return NextResponse.redirect(new URL(`/dashboard/connect?error=Missing+state+organisationId`, req.url));
     }
 
-    const preferredPageId = await getPreferredPageIdFromState(req);
+    const appId = (process.env.META_APP_ID || process.env.FACEBOOK_APP_ID || "").trim();
+    const appSecret = (process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || "").trim();
 
-    const appId = norm(process.env.META_APP_ID);
-    const appSecret = norm(process.env.META_APP_SECRET);
+    // Must match the URI you registered in Meta, but default to the current origin + path
     const redirectUri =
-      norm(process.env.META_FACEBOOK_REDIRECT_URI) || `${url.origin}/api/oauth/facebook/callback`;
+      (process.env.META_FACEBOOK_REDIRECT_URI || "").trim() || `${url.origin}/api/oauth/facebook/callback`;
 
     if (!appId || !appSecret) {
-      return NextResponse.redirect(new URL(`/dashboard/connect?error=Missing+META+app+envs`, req.url));
+      return NextResponse.redirect(new URL(`/dashboard/connect?error=Missing+Meta+app+envs`, req.url));
     }
 
     const API_VER = "v24.0";
@@ -148,13 +147,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 3) Pick the page
-    let chosen = pages[0];
-    if (preferredPageId) {
-      const match = pages.find((p) => norm(p?.id) === preferredPageId);
-      if (match) chosen = match;
-    }
-
+    // 3) Pick first page (safe default)
+    const chosen = pages[0];
     const pageId = norm(chosen?.id) || null;
     const pageName = chosen?.name ? String(chosen.name) : null;
     const pageAccessToken = norm(chosen?.access_token) || null;
