@@ -4,7 +4,10 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-const DISPATCH_SECRET = (process.env.DISPATCH_SECRET || "").trim();
+// Vercel Cron will automatically send: Authorization: Bearer <CRON_SECRET>
+const CRON_SECRET = (process.env.CRON_SECRET || "").trim();
+
+// Kill switch (you already use this)
 const DISPATCH_DISABLED = (process.env.DISPATCH_DISABLED || "").trim() === "1";
 
 function norm(v: any) {
@@ -13,6 +16,15 @@ function norm(v: any) {
 
 function originFromReq(req: NextRequest) {
   return new URL(req.url).origin;
+}
+
+function isAuthorized(req: NextRequest) {
+  // If you haven't set CRON_SECRET, we allow it (dev/beta),
+  // but in production you SHOULD set CRON_SECRET.
+  if (!CRON_SECRET) return true;
+
+  const auth = norm(req.headers.get("authorization"));
+  return auth === `Bearer ${CRON_SECRET}`;
 }
 
 async function claimScheduledPost(id: string) {
@@ -47,22 +59,9 @@ async function markBackToScheduled(id: string, note: string) {
 
 export async function GET(req: NextRequest) {
   try {
-    // ✅ SAFETY: only allow dispatcher in PRODUCTION
-    // Prevent preview deployments from posting spam.
-    const vercelEnv = (process.env.VERCEL_ENV || "").toLowerCase();
-    if (vercelEnv && vercelEnv !== "production") {
-      return NextResponse.json(
-        { success: false, error: "Dispatch blocked outside production.", vercelEnv },
-        { status: 403 }
-      );
-    }
-
-    // ✅ Optional secret protection (HIGHLY recommended)
-    if (DISPATCH_SECRET) {
-      const got = norm(new URL(req.url).searchParams.get("secret"));
-      if (!got || got !== DISPATCH_SECRET) {
-        return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-      }
+    // ✅ Secure cron invocations
+    if (!isAuthorized(req)) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
     // ✅ Kill switch
@@ -85,7 +84,7 @@ export async function GET(req: NextRequest) {
     const results: any[] = [];
 
     for (const row of due || []) {
-      const id = norm(row?.id);
+      const id = norm((row as any)?.id);
       if (!id) continue;
 
       // 2) Claim it (prevents duplicate posting)
@@ -117,6 +116,8 @@ export async function GET(req: NextRequest) {
           httpStatus: publishRes.status,
           publish: publishJson,
         });
+
+        // publish/now updates the scheduled_posts status
       } catch (e: any) {
         await markBackToScheduled(id, e?.message || "Publish crashed");
         results.push({ id, ok: false, error: e?.message || "Publish crashed (re-queued)" });
@@ -127,7 +128,6 @@ export async function GET(req: NextRequest) {
       success: true,
       processed: results.length,
       results,
-      note: "Dispatcher claims scheduled posts + is blocked outside production.",
     });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e?.message || "Dispatch failed" }, { status: 500 });
