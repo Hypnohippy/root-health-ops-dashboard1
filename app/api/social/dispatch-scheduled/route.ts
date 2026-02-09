@@ -33,7 +33,6 @@ async function claimScheduledPost(id: string) {
 }
 
 async function markBackToScheduled(id: string, note: string) {
-  // If publish crashed in a weird way, you can re-queue instead of losing it
   const { error } = await supabaseAdmin
     .from("scheduled_posts")
     .update({
@@ -48,7 +47,17 @@ async function markBackToScheduled(id: string, note: string) {
 
 export async function GET(req: NextRequest) {
   try {
-    // ✅ Optional secret protection
+    // ✅ SAFETY: only allow dispatcher in PRODUCTION
+    // Prevent preview deployments from posting spam.
+    const vercelEnv = (process.env.VERCEL_ENV || "").toLowerCase();
+    if (vercelEnv && vercelEnv !== "production") {
+      return NextResponse.json(
+        { success: false, error: "Dispatch blocked outside production.", vercelEnv },
+        { status: 403 }
+      );
+    }
+
+    // ✅ Optional secret protection (HIGHLY recommended)
     if (DISPATCH_SECRET) {
       const got = norm(new URL(req.url).searchParams.get("secret"));
       if (!got || got !== DISPATCH_SECRET) {
@@ -86,23 +95,17 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const organisationId = norm(claimed.organisation_id);
+      const organisationId = norm((claimed as any).organisation_id);
       const platforms = Array.isArray((claimed as any).platforms) ? (claimed as any).platforms : [];
 
       try {
-        // ✅ IMPORTANT: publish/now contract
-        // - organisationId must be in querystring
-        // - body must contain { id, platforms }
         const publishRes = await fetch(
           `${origin}/api/publish/now?organisationId=${encodeURIComponent(organisationId)}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             cache: "no-store",
-            body: JSON.stringify({
-              id,
-              platforms,
-            }),
+            body: JSON.stringify({ id, platforms }),
           }
         );
 
@@ -114,11 +117,7 @@ export async function GET(req: NextRequest) {
           httpStatus: publishRes.status,
           publish: publishJson,
         });
-
-        // ✅ DO NOT update scheduled_posts status here.
-        // publish/now already updates status to "posted" or "failed".
       } catch (e: any) {
-        // If publish endpoint crashed before it updated DB, re-queue
         await markBackToScheduled(id, e?.message || "Publish crashed");
         results.push({ id, ok: false, error: e?.message || "Publish crashed (re-queued)" });
       }
@@ -128,7 +127,7 @@ export async function GET(req: NextRequest) {
       success: true,
       processed: results.length,
       results,
-      note: "Dispatcher now CLAIMS scheduled posts before calling publish/now, preventing duplicate posting.",
+      note: "Dispatcher claims scheduled posts + is blocked outside production.",
     });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e?.message || "Dispatch failed" }, { status: 500 });
