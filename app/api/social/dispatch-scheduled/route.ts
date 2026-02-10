@@ -4,14 +4,20 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-// Vercel Cron will automatically send: Authorization: Bearer <CRON_SECRET>
+// Vercel Cron convention: Authorization: Bearer <CRON_SECRET>
 const CRON_SECRET = (process.env.CRON_SECRET || "").trim();
 
-// Kill switch (you already use this)
+// Kill switch
 const DISPATCH_DISABLED = (process.env.DISPATCH_DISABLED || "").trim() === "1";
 
 function norm(v: any) {
   return String(v || "").trim();
+}
+
+function mask(s: string) {
+  if (!s) return "";
+  if (s.length <= 4) return "*".repeat(s.length);
+  return `${s.slice(0, 2)}***${s.slice(-2)}`;
 }
 
 function originFromReq(req: NextRequest) {
@@ -19,16 +25,20 @@ function originFromReq(req: NextRequest) {
 }
 
 function isAuthorized(req: NextRequest) {
-  // If you haven't set CRON_SECRET, we allow it (dev/beta),
-  // but in production you SHOULD set CRON_SECRET.
-  if (!CRON_SECRET) return true;
+  // If no secret set, allow (dev/beta mode)
+  if (!CRON_SECRET) return { ok: true as const, via: "open" as const };
 
   const auth = norm(req.headers.get("authorization"));
-  return auth === `Bearer ${CRON_SECRET}`;
+  if (auth === `Bearer ${CRON_SECRET}`) return { ok: true as const, via: "header" as const };
+
+  // ✅ Allow browser/manual trigger: ?secret=
+  const got = norm(req.nextUrl.searchParams.get("secret"));
+  if (got && got === CRON_SECRET) return { ok: true as const, via: "query" as const };
+
+  return { ok: false as const, via: "none" as const, auth, got };
 }
 
 async function claimScheduledPost(id: string) {
-  // ✅ Atomic claim: only ONE runner can flip scheduled -> sending
   const { data, error } = await supabaseAdmin
     .from("scheduled_posts")
     .update({
@@ -41,7 +51,7 @@ async function claimScheduledPost(id: string) {
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  return data; // null => already claimed by another run
+  return data;
 }
 
 async function markBackToScheduled(id: string, note: string) {
@@ -59,17 +69,27 @@ async function markBackToScheduled(id: string, note: string) {
 
 export async function GET(req: NextRequest) {
   try {
-    // ✅ Secure cron invocations
-    if (!isAuthorized(req)) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    const auth = isAuthorized(req);
+    if (!auth.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized",
+          debug: {
+            hasCronSecret: !!CRON_SECRET,
+            expected: { len: CRON_SECRET.length, masked: mask(CRON_SECRET) },
+            gotHeader: auth.auth ? { len: auth.auth.length, masked: mask(auth.auth) } : null,
+            gotQuery: auth.got ? { len: auth.got.length, masked: mask(auth.got) } : null,
+          },
+        },
+        { status: 401 }
+      );
     }
 
-    // ✅ Kill switch
     if (DISPATCH_DISABLED) {
       return NextResponse.json({ success: true, disabled: true, message: "Dispatch disabled" });
     }
 
-    // 1) Find due scheduled posts
     const { data: due, error } = await supabaseAdmin
       .from("scheduled_posts")
       .select("id, organisation_id, scheduled_for, status")
@@ -87,7 +107,6 @@ export async function GET(req: NextRequest) {
       const id = norm((row as any)?.id);
       if (!id) continue;
 
-      // 2) Claim it (prevents duplicate posting)
       const claimed = await claimScheduledPost(id);
       if (!claimed) {
         results.push({ id, skipped: true, reason: "Already claimed by another run" });
@@ -116,8 +135,6 @@ export async function GET(req: NextRequest) {
           httpStatus: publishRes.status,
           publish: publishJson,
         });
-
-        // publish/now updates the scheduled_posts status
       } catch (e: any) {
         await markBackToScheduled(id, e?.message || "Publish crashed");
         results.push({ id, ok: false, error: e?.message || "Publish crashed (re-queued)" });
@@ -126,6 +143,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      authorizedVia: auth.via,
       processed: results.length,
       results,
     });
