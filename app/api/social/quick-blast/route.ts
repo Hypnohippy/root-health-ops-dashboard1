@@ -81,6 +81,9 @@ export async function POST(req: NextRequest) {
 
     const nowIso = new Date().toISOString();
 
+    // ✅ Important: status must match your DB CHECK constraint.
+    // Your constraint allows: scheduled, pending, queued, posted, failed, rejected, cancelled
+    // We'll use "scheduled" and set scheduled_for = now so it is effectively "send now".
     const insertPayload: any = {
       organisation_id: organisationId,
       message,
@@ -109,7 +112,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Trigger dispatcher immediately (optional)
+    // Trigger dispatcher immediately (optional). Cron will still run it later.
     let dispatchJson: any = null;
 
     if (CRON_SECRET) {
@@ -140,6 +143,7 @@ export async function POST(req: NextRequest) {
         scheduledPostId: created.id,
         note: CRON_SECRET ? "Queued and triggered dispatcher." : "Queued. CRON_SECRET not set; cron will pick it up.",
         dispatch: dispatchJson,
+        userMessage: "Sent.",
       },
       { status: 200 }
     );
