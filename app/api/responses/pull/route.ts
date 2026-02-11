@@ -45,16 +45,51 @@ async function graphGet(url: string) {
   return { ok: res.ok, status: res.status, json };
 }
 
+/**
+ * ✅ Deduplicate rows by (organisation_id, platform, external_id)
+ * Prevents: "ON CONFLICT DO UPDATE command cannot affect row a second time"
+ */
+function dedupeUpsertRows(rows: any[]) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+
+  const map = new Map<string, any>();
+
+  for (const r of rows) {
+    const org = norm(r?.organisation_id);
+    const platform = norm(r?.platform).toLowerCase();
+    const externalId = norm(r?.external_id);
+
+    if (!org || !platform || !externalId) continue;
+
+    const key = `${org}::${platform}::${externalId}`;
+
+    // Keep the newest if duplicates exist
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, r);
+      continue;
+    }
+
+    const prevT = prev?.created_at_platform ? new Date(prev.created_at_platform).getTime() : 0;
+    const nextT = r?.created_at_platform ? new Date(r.created_at_platform).getTime() : 0;
+
+    if (nextT >= prevT) map.set(key, r);
+  }
+
+  return Array.from(map.values());
+}
+
 async function upsertInboxItems(rows: any[]) {
-  if (!rows.length) return { upserted: 0 };
+  const clean = dedupeUpsertRows(rows);
+  if (!clean.length) return { upserted: 0 };
 
   // Upsert by unique index (org_id + platform + external_id)
   const { error } = await supabaseAdmin
     .from("inbox_items")
-    .upsert(rows, { onConflict: "organisation_id,platform,external_id" });
+    .upsert(clean, { onConflict: "organisation_id,platform,external_id" });
 
   if (error) throw new Error(error.message);
-  return { upserted: rows.length };
+  return { upserted: clean.length };
 }
 
 /**
@@ -103,11 +138,25 @@ function safeArr<T = any>(v: any): T[] {
   return Array.isArray(v) ? (v as T[]) : [];
 }
 
-function uniq<T>(arr: T[]) {
-  return Array.from(new Set(arr));
+/**
+ * ✅ Deduplicate comment objects by their "id" (string)
+ */
+function dedupeById(items: any[]) {
+  const map = new Map<string, any>();
+  for (const it of items || []) {
+    const id = norm(it?.id);
+    if (!id) continue;
+    if (!map.has(id)) map.set(id, it);
+  }
+  return Array.from(map.values());
 }
 
-async function pullFacebook(organisationId: string, pageId: string, storedToken: string, sinceDays: number) {
+async function pullFacebook(
+  organisationId: string,
+  pageId: string,
+  storedToken: string,
+  sinceDays: number
+) {
   const API_VER = "v24.0";
 
   // ✅ upgrade token if needed
@@ -160,8 +209,6 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
   const feedItems: any[] = safeArr(feedRes.json?.data);
   const upsertRows: any[] = [];
   const perPostErrors: any[] = [];
-
-  // Debug view you can inspect in the browser console
   const debugTopPosts: any[] = [];
 
   for (const p of feedItems) {
@@ -178,7 +225,7 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
 
     const commentsTotalCountFeed = Number(p?.comments?.summary?.total_count ?? 0) || 0;
 
-    // 1) Try comments on the feed object itself
+    // 1) Comments on the feed object itself
     const commentsUrlFeed =
       `https://graph.facebook.com/${API_VER}/${encodeURIComponent(feedId)}/comments` +
       `?fields=id,message,from,created_time,permalink_url&limit=100&since=${sinceUnix}&access_token=${encodeURIComponent(
@@ -186,16 +233,13 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
       )}`;
 
     const commentsResFeed = await graphGet(commentsUrlFeed);
+    const feedComments = commentsResFeed.ok ? safeArr(commentsResFeed.json?.data) : [];
 
-    let feedComments: any[] = [];
-    if (commentsResFeed.ok) feedComments = safeArr(commentsResFeed.json?.data);
-
-    // 2) ALSO try comments on the attachment target object (often where photo comments live)
+    // 2) Comments on the attachment target object (often where photo comments live)
     let targetComments: any[] = [];
     let commentsTotalCountTarget = 0;
 
     if (targetId) {
-      // Ask for summary total_count on target too
       const targetSummaryUrl =
         `https://graph.facebook.com/${API_VER}/${encodeURIComponent(targetId)}` +
         `?fields=comments.limit(0).summary(true)&access_token=${encodeURIComponent(token)}`;
@@ -212,13 +256,11 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
         )}`;
 
       const commentsResTarget = await graphGet(commentsUrlTarget);
-      if (commentsResTarget.ok) targetComments = safeArr(commentsResTarget.json?.data);
+      targetComments = commentsResTarget.ok ? safeArr(commentsResTarget.json?.data) : [];
     }
 
-    // Combine both sources (avoid dupes)
-    const allComments = uniq(
-      [...feedComments, ...targetComments].filter(Boolean).map((c) => c)
-    );
+    // ✅ Dedupe by comment id (CRITICAL)
+    const allComments = dedupeById([...feedComments, ...targetComments]);
 
     debugTopPosts.push({
       postId: feedId,
@@ -229,10 +271,11 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
       commentsReturnedFeed: feedComments.length,
       commentsTotalCountTarget,
       commentsReturnedTarget: targetComments.length,
+      combinedUniqueComments: allComments.length,
     });
 
-    // If both calls failed, keep a per-post error note
-    if (!commentsResFeed.ok && targetId) {
+    // If feed comments call failed, keep a per-post error note
+    if (!commentsResFeed.ok) {
       perPostErrors.push({
         postId: feedId,
         targetId,
@@ -249,10 +292,7 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
 
       const fromName = c?.from?.name ? String(c.from.name) : null;
       const createdAt = safeIso(c?.created_time);
-      const permalink =
-        typeof c?.permalink_url === "string"
-          ? c.permalink_url
-          : postPermalink;
+      const permalink = typeof c?.permalink_url === "string" ? c.permalink_url : postPermalink;
 
       upsertRows.push({
         organisation_id: organisationId,
@@ -283,20 +323,22 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
     sinceDays,
     perPostErrors,
     debug: {
-      sources: {
-        feed: true,
-        attachmentTarget: true,
-      },
+      sources: { feed: true, attachmentTarget: true },
       topPosts: debugTopPosts.slice(0, 12),
     },
     note:
       up.upserted === 0
-        ? "Facebook feed items were fetched but no comments were returned. Check debug.topPosts: if commentsTotalCountTarget > 0 but commentsReturnedTarget = 0, permissions/object access is blocking comments."
+        ? "Facebook feed items were fetched but no comments were returned. Check debug.topPosts."
         : undefined,
   };
 }
 
-async function pullInstagram(organisationId: string, igUserId: string, token: string, sinceDays: number) {
+async function pullInstagram(
+  organisationId: string,
+  igUserId: string,
+  token: string,
+  sinceDays: number
+) {
   const API_VER = "v24.0";
   const sinceUnix = Math.floor((Date.now() - sinceDays * 24 * 60 * 60 * 1000) / 1000);
 
@@ -333,6 +375,7 @@ async function pullInstagram(organisationId: string, igUserId: string, token: st
     if (!comments.ok) continue;
 
     const items: any[] = safeArr(comments.json?.data);
+
     for (const c of items) {
       const commentId = norm(c?.id);
       const text = norm(c?.text);
@@ -412,7 +455,7 @@ export async function POST(req: NextRequest) {
       pulled,
       results,
       note:
-        "Pulled latest comments and stored them in Supabase (inbox_items). Facebook now pulls comments from BOTH the feed object and attachment target object (photo/video), which fixes the ‘photo comments not found’ issue.",
+        "Pulled latest comments and stored them in Supabase (inbox_items). Facebook now pulls comments from BOTH the feed object and attachment target object (photo/video), deduped safely to prevent Postgres ON CONFLICT errors.",
     });
   } catch (e: any) {
     return okJson({ success: false, error: e?.message || "Pull failed" }, 500);
