@@ -28,6 +28,23 @@ function safeIso(s: any) {
   return d.toISOString();
 }
 
+function safeArr<T = any>(v: any): T[] {
+  return Array.isArray(v) ? (v as T[]) : [];
+}
+
+function uniqBy<T>(arr: T[], keyFn: (x: T) => string) {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const x of arr) {
+    const k = keyFn(x);
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(x);
+  }
+  return out;
+}
+
 async function loadActiveAccounts(organisationId: string): Promise<SocialAccountRow[]> {
   const { data, error } = await supabaseAdmin
     .from("social_accounts")
@@ -45,51 +62,16 @@ async function graphGet(url: string) {
   return { ok: res.ok, status: res.status, json };
 }
 
-/**
- * ✅ Deduplicate rows by (organisation_id, platform, external_id)
- * Prevents: "ON CONFLICT DO UPDATE command cannot affect row a second time"
- */
-function dedupeUpsertRows(rows: any[]) {
-  if (!Array.isArray(rows) || rows.length === 0) return [];
-
-  const map = new Map<string, any>();
-
-  for (const r of rows) {
-    const org = norm(r?.organisation_id);
-    const platform = norm(r?.platform).toLowerCase();
-    const externalId = norm(r?.external_id);
-
-    if (!org || !platform || !externalId) continue;
-
-    const key = `${org}::${platform}::${externalId}`;
-
-    // Keep the newest if duplicates exist
-    const prev = map.get(key);
-    if (!prev) {
-      map.set(key, r);
-      continue;
-    }
-
-    const prevT = prev?.created_at_platform ? new Date(prev.created_at_platform).getTime() : 0;
-    const nextT = r?.created_at_platform ? new Date(r.created_at_platform).getTime() : 0;
-
-    if (nextT >= prevT) map.set(key, r);
-  }
-
-  return Array.from(map.values());
-}
-
 async function upsertInboxItems(rows: any[]) {
-  const clean = dedupeUpsertRows(rows);
-  if (!clean.length) return { upserted: 0 };
+  if (!rows.length) return { upserted: 0 };
 
   // Upsert by unique index (org_id + platform + external_id)
   const { error } = await supabaseAdmin
     .from("inbox_items")
-    .upsert(clean, { onConflict: "organisation_id,platform,external_id" });
+    .upsert(rows, { onConflict: "organisation_id,platform,external_id" });
 
   if (error) throw new Error(error.message);
-  return { upserted: clean.length };
+  return { upserted: rows.length };
 }
 
 /**
@@ -134,29 +116,7 @@ async function resolveFacebookPageToken(opts: {
   };
 }
 
-function safeArr<T = any>(v: any): T[] {
-  return Array.isArray(v) ? (v as T[]) : [];
-}
-
-/**
- * ✅ Deduplicate comment objects by their "id" (string)
- */
-function dedupeById(items: any[]) {
-  const map = new Map<string, any>();
-  for (const it of items || []) {
-    const id = norm(it?.id);
-    if (!id) continue;
-    if (!map.has(id)) map.set(id, it);
-  }
-  return Array.from(map.values());
-}
-
-async function pullFacebook(
-  organisationId: string,
-  pageId: string,
-  storedToken: string,
-  sinceDays: number
-) {
+async function pullFacebook(organisationId: string, pageId: string, storedToken: string, sinceDays: number) {
   const API_VER = "v24.0";
 
   // ✅ upgrade token if needed
@@ -171,11 +131,6 @@ async function pullFacebook(
 
   const sinceUnix = Math.floor((Date.now() - sinceDays * 24 * 60 * 60 * 1000) / 1000);
 
-  /**
-   * ✅ KEY FIX:
-   * Pull from /feed WITH attachments.target.id
-   * Because photo posts often have comments on the PHOTO object, not the feed object.
-   */
   const feedUrl =
     `https://graph.facebook.com/${API_VER}/${encodeURIComponent(pageId)}/feed` +
     `?fields=` +
@@ -219,13 +174,11 @@ async function pullFacebook(
     const postPermalink = typeof p?.permalink_url === "string" ? p.permalink_url : null;
     const createdTime = safeIso(p?.created_time);
 
-    // Try to find attachment target id (photo/video object id)
     const att = safeArr<any>(p?.attachments?.data)[0] || null;
     const targetId = norm(att?.target?.id) || null;
 
     const commentsTotalCountFeed = Number(p?.comments?.summary?.total_count ?? 0) || 0;
 
-    // 1) Comments on the feed object itself
     const commentsUrlFeed =
       `https://graph.facebook.com/${API_VER}/${encodeURIComponent(feedId)}/comments` +
       `?fields=id,message,from,created_time,permalink_url&limit=100&since=${sinceUnix}&access_token=${encodeURIComponent(
@@ -233,9 +186,10 @@ async function pullFacebook(
       )}`;
 
     const commentsResFeed = await graphGet(commentsUrlFeed);
-    const feedComments = commentsResFeed.ok ? safeArr(commentsResFeed.json?.data) : [];
 
-    // 2) Comments on the attachment target object (often where photo comments live)
+    let feedComments: any[] = [];
+    if (commentsResFeed.ok) feedComments = safeArr(commentsResFeed.json?.data);
+
     let targetComments: any[] = [];
     let commentsTotalCountTarget = 0;
 
@@ -256,11 +210,11 @@ async function pullFacebook(
         )}`;
 
       const commentsResTarget = await graphGet(commentsUrlTarget);
-      targetComments = commentsResTarget.ok ? safeArr(commentsResTarget.json?.data) : [];
+      if (commentsResTarget.ok) targetComments = safeArr(commentsResTarget.json?.data);
     }
 
-    // ✅ Dedupe by comment id (CRITICAL)
-    const allComments = dedupeById([...feedComments, ...targetComments]);
+    // Combine both sources (avoid dupes) by comment id
+    const allComments = uniqBy([...feedComments, ...targetComments].filter(Boolean), (c) => norm((c as any)?.id));
 
     debugTopPosts.push({
       postId: feedId,
@@ -271,11 +225,9 @@ async function pullFacebook(
       commentsReturnedFeed: feedComments.length,
       commentsTotalCountTarget,
       commentsReturnedTarget: targetComments.length,
-      combinedUniqueComments: allComments.length,
     });
 
-    // If feed comments call failed, keep a per-post error note
-    if (!commentsResFeed.ok) {
+    if (!commentsResFeed.ok && targetId) {
       perPostErrors.push({
         postId: feedId,
         targetId,
@@ -285,14 +237,17 @@ async function pullFacebook(
     }
 
     for (const c of allComments) {
-      const commentId = norm(c?.id);
-      const text = norm(c?.message);
+      const commentId = norm((c as any)?.id);
+      const text = norm((c as any)?.message);
 
       if (!commentId || !text) continue;
 
-      const fromName = c?.from?.name ? String(c.from.name) : null;
-      const createdAt = safeIso(c?.created_time);
-      const permalink = typeof c?.permalink_url === "string" ? c.permalink_url : postPermalink;
+      const fromName = (c as any)?.from?.name ? String((c as any).from.name) : null;
+      const createdAt = safeIso((c as any)?.created_time);
+      const permalink =
+        typeof (c as any)?.permalink_url === "string"
+          ? (c as any).permalink_url
+          : postPermalink;
 
       upsertRows.push({
         organisation_id: organisationId,
@@ -333,12 +288,7 @@ async function pullFacebook(
   };
 }
 
-async function pullInstagram(
-  organisationId: string,
-  igUserId: string,
-  token: string,
-  sinceDays: number
-) {
+async function pullInstagram(organisationId: string, igUserId: string, token: string, sinceDays: number) {
   const API_VER = "v24.0";
   const sinceUnix = Math.floor((Date.now() - sinceDays * 24 * 60 * 60 * 1000) / 1000);
 
@@ -375,7 +325,6 @@ async function pullInstagram(
     if (!comments.ok) continue;
 
     const items: any[] = safeArr(comments.json?.data);
-
     for (const c of items) {
       const commentId = norm(c?.id);
       const text = norm(c?.text);
@@ -407,6 +356,194 @@ async function pullInstagram(
   return { ok: true, platform: "instagram", pulled: up.upserted, mediaSeen: mediaItems.length, sinceDays };
 }
 
+/**
+ * ✅ LinkedIn comments pull (polling)
+ * Works for comments on posts the connected user authored (UGC posts).
+ * Notes:
+ * - LinkedIn APIs can be picky about permissions. If it fails, reconnect LinkedIn.
+ * - We store raw comment payloads, and keep author info best-effort.
+ */
+async function pullLinkedIn(organisationId: string, token: string, sinceDays: number) {
+  const sinceMs = Date.now() - sinceDays * 24 * 60 * 60 * 1000;
+
+  // 1) Find author urn (same method you already use in /api/linkedin/post)
+  const userRes = await fetch("https://api.linkedin.com/v2/userinfo", {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  const userJson: any = await userRes.json().catch(() => null);
+
+  if (!userRes.ok) {
+    return {
+      ok: false,
+      platform: "linkedin",
+      error: userJson?.message || userJson?.error_description || "LinkedIn userinfo failed",
+      status: userRes.status,
+      details: userJson,
+      hint: "Reconnect LinkedIn on Connect page if this persists.",
+    };
+  }
+
+  const sub = norm(userJson?.sub);
+  if (!sub) {
+    return {
+      ok: false,
+      platform: "linkedin",
+      error: "LinkedIn userinfo returned no 'sub' field (cannot determine author).",
+      status: 500,
+      details: userJson,
+    };
+  }
+
+  const authorUrn = `urn:li:person:${sub}`;
+
+  // 2) Pull recent UGC posts by author
+  // (This query works for many apps; if your app is limited, LinkedIn may 403 it)
+  const postsUrl =
+    "https://api.linkedin.com/v2/ugcPosts" +
+    `?q=authors&authors=List(${encodeURIComponent(authorUrn)})&count=20`;
+
+  const postsRes = await fetch(postsUrl, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Restli-Protocol-Version": "2.0.0",
+      "LinkedIn-Version": "202402",
+    },
+    cache: "no-store",
+  });
+  const postsJson: any = await postsRes.json().catch(() => null);
+
+  if (!postsRes.ok) {
+    return {
+      ok: false,
+      platform: "linkedin",
+      error: postsJson?.message || "LinkedIn ugcPosts fetch failed",
+      status: postsRes.status,
+      details: postsJson,
+      hint: "This usually means the app/token doesn't have permission to read posts/comments. Reconnect LinkedIn; if still failing, LinkedIn app permissions may not allow comment reads.",
+    };
+  }
+
+  const elements: any[] = safeArr(postsJson?.elements);
+  const recentPosts = elements.filter((p) => {
+    const lastModified = Number(p?.lastModified?.time ?? 0) || 0;
+    const created = Number(p?.created?.time ?? 0) || lastModified || 0;
+    const ts = created || lastModified;
+    return ts ? ts >= sinceMs : true;
+  });
+
+  const upsertRows: any[] = [];
+  const perPostErrors: any[] = [];
+
+  for (const p of recentPosts) {
+    const postUrn = norm(p?.id); // usually a URN like urn:li:ugcPost:...
+    if (!postUrn) continue;
+
+    const createdTs = Number(p?.created?.time ?? 0) || Number(p?.lastModified?.time ?? 0) || 0;
+    const postCreatedIso = createdTs ? new Date(createdTs).toISOString() : null;
+
+    // best-effort text extraction
+    const postText =
+      norm(p?.specificContent?.["com.linkedin.ugc.ShareContent"]?.shareCommentary?.text) ||
+      null;
+
+    // 3) Pull comments for that post via socialActions
+    const commentsUrl =
+      `https://api.linkedin.com/v2/socialActions/${encodeURIComponent(postUrn)}/comments?count=50`;
+
+    const cRes = await fetch(commentsUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-Restli-Protocol-Version": "2.0.0",
+        "LinkedIn-Version": "202402",
+      },
+      cache: "no-store",
+    });
+
+    const cJson: any = await cRes.json().catch(() => null);
+
+    if (!cRes.ok) {
+      perPostErrors.push({
+        postUrn,
+        status: cRes.status,
+        error: cJson?.message || "LinkedIn comments fetch failed",
+        details: cJson,
+      });
+      continue;
+    }
+
+    const comments: any[] = safeArr(cJson?.elements);
+
+    for (const c of comments) {
+      const commentUrn = norm(c?.id); // URN for the comment
+      const text = norm(c?.message?.text);
+      if (!commentUrn || !text) continue;
+
+      const actor = norm(c?.actor);
+      const createdMs = Number(c?.created?.time ?? 0) || 0;
+      const createdAt = createdMs ? new Date(createdMs).toISOString() : null;
+
+      // LinkedIn doesn't always provide a permalink easily via this endpoint.
+      // We store null (UI can still show it, and you can add permalink later).
+      upsertRows.push({
+        organisation_id: organisationId,
+        platform: "linkedin",
+        status: "needs_reply",
+        kind: "comment",
+        external_id: commentUrn,
+        post_id: postUrn,
+        post_text: postText,
+        author_name: null,
+        author_handle: actor || null,
+        text,
+        permalink: null,
+        created_at_platform: createdAt,
+        raw: { comment: c, post: { id: postUrn, created_at: postCreatedIso, text: postText } },
+      });
+    }
+  }
+
+  const up = await upsertInboxItems(upsertRows);
+
+  return {
+    ok: true,
+    platform: "linkedin",
+    pulled: up.upserted,
+    postsSeen: recentPosts.length,
+    sinceDays,
+    perPostErrors,
+    note:
+      up.upserted === 0
+        ? "LinkedIn posts were fetched but no comments were returned in this window."
+        : undefined,
+  };
+}
+
+/**
+ * Threads + TikTok:
+ * These are not like FB/IG for “pull inbox” via simple polling in most setups.
+ * If you want them in Responses reliably, we should implement:
+ * - Threads: proper Graph endpoints for replies + backoff (or webhook-style capture if available)
+ * - TikTok: comment/list endpoints require correct scopes + product access; often best via their inbox/workflow
+ */
+async function pullThreadsNotImplemented() {
+  return {
+    ok: false,
+    platform: "threads",
+    error: "Threads pull not implemented yet (posting works; inbox/replies pulling needs a dedicated Threads replies API flow).",
+    hint: "We can add this next, but it’s a separate API path to fetch replies/comments reliably.",
+  };
+}
+
+async function pullTikTokNotImplemented() {
+  return {
+    ok: false,
+    platform: "tiktok",
+    error: "TikTok pull not implemented yet (posting/upload works; responses/comments pulling requires TikTok comment scopes + endpoints).",
+    hint: "We can add TikTok comments pull once we confirm your app has the right comment scopes enabled.",
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -422,27 +559,45 @@ export async function POST(req: NextRequest) {
 
     const fb = accounts.find((a) => a.platform === "facebook");
     const ig = accounts.find((a) => a.platform === "instagram");
+    const li = accounts.find((a) => a.platform === "linkedin");
+    const th = accounts.find((a) => a.platform === "threads");
+    const tt = accounts.find((a) => a.platform === "tiktok");
 
     const results: any[] = [];
 
+    // Facebook
     if (fb?.page_id && fb?.page_access_token) {
       results.push(await pullFacebook(organisationId, fb.page_id, fb.page_access_token, sinceDays));
     } else {
-      results.push({
-        ok: false,
-        platform: "facebook",
-        error: "Facebook not connected (missing page_id or token).",
-      });
+      results.push({ ok: false, platform: "facebook", error: "Facebook not connected (missing page_id or token)." });
     }
 
+    // Instagram
     if (ig?.page_id && ig?.page_access_token) {
       results.push(await pullInstagram(organisationId, ig.page_id, ig.page_access_token, sinceDays));
     } else {
-      results.push({
-        ok: false,
-        platform: "instagram",
-        error: "Instagram not connected (missing ig_user_id/page_id or token).",
-      });
+      results.push({ ok: false, platform: "instagram", error: "Instagram not connected (missing ig_user_id/page_id or token)." });
+    }
+
+    // LinkedIn (NEW)
+    if (li?.page_access_token) {
+      results.push(await pullLinkedIn(organisationId, li.page_access_token, sinceDays));
+    } else {
+      results.push({ ok: false, platform: "linkedin", error: "LinkedIn not connected (missing token)." });
+    }
+
+    // Threads (NOT IMPLEMENTED YET)
+    if (th?.page_access_token) {
+      results.push(await pullThreadsNotImplemented());
+    } else {
+      results.push({ ok: false, platform: "threads", error: "Threads not connected (missing token)." });
+    }
+
+    // TikTok (NOT IMPLEMENTED YET)
+    if (tt?.page_access_token) {
+      results.push(await pullTikTokNotImplemented());
+    } else {
+      results.push({ ok: false, platform: "tiktok", error: "TikTok not connected (missing token)." });
     }
 
     const pulled = results
@@ -455,7 +610,7 @@ export async function POST(req: NextRequest) {
       pulled,
       results,
       note:
-        "Pulled latest comments and stored them in Supabase (inbox_items). Facebook now pulls comments from BOTH the feed object and attachment target object (photo/video), deduped safely to prevent Postgres ON CONFLICT errors.",
+        "Pulled latest comments into inbox_items. LinkedIn polling is now enabled. Threads/TikTok pulling is not implemented yet (they need dedicated reply/comment APIs or webhook flows).",
     });
   } catch (e: any) {
     return okJson({ success: false, error: e?.message || "Pull failed" }, 500);
