@@ -65,7 +65,6 @@ async function graphGet(url: string) {
 async function upsertInboxItems(rows: any[]) {
   if (!rows.length) return { upserted: 0 };
 
-  // Upsert by unique index (org_id + platform + external_id)
   const { error } = await supabaseAdmin
     .from("inbox_items")
     .upsert(rows, { onConflict: "organisation_id,platform,external_id" });
@@ -118,8 +117,6 @@ async function resolveFacebookPageToken(opts: {
 
 async function pullFacebook(organisationId: string, pageId: string, storedToken: string, sinceDays: number) {
   const API_VER = "v24.0";
-
-  // ✅ upgrade token if needed
   const tokenInfo = await resolveFacebookPageToken({
     organisationId,
     pageId,
@@ -128,7 +125,6 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
   });
 
   const token = tokenInfo.token;
-
   const sinceUnix = Math.floor((Date.now() - sinceDays * 24 * 60 * 60 * 1000) / 1000);
 
   const feedUrl =
@@ -156,15 +152,11 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
       status: feedRes.status,
       details: feedRes.json,
       tokenUpgraded: tokenInfo.upgraded,
-      hint:
-        "If this fails, the saved token still isn’t usable for this Page. Ensure you granted pages_read_engagement + pages_read_user_content + pages_manage_posts.",
     };
   }
 
   const feedItems: any[] = safeArr(feedRes.json?.data);
   const upsertRows: any[] = [];
-  const perPostErrors: any[] = [];
-  const debugTopPosts: any[] = [];
 
   for (const p of feedItems) {
     const feedId = norm(p?.id);
@@ -172,12 +164,9 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
 
     const postText = typeof p?.message === "string" ? p.message : null;
     const postPermalink = typeof p?.permalink_url === "string" ? p.permalink_url : null;
-    const createdTime = safeIso(p?.created_time);
 
     const att = safeArr<any>(p?.attachments?.data)[0] || null;
     const targetId = norm(att?.target?.id) || null;
-
-    const commentsTotalCountFeed = Number(p?.comments?.summary?.total_count ?? 0) || 0;
 
     const commentsUrlFeed =
       `https://graph.facebook.com/${API_VER}/${encodeURIComponent(feedId)}/comments` +
@@ -186,23 +175,10 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
       )}`;
 
     const commentsResFeed = await graphGet(commentsUrlFeed);
-
-    let feedComments: any[] = [];
-    if (commentsResFeed.ok) feedComments = safeArr(commentsResFeed.json?.data);
+    const feedComments: any[] = commentsResFeed.ok ? safeArr(commentsResFeed.json?.data) : [];
 
     let targetComments: any[] = [];
-    let commentsTotalCountTarget = 0;
-
     if (targetId) {
-      const targetSummaryUrl =
-        `https://graph.facebook.com/${API_VER}/${encodeURIComponent(targetId)}` +
-        `?fields=comments.limit(0).summary(true)&access_token=${encodeURIComponent(token)}`;
-
-      const targetSummaryRes = await graphGet(targetSummaryUrl);
-      if (targetSummaryRes.ok) {
-        commentsTotalCountTarget = Number(targetSummaryRes.json?.comments?.summary?.total_count ?? 0) || 0;
-      }
-
       const commentsUrlTarget =
         `https://graph.facebook.com/${API_VER}/${encodeURIComponent(targetId)}/comments` +
         `?fields=id,message,from,created_time,permalink_url&limit=100&since=${sinceUnix}&access_token=${encodeURIComponent(
@@ -213,41 +189,17 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
       if (commentsResTarget.ok) targetComments = safeArr(commentsResTarget.json?.data);
     }
 
-    // Combine both sources (avoid dupes) by comment id
     const allComments = uniqBy([...feedComments, ...targetComments].filter(Boolean), (c) => norm((c as any)?.id));
-
-    debugTopPosts.push({
-      postId: feedId,
-      postPermalink,
-      postCreated: createdTime,
-      targetId,
-      commentsTotalCountFeed,
-      commentsReturnedFeed: feedComments.length,
-      commentsTotalCountTarget,
-      commentsReturnedTarget: targetComments.length,
-    });
-
-    if (!commentsResFeed.ok && targetId) {
-      perPostErrors.push({
-        postId: feedId,
-        targetId,
-        error: commentsResFeed.json?.error?.message || "Comments fetch failed (feed object)",
-        status: commentsResFeed.status,
-      });
-    }
 
     for (const c of allComments) {
       const commentId = norm((c as any)?.id);
       const text = norm((c as any)?.message);
-
       if (!commentId || !text) continue;
 
       const fromName = (c as any)?.from?.name ? String((c as any).from.name) : null;
       const createdAt = safeIso((c as any)?.created_time);
       const permalink =
-        typeof (c as any)?.permalink_url === "string"
-          ? (c as any).permalink_url
-          : postPermalink;
+        typeof (c as any)?.permalink_url === "string" ? (c as any).permalink_url : postPermalink;
 
       upsertRows.push({
         organisation_id: organisationId,
@@ -276,15 +228,6 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
     postsSeen: feedItems.length,
     pulled: up.upserted,
     sinceDays,
-    perPostErrors,
-    debug: {
-      sources: { feed: true, attachmentTarget: true },
-      topPosts: debugTopPosts.slice(0, 12),
-    },
-    note:
-      up.upserted === 0
-        ? "Facebook feed items were fetched but no comments were returned. Check debug.topPosts."
-        : undefined,
   };
 }
 
@@ -357,21 +300,25 @@ async function pullInstagram(organisationId: string, igUserId: string, token: st
 }
 
 /**
- * ✅ LinkedIn comments pull (polling)
- * Works for comments on posts the connected user authored (UGC posts).
- * Notes:
- * - LinkedIn APIs can be picky about permissions. If it fails, reconnect LinkedIn.
- * - We store raw comment payloads, and keep author info best-effort.
+ * ✅ LinkedIn pull with detailed debug so we can see exactly what fails.
  */
 async function pullLinkedIn(organisationId: string, token: string, sinceDays: number) {
-  const sinceMs = Date.now() - sinceDays * 24 * 60 * 60 * 1000;
+  const debug: any = {
+    step: null,
+    userinfo: null,
+    ugcPosts: null,
+    comments: [],
+  };
 
-  // 1) Find author urn (same method you already use in /api/linkedin/post)
+  // STEP 1: userinfo
+  debug.step = "userinfo";
   const userRes = await fetch("https://api.linkedin.com/v2/userinfo", {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
   const userJson: any = await userRes.json().catch(() => null);
+
+  debug.userinfo = { ok: userRes.ok, status: userRes.status, body: userJson };
 
   if (!userRes.ok) {
     return {
@@ -379,8 +326,8 @@ async function pullLinkedIn(organisationId: string, token: string, sinceDays: nu
       platform: "linkedin",
       error: userJson?.message || userJson?.error_description || "LinkedIn userinfo failed",
       status: userRes.status,
-      details: userJson,
-      hint: "Reconnect LinkedIn on Connect page if this persists.",
+      details: debug,
+      hint: "Reconnect LinkedIn. If still failing, token/permissions are invalid.",
     };
   }
 
@@ -389,16 +336,16 @@ async function pullLinkedIn(organisationId: string, token: string, sinceDays: nu
     return {
       ok: false,
       platform: "linkedin",
-      error: "LinkedIn userinfo returned no 'sub' field (cannot determine author).",
+      error: "LinkedIn userinfo returned no 'sub' (cannot determine author).",
       status: 500,
-      details: userJson,
+      details: debug,
     };
   }
 
   const authorUrn = `urn:li:person:${sub}`;
 
-  // 2) Pull recent UGC posts by author
-  // (This query works for many apps; if your app is limited, LinkedIn may 403 it)
+  // STEP 2: fetch ugcPosts by author
+  debug.step = "ugcPosts";
   const postsUrl =
     "https://api.linkedin.com/v2/ugcPosts" +
     `?q=authors&authors=List(${encodeURIComponent(authorUrn)})&count=20`;
@@ -413,18 +360,24 @@ async function pullLinkedIn(organisationId: string, token: string, sinceDays: nu
   });
   const postsJson: any = await postsRes.json().catch(() => null);
 
+  debug.ugcPosts = { ok: postsRes.ok, status: postsRes.status, body: postsJson };
+
   if (!postsRes.ok) {
     return {
       ok: false,
       platform: "linkedin",
       error: postsJson?.message || "LinkedIn ugcPosts fetch failed",
       status: postsRes.status,
-      details: postsJson,
-      hint: "This usually means the app/token doesn't have permission to read posts/comments. Reconnect LinkedIn; if still failing, LinkedIn app permissions may not allow comment reads.",
+      details: debug,
+      hint:
+        "Posting can work even if reading does not. This usually means your LinkedIn app/token lacks read permissions for ugcPosts/comments.",
     };
   }
 
   const elements: any[] = safeArr(postsJson?.elements);
+
+  const sinceMs = Date.now() - sinceDays * 24 * 60 * 60 * 1000;
+
   const recentPosts = elements.filter((p) => {
     const lastModified = Number(p?.lastModified?.time ?? 0) || 0;
     const created = Number(p?.created?.time ?? 0) || lastModified || 0;
@@ -433,25 +386,20 @@ async function pullLinkedIn(organisationId: string, token: string, sinceDays: nu
   });
 
   const upsertRows: any[] = [];
-  const perPostErrors: any[] = [];
 
+  // STEP 3: comments per post
+  debug.step = "comments";
   for (const p of recentPosts) {
-    const postUrn = norm(p?.id); // usually a URN like urn:li:ugcPost:...
+    const postUrn = norm(p?.id);
     if (!postUrn) continue;
 
-    const createdTs = Number(p?.created?.time ?? 0) || Number(p?.lastModified?.time ?? 0) || 0;
-    const postCreatedIso = createdTs ? new Date(createdTs).toISOString() : null;
-
-    // best-effort text extraction
     const postText =
       norm(p?.specificContent?.["com.linkedin.ugc.ShareContent"]?.shareCommentary?.text) ||
       null;
 
-    // 3) Pull comments for that post via socialActions
-    const commentsUrl =
-      `https://api.linkedin.com/v2/socialActions/${encodeURIComponent(postUrn)}/comments?count=50`;
+    const cUrl = `https://api.linkedin.com/v2/socialActions/${encodeURIComponent(postUrn)}/comments?count=50`;
 
-    const cRes = await fetch(commentsUrl, {
+    const cRes = await fetch(cUrl, {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-Restli-Protocol-Version": "2.0.0",
@@ -462,20 +410,18 @@ async function pullLinkedIn(organisationId: string, token: string, sinceDays: nu
 
     const cJson: any = await cRes.json().catch(() => null);
 
-    if (!cRes.ok) {
-      perPostErrors.push({
-        postUrn,
-        status: cRes.status,
-        error: cJson?.message || "LinkedIn comments fetch failed",
-        details: cJson,
-      });
-      continue;
-    }
+    debug.comments.push({
+      postUrn,
+      ok: cRes.ok,
+      status: cRes.status,
+      body: cJson,
+    });
+
+    if (!cRes.ok) continue;
 
     const comments: any[] = safeArr(cJson?.elements);
-
     for (const c of comments) {
-      const commentUrn = norm(c?.id); // URN for the comment
+      const commentUrn = norm(c?.id);
       const text = norm(c?.message?.text);
       if (!commentUrn || !text) continue;
 
@@ -483,8 +429,6 @@ async function pullLinkedIn(organisationId: string, token: string, sinceDays: nu
       const createdMs = Number(c?.created?.time ?? 0) || 0;
       const createdAt = createdMs ? new Date(createdMs).toISOString() : null;
 
-      // LinkedIn doesn't always provide a permalink easily via this endpoint.
-      // We store null (UI can still show it, and you can add permalink later).
       upsertRows.push({
         organisation_id: organisationId,
         platform: "linkedin",
@@ -498,7 +442,7 @@ async function pullLinkedIn(organisationId: string, token: string, sinceDays: nu
         text,
         permalink: null,
         created_at_platform: createdAt,
-        raw: { comment: c, post: { id: postUrn, created_at: postCreatedIso, text: postText } },
+        raw: c,
       });
     }
   }
@@ -511,27 +455,20 @@ async function pullLinkedIn(organisationId: string, token: string, sinceDays: nu
     pulled: up.upserted,
     postsSeen: recentPosts.length,
     sinceDays,
-    perPostErrors,
-    note:
-      up.upserted === 0
-        ? "LinkedIn posts were fetched but no comments were returned in this window."
-        : undefined,
+    debug: {
+      userinfoOk: debug.userinfo?.ok,
+      ugcPostsOk: debug.ugcPosts?.ok,
+      commentsCalls: (debug.comments || []).length,
+      commentsOkCount: (debug.comments || []).filter((x: any) => x.ok).length,
+    },
   };
 }
 
-/**
- * Threads + TikTok:
- * These are not like FB/IG for “pull inbox” via simple polling in most setups.
- * If you want them in Responses reliably, we should implement:
- * - Threads: proper Graph endpoints for replies + backoff (or webhook-style capture if available)
- * - TikTok: comment/list endpoints require correct scopes + product access; often best via their inbox/workflow
- */
 async function pullThreadsNotImplemented() {
   return {
     ok: false,
     platform: "threads",
-    error: "Threads pull not implemented yet (posting works; inbox/replies pulling needs a dedicated Threads replies API flow).",
-    hint: "We can add this next, but it’s a separate API path to fetch replies/comments reliably.",
+    error: "Threads pull not implemented yet.",
   };
 }
 
@@ -539,8 +476,7 @@ async function pullTikTokNotImplemented() {
   return {
     ok: false,
     platform: "tiktok",
-    error: "TikTok pull not implemented yet (posting/upload works; responses/comments pulling requires TikTok comment scopes + endpoints).",
-    hint: "We can add TikTok comments pull once we confirm your app has the right comment scopes enabled.",
+    error: "TikTok pull not implemented yet.",
   };
 }
 
@@ -565,35 +501,30 @@ export async function POST(req: NextRequest) {
 
     const results: any[] = [];
 
-    // Facebook
     if (fb?.page_id && fb?.page_access_token) {
       results.push(await pullFacebook(organisationId, fb.page_id, fb.page_access_token, sinceDays));
     } else {
       results.push({ ok: false, platform: "facebook", error: "Facebook not connected (missing page_id or token)." });
     }
 
-    // Instagram
     if (ig?.page_id && ig?.page_access_token) {
       results.push(await pullInstagram(organisationId, ig.page_id, ig.page_access_token, sinceDays));
     } else {
       results.push({ ok: false, platform: "instagram", error: "Instagram not connected (missing ig_user_id/page_id or token)." });
     }
 
-    // LinkedIn (NEW)
     if (li?.page_access_token) {
       results.push(await pullLinkedIn(organisationId, li.page_access_token, sinceDays));
     } else {
       results.push({ ok: false, platform: "linkedin", error: "LinkedIn not connected (missing token)." });
     }
 
-    // Threads (NOT IMPLEMENTED YET)
     if (th?.page_access_token) {
       results.push(await pullThreadsNotImplemented());
     } else {
       results.push({ ok: false, platform: "threads", error: "Threads not connected (missing token)." });
     }
 
-    // TikTok (NOT IMPLEMENTED YET)
     if (tt?.page_access_token) {
       results.push(await pullTikTokNotImplemented());
     } else {
@@ -609,8 +540,7 @@ export async function POST(req: NextRequest) {
       organisationId,
       pulled,
       results,
-      note:
-        "Pulled latest comments into inbox_items. LinkedIn polling is now enabled. Threads/TikTok pulling is not implemented yet (they need dedicated reply/comment APIs or webhook flows).",
+      note: "Pull complete (FB/IG + LinkedIn debug).",
     });
   } catch (e: any) {
     return okJson({ success: false, error: e?.message || "Pull failed" }, 500);
