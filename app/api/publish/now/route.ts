@@ -172,28 +172,19 @@ function truncateThreadsText(text: string) {
 
 async function postToThreads(args: { accessToken: string; message: string; imageUrl?: string }) {
   const token = (args.accessToken || "").trim();
-  if (!token) {
-    return { ok: false, status: 401, json: { error: "Threads is not connected (missing access token)." } };
-  }
+  if (!token) return { ok: false, status: 401, json: { error: "Threads is not connected (missing access token)." } };
 
   const who = await getThreadsUserId(token);
-  if (!who.ok) {
-    return { ok: false, status: who.status, json: { error: who.error, details: who.details } };
-  }
+  if (!who.ok) return { ok: false, status: who.status, json: { error: who.error, details: who.details } };
 
   const threadsUserId = who.threadsUserId;
   const msg = truncateThreadsText(args.message);
 
   const isImage = !!(args.imageUrl && args.imageUrl.trim());
   if (isImage && !isLikelyImageUrl(args.imageUrl!)) {
-    return {
-      ok: false,
-      status: 400,
-      json: { error: "Threads imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif" },
-    };
+    return { ok: false, status: 400, json: { error: "Threads imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif" } };
   }
 
-  // 1) Create container
   const createParams = new URLSearchParams();
   createParams.set("media_type", isImage ? "IMAGE" : "TEXT");
   createParams.set("text", msg);
@@ -212,17 +203,16 @@ async function postToThreads(args: { accessToken: string; message: string; image
 
   const creationId = String(createJson.id);
 
-  // 1.5) Delay helps prevent “Media Not Found”
+  // Delay helps prevent “Media Not Found”
   await sleep(isImage ? 1400 : 900);
 
-  // 2) Publish with retries (handles transient timing issues)
   const publishParams = new URLSearchParams();
   publishParams.set("creation_id", creationId);
   publishParams.set("access_token", token);
 
   const publishUrl = `https://graph.threads.net/v1.0/${encodeURIComponent(threadsUserId)}/threads_publish?${publishParams.toString()}`;
 
-  const retryDelays = [0, 1500, 3000]; // 3 attempts total
+  const retryDelays = [0, 1500, 3000];
   let lastJson: any = null;
   let lastStatus = 500;
 
@@ -243,7 +233,6 @@ async function postToThreads(args: { accessToken: string; message: string; image
       };
     }
 
-    // If it’s “Media Not Found”, keep retrying
     const subcode = pubJson?.error?.error_subcode;
     const msgTxt = String(pubJson?.error?.message || "").toLowerCase();
     const userMsg = String(pubJson?.error?.error_user_msg || "").toLowerCase();
@@ -253,14 +242,10 @@ async function postToThreads(args: { accessToken: string; message: string; image
     if (!looksLikeNotFound) break;
   }
 
-  return {
-    ok: false,
-    status: lastStatus,
-    json: lastJson || { error: "Threads publish failed" },
-  };
+  return { ok: false, status: lastStatus, json: lastJson || { error: "Threads publish failed" } };
 }
 
-/** INSTAGRAM: video reels > image */
+/** INSTAGRAM: reels (video) > image */
 async function postToInstagram(args: {
   igUserId: string;
   accessToken: string;
@@ -300,7 +285,6 @@ async function postToInstagram(args: {
 
     const creationId = String(createJson.id);
 
-    // Wait for processing
     const waitsMs = [2000, 3000, 5000, 8000, 8000, 10000];
     for (let i = 0; i < waitsMs.length; i++) {
       const statusRes = await fetch(
@@ -313,7 +297,6 @@ async function postToInstagram(args: {
       await sleep(waitsMs[i]);
     }
 
-    // Publish (retries)
     for (let attempt = 1; attempt <= 4; attempt++) {
       const publishBody = new URLSearchParams();
       publishBody.set("creation_id", creationId);
@@ -391,50 +374,49 @@ async function postToInstagram(args: {
   return { ok: false, status: 400, json: { error: "Instagram is still processing this media. Please try again in a moment.", containerId: creationId } };
 }
 
-async function postToLinkedInViaInternal(req: NextRequest, organisationId: string, message: string, imageUrl?: string, videoUrl?: string) {
+async function postToLinkedInViaInternal(
+  req: NextRequest,
+  organisationId: string,
+  message: string,
+  imageUrl?: string,
+  videoUrl?: string
+) {
   const origin = req.nextUrl.origin;
   const res = await fetch(`${origin}/api/linkedin/post`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     cache: "no-store",
-    body: JSON.stringify({ text: message, organisationId, imageUrl: imageUrl || "", videoUrl: videoUrl || "" }),
+    body: JSON.stringify({
+      text: message,
+      organisationId,
+      imageUrl: imageUrl || "",
+      videoUrl: videoUrl || "",
+    }),
   });
 
   const json: any = await res.json().catch(() => null);
-
   const ok = !!json?.ok;
-  const postedId = json?.postedId || null;
-  const mode = json?.mode || "text";
-
-  const error =
-    json?.userMessage ||
-    json?.error ||
-    json?.message ||
-    (!res.ok ? `LinkedIn request failed (${res.status})` : null);
-
-  return { ok, status: res.status, json, error, postedId, mode };
+  const error = json?.userMessage || json?.error || json?.message || (!res.ok ? `LinkedIn request failed (${res.status})` : null);
+  return { ok, status: res.status, json, error };
 }
 
 async function postToTikTokViaInternal(req: NextRequest, organisationId: string, message: string, videoUrl?: string) {
   const origin = req.nextUrl.origin;
 
-  // IMPORTANT: this assumes you have (or will paste) a TikTok publish route here:
-  // app/api/tiktok/publish/route.ts
-  const res = await fetch(`${origin}/api/tiktok/publish`, {
+  // ✅ This is your real TikTok posting route
+  const res = await fetch(`${origin}/api/tiktok/post`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     cache: "no-store",
-    body: JSON.stringify({ organisationId, text: message, videoUrl: videoUrl || "" }),
+    body: JSON.stringify({
+      organisationId,
+      message,
+      videoUrl: videoUrl || "",
+    }),
   });
 
   const json: any = await res.json().catch(() => null);
-
-  // If the route doesn’t exist, Vercel will typically return 404 HTML
-  if (!res.ok) {
-    return { ok: false, status: res.status, json: json || { error: "TikTok publish route failed or missing." } };
-  }
-
-  const ok = !!(json?.ok || json?.success);
+  const ok = !!json?.ok;
   return { ok, status: res.status, json };
 }
 
@@ -442,10 +424,14 @@ export async function POST(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const organisationId = (url.searchParams.get("organisationId") || "").trim();
-    if (!organisationId) return NextResponse.json({ success: false, error: "Missing organisationId" }, { status: 400 });
+
+    if (!organisationId) {
+      return NextResponse.json({ success: false, error: "Missing organisationId" }, { status: 400 });
+    }
 
     const body = await req.json().catch(() => ({}));
     const id = String(body?.id || "").trim();
+
     const platformsRaw = Array.isArray(body?.platforms) ? body.platforms : [];
     const platforms: ProviderId[] = platformsRaw
       .map((p: any) => String(p || "").toLowerCase().trim())
@@ -468,7 +454,7 @@ export async function POST(req: NextRequest) {
     const message = String((row as any).message || "").trim();
     const imageUrl = String((row as any).image_url || "").trim();
 
-    // ✅ Restore videoUrl support: Quick Blast stores it in meta.video_url
+    // ✅ Quick Blast stores video in meta.video_url
     const meta = (row as any).meta || {};
     const videoUrl = String(meta?.video_url || "").trim();
 
@@ -522,7 +508,7 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // Threads: safest path = text + optional image (video not wired here)
+        // Threads: safest is text + optional image (no video path here)
         const th = await postToThreads({
           accessToken: acct.page_access_token,
           message,
@@ -537,16 +523,14 @@ export async function POST(req: NextRequest) {
       if (p === "linkedin") {
         const li = await postToLinkedInViaInternal(req, organisationId, message, imageUrl || undefined, videoUrl || undefined);
         if (!li.ok) results.push({ platform: "linkedin", ok: false, status: 200, error: li.error || "LinkedIn post failed", details: li.json });
-        else results.push({ platform: "linkedin", ok: true, postedId: li.postedId, mode: li.mode, details: li.json });
+        else results.push({ platform: "linkedin", ok: true, postedId: li.json?.postedId || null, mode: li.json?.mode || "text", details: li.json });
         continue;
       }
 
       if (p === "tiktok") {
-        // Calls internal TikTok route. If you already have a different route name/path,
-        // paste it and I’ll align this to your exact existing implementation.
         const tk = await postToTikTokViaInternal(req, organisationId, message, videoUrl || undefined);
-        if (!tk.ok) results.push({ platform: "tiktok", ok: false, status: tk.status, error: tk.json?.error || "TikTok post failed (or route missing).", details: tk.json });
-        else results.push({ platform: "tiktok", ok: true, postedId: tk.json?.postedId || tk.json?.id || null, mode: "video", details: tk.json });
+        if (!tk.ok) results.push({ platform: "tiktok", ok: false, status: 200, error: tk.json?.userMessage || tk.json?.error || "TikTok post failed", details: tk.json });
+        else results.push({ platform: "tiktok", ok: true, postedId: tk.json?.postedId || null, mode: "video", details: tk.json });
         continue;
       }
 
