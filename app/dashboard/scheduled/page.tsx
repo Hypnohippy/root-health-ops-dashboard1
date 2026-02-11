@@ -25,6 +25,27 @@ function fmt(dt?: string | null) {
   return d.toLocaleString();
 }
 
+function toLocalInputValue(iso: string | null | undefined) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  // datetime-local wants "YYYY-MM-DDTHH:mm"
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const mm = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mi = pad(d.getMinutes());
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
+function localInputToIso(v: string) {
+  if (!v) return "";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString();
+}
+
 function platformLabel(p: string) {
   const k = String(p || "").toLowerCase();
   if (k === "facebook") return "Facebook";
@@ -44,19 +65,16 @@ function describeResult(r: any) {
   const ok = !!r?.ok;
   const platform = String(r?.platform || "").toLowerCase();
 
-  // OK → show postedId if available, otherwise just OK
   if (ok) {
     const postedId = r?.postedId || r?.details?.postedId || null;
     return postedId ? `OK — ${postedId}` : "OK";
   }
 
-  // Failed / Skipped
   if (r?.skipped) {
     const reason = String(r?.reason || "Skipped");
     return `SKIPPED — ${reason}`;
   }
 
-  // Pull the best possible error message
   const msg =
     r?.error?.message ||
     r?.error?.error_user_msg ||
@@ -69,7 +87,6 @@ function describeResult(r: any) {
     r?.message ||
     null;
 
-  // If error is an object, stringify it safely
   if (msg && typeof msg === "object") {
     try {
       return `FAILED — ${JSON.stringify(msg)}`;
@@ -81,9 +98,10 @@ function describeResult(r: any) {
   const text = String(msg || "").trim();
   if (text) return `FAILED — ${text}`;
 
-  // Fallback
   return platform ? "FAILED — Unknown error" : "FAILED";
 }
+
+const ALL_PLATFORMS = ["facebook", "instagram", "threads", "linkedin", "tiktok"];
 
 export default function ScheduledPage() {
   const [loading, setLoading] = useState(true);
@@ -91,6 +109,17 @@ export default function ScheduledPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [includeQuickBlast, setIncludeQuickBlast] = useState(false);
+
+  // Edit modal state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const [editing, setEditing] = useState<ScheduledRow | null>(null);
+  const [editMessage, setEditMessage] = useState("");
+  const [editScheduledFor, setEditScheduledFor] = useState("");
+  const [editImageUrl, setEditImageUrl] = useState("");
+  const [editPlatforms, setEditPlatforms] = useState<string[]>([]);
 
   async function load() {
     setLoading(true);
@@ -127,8 +156,110 @@ export default function ScheduledPage() {
   const emptyState = !loading && !error && items.length === 0;
 
   const title = useMemo(() => {
-    return includeQuickBlast ? "Scheduled Pipeline (including Quick Blast history)" : "Scheduled Pipeline";
+    return includeQuickBlast
+      ? "Scheduled Pipeline (including Quick Blast history)"
+      : "Scheduled Pipeline";
   }, [includeQuickBlast]);
+
+  function openEdit(it: ScheduledRow) {
+    setEditing(it);
+    setEditMessage(String(it.message || ""));
+    setEditImageUrl(String(it.image_url || ""));
+    setEditPlatforms(Array.isArray(it.platforms) ? it.platforms : []);
+    setEditScheduledFor(toLocalInputValue(it.scheduled_for));
+    setEditError(null);
+    setEditOpen(true);
+  }
+
+  function closeEdit() {
+    setEditOpen(false);
+    setEditSaving(false);
+    setEditError(null);
+    setEditing(null);
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    setEditSaving(true);
+    setEditError(null);
+
+    const iso = localInputToIso(editScheduledFor);
+    if (!iso) {
+      setEditSaving(false);
+      setEditError("Please choose a valid date/time.");
+      return;
+    }
+
+    if (!editMessage.trim()) {
+      setEditSaving(false);
+      setEditError("Message can’t be empty.");
+      return;
+    }
+
+    if (!editPlatforms || editPlatforms.length === 0) {
+      setEditSaving(false);
+      setEditError("Pick at least one platform.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/social/scheduled/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          id: editing.id,
+          message: editMessage,
+          scheduled_for: iso,
+          platforms: editPlatforms,
+          image_url: editImageUrl.trim() || null,
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        setEditSaving(false);
+        setEditError(json?.error || "Update failed.");
+        return;
+      }
+
+      closeEdit();
+      load();
+    } catch (e: any) {
+      setEditSaving(false);
+      setEditError(e?.message || "Update failed.");
+    }
+  }
+
+  async function deletePost(it: ScheduledRow) {
+    const status = String(it.status || "").toLowerCase();
+    if (status === "posted") {
+      alert("This post is already posted. Deleting is blocked to avoid accidental data loss.");
+      return;
+    }
+
+    const ok = confirm("Delete this scheduled post? This cannot be undone.");
+    if (!ok) return;
+
+    try {
+      const res = await fetch("/api/social/scheduled/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ id: it.id }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        alert(json?.error || "Delete failed.");
+        return;
+      }
+
+      load();
+    } catch (e: any) {
+      alert(e?.message || "Delete failed.");
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
@@ -192,18 +323,10 @@ export default function ScheduledPage() {
                 const hasResults = Array.isArray(results) && results.length > 0;
 
                 const source = String(it?.meta?.source || "").trim();
-                const sourceBadge =
-                  source === "quick_blast"
-                    ? "Quick Blast"
-                    : source
-                    ? source
-                    : "Scheduled";
+                const sourceBadge = source === "quick_blast" ? "Quick Blast" : source ? source : "Scheduled";
 
                 return (
-                  <div
-                    key={it.id}
-                    className="rounded-3xl border border-slate-700 bg-slate-950 p-5"
-                  >
+                  <div key={it.id} className="rounded-3xl border border-slate-700 bg-slate-950 p-5">
                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                       <div>
                         <div className="text-xs text-slate-400">
@@ -211,18 +334,14 @@ export default function ScheduledPage() {
                         </div>
 
                         <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-semibold text-slate-100">
-                            {it.status || "—"}
-                          </span>
+                          <span className="text-sm font-semibold text-slate-100">{it.status || "—"}</span>
 
                           <span className="text-xs rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-slate-200">
                             {sourceBadge}
                           </span>
 
                           {it.posted_at ? (
-                            <span className="text-xs text-slate-400">
-                              posted {fmt(it.posted_at)}
-                            </span>
+                            <span className="text-xs text-slate-400">posted {fmt(it.posted_at)}</span>
                           ) : null}
                         </div>
 
@@ -231,13 +350,25 @@ export default function ScheduledPage() {
                         </div>
 
                         {it.image_url ? (
-                          <div className="mt-2 text-xs text-slate-400 break-all">
-                            Media: {it.image_url}
-                          </div>
+                          <div className="mt-2 text-xs text-slate-400 break-all">Media: {it.image_url}</div>
                         ) : null}
                       </div>
 
                       <div className="flex flex-wrap gap-2">
+                        <button
+                          className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
+                          onClick={() => openEdit(it)}
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          className="rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-2 text-sm text-red-100 hover:border-red-500"
+                          onClick={() => deletePost(it)}
+                        >
+                          Delete
+                        </button>
+
                         <button
                           className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
                           onClick={() => navigator.clipboard.writeText(it.id)}
@@ -248,14 +379,10 @@ export default function ScheduledPage() {
                     </div>
 
                     <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-                      <div className="text-sm font-semibold text-slate-100">
-                        Dispatch results
-                      </div>
+                      <div className="text-sm font-semibold text-slate-100">Dispatch results</div>
 
                       {!hasResults ? (
-                        <div className="mt-2 text-sm text-slate-400">
-                          No dispatch results stored yet.
-                        </div>
+                        <div className="mt-2 text-sm text-slate-400">No dispatch results stored yet.</div>
                       ) : (
                         <div className="mt-3 space-y-2">
                           {results.map((r: any, idx: number) => {
@@ -263,11 +390,7 @@ export default function ScheduledPage() {
                             const ok = !!r?.ok;
                             const skipped = !!r?.skipped;
 
-                            const badge = ok
-                              ? "✅ OK"
-                              : skipped
-                              ? "⚠️ Skipped"
-                              : "❌ Failed";
+                            const badge = ok ? "✅ OK" : skipped ? "⚠️ Skipped" : "❌ Failed";
 
                             return (
                               <div
@@ -275,9 +398,7 @@ export default function ScheduledPage() {
                                 className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
                               >
                                 <div className="text-sm text-slate-200">
-                                  <span className="font-semibold">
-                                    {platformLabel(platform)}:
-                                  </span>{" "}
+                                  <span className="font-semibold">{platformLabel(platform)}:</span>{" "}
                                   {describeResult(r)}
                                 </div>
 
@@ -310,6 +431,135 @@ export default function ScheduledPage() {
           </div>
         </div>
       </div>
+
+      {/* Edit modal */}
+      {editOpen && editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/70" onClick={closeEdit} />
+          <div className="relative w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs text-slate-400">Edit scheduled post</div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">{editing.id}</div>
+              </div>
+              <button
+                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+                onClick={closeEdit}
+              >
+                Close
+              </button>
+            </div>
+
+            {editError && (
+              <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">
+                {editError}
+              </div>
+            )}
+
+            <div className="mt-5 grid gap-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Message</label>
+                <textarea
+                  value={editMessage}
+                  onChange={(e) => setEditMessage(e.target.value)}
+                  rows={5}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Scheduled for</label>
+                  <input
+                    type="datetime-local"
+                    value={editScheduledFor}
+                    onChange={(e) => setEditScheduledFor(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Saved as UTC in the database.
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Media URL (optional)</label>
+                  <input
+                    value={editImageUrl}
+                    onChange={(e) => setEditImageUrl(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    placeholder="https://..."
+                  />
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Image URL for image posts. Video URLs are handled by your uploader + publish route.
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Platforms</label>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {ALL_PLATFORMS.map((p) => {
+                    const selected = editPlatforms.includes(p);
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() =>
+                          setEditPlatforms((prev) =>
+                            prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
+                          )
+                        }
+                        className={[
+                          "flex items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm transition",
+                          selected
+                            ? "border-emerald-500/60 bg-emerald-500/10 text-slate-100"
+                            : "border-slate-700 bg-slate-950 text-slate-200 hover:border-slate-600",
+                        ].join(" ")}
+                      >
+                        <div className="font-medium">{platformLabel(p)}</div>
+                        <div
+                          className={[
+                            "text-[11px] px-2 py-1 rounded-full border",
+                            selected
+                              ? "border-emerald-500/60 text-emerald-200"
+                              : "border-slate-600 text-slate-300",
+                          ].join(" ")}
+                        >
+                          {selected ? "Selected" : "Select"}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={saveEdit}
+                  disabled={editSaving}
+                  className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                >
+                  {editSaving ? "Saving…" : "Save changes"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={closeEdit}
+                  disabled={editSaving}
+                  className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <div className="text-[11px] text-slate-500">
+                Note: If a post is already posted, we block deletion in the UI to avoid accidental loss.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
