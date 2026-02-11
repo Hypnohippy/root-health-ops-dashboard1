@@ -19,17 +19,21 @@ function originFromReq(req: NextRequest) {
 }
 
 function isAuthorized(req: NextRequest) {
+  // If you haven't set CRON_SECRET, allow it (dev/beta).
   if (!CRON_SECRET) return true;
+
   const auth = norm(req.headers.get("authorization"));
   return auth === `Bearer ${CRON_SECRET}`;
 }
 
 async function claimScheduledPost(id: string) {
-  // ✅ Atomic claim: scheduled -> queued (allowed by your constraint)
+  // ✅ IMPORTANT: use an ALLOWED status value
+  // allowed: scheduled, pending, queued, posted, failed, rejected, cancelled
+  // We "claim" by flipping scheduled -> pending.
   const { data, error } = await supabaseAdmin
     .from("scheduled_posts")
     .update({
-      status: "queued",
+      status: "pending",
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
@@ -110,19 +114,14 @@ export async function GET(req: NextRequest) {
           publish: publishJson,
         });
 
-        // publish/now will set status to posted/failed
+        // publish/now updates scheduled_posts status -> posted/failed
       } catch (e: any) {
         await markBackToScheduled(id, e?.message || "Publish crashed");
         results.push({ id, ok: false, error: e?.message || "Publish crashed (re-queued)" });
       }
     }
 
-    return NextResponse.json({
-      success: true,
-      processed: results.length,
-      results,
-      authorizedVia: CRON_SECRET ? "header" : "none",
-    });
+    return NextResponse.json({ success: true, processed: results.length, results });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e?.message || "Dispatch failed" }, { status: 500 });
   }
