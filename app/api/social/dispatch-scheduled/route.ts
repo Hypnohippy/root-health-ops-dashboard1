@@ -4,7 +4,7 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-// Vercel Cron convention: Authorization: Bearer <CRON_SECRET>
+// Vercel Cron will automatically send: Authorization: Bearer <CRON_SECRET>
 const CRON_SECRET = (process.env.CRON_SECRET || "").trim();
 
 // Kill switch
@@ -14,35 +14,22 @@ function norm(v: any) {
   return String(v || "").trim();
 }
 
-function mask(s: string) {
-  if (!s) return "";
-  if (s.length <= 4) return "*".repeat(s.length);
-  return `${s.slice(0, 2)}***${s.slice(-2)}`;
-}
-
 function originFromReq(req: NextRequest) {
   return new URL(req.url).origin;
 }
 
 function isAuthorized(req: NextRequest) {
-  // If no secret set, allow (dev/beta mode)
-  if (!CRON_SECRET) return { ok: true as const, via: "open" as const };
-
+  if (!CRON_SECRET) return true;
   const auth = norm(req.headers.get("authorization"));
-  if (auth === `Bearer ${CRON_SECRET}`) return { ok: true as const, via: "header" as const };
-
-  // ✅ Allow browser/manual trigger: ?secret=
-  const got = norm(req.nextUrl.searchParams.get("secret"));
-  if (got && got === CRON_SECRET) return { ok: true as const, via: "query" as const };
-
-  return { ok: false as const, via: "none" as const, auth, got };
+  return auth === `Bearer ${CRON_SECRET}`;
 }
 
 async function claimScheduledPost(id: string) {
+  // ✅ Atomic claim: scheduled -> queued (allowed by your constraint)
   const { data, error } = await supabaseAdmin
     .from("scheduled_posts")
     .update({
-      status: "sending",
+      status: "queued",
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
@@ -51,7 +38,7 @@ async function claimScheduledPost(id: string) {
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  return data;
+  return data; // null => already claimed
 }
 
 async function markBackToScheduled(id: string, note: string) {
@@ -69,21 +56,8 @@ async function markBackToScheduled(id: string, note: string) {
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = isAuthorized(req);
-    if (!auth.ok) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized",
-          debug: {
-            hasCronSecret: !!CRON_SECRET,
-            expected: { len: CRON_SECRET.length, masked: mask(CRON_SECRET) },
-            gotHeader: auth.auth ? { len: auth.auth.length, masked: mask(auth.auth) } : null,
-            gotQuery: auth.got ? { len: auth.got.length, masked: mask(auth.got) } : null,
-          },
-        },
-        { status: 401 }
-      );
+    if (!isAuthorized(req)) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
     if (DISPATCH_DISABLED) {
@@ -135,6 +109,8 @@ export async function GET(req: NextRequest) {
           httpStatus: publishRes.status,
           publish: publishJson,
         });
+
+        // publish/now will set status to posted/failed
       } catch (e: any) {
         await markBackToScheduled(id, e?.message || "Publish crashed");
         results.push({ id, ok: false, error: e?.message || "Publish crashed (re-queued)" });
@@ -143,9 +119,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      authorizedVia: auth.via,
       processed: results.length,
       results,
+      authorizedVia: CRON_SECRET ? "header" : "none",
     });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e?.message || "Dispatch failed" }, { status: 500 });
