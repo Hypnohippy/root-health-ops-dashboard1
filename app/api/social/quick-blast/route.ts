@@ -17,6 +17,8 @@ const ALLOWED_PLATFORMS = [
   "twitter",
   "youtube",
   "google",
+  "email",
+  "whatsapp",
 ];
 
 async function getSingleTenantOrganisationId() {
@@ -81,9 +83,8 @@ export async function POST(req: NextRequest) {
 
     const nowIso = new Date().toISOString();
 
-    // ✅ Important: status must match your DB CHECK constraint.
-    // Your constraint allows: scheduled, pending, queued, posted, failed, rejected, cancelled
-    // We'll use "scheduled" and set scheduled_for = now so it is effectively "send now".
+    // ✅ For Quick Blast, we still “queue” into scheduled_posts but with scheduled_for = now.
+    // publish/now reads meta.video_url and will deliver video properly.
     const insertPayload: any = {
       organisation_id: organisationId,
       message,
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Trigger dispatcher immediately (optional). Cron will still run it later.
+    // Trigger dispatcher immediately (optional)
     let dispatchJson: any = null;
 
     if (CRON_SECRET) {
