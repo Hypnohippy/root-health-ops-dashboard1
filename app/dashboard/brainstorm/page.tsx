@@ -1,7 +1,7 @@
 // app/dashboard/brainstorm/page.tsx
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ConnectedChannelsBar from "../components/ConnectedChannelsBar";
 
 type ChannelId =
@@ -63,6 +63,15 @@ const PREFILL_STORIES_KEYS = [
   "rh_prefill_stories_v1",
 ];
 
+// ✅ NEW: Scheduled batch prefill (we’ll build the scheduled page importer next)
+const PREFILL_SCHEDULED_KEYS = [
+  "rootops_prefill_scheduled_v1",
+  "rh_prefill_scheduled_v1",
+];
+
+// ✅ NEW: Brainstorm “Draft Locker” (prevents resets on navigation)
+const LOCKER_KEYS = ["rootops_brainstorm_locker_v1", "rh_brainstorm_locker_v1"];
+
 function uid() {
   try {
     return crypto.randomUUID();
@@ -106,23 +115,64 @@ function setLocalStorageMulti(keys: string[], payload: any) {
   }
 }
 
+function getLocalStorageFirst(keys: string[]) {
+  try {
+    for (const k of keys) {
+      const raw = localStorage.getItem(k);
+      if (raw) return raw;
+    }
+  } catch {}
+  return null;
+}
+
+function removeLocalStorageMulti(keys: string[]) {
+  try {
+    for (const k of keys) {
+      try {
+        localStorage.removeItem(k);
+      } catch {}
+    }
+  } catch {}
+}
+
+type LockerPayload = {
+  v: number;
+  savedAt: string;
+
+  platform: ChannelId;
+  tone: string;
+  wantImages: boolean;
+
+  input: string;
+  chat: ChatMsg[];
+
+  angles: string[];
+  drafts: Draft[];
+
+  draftImages: Record<number, CommonsImage | null>;
+  draftImageQueryEdits: Record<number, string>;
+};
+
+const DEFAULT_INPUT =
+  "I want to do a post on the difficulties of ADHD in working life. Can you give me some ideas?";
+
+const DEFAULT_CHAT: ChatMsg[] = [
+  {
+    id: uid(),
+    role: "assistant",
+    content:
+      "Drop your idea in plain English. I’ll riff with you first (angles + hooks), then draft posts you can push into Quick Blast or Stories.",
+  },
+];
+
 export default function BrainstormPage() {
   const [platform, setPlatform] = useState<ChannelId>("linkedin");
   const [tone, setTone] = useState<string>("Professional & confident");
   const [wantImages, setWantImages] = useState<boolean>(true);
 
-  const [input, setInput] = useState<string>(
-    "I want to do a post on the difficulties of ADHD in working life. Can you give me some ideas?"
-  );
+  const [input, setInput] = useState<string>(DEFAULT_INPUT);
 
-  const [chat, setChat] = useState<ChatMsg[]>([
-    {
-      id: uid(),
-      role: "assistant",
-      content:
-        "Drop your idea in plain English. I’ll riff with you first (angles + hooks), then draft posts you can push into Quick Blast or Stories.",
-    },
-  ]);
+  const [chat, setChat] = useState<ChatMsg[]>(DEFAULT_CHAT);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +191,9 @@ export default function BrainstormPage() {
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerResults, setPickerResults] = useState<CommonsImage[]>([]);
 
+  // UX note bar
+  const [toast, setToast] = useState<string | null>(null);
+
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const canSend = useMemo(() => !!input.trim() && !loading, [input, loading]);
@@ -149,6 +202,89 @@ export default function BrainstormPage() {
     try {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     } catch {}
+  };
+
+  // -------------------------
+  // ✅ Draft Locker: restore
+  // -------------------------
+  useEffect(() => {
+    try {
+      const raw = getLocalStorageFirst(LOCKER_KEYS);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as LockerPayload;
+      if (!parsed || typeof parsed !== "object") return;
+      if (parsed.v !== 1) return;
+
+      if (parsed.platform) setPlatform(parsed.platform);
+      if (typeof parsed.tone === "string") setTone(parsed.tone);
+      if (typeof parsed.wantImages === "boolean") setWantImages(parsed.wantImages);
+
+      if (typeof parsed.input === "string") setInput(parsed.input);
+      if (Array.isArray(parsed.chat) && parsed.chat.length > 0) setChat(parsed.chat);
+
+      if (Array.isArray(parsed.angles)) setAngles(parsed.angles);
+      if (Array.isArray(parsed.drafts)) setDrafts(parsed.drafts);
+
+      if (parsed.draftImages && typeof parsed.draftImages === "object") setDraftImages(parsed.draftImages);
+      if (parsed.draftImageQueryEdits && typeof parsed.draftImageQueryEdits === "object")
+        setDraftImageQueryEdits(parsed.draftImageQueryEdits);
+
+      setToast("Restored your Brainstorm drafts ✅");
+      setTimeout(() => setToast(null), 1800);
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // -------------------------
+  // ✅ Draft Locker: persist
+  // -------------------------
+  useEffect(() => {
+    try {
+      const payload: LockerPayload = {
+        v: 1,
+        savedAt: new Date().toISOString(),
+        platform,
+        tone,
+        wantImages,
+        input,
+        chat,
+        angles,
+        drafts,
+        draftImages,
+        draftImageQueryEdits,
+      };
+      setLocalStorageMulti(LOCKER_KEYS, payload);
+    } catch {
+      // ignore
+    }
+  }, [platform, tone, wantImages, input, chat, angles, drafts, draftImages, draftImageQueryEdits]);
+
+  const resetBrainstorm = () => {
+    // Clear locker + UI state
+    removeLocalStorageMulti(LOCKER_KEYS);
+
+    setError(null);
+    setLoading(false);
+
+    setAngles([]);
+    setDrafts([]);
+
+    setDraftImages({});
+    setDraftImageQueryEdits({});
+
+    setPickerOpenFor(null);
+    setPickerResults([]);
+    setPickerError(null);
+    setPickerLoading(false);
+
+    setInput(DEFAULT_INPUT);
+    setChat(DEFAULT_CHAT);
+
+    setToast("Reset ✅");
+    setTimeout(() => setToast(null), 1600);
   };
 
   const openPicker = async (idx: number) => {
@@ -223,7 +359,10 @@ export default function BrainstormPage() {
     const msg = input.trim();
     if (!msg) return;
 
-    setChat((prev) => [...prev, { id: uid(), role: "user", content: msg }]);
+    // Use a snapshot for the request history so we don’t race setState
+    const historyForReq = [...chat, { id: uid(), role: "user" as const, content: msg }];
+
+    setChat(historyForReq);
     setInput("");
     setLoading(true);
 
@@ -236,7 +375,7 @@ export default function BrainstormPage() {
           platform,
           tone,
           goal: "Brainstorm + draft posts",
-          history: chat.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+          history: historyForReq.slice(-10).map((m) => ({ role: m.role, content: m.content })),
         }),
       });
 
@@ -255,10 +394,16 @@ export default function BrainstormPage() {
       const nextDrafts = Array.isArray(data.drafts) ? data.drafts : [];
       setDrafts(nextDrafts);
 
-      setDraftImages({});
+      // Keep existing chosen images unless drafts count changed hard
+      setDraftImages((prev) => {
+        const next: Record<number, CommonsImage | null> = {};
+        for (let i = 0; i < nextDrafts.length; i++) next[i] = prev[i] ?? null;
+        return next;
+      });
+
       setDraftImageQueryEdits(
         nextDrafts.reduce((acc, d, i) => {
-          acc[i] = (d.imageQuery || "").trim();
+          acc[i] = (draftImageQueryEdits[i] ?? d.imageQuery ?? "").trim();
           return acc;
         }, {} as Record<number, string>)
       );
@@ -271,59 +416,152 @@ export default function BrainstormPage() {
     }
   };
 
+  const buildAttribution = (img: CommonsImage | null) =>
+    img
+      ? {
+          title: img.title,
+          pageUrl: img.pageUrl,
+          licenseShortName: img.licenseShortName,
+          licenseUrl: img.licenseUrl,
+          attribution: img.attribution,
+        }
+      : null;
+
   const sendToQuickBlast = (d: Draft, img: CommonsImage | null, suggestedPlatform: ChannelId) => {
     const payload = {
       message: joinDraft(d),
       imageUrl: img?.url || "",
       suggestedPlatforms: [suggestedPlatform],
-      attribution: img
-        ? {
-            title: img.title,
-            pageUrl: img.pageUrl,
-            licenseShortName: img.licenseShortName,
-            licenseUrl: img.licenseUrl,
-            attribution: img.attribution,
-          }
-        : null,
+      attribution: buildAttribution(img),
     };
 
+    // ✅ Ensure locker is saved before leaving
+    setToast("Sending to Quick Blast…");
     setLocalStorageMulti(PREFILL_QUICKBLAST_KEYS, payload);
     window.location.href = "/dashboard";
   };
 
   const sendToStories = (d: Draft, img: CommonsImage | null) => {
     const payload = {
-      // ✅ Stories/new currently expects "direct" or "series" shapes.
-      // Keeping "idea" is still useful if you later support it — but we’ll also include "direct".
+      // Keep both shapes so importer can choose
       idea: joinDraft(d),
-      direct: joinDraft(d), // ✅ helps if your Stories importer expects `direct`
+      direct: joinDraft(d),
       platform,
       tone,
       imageUrl: img?.url || "",
-      attribution: img
-        ? {
-            title: img.title,
-            pageUrl: img.pageUrl,
-            licenseShortName: img.licenseShortName,
-            licenseUrl: img.licenseUrl,
-            attribution: img.attribution,
-          }
-        : null,
+      attribution: buildAttribution(img),
     };
 
+    setToast("Sending to Stories…");
     setLocalStorageMulti(PREFILL_STORIES_KEYS, payload);
     window.location.href = "/dashboard/stories/new";
+  };
+
+  // ✅ NEW: send a single draft to Scheduled
+  const sendToScheduled = (d: Draft, img: CommonsImage | null) => {
+    const payload = {
+      mode: "single",
+      platform,
+      tone,
+      items: [
+        {
+          title: d.title || "Draft",
+          text: joinDraft(d),
+          imageUrl: img?.url || "",
+          attribution: buildAttribution(img),
+        },
+      ],
+    };
+
+    setToast("Sending to Scheduled…");
+    setLocalStorageMulti(PREFILL_SCHEDULED_KEYS, payload);
+    window.location.href = "/dashboard/scheduled";
+  };
+
+  // ✅ NEW: send ALL drafts to Stories (as a series batch)
+  const sendAllToStories = () => {
+    if (!drafts.length) return;
+
+    const items = drafts.map((d, idx) => {
+      const img = draftImages[idx] ?? null;
+      return {
+        title: d.title || `Draft ${idx + 1}`,
+        text: joinDraft(d),
+        imageUrl: img?.url || "",
+        attribution: buildAttribution(img),
+      };
+    });
+
+    const payload = {
+      mode: "series",
+      platform,
+      tone,
+      items,
+      note: "Series sent from Brainstorm",
+    };
+
+    setToast("Sending all to Stories…");
+    setLocalStorageMulti(PREFILL_STORIES_KEYS, payload);
+    window.location.href = "/dashboard/stories/new";
+  };
+
+  // ✅ NEW: send ALL drafts to Scheduled
+  const sendAllToScheduled = () => {
+    if (!drafts.length) return;
+
+    const items = drafts.map((d, idx) => {
+      const img = draftImages[idx] ?? null;
+      return {
+        title: d.title || `Draft ${idx + 1}`,
+        text: joinDraft(d),
+        imageUrl: img?.url || "",
+        attribution: buildAttribution(img),
+      };
+    });
+
+    const payload = {
+      mode: "series",
+      platform,
+      tone,
+      items,
+      note: "Series sent from Brainstorm",
+    };
+
+    setToast("Sending all to Scheduled…");
+    setLocalStorageMulti(PREFILL_SCHEDULED_KEYS, payload);
+    window.location.href = "/dashboard/scheduled";
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-6">
         <header className="space-y-3">
-          <h1 className="text-2xl md:text-3xl font-semibold">💬 Brainstorm</h1>
-          <p className="text-sm text-slate-300 max-w-3xl">
-            Talk it out like a text thread. We riff first, then draft posts you can push into Quick Blast or Stories.
-          </p>
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-semibold">💬 Brainstorm</h1>
+              <p className="text-sm text-slate-300 max-w-3xl">
+                Talk it out like a text thread. We riff first, then draft posts you can push into Quick Blast or Stories.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={resetBrainstorm}
+                className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+
           <ConnectedChannelsBar title="Social connections" />
+
+          {toast ? (
+            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-2 text-xs text-slate-300">
+              {toast}
+            </div>
+          ) : null}
         </header>
 
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-4">
@@ -435,7 +673,29 @@ export default function BrainstormPage() {
 
             {/* Drafts */}
             <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-3">
-              <h2 className="font-semibold">Draft posts</h2>
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <h2 className="font-semibold">Draft posts</h2>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={sendAllToStories}
+                    disabled={!drafts.length}
+                    className="rounded-full bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                  >
+                    Send all → Stories
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={sendAllToScheduled}
+                    disabled={!drafts.length}
+                    className="rounded-full border border-slate-600 bg-slate-900 px-3 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
+                  >
+                    Send all → Scheduled
+                  </button>
+                </div>
+              </div>
 
               {drafts.length === 0 ? (
                 <div className="text-sm text-slate-400">No drafts yet — send a message.</div>
@@ -469,12 +729,21 @@ export default function BrainstormPage() {
                             >
                               Send to Quick Blast
                             </button>
+
                             <button
                               type="button"
                               onClick={() => sendToStories(d, img)}
                               className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
                             >
                               Send to Stories
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => sendToScheduled(d, img)}
+                              className="rounded-full border border-slate-600 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                            >
+                              Send to Scheduled
                             </button>
                           </div>
                         </div>
@@ -598,7 +867,7 @@ export default function BrainstormPage() {
         </section>
 
         <footer className="text-xs text-slate-500">
-          “Choose image” opens a 6-image picker from Wikimedia Commons.
+          “Choose image” opens a 6-image picker from Wikimedia Commons. Draft Locker keeps your drafts until you hit Reset.
         </footer>
 
         {/* Modal */}
@@ -610,7 +879,7 @@ export default function BrainstormPage() {
                 <div>
                   <div className="text-lg font-semibold">Pick an image</div>
                   <div className="text-[12px] text-slate-400">
-                    Choose one → it will attach to this draft and travel into Quick Blast / Stories.
+                    Choose one → it will attach to this draft and travel into Quick Blast / Stories / Scheduled.
                   </div>
                 </div>
                 <button
