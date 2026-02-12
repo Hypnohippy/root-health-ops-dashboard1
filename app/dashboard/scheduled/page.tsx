@@ -18,6 +18,26 @@ type ScheduledRow = {
   updated_at: string | null;
 };
 
+type ImportItem = {
+  title?: string;
+  text: string;
+  imageUrl?: string;
+  attribution?: any;
+};
+
+type ImportPayload = {
+  mode?: "single" | "series";
+  platform?: string;
+  tone?: string;
+  items: ImportItem[];
+  note?: string;
+};
+
+const PREFILL_SCHEDULED_KEYS = [
+  "rootops_prefill_scheduled_v1",
+  "rh_prefill_scheduled_v1",
+];
+
 function fmt(dt?: string | null) {
   if (!dt) return "—";
   const d = new Date(dt);
@@ -29,7 +49,6 @@ function toLocalInputValue(iso: string | null | undefined) {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-  // datetime-local wants "YYYY-MM-DDTHH:mm"
   const pad = (n: number) => String(n).padStart(2, "0");
   const yyyy = d.getFullYear();
   const mm = pad(d.getMonth() + 1);
@@ -103,6 +122,42 @@ function describeResult(r: any) {
 
 const ALL_PLATFORMS = ["facebook", "instagram", "threads", "linkedin", "tiktok"];
 
+// ----- localStorage helpers -----
+function readImportPayload(): ImportPayload | null {
+  try {
+    for (const k of PREFILL_SCHEDULED_KEYS) {
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") continue;
+      if (!Array.isArray(parsed.items)) continue;
+      return parsed as ImportPayload;
+    }
+  } catch {}
+  return null;
+}
+
+function clearImportPayload() {
+  try {
+    for (const k of PREFILL_SCHEDULED_KEYS) {
+      try {
+        localStorage.removeItem(k);
+      } catch {}
+    }
+  } catch {}
+}
+
+function safeText(s: any) {
+  return String(s || "").trim();
+}
+
+function safeUrl(s: any) {
+  const t = String(s || "").trim();
+  if (!t) return "";
+  if (!/^https?:\/\//i.test(t)) return "";
+  return t;
+}
+
 export default function ScheduledPage() {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<ScheduledRow[]>([]);
@@ -120,6 +175,17 @@ export default function ScheduledPage() {
   const [editScheduledFor, setEditScheduledFor] = useState("");
   const [editImageUrl, setEditImageUrl] = useState("");
   const [editPlatforms, setEditPlatforms] = useState<string[]>([]);
+
+  // ✅ Import-from-Brainstorm state
+  const [importPayload, setImportPayload] = useState<ImportPayload | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importErr, setImportErr] = useState<string | null>(null);
+
+  const [importStart, setImportStart] = useState<string>("");
+  const [importIntervalMin, setImportIntervalMin] = useState<number>(60);
+  const [importPlatforms, setImportPlatforms] = useState<string[]>(["linkedin"]);
+  const [importSource, setImportSource] = useState<string>("brainstorm_series");
 
   async function load() {
     setLoading(true);
@@ -148,10 +214,34 @@ export default function ScheduledPage() {
     }
   }
 
+  // Load scheduled list
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeQuickBlast]);
+
+  // ✅ Detect import payload on page load
+  useEffect(() => {
+    try {
+      const p = readImportPayload();
+      if (!p) return;
+
+      setImportPayload(p);
+
+      // defaults:
+      const nowPlus10 = new Date(Date.now() + 10 * 60 * 1000);
+      setImportStart(toLocalInputValue(nowPlus10.toISOString()));
+
+      const suggested = String(p.platform || "").toLowerCase().trim();
+      setImportPlatforms(
+        suggested && ALL_PLATFORMS.includes(suggested) ? [suggested] : ["linkedin"]
+      );
+
+      setImportOpen(true);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const emptyState = !loading && !error && items.length === 0;
 
@@ -261,6 +351,93 @@ export default function ScheduledPage() {
     }
   }
 
+  // ✅ Import actions
+  function closeImport() {
+    setImportOpen(false);
+    setImportErr(null);
+  }
+
+  function discardImport() {
+    clearImportPayload();
+    setImportPayload(null);
+    setImportOpen(false);
+    setImportErr(null);
+  }
+
+  async function runImport() {
+    if (!importPayload) return;
+
+    setImporting(true);
+    setImportErr(null);
+
+    try {
+      const startIso = localInputToIso(importStart);
+      if (!startIso) {
+        setImporting(false);
+        setImportErr("Pick a valid start date/time.");
+        return;
+      }
+
+      if (!importPlatforms.length) {
+        setImporting(false);
+        setImportErr("Pick at least one platform.");
+        return;
+      }
+
+      const cleanedItems = (importPayload.items || [])
+        .map((x) => ({
+          title: safeText((x as any)?.title),
+          text: safeText((x as any)?.text),
+          imageUrl: safeUrl((x as any)?.imageUrl),
+          attribution: (x as any)?.attribution ?? null,
+        }))
+        .filter((x) => !!x.text);
+
+      if (!cleanedItems.length) {
+        setImporting(false);
+        setImportErr("Nothing to import (no text found).");
+        return;
+      }
+
+      const res = await fetch("/api/social/scheduled/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          startAt: startIso,
+          intervalMinutes: importIntervalMin,
+          platforms: importPlatforms,
+          items: cleanedItems,
+          meta: {
+            source: importSource,
+            from: "brainstorm",
+            note: importPayload.note || null,
+            platformHint: importPayload.platform || null,
+            tone: importPayload.tone || null,
+          },
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        setImporting(false);
+        setImportErr(json?.error || `Import failed (HTTP ${res.status}).`);
+        return;
+      }
+
+      // clear payload + reload list
+      clearImportPayload();
+      setImportPayload(null);
+      setImportOpen(false);
+
+      await load();
+    } catch (e: any) {
+      setImportErr(e?.message || "Import failed.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
@@ -294,6 +471,38 @@ export default function ScheduledPage() {
             </div>
           </div>
 
+          {/* ✅ Import banner */}
+          {importPayload && (
+            <div className="mt-6 rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-5">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-emerald-100">
+                    Import {importPayload.items?.length || 0} draft(s) from Brainstorm
+                  </div>
+                  <div className="mt-1 text-xs text-emerald-200/80">
+                    You can schedule them in a series (e.g. every 60 mins).
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setImportOpen(true)}
+                    className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+                  >
+                    Open import
+                  </button>
+
+                  <button
+                    onClick={discardImport}
+                    className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-300/15"
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {loading && (
             <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-slate-300">
               Loading…
@@ -310,7 +519,7 @@ export default function ScheduledPage() {
             <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-5 text-slate-300">
               No future scheduled posts right now ✅
               <div className="mt-2 text-xs text-slate-500">
-                Tip: Use “Queue for approval” (or Stories) to build a future pipeline.
+                Tip: Use Stories / Brainstorm to build a future pipeline.
               </div>
             </div>
           )}
@@ -431,6 +640,178 @@ export default function ScheduledPage() {
           </div>
         </div>
       </div>
+
+      {/* ✅ Import modal */}
+      {importOpen && importPayload && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/70" onClick={closeImport} />
+          <div className="relative w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs text-slate-400">Import from Brainstorm</div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">
+                  {importPayload.items?.length || 0} draft(s)
+                </div>
+                <div className="mt-1 text-xs text-slate-400">
+                  We’ll schedule them in order, starting at your chosen time.
+                </div>
+              </div>
+
+              <button
+                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+                onClick={closeImport}
+                disabled={importing}
+              >
+                Close
+              </button>
+            </div>
+
+            {importErr && (
+              <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">
+                {importErr}
+              </div>
+            )}
+
+            <div className="mt-5 grid gap-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Start date/time</label>
+                  <input
+                    type="datetime-local"
+                    value={importStart}
+                    onChange={(e) => setImportStart(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Saved as UTC in the database.
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Interval (minutes)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={importIntervalMin}
+                    onChange={(e) => setImportIntervalMin(Number(e.target.value || 60))}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Example: 60 = one per hour.
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Platforms</label>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {ALL_PLATFORMS.map((p) => {
+                    const selected = importPlatforms.includes(p);
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() =>
+                          setImportPlatforms((prev) =>
+                            prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
+                          )
+                        }
+                        className={[
+                          "flex items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm transition",
+                          selected
+                            ? "border-emerald-500/60 bg-emerald-500/10 text-slate-100"
+                            : "border-slate-700 bg-slate-950 text-slate-200 hover:border-slate-600",
+                        ].join(" ")}
+                      >
+                        <div className="font-medium">{platformLabel(p)}</div>
+                        <div
+                          className={[
+                            "text-[11px] px-2 py-1 rounded-full border",
+                            selected
+                              ? "border-emerald-500/60 text-emerald-200"
+                              : "border-slate-600 text-slate-300",
+                          ].join(" ")}
+                        >
+                          {selected ? "Selected" : "Select"}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Source tag (meta.source)</label>
+                <input
+                  value={importSource}
+                  onChange={(e) => setImportSource(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  placeholder="brainstorm_series"
+                />
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Helps you filter later (and keeps Quick Blast separate).
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="text-sm font-semibold text-slate-100">Preview</div>
+                <div className="mt-2 space-y-2 max-h-[260px] overflow-auto pr-1">
+                  {(importPayload.items || []).map((x, i) => (
+                    <div key={i} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="text-xs text-slate-400">
+                        {i + 1}. {safeText((x as any)?.title) || "Draft"}
+                      </div>
+                      <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
+                        {safeText((x as any)?.text).slice(0, 220)}
+                        {safeText((x as any)?.text).length > 220 ? "…" : ""}
+                      </div>
+                      {safeUrl((x as any)?.imageUrl) ? (
+                        <div className="mt-2 text-xs text-slate-400 break-all">
+                          Media: {safeUrl((x as any)?.imageUrl)}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={runImport}
+                  disabled={importing}
+                  className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                >
+                  {importing ? "Importing…" : "Import now"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={discardImport}
+                  disabled={importing}
+                  className="rounded-2xl border border-red-500/40 bg-red-950/30 px-5 py-2 text-sm text-red-100 hover:border-red-500 disabled:opacity-60"
+                >
+                  Discard
+                </button>
+
+                <button
+                  type="button"
+                  onClick={closeImport}
+                  disabled={importing}
+                  className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <div className="text-[11px] text-slate-500">
+                This only schedules posts in your database. Posting still happens via your existing dispatcher.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit modal */}
       {editOpen && editing && (
