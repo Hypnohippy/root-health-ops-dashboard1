@@ -49,6 +49,17 @@ type CommonsImagesApiResponse = {
   error?: string;
 };
 
+type MediaValidateResponse = {
+  ok: boolean;
+  platform?: string;
+  url?: string;
+  kind?: "image" | "video" | "unknown";
+  contentType?: string;
+  contentLength?: number | null;
+  userHelp?: UserHelp;
+  httpStatus?: number;
+};
+
 function fmt(dt?: string | null) {
   if (!dt) return "—";
   const d = new Date(dt);
@@ -100,11 +111,6 @@ function stripHtml(s: string) {
     .trim();
 }
 
-/**
- * Fixes:
- * - "Unknown error" showing for OK results
- * - "[object Object]" showing for failures
- */
 function describeResult(r: any) {
   const ok = !!r?.ok;
 
@@ -119,25 +125,15 @@ function describeResult(r: any) {
   }
 
   const msg =
+    r?.details?.userMessage ||
     r?.error?.message ||
     r?.error?.error_user_msg ||
     r?.error?.error_user_title ||
     r?.error ||
-    r?.details?.userMessage || // 👈 show friendly message if available
     r?.details?.error?.message ||
-    r?.details?.error?.error_user_msg ||
-    r?.details?.error?.error_user_title ||
     r?.details?.message ||
     r?.message ||
     null;
-
-  if (msg && typeof msg === "object") {
-    try {
-      return `FAILED — ${JSON.stringify(msg)}`;
-    } catch {
-      return "FAILED — Unknown error";
-    }
-  }
 
   const text = String(msg || "").trim();
   if (text) return `FAILED — ${text}`;
@@ -145,10 +141,7 @@ function describeResult(r: any) {
   return "FAILED — Unknown error";
 }
 
-// LinkedIn share text is fussy. We’ll enforce a safe limit in UI.
-// If you find LinkedIn still rejects, we can lower this (e.g. 2500).
 const LINKEDIN_TEXT_LIMIT = 3000;
-
 const ALL_PLATFORMS = ["facebook", "instagram", "threads", "linkedin", "tiktok"];
 
 function applyUkSpellings(input: string) {
@@ -172,7 +165,6 @@ function applyUkSpellings(input: string) {
 }
 
 function getLinkedInHelpFromResult(r: any): { userHelp: UserHelp | null; suggested: SuggestedImage[] } {
-  // publish/now stores LinkedIn internal response in r.details
   const details = r?.details;
 
   const userHelp = details?.userHelp && typeof details.userHelp === "object" ? (details.userHelp as UserHelp) : null;
@@ -218,8 +210,12 @@ export default function ScheduledPage() {
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerResults, setPickerResults] = useState<CommonsImage[]>([]);
 
-  // Per-result "Fix help" expand/collapse
+  // Per-result help expand/collapse
   const [openHelpKey, setOpenHelpKey] = useState<string | null>(null);
+
+  // Media test result
+  const [mediaTestLoading, setMediaTestLoading] = useState(false);
+  const [mediaTest, setMediaTest] = useState<MediaValidateResponse | null>(null);
 
   async function load() {
     setLoading(true);
@@ -267,6 +263,9 @@ export default function ScheduledPage() {
     setEditScheduledFor(toLocalInputValue(it.scheduled_for));
     setEditError(null);
 
+    setMediaTest(null);
+    setMediaTestLoading(false);
+
     setPickerQuery("mental health wellbeing workplace");
     setPickerResults([]);
     setPickerError(null);
@@ -278,12 +277,7 @@ export default function ScheduledPage() {
 
   function openEditWithImage(it: ScheduledRow, imageUrl: string) {
     openEdit(it);
-    // Small delay so modal state is set first (prevents weird flicker)
-    setTimeout(() => {
-      setEditImageUrl(imageUrl || "");
-      // If they’re trying to fix LinkedIn failures, ensure LinkedIn stays selected if it was
-      // (we do not force it on)
-    }, 0);
+    setTimeout(() => setEditImageUrl(imageUrl || ""), 0);
   }
 
   function closeEdit() {
@@ -296,9 +290,11 @@ export default function ScheduledPage() {
     setPickerResults([]);
     setPickerError(null);
     setPickerLoading(false);
+
+    setMediaTest(null);
+    setMediaTestLoading(false);
   }
 
-  // ✅ ESC closes modal (and picker if open)
   useEffect(() => {
     if (!editOpen) return;
 
@@ -347,9 +343,7 @@ export default function ScheduledPage() {
       });
       const data: CommonsImagesApiResponse = await res.json().catch(() => null);
 
-      if (!res.ok || !data?.success) {
-        throw new Error(data?.error || `Image search failed (${res.status})`);
-      }
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Image search failed (${res.status})`);
 
       const images = Array.isArray(data.images) ? data.images : [];
       if (images.length === 0) {
@@ -388,15 +382,38 @@ export default function ScheduledPage() {
     setEditScheduledFor(`${yyyy}-${mm}-${dd}T${hh}:${mi}`);
   }
 
-  function getLinkedInCountText(msg: string) {
-    const s = String(msg || "");
-    return `${s.length}/${LINKEDIN_TEXT_LIMIT}`;
-  }
-
   function violatesLinkedInLimit(msg: string, platforms: string[]) {
     const hasLi = platforms.some((p) => String(p).toLowerCase() === "linkedin");
     if (!hasLi) return false;
     return String(msg || "").length > LINKEDIN_TEXT_LIMIT;
+  }
+
+  async function testMedia() {
+    const url = (editImageUrl || "").trim();
+    if (!url) {
+      setMediaTest({
+        ok: false,
+        userHelp: { headline: "No media URL", doThis: ["Paste an image/video URL first, then click Test media."] },
+      });
+      return;
+    }
+
+    setMediaTestLoading(true);
+    setMediaTest(null);
+
+    try {
+      const platform = editPlatforms.includes("linkedin") ? "linkedin" : "";
+      const res = await fetch(
+        `/api/media/validate?url=${encodeURIComponent(url)}${platform ? `&platform=${encodeURIComponent(platform)}` : ""}`,
+        { cache: "no-store" }
+      );
+      const json: MediaValidateResponse = await res.json().catch(() => null as any);
+      setMediaTest(json || { ok: false, userHelp: { headline: "No response", doThis: ["Try again."] } });
+    } catch (e: any) {
+      setMediaTest({ ok: false, userHelp: { headline: "Test failed", doThis: ["Try again in a minute."], notes: [String(e?.message || "")] } });
+    } finally {
+      setMediaTestLoading(false);
+    }
   }
 
   async function saveEdit() {
@@ -413,9 +430,7 @@ export default function ScheduledPage() {
 
     if (isPastIso(iso)) {
       setEditSaving(false);
-      setEditError(
-        "That time is in the past. Scheduled posts won’t fire retroactively. Choose a future time, or click “Re-queue +1 min”."
-      );
+      setEditError("That time is in the past. Choose a future time, or click “Re-queue +1 min”.");
       return;
     }
 
@@ -433,9 +448,7 @@ export default function ScheduledPage() {
 
     if (violatesLinkedInLimit(editMessage, editPlatforms)) {
       setEditSaving(false);
-      setEditError(
-        `LinkedIn post is too long (${getLinkedInCountText(editMessage)}). Shorten it or remove LinkedIn from platforms.`
-      );
+      setEditError(`LinkedIn post is too long (${editMessage.length}/${LINKEDIN_TEXT_LIMIT}). Shorten it or remove LinkedIn.`);
       return;
     }
 
@@ -461,11 +474,54 @@ export default function ScheduledPage() {
         return;
       }
 
-      closeEdit();
+      setEditSaving(false);
+      setEditError(null);
       load();
     } catch (e: any) {
       setEditSaving(false);
       setEditError(e?.message || "Update failed.");
+    }
+  }
+
+  async function publishNowFromModal() {
+    if (!editing) return;
+    setEditSaving(true);
+    setEditError(null);
+
+    if (!editPlatforms || editPlatforms.length === 0) {
+      setEditSaving(false);
+      setEditError("Pick at least one platform.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/publish/now?organisationId=${encodeURIComponent(editing.organisation_id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          id: editing.id,
+          platforms: editPlatforms,
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+
+      // Whether success or fail, it should have attempted and updated error_info.
+      // Refresh the list so Dispatch results updates.
+      setEditSaving(false);
+      if (!res.ok || !json) {
+        setEditError("Publish attempt failed to return a response.");
+        load();
+        return;
+      }
+
+      // Close modal to avoid confusion, then reload.
+      closeEdit();
+      load();
+    } catch (e: any) {
+      setEditSaving(false);
+      setEditError(e?.message || "Publish now failed.");
     }
   }
 
@@ -533,11 +589,15 @@ export default function ScheduledPage() {
           </div>
 
           {loading && (
-            <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-slate-300">Loading…</div>
+            <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-slate-300">
+              Loading…
+            </div>
           )}
 
           {error && (
-            <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-red-100">{error}</div>
+            <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-red-100">
+              {error}
+            </div>
           )}
 
           {emptyState && (
@@ -575,11 +635,11 @@ export default function ScheduledPage() {
                           {it.posted_at ? <span className="text-xs text-slate-400">posted {fmt(it.posted_at)}</span> : null}
                         </div>
 
-                        <div className="mt-3 whitespace-pre-wrap text-sm text-slate-200">{String(it.message || "").trim() || "—"}</div>
+                        <div className="mt-3 whitespace-pre-wrap text-sm text-slate-200">
+                          {String(it.message || "").trim() || "—"}
+                        </div>
 
-                        {it.image_url ? (
-                          <div className="mt-2 text-xs text-slate-400 break-all">Media: {it.image_url}</div>
-                        ) : null}
+                        {it.image_url ? <div className="mt-2 text-xs text-slate-400 break-all">Media: {it.image_url}</div> : null}
                       </div>
 
                       <div className="flex flex-wrap gap-2">
@@ -617,20 +677,18 @@ export default function ScheduledPage() {
                             const platform = String(r?.platform || "—");
                             const ok = !!r?.ok;
                             const skipped = !!r?.skipped;
-                            const badge = ok ? "✅ OK" : skipped ? "⚠️ Skipped" : "❌ Failed";
 
                             const isLinkedIn = String(platform || "").toLowerCase() === "linkedin";
                             const key = `${it.id}:${platform}:${idx}`;
+
+                            const badge = ok ? "✅ OK" : skipped ? "⚠️ Skipped" : "❌ Failed";
 
                             const { userHelp, suggested } = !ok && isLinkedIn ? getLinkedInHelpFromResult(r) : { userHelp: null, suggested: [] };
                             const hasHelp = !!userHelp || (suggested && suggested.length > 0);
                             const helpOpen = openHelpKey === key;
 
                             return (
-                              <div
-                                key={key}
-                                className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                              >
+                              <div key={key} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
                                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                                   <div className="text-sm text-slate-200">
                                     <span className="font-semibold">{platformLabel(platform)}:</span> {describeResult(r)}
@@ -662,7 +720,6 @@ export default function ScheduledPage() {
                                   </div>
                                 </div>
 
-                                {/* Helpful LinkedIn guidance */}
                                 {helpOpen ? (
                                   <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
                                     {userHelp ? (
@@ -697,10 +754,7 @@ export default function ScheduledPage() {
                                           {suggested.map((img, i) => {
                                             const u = safeUrl(img.url);
                                             return (
-                                              <div
-                                                key={`${key}:suggested:${i}`}
-                                                className="rounded-2xl border border-slate-700 bg-slate-950 overflow-hidden"
-                                              >
+                                              <div key={`${key}:suggested:${i}`} className="rounded-2xl border border-slate-700 bg-slate-950 overflow-hidden">
                                                 <div className="h-[140px] bg-slate-900">
                                                   {u ? (
                                                     // eslint-disable-next-line @next/next/no-img-element
@@ -734,7 +788,6 @@ export default function ScheduledPage() {
                                                       type="button"
                                                       onClick={() => openEditWithImage(it, u)}
                                                       className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                                                      title="Fills the Media URL and opens the editor"
                                                     >
                                                       Use this image
                                                     </button>
@@ -765,17 +818,15 @@ export default function ScheduledPage() {
           )}
 
           <div className="mt-8 text-xs text-slate-500">
-            Tip: Quick Blast writes rows for audit + reliability, but Scheduled Pipeline should stay focused on future posts.
+            Tip: If you want dispatch results to change immediately after an edit, use <b>Publish now</b> in the editor.
           </div>
         </div>
       </div>
 
-      {/* Edit modal */}
       {editOpen && editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/70" onClick={closeEdit} />
 
-          {/* ✅ Make panel scrollable and never trap you */}
           <div className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
             <div className="sticky top-0 z-10 bg-slate-950 pb-4">
               <div className="flex items-start justify-between gap-4">
@@ -813,7 +864,7 @@ export default function ScheduledPage() {
                             : "border-slate-700 text-slate-300 bg-slate-900/40",
                         ].join(" ")}
                       >
-                        LinkedIn {getLinkedInCountText(editMessage)}
+                        LinkedIn {editMessage.length}/{LINKEDIN_TEXT_LIMIT}
                       </span>
                     ) : null}
 
@@ -841,11 +892,6 @@ export default function ScheduledPage() {
                   rows={7}
                   className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                 />
-                {editPlatforms.includes("linkedin") ? (
-                  <div className="mt-1 text-[11px] text-slate-500">
-                    LinkedIn is strict. We enforce a safe limit in the editor to reduce “too long” failures.
-                  </div>
-                ) : null}
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
@@ -874,13 +920,23 @@ export default function ScheduledPage() {
                 <div>
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-medium text-slate-300">Media URL (optional)</label>
-                    <button
-                      type="button"
-                      onClick={() => openPicker()}
-                      className="rounded-xl bg-blue-500 px-3 py-2 text-[11px] font-semibold text-slate-50 hover:bg-blue-400"
-                    >
-                      Search media
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={testMedia}
+                        disabled={mediaTestLoading}
+                        className="rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-200 hover:border-slate-600 disabled:opacity-60"
+                      >
+                        {mediaTestLoading ? "Testing…" : "Test media"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openPicker()}
+                        className="rounded-xl bg-blue-500 px-3 py-2 text-[11px] font-semibold text-slate-50 hover:bg-blue-400"
+                      >
+                        Search media
+                      </button>
+                    </div>
                   </div>
 
                   <input
@@ -890,9 +946,26 @@ export default function ScheduledPage() {
                     placeholder="https://..."
                   />
 
-                  <div className="mt-2 text-[11px] text-slate-500">
-                    Heads-up: LinkedIn needs a real image/video upload. Direct URLs often fail unless they’re a direct image file and publicly downloadable.
-                  </div>
+                  {mediaTest?.userHelp ? (
+                    <div className="mt-2 rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                      <div className="text-sm font-semibold text-slate-100">{mediaTest.userHelp.headline || "Media test"}</div>
+                      {mediaTest.userHelp.what ? <div className="mt-1 text-sm text-slate-200">{mediaTest.userHelp.what}</div> : null}
+                      {Array.isArray(mediaTest.userHelp.doThis) && mediaTest.userHelp.doThis.length > 0 ? (
+                        <ul className="mt-2 list-disc pl-5 text-sm text-slate-200 space-y-1">
+                          {mediaTest.userHelp.doThis.map((x, i) => (
+                            <li key={i}>{x}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {Array.isArray(mediaTest.userHelp.notes) && mediaTest.userHelp.notes.length > 0 ? (
+                        <div className="mt-2 text-xs text-slate-400 space-y-1">
+                          {mediaTest.userHelp.notes.map((n, i) => (
+                            <div key={i}>• {n}</div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -942,6 +1015,16 @@ export default function ScheduledPage() {
 
                 <button
                   type="button"
+                  onClick={publishNowFromModal}
+                  disabled={editSaving}
+                  className="rounded-2xl bg-blue-500 px-5 py-2 text-sm font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60"
+                  title="Attempts posting immediately and refreshes dispatch results"
+                >
+                  Publish now
+                </button>
+
+                <button
+                  type="button"
                   onClick={closeEdit}
                   disabled={editSaving}
                   className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
@@ -951,7 +1034,7 @@ export default function ScheduledPage() {
               </div>
 
               <div className="text-[11px] text-slate-500">
-                Tip: Click outside the modal or press <b>Esc</b> to close.
+                Tip: If you just edited something and want dispatch results to update right away, click <b>Publish now</b>.
               </div>
             </div>
 
@@ -996,7 +1079,9 @@ export default function ScheduledPage() {
                     </div>
 
                     {pickerError ? (
-                      <div className="rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">{pickerError}</div>
+                      <div className="rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
+                        {pickerError}
+                      </div>
                     ) : null}
 
                     {pickerLoading ? (
@@ -1037,8 +1122,7 @@ export default function ScheduledPage() {
                     )}
 
                     <div className="text-[11px] text-slate-500">
-                      For LinkedIn, we upload the media into LinkedIn (so it can work even when direct URLs are blocked).
-                      Still: always pick images that you have rights to use.
+                      Reminder: always check licence/copyright on the file page before using publicly.
                     </div>
                   </div>
                 </div>
