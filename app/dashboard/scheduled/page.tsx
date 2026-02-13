@@ -27,6 +27,21 @@ type CommonsImage = {
   attribution?: string;
 };
 
+type SuggestedImage = {
+  url: string;
+  title: string;
+  pageUrl: string;
+  licenseShortName?: string;
+  licenseUrl?: string;
+};
+
+type UserHelp = {
+  headline?: string;
+  what?: string;
+  doThis?: string[];
+  notes?: string[];
+};
+
 type CommonsImagesApiResponse = {
   success: boolean;
   query?: string;
@@ -108,6 +123,7 @@ function describeResult(r: any) {
     r?.error?.error_user_msg ||
     r?.error?.error_user_title ||
     r?.error ||
+    r?.details?.userMessage || // 👈 show friendly message if available
     r?.details?.error?.message ||
     r?.details?.error?.error_user_msg ||
     r?.details?.error?.error_user_title ||
@@ -135,36 +151,6 @@ const LINKEDIN_TEXT_LIMIT = 3000;
 
 const ALL_PLATFORMS = ["facebook", "instagram", "threads", "linkedin", "tiktok"];
 
-/** ✅ Friendly help extractor (works with several shapes) */
-function extractUserHelp(r: any): {
-  headline?: string;
-  what?: string;
-  doThis?: string[];
-  notes?: string[];
-} | null {
-  if (!r) return null;
-
-  // Our preferred shape
-  const uh = r?.userHelp;
-  if (uh && typeof uh === "object") {
-    const headline = typeof uh.headline === "string" ? uh.headline : undefined;
-    const what = typeof uh.what === "string" ? uh.what : undefined;
-    const doThis = Array.isArray(uh.doThis) ? uh.doThis.filter((x: any) => typeof x === "string") : [];
-    const notes = Array.isArray(uh.notes) ? uh.notes.filter((x: any) => typeof x === "string") : [];
-    if (headline || what || doThis.length || notes.length) {
-      return { headline, what, doThis, notes };
-    }
-  }
-
-  // Alternate shape: details.userHelp.note (array of strings)
-  const notes2 = r?.details?.userHelp?.note;
-  if (Array.isArray(notes2) && notes2.length > 0) {
-    return { notes: notes2.filter((x: any) => typeof x === "string") };
-  }
-
-  return null;
-}
-
 function applyUkSpellings(input: string) {
   const pairs: Array<[RegExp, string]> = [
     [/\borganization\b/gi, "organisation"],
@@ -183,6 +169,28 @@ function applyUkSpellings(input: string) {
   let out = input || "";
   for (const [re, rep] of pairs) out = out.replace(re, rep);
   return out;
+}
+
+function getLinkedInHelpFromResult(r: any): { userHelp: UserHelp | null; suggested: SuggestedImage[] } {
+  // publish/now stores LinkedIn internal response in r.details
+  const details = r?.details;
+
+  const userHelp = details?.userHelp && typeof details.userHelp === "object" ? (details.userHelp as UserHelp) : null;
+
+  const suggestedRaw = details?.suggestedImages;
+  const suggested: SuggestedImage[] = Array.isArray(suggestedRaw)
+    ? suggestedRaw
+        .map((x: any) => ({
+          url: String(x?.url || "").trim(),
+          title: String(x?.title || "").trim(),
+          pageUrl: String(x?.pageUrl || "").trim(),
+          licenseShortName: x?.licenseShortName ? String(x.licenseShortName) : undefined,
+          licenseUrl: x?.licenseUrl ? String(x.licenseUrl) : undefined,
+        }))
+        .filter((x: SuggestedImage) => !!x.url && /^https?:\/\//i.test(x.url))
+    : [];
+
+  return { userHelp, suggested };
 }
 
 export default function ScheduledPage() {
@@ -209,6 +217,9 @@ export default function ScheduledPage() {
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerResults, setPickerResults] = useState<CommonsImage[]>([]);
+
+  // Per-result "Fix help" expand/collapse
+  const [openHelpKey, setOpenHelpKey] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -245,9 +256,7 @@ export default function ScheduledPage() {
   const emptyState = !loading && !error && items.length === 0;
 
   const title = useMemo(() => {
-    return includeQuickBlast
-      ? "Scheduled Pipeline (including Quick Blast history)"
-      : "Scheduled Pipeline";
+    return includeQuickBlast ? "Scheduled Pipeline (including Quick Blast history)" : "Scheduled Pipeline";
   }, [includeQuickBlast]);
 
   function openEdit(it: ScheduledRow) {
@@ -265,6 +274,16 @@ export default function ScheduledPage() {
     setPickerOpen(false);
 
     setEditOpen(true);
+  }
+
+  function openEditWithImage(it: ScheduledRow, imageUrl: string) {
+    openEdit(it);
+    // Small delay so modal state is set first (prevents weird flicker)
+    setTimeout(() => {
+      setEditImageUrl(imageUrl || "");
+      // If they’re trying to fix LinkedIn failures, ensure LinkedIn stays selected if it was
+      // (we do not force it on)
+    }, 0);
   }
 
   function closeEdit() {
@@ -323,10 +342,9 @@ export default function ScheduledPage() {
     setPickerResults([]);
 
     try {
-      const res = await fetch(
-        `/api/media/commons-images?q=${encodeURIComponent(query)}&limit=9`,
-        { cache: "no-store" }
-      );
+      const res = await fetch(`/api/media/commons-images?q=${encodeURIComponent(query)}&limit=9`, {
+        cache: "no-store",
+      });
       const data: CommonsImagesApiResponse = await res.json().catch(() => null);
 
       if (!res.ok || !data?.success) {
@@ -515,23 +533,17 @@ export default function ScheduledPage() {
           </div>
 
           {loading && (
-            <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-slate-300">
-              Loading…
-            </div>
+            <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-slate-300">Loading…</div>
           )}
 
           {error && (
-            <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-red-100">
-              {error}
-            </div>
+            <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-red-100">{error}</div>
           )}
 
           {emptyState && (
             <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-5 text-slate-300">
               No future scheduled posts right now ✅
-              <div className="mt-2 text-xs text-slate-500">
-                Tip: Use Stories / Queue flows to build a future pipeline.
-              </div>
+              <div className="mt-2 text-xs text-slate-500">Tip: Use Stories / Queue flows to build a future pipeline.</div>
             </div>
           )}
 
@@ -560,14 +572,10 @@ export default function ScheduledPage() {
                             {sourceBadge}
                           </span>
 
-                          {it.posted_at ? (
-                            <span className="text-xs text-slate-400">posted {fmt(it.posted_at)}</span>
-                          ) : null}
+                          {it.posted_at ? <span className="text-xs text-slate-400">posted {fmt(it.posted_at)}</span> : null}
                         </div>
 
-                        <div className="mt-3 whitespace-pre-wrap text-sm text-slate-200">
-                          {String(it.message || "").trim() || "—"}
-                        </div>
+                        <div className="mt-3 whitespace-pre-wrap text-sm text-slate-200">{String(it.message || "").trim() || "—"}</div>
 
                         {it.image_url ? (
                           <div className="mt-2 text-xs text-slate-400 break-all">Media: {it.image_url}</div>
@@ -609,68 +617,137 @@ export default function ScheduledPage() {
                             const platform = String(r?.platform || "—");
                             const ok = !!r?.ok;
                             const skipped = !!r?.skipped;
-
                             const badge = ok ? "✅ OK" : skipped ? "⚠️ Skipped" : "❌ Failed";
-                            const help = extractUserHelp(r);
+
+                            const isLinkedIn = String(platform || "").toLowerCase() === "linkedin";
+                            const key = `${it.id}:${platform}:${idx}`;
+
+                            const { userHelp, suggested } = !ok && isLinkedIn ? getLinkedInHelpFromResult(r) : { userHelp: null, suggested: [] };
+                            const hasHelp = !!userHelp || (suggested && suggested.length > 0);
+                            const helpOpen = openHelpKey === key;
 
                             return (
                               <div
-                                key={`${platform}-${idx}`}
+                                key={key}
                                 className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
                               >
                                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                                   <div className="text-sm text-slate-200">
-                                    <span className="font-semibold">{platformLabel(platform)}:</span>{" "}
-                                    {describeResult(r)}
+                                    <span className="font-semibold">{platformLabel(platform)}:</span> {describeResult(r)}
                                   </div>
 
-                                  <div
-                                    className={[
-                                      "text-xs rounded-full border px-2 py-0.5",
-                                      ok
-                                        ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
-                                        : skipped
-                                        ? "border-slate-600 text-slate-300 bg-slate-900/40"
-                                        : "border-red-500/50 text-red-200 bg-red-500/10",
-                                    ].join(" ")}
-                                  >
-                                    {badge}
+                                  <div className="flex items-center gap-2">
+                                    {hasHelp ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => setOpenHelpKey((cur) => (cur === key ? null : key))}
+                                        className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+                                      >
+                                        {helpOpen ? "Hide fix" : "How to fix"}
+                                      </button>
+                                    ) : null}
+
+                                    <div
+                                      className={[
+                                        "text-xs rounded-full border px-2 py-0.5",
+                                        ok
+                                          ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                                          : skipped
+                                          ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                          : "border-red-500/50 text-red-200 bg-red-500/10",
+                                      ].join(" ")}
+                                    >
+                                      {badge}
+                                    </div>
                                   </div>
                                 </div>
 
-                                {/* ✅ Friendly “what to do” tips from publisher */}
-                                {!ok && !skipped && help ? (
-                                  <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
-                                    {help.headline ? (
-                                      <div className="text-sm font-semibold text-slate-100">
-                                        {help.headline}
-                                      </div>
-                                    ) : null}
-
-                                    {help.what ? (
-                                      <div className="mt-1 text-sm text-slate-300">
-                                        {help.what}
-                                      </div>
-                                    ) : null}
-
-                                    {help.doThis && help.doThis.length > 0 ? (
-                                      <div className="mt-2">
-                                        <div className="text-xs font-semibold text-slate-200">
-                                          What you can do:
+                                {/* Helpful LinkedIn guidance */}
+                                {helpOpen ? (
+                                  <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                                    {userHelp ? (
+                                      <div className="space-y-2">
+                                        <div className="text-sm font-semibold text-slate-100">
+                                          {userHelp.headline || "How to fix this"}
                                         </div>
-                                        <ul className="mt-1 list-disc pl-5 text-sm text-slate-300 space-y-1">
-                                          {help.doThis.map((t, i) => (
-                                            <li key={i}>{t}</li>
-                                          ))}
-                                        </ul>
+                                        {userHelp.what ? <div className="text-sm text-slate-200">{userHelp.what}</div> : null}
+
+                                        {Array.isArray(userHelp.doThis) && userHelp.doThis.length > 0 ? (
+                                          <ul className="mt-2 list-disc pl-5 text-sm text-slate-200 space-y-1">
+                                            {userHelp.doThis.map((x, i) => (
+                                              <li key={i}>{x}</li>
+                                            ))}
+                                          </ul>
+                                        ) : null}
+
+                                        {Array.isArray(userHelp.notes) && userHelp.notes.length > 0 ? (
+                                          <div className="mt-2 text-xs text-slate-400 space-y-1">
+                                            {userHelp.notes.map((n, i) => (
+                                              <div key={i}>• {n}</div>
+                                            ))}
+                                          </div>
+                                        ) : null}
                                       </div>
                                     ) : null}
 
-                                    {help.notes && help.notes.length > 0 ? (
-                                      <div className="mt-2 text-xs text-slate-400 space-y-1">
-                                        {help.notes.map((n, i) => (
-                                          <div key={i}>• {n}</div>
-                                        ))}
+                                    {suggested.length > 0 ? (
+                                      <div className="mt-4">
+                                        <div className="text-sm font-semibold text-slate-100">Suggested free-use images (check licence)</div>
+                                        <div className="mt-2 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                          {suggested.map((img, i) => {
+                                            const u = safeUrl(img.url);
+                                            return (
+                                              <div
+                                                key={`${key}:suggested:${i}`}
+                                                className="rounded-2xl border border-slate-700 bg-slate-950 overflow-hidden"
+                                              >
+                                                <div className="h-[140px] bg-slate-900">
+                                                  {u ? (
+                                                    // eslint-disable-next-line @next/next/no-img-element
+                                                    <img src={u} alt={img.title} className="w-full h-full object-cover" />
+                                                  ) : (
+                                                    <div className="h-full flex items-center justify-center text-xs text-slate-400">No preview</div>
+                                                  )}
+                                                </div>
+                                                <div className="p-3 space-y-2">
+                                                  <div className="text-xs font-semibold line-clamp-2 text-slate-100">
+                                                    {img.title?.replace(/^File:/, "") || "Image"}
+                                                  </div>
+
+                                                  <div className="text-[11px] text-slate-400">
+                                                    {img.licenseShortName ? `Licence: ${stripHtml(img.licenseShortName)}` : "Licence: check file page"}
+                                                  </div>
+
+                                                  <div className="flex flex-wrap gap-2">
+                                                    {img.pageUrl ? (
+                                                      <a
+                                                        href={img.pageUrl}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+                                                      >
+                                                        Open licence page
+                                                      </a>
+                                                    ) : null}
+
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => openEditWithImage(it, u)}
+                                                      className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                                                      title="Fills the Media URL and opens the editor"
+                                                    >
+                                                      Use this image
+                                                    </button>
+                                                  </div>
+
+                                                  <div className="text-[11px] text-slate-500">
+                                                    Reminder: always check licence/copyright on the file page before using publicly.
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
                                       </div>
                                     ) : null}
                                   </div>
@@ -814,7 +891,7 @@ export default function ScheduledPage() {
                   />
 
                   <div className="mt-2 text-[11px] text-slate-500">
-                    Heads-up: LinkedIn often rejects direct image URLs — it usually needs a LinkedIn upload asset (URN).
+                    Heads-up: LinkedIn needs a real image/video upload. Direct URLs often fail unless they’re a direct image file and publicly downloadable.
                   </div>
                 </div>
               </div>
@@ -829,9 +906,7 @@ export default function ScheduledPage() {
                         key={p}
                         type="button"
                         onClick={() =>
-                          setEditPlatforms((prev) =>
-                            prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
-                          )
+                          setEditPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
                         }
                         className={[
                           "flex items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm transition",
@@ -844,9 +919,7 @@ export default function ScheduledPage() {
                         <div
                           className={[
                             "text-[11px] px-2 py-1 rounded-full border",
-                            selected
-                              ? "border-emerald-500/60 text-emerald-200"
-                              : "border-slate-600 text-slate-300",
+                            selected ? "border-emerald-500/60 text-emerald-200" : "border-slate-600 text-slate-300",
                           ].join(" ")}
                         >
                           {selected ? "Selected" : "Select"}
@@ -890,9 +963,7 @@ export default function ScheduledPage() {
                   <div className="p-5 border-b border-slate-700 flex items-start justify-between gap-3 sticky top-0 bg-slate-950 z-10">
                     <div>
                       <div className="text-lg font-semibold">Pick an image</div>
-                      <div className="text-[12px] text-slate-400">
-                        Uses Wikimedia Commons. Select one → it fills the Media URL.
-                      </div>
+                      <div className="text-[12px] text-slate-400">Uses Wikimedia Commons. Select one → it fills the Media URL.</div>
                     </div>
                     <button
                       type="button"
@@ -925,9 +996,7 @@ export default function ScheduledPage() {
                     </div>
 
                     {pickerError ? (
-                      <div className="rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
-                        {pickerError}
-                      </div>
+                      <div className="rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">{pickerError}</div>
                     ) : null}
 
                     {pickerLoading ? (
@@ -950,22 +1019,14 @@ export default function ScheduledPage() {
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img src={u} alt={img.title} className="w-full h-full object-cover" />
                                 ) : (
-                                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                                    No preview
-                                  </div>
+                                  <div className="h-full flex items-center justify-center text-xs text-slate-400">No preview</div>
                                 )}
                               </div>
                               <div className="p-3 space-y-1">
-                                <div className="text-xs font-semibold line-clamp-2">
-                                  {img.title.replace(/^File:/, "")}
-                                </div>
-                                <div className="text-[11px] text-slate-400">
-                                  {img.licenseShortName || "License unknown"}
-                                </div>
+                                <div className="text-xs font-semibold line-clamp-2">{img.title.replace(/^File:/, "")}</div>
+                                <div className="text-[11px] text-slate-400">{img.licenseShortName || "License unknown"}</div>
                                 {img.attribution ? (
-                                  <div className="text-[11px] text-slate-300 line-clamp-2">
-                                    {stripHtml(img.attribution)}
-                                  </div>
+                                  <div className="text-[11px] text-slate-300 line-clamp-2">{stripHtml(img.attribution)}</div>
                                 ) : null}
                                 <div className="text-[11px] text-emerald-300 line-clamp-1">Select this</div>
                               </div>
@@ -976,8 +1037,8 @@ export default function ScheduledPage() {
                     )}
 
                     <div className="text-[11px] text-slate-500">
-                      If LinkedIn rejects an image URL, it usually needs a proper “upload asset” flow.
-                      For now this picker is great for FB/IG/Threads.
+                      For LinkedIn, we upload the media into LinkedIn (so it can work even when direct URLs are blocked).
+                      Still: always pick images that you have rights to use.
                     </div>
                   </div>
                 </div>
