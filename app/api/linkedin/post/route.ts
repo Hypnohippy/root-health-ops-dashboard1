@@ -15,6 +15,13 @@ type SocialAccountRow = {
   token_expires_at: string | null;
 };
 
+type UserHelp = {
+  headline?: string;
+  what?: string;
+  doThis?: string[];
+  notes?: string[];
+};
+
 type SuggestedImage = {
   url: string;
   title: string;
@@ -22,12 +29,6 @@ type SuggestedImage = {
   licenseShortName?: string;
   licenseUrl?: string;
 };
-
-const LINKEDIN_TEXT_LIMIT = 3000;
-
-// Conservative guardrails (not “official” limits; just to prevent obvious fails)
-const MAX_IMAGE_MB = 10;
-const MAX_VIDEO_MB = 150;
 
 function isHttps(url: string) {
   return /^https:\/\/.+/i.test((url || "").trim());
@@ -51,149 +52,6 @@ function isLikelyVideoUrl(url: string) {
     u.toLowerCase().includes(".webm")
   );
 }
-
-function mb(bytes: number) {
-  return Math.round((bytes / (1024 * 1024)) * 10) / 10;
-}
-
-function toUserHelp(headline: string, what: string, doThis: string[], notes?: string[]) {
-  return { headline, what, doThis, notes: notes || [] };
-}
-
-function respondFail(args: {
-  error: string;
-  userMessage: string;
-  details?: any;
-  status?: number;
-  userHelp?: any;
-  suggestedImages?: SuggestedImage[];
-}) {
-  return NextResponse.json(
-    {
-      ok: false,
-      error: args.error,
-      userMessage: args.userMessage,
-      userHelp: args.userHelp,
-      suggestedImages: args.suggestedImages || [],
-      details: args.details,
-      status: args.status,
-    },
-    { status: 200 }
-  );
-}
-
-/** ---------------- Wikimedia “free example images” suggestions ---------------- */
-
-function stripStopWords(words: string[]) {
-  const stop = new Set([
-    "the",
-    "and",
-    "or",
-    "to",
-    "of",
-    "in",
-    "a",
-    "an",
-    "for",
-    "with",
-    "on",
-    "as",
-    "is",
-    "are",
-    "was",
-    "were",
-    "be",
-    "been",
-    "this",
-    "that",
-    "it",
-    "your",
-    "you",
-    "we",
-    "they",
-    "i",
-    "our",
-    "from",
-    "at",
-    "by",
-    "not",
-    "just",
-    "into",
-    "about",
-    "can",
-    "could",
-    "should",
-    "would",
-  ]);
-  return words.filter((w) => w.length >= 4 && !stop.has(w));
-}
-
-function guessSearchQueryFromText(text: string) {
-  const cleaned = String(text || "")
-    .replace(/https?:\/\/\S+/g, " ")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .toLowerCase();
-
-  const parts = cleaned.split(/\s+/).map((s) => s.trim()).filter(Boolean);
-  const keywords = stripStopWords(parts).slice(0, 5);
-
-  // fallback if text is too generic
-  if (keywords.length === 0) return "wellbeing workplace team";
-  return keywords.join(" ");
-}
-
-function commonsPageUrl(title: string) {
-  const encoded = encodeURIComponent(title.replace(/ /g, "_"));
-  return `https://commons.wikimedia.org/wiki/${encoded}`;
-}
-
-async function fetchCommonsSuggestions(query: string, limit = 3): Promise<SuggestedImage[]> {
-  try {
-    const q = (query || "").trim();
-    if (!q) return [];
-
-    const apiUrl =
-      "https://commons.wikimedia.org/w/api.php" +
-      `?action=query&format=json&origin=*` +
-      `&generator=search&gsrsearch=${encodeURIComponent(q + " filetype:bitmap")}` +
-      `&gsrlimit=${Math.max(1, Math.min(limit, 6))}` +
-      `&gsrnamespace=6` +
-      `&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=800`;
-
-    const res = await fetch(apiUrl, { cache: "no-store" });
-    const json: any = await res.json().catch(() => null);
-
-    const pages = json?.query?.pages ? Object.values(json.query.pages) : [];
-    const out: SuggestedImage[] = [];
-
-    for (const p of pages) {
-      const title = String((p as any)?.title || "").trim();
-      const ii = (p as any)?.imageinfo?.[0];
-      const url = String(ii?.thumburl || ii?.url || "").trim();
-      if (!title || !url) continue;
-
-      const meta = ii?.extmetadata || {};
-      const licenseShortName = String(meta?.LicenseShortName?.value || "").replace(/<[^>]*>/g, "").trim();
-      const licenseUrl = String(meta?.LicenseUrl?.value || "").replace(/<[^>]*>/g, "").trim();
-
-      out.push({
-        url,
-        title,
-        pageUrl: commonsPageUrl(title),
-        licenseShortName: licenseShortName || undefined,
-        licenseUrl: licenseUrl || undefined,
-      });
-
-      if (out.length >= limit) break;
-    }
-
-    return out.slice(0, limit);
-  } catch {
-    return [];
-  }
-}
-
-/** ---------------- LinkedIn core helpers ---------------- */
 
 async function loadLinkedInAccount(organisationId: string): Promise<SocialAccountRow | null> {
   const { data, error } = await supabaseService
@@ -244,18 +102,10 @@ async function getLinkedInAuthorUrn(token: string) {
     };
   }
 
-  return {
-    ok: true as const,
-    authorUrn: `urn:li:person:${sub}`,
-    status: 200,
-  };
+  return { ok: true as const, authorUrn: `urn:li:person:${sub}`, status: 200 };
 }
 
-async function registerLinkedInUpload(args: {
-  token: string;
-  authorUrn: string;
-  kind: "image" | "video";
-}) {
+async function registerLinkedInUpload(args: { token: string; authorUrn: string; kind: "image" | "video" }) {
   const recipe =
     args.kind === "video"
       ? "urn:li:digitalmediaRecipe:feedshare-video"
@@ -266,10 +116,7 @@ async function registerLinkedInUpload(args: {
       recipes: [recipe],
       owner: args.authorUrn,
       serviceRelationships: [
-        {
-          relationshipType: "OWNER",
-          identifier: "urn:li:userGeneratedContent",
-        },
+        { relationshipType: "OWNER", identifier: "urn:li:userGeneratedContent" },
       ],
     },
   };
@@ -324,12 +171,7 @@ async function uploadArrayBufferToLinkedIn(uploadUrl: string, arrayBuffer: Array
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    return {
-      ok: false as const,
-      error: "Failed uploading bytes to LinkedIn",
-      details: text,
-      status: res.status,
-    };
+    return { ok: false as const, error: "Failed uploading bytes to LinkedIn", details: text, status: res.status };
   }
 
   return { ok: true as const, status: res.status };
@@ -340,8 +182,7 @@ function looksLikeDuplicatePost(details: any, status?: number) {
     .toLowerCase()
     .trim();
 
-  const inputErrors =
-    details?.errorDetails?.inputErrors || details?.details?.errorDetails?.inputErrors;
+  const inputErrors = details?.errorDetails?.inputErrors || details?.details?.errorDetails?.inputErrors;
 
   const hasCode =
     Array.isArray(inputErrors) &&
@@ -397,9 +238,7 @@ async function createLinkedInUgcPost(args: {
         shareMediaCategory: hasVideo ? "VIDEO" : hasImage ? "IMAGE" : "NONE",
       },
     },
-    visibility: {
-      "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
-    },
+    visibility: { "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC" },
   };
 
   if (hasVideo) {
@@ -429,18 +268,80 @@ async function createLinkedInUgcPost(args: {
   const postedId = json?.id || headerId || null;
 
   if (!res.ok) {
-    return {
-      ok: false as const,
-      error: json?.message || "Failed to post on LinkedIn",
-      details: json,
-      status: res.status,
-    };
+    return { ok: false as const, error: json?.message || "Failed to post on LinkedIn", details: json, status: res.status };
   }
 
   return { ok: true as const, postedId, details: json, status: res.status };
 }
 
-/** ---------------- MAIN ---------------- */
+async function searchCommonsImages(query: string, limit = 6): Promise<SuggestedImage[]> {
+  const q = (query || "").trim();
+  if (!q) return [];
+
+  const apiUrl =
+    "https://commons.wikimedia.org/w/api.php" +
+    `?action=query&format=json&origin=*` +
+    `&generator=search&gsrsearch=${encodeURIComponent(q + " filetype:bitmap")}` +
+    `&gsrlimit=${Math.max(1, Math.min(limit, 10))}` +
+    `&gsrnamespace=6` +
+    `&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=900`;
+
+  const res = await fetch(apiUrl, { cache: "no-store" });
+  const json: any = await res.json().catch(() => null);
+
+  const pages = json?.query?.pages ? Object.values(json.query.pages) : [];
+  const out: SuggestedImage[] = [];
+
+  for (const p of pages) {
+    const title = String((p as any)?.title || "").trim();
+    const ii = (p as any)?.imageinfo?.[0];
+    const url = String(ii?.thumburl || ii?.url || "").trim();
+    if (!title || !url) continue;
+
+    const encoded = encodeURIComponent(title.replace(/ /g, "_"));
+    const pageUrl = `https://commons.wikimedia.org/wiki/${encoded}`;
+
+    const meta = ii?.extmetadata || {};
+    const licenseShortName = meta?.LicenseShortName?.value ? String(meta.LicenseShortName.value) : undefined;
+    const licenseUrl = meta?.LicenseUrl?.value ? String(meta.LicenseUrl.value) : undefined;
+
+    out.push({ url, title, pageUrl, licenseShortName, licenseUrl });
+  }
+
+  return out.slice(0, limit);
+}
+
+function helpForInvalidImageUrl(imageUrl: string): UserHelp {
+  return {
+    headline: "LinkedIn can’t use that image link",
+    what:
+      "LinkedIn needs a direct image file that our server can download (not a webpage link, not a blocked CDN link).",
+    doThis: [
+      "Use an https link that ends in .jpg, .jpeg, .png, .webp, or .gif",
+      "Make sure the link opens the image directly in a browser (not a page with the image inside it)",
+      "If your image is from a website, re-host it somewhere that provides a direct image file URL",
+      "Or use one of the suggested free-use images below (check the licence first)",
+    ],
+    notes: [
+      `Your current URL: ${imageUrl || "—"}`,
+      "Always check copyright/licence before posting publicly.",
+    ],
+  };
+}
+
+function helpForInvalidVideoUrl(videoUrl: string): UserHelp {
+  return {
+    headline: "LinkedIn can’t use that video link",
+    what:
+      "LinkedIn needs a direct video file link that our server can download (not a webpage).",
+    doThis: [
+      "Use an https link that ends in .mp4, .mov, or .webm",
+      "Try re-uploading the video via your uploader so it becomes a direct file URL",
+      "Keep the video size reasonable (very large videos can fail uploads)",
+    ],
+    notes: [`Your current URL: ${videoUrl || "—"}`],
+  };
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -453,276 +354,261 @@ export async function POST(req: NextRequest) {
     const videoUrl = String(body?.videoUrl ?? "").trim();
 
     if (!organisationId) {
-      return respondFail({
-        error: "Missing organisationId",
-        userMessage: "We couldn’t find your organisation yet. Refresh and try again.",
-      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Missing organisationId",
+          userMessage: "We couldn’t find your organisation yet. Refresh and try again.",
+          userHelp: { headline: "Organisation missing", doThis: ["Refresh the page and try again."] },
+        },
+        { status: 200 }
+      );
     }
 
     if (!text) {
-      return respondFail({
-        error: "Missing post text",
-        userMessage: "Your post is empty. Add a message and try again.",
-      });
-    }
-
-    if (text.length > LINKEDIN_TEXT_LIMIT) {
-      return respondFail({
-        error: "Post text too long",
-        userMessage: `LinkedIn needs shorter text here. Your post is ${text.length}/${LINKEDIN_TEXT_LIMIT} characters — shorten it and try again.`,
-        userHelp: toUserHelp(
-          "Text is too long for LinkedIn",
-          "LinkedIn can reject long posts when sent via the API.",
-          [
-            `Reduce to under ${LINKEDIN_TEXT_LIMIT} characters.`,
-            "Keep the first line short and punchy.",
-          ]
-        ),
-      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Missing post text",
+          userMessage: "Your post is empty. Add a message and try again.",
+          userHelp: { headline: "Add a message", doThis: ["Type your post text, then try again."] },
+        },
+        { status: 200 }
+      );
     }
 
     const li = await loadLinkedInAccount(organisationId);
     const token = li?.page_access_token || null;
 
     if (!token) {
-      return respondFail({
-        error: "LinkedIn not connected",
-        userMessage: "LinkedIn isn’t connected yet. Go to Connect → LinkedIn → Connect.",
-      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "LinkedIn not connected",
+          userMessage: "LinkedIn isn’t connected yet. Go to Connect → LinkedIn → Connect.",
+          userHelp: {
+            headline: "Connect LinkedIn",
+            doThis: ["Go to Connect", "Click LinkedIn", "Complete the connect flow", "Then try posting again"],
+          },
+        },
+        { status: 200 }
+      );
     }
 
     const author = await getLinkedInAuthorUrn(token);
     if (!author.ok) {
-      return respondFail({
-        error: author.error,
-        userMessage: "LinkedIn connection looks invalid. Please reconnect LinkedIn on the Connect page.",
-        details: author.details,
-        status: author.status,
-        userHelp: toUserHelp(
-          "LinkedIn needs reconnecting",
-          "Your LinkedIn login token looks expired or invalid.",
-          ["Go to Connect → LinkedIn → Reconnect.", "Then try posting again."]
-        ),
-      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: author.error,
+          userMessage: "LinkedIn connection looks invalid. Please reconnect LinkedIn on the Connect page.",
+          userHelp: {
+            headline: "Reconnect LinkedIn",
+            doThis: ["Go to Connect → LinkedIn", "Disconnect (if shown) then connect again", "Retry your post"],
+          },
+          details: author.details,
+          status: author.status,
+        },
+        { status: 200 }
+      );
     }
 
     // Prefer video if both provided
     const wantsVideo = !!videoUrl;
     const wantsImage = !!imageUrl && !wantsVideo;
 
-    let imageAssetUrn: string | undefined = undefined;
-    let videoAssetUrn: string | undefined = undefined;
+    let imageAssetUrn: string | undefined;
+    let videoAssetUrn: string | undefined;
 
-    // Suggestions based on the post text (used for image-related errors)
-    const suggestionQuery = guessSearchQueryFromText(text);
-
+    // VIDEO FLOW
     if (wantsVideo) {
       if (!isLikelyVideoUrl(videoUrl)) {
-        return respondFail({
-          error: "Invalid videoUrl",
-          userMessage:
-            "For LinkedIn video posts, the link must be a direct HTTPS video file (like .mp4). This one looks like a web page instead.",
-          userHelp: toUserHelp(
-            "What LinkedIn needs for video",
-            "LinkedIn needs a direct file URL so we can upload it to LinkedIn.",
-            [
-              "Use a link that starts with https:// and ends in .mp4 (or .mov / .webm).",
-              "Make sure the link is public (no login needed).",
-              "Best option: re-upload the video using your uploader and use the new link.",
-            ]
-          ),
-        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "videoUrl must be a direct https video file link ending .mp4/.mov/.webm (not a webpage).",
+            userMessage: "That video link isn’t a direct video file. Use an MP4/MOV/WEBM file link (https) and try again.",
+            userHelp: helpForInvalidVideoUrl(videoUrl),
+          },
+          { status: 200 }
+        );
       }
 
       const vidRes = await fetch(videoUrl, { cache: "no-store" });
       if (!vidRes.ok) {
-        return respondFail({
-          error: `Could not download videoUrl (HTTP ${vidRes.status})`,
-          userMessage:
-            "We couldn’t fetch that video link (it may be blocked or expired). Re-upload the video and try again.",
-          userHelp: toUserHelp(
-            "We couldn’t download the video",
-            "The server hosting the video didn’t allow us to fetch it.",
-            ["Re-upload the video.", "Make sure the link is public and HTTPS.", "Try again."]
-          ),
-        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Could not download videoUrl (HTTP ${vidRes.status})`,
+            userMessage: "We couldn’t fetch that video link. Try re-uploading it and try again.",
+            userHelp: {
+              headline: "We can’t download that video",
+              what: "The link might be blocked, expired, or not publicly accessible.",
+              doThis: ["Try a different video URL", "Or re-upload the video so it becomes a public direct file link"],
+              notes: [`HTTP status: ${vidRes.status}`],
+            },
+          },
+          { status: 200 }
+        );
       }
 
       const contentType = vidRes.headers.get("content-type") || "video/mp4";
       const arrayBuffer = await vidRes.arrayBuffer();
 
-      const sizeMb = mb(arrayBuffer.byteLength);
-      if (sizeMb > MAX_VIDEO_MB) {
-        return respondFail({
-          error: `Video too large (${sizeMb}MB)`,
-          userMessage: `That video is too large for reliable posting right now (${sizeMb}MB). Try a smaller MP4 (under ~150MB).`,
-          userHelp: toUserHelp(
-            "Video file is too big",
-            "Large videos often fail or take too long to upload to LinkedIn.",
-            ["Export a smaller MP4 (lower resolution/bitrate).", "Aim for under ~150MB.", "Re-upload and try again."]
-          ),
-        });
+      const sizeMb = Math.round((arrayBuffer.byteLength / (1024 * 1024)) * 10) / 10;
+      if (sizeMb > 150) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Video is too large for this simple upload flow (${sizeMb}MB).`,
+            userMessage: "That video is quite large. Try a smaller MP4 (under ~150MB) for now.",
+            userHelp: {
+              headline: "Video too large",
+              doThis: ["Export/compress the video smaller", "Aim for under ~150MB", "Then try again"],
+              notes: [`Size: ${sizeMb}MB`],
+            },
+          },
+          { status: 200 }
+        );
       }
 
       const reg = await registerLinkedInUpload({ token, authorUrn: author.authorUrn, kind: "video" });
       if (!reg.ok) {
-        return respondFail({
-          error: reg.error,
-          userMessage: "LinkedIn wouldn’t accept the video upload setup. Try again in a minute.",
-          details: reg.details,
-          status: reg.status,
-          userHelp: toUserHelp(
-            "LinkedIn video setup failed",
-            "LinkedIn refused the first step of the upload process.",
-            ["Try again in 1–2 minutes.", "If it keeps happening, reconnect LinkedIn and try again."]
-          ),
-        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: reg.error,
+            userMessage: "LinkedIn wouldn’t accept the video upload setup. Try again in a minute.",
+            userHelp: {
+              headline: "LinkedIn upload setup failed",
+              doThis: ["Wait 30 seconds and try again", "If it keeps failing, reconnect LinkedIn on the Connect page"],
+            },
+            details: reg.details,
+            status: reg.status,
+          },
+          { status: 200 }
+        );
       }
 
       const up = await uploadArrayBufferToLinkedIn(reg.uploadUrl, arrayBuffer, contentType);
       if (!up.ok) {
-        return respondFail({
-          error: up.error,
-          userMessage: "LinkedIn couldn’t upload the video. Try a smaller MP4 or try again shortly.",
-          details: up.details,
-          status: up.status,
-          userHelp: toUserHelp(
-            "LinkedIn couldn’t upload the video",
-            "This can happen with large files or temporary LinkedIn issues.",
-            ["Try a smaller MP4.", "Try again in a few minutes.", "If it repeats, reconnect LinkedIn."]
-          ),
-        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: up.error,
+            userMessage: "LinkedIn couldn’t upload the video. Try a smaller MP4 or try again shortly.",
+            userHelp: {
+              headline: "Video upload failed",
+              doThis: ["Try a smaller MP4", "Try again in a minute", "If it persists, reconnect LinkedIn"],
+            },
+            details: up.details,
+            status: up.status,
+          },
+          { status: 200 }
+        );
       }
 
       videoAssetUrn = reg.asset;
     }
 
+    // IMAGE FLOW
     if (wantsImage) {
-      // If the URL pattern is wrong, give “what LinkedIn needs” + suggestions.
       if (!isLikelyImageUrl(imageUrl)) {
-        const suggestedImages = await fetchCommonsSuggestions(suggestionQuery, 3);
-
-        return respondFail({
-          error: "Invalid imageUrl",
-          userMessage:
-            "For LinkedIn image posts, you need a direct HTTPS image file link (JPG/PNG/WebP/GIF). This link doesn’t look like a direct image file.",
-          userHelp: toUserHelp(
-            "What LinkedIn needs for images",
-            "LinkedIn needs a direct image file so we can upload it into LinkedIn (not a web page).",
-            [
-              "The link must start with https://",
-              "It must end in .jpg / .png / .webp / .gif",
-              "It must load without any login (public link)",
-              "Best: use Scheduled → Search media to pick a Wikimedia Commons image (then check the licence), or re-upload your image into Root Health so it’s hosted reliably.",
-            ],
-            ["If you use a random website link, it often blocks downloads and LinkedIn rejects it."]
-          ),
-          suggestedImages,
-        });
+        const suggestedImages = await searchCommonsImages("wellbeing workplace mental health", 6);
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif (not a webpage).",
+            userMessage: "That image link isn’t a direct image file. Use a direct JPG/PNG/WebP/GIF (https) link and try again.",
+            userHelp: helpForInvalidImageUrl(imageUrl),
+            suggestedImages,
+          },
+          { status: 200 }
+        );
       }
 
       const imgRes = await fetch(imageUrl, { cache: "no-store" });
       if (!imgRes.ok) {
-        const suggestedImages = await fetchCommonsSuggestions(suggestionQuery, 3);
-
-        return respondFail({
-          error: `Could not download imageUrl (HTTP ${imgRes.status})`,
-          userMessage:
-            "We couldn’t fetch that image link (the website may be blocking downloads). Try a different image link, or use Search media to pick a free-to-use image (check the licence).",
-          userHelp: toUserHelp(
-            "We couldn’t download the image",
-            "Some sites block direct downloads, even if the link ends in .png/.jpg.",
-            [
-              "Try another image link from a stable host.",
-              "Or: Scheduled → Search media (Wikimedia Commons) and pick an image there.",
-              "If it’s your own image, re-upload it via your system so it’s publicly reachable.",
-            ]
-          ),
-          suggestedImages,
-        });
+        const suggestedImages = await searchCommonsImages("wellbeing workplace mental health", 6);
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Could not download imageUrl (HTTP ${imgRes.status})`,
+            userMessage: "We couldn’t fetch that image link. Try a different image or use a suggested free-use one (check licence).",
+            userHelp: {
+              headline: "We can’t download that image",
+              what: "The image might be blocked, private, or not a direct file link.",
+              doThis: ["Try a different image URL", "Or use one of the suggested images below (check licence)"],
+              notes: [`HTTP status: ${imgRes.status}`],
+            },
+            suggestedImages,
+          },
+          { status: 200 }
+        );
       }
 
-      const contentType = (imgRes.headers.get("content-type") || "").toLowerCase();
+      const contentType = imgRes.headers.get("content-type") || "image/jpeg";
       const arrayBuffer = await imgRes.arrayBuffer();
 
-      // Critical diagnosis: link returns HTML/text not an image
-      if (!contentType.startsWith("image/")) {
-        const suggestedImages = await fetchCommonsSuggestions(suggestionQuery, 3);
-
-        return respondFail({
-          error: `imageUrl did not return an image (content-type: ${contentType || "unknown"})`,
-          userMessage:
-            "That link isn’t actually returning an image file to our server (it’s returning a web page or blocked response). LinkedIn can’t use it.",
-          userHelp: toUserHelp(
-            "This link isn’t an image file",
-            "Even if the URL ends in .png/.jpg, some websites return HTML or block hotlinking.",
-            [
-              "Use an image link that loads publicly with no login.",
-              "Try a stable image host, or re-upload your image into Root Health.",
-              "Or: use Scheduled → Search media to pick a Wikimedia Commons image (check the licence).",
-            ],
-            ["A quick test: open the URL in a private/incognito window — it should show only the image."]
-          ),
-          details: { contentType, bytes: arrayBuffer.byteLength },
-          suggestedImages,
-        });
-      }
-
-      const sizeMb = mb(arrayBuffer.byteLength);
-      if (sizeMb > MAX_IMAGE_MB) {
-        const suggestedImages = await fetchCommonsSuggestions(suggestionQuery, 3);
-
-        return respondFail({
-          error: `Image too large (${sizeMb}MB)`,
-          userMessage: `That image is very large (${sizeMb}MB). Try a smaller JPG/PNG (under ~10MB) or pick a different image.`,
-          userHelp: toUserHelp(
-            "Image file is too big",
-            "Large images can fail during upload to LinkedIn.",
-            ["Resize/compress the image.", "Aim for under ~10MB.", "Try again."]
-          ),
-          suggestedImages,
-        });
+      const sizeMb = Math.round((arrayBuffer.byteLength / (1024 * 1024)) * 10) / 10;
+      if (sizeMb > 20) {
+        const suggestedImages = await searchCommonsImages("wellbeing workplace mental health", 6);
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Image is quite large (${sizeMb}MB).`,
+            userMessage: "That image is a bit large. Try a smaller JPG/PNG (or use a suggested image).",
+            userHelp: {
+              headline: "Image too large",
+              doThis: ["Use a smaller image (under ~20MB is safest)", "Try a different image URL", "Or use a suggested image (check licence)"],
+              notes: [`Size: ${sizeMb}MB`],
+            },
+            suggestedImages,
+          },
+          { status: 200 }
+        );
       }
 
       const reg = await registerLinkedInUpload({ token, authorUrn: author.authorUrn, kind: "image" });
       if (!reg.ok) {
-        const suggestedImages = await fetchCommonsSuggestions(suggestionQuery, 3);
-
-        return respondFail({
-          error: reg.error,
-          userMessage: "LinkedIn wouldn’t accept the image upload setup. Try again in a minute.",
-          details: reg.details,
-          status: reg.status,
-          userHelp: toUserHelp(
-            "LinkedIn image setup failed",
-            "LinkedIn refused the first step of the image upload.",
-            ["Try again in 1–2 minutes.", "If it keeps happening, reconnect LinkedIn and try again."]
-          ),
-          suggestedImages,
-        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: reg.error,
+            userMessage: "LinkedIn wouldn’t accept the image upload setup. Try again in a minute.",
+            userHelp: {
+              headline: "LinkedIn upload setup failed",
+              doThis: ["Wait 30 seconds and try again", "If it keeps failing, reconnect LinkedIn"],
+            },
+            details: reg.details,
+            status: reg.status,
+          },
+          { status: 200 }
+        );
       }
 
-      const up = await uploadArrayBufferToLinkedIn(reg.uploadUrl, arrayBuffer, contentType || "image/jpeg");
+      const up = await uploadArrayBufferToLinkedIn(reg.uploadUrl, arrayBuffer, contentType);
       if (!up.ok) {
-        const suggestedImages = await fetchCommonsSuggestions(suggestionQuery, 3);
-
-        return respondFail({
-          error: up.error,
-          userMessage: "LinkedIn couldn’t upload the image. Try a smaller image or try again shortly.",
-          details: up.details,
-          status: up.status,
-          userHelp: toUserHelp(
-            "LinkedIn couldn’t upload the image",
-            "This can happen with large images or temporary LinkedIn issues.",
-            ["Try a smaller image.", "Try again in a few minutes.", "If it repeats, reconnect LinkedIn."]
-          ),
-          suggestedImages,
-        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: up.error,
+            userMessage: "LinkedIn couldn’t upload the image. Try a smaller JPG/PNG or try again shortly.",
+            userHelp: {
+              headline: "Image upload failed",
+              doThis: ["Try a different JPG/PNG", "Try again in a minute", "If it persists, reconnect LinkedIn"],
+            },
+            details: up.details,
+            status: up.status,
+          },
+          { status: 200 }
+        );
       }
 
       imageAssetUrn = reg.asset;
     }
 
+    // CREATE POST
     const post = await createLinkedInUgcPost({
       token,
       authorUrn: author.authorUrn,
@@ -759,42 +645,47 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      return respondFail({
-        error: retry.error || post.error,
-        userMessage:
-          "LinkedIn didn’t publish this because it’s too similar to a recent post. Change the first line (or the final call-to-action) and try again.",
-        details: retry.details || post.details,
-        status: retry.status || post.status,
-        userHelp: toUserHelp(
-          "LinkedIn thinks this is a duplicate",
-          "LinkedIn blocks posts that look too similar to something you posted recently.",
-          ["Change the first line (opening hook).", "Change the last line (CTA).", "Try again."]
-        ),
-      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: retry.error || post.error,
+          userMessage: "LinkedIn didn’t publish this because it’s too similar to a recent post. Change the first line or CTA and try again.",
+          userHelp: {
+            headline: "Duplicate post",
+            what: "LinkedIn blocks posts that look too similar to a recent one.",
+            doThis: ["Change the first line", "Change the call-to-action", "Try again"],
+          },
+          details: retry.details || post.details,
+          status: retry.status || post.status,
+        },
+        { status: 200 }
+      );
     }
 
-    return respondFail({
-      error: post.error,
-      userMessage:
-        "LinkedIn couldn’t publish this post. If you used media, try text-only first. If it’s long, shorten it and try again.",
-      details: post.details,
-      status: post.status,
-      userHelp: toUserHelp(
-        "LinkedIn couldn’t publish this post",
-        "LinkedIn rejected the request. This is usually text length, media upload, or a temporary LinkedIn issue.",
-        [
-          "Try text-only to confirm the message is OK.",
-          `Keep text under ${LINKEDIN_TEXT_LIMIT} characters.`,
-          "If using an image: use a direct HTTPS image file URL that loads publicly.",
-          "Try again in a few minutes if it looks like a temporary LinkedIn issue.",
-        ]
-      ),
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: post.error,
+        userMessage: "LinkedIn couldn’t publish this post. Try again in a minute, or shorten/edit the text.",
+        userHelp: {
+          headline: "LinkedIn rejected the post",
+          doThis: ["Try again in a minute", "Shorten the post", "Remove emojis/extra formatting if needed"],
+        },
+        details: post.details,
+        status: post.status,
+      },
+      { status: 200 }
+    );
   } catch (err: any) {
     console.error("[linkedin/post] error", err);
-    return respondFail({
-      error: err?.message || "Server error",
-      userMessage: "Something went wrong sending to LinkedIn. Please try again.",
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: err?.message || "Server error",
+        userMessage: "Something went wrong sending to LinkedIn. Please try again.",
+        userHelp: { headline: "Temporary error", doThis: ["Try again in a minute", "If it persists, reconnect LinkedIn"] },
+      },
+      { status: 200 }
+    );
   }
 }
