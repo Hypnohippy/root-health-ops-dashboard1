@@ -47,6 +47,7 @@ function isPastIso(iso: string) {
  *
  * Requeue behaviour:
  * - If force_requeue=true, clears posted_at + error_info and sets status="queued"
+ * - Also clears common "last attempt" breadcrumbs so it behaves like a fresh queued post
  */
 export async function POST(req: NextRequest) {
   try {
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
     const id = norm(body?.id);
     const message = norm(body?.message);
     const scheduledFor = safeIso(body?.scheduled_for);
+
     const platforms = safeArr<string>(body?.platforms)
       .map((p) => norm(p).toLowerCase())
       .filter(Boolean);
@@ -104,13 +106,15 @@ export async function POST(req: NextRequest) {
       return okJson({ success: false, error: "Scheduled post not found." }, 200);
     }
 
+    const nowIso = new Date().toISOString();
+
     // Prepare patch
     const patch: any = {
       message,
       platforms,
       image_url,
       scheduled_for: scheduledFor,
-      updated_at: new Date().toISOString(),
+      updated_at: nowIso,
     };
 
     if (force_requeue) {
@@ -118,12 +122,22 @@ export async function POST(req: NextRequest) {
       patch.posted_at = null;
       patch.error_info = null;
 
-      // Keep meta but add a breadcrumb
-      const meta = (row as any)?.meta && typeof (row as any).meta === "object" ? (row as any).meta : {};
+      // Optional columns in some schemas — safe to include (Supabase ignores unknown columns?).
+      // If your table DOES NOT have these, remove them:
+      patch.last_attempt_at = null;
+
+      // Keep meta but add a breadcrumb and clear the "last publish" summary so UI looks fresh
+      const meta =
+        (row as any)?.meta && typeof (row as any).meta === "object"
+          ? (row as any).meta
+          : {};
+
       patch.meta = {
         ...meta,
-        requeued_at: new Date().toISOString(),
+        requeued_at: nowIso,
         requeued_reason: "manual_edit",
+        last_publish_attempt_at: null,
+        last_publish_summary: null,
       };
     }
 
