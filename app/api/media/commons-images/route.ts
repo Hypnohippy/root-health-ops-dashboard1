@@ -16,31 +16,44 @@ function safeString(v: any) {
   return typeof v === "string" ? v : "";
 }
 
-function bestThumb(p: any) {
-  // Prefer a decently sized thumb if present, else original (may be large)
-  const thumb = safeString(p?.thumbnail?.source);
-  const original = safeString(p?.original?.source);
-  return thumb || original;
+function stripHtml(s: string) {
+  return String(s || "").replace(/<[^>]+>/g, "").trim();
 }
 
 function commonsPageUrl(title: string) {
-  // title like "File:Something.jpg"
-  const encoded = encodeURIComponent(title.replace(/ /g, "_"));
+  const encoded = encodeURIComponent(String(title || "").replace(/ /g, "_"));
   return `https://commons.wikimedia.org/wiki/${encoded}`;
 }
 
-// This is a lightweight search over Wikimedia Commons.
-// It returns images only; licensing is not always present in the summary,
-// so we include the Commons file page URL for your reviewer + attribution trail.
+function isLikelyImageUrl(url: string) {
+  const u = safeString(url).trim();
+  if (!u) return false;
+  return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
+}
+
+async function fetchJson(url: string, ms = 8000) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { cache: "no-store", signal: controller.signal });
+    const text = await res.text().catch(() => "");
+    let json: any = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    return { ok: res.ok, status: res.status, json, raw: text.slice(0, 400) };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
-    const q = req.nextUrl.searchParams.get("q") || "";
-    const query = q.trim();
-    if (!query) {
-      return NextResponse.json(
-        { success: false, error: "Missing q param." },
-        { status: 400 }
-      );
+    const q = (req.nextUrl.searchParams.get("q") || "").trim();
+    if (!q) {
+      return NextResponse.json({ success: false, error: "Missing q param." }, { status: 400 });
     }
 
     const limit = Math.max(
@@ -48,36 +61,52 @@ export async function GET(req: NextRequest) {
       Math.min(12, Number(req.nextUrl.searchParams.get("limit") || 6) || 6)
     );
 
-    // Wikimedia API: generator=search + imageinfo for URLs/thumbs
+    // Wikimedia Commons API: generator=search + imageinfo for URLs/thumbs
+    // Important: origin=* helps CORS-style usage patterns and generally avoids weird blocks.
     const apiUrl =
       "https://commons.wikimedia.org/w/api.php" +
       `?action=query&format=json&origin=*` +
-      `&generator=search&gsrsearch=${encodeURIComponent(query + " filetype:bitmap")}` +
+      `&generator=search` +
+      `&gsrsearch=${encodeURIComponent(q + " filetype:bitmap")}` +
       `&gsrlimit=${limit}` +
       `&gsrnamespace=6` +
-      `&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=640`;
+      `&prop=imageinfo` +
+      `&iiprop=url|extmetadata` +
+      `&iiurlwidth=640`;
 
-    const res = await fetch(apiUrl, { cache: "no-store" });
-    const json: any = await res.json().catch(() => null);
+    const res = await fetchJson(apiUrl, 9000);
 
-    const pages = json?.query?.pages ? Object.values(json.query.pages) : [];
+    if (!res.ok || !res.json) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            res.status === 0
+              ? "Wikimedia didn’t respond in time. Try again."
+              : `Wikimedia request failed (HTTP ${res.status}). Try again.`,
+          debug: { status: res.status, sample: res.raw },
+        },
+        { status: 200 }
+      );
+    }
+
+    const pages = res.json?.query?.pages ? Object.values(res.json.query.pages) : [];
     const images: CommonsImage[] = [];
 
-    for (const p of pages) {
-      const title = safeString((p as any)?.title);
-      const ii = (p as any)?.imageinfo?.[0];
+    for (const p of pages as any[]) {
+      const title = safeString(p?.title);
+      const ii = p?.imageinfo?.[0];
 
-      const url = safeString(ii?.thumburl) || safeString(ii?.url) || bestThumb(ii);
-      if (!url || !title) continue;
+      const url = safeString(ii?.thumburl) || safeString(ii?.url);
+      if (!title || !url) continue;
+      if (!isLikelyImageUrl(url)) continue;
 
-      // Try to pull useful license info if extmetadata exists (often does)
       const meta = ii?.extmetadata || {};
-      const licenseShortName = safeString(meta?.LicenseShortName?.value);
-      const licenseUrl = safeString(meta?.LicenseUrl?.value);
-      const artist = safeString(meta?.Artist?.value);
-      const credit = safeString(meta?.Credit?.value);
+      const licenseShortName = stripHtml(safeString(meta?.LicenseShortName?.value));
+      const licenseUrl = stripHtml(safeString(meta?.LicenseUrl?.value));
+      const artist = stripHtml(safeString(meta?.Artist?.value));
+      const credit = stripHtml(safeString(meta?.Credit?.value));
 
-      // attribution is “best effort” and may include HTML; keep it short-ish
       const attribution = [artist, credit].filter(Boolean).join(" · ").slice(0, 280);
 
       images.push({
@@ -93,7 +122,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        query,
+        query: q,
         images: images.slice(0, limit),
       },
       { status: 200 }
