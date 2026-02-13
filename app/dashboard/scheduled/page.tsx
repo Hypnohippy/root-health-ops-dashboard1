@@ -27,37 +27,12 @@ type CommonsImage = {
   attribution?: string;
 };
 
-type SuggestedImage = {
-  url: string;
-  title: string;
-  pageUrl: string;
-  licenseShortName?: string;
-  licenseUrl?: string;
-};
-
-type UserHelp = {
-  headline?: string;
-  what?: string;
-  doThis?: string[];
-  notes?: string[];
-};
-
 type CommonsImagesApiResponse = {
   success: boolean;
   query?: string;
   images?: CommonsImage[];
   error?: string;
-};
-
-type MediaValidateResponse = {
-  ok: boolean;
-  platform?: string;
-  url?: string;
-  kind?: "image" | "video" | "unknown";
-  contentType?: string;
-  contentLength?: number | null;
-  userHelp?: UserHelp;
-  httpStatus?: number;
+  debug?: any;
 };
 
 function fmt(dt?: string | null) {
@@ -111,6 +86,11 @@ function stripHtml(s: string) {
     .trim();
 }
 
+/**
+ * Fixes:
+ * - "Unknown error" showing for OK results
+ * - "[object Object]" showing for failures
+ */
 function describeResult(r: any) {
   const ok = !!r?.ok;
 
@@ -125,15 +105,24 @@ function describeResult(r: any) {
   }
 
   const msg =
-    r?.details?.userMessage ||
     r?.error?.message ||
     r?.error?.error_user_msg ||
     r?.error?.error_user_title ||
     r?.error ||
     r?.details?.error?.message ||
+    r?.details?.error?.error_user_msg ||
+    r?.details?.error?.error_user_title ||
     r?.details?.message ||
     r?.message ||
     null;
+
+  if (msg && typeof msg === "object") {
+    try {
+      return `FAILED — ${JSON.stringify(msg)}`;
+    } catch {
+      return "FAILED — Unknown error";
+    }
+  }
 
   const text = String(msg || "").trim();
   if (text) return `FAILED — ${text}`;
@@ -141,7 +130,10 @@ function describeResult(r: any) {
   return "FAILED — Unknown error";
 }
 
+// LinkedIn share text is fussy. We’ll enforce a safe limit in UI.
+// If you find LinkedIn still rejects, we can lower this (e.g. 2500).
 const LINKEDIN_TEXT_LIMIT = 3000;
+
 const ALL_PLATFORMS = ["facebook", "instagram", "threads", "linkedin", "tiktok"];
 
 function applyUkSpellings(input: string) {
@@ -164,25 +156,14 @@ function applyUkSpellings(input: string) {
   return out;
 }
 
-function getLinkedInHelpFromResult(r: any): { userHelp: UserHelp | null; suggested: SuggestedImage[] } {
-  const details = r?.details;
-
-  const userHelp = details?.userHelp && typeof details.userHelp === "object" ? (details.userHelp as UserHelp) : null;
-
-  const suggestedRaw = details?.suggestedImages;
-  const suggested: SuggestedImage[] = Array.isArray(suggestedRaw)
-    ? suggestedRaw
-        .map((x: any) => ({
-          url: String(x?.url || "").trim(),
-          title: String(x?.title || "").trim(),
-          pageUrl: String(x?.pageUrl || "").trim(),
-          licenseShortName: x?.licenseShortName ? String(x.licenseShortName) : undefined,
-          licenseUrl: x?.licenseUrl ? String(x.licenseUrl) : undefined,
-        }))
-        .filter((x: SuggestedImage) => !!x.url && /^https?:\/\//i.test(x.url))
-    : [];
-
-  return { userHelp, suggested };
+function isHttps(url: string) {
+  return /^https:\/\/.+/i.test((url || "").trim());
+}
+function isLikelyImageUrl(url: string) {
+  const u = (url || "").trim();
+  if (!u) return false;
+  if (!isHttps(u)) return false;
+  return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
 }
 
 export default function ScheduledPage() {
@@ -210,12 +191,9 @@ export default function ScheduledPage() {
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerResults, setPickerResults] = useState<CommonsImage[]>([]);
 
-  // Per-result help expand/collapse
-  const [openHelpKey, setOpenHelpKey] = useState<string | null>(null);
-
-  // Media test result
+  // Media tester state
   const [mediaTestLoading, setMediaTestLoading] = useState(false);
-  const [mediaTest, setMediaTest] = useState<MediaValidateResponse | null>(null);
+  const [mediaTestResult, setMediaTestResult] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -252,7 +230,9 @@ export default function ScheduledPage() {
   const emptyState = !loading && !error && items.length === 0;
 
   const title = useMemo(() => {
-    return includeQuickBlast ? "Scheduled Pipeline (including Quick Blast history)" : "Scheduled Pipeline";
+    return includeQuickBlast
+      ? "Scheduled Pipeline (including Quick Blast history)"
+      : "Scheduled Pipeline";
   }, [includeQuickBlast]);
 
   function openEdit(it: ScheduledRow) {
@@ -263,21 +243,16 @@ export default function ScheduledPage() {
     setEditScheduledFor(toLocalInputValue(it.scheduled_for));
     setEditError(null);
 
-    setMediaTest(null);
-    setMediaTestLoading(false);
-
-    setPickerQuery("mental health wellbeing workplace");
+    setPickerQuery("office productivity workplace");
     setPickerResults([]);
     setPickerError(null);
     setPickerLoading(false);
     setPickerOpen(false);
 
-    setEditOpen(true);
-  }
+    setMediaTestLoading(false);
+    setMediaTestResult(null);
 
-  function openEditWithImage(it: ScheduledRow, imageUrl: string) {
-    openEdit(it);
-    setTimeout(() => setEditImageUrl(imageUrl || ""), 0);
+    setEditOpen(true);
   }
 
   function closeEdit() {
@@ -291,10 +266,11 @@ export default function ScheduledPage() {
     setPickerError(null);
     setPickerLoading(false);
 
-    setMediaTest(null);
     setMediaTestLoading(false);
+    setMediaTestResult(null);
   }
 
+  // ✅ ESC closes modal (and picker if open)
   useEffect(() => {
     if (!editOpen) return;
 
@@ -329,7 +305,7 @@ export default function ScheduledPage() {
   async function searchPicker(q: string) {
     const query = (q || "").trim();
     if (!query) {
-      setPickerError("Type a few keywords first (e.g., 'workplace wellbeing desk').");
+      setPickerError("Type a few keywords first (e.g., 'office desk teamwork').");
       return;
     }
 
@@ -338,16 +314,19 @@ export default function ScheduledPage() {
     setPickerResults([]);
 
     try {
-      const res = await fetch(`/api/media/commons-images?q=${encodeURIComponent(query)}&limit=9`, {
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/media/commons-images?q=${encodeURIComponent(query)}&limit=9`,
+        { cache: "no-store" }
+      );
       const data: CommonsImagesApiResponse = await res.json().catch(() => null);
 
-      if (!res.ok || !data?.success) throw new Error(data?.error || `Image search failed (${res.status})`);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || `Image search failed (${res.status})`);
+      }
 
       const images = Array.isArray(data.images) ? data.images : [];
       if (images.length === 0) {
-        setPickerError("No results. Try different words (more concrete nouns).");
+        setPickerError("No results. Try simpler words like 'office' or 'factory'.");
         setPickerResults([]);
       } else {
         setPickerResults(images);
@@ -362,6 +341,7 @@ export default function ScheduledPage() {
 
   function chooseImage(img: CommonsImage) {
     setEditImageUrl(img?.url || "");
+    setMediaTestResult(null);
     closePicker();
   }
 
@@ -382,35 +362,66 @@ export default function ScheduledPage() {
     setEditScheduledFor(`${yyyy}-${mm}-${dd}T${hh}:${mi}`);
   }
 
+  function getLinkedInCountText(msg: string) {
+    const s = String(msg || "");
+    return `${s.length}/${LINKEDIN_TEXT_LIMIT}`;
+  }
+
   function violatesLinkedInLimit(msg: string, platforms: string[]) {
     const hasLi = platforms.some((p) => String(p).toLowerCase() === "linkedin");
     if (!hasLi) return false;
     return String(msg || "").length > LINKEDIN_TEXT_LIMIT;
   }
 
-  async function testMedia() {
-    const url = (editImageUrl || "").trim();
-    if (!url) {
-      setMediaTest({
-        ok: false,
-        userHelp: { headline: "No media URL", doThis: ["Paste an image/video URL first, then click Test media."] },
-      });
-      return;
-    }
-
+  async function testMediaUrl() {
     setMediaTestLoading(true);
-    setMediaTest(null);
+    setMediaTestResult(null);
+
+    const url = String(editImageUrl || "").trim();
 
     try {
-      const platform = editPlatforms.includes("linkedin") ? "linkedin" : "";
-      const res = await fetch(
-        `/api/media/validate?url=${encodeURIComponent(url)}${platform ? `&platform=${encodeURIComponent(platform)}` : ""}`,
-        { cache: "no-store" }
-      );
-      const json: MediaValidateResponse = await res.json().catch(() => null as any);
-      setMediaTest(json || { ok: false, userHelp: { headline: "No response", doThis: ["Try again."] } });
+      if (!url) {
+        setMediaTestResult("No media URL set. (Text-only post)");
+        setMediaTestLoading(false);
+        return;
+      }
+
+      if (!isHttps(url)) {
+        setMediaTestResult("This needs to be a HTTPS link.");
+        setMediaTestLoading(false);
+        return;
+      }
+
+      if (!isLikelyImageUrl(url)) {
+        setMediaTestResult("This doesn’t look like a direct image file (needs .jpg/.png/.webp/.gif).");
+        setMediaTestLoading(false);
+        return;
+      }
+
+      // Lightweight fetch check (server might still be stricter, but this catches dead links)
+      const res = await fetch(url, { method: "HEAD", cache: "no-store" }).catch(() => null as any);
+      if (!res) {
+        setMediaTestResult("We couldn’t reach that URL from the browser. Try a different one.");
+        setMediaTestLoading(false);
+        return;
+      }
+
+      if (!res.ok) {
+        setMediaTestResult(`That link is not reachable (HTTP ${res.status}). Try a different image.`);
+        setMediaTestLoading(false);
+        return;
+      }
+
+      const ct = String(res.headers?.get?.("content-type") || "").toLowerCase();
+      if (ct && !ct.includes("image")) {
+        setMediaTestResult(`That link doesn’t return an image (content-type: ${ct || "unknown"}).`);
+        setMediaTestLoading(false);
+        return;
+      }
+
+      setMediaTestResult("✅ Media looks usable.");
     } catch (e: any) {
-      setMediaTest({ ok: false, userHelp: { headline: "Test failed", doThis: ["Try again in a minute."], notes: [String(e?.message || "")] } });
+      setMediaTestResult(e?.message || "Media check failed.");
     } finally {
       setMediaTestLoading(false);
     }
@@ -418,6 +429,78 @@ export default function ScheduledPage() {
 
   async function saveEdit() {
     if (!editing) return;
+    setEditSaving(true);
+    setEditError(null);
+
+    const iso = localInputToIso(editScheduledFor);
+    if (!iso) {
+      setEditSaving(false);
+      setEditError("Please choose a valid date/time.");
+      return;
+    }
+
+    if (isPastIso(iso)) {
+      setEditSaving(false);
+      setEditError(
+        "That time is in the past. Scheduled posts won’t fire retroactively. Choose a future time, or click “Re-queue +1 min”."
+      );
+      return;
+    }
+
+    if (!editMessage.trim()) {
+      setEditSaving(false);
+      setEditError("Message can’t be empty.");
+      return;
+    }
+
+    if (!editPlatforms || editPlatforms.length === 0) {
+      setEditSaving(false);
+      setEditError("Pick at least one platform.");
+      return;
+    }
+
+    if (violatesLinkedInLimit(editMessage, editPlatforms)) {
+      setEditSaving(false);
+      setEditError(
+        `LinkedIn post is too long (${getLinkedInCountText(editMessage)}). Shorten it or remove LinkedIn from platforms.`
+      );
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/social/scheduled/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          id: editing.id,
+          message: editMessage,
+          scheduled_for: iso,
+          platforms: editPlatforms,
+          image_url: editImageUrl.trim() || null,
+          force_requeue: true,
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        setEditSaving(false);
+        setEditError(json?.error || "Update failed.");
+        return;
+      }
+
+      closeEdit();
+      load();
+    } catch (e: any) {
+      setEditSaving(false);
+      setEditError(e?.message || "Update failed.");
+    }
+  }
+
+  // ✅ Save → Publish → Refresh (this fixes your “posted without media” issue)
+  async function publishNow() {
+    if (!editing) return;
+
     setEditSaving(true);
     setEditError(null);
 
@@ -448,12 +531,13 @@ export default function ScheduledPage() {
 
     if (violatesLinkedInLimit(editMessage, editPlatforms)) {
       setEditSaving(false);
-      setEditError(`LinkedIn post is too long (${editMessage.length}/${LINKEDIN_TEXT_LIMIT}). Shorten it or remove LinkedIn.`);
+      setEditError(`LinkedIn post is too long (${getLinkedInCountText(editMessage)}).`);
       return;
     }
 
     try {
-      const res = await fetch("/api/social/scheduled/update", {
+      // 1) save WITHOUT forcing queued (we are publishing now)
+      const saveRes = await fetch("/api/social/scheduled/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
@@ -463,62 +547,51 @@ export default function ScheduledPage() {
           scheduled_for: iso,
           platforms: editPlatforms,
           image_url: editImageUrl.trim() || null,
-          force_requeue: true,
+          force_requeue: false,
         }),
       });
 
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.success) {
+      const saveJson = await saveRes.json().catch(() => null);
+      if (!saveRes.ok || !saveJson?.success) {
         setEditSaving(false);
-        setEditError(json?.error || "Update failed.");
+        setEditError(saveJson?.error || "Save failed — couldn’t publish.");
         return;
       }
 
+      // 2) publish now
+      const pubRes = await fetch(
+        `/api/publish/now?organisationId=${encodeURIComponent(editing.organisation_id)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({
+            id: editing.id,
+            platforms: editPlatforms,
+          }),
+        }
+      );
+
+      const pubJson = await pubRes.json().catch(() => null);
+
       setEditSaving(false);
-      setEditError(null);
-      load();
-    } catch (e: any) {
-      setEditSaving(false);
-      setEditError(e?.message || "Update failed.");
-    }
-  }
 
-  async function publishNowFromModal() {
-    if (!editing) return;
-    setEditSaving(true);
-    setEditError(null);
-
-    if (!editPlatforms || editPlatforms.length === 0) {
-      setEditSaving(false);
-      setEditError("Pick at least one platform.");
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/publish/now?organisationId=${encodeURIComponent(editing.organisation_id)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          id: editing.id,
-          platforms: editPlatforms,
-        }),
-      });
-
-      const json = await res.json().catch(() => null);
-
-      // Whether success or fail, it should have attempted and updated error_info.
-      // Refresh the list so Dispatch results updates.
-      setEditSaving(false);
-      if (!res.ok || !json) {
-        setEditError("Publish attempt failed to return a response.");
-        load();
-        return;
-      }
-
-      // Close modal to avoid confusion, then reload.
+      // Close and refresh so Dispatch results updates in UI
       closeEdit();
       load();
+
+      // If server returned a friendly message, show it.
+      const maybeUserMessage =
+        pubJson?.userMessage ||
+        pubJson?.error ||
+        (Array.isArray(pubJson?.results)
+          ? pubJson.results.find((r: any) => !r.ok && r.platform === "linkedin")?.error
+          : null);
+
+      if (maybeUserMessage) {
+        // Keep it short and non-techy
+        alert(String(maybeUserMessage));
+      }
     } catch (e: any) {
       setEditSaving(false);
       setEditError(e?.message || "Publish now failed.");
@@ -603,7 +676,9 @@ export default function ScheduledPage() {
           {emptyState && (
             <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-5 text-slate-300">
               No future scheduled posts right now ✅
-              <div className="mt-2 text-xs text-slate-500">Tip: Use Stories / Queue flows to build a future pipeline.</div>
+              <div className="mt-2 text-xs text-slate-500">
+                Tip: Use Stories / Queue flows to build a future pipeline.
+              </div>
             </div>
           )}
 
@@ -632,14 +707,18 @@ export default function ScheduledPage() {
                             {sourceBadge}
                           </span>
 
-                          {it.posted_at ? <span className="text-xs text-slate-400">posted {fmt(it.posted_at)}</span> : null}
+                          {it.posted_at ? (
+                            <span className="text-xs text-slate-400">posted {fmt(it.posted_at)}</span>
+                          ) : null}
                         </div>
 
                         <div className="mt-3 whitespace-pre-wrap text-sm text-slate-200">
                           {String(it.message || "").trim() || "—"}
                         </div>
 
-                        {it.image_url ? <div className="mt-2 text-xs text-slate-400 break-all">Media: {it.image_url}</div> : null}
+                        {it.image_url ? (
+                          <div className="mt-2 text-xs text-slate-400 break-all">Media: {it.image_url}</div>
+                        ) : null}
                       </div>
 
                       <div className="flex flex-wrap gap-2">
@@ -678,133 +757,30 @@ export default function ScheduledPage() {
                             const ok = !!r?.ok;
                             const skipped = !!r?.skipped;
 
-                            const isLinkedIn = String(platform || "").toLowerCase() === "linkedin";
-                            const key = `${it.id}:${platform}:${idx}`;
-
                             const badge = ok ? "✅ OK" : skipped ? "⚠️ Skipped" : "❌ Failed";
 
-                            const { userHelp, suggested } = !ok && isLinkedIn ? getLinkedInHelpFromResult(r) : { userHelp: null, suggested: [] };
-                            const hasHelp = !!userHelp || (suggested && suggested.length > 0);
-                            const helpOpen = openHelpKey === key;
-
                             return (
-                              <div key={key} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
-                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                                  <div className="text-sm text-slate-200">
-                                    <span className="font-semibold">{platformLabel(platform)}:</span> {describeResult(r)}
-                                  </div>
-
-                                  <div className="flex items-center gap-2">
-                                    {hasHelp ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => setOpenHelpKey((cur) => (cur === key ? null : key))}
-                                        className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
-                                      >
-                                        {helpOpen ? "Hide fix" : "How to fix"}
-                                      </button>
-                                    ) : null}
-
-                                    <div
-                                      className={[
-                                        "text-xs rounded-full border px-2 py-0.5",
-                                        ok
-                                          ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
-                                          : skipped
-                                          ? "border-slate-600 text-slate-300 bg-slate-900/40"
-                                          : "border-red-500/50 text-red-200 bg-red-500/10",
-                                      ].join(" ")}
-                                    >
-                                      {badge}
-                                    </div>
-                                  </div>
+                              <div
+                                key={`${platform}-${idx}`}
+                                className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                              >
+                                <div className="text-sm text-slate-200">
+                                  <span className="font-semibold">{platformLabel(platform)}:</span>{" "}
+                                  {describeResult(r)}
                                 </div>
 
-                                {helpOpen ? (
-                                  <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
-                                    {userHelp ? (
-                                      <div className="space-y-2">
-                                        <div className="text-sm font-semibold text-slate-100">
-                                          {userHelp.headline || "How to fix this"}
-                                        </div>
-                                        {userHelp.what ? <div className="text-sm text-slate-200">{userHelp.what}</div> : null}
-
-                                        {Array.isArray(userHelp.doThis) && userHelp.doThis.length > 0 ? (
-                                          <ul className="mt-2 list-disc pl-5 text-sm text-slate-200 space-y-1">
-                                            {userHelp.doThis.map((x, i) => (
-                                              <li key={i}>{x}</li>
-                                            ))}
-                                          </ul>
-                                        ) : null}
-
-                                        {Array.isArray(userHelp.notes) && userHelp.notes.length > 0 ? (
-                                          <div className="mt-2 text-xs text-slate-400 space-y-1">
-                                            {userHelp.notes.map((n, i) => (
-                                              <div key={i}>• {n}</div>
-                                            ))}
-                                          </div>
-                                        ) : null}
-                                      </div>
-                                    ) : null}
-
-                                    {suggested.length > 0 ? (
-                                      <div className="mt-4">
-                                        <div className="text-sm font-semibold text-slate-100">Suggested free-use images (check licence)</div>
-                                        <div className="mt-2 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                          {suggested.map((img, i) => {
-                                            const u = safeUrl(img.url);
-                                            return (
-                                              <div key={`${key}:suggested:${i}`} className="rounded-2xl border border-slate-700 bg-slate-950 overflow-hidden">
-                                                <div className="h-[140px] bg-slate-900">
-                                                  {u ? (
-                                                    // eslint-disable-next-line @next/next/no-img-element
-                                                    <img src={u} alt={img.title} className="w-full h-full object-cover" />
-                                                  ) : (
-                                                    <div className="h-full flex items-center justify-center text-xs text-slate-400">No preview</div>
-                                                  )}
-                                                </div>
-                                                <div className="p-3 space-y-2">
-                                                  <div className="text-xs font-semibold line-clamp-2 text-slate-100">
-                                                    {img.title?.replace(/^File:/, "") || "Image"}
-                                                  </div>
-
-                                                  <div className="text-[11px] text-slate-400">
-                                                    {img.licenseShortName ? `Licence: ${stripHtml(img.licenseShortName)}` : "Licence: check file page"}
-                                                  </div>
-
-                                                  <div className="flex flex-wrap gap-2">
-                                                    {img.pageUrl ? (
-                                                      <a
-                                                        href={img.pageUrl}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
-                                                      >
-                                                        Open licence page
-                                                      </a>
-                                                    ) : null}
-
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => openEditWithImage(it, u)}
-                                                      className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                                                    >
-                                                      Use this image
-                                                    </button>
-                                                  </div>
-
-                                                  <div className="text-[11px] text-slate-500">
-                                                    Reminder: always check licence/copyright on the file page before using publicly.
-                                                  </div>
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                ) : null}
+                                <div
+                                  className={[
+                                    "text-xs rounded-full border px-2 py-0.5",
+                                    ok
+                                      ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                                      : skipped
+                                      ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                      : "border-red-500/50 text-red-200 bg-red-500/10",
+                                  ].join(" ")}
+                                >
+                                  {badge}
+                                </div>
                               </div>
                             );
                           })}
@@ -818,11 +794,12 @@ export default function ScheduledPage() {
           )}
 
           <div className="mt-8 text-xs text-slate-500">
-            Tip: If you want dispatch results to change immediately after an edit, use <b>Publish now</b> in the editor.
+            Tip: Quick Blast writes rows for audit + reliability, but Scheduled Pipeline should stay focused on future posts.
           </div>
         </div>
       </div>
 
+      {/* Edit modal */}
       {editOpen && editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/70" onClick={closeEdit} />
@@ -864,7 +841,7 @@ export default function ScheduledPage() {
                             : "border-slate-700 text-slate-300 bg-slate-900/40",
                         ].join(" ")}
                       >
-                        LinkedIn {editMessage.length}/{LINKEDIN_TEXT_LIMIT}
+                        LinkedIn {getLinkedInCountText(editMessage)}
                       </span>
                     ) : null}
 
@@ -892,6 +869,11 @@ export default function ScheduledPage() {
                   rows={7}
                   className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                 />
+                {editPlatforms.includes("linkedin") ? (
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    LinkedIn is strict. We enforce a safe limit in the editor to reduce “too long” failures.
+                  </div>
+                ) : null}
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
@@ -920,12 +902,13 @@ export default function ScheduledPage() {
                 <div>
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-medium text-slate-300">Media URL (optional)</label>
-                    <div className="flex items-center gap-2">
+                    <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={testMedia}
+                        onClick={testMediaUrl}
                         disabled={mediaTestLoading}
                         className="rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-200 hover:border-slate-600 disabled:opacity-60"
+                        title="Checks if the link is reachable and looks like a direct image file"
                       >
                         {mediaTestLoading ? "Testing…" : "Test media"}
                       </button>
@@ -941,31 +924,30 @@ export default function ScheduledPage() {
 
                   <input
                     value={editImageUrl}
-                    onChange={(e) => setEditImageUrl(e.target.value)}
+                    onChange={(e) => {
+                      setEditImageUrl(e.target.value);
+                      setMediaTestResult(null);
+                    }}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    placeholder="https://..."
+                    placeholder="https://.../image.jpg"
                   />
 
-                  {mediaTest?.userHelp ? (
-                    <div className="mt-2 rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
-                      <div className="text-sm font-semibold text-slate-100">{mediaTest.userHelp.headline || "Media test"}</div>
-                      {mediaTest.userHelp.what ? <div className="mt-1 text-sm text-slate-200">{mediaTest.userHelp.what}</div> : null}
-                      {Array.isArray(mediaTest.userHelp.doThis) && mediaTest.userHelp.doThis.length > 0 ? (
-                        <ul className="mt-2 list-disc pl-5 text-sm text-slate-200 space-y-1">
-                          {mediaTest.userHelp.doThis.map((x, i) => (
-                            <li key={i}>{x}</li>
-                          ))}
-                        </ul>
-                      ) : null}
-                      {Array.isArray(mediaTest.userHelp.notes) && mediaTest.userHelp.notes.length > 0 ? (
-                        <div className="mt-2 text-xs text-slate-400 space-y-1">
-                          {mediaTest.userHelp.notes.map((n, i) => (
-                            <div key={i}>• {n}</div>
-                          ))}
+                  {mediaTestResult ? (
+                    <div className="mt-2 text-[11px] text-slate-300">
+                      {mediaTestResult}
+                      {!isLikelyImageUrl(editImageUrl) ? (
+                        <div className="mt-1 text-slate-500">
+                          Tip: LinkedIn needs a real image file link ending in <b>.jpg</b> or <b>.png</b> etc — not a webpage.
                         </div>
                       ) : null}
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      Tip: Use a direct image file URL (https + ends with .jpg/.png/.webp/.gif). If unsure, use Search media.
+                      <br />
+                      Copyright note: always check the source licence before using any image commercially.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -979,7 +961,9 @@ export default function ScheduledPage() {
                         key={p}
                         type="button"
                         onClick={() =>
-                          setEditPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
+                          setEditPlatforms((prev) =>
+                            prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
+                          )
                         }
                         className={[
                           "flex items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm transition",
@@ -992,7 +976,9 @@ export default function ScheduledPage() {
                         <div
                           className={[
                             "text-[11px] px-2 py-1 rounded-full border",
-                            selected ? "border-emerald-500/60 text-emerald-200" : "border-slate-600 text-slate-300",
+                            selected
+                              ? "border-emerald-500/60 text-emerald-200"
+                              : "border-slate-600 text-slate-300",
                           ].join(" ")}
                         >
                           {selected ? "Selected" : "Select"}
@@ -1015,12 +1001,12 @@ export default function ScheduledPage() {
 
                 <button
                   type="button"
-                  onClick={publishNowFromModal}
+                  onClick={publishNow}
                   disabled={editSaving}
-                  className="rounded-2xl bg-blue-500 px-5 py-2 text-sm font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60"
-                  title="Attempts posting immediately and refreshes dispatch results"
+                  className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-5 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/15 disabled:opacity-60"
+                  title="This will save your changes first, then publish immediately, then refresh Dispatch results."
                 >
-                  Publish now
+                  {editSaving ? "Publishing…" : "Save + Publish now"}
                 </button>
 
                 <button
@@ -1034,7 +1020,7 @@ export default function ScheduledPage() {
               </div>
 
               <div className="text-[11px] text-slate-500">
-                Tip: If you just edited something and want dispatch results to update right away, click <b>Publish now</b>.
+                Tip: Click outside the modal or press <b>Esc</b> to close.
               </div>
             </div>
 
@@ -1046,7 +1032,9 @@ export default function ScheduledPage() {
                   <div className="p-5 border-b border-slate-700 flex items-start justify-between gap-3 sticky top-0 bg-slate-950 z-10">
                     <div>
                       <div className="text-lg font-semibold">Pick an image</div>
-                      <div className="text-[12px] text-slate-400">Uses Wikimedia Commons. Select one → it fills the Media URL.</div>
+                      <div className="text-[12px] text-slate-400">
+                        Uses Wikimedia Commons. Select one → it fills the Media URL.
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -1065,7 +1053,7 @@ export default function ScheduledPage() {
                           value={pickerQuery}
                           onChange={(e) => setPickerQuery(e.target.value)}
                           className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none"
-                          placeholder="e.g. workplace wellbeing desk"
+                          placeholder="e.g. office desk teamwork"
                         />
                       </div>
                       <button
@@ -1104,14 +1092,22 @@ export default function ScheduledPage() {
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img src={u} alt={img.title} className="w-full h-full object-cover" />
                                 ) : (
-                                  <div className="h-full flex items-center justify-center text-xs text-slate-400">No preview</div>
+                                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                                    No preview
+                                  </div>
                                 )}
                               </div>
                               <div className="p-3 space-y-1">
-                                <div className="text-xs font-semibold line-clamp-2">{img.title.replace(/^File:/, "")}</div>
-                                <div className="text-[11px] text-slate-400">{img.licenseShortName || "License unknown"}</div>
+                                <div className="text-xs font-semibold line-clamp-2">
+                                  {img.title.replace(/^File:/, "")}
+                                </div>
+                                <div className="text-[11px] text-slate-400">
+                                  {img.licenseShortName || "Licence unknown"}
+                                </div>
                                 {img.attribution ? (
-                                  <div className="text-[11px] text-slate-300 line-clamp-2">{stripHtml(img.attribution)}</div>
+                                  <div className="text-[11px] text-slate-300 line-clamp-2">
+                                    {stripHtml(img.attribution)}
+                                  </div>
                                 ) : null}
                                 <div className="text-[11px] text-emerald-300 line-clamp-1">Select this</div>
                               </div>
@@ -1122,7 +1118,7 @@ export default function ScheduledPage() {
                     )}
 
                     <div className="text-[11px] text-slate-500">
-                      Reminder: always check licence/copyright on the file page before using publicly.
+                      Copyright note: Wikimedia items have licences — always check the file page before using commercially.
                     </div>
                   </div>
                 </div>
