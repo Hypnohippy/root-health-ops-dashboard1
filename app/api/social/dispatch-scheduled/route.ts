@@ -4,7 +4,7 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-// Vercel Cron will automatically send: Authorization: Bearer <CRON_SECRET>
+// Vercel Cron will send: Authorization: Bearer <CRON_SECRET> (if CRON_SECRET is set)
 const CRON_SECRET = (process.env.CRON_SECRET || "").trim();
 
 // Kill switch
@@ -24,36 +24,57 @@ function isAuthorized(req: NextRequest) {
   return auth === `Bearer ${CRON_SECRET}`;
 }
 
+/**
+ * Claim a due post so two cron runs don't post the same thing.
+ * We flip queued/scheduled -> pending (allowed status in your constraint list).
+ */
 async function claimScheduledPost(id: string) {
-  // IMPORTANT: your DB constraint doesn't allow "sending"
-  // Allowed: scheduled, pending, queued, posted, failed, rejected, cancelled
-  // So we atomically flip scheduled -> queued
+  const nowIso = new Date().toISOString();
+
   const { data, error } = await supabaseAdmin
     .from("scheduled_posts")
     .update({
-      status: "queued",
-      updated_at: new Date().toISOString(),
+      status: "pending",
+      updated_at: nowIso,
     })
     .eq("id", id)
-    .eq("status", "scheduled")
+    .in("status", ["queued", "scheduled"])
     .select("id, organisation_id, platforms")
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  return data; // null => already claimed
+
+  // data null => already claimed or status moved on
+  return data;
 }
 
-async function markBackToScheduled(id: string, note: string) {
+async function markBackToQueued(id: string, note: string) {
+  const nowIso = new Date().toISOString();
+
+  // Avoid overwriting existing meta – merge lightly
+  const { data: current } = await supabaseAdmin
+    .from("scheduled_posts")
+    .select("meta")
+    .eq("id", id)
+    .maybeSingle();
+
+  const meta =
+    current?.meta && typeof current.meta === "object" ? (current.meta as any) : {};
+
   const { error } = await supabaseAdmin
     .from("scheduled_posts")
     .update({
-      status: "scheduled",
-      updated_at: new Date().toISOString(),
-      meta: { dispatch_error: note, at: new Date().toISOString() },
+      status: "queued",
+      updated_at: nowIso,
+      meta: {
+        ...meta,
+        dispatch_error: note,
+        dispatch_error_at: nowIso,
+      },
     })
     .eq("id", id);
 
-  if (error) console.error("[dispatch] failed to re-queue", error);
+  if (error) console.error("[dispatch] failed to set back to queued", error);
 }
 
 export async function GET(req: NextRequest) {
@@ -66,11 +87,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, disabled: true, message: "Dispatch disabled" });
     }
 
+    const nowIso = new Date().toISOString();
+
+    // ✅ IMPORTANT CHANGE:
+    // Pick up BOTH queued and scheduled (some of your flows use queued, some might still use scheduled)
     const { data: due, error } = await supabaseAdmin
       .from("scheduled_posts")
       .select("id, organisation_id, scheduled_for, status")
-      .eq("status", "scheduled")
-      .lte("scheduled_for", new Date().toISOString())
+      .in("status", ["queued", "scheduled"])
+      .lte("scheduled_for", nowIso)
       .order("scheduled_for", { ascending: true })
       .limit(10);
 
@@ -105,19 +130,22 @@ export async function GET(req: NextRequest) {
 
         const publishJson = await publishRes.json().catch(() => null);
 
+        // Note: /api/publish/now updates scheduled_posts.error_info + status posted/failed.
         results.push({
           id,
           ok: publishRes.ok && !!publishJson?.success,
           httpStatus: publishRes.status,
-          publish: publishJson,
+          summary: publishJson?.summary || null,
+          error: publishJson?.error || null,
         });
       } catch (e: any) {
-        await markBackToScheduled(id, e?.message || "Publish crashed");
+        // If publish crashed, we put it back to queued so it can retry next run
+        await markBackToQueued(id, e?.message || "Publish crashed");
         results.push({ id, ok: false, error: e?.message || "Publish crashed (re-queued)" });
       }
     }
 
-    return NextResponse.json({ success: true, processed: results.length, results });
+    return NextResponse.json({ success: true, processed: results.length, now: nowIso, results });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e?.message || "Dispatch failed" }, { status: 500 });
   }
