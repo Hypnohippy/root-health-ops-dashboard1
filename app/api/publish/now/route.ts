@@ -72,6 +72,23 @@ function trimThreadsText(text: string) {
   return { text: t.slice(0, 497).trimEnd() + "…", trimmed: true };
 }
 
+// ✅ LinkedIn hardening
+const LINKEDIN_TEXT_LIMIT = 3000;
+
+// LinkedIn media usually needs an uploaded asset URN, not a random URL.
+// We’ll treat only URNs as “safe media” for LinkedIn.
+function isLinkedInAssetRef(v: string) {
+  const s = (v || "").trim();
+  if (!s) return false;
+  return /^urn:li:/i.test(s);
+}
+
+function trimLinkedInText(text: string) {
+  const t = String(text || "").trim();
+  if (t.length <= LINKEDIN_TEXT_LIMIT) return { text: t, trimmed: false };
+  return { text: t.slice(0, LINKEDIN_TEXT_LIMIT - 1).trimEnd() + "…", trimmed: true };
+}
+
 async function loadSocialAccount(
   organisationId: string,
   platform: ProviderId
@@ -361,14 +378,12 @@ async function postToThreads(args: {
   const trimmed = trimThreadsText(args.message);
   const text = trimmed.text;
 
-  // Decide media type
   const mediaType: "TEXT" | "IMAGE" | "VIDEO" = hasVideo
     ? "VIDEO"
     : hasImage
     ? "IMAGE"
     : "TEXT";
 
-  // 1) Create container
   const created = await createThreadsContainer({
     threadsUserId,
     token,
@@ -384,16 +399,13 @@ async function postToThreads(args: {
 
   const creationId = created.creationId;
 
-  // 2) Wait BEFORE publish (Threads video needs much longer)
-  // These waits are intentionally generous to avoid your exact “Media Not Found”.
   if (mediaType === "VIDEO") await sleep(9000);
   else if (mediaType === "IMAGE") await sleep(2500);
   else await sleep(800);
 
-  // 3) Publish with backoff retries
   const retryDelaysMs =
     mediaType === "VIDEO"
-      ? [0, 4000, 7000, 10000, 14000, 20000] // total: plenty of runway
+      ? [0, 4000, 7000, 10000, 14000, 20000]
       : mediaType === "IMAGE"
       ? [0, 1500, 2500, 4000, 6000]
       : [0, 800, 1200, 2000];
@@ -422,9 +434,7 @@ async function postToThreads(args: {
       };
     }
 
-    // Only keep retrying on “Media Not Found”
     if (!isThreadsMediaNotFound(pub.json) || attempt === retryDelaysMs.length - 1) {
-      // Fallback: if VIDEO failed due to Media Not Found, at least post TEXT-only
       if (mediaType === "VIDEO" && isThreadsMediaNotFound(pub.json)) {
         const createdText = await createThreadsContainer({
           threadsUserId,
@@ -452,7 +462,7 @@ async function postToThreads(args: {
                 textTrimmed: trimmed.trimmed,
                 media: "text",
                 note:
-                  "Threads video publish was not ready in time (Media Not Found). We posted the caption as TEXT-only instead.",
+                  "Threads video publish was not ready in time (Media Not Found). Posted caption as TEXT-only.",
               },
             };
           }
@@ -835,10 +845,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const message = String((row as any).message || "").trim();
-    const imageUrl = String((row as any).image_url || "").trim();
+    // Base content
+    const rawMessage = String((row as any).message || "").trim();
+    const rawImageUrl = String((row as any).image_url || "").trim();
     const meta = (row as any).meta || {};
-    const videoUrl = String(meta?.video_url || "").trim();
+    const rawVideoUrl = String(meta?.video_url || "").trim();
+
+    // Normalise media URLs for non-LinkedIn platforms
+    const imageUrl = rawImageUrl && isLikelyImageUrl(rawImageUrl) ? rawImageUrl : "";
+    const videoUrl = rawVideoUrl && isLikelyVideoUrl(rawVideoUrl) ? rawVideoUrl : "";
+
+    // LinkedIn-safe text
+    const liTrim = trimLinkedInText(rawMessage);
+    const messageForLinkedIn = liTrim.text;
 
     const results: any[] = [];
 
@@ -859,7 +878,7 @@ export async function POST(req: NextRequest) {
           const fbv = await postToFacebookVideo({
             pageId: acct.page_id,
             pageAccessToken: acct.page_access_token,
-            message,
+            message: rawMessage,
             videoUrl,
           });
 
@@ -886,7 +905,7 @@ export async function POST(req: NextRequest) {
           const fbi = await postToFacebookPhoto({
             pageId: acct.page_id,
             pageAccessToken: acct.page_access_token,
-            message,
+            message: rawMessage,
             imageUrl,
           });
 
@@ -912,7 +931,7 @@ export async function POST(req: NextRequest) {
         const fbt = await postToFacebookText({
           pageId: acct.page_id,
           pageAccessToken: acct.page_access_token,
-          message,
+          message: rawMessage,
         });
 
         if (!fbt.ok) {
@@ -950,7 +969,7 @@ export async function POST(req: NextRequest) {
           const igv = await postToInstagramVideo({
             igUserId: acct.page_id,
             accessToken: acct.page_access_token,
-            caption: message,
+            caption: rawMessage,
             videoUrl,
           });
 
@@ -977,11 +996,12 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
+        // Instagram image requires imageUrl
         const ig = await postToInstagramImage({
           igUserId: acct.page_id,
           accessToken: acct.page_access_token,
-          caption: message,
-          imageUrl,
+          caption: rawMessage,
+          imageUrl: imageUrl || "",
         });
 
         if (!ig.ok) {
@@ -1021,7 +1041,7 @@ export async function POST(req: NextRequest) {
 
         const th = await postToThreads({
           accessToken: acct.page_access_token,
-          message,
+          message: rawMessage,
           imageUrl: imageUrl || undefined,
           videoUrl: videoUrl || undefined,
         });
@@ -1050,30 +1070,85 @@ export async function POST(req: NextRequest) {
       }
 
       if (p === "linkedin") {
-        const li = await postToLinkedInViaInternal(req, {
+        // ✅ LinkedIn: default to TEXT-only unless media is a LinkedIn URN
+        const liImageRef = isLinkedInAssetRef(rawImageUrl) ? rawImageUrl : "";
+        const liVideoRef = isLinkedInAssetRef(rawVideoUrl) ? rawVideoUrl : "";
+
+        const usedTextOnlyBecauseMediaNotUrn =
+          (!!rawImageUrl && !liImageRef) || (!!rawVideoUrl && !liVideoRef);
+
+        // First attempt
+        const li1 = await postToLinkedInViaInternal(req, {
           organisationId,
-          message,
-          imageUrl: imageUrl || undefined,
-          videoUrl: videoUrl || undefined,
+          message: messageForLinkedIn,
+          imageUrl: liImageRef || undefined,
+          videoUrl: liVideoRef || undefined,
         });
 
-        if (!li.ok) {
+        if (li1.ok) {
+          results.push({
+            platform: "linkedin",
+            ok: true,
+            postedId: li1.json?.postedId || null,
+            mode: li1.json?.mode || (liVideoRef ? "video" : liImageRef ? "image" : "text"),
+            details: {
+              ...li1.json,
+              note: [
+                liTrim.trimmed ? "Text trimmed to LinkedIn limit." : null,
+                usedTextOnlyBecauseMediaNotUrn
+                  ? "Media dropped: LinkedIn generally needs uploaded asset URNs (not direct URLs)."
+                  : null,
+              ].filter(Boolean),
+            },
+          });
+          continue;
+        }
+
+        // If LinkedIn failed and we tried media, retry TEXT-only once
+        const didTryMedia = !!liImageRef || !!liVideoRef;
+        if (didTryMedia) {
+          const li2 = await postToLinkedInViaInternal(req, {
+            organisationId,
+            message: messageForLinkedIn,
+            imageUrl: undefined,
+            videoUrl: undefined,
+          });
+
+          if (li2.ok) {
+            results.push({
+              platform: "linkedin",
+              ok: true,
+              postedId: li2.json?.postedId || null,
+              mode: "text",
+              details: {
+                ...li2.json,
+                note: [
+                  "Initial LinkedIn post failed with media; retried as TEXT-only and succeeded.",
+                  liTrim.trimmed ? "Text trimmed to LinkedIn limit." : null,
+                ].filter(Boolean),
+              },
+            });
+            continue;
+          }
+
           results.push({
             platform: "linkedin",
             ok: false,
             status: 200,
-            error: li.error || "LinkedIn post failed",
-            details: li.json,
+            error: li2.error || li1.error || "LinkedIn post failed",
+            details: { firstAttempt: li1.json, retryTextOnly: li2.json },
           });
-        } else {
-          results.push({
-            platform: "linkedin",
-            ok: true,
-            postedId: li.json?.postedId || null,
-            mode: li.json?.mode || (videoUrl ? "video" : imageUrl ? "image" : "text"),
-            details: li.json,
-          });
+          continue;
         }
+
+        // No media attempt, just failed
+        results.push({
+          platform: "linkedin",
+          ok: false,
+          status: 200,
+          error: li1.error || "LinkedIn post failed",
+          details: li1.json,
+        });
         continue;
       }
 
@@ -1083,15 +1158,14 @@ export async function POST(req: NextRequest) {
             platform: "tiktok",
             ok: false,
             status: 400,
-            error:
-              "TikTok requires a video (videoUrl). Upload a video then resend.",
+            error: "TikTok requires a video (videoUrl). Upload a video then resend.",
           });
           continue;
         }
 
         const tk = await postToTikTokViaInternal(req, {
           organisationId,
-          message,
+          message: rawMessage,
           videoUrl,
         });
 
@@ -1139,6 +1213,8 @@ export async function POST(req: NextRequest) {
         skipped: skippedCount,
         attempted: results.length,
       },
+      // helpful breadcrumb
+      linkedin_text_trimmed: liTrim.trimmed ? true : undefined,
     };
 
     const updatePayload: any = {
