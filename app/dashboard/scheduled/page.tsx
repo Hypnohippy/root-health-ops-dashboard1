@@ -135,6 +135,36 @@ const LINKEDIN_TEXT_LIMIT = 3000;
 
 const ALL_PLATFORMS = ["facebook", "instagram", "threads", "linkedin", "tiktok"];
 
+/** ✅ Friendly help extractor (works with several shapes) */
+function extractUserHelp(r: any): {
+  headline?: string;
+  what?: string;
+  doThis?: string[];
+  notes?: string[];
+} | null {
+  if (!r) return null;
+
+  // Our preferred shape
+  const uh = r?.userHelp;
+  if (uh && typeof uh === "object") {
+    const headline = typeof uh.headline === "string" ? uh.headline : undefined;
+    const what = typeof uh.what === "string" ? uh.what : undefined;
+    const doThis = Array.isArray(uh.doThis) ? uh.doThis.filter((x: any) => typeof x === "string") : [];
+    const notes = Array.isArray(uh.notes) ? uh.notes.filter((x: any) => typeof x === "string") : [];
+    if (headline || what || doThis.length || notes.length) {
+      return { headline, what, doThis, notes };
+    }
+  }
+
+  // Alternate shape: details.userHelp.note (array of strings)
+  const notes2 = r?.details?.userHelp?.note;
+  if (Array.isArray(notes2) && notes2.length > 0) {
+    return { notes: notes2.filter((x: any) => typeof x === "string") };
+  }
+
+  return null;
+}
+
 function applyUkSpellings(input: string) {
   const pairs: Array<[RegExp, string]> = [
     [/\borganization\b/gi, "organisation"],
@@ -581,29 +611,70 @@ export default function ScheduledPage() {
                             const skipped = !!r?.skipped;
 
                             const badge = ok ? "✅ OK" : skipped ? "⚠️ Skipped" : "❌ Failed";
+                            const help = extractUserHelp(r);
 
                             return (
                               <div
                                 key={`${platform}-${idx}`}
-                                className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                                className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
                               >
-                                <div className="text-sm text-slate-200">
-                                  <span className="font-semibold">{platformLabel(platform)}:</span>{" "}
-                                  {describeResult(r)}
+                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                                  <div className="text-sm text-slate-200">
+                                    <span className="font-semibold">{platformLabel(platform)}:</span>{" "}
+                                    {describeResult(r)}
+                                  </div>
+
+                                  <div
+                                    className={[
+                                      "text-xs rounded-full border px-2 py-0.5",
+                                      ok
+                                        ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                                        : skipped
+                                        ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                        : "border-red-500/50 text-red-200 bg-red-500/10",
+                                    ].join(" ")}
+                                  >
+                                    {badge}
+                                  </div>
                                 </div>
 
-                                <div
-                                  className={[
-                                    "text-xs rounded-full border px-2 py-0.5",
-                                    ok
-                                      ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
-                                      : skipped
-                                      ? "border-slate-600 text-slate-300 bg-slate-900/40"
-                                      : "border-red-500/50 text-red-200 bg-red-500/10",
-                                  ].join(" ")}
-                                >
-                                  {badge}
-                                </div>
+                                {/* ✅ Friendly “what to do” tips from publisher */}
+                                {!ok && !skipped && help ? (
+                                  <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                                    {help.headline ? (
+                                      <div className="text-sm font-semibold text-slate-100">
+                                        {help.headline}
+                                      </div>
+                                    ) : null}
+
+                                    {help.what ? (
+                                      <div className="mt-1 text-sm text-slate-300">
+                                        {help.what}
+                                      </div>
+                                    ) : null}
+
+                                    {help.doThis && help.doThis.length > 0 ? (
+                                      <div className="mt-2">
+                                        <div className="text-xs font-semibold text-slate-200">
+                                          What you can do:
+                                        </div>
+                                        <ul className="mt-1 list-disc pl-5 text-sm text-slate-300 space-y-1">
+                                          {help.doThis.map((t, i) => (
+                                            <li key={i}>{t}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ) : null}
+
+                                    {help.notes && help.notes.length > 0 ? (
+                                      <div className="mt-2 text-xs text-slate-400 space-y-1">
+                                        {help.notes.map((n, i) => (
+                                          <div key={i}>• {n}</div>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                               </div>
                             );
                           })}
