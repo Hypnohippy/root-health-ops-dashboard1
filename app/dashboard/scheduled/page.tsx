@@ -32,7 +32,6 @@ type CommonsImagesApiResponse = {
   query?: string;
   images?: CommonsImage[];
   error?: string;
-  debug?: any;
 };
 
 function fmt(dt?: string | null) {
@@ -131,7 +130,6 @@ function describeResult(r: any) {
 }
 
 // LinkedIn share text is fussy. We’ll enforce a safe limit in UI.
-// If you find LinkedIn still rejects, we can lower this (e.g. 2500).
 const LINKEDIN_TEXT_LIMIT = 3000;
 
 const ALL_PLATFORMS = ["facebook", "instagram", "threads", "linkedin", "tiktok"];
@@ -156,15 +154,7 @@ function applyUkSpellings(input: string) {
   return out;
 }
 
-function isHttps(url: string) {
-  return /^https:\/\/.+/i.test((url || "").trim());
-}
-function isLikelyImageUrl(url: string) {
-  const u = (url || "").trim();
-  if (!u) return false;
-  if (!isHttps(u)) return false;
-  return /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(u);
-}
+type RangeMode = "future" | "past" | "all";
 
 export default function ScheduledPage() {
   const [loading, setLoading] = useState(true);
@@ -172,6 +162,9 @@ export default function ScheduledPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [includeQuickBlast, setIncludeQuickBlast] = useState(false);
+
+  // ✅ Option A: range selector (future/past/all)
+  const [range, setRange] = useState<RangeMode>("future");
 
   // Edit modal state
   const [editOpen, setEditOpen] = useState(false);
@@ -191,17 +184,15 @@ export default function ScheduledPage() {
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerResults, setPickerResults] = useState<CommonsImage[]>([]);
 
-  // Media tester state
-  const [mediaTestLoading, setMediaTestLoading] = useState(false);
-  const [mediaTestResult, setMediaTestResult] = useState<string | null>(null);
-
   async function load() {
     setLoading(true);
     setError(null);
 
     try {
       const res = await fetch(
-        `/api/social/scheduled?range=future&includeQuickBlast=${includeQuickBlast ? "1" : "0"}`,
+        `/api/social/scheduled?range=${encodeURIComponent(range)}&includeQuickBlast=${
+          includeQuickBlast ? "1" : "0"
+        }`,
         { cache: "no-store" }
       );
       const json = await res.json().catch(() => null);
@@ -225,15 +216,15 @@ export default function ScheduledPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeQuickBlast]);
+  }, [includeQuickBlast, range]);
 
   const emptyState = !loading && !error && items.length === 0;
 
   const title = useMemo(() => {
-    return includeQuickBlast
-      ? "Scheduled Pipeline (including Quick Blast history)"
-      : "Scheduled Pipeline";
-  }, [includeQuickBlast]);
+    if (range === "all") return includeQuickBlast ? "All scheduled history (inc. Quick Blast)" : "All scheduled history";
+    if (range === "past") return includeQuickBlast ? "Past (inc. Quick Blast)" : "Past";
+    return includeQuickBlast ? "Scheduled Pipeline (including Quick Blast history)" : "Scheduled Pipeline";
+  }, [includeQuickBlast, range]);
 
   function openEdit(it: ScheduledRow) {
     setEditing(it);
@@ -243,14 +234,11 @@ export default function ScheduledPage() {
     setEditScheduledFor(toLocalInputValue(it.scheduled_for));
     setEditError(null);
 
-    setPickerQuery("office productivity workplace");
+    setPickerQuery("mental health wellbeing workplace");
     setPickerResults([]);
     setPickerError(null);
     setPickerLoading(false);
     setPickerOpen(false);
-
-    setMediaTestLoading(false);
-    setMediaTestResult(null);
 
     setEditOpen(true);
   }
@@ -265,9 +253,6 @@ export default function ScheduledPage() {
     setPickerResults([]);
     setPickerError(null);
     setPickerLoading(false);
-
-    setMediaTestLoading(false);
-    setMediaTestResult(null);
   }
 
   // ✅ ESC closes modal (and picker if open)
@@ -305,7 +290,7 @@ export default function ScheduledPage() {
   async function searchPicker(q: string) {
     const query = (q || "").trim();
     if (!query) {
-      setPickerError("Type a few keywords first (e.g., 'office desk teamwork').");
+      setPickerError("Type a few keywords first (e.g., 'workplace wellbeing desk').");
       return;
     }
 
@@ -314,10 +299,9 @@ export default function ScheduledPage() {
     setPickerResults([]);
 
     try {
-      const res = await fetch(
-        `/api/media/commons-images?q=${encodeURIComponent(query)}&limit=9`,
-        { cache: "no-store" }
-      );
+      const res = await fetch(`/api/media/commons-images?q=${encodeURIComponent(query)}&limit=9`, {
+        cache: "no-store",
+      });
       const data: CommonsImagesApiResponse = await res.json().catch(() => null);
 
       if (!res.ok || !data?.success) {
@@ -326,7 +310,7 @@ export default function ScheduledPage() {
 
       const images = Array.isArray(data.images) ? data.images : [];
       if (images.length === 0) {
-        setPickerError("No results. Try simpler words like 'office' or 'factory'.");
+        setPickerError("No results. Try different words (more concrete nouns).");
         setPickerResults([]);
       } else {
         setPickerResults(images);
@@ -341,7 +325,6 @@ export default function ScheduledPage() {
 
   function chooseImage(img: CommonsImage) {
     setEditImageUrl(img?.url || "");
-    setMediaTestResult(null);
     closePicker();
   }
 
@@ -371,60 +354,6 @@ export default function ScheduledPage() {
     const hasLi = platforms.some((p) => String(p).toLowerCase() === "linkedin");
     if (!hasLi) return false;
     return String(msg || "").length > LINKEDIN_TEXT_LIMIT;
-  }
-
-  async function testMediaUrl() {
-    setMediaTestLoading(true);
-    setMediaTestResult(null);
-
-    const url = String(editImageUrl || "").trim();
-
-    try {
-      if (!url) {
-        setMediaTestResult("No media URL set. (Text-only post)");
-        setMediaTestLoading(false);
-        return;
-      }
-
-      if (!isHttps(url)) {
-        setMediaTestResult("This needs to be a HTTPS link.");
-        setMediaTestLoading(false);
-        return;
-      }
-
-      if (!isLikelyImageUrl(url)) {
-        setMediaTestResult("This doesn’t look like a direct image file (needs .jpg/.png/.webp/.gif).");
-        setMediaTestLoading(false);
-        return;
-      }
-
-      // Lightweight fetch check (server might still be stricter, but this catches dead links)
-      const res = await fetch(url, { method: "HEAD", cache: "no-store" }).catch(() => null as any);
-      if (!res) {
-        setMediaTestResult("We couldn’t reach that URL from the browser. Try a different one.");
-        setMediaTestLoading(false);
-        return;
-      }
-
-      if (!res.ok) {
-        setMediaTestResult(`That link is not reachable (HTTP ${res.status}). Try a different image.`);
-        setMediaTestLoading(false);
-        return;
-      }
-
-      const ct = String(res.headers?.get?.("content-type") || "").toLowerCase();
-      if (ct && !ct.includes("image")) {
-        setMediaTestResult(`That link doesn’t return an image (content-type: ${ct || "unknown"}).`);
-        setMediaTestLoading(false);
-        return;
-      }
-
-      setMediaTestResult("✅ Media looks usable.");
-    } catch (e: any) {
-      setMediaTestResult(e?.message || "Media check failed.");
-    } finally {
-      setMediaTestLoading(false);
-    }
   }
 
   async function saveEdit() {
@@ -497,107 +426,6 @@ export default function ScheduledPage() {
     }
   }
 
-  // ✅ Save → Publish → Refresh (this fixes your “posted without media” issue)
-  async function publishNow() {
-    if (!editing) return;
-
-    setEditSaving(true);
-    setEditError(null);
-
-    const iso = localInputToIso(editScheduledFor);
-    if (!iso) {
-      setEditSaving(false);
-      setEditError("Please choose a valid date/time.");
-      return;
-    }
-
-    if (isPastIso(iso)) {
-      setEditSaving(false);
-      setEditError("That time is in the past. Choose a future time, or click “Re-queue +1 min”.");
-      return;
-    }
-
-    if (!editMessage.trim()) {
-      setEditSaving(false);
-      setEditError("Message can’t be empty.");
-      return;
-    }
-
-    if (!editPlatforms || editPlatforms.length === 0) {
-      setEditSaving(false);
-      setEditError("Pick at least one platform.");
-      return;
-    }
-
-    if (violatesLinkedInLimit(editMessage, editPlatforms)) {
-      setEditSaving(false);
-      setEditError(`LinkedIn post is too long (${getLinkedInCountText(editMessage)}).`);
-      return;
-    }
-
-    try {
-      // 1) save WITHOUT forcing queued (we are publishing now)
-      const saveRes = await fetch("/api/social/scheduled/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          id: editing.id,
-          message: editMessage,
-          scheduled_for: iso,
-          platforms: editPlatforms,
-          image_url: editImageUrl.trim() || null,
-          force_requeue: false,
-        }),
-      });
-
-      const saveJson = await saveRes.json().catch(() => null);
-      if (!saveRes.ok || !saveJson?.success) {
-        setEditSaving(false);
-        setEditError(saveJson?.error || "Save failed — couldn’t publish.");
-        return;
-      }
-
-      // 2) publish now
-      const pubRes = await fetch(
-        `/api/publish/now?organisationId=${encodeURIComponent(editing.organisation_id)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          cache: "no-store",
-          body: JSON.stringify({
-            id: editing.id,
-            platforms: editPlatforms,
-          }),
-        }
-      );
-
-      const pubJson = await pubRes.json().catch(() => null);
-
-      setEditSaving(false);
-
-      // Close and refresh so Dispatch results updates in UI
-      closeEdit();
-      load();
-
-      // If server returned a friendly message, show it.
-      const maybeUserMessage =
-        pubJson?.userMessage ||
-        pubJson?.error ||
-        (Array.isArray(pubJson?.results)
-          ? pubJson.results.find((r: any) => !r.ok && r.platform === "linkedin")?.error
-          : null);
-
-      if (maybeUserMessage) {
-        // Keep it short and non-techy
-        alert(String(maybeUserMessage));
-      }
-    } catch (e: any) {
-      setEditSaving(false);
-      setEditError(e?.message || "Publish now failed.");
-    }
-  }
-
   async function deletePost(it: ScheduledRow) {
     const status = String(it.status || "").toLowerCase();
     if (status === "posted") {
@@ -637,7 +465,7 @@ export default function ScheduledPage() {
               <div className="text-xs text-slate-400">Root Health Ops</div>
               <h1 className="mt-1 text-2xl md:text-3xl font-semibold">{title}</h1>
               <p className="mt-2 text-sm text-slate-300 max-w-3xl">
-                This is your forward-looking pipeline (future posts). Quick Blast is “send now”, so it’s hidden by default.
+                Future = your pipeline. Past/All = where “posted” items live (so they don’t look like they disappeared).
               </p>
             </div>
 
@@ -648,6 +476,20 @@ export default function ScheduledPage() {
               >
                 Refresh
               </button>
+
+              {/* ✅ Option A: range picker */}
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <span className="text-xs text-slate-400">View</span>
+                <select
+                  value={range}
+                  onChange={(e) => setRange(e.target.value as RangeMode)}
+                  className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none hover:border-slate-600"
+                >
+                  <option value="future">Future (pipeline)</option>
+                  <option value="past">Past</option>
+                  <option value="all">All</option>
+                </select>
+              </label>
 
               <label className="flex items-center gap-2 text-sm text-slate-300">
                 <input
@@ -675,9 +517,9 @@ export default function ScheduledPage() {
 
           {emptyState && (
             <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-5 text-slate-300">
-              No future scheduled posts right now ✅
+              Nothing to show in this view ✅
               <div className="mt-2 text-xs text-slate-500">
-                Tip: Use Stories / Queue flows to build a future pipeline.
+                Tip: switch View to <b>Past</b> or <b>All</b> to see items that have already posted.
               </div>
             </div>
           )}
@@ -794,7 +636,7 @@ export default function ScheduledPage() {
           )}
 
           <div className="mt-8 text-xs text-slate-500">
-            Tip: Quick Blast writes rows for audit + reliability, but Scheduled Pipeline should stay focused on future posts.
+            Tip: “Future” keeps the pipeline clean. Use Past/All for audit/history (posted items won’t “disappear”).
           </div>
         </div>
       </div>
@@ -902,52 +744,25 @@ export default function ScheduledPage() {
                 <div>
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-medium text-slate-300">Media URL (optional)</label>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={testMediaUrl}
-                        disabled={mediaTestLoading}
-                        className="rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-200 hover:border-slate-600 disabled:opacity-60"
-                        title="Checks if the link is reachable and looks like a direct image file"
-                      >
-                        {mediaTestLoading ? "Testing…" : "Test media"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openPicker()}
-                        className="rounded-xl bg-blue-500 px-3 py-2 text-[11px] font-semibold text-slate-50 hover:bg-blue-400"
-                      >
-                        Search media
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openPicker()}
+                      className="rounded-xl bg-blue-500 px-3 py-2 text-[11px] font-semibold text-slate-50 hover:bg-blue-400"
+                    >
+                      Search media
+                    </button>
                   </div>
 
                   <input
                     value={editImageUrl}
-                    onChange={(e) => {
-                      setEditImageUrl(e.target.value);
-                      setMediaTestResult(null);
-                    }}
+                    onChange={(e) => setEditImageUrl(e.target.value)}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    placeholder="https://.../image.jpg"
+                    placeholder="https://..."
                   />
 
-                  {mediaTestResult ? (
-                    <div className="mt-2 text-[11px] text-slate-300">
-                      {mediaTestResult}
-                      {!isLikelyImageUrl(editImageUrl) ? (
-                        <div className="mt-1 text-slate-500">
-                          Tip: LinkedIn needs a real image file link ending in <b>.jpg</b> or <b>.png</b> etc — not a webpage.
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="mt-2 text-[11px] text-slate-500">
-                      Tip: Use a direct image file URL (https + ends with .jpg/.png/.webp/.gif). If unsure, use Search media.
-                      <br />
-                      Copyright note: always check the source licence before using any image commercially.
-                    </div>
-                  )}
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    Heads-up: LinkedIn usually needs an upload asset (URN). This field is best for FB/IG/Threads.
+                  </div>
                 </div>
               </div>
 
@@ -976,9 +791,7 @@ export default function ScheduledPage() {
                         <div
                           className={[
                             "text-[11px] px-2 py-1 rounded-full border",
-                            selected
-                              ? "border-emerald-500/60 text-emerald-200"
-                              : "border-slate-600 text-slate-300",
+                            selected ? "border-emerald-500/60 text-emerald-200" : "border-slate-600 text-slate-300",
                           ].join(" ")}
                         >
                           {selected ? "Selected" : "Select"}
@@ -997,16 +810,6 @@ export default function ScheduledPage() {
                   className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                 >
                   {editSaving ? "Saving…" : "Save changes"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={publishNow}
-                  disabled={editSaving}
-                  className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-5 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/15 disabled:opacity-60"
-                  title="This will save your changes first, then publish immediately, then refresh Dispatch results."
-                >
-                  {editSaving ? "Publishing…" : "Save + Publish now"}
                 </button>
 
                 <button
@@ -1053,7 +856,7 @@ export default function ScheduledPage() {
                           value={pickerQuery}
                           onChange={(e) => setPickerQuery(e.target.value)}
                           className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none"
-                          placeholder="e.g. office desk teamwork"
+                          placeholder="e.g. workplace wellbeing desk"
                         />
                       </div>
                       <button
@@ -1098,16 +901,10 @@ export default function ScheduledPage() {
                                 )}
                               </div>
                               <div className="p-3 space-y-1">
-                                <div className="text-xs font-semibold line-clamp-2">
-                                  {img.title.replace(/^File:/, "")}
-                                </div>
-                                <div className="text-[11px] text-slate-400">
-                                  {img.licenseShortName || "Licence unknown"}
-                                </div>
+                                <div className="text-xs font-semibold line-clamp-2">{img.title.replace(/^File:/, "")}</div>
+                                <div className="text-[11px] text-slate-400">{img.licenseShortName || "License unknown"}</div>
                                 {img.attribution ? (
-                                  <div className="text-[11px] text-slate-300 line-clamp-2">
-                                    {stripHtml(img.attribution)}
-                                  </div>
+                                  <div className="text-[11px] text-slate-300 line-clamp-2">{stripHtml(img.attribution)}</div>
                                 ) : null}
                                 <div className="text-[11px] text-emerald-300 line-clamp-1">Select this</div>
                               </div>
@@ -1118,7 +915,8 @@ export default function ScheduledPage() {
                     )}
 
                     <div className="text-[11px] text-slate-500">
-                      Copyright note: Wikimedia items have licences — always check the file page before using commercially.
+                      If LinkedIn rejects an image URL, it usually needs a proper “upload asset” flow.
+                      For now this picker is great for FB/IG/Threads.
                     </div>
                   </div>
                 </div>
