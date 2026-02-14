@@ -5,18 +5,21 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 export const runtime = "nodejs";
 
 /**
- * GET /api/social/scheduled?range=future&includeQuickBlast=0
+ * GET /api/social/scheduled?range=future|past|all&includeQuickBlast=0|1
  *
- * - range=future (default): shows posts scheduled_for >= now OR not posted yet
- * - includeQuickBlast=0 (default): hides meta.source === "quick_blast"
+ * - future: pipeline view (not posted yet OR scheduled_for >= now)
+ * - past: scheduled_for < now
+ * - all: everything (no date filter)
  *
- * Returns: { success: true, items: ScheduledRow[] }
+ * includeQuickBlast=0 hides meta.source === "quick_blast"
  */
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
 
-    const range = String(url.searchParams.get("range") || "future").toLowerCase();
+    const rangeRaw = String(url.searchParams.get("range") || "future").toLowerCase();
+    const range = (rangeRaw === "past" || rangeRaw === "all" || rangeRaw === "future") ? rangeRaw : "future";
+
     const includeQuickBlast = String(url.searchParams.get("includeQuickBlast") || "0") === "1";
 
     // Single-tenant: take the first org
@@ -41,7 +44,6 @@ export async function GET(req: NextRequest) {
 
     // Hide quick blast rows by default
     if (!includeQuickBlast) {
-      // jsonb filter: meta->>'source' != 'quick_blast' OR meta->>'source' is null
       q = q.or("meta->>source.is.null,meta->>source.neq.quick_blast");
     }
 
@@ -51,9 +53,11 @@ export async function GET(req: NextRequest) {
       q = q.or(`posted_at.is.null,scheduled_for.gte.${nowIso}`);
     } else if (range === "past") {
       q = q.lt("scheduled_for", nowIso);
-    } // else "all" -> no extra filter
+    } else {
+      // all -> no extra filter
+    }
 
-    const { data, error } = await q.order("scheduled_for", { ascending: true }).limit(80);
+    const { data, error } = await q.order("scheduled_for", { ascending: true }).limit(200);
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 200 });
@@ -61,6 +65,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ success: true, items: data || [] }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ success: false, error: e?.message || "Failed to load scheduled posts." }, { status: 200 });
+    return NextResponse.json(
+      { success: false, error: e?.message || "Failed to load scheduled posts." },
+      { status: 200 }
+    );
   }
 }
