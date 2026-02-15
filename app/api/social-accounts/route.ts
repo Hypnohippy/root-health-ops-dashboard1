@@ -8,15 +8,16 @@ async function getOrganisationId(): Promise<string | null> {
   const forced = (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
   if (forced) return forced;
 
-  // Otherwise, take the first org (single-tenant beta mode)
+  // ✅ Use the MOST RECENT org (matches Threads callback + modern single-tenant behaviour)
   const { data, error } = await supabaseAdmin
     .from("organisations")
-    .select("id")
-    .order("created_at", { ascending: true })
-    .limit(1);
+    .select("id, created_at")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  if (error || !data || data.length === 0) return null;
-  return String((data as any)[0].id);
+  if (error || !data?.id) return null;
+  return String(data.id);
 }
 
 function normPlatform(p: any) {
@@ -35,7 +36,8 @@ export async function GET(_req: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from("social_accounts")
-      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at")
+      // NOTE: we intentionally do NOT return page_access_token to the browser
+      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at")
       .eq("organisation_id", organisationId)
       .order("updated_at", { ascending: false });
 
@@ -59,17 +61,6 @@ export async function GET(_req: NextRequest) {
   }
 }
 
-/**
- * ✅ NEW: Save / upsert a connected account (used by OAuth callback “save & return”)
- * Expected body:
- * {
- *   platform: "facebook" | "instagram" | "threads" | "linkedin" | "tiktok",
- *   page_id?: string,
- *   page_name?: string,
- *   page_access_token?: string,
- *   token_expires_at?: string | null
- * }
- */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({} as any));
@@ -92,6 +83,7 @@ export async function POST(req: NextRequest) {
 
     const page_id = body?.page_id ? String(body.page_id).trim() : null;
     const page_name = body?.page_name ? String(body.page_name).trim() : null;
+
     const page_access_token = body?.page_access_token
       ? String(body.page_access_token).trim()
       : null;
@@ -103,7 +95,6 @@ export async function POST(req: NextRequest) {
 
     const now = new Date().toISOString();
 
-    // Prefer upsert (requires unique constraint on (organisation_id, platform))
     const row: any = {
       organisation_id: organisationId,
       platform,
@@ -118,7 +109,7 @@ export async function POST(req: NextRequest) {
     const up = await supabaseAdmin
       .from("social_accounts")
       .upsert(row, { onConflict: "organisation_id,platform" })
-      .select()
+      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at")
       .maybeSingle();
 
     if (!up.error) {
@@ -130,8 +121,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Fallback if onConflict fails (e.g. missing unique constraint)
-    // Try update first; if zero rows affected, insert.
     const { data: updated, error: uErr } = await supabaseAdmin
       .from("social_accounts")
       .update({
@@ -144,7 +133,7 @@ export async function POST(req: NextRequest) {
       })
       .eq("organisation_id", organisationId)
       .eq("platform", platform)
-      .select()
+      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at")
       .maybeSingle();
 
     if (!uErr && updated) {
@@ -160,7 +149,7 @@ export async function POST(req: NextRequest) {
     const { data: inserted, error: iErr } = await supabaseAdmin
       .from("social_accounts")
       .insert(row)
-      .select()
+      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at")
       .single();
 
     if (iErr) {
@@ -205,7 +194,6 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Soft disconnect (do not delete row)
     const { error } = await supabaseAdmin
       .from("social_accounts")
       .update({
