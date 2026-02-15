@@ -11,14 +11,25 @@ async function fetchJson(url: string, init?: RequestInit) {
   return { ok: res.ok, status: res.status, json };
 }
 
-async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
+/**
+ * ✅ IMPORTANT:
+ * Match the Threads OAuth callback + connect UI behaviour:
+ * choose the most recently created organisation (single-tenant fallback).
+ */
+async function getLatestOrganisationId() {
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id, created_at")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   if (error) {
     console.error("[threads/manual-save] organisations error", error);
     return null;
   }
-  if (!data || data.length === 0) return null;
-  return data[0].id as string;
+  if (!data?.id) return null;
+  return String(data.id);
 }
 
 async function upsertThreadsSocialAccount(args: {
@@ -28,12 +39,23 @@ async function upsertThreadsSocialAccount(args: {
   accessToken: string;
   tokenExpiresAt?: string | null;
 }) {
+  // 1) Deactivate any old Threads rows for THIS org (prevents ghost/duplicate confusion)
+  // This will NOT touch Facebook/IG/TikTok/LinkedIn.
+  await supabaseAdmin
+    .from("social_accounts")
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq("organisation_id", args.organisationId)
+    .eq("platform", "threads");
+
+  // 2) Try to find an existing row for this org + threads user id (preferred)
   const { data: existing, error: existingError } = await supabaseAdmin
     .from("social_accounts")
     .select("id")
     .eq("organisation_id", args.organisationId)
     .eq("platform", "threads")
-    .limit(1);
+    .eq("page_id", String(args.threadsUserId))
+    .limit(1)
+    .maybeSingle();
 
   if (existingError) {
     console.warn("[threads/manual-save] existing lookup error", existingError);
@@ -41,20 +63,24 @@ async function upsertThreadsSocialAccount(args: {
 
   const pageName = args.username ? String(args.username) : null;
 
-  if (existing && existing.length > 0) {
-    const id = existing[0].id;
+  const payload = {
+    page_id: String(args.threadsUserId),
+    page_name: pageName,
+    // Use the same connection_type label your UI likely expects:
+    connection_type: "threads_oauth",
+    make_webhook_url: null,
+    is_active: true,
+    page_access_token: String(args.accessToken),
+    token_expires_at: args.tokenExpiresAt ?? null,
+    updated_at: new Date().toISOString(),
+  };
+
+  // 3) Update if found, else insert new
+  if (existing?.id) {
     const { error } = await supabaseAdmin
       .from("social_accounts")
-      .update({
-        page_id: String(args.threadsUserId),
-        page_name: pageName,
-        connection_type: "threads_manual_token",
-        make_webhook_url: null,
-        is_active: true,
-        page_access_token: String(args.accessToken),
-        token_expires_at: args.tokenExpiresAt ?? null,
-      })
-      .eq("id", id);
+      .update(payload)
+      .eq("id", existing.id);
 
     if (error) throw error;
     return;
@@ -64,13 +90,8 @@ async function upsertThreadsSocialAccount(args: {
     id: randomUUID(),
     organisation_id: args.organisationId,
     platform: "threads",
-    page_id: String(args.threadsUserId),
-    page_name: pageName,
-    connection_type: "threads_manual_token",
-    make_webhook_url: null,
-    is_active: true,
-    page_access_token: String(args.accessToken),
-    token_expires_at: args.tokenExpiresAt ?? null,
+    ...payload,
+    created_at: new Date().toISOString(),
   });
 
   if (error) throw error;
@@ -82,13 +103,10 @@ export async function POST(req: NextRequest) {
     const accessToken = String(body?.accessToken || "").trim();
 
     if (!accessToken) {
-      return NextResponse.json(
-        { ok: false, error: "Missing accessToken" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Missing accessToken" }, { status: 400 });
     }
 
-    // Fetch Threads user using token
+    // Validate token by calling Threads /me
     const meUrl =
       "https://graph.threads.net/v1.0/me?" +
       new URLSearchParams({
@@ -115,12 +133,10 @@ export async function POST(req: NextRequest) {
     const threadsUserId = String(meRes.json.id);
     const username = meRes.json.username ? String(meRes.json.username) : null;
 
-    const organisationId = await getSingleTenantOrganisationId();
+    // ✅ Use latest org (matches callback + typical connect page behaviour)
+    const organisationId = await getLatestOrganisationId();
     if (!organisationId) {
-      return NextResponse.json(
-        { ok: false, error: "No organisation found in DB" },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: "No organisation found in DB" }, { status: 500 });
     }
 
     await upsertThreadsSocialAccount({
@@ -128,18 +144,12 @@ export async function POST(req: NextRequest) {
       threadsUserId,
       username,
       accessToken,
-      tokenExpiresAt: null, // (User Token Generator tokens are long-lived; we can add expiry later if you want)
+      tokenExpiresAt: null,
     });
 
-    return NextResponse.json(
-      { ok: true, organisationId, threadsUserId, username },
-      { status: 200 }
-    );
+    return NextResponse.json({ ok: true, organisationId, threadsUserId, username }, { status: 200 });
   } catch (e: any) {
     console.error("[threads/manual-save] crashed", e);
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });
   }
 }
