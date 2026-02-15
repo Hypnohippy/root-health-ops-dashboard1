@@ -1,7 +1,7 @@
 // app/dashboard/connect/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 type ProviderId =
   | "facebook"
@@ -100,141 +100,58 @@ const connectUrls: Record<ProviderId, string> = {
   whatsapp: "#",
 };
 
-type NormalisedSocialAccountRow = {
+type SocialAccountRow = {
   platform: ProviderId;
-  page_id?: string | null;
-  page_name?: string | null;
+  page_id: string | null;
+  page_name: string | null;
   is_active?: boolean | null;
-  page_access_token?: string | null;
-  created_at?: string | null;
+  token_expires_at?: string | null;
   updated_at?: string | null;
-  connection_type?: string | null;
 };
 
-function normStr(v: any) {
-  const s = String(v ?? "").trim();
-  return s || "";
-}
-
-function toBoolOrNull(v: any): boolean | null {
-  if (v === true) return true;
-  if (v === false) return false;
-  return null;
-}
-
-function toIsoOrEmpty(v: any) {
-  const s = normStr(v);
-  if (!s) return "";
-  const d = new Date(s);
-  if (isNaN(d.getTime())) return "";
-  return d.toISOString();
-}
-
-function normaliseRow(raw: any): NormalisedSocialAccountRow | null {
-  const platformRaw = normStr(raw?.platform || raw?.provider);
-  if (!platformRaw) return null;
-
-  const platform = platformRaw.toLowerCase() as ProviderId;
-
-  return {
-    platform,
-    page_id: raw?.page_id ?? raw?.pageId ?? null,
-    page_name: raw?.page_name ?? raw?.pageName ?? null,
-    is_active: toBoolOrNull(raw?.is_active ?? raw?.isActive),
-    page_access_token: raw?.page_access_token ?? raw?.pageAccessToken ?? null,
-    created_at: raw?.created_at ?? null,
-    updated_at: raw?.updated_at ?? null,
-    connection_type: raw?.connection_type ?? null,
-  };
-}
-
-/**
- * Pick the “best” row for a platform:
- * 1) Active beats inactive
- * 2) Has token beats missing token (if API includes it)
- * 3) Newest updated_at/created_at wins
- */
-function pickBestRow(rows: NormalisedSocialAccountRow[], platform: ProviderId) {
-  const candidates = rows.filter((r) => r.platform === platform);
-  if (candidates.length === 0) return null;
-
-  const score = (r: NormalisedSocialAccountRow) => {
-    const activeScore = r.is_active === true ? 1000 : r.is_active === false ? 0 : 500;
-    const tokenScore = r.page_access_token ? 100 : 0;
-
-    const updated = toIsoOrEmpty(r.updated_at);
-    const created = toIsoOrEmpty(r.created_at);
-    const time = updated || created || "";
-    const timeScore = time ? new Date(time).getTime() / 1_000_000_000 : 0;
-
-    return activeScore + tokenScore + timeScore;
-  };
-
-  return candidates.sort((a, b) => score(b) - score(a))[0];
+function normaliseRows(apiResponse: any): SocialAccountRow[] {
+  // ✅ Accept BOTH:
+  // 1) { success:true, socialAccounts:[...] }
+  // 2) [ ... ]
+  if (Array.isArray(apiResponse)) return apiResponse as SocialAccountRow[];
+  const rows = apiResponse?.socialAccounts;
+  if (Array.isArray(rows)) return rows as SocialAccountRow[];
+  return [];
 }
 
 export default function DashboardConnectPage() {
   const [providers, setProviders] = useState<Provider[]>(initialProviders);
   const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
 
-  // ✅ Debug panel so you can SEE what the API actually returned (no guessing)
-  const [rawRows, setRawRows] = useState<any[]>([]);
-  const [debugOpen, setDebugOpen] = useState(false);
-
-  const normalisedRows = useMemo(() => {
-    return (Array.isArray(rawRows) ? rawRows : [])
-      .map((r) => normaliseRow(r))
-      .filter(Boolean) as NormalisedSocialAccountRow[];
-  }, [rawRows]);
-
   async function loadSocialAccounts() {
     try {
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
       const data = await res.json().catch(() => null);
 
-      // We accept either:
-      // - { socialAccounts: [...] }
-      // - { rows: [...] }
-      // - { data: [...] }
-      // - direct array
-      const rows =
-        (Array.isArray(data?.socialAccounts) && data.socialAccounts) ||
-        (Array.isArray(data?.rows) && data.rows) ||
-        (Array.isArray(data?.data) && data.data) ||
-        (Array.isArray(data) && data) ||
-        [];
-
-      setRawRows(rows);
+      const rows: SocialAccountRow[] = normaliseRows(data);
 
       setProviders((prev) =>
         prev.map((p) => {
-          const best = pickBestRow(
-            (rows as any[]).map((r) => normaliseRow(r)).filter(Boolean) as NormalisedSocialAccountRow[],
-            p.id
-          );
+          const row = rows.find((r) => String(r.platform) === p.id);
 
-          // Treat as connected only if we found a row AND it is not explicitly inactive.
-          const isActive = best ? best.is_active !== false : false;
+          // ✅ Connected ONLY if row exists and is_active is not false
+          const isActive = row ? row.is_active !== false : false;
 
-          if (!best || !isActive) {
-            return {
-              ...p,
-              status: "disconnected",
-              accountName: undefined,
-              lastSync: undefined,
-            };
+          if (!row || !isActive) {
+            return { ...p, status: "disconnected", accountName: undefined };
           }
 
           return {
             ...p,
             status: "connected",
-            accountName: best.page_name ?? undefined,
-            lastSync: best.updated_at ?? best.created_at ?? undefined,
+            accountName: row.page_name ?? p.accountName,
           };
         })
       );
     } catch (e) {
       console.error("[dashboard/connect] loadSocialAccounts failed", e);
+    } finally {
+      setBusyProvider(null);
     }
   }
 
@@ -282,63 +199,21 @@ export default function DashboardConnectPage() {
     }
   };
 
-  const threadsBest = useMemo(() => pickBestRow(normalisedRows, "threads"), [normalisedRows]);
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl bg-slate-900/70 border border-slate-700 rounded-3xl shadow-xl p-6 md:p-10 backdrop-blur">
-        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold">Connect your channels</h1>
             <p className="text-sm text-slate-300 mt-1 max-w-xl">
               One-click OAuth connections. You stay in control — we only post what you approve.
             </p>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setDebugOpen((v) => !v)}
-              className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
-              title="Shows what /api/social-accounts returned"
-            >
-              {debugOpen ? "Hide debug" : "Show debug"}
-            </button>
-
-            <div className="text-xs text-slate-400 bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 max-w-xs">
-              <p className="font-medium text-slate-200 mb-1">Therapist-friendly</p>
-              <p>No tech setup. Click connect, choose the right account, done.</p>
-            </div>
+          <div className="text-xs text-slate-400 bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 max-w-xs">
+            <p className="font-medium text-slate-200 mb-1">Therapist-friendly</p>
+            <p>No tech setup. Click connect, choose the right account, done.</p>
           </div>
         </header>
-
-        {debugOpen && (
-          <div className="mb-6 rounded-2xl border border-slate-700 bg-slate-950/60 p-4 text-sm">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-              <div className="font-semibold text-slate-100">Debug (safe): what the app can see</div>
-              <button
-                type="button"
-                onClick={() => void loadSocialAccounts()}
-                className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
-              >
-                Refresh debug
-              </button>
-            </div>
-
-            <div className="mt-3 text-xs text-slate-400">
-              Threads “best row” chosen:
-              <span className="ml-2 text-slate-200">
-                {threadsBest
-                  ? `is_active=${String(threadsBest.is_active)} · page_name=${threadsBest.page_name || "—"} · updated_at=${threadsBest.updated_at || threadsBest.created_at || "—"}`
-                  : "None"}
-              </span>
-            </div>
-
-            <pre className="mt-3 overflow-auto rounded-xl border border-slate-800 bg-black/40 p-3 text-[11px] text-slate-200">
-{JSON.stringify(rawRows, null, 2)}
-            </pre>
-          </div>
-        )}
 
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {providers.map((provider) => {
@@ -372,18 +247,12 @@ export default function DashboardConnectPage() {
                     </div>
 
                     <p className="mt-1 text-xs text-slate-300">{provider.description}</p>
-                    {provider.hint && (
-                      <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>
-                    )}
+                    {provider.hint && <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>}
 
                     {provider.accountName && connected && (
                       <p className="mt-2 text-[11px] text-emerald-300">
                         Connected as <span className="font-medium">{provider.accountName}</span>
                       </p>
-                    )}
-
-                    {provider.lastSync && connected && (
-                      <p className="mt-1 text-[11px] text-slate-400">Last updated: {provider.lastSync}</p>
                     )}
                   </div>
                 </div>
