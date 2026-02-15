@@ -1,3 +1,4 @@
+// app/api/oauth/threads/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomUUID } from "crypto";
@@ -23,8 +24,8 @@ async function fetchJson(url: string, init?: RequestInit) {
 }
 
 /**
- * ✅ IMPORTANT: Match /api/social-accounts behaviour:
- * use the most recently created organisation (single-tenant fallback).
+ * Multi-tenant safe: choose the most recently created org as a fallback.
+ * (In the future: pass orgId in state and use that instead.)
  */
 async function getLatestOrganisationId() {
   const { data, error } = await supabaseAdmin
@@ -42,6 +43,17 @@ async function getLatestOrganisationId() {
   return String(data.id);
 }
 
+function norm(v: any) {
+  return String(v ?? "").trim();
+}
+
+/**
+ * ✅ IMPORTANT:
+ * Ensure exactly ONE active threads row per org.
+ * - Deactivate all existing threads rows for this org
+ * - Update the newest existing row if one exists
+ * - Otherwise insert a new row
+ */
 async function upsertThreadsSocialAccount(args: {
   organisationId: string;
   threadsUserId: string;
@@ -49,11 +61,34 @@ async function upsertThreadsSocialAccount(args: {
   accessToken: string;
   tokenExpiresAt?: string | null;
 }) {
+  const organisationId = norm(args.organisationId);
+  const threadsUserId = norm(args.threadsUserId);
+  const accessToken = norm(args.accessToken);
+
+  if (!organisationId || !threadsUserId || !accessToken) {
+    throw new Error("Missing organisationId / threadsUserId / accessToken");
+  }
+
+  // 1) Deactivate ALL threads rows for this org (scoped, multi-tenant safe)
+  const { error: deactErr } = await supabaseAdmin
+    .from("social_accounts")
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq("organisation_id", organisationId)
+    .eq("platform", "threads");
+
+  if (deactErr) {
+    console.warn("[threads/callback] deactivate existing threads rows failed", deactErr);
+    // We continue anyway, because we can still set the right one active.
+  }
+
+  // 2) Find the most recently updated/created threads row (if any)
   const { data: existing, error: existingError } = await supabaseAdmin
     .from("social_accounts")
-    .select("id")
-    .eq("organisation_id", args.organisationId)
+    .select("id, created_at, updated_at")
+    .eq("organisation_id", organisationId)
     .eq("platform", "threads")
+    .order("updated_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
@@ -67,13 +102,14 @@ async function upsertThreadsSocialAccount(args: {
     const { error } = await supabaseAdmin
       .from("social_accounts")
       .update({
-        page_id: String(args.threadsUserId),
+        page_id: threadsUserId,
         page_name: pageName,
         connection_type: "threads_oauth",
         make_webhook_url: null,
         is_active: true,
-        page_access_token: String(args.accessToken),
+        page_access_token: accessToken,
         token_expires_at: args.tokenExpiresAt ?? null,
+        updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
 
@@ -81,17 +117,21 @@ async function upsertThreadsSocialAccount(args: {
     return;
   }
 
+  // 3) No existing row -> insert new
   const { error } = await supabaseAdmin.from("social_accounts").insert({
     id: randomUUID(),
-    organisation_id: args.organisationId,
+    organisation_id: organisationId,
     platform: "threads",
-    page_id: String(args.threadsUserId),
+    page_id: threadsUserId,
     page_name: pageName,
     connection_type: "threads_oauth",
     make_webhook_url: null,
     is_active: true,
-    page_access_token: String(args.accessToken),
+    page_access_token: accessToken,
     token_expires_at: args.tokenExpiresAt ?? null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    meta: {},
   });
 
   if (error) throw error;
@@ -180,7 +220,7 @@ export async function GET(req: NextRequest) {
     const threadsUserId = String(meRes.json.id);
     const username = meRes.json.username ? String(meRes.json.username) : undefined;
 
-    // 4) save to latest org (✅ the fix)
+    // 4) save to org
     const organisationId = await getLatestOrganisationId();
     if (!organisationId) {
       back.searchParams.set("error", "no_organisation");
