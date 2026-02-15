@@ -5,35 +5,38 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 export const runtime = "nodejs";
 
 /**
- * GET /api/social/scheduled?range=future|past|all&includeQuickBlast=0|1
+ * GET /api/social/scheduled?range=future&includeQuickBlast=0
  *
- * - future: pipeline view (not posted yet OR scheduled_for >= now)
- * - past: scheduled_for < now
- * - all: everything (no date filter)
+ * range:
+ * - future (default): upcoming + not-posted + recently posted (last 24h) so results don't "disappear"
+ * - past: older than now
+ * - all: everything (capped)
  *
- * includeQuickBlast=0 hides meta.source === "quick_blast"
+ * includeQuickBlast:
+ * - 0 default: hides meta.source === "quick_blast"
  */
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
 
-    const rangeRaw = String(url.searchParams.get("range") || "future").toLowerCase();
-    const range = (rangeRaw === "past" || rangeRaw === "all" || rangeRaw === "future") ? rangeRaw : "future";
-
+    const range = String(url.searchParams.get("range") || "future").toLowerCase();
     const includeQuickBlast = String(url.searchParams.get("includeQuickBlast") || "0") === "1";
 
-    // Single-tenant: take the first org
-    const { data: orgs, error: orgErr } = await supabaseAdmin
+    // ✅ single-tenant: use latest org (consistent with other fixes)
+    const { data: org, error: orgErr } = await supabaseAdmin
       .from("organisations")
-      .select("id")
-      .limit(1);
+      .select("id, created_at")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (orgErr || !orgs || orgs.length === 0) {
+    if (orgErr || !org?.id) {
       return NextResponse.json({ success: false, error: "No organisation found." }, { status: 200 });
     }
 
-    const organisationId = String(orgs[0].id);
+    const organisationId = String(org.id);
     const nowIso = new Date().toISOString();
+    const last24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     let q = supabaseAdmin
       .from("scheduled_posts")
@@ -49,25 +52,21 @@ export async function GET(req: NextRequest) {
 
     // Range filtering
     if (range === "future") {
-      // show anything not posted yet, plus future scheduled items
-      q = q.or(`posted_at.is.null,scheduled_for.gte.${nowIso}`);
+      // ✅ show:
+      // - anything not posted yet
+      // - anything scheduled in the future
+      // - anything posted in last 24h (so it doesn't “disappear” after it runs)
+      q = q.or(`posted_at.is.null,scheduled_for.gte.${nowIso},posted_at.gte.${last24hIso}`);
     } else if (range === "past") {
       q = q.lt("scheduled_for", nowIso);
-    } else {
-      // all -> no extra filter
-    }
+    } // "all" => no extra filter
 
-    const { data, error } = await q.order("scheduled_for", { ascending: true }).limit(200);
+    const { data, error } = await q.order("scheduled_for", { ascending: true }).limit(120);
 
-    if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 200 });
-    }
+    if (error) return NextResponse.json({ success: false, error: error.message }, { status: 200 });
 
     return NextResponse.json({ success: true, items: data || [] }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json(
-      { success: false, error: e?.message || "Failed to load scheduled posts." },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: false, error: e?.message || "Failed to load scheduled posts." }, { status: 200 });
   }
 }
