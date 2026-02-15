@@ -18,21 +18,24 @@ export default function ThreadsManualConnectPage() {
       const res = await fetch("/api/oauth/threads/manual-save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({ accessToken: token.trim() }),
       });
 
       const data: any = await res.json().catch(() => null);
 
       if (!res.ok || !data?.ok) {
-        throw new Error(
-          data?.error || `Save failed (HTTP ${res.status})`
-        );
+        throw new Error(data?.error || `Save failed (HTTP ${res.status})`);
       }
 
-      setMsg(`Saved Threads as @${data?.username || data?.threadsUserId}. Redirecting…`);
+      const handle = data?.username ? `@${data.username}` : data?.threadsUserId ? `ID ${data.threadsUserId}` : "Threads";
+      setMsg(`Saved Threads as ${handle}. Redirecting…`);
+
+      // ✅ Align with the Threads OAuth callback convention:
+      // /dashboard/connect?provider=threads&connected=1
       setTimeout(() => {
-        window.location.href = "/dashboard/connect?connected=threads";
-      }, 800);
+        window.location.href = "/dashboard/connect?provider=threads&connected=1";
+      }, 700);
     } catch (e: any) {
       setMsg(e?.message || "Could not save token.");
     } finally {
@@ -46,8 +49,8 @@ export default function ThreadsManualConnectPage() {
         <h1 className="text-2xl md:text-3xl font-semibold">Connect Threads (manual token)</h1>
 
         <p className="text-sm text-slate-300">
-          Threads OAuth is currently looping on “Something went wrong”. This is a safe workaround:
-          generate a long-lived tester token in your Threads app console, paste it here, and we’ll save it.
+          This is a safe workaround: generate a Threads token in your Meta/Threads console, paste it here, and we’ll save it
+          to your organisation.
         </p>
 
         <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300 space-y-2">
@@ -55,7 +58,9 @@ export default function ThreadsManualConnectPage() {
           <ol className="list-decimal pl-5 space-y-1">
             <li>Meta Developers → your Threads app</li>
             <li>Use cases → <b>Access the Threads API</b></li>
-            <li><b>User Token Generator</b> → generate token for <b>fuelgeist1</b></li>
+            <li>
+              <b>User Token Generator</b> → generate token for your Threads account
+            </li>
             <li>Copy the access token and paste below</li>
           </ol>
         </div>
@@ -67,7 +72,7 @@ export default function ThreadsManualConnectPage() {
           onChange={(e) => setToken(e.target.value)}
         />
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={onSave}
@@ -83,6 +88,15 @@ export default function ThreadsManualConnectPage() {
             className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
           >
             Back
+          </button>
+
+          <button
+            type="button"
+            onClick={() => (window.location.href = "/dashboard/connect?provider=threads")}
+            className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
+            title="Go straight to Threads section on Connect page"
+          >
+            Go to Threads card
           </button>
         </div>
 
