@@ -42,12 +42,9 @@ function isPastIso(iso: string) {
  *   force_requeue?: boolean
  * }
  *
- * Single-tenant safe:
- * - Updates only if row belongs to first organisation
- *
- * Requeue behaviour:
- * - If force_requeue=true, clears posted_at + error_info and sets status="queued"
- * - Also clears common "last attempt" breadcrumbs so it behaves like a fresh queued post
+ * IMPORTANT FIX:
+ * - force_requeue now sets status="scheduled" (NOT queued)
+ *   because cron dispatch only picks up "scheduled".
  */
 export async function POST(req: NextRequest) {
   try {
@@ -56,7 +53,6 @@ export async function POST(req: NextRequest) {
     const id = norm(body?.id);
     const message = norm(body?.message);
     const scheduledFor = safeIso(body?.scheduled_for);
-
     const platforms = safeArr<string>(body?.platforms)
       .map((p) => norm(p).toLowerCase())
       .filter(Boolean);
@@ -82,17 +78,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Single-tenant: first org
-    const { data: orgs, error: orgErr } = await supabaseAdmin
+    // Single-tenant: use the most recently created org (more reliable if you accidentally made multiple org rows)
+    const { data: org, error: orgErr } = await supabaseAdmin
       .from("organisations")
-      .select("id")
-      .limit(1);
+      .select("id, created_at")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (orgErr || !orgs || orgs.length === 0) {
+    if (orgErr || !org?.id) {
       return okJson({ success: false, error: "No organisation found." }, 200);
     }
 
-    const organisationId = String(orgs[0].id);
+    const organisationId = String(org.id);
 
     // Ensure the row exists + belongs to org
     const { data: row, error: readErr } = await supabaseAdmin
@@ -108,7 +106,6 @@ export async function POST(req: NextRequest) {
 
     const nowIso = new Date().toISOString();
 
-    // Prepare patch
     const patch: any = {
       message,
       platforms,
@@ -118,26 +115,16 @@ export async function POST(req: NextRequest) {
     };
 
     if (force_requeue) {
-      patch.status = "queued";
+      // ✅ Make it schedulable by cron again
+      patch.status = "scheduled";
       patch.posted_at = null;
       patch.error_info = null;
 
-      // Optional columns in some schemas — safe to include (Supabase ignores unknown columns?).
-      // If your table DOES NOT have these, remove them:
-      patch.last_attempt_at = null;
-
-      // Keep meta but add a breadcrumb and clear the "last publish" summary so UI looks fresh
-      const meta =
-        (row as any)?.meta && typeof (row as any).meta === "object"
-          ? (row as any).meta
-          : {};
-
+      const meta = (row as any)?.meta && typeof (row as any).meta === "object" ? (row as any).meta : {};
       patch.meta = {
         ...meta,
         requeued_at: nowIso,
         requeued_reason: "manual_edit",
-        last_publish_attempt_at: null,
-        last_publish_summary: null,
       };
     }
 
@@ -147,9 +134,7 @@ export async function POST(req: NextRequest) {
       .eq("id", id)
       .eq("organisation_id", organisationId);
 
-    if (upErr) {
-      return okJson({ success: false, error: upErr.message }, 200);
-    }
+    if (upErr) return okJson({ success: false, error: upErr.message }, 200);
 
     return okJson({ success: true }, 200);
   } catch (e: any) {
