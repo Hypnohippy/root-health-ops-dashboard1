@@ -31,11 +31,6 @@ function addMinutes(iso: string, minutes: number) {
   return d.toISOString();
 }
 
-/**
- * IMPORTANT:
- * This assumes your scheduled posts table is called: scheduled_posts
- * If your table name is different, tell me what it is and I’ll adjust instantly.
- */
 const TABLE = "scheduled_posts";
 
 export async function POST(req: NextRequest) {
@@ -55,34 +50,23 @@ export async function POST(req: NextRequest) {
     if (platforms.length === 0) return okJson({ success: false, error: "Pick at least one platform" }, 400);
     if (items.length === 0) return okJson({ success: false, error: "No items provided" }, 400);
 
-    // We need organisation_id. Your /api/social/scheduled list already knows org on server side,
-    // but this importer doesn’t. So we infer org from the newest scheduled row OR from meta.
-    // ✅ Best: pass organisationId in meta if you prefer.
-    const organisationId = norm(body?.organisationId || meta?.organisationId || "");
+    // ✅ default organisation: most recently created org
+    const { data: org, error: orgErr } = await supabaseAdmin
+      .from("organisations")
+      .select("id, created_at")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    let org = organisationId;
+    if (orgErr || !org?.id) return okJson({ success: false, error: "No organisation found." }, 400);
 
-    if (!org) {
-      // Try to infer from scheduled_posts newest row
-      const { data, error } = await supabaseAdmin
-        .from(TABLE)
-        .select("organisation_id")
-        .order("created_at", { ascending: false })
-        .limit(1);
+    const orgId = norm(body?.organisationId || meta?.organisationId || String(org.id));
 
-      if (error) {
-        return okJson(
-          { success: false, error: `Could not infer organisation_id. Pass organisationId. (${error.message})` },
-          400
-        );
-      }
-
-      org = (data && data[0] && data[0].organisation_id) ? String(data[0].organisation_id) : "";
+    if (!orgId) {
+      return okJson({ success: false, error: "Missing organisationId (could not infer)." }, 400);
     }
 
-    if (!org) {
-      return okJson({ success: false, error: "Missing organisationId (could not infer). Pass organisationId." }, 400);
-    }
+    const nowIso = new Date().toISOString();
 
     const rows = items
       .map((it: any, idx: number) => {
@@ -93,14 +77,16 @@ export async function POST(req: NextRequest) {
         const scheduled_for = addMinutes(startAt, idx * intervalMinutes);
 
         return {
-          organisation_id: org,
+          organisation_id: orgId,
           message,
           platforms,
           image_url: imageUrl || null,
           scheduled_for,
-          status: "queued",
+          status: "scheduled", // ✅ IMPORTANT: cron picks up scheduled
           posted_at: null,
           error_info: null,
+          created_at: nowIso,
+          updated_at: nowIso,
           meta: {
             ...(meta || {}),
             source,
@@ -113,20 +99,15 @@ export async function POST(req: NextRequest) {
       })
       .filter(Boolean);
 
-    if (rows.length === 0) {
-      return okJson({ success: false, error: "All items were empty." }, 400);
-    }
+    if (rows.length === 0) return okJson({ success: false, error: "All items were empty." }, 400);
 
     const { error: insErr } = await supabaseAdmin.from(TABLE).insert(rows as any[]);
-
-    if (insErr) {
-      return okJson({ success: false, error: insErr.message }, 500);
-    }
+    if (insErr) return okJson({ success: false, error: insErr.message }, 500);
 
     return okJson({
       success: true,
       inserted: rows.length,
-      organisationId: org,
+      organisationId: orgId,
       startAt,
       intervalMinutes,
       platforms,
