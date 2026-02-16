@@ -1,59 +1,72 @@
 // app/api/oauth/linkedin/start/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 
-function safeBaseUrl(appUrl: string) {
-  return (appUrl || "").replace(/\/$/, "");
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
+const LINKEDIN_CLIENT_ID = (process.env.LINKEDIN_CLIENT_ID || "").trim();
+
+function baseUrl(req: NextRequest) {
+  return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
+}
+
+async function getLatestOrganisationId() {
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id, created_at")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return null;
+  return data?.id ? String(data.id) : null;
 }
 
 export async function GET(req: NextRequest) {
-  const clientId = process.env.LINKEDIN_CLIENT_ID || "";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  const back = new URL(`${baseUrl(req)}/dashboard/connect`);
+  back.searchParams.set("provider", "linkedin");
 
-  if (!clientId || !appUrl) {
-    return NextResponse.json(
-      {
-        error: "Missing LINKEDIN_CLIENT_ID or NEXT_PUBLIC_APP_URL",
-        missing: {
-          LINKEDIN_CLIENT_ID: !clientId,
-          NEXT_PUBLIC_APP_URL: !appUrl,
-        },
-      },
-      { status: 500 }
-    );
+  if (!LINKEDIN_CLIENT_ID) {
+    back.searchParams.set("error", "linkedin_missing_client_id");
+    return NextResponse.redirect(back.toString(), { status: 302 });
   }
 
-  const redirectUri = `${safeBaseUrl(appUrl)}/api/oauth/linkedin/callback`;
+  const organisationId = await getLatestOrganisationId();
+  if (!organisationId) {
+    back.searchParams.set("error", "no_organisation");
+    return NextResponse.redirect(back.toString(), { status: 302 });
+  }
 
+  const redirectUri = `${baseUrl(req)}/api/oauth/linkedin/callback`;
+
+  // Store orgId in state so callback never “saves to the wrong org”
   const stateObj = {
     provider: "linkedin",
-    nonce: crypto.randomUUID(),
+    organisationId,
+    nonce: randomUUID(),
     t: Date.now(),
   };
   const state = Buffer.from(JSON.stringify(stateObj)).toString("base64url");
 
-  // LinkedIn scopes are space-separated
-  const scope = ["openid", "profile", "email", "w_member_social"].join(" ");
+  const authUrl = new URL("https://www.linkedin.com/oauth/v2/authorization");
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("client_id", LINKEDIN_CLIENT_ID);
+  authUrl.searchParams.set("redirect_uri", redirectUri);
 
-  const authUrl =
-    "https://www.linkedin.com/oauth/v2/authorization" +
-    `?response_type=code` +
-    `&client_id=${encodeURIComponent(clientId)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&state=${encodeURIComponent(state)}` +
-    `&scope=${encodeURIComponent(scope)}`;
+  // Keep it simple: enough for posting as member and getting basic identity
+  authUrl.searchParams.set(
+    "scope",
+    [
+      "openid",
+      "profile",
+      "email",
+      "w_member_social",
+    ].join(" ")
+  );
 
-  const res = NextResponse.redirect(authUrl, { status: 302 });
+  authUrl.searchParams.set("state", state);
 
-  // short-lived CSRF cookie
-  res.cookies.set("li_oauth_state", state, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 10 * 60,
-  });
-
-  return res;
+  return NextResponse.redirect(authUrl.toString(), { status: 302 });
 }
