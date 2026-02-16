@@ -92,7 +92,8 @@ const initialProviders: Provider[] = [
 const connectUrls: Record<ProviderId, string> = {
   facebook: "/api/social/connect/start?provider=facebook",
   instagram: "/api/social/connect/start?provider=instagram",
-  linkedin: "/api/social/connect/start?provider=linkedin",
+  // ✅ FIX: use our dedicated LinkedIn OAuth routes (so the token is actually saved)
+  linkedin: "/api/oauth/linkedin/start",
   threads: "/api/social/connect/start?provider=threads",
   tiktok: "/api/oauth/tiktok/start",
   google: "#",
@@ -105,19 +106,7 @@ type SocialAccountRow = {
   page_id: string | null;
   page_name: string | null;
   is_active?: boolean | null;
-  token_expires_at?: string | null;
-  updated_at?: string | null;
 };
-
-function normaliseRows(apiResponse: any): SocialAccountRow[] {
-  // ✅ Accept BOTH:
-  // 1) { success:true, socialAccounts:[...] }
-  // 2) [ ... ]
-  if (Array.isArray(apiResponse)) return apiResponse as SocialAccountRow[];
-  const rows = apiResponse?.socialAccounts;
-  if (Array.isArray(rows)) return rows as SocialAccountRow[];
-  return [];
-}
 
 export default function DashboardConnectPage() {
   const [providers, setProviders] = useState<Provider[]>(initialProviders);
@@ -127,18 +116,19 @@ export default function DashboardConnectPage() {
     try {
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
       const data = await res.json().catch(() => null);
-
-      const rows: SocialAccountRow[] = normaliseRows(data);
+      const rows: SocialAccountRow[] = data?.socialAccounts ?? [];
 
       setProviders((prev) =>
         prev.map((p) => {
-          const row = rows.find((r) => String(r.platform) === p.id);
-
-          // ✅ Connected ONLY if row exists and is_active is not false
+          const row = rows.find((r) => r.platform === p.id);
           const isActive = row ? row.is_active !== false : false;
 
           if (!row || !isActive) {
-            return { ...p, status: "disconnected", accountName: undefined };
+            return {
+              ...p,
+              status: "disconnected",
+              accountName: undefined,
+            };
           }
 
           return {
@@ -150,8 +140,6 @@ export default function DashboardConnectPage() {
       );
     } catch (e) {
       console.error("[dashboard/connect] loadSocialAccounts failed", e);
-    } finally {
-      setBusyProvider(null);
     }
   }
 
@@ -247,7 +235,9 @@ export default function DashboardConnectPage() {
                     </div>
 
                     <p className="mt-1 text-xs text-slate-300">{provider.description}</p>
-                    {provider.hint && <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>}
+                    {provider.hint && (
+                      <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>
+                    )}
 
                     {provider.accountName && connected && (
                       <p className="mt-2 text-[11px] text-emerald-300">
