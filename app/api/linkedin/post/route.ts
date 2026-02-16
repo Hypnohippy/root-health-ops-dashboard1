@@ -1,6 +1,6 @@
 // app/api/linkedin/post/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseService } from "../../../../lib/supabaseService";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -13,21 +13,6 @@ type SocialAccountRow = {
   is_active: boolean | null;
   page_access_token: string | null;
   token_expires_at: string | null;
-};
-
-type UserHelp = {
-  headline?: string;
-  what?: string;
-  doThis?: string[];
-  notes?: string[];
-};
-
-type SuggestedImage = {
-  url: string;
-  title: string;
-  pageUrl: string;
-  licenseShortName?: string;
-  licenseUrl?: string;
 };
 
 function isHttps(url: string) {
@@ -45,20 +30,19 @@ function isLikelyVideoUrl(url: string) {
   const u = (url || "").trim();
   if (!u) return false;
   if (!isHttps(u)) return false;
+  const low = u.toLowerCase();
   return (
-    /\.(mp4|mov|webm)(\?.*)?$/i.test(u) ||
-    u.toLowerCase().includes(".mp4") ||
-    u.toLowerCase().includes(".mov") ||
-    u.toLowerCase().includes(".webm")
+    /\.(mp4|mov|webm)(\?.*)?$/i.test(low) ||
+    low.includes(".mp4") ||
+    low.includes(".mov") ||
+    low.includes(".webm")
   );
 }
 
 async function loadLinkedInAccount(organisationId: string): Promise<SocialAccountRow | null> {
-  const { data, error } = await supabaseService
+  const { data, error } = await supabaseAdmin
     .from("social_accounts")
-    .select(
-      "id, organisation_id, platform, page_id, page_name, is_active, page_access_token, token_expires_at"
-    )
+    .select("id, organisation_id, platform, page_id, page_name, is_active, page_access_token, token_expires_at")
     .eq("organisation_id", organisationId)
     .eq("platform", "linkedin")
     .eq("is_active", true)
@@ -69,6 +53,7 @@ async function loadLinkedInAccount(organisationId: string): Promise<SocialAccoun
     console.error("[linkedin/post] social_accounts load error", error);
     return null;
   }
+
   return (data as any) ?? null;
 }
 
@@ -83,10 +68,7 @@ async function getLinkedInAuthorUrn(token: string) {
   if (!userRes.ok) {
     return {
       ok: false as const,
-      error:
-        userInfo?.message ||
-        userInfo?.error_description ||
-        "Failed to fetch LinkedIn user info",
+      error: userInfo?.message || userInfo?.error_description || "Failed to fetch LinkedIn user info",
       details: userInfo,
       status: userRes.status,
     };
@@ -102,7 +84,11 @@ async function getLinkedInAuthorUrn(token: string) {
     };
   }
 
-  return { ok: true as const, authorUrn: `urn:li:person:${sub}`, status: 200 };
+  return {
+    ok: true as const,
+    authorUrn: `urn:li:person:${sub}`,
+    status: 200,
+  };
 }
 
 async function registerLinkedInUpload(args: { token: string; authorUrn: string; kind: "image" | "video" }) {
@@ -144,8 +130,7 @@ async function registerLinkedInUpload(args: { token: string; authorUrn: string; 
   }
 
   const value = json?.value;
-  const uploadMechanism =
-    value?.uploadMechanism?.["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"];
+  const uploadMechanism = value?.uploadMechanism?.["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"];
   const uploadUrl = uploadMechanism?.uploadUrl as string | undefined;
   const asset = value?.asset as string | undefined;
 
@@ -274,105 +259,25 @@ async function createLinkedInUgcPost(args: {
   return { ok: true as const, postedId, details: json, status: res.status };
 }
 
-async function searchCommonsImages(query: string, limit = 6): Promise<SuggestedImage[]> {
-  const q = (query || "").trim();
-  if (!q) return [];
-
-  const apiUrl =
-    "https://commons.wikimedia.org/w/api.php" +
-    `?action=query&format=json&origin=*` +
-    `&generator=search&gsrsearch=${encodeURIComponent(q + " filetype:bitmap")}` +
-    `&gsrlimit=${Math.max(1, Math.min(limit, 10))}` +
-    `&gsrnamespace=6` +
-    `&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=900`;
-
-  const res = await fetch(apiUrl, { cache: "no-store" });
-  const json: any = await res.json().catch(() => null);
-
-  const pages = json?.query?.pages ? Object.values(json.query.pages) : [];
-  const out: SuggestedImage[] = [];
-
-  for (const p of pages) {
-    const title = String((p as any)?.title || "").trim();
-    const ii = (p as any)?.imageinfo?.[0];
-    const url = String(ii?.thumburl || ii?.url || "").trim();
-    if (!title || !url) continue;
-
-    const encoded = encodeURIComponent(title.replace(/ /g, "_"));
-    const pageUrl = `https://commons.wikimedia.org/wiki/${encoded}`;
-
-    const meta = ii?.extmetadata || {};
-    const licenseShortName = meta?.LicenseShortName?.value ? String(meta.LicenseShortName.value) : undefined;
-    const licenseUrl = meta?.LicenseUrl?.value ? String(meta.LicenseUrl.value) : undefined;
-
-    out.push({ url, title, pageUrl, licenseShortName, licenseUrl });
-  }
-
-  return out.slice(0, limit);
-}
-
-function helpForInvalidImageUrl(imageUrl: string): UserHelp {
-  return {
-    headline: "LinkedIn can’t use that image link",
-    what:
-      "LinkedIn needs a direct image file that our server can download (not a webpage link, not a blocked CDN link).",
-    doThis: [
-      "Use an https link that ends in .jpg, .jpeg, .png, .webp, or .gif",
-      "Make sure the link opens the image directly in a browser (not a page with the image inside it)",
-      "If your image is from a website, re-host it somewhere that provides a direct image file URL",
-      "Or use one of the suggested free-use images below (check the licence first)",
-    ],
-    notes: [
-      `Your current URL: ${imageUrl || "—"}`,
-      "Always check copyright/licence before posting publicly.",
-    ],
-  };
-}
-
-function helpForInvalidVideoUrl(videoUrl: string): UserHelp {
-  return {
-    headline: "LinkedIn can’t use that video link",
-    what:
-      "LinkedIn needs a direct video file link that our server can download (not a webpage).",
-    doThis: [
-      "Use an https link that ends in .mp4, .mov, or .webm",
-      "Try re-uploading the video via your uploader so it becomes a direct file URL",
-      "Keep the video size reasonable (very large videos can fail uploads)",
-    ],
-    notes: [`Your current URL: ${videoUrl || "—"}`],
-  };
-}
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
     const text = String(body?.text ?? body?.message ?? "").trim();
     const organisationId = String(body?.organisationId ?? "").trim();
-
     const imageUrl = String(body?.imageUrl ?? "").trim();
     const videoUrl = String(body?.videoUrl ?? "").trim();
 
     if (!organisationId) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Missing organisationId",
-          userMessage: "We couldn’t find your organisation yet. Refresh and try again.",
-          userHelp: { headline: "Organisation missing", doThis: ["Refresh the page and try again."] },
-        },
+        { ok: false, error: "Missing organisationId", userMessage: "We couldn’t find your organisation yet. Refresh and try again." },
         { status: 200 }
       );
     }
 
     if (!text) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Missing post text",
-          userMessage: "Your post is empty. Add a message and try again.",
-          userHelp: { headline: "Add a message", doThis: ["Type your post text, then try again."] },
-        },
+        { ok: false, error: "Missing post text", userMessage: "Your post is empty. Add a message and try again." },
         { status: 200 }
       );
     }
@@ -384,12 +289,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "LinkedIn not connected",
-          userMessage: "LinkedIn isn’t connected yet. Go to Connect → LinkedIn → Connect.",
-          userHelp: {
-            headline: "Connect LinkedIn",
-            doThis: ["Go to Connect", "Click LinkedIn", "Complete the connect flow", "Then try posting again"],
-          },
+          error: "LinkedIn is not connected (missing access token)",
+          userMessage: "LinkedIn is not connected (missing access token). Please reconnect LinkedIn on the Connect page.",
         },
         { status: 200 }
       );
@@ -402,10 +303,6 @@ export async function POST(req: NextRequest) {
           ok: false,
           error: author.error,
           userMessage: "LinkedIn connection looks invalid. Please reconnect LinkedIn on the Connect page.",
-          userHelp: {
-            headline: "Reconnect LinkedIn",
-            doThis: ["Go to Connect → LinkedIn", "Disconnect (if shown) then connect again", "Retry your post"],
-          },
           details: author.details,
           status: author.status,
         },
@@ -420,15 +317,13 @@ export async function POST(req: NextRequest) {
     let imageAssetUrn: string | undefined;
     let videoAssetUrn: string | undefined;
 
-    // VIDEO FLOW
     if (wantsVideo) {
       if (!isLikelyVideoUrl(videoUrl)) {
         return NextResponse.json(
           {
             ok: false,
             error: "videoUrl must be a direct https video file link ending .mp4/.mov/.webm (not a webpage).",
-            userMessage: "That video link isn’t a direct video file. Use an MP4/MOV/WEBM file link (https) and try again.",
-            userHelp: helpForInvalidVideoUrl(videoUrl),
+            userMessage: "That video link doesn’t look like a direct MP4/MOV/WEBM file. Upload via the uploader and try again.",
           },
           { status: 200 }
         );
@@ -437,17 +332,7 @@ export async function POST(req: NextRequest) {
       const vidRes = await fetch(videoUrl, { cache: "no-store" });
       if (!vidRes.ok) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: `Could not download videoUrl (HTTP ${vidRes.status})`,
-            userMessage: "We couldn’t fetch that video link. Try re-uploading it and try again.",
-            userHelp: {
-              headline: "We can’t download that video",
-              what: "The link might be blocked, expired, or not publicly accessible.",
-              doThis: ["Try a different video URL", "Or re-upload the video so it becomes a public direct file link"],
-              notes: [`HTTP status: ${vidRes.status}`],
-            },
-          },
+          { ok: false, error: `Could not download videoUrl (HTTP ${vidRes.status})`, userMessage: "We couldn’t fetch that video link. Try re-uploading it and try again." },
           { status: 200 }
         );
       }
@@ -458,16 +343,7 @@ export async function POST(req: NextRequest) {
       const sizeMb = Math.round((arrayBuffer.byteLength / (1024 * 1024)) * 10) / 10;
       if (sizeMb > 150) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: `Video is too large for this simple upload flow (${sizeMb}MB).`,
-            userMessage: "That video is quite large. Try a smaller MP4 (under ~150MB) for now.",
-            userHelp: {
-              headline: "Video too large",
-              doThis: ["Export/compress the video smaller", "Aim for under ~150MB", "Then try again"],
-              notes: [`Size: ${sizeMb}MB`],
-            },
-          },
+          { ok: false, error: `Video is too large for this simple upload flow (${sizeMb}MB).`, userMessage: "That video is quite large. Try a smaller MP4 (under ~150MB) for now." },
           { status: 200 }
         );
       }
@@ -475,17 +351,7 @@ export async function POST(req: NextRequest) {
       const reg = await registerLinkedInUpload({ token, authorUrn: author.authorUrn, kind: "video" });
       if (!reg.ok) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: reg.error,
-            userMessage: "LinkedIn wouldn’t accept the video upload setup. Try again in a minute.",
-            userHelp: {
-              headline: "LinkedIn upload setup failed",
-              doThis: ["Wait 30 seconds and try again", "If it keeps failing, reconnect LinkedIn on the Connect page"],
-            },
-            details: reg.details,
-            status: reg.status,
-          },
+          { ok: false, error: reg.error, userMessage: "LinkedIn wouldn’t accept the video upload setup. Try again in a minute.", details: reg.details, status: reg.status },
           { status: 200 }
         );
       }
@@ -493,17 +359,7 @@ export async function POST(req: NextRequest) {
       const up = await uploadArrayBufferToLinkedIn(reg.uploadUrl, arrayBuffer, contentType);
       if (!up.ok) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: up.error,
-            userMessage: "LinkedIn couldn’t upload the video. Try a smaller MP4 or try again shortly.",
-            userHelp: {
-              headline: "Video upload failed",
-              doThis: ["Try a smaller MP4", "Try again in a minute", "If it persists, reconnect LinkedIn"],
-            },
-            details: up.details,
-            status: up.status,
-          },
+          { ok: false, error: up.error, userMessage: "LinkedIn couldn’t upload the video. Try a smaller MP4 or try again shortly.", details: up.details, status: up.status },
           { status: 200 }
         );
       }
@@ -511,17 +367,13 @@ export async function POST(req: NextRequest) {
       videoAssetUrn = reg.asset;
     }
 
-    // IMAGE FLOW
     if (wantsImage) {
       if (!isLikelyImageUrl(imageUrl)) {
-        const suggestedImages = await searchCommonsImages("wellbeing workplace mental health", 6);
         return NextResponse.json(
           {
             ok: false,
             error: "imageUrl must be a direct https image link ending .jpg/.png/.webp/.gif (not a webpage).",
-            userMessage: "That image link isn’t a direct image file. Use a direct JPG/PNG/WebP/GIF (https) link and try again.",
-            userHelp: helpForInvalidImageUrl(imageUrl),
-            suggestedImages,
+            userMessage: "That image link doesn’t look like a direct image file. Pick a JPG/PNG/WebP link and try again.",
           },
           { status: 200 }
         );
@@ -529,20 +381,8 @@ export async function POST(req: NextRequest) {
 
       const imgRes = await fetch(imageUrl, { cache: "no-store" });
       if (!imgRes.ok) {
-        const suggestedImages = await searchCommonsImages("wellbeing workplace mental health", 6);
         return NextResponse.json(
-          {
-            ok: false,
-            error: `Could not download imageUrl (HTTP ${imgRes.status})`,
-            userMessage: "We couldn’t fetch that image link. Try a different image or use a suggested free-use one (check licence).",
-            userHelp: {
-              headline: "We can’t download that image",
-              what: "The image might be blocked, private, or not a direct file link.",
-              doThis: ["Try a different image URL", "Or use one of the suggested images below (check licence)"],
-              notes: [`HTTP status: ${imgRes.status}`],
-            },
-            suggestedImages,
-          },
+          { ok: false, error: `Could not download imageUrl (HTTP ${imgRes.status})`, userMessage: "We couldn’t fetch that image link. Try a different image or re-host it via Brainstorm." },
           { status: 200 }
         );
       }
@@ -550,39 +390,10 @@ export async function POST(req: NextRequest) {
       const contentType = imgRes.headers.get("content-type") || "image/jpeg";
       const arrayBuffer = await imgRes.arrayBuffer();
 
-      const sizeMb = Math.round((arrayBuffer.byteLength / (1024 * 1024)) * 10) / 10;
-      if (sizeMb > 20) {
-        const suggestedImages = await searchCommonsImages("wellbeing workplace mental health", 6);
-        return NextResponse.json(
-          {
-            ok: false,
-            error: `Image is quite large (${sizeMb}MB).`,
-            userMessage: "That image is a bit large. Try a smaller JPG/PNG (or use a suggested image).",
-            userHelp: {
-              headline: "Image too large",
-              doThis: ["Use a smaller image (under ~20MB is safest)", "Try a different image URL", "Or use a suggested image (check licence)"],
-              notes: [`Size: ${sizeMb}MB`],
-            },
-            suggestedImages,
-          },
-          { status: 200 }
-        );
-      }
-
       const reg = await registerLinkedInUpload({ token, authorUrn: author.authorUrn, kind: "image" });
       if (!reg.ok) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: reg.error,
-            userMessage: "LinkedIn wouldn’t accept the image upload setup. Try again in a minute.",
-            userHelp: {
-              headline: "LinkedIn upload setup failed",
-              doThis: ["Wait 30 seconds and try again", "If it keeps failing, reconnect LinkedIn"],
-            },
-            details: reg.details,
-            status: reg.status,
-          },
+          { ok: false, error: reg.error, userMessage: "LinkedIn wouldn’t accept the image upload setup. Try again in a minute.", details: reg.details, status: reg.status },
           { status: 200 }
         );
       }
@@ -590,17 +401,7 @@ export async function POST(req: NextRequest) {
       const up = await uploadArrayBufferToLinkedIn(reg.uploadUrl, arrayBuffer, contentType);
       if (!up.ok) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: up.error,
-            userMessage: "LinkedIn couldn’t upload the image. Try a smaller JPG/PNG or try again shortly.",
-            userHelp: {
-              headline: "Image upload failed",
-              doThis: ["Try a different JPG/PNG", "Try again in a minute", "If it persists, reconnect LinkedIn"],
-            },
-            details: up.details,
-            status: up.status,
-          },
+          { ok: false, error: up.error, userMessage: "LinkedIn couldn’t upload the image. Try a smaller JPG/PNG or try again shortly.", details: up.details, status: up.status },
           { status: 200 }
         );
       }
@@ -608,7 +409,6 @@ export async function POST(req: NextRequest) {
       imageAssetUrn = reg.asset;
     }
 
-    // CREATE POST
     const post = await createLinkedInUgcPost({
       token,
       authorUrn: author.authorUrn,
@@ -650,11 +450,6 @@ export async function POST(req: NextRequest) {
           ok: false,
           error: retry.error || post.error,
           userMessage: "LinkedIn didn’t publish this because it’s too similar to a recent post. Change the first line or CTA and try again.",
-          userHelp: {
-            headline: "Duplicate post",
-            what: "LinkedIn blocks posts that look too similar to a recent one.",
-            doThis: ["Change the first line", "Change the call-to-action", "Try again"],
-          },
           details: retry.details || post.details,
           status: retry.status || post.status,
         },
@@ -667,10 +462,6 @@ export async function POST(req: NextRequest) {
         ok: false,
         error: post.error,
         userMessage: "LinkedIn couldn’t publish this post. Try again in a minute, or shorten/edit the text.",
-        userHelp: {
-          headline: "LinkedIn rejected the post",
-          doThis: ["Try again in a minute", "Shorten the post", "Remove emojis/extra formatting if needed"],
-        },
         details: post.details,
         status: post.status,
       },
@@ -679,12 +470,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("[linkedin/post] error", err);
     return NextResponse.json(
-      {
-        ok: false,
-        error: err?.message || "Server error",
-        userMessage: "Something went wrong sending to LinkedIn. Please try again.",
-        userHelp: { headline: "Temporary error", doThis: ["Try again in a minute", "If it persists, reconnect LinkedIn"] },
-      },
+      { ok: false, error: err?.message || "Server error", userMessage: "Something went wrong sending to LinkedIn. Please try again." },
       { status: 200 }
     );
   }
