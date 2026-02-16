@@ -1,6 +1,7 @@
 // app/api/oauth/linkedin/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 
@@ -8,11 +9,20 @@ const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
 const LINKEDIN_CLIENT_ID = (process.env.LINKEDIN_CLIENT_ID || "").trim();
 const LINKEDIN_CLIENT_SECRET = (process.env.LINKEDIN_CLIENT_SECRET || "").trim();
 
-// ✅ Safe server-only org pin (must match start route)
+// IMPORTANT: do NOT use NEXT_PUBLIC_ for server-only org forcing.
+// If you want a single-org override, use SINGLE_ORG_ID (server-only).
 const SINGLE_ORG_ID = (process.env.SINGLE_ORG_ID || "").trim();
 
 function baseUrl(req: NextRequest) {
-  return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
+  try {
+    return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
+  } catch {
+    return APP_URL ? APP_URL.replace(/\/$/, "") : "";
+  }
+}
+
+function norm(v: any) {
+  return String(v ?? "").trim();
 }
 
 async function fetchJson(url: string, init?: RequestInit) {
@@ -30,56 +40,74 @@ function decodeState(state: string) {
   }
 }
 
+async function getOrganisationIdFallback(): Promise<string | null> {
+  if (SINGLE_ORG_ID) return SINGLE_ORG_ID;
+
+  // Single-tenant fallback: most recently created org
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id, created_at")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data?.id) return null;
+  return String(data.id);
+}
+
 async function upsertLinkedInSocialAccount(args: {
   organisationId: string;
-  pageId: string;
-  pageName: string | null;
+  linkedInUserId: string; // "sub" from userinfo
+  name?: string | null;
   accessToken: string;
-  tokenExpiresAt: string | null;
+  tokenExpiresAt?: string | null;
 }) {
-  const now = new Date().toISOString();
-
+  // Try upsert (best) – requires unique (organisation_id, platform)
   const row: any = {
     organisation_id: args.organisationId,
     platform: "linkedin",
-    page_id: args.pageId,
-    page_name: args.pageName,
-    page_access_token: args.accessToken,
-    token_expires_at: args.tokenExpiresAt,
+    page_id: String(args.linkedInUserId),
+    page_name: args.name ? String(args.name) : null,
+    connection_type: "linkedin_oauth",
+    make_webhook_url: null,
     is_active: true,
-    updated_at: now,
+    page_access_token: String(args.accessToken),
+    token_expires_at: args.tokenExpiresAt ?? null,
+    updated_at: new Date().toISOString(),
   };
 
-  // Try upsert first
   const up = await supabaseAdmin
     .from("social_accounts")
     .upsert(row, { onConflict: "organisation_id,platform" })
     .select()
     .maybeSingle();
 
-  if (up.error) {
-    // Fallback update
-    const { data: updated, error: uErr } = await supabaseAdmin
+  if (!up.error) return;
+
+  // Fallback: update if exists, else insert
+  const { data: existing } = await supabaseAdmin
+    .from("social_accounts")
+    .select("id")
+    .eq("organisation_id", args.organisationId)
+    .eq("platform", "linkedin")
+    .limit(1);
+
+  if (existing && existing.length > 0) {
+    const { error } = await supabaseAdmin
       .from("social_accounts")
-      .update({
-        page_id: args.pageId,
-        page_name: args.pageName,
-        page_access_token: args.accessToken,
-        token_expires_at: args.tokenExpiresAt,
-        is_active: true,
-        updated_at: now,
-      })
-      .eq("organisation_id", args.organisationId)
-      .eq("platform", "linkedin")
-      .select()
-      .maybeSingle();
+      .update(row)
+      .eq("id", existing[0].id);
 
-    if (!uErr && updated) return;
-
-    // Fallback insert (✅ IMPORTANT: don’t ignore errors)
-    const ins = await supabaseAdmin.from("social_accounts").insert(row);
-    if (ins.error) throw new Error(ins.error.message);
+    if (error) throw error;
+    return;
   }
+
+  const { error: insErr } = await supabaseAdmin.from("social_accounts").insert({
+    id: randomUUID(),
+    ...row,
+  });
+
+  if (insErr) throw insErr;
 }
 
 export async function GET(req: NextRequest) {
@@ -87,47 +115,36 @@ export async function GET(req: NextRequest) {
   back.searchParams.set("provider", "linkedin");
 
   try {
-    const err = req.nextUrl.searchParams.get("error") || "";
-    const errDesc = req.nextUrl.searchParams.get("error_description") || "";
-    if (err) {
-      back.searchParams.set("error", err);
-      if (errDesc) back.searchParams.set("error_description", errDesc);
+    // LinkedIn may send OAuth error params instead of code
+    const oauthErr = norm(req.nextUrl.searchParams.get("error") || "");
+    const oauthErrDesc = norm(req.nextUrl.searchParams.get("error_description") || "");
+    if (oauthErr) {
+      back.searchParams.set("error", oauthErr);
+      if (oauthErrDesc) back.searchParams.set("error_description", oauthErrDesc);
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
     if (!LINKEDIN_CLIENT_ID || !LINKEDIN_CLIENT_SECRET) {
       back.searchParams.set("error", "linkedin_missing_client_credentials");
-      return NextResponse.redirect(back.toString(), { status: 302 });
-    }
-
-    if (!SINGLE_ORG_ID) {
-      back.searchParams.set("error", "missing_single_org_id");
       back.searchParams.set(
         "error_description",
-        "Set SINGLE_ORG_ID in Vercel env to your active organisation id."
+        "Missing LINKEDIN_CLIENT_ID or LINKEDIN_CLIENT_SECRET in Vercel env."
       );
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
-    const code = req.nextUrl.searchParams.get("code") || "";
+    const code = norm(req.nextUrl.searchParams.get("code") || "");
     if (!code) {
       back.searchParams.set("error", "linkedin_missing_code");
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
-    const state = req.nextUrl.searchParams.get("state") || "";
-    const stateObj = state ? decodeState(state) : null;
-
-    // ✅ Always force the pinned org (and sanity-check state)
-    const organisationId = SINGLE_ORG_ID;
-    if (stateObj?.organisationId && String(stateObj.organisationId) !== SINGLE_ORG_ID) {
-      // Not fatal, but tells you exactly what was wrong if it ever happens again
-      console.warn("[linkedin/callback] state org mismatch", stateObj?.organisationId, SINGLE_ORG_ID);
-    }
+    const stateRaw = norm(req.nextUrl.searchParams.get("state") || "");
+    const st = stateRaw ? decodeState(stateRaw) : null;
 
     const redirectUri = `${baseUrl(req)}/api/oauth/linkedin/callback`;
 
-    // 1) Exchange code -> access token
+    // 1) code -> access token
     const tokenRes = await fetchJson("https://www.linkedin.com/oauth/v2/accessToken", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -140,60 +157,62 @@ export async function GET(req: NextRequest) {
       }),
     });
 
-    const accessToken = String(tokenRes.json?.access_token || "").trim();
-    const expiresIn = Number(tokenRes.json?.expires_in || 0);
-
-    if (!tokenRes.ok || !accessToken) {
+    if (!tokenRes.ok || !tokenRes.json?.access_token) {
+      // This is where your “Client authentication failed” is happening.
       back.searchParams.set("error", "linkedin_token_exchange_failed");
       back.searchParams.set(
         "error_description",
-        tokenRes.json?.error_description || tokenRes.json?.message || "Token exchange failed"
+        tokenRes.json?.error_description ||
+          tokenRes.json?.error ||
+          tokenRes.json?.message ||
+          `Token exchange failed (HTTP ${tokenRes.status}).`
       );
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
+    const accessToken = String(tokenRes.json.access_token);
+    const expiresIn = Number(tokenRes.json.expires_in || 0);
     const tokenExpiresAt =
       expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
 
-    // 2) Fetch identity
+    // 2) userinfo (because we requested openid/profile/email)
     const meRes = await fetchJson("https://api.linkedin.com/v2/userinfo", {
       method: "GET",
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    let pageId = "";
-    let pageName: string | null = null;
-
-    if (meRes.ok && meRes.json?.sub) {
-      pageId = String(meRes.json.sub);
-      pageName = meRes.json?.name ? String(meRes.json.name) : null;
-    } else {
-      const legacyMe = await fetchJson(
-        "https://api.linkedin.com/v2/me?projection=(id,localizedFirstName,localizedLastName)",
-        { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } }
+    if (!meRes.ok || !meRes.json?.sub) {
+      back.searchParams.set("error", "linkedin_userinfo_failed");
+      back.searchParams.set(
+        "error_description",
+        meRes.json?.message ||
+          meRes.json?.error_description ||
+          `Failed to fetch LinkedIn userinfo (HTTP ${meRes.status}).`
       );
-
-      if (!legacyMe.ok || !legacyMe.json?.id) {
-        back.searchParams.set("error", "linkedin_me_failed");
-        back.searchParams.set(
-          "error_description",
-          legacyMe.json?.message || legacyMe.json?.error?.message || "Could not fetch LinkedIn profile"
-        );
-        return NextResponse.redirect(back.toString(), { status: 302 });
-      }
-
-      pageId = String(legacyMe.json.id);
-      const fn = legacyMe.json?.localizedFirstName ? String(legacyMe.json.localizedFirstName) : "";
-      const ln = legacyMe.json?.localizedLastName ? String(legacyMe.json.localizedLastName) : "";
-      const nm = `${fn} ${ln}`.trim();
-      pageName = nm ? nm : null;
+      return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
-    // 3) Save
+    const linkedInUserId = String(meRes.json.sub);
+    const name =
+      meRes.json?.name ||
+      [meRes.json?.given_name, meRes.json?.family_name].filter(Boolean).join(" ") ||
+      null;
+
+    // 3) pick org id
+    const organisationId =
+      (st?.organisationId ? String(st.organisationId) : "") || (await getOrganisationIdFallback());
+
+    if (!organisationId) {
+      back.searchParams.set("error", "no_organisation");
+      back.searchParams.set("error_description", "No organisation found to attach LinkedIn connection.");
+      return NextResponse.redirect(back.toString(), { status: 302 });
+    }
+
+    // 4) save connection
     await upsertLinkedInSocialAccount({
       organisationId,
-      pageId,
-      pageName,
+      linkedInUserId,
+      name,
       accessToken,
       tokenExpiresAt,
     });
@@ -201,7 +220,6 @@ export async function GET(req: NextRequest) {
     back.searchParams.set("connected", "1");
     return NextResponse.redirect(back.toString(), { status: 302 });
   } catch (e: any) {
-    console.error("[linkedin/callback] crashed", e);
     back.searchParams.set("error", "linkedin_callback_crashed");
     back.searchParams.set("error_description", e?.message || "unknown");
     return NextResponse.redirect(back.toString(), { status: 302 });
