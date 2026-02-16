@@ -1,6 +1,5 @@
 // app/api/oauth/linkedin/start/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
@@ -8,20 +7,11 @@ export const runtime = "nodejs";
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
 const LINKEDIN_CLIENT_ID = (process.env.LINKEDIN_CLIENT_ID || "").trim();
 
+// ✅ Safe server-only org pin (prevents “saved to wrong org”)
+const SINGLE_ORG_ID = (process.env.SINGLE_ORG_ID || "").trim();
+
 function baseUrl(req: NextRequest) {
   return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
-}
-
-async function getLatestOrganisationId() {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id, created_at")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) return null;
-  return data?.id ? String(data.id) : null;
 }
 
 export async function GET(req: NextRequest) {
@@ -33,18 +23,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(back.toString(), { status: 302 });
   }
 
-  const organisationId = await getLatestOrganisationId();
-  if (!organisationId) {
-    back.searchParams.set("error", "no_organisation");
+  if (!SINGLE_ORG_ID) {
+    back.searchParams.set("error", "missing_single_org_id");
+    back.searchParams.set(
+      "error_description",
+      "Set SINGLE_ORG_ID in Vercel env to your active organisation id."
+    );
     return NextResponse.redirect(back.toString(), { status: 302 });
   }
 
   const redirectUri = `${baseUrl(req)}/api/oauth/linkedin/callback`;
 
-  // Store orgId in state so callback never “saves to the wrong org”
   const stateObj = {
     provider: "linkedin",
-    organisationId,
+    organisationId: SINGLE_ORG_ID,
     nonce: randomUUID(),
     t: Date.now(),
   };
@@ -54,18 +46,7 @@ export async function GET(req: NextRequest) {
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("client_id", LINKEDIN_CLIENT_ID);
   authUrl.searchParams.set("redirect_uri", redirectUri);
-
-  // Keep it simple: enough for posting as member and getting basic identity
-  authUrl.searchParams.set(
-    "scope",
-    [
-      "openid",
-      "profile",
-      "email",
-      "w_member_social",
-    ].join(" ")
-  );
-
+  authUrl.searchParams.set("scope", ["openid", "profile", "email", "w_member_social"].join(" "));
   authUrl.searchParams.set("state", state);
 
   return NextResponse.redirect(authUrl.toString(), { status: 302 });
