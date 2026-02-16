@@ -8,6 +8,9 @@ const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
 const LINKEDIN_CLIENT_ID = (process.env.LINKEDIN_CLIENT_ID || "").trim();
 const LINKEDIN_CLIENT_SECRET = (process.env.LINKEDIN_CLIENT_SECRET || "").trim();
 
+// ✅ Safe server-only org pin (must match start route)
+const SINGLE_ORG_ID = (process.env.SINGLE_ORG_ID || "").trim();
+
 function baseUrl(req: NextRequest) {
   return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
 }
@@ -16,18 +19,6 @@ async function fetchJson(url: string, init?: RequestInit) {
   const res = await fetch(url, { cache: "no-store", ...(init || {}) });
   const json: any = await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, json };
-}
-
-async function getLatestOrganisationId() {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id, created_at")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) return null;
-  return data?.id ? String(data.id) : null;
 }
 
 function decodeState(state: string) {
@@ -48,7 +39,6 @@ async function upsertLinkedInSocialAccount(args: {
 }) {
   const now = new Date().toISOString();
 
-  // Prefer upsert if unique constraint exists, otherwise update/insert fallback.
   const row: any = {
     organisation_id: args.organisationId,
     platform: "linkedin",
@@ -60,34 +50,36 @@ async function upsertLinkedInSocialAccount(args: {
     updated_at: now,
   };
 
+  // Try upsert first
   const up = await supabaseAdmin
     .from("social_accounts")
     .upsert(row, { onConflict: "organisation_id,platform" })
     .select()
     .maybeSingle();
 
-  if (!up.error) return;
+  if (up.error) {
+    // Fallback update
+    const { data: updated, error: uErr } = await supabaseAdmin
+      .from("social_accounts")
+      .update({
+        page_id: args.pageId,
+        page_name: args.pageName,
+        page_access_token: args.accessToken,
+        token_expires_at: args.tokenExpiresAt,
+        is_active: true,
+        updated_at: now,
+      })
+      .eq("organisation_id", args.organisationId)
+      .eq("platform", "linkedin")
+      .select()
+      .maybeSingle();
 
-  // fallback update
-  const { data: updated, error: uErr } = await supabaseAdmin
-    .from("social_accounts")
-    .update({
-      page_id: args.pageId,
-      page_name: args.pageName,
-      page_access_token: args.accessToken,
-      token_expires_at: args.tokenExpiresAt,
-      is_active: true,
-      updated_at: now,
-    })
-    .eq("organisation_id", args.organisationId)
-    .eq("platform", "linkedin")
-    .select()
-    .maybeSingle();
+    if (!uErr && updated) return;
 
-  if (!uErr && updated) return;
-
-  // fallback insert
-  await supabaseAdmin.from("social_accounts").insert(row);
+    // Fallback insert (✅ IMPORTANT: don’t ignore errors)
+    const ins = await supabaseAdmin.from("social_accounts").insert(row);
+    if (ins.error) throw new Error(ins.error.message);
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -108,22 +100,29 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
+    if (!SINGLE_ORG_ID) {
+      back.searchParams.set("error", "missing_single_org_id");
+      back.searchParams.set(
+        "error_description",
+        "Set SINGLE_ORG_ID in Vercel env to your active organisation id."
+      );
+      return NextResponse.redirect(back.toString(), { status: 302 });
+    }
+
     const code = req.nextUrl.searchParams.get("code") || "";
     if (!code) {
       back.searchParams.set("error", "linkedin_missing_code");
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
-    // Resolve organisationId from state first (prevents “saved to wrong org”)
     const state = req.nextUrl.searchParams.get("state") || "";
     const stateObj = state ? decodeState(state) : null;
-    const organisationId =
-      (stateObj?.organisationId ? String(stateObj.organisationId) : "") ||
-      (await getLatestOrganisationId());
 
-    if (!organisationId) {
-      back.searchParams.set("error", "no_organisation");
-      return NextResponse.redirect(back.toString(), { status: 302 });
+    // ✅ Always force the pinned org (and sanity-check state)
+    const organisationId = SINGLE_ORG_ID;
+    if (stateObj?.organisationId && String(stateObj.organisationId) !== SINGLE_ORG_ID) {
+      // Not fatal, but tells you exactly what was wrong if it ever happens again
+      console.warn("[linkedin/callback] state org mismatch", stateObj?.organisationId, SINGLE_ORG_ID);
     }
 
     const redirectUri = `${baseUrl(req)}/api/oauth/linkedin/callback`;
@@ -156,28 +155,22 @@ export async function GET(req: NextRequest) {
     const tokenExpiresAt =
       expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
 
-    // 2) Fetch identity (OIDC userinfo)
+    // 2) Fetch identity
     const meRes = await fetchJson("https://api.linkedin.com/v2/userinfo", {
       method: "GET",
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    // Fallback if userinfo isn't available
     let pageId = "";
     let pageName: string | null = null;
 
     if (meRes.ok && meRes.json?.sub) {
       pageId = String(meRes.json.sub);
-      const name = meRes.json?.name ? String(meRes.json.name) : "";
-      pageName = name ? name : null;
+      pageName = meRes.json?.name ? String(meRes.json.name) : null;
     } else {
-      // Try legacy /v2/me
       const legacyMe = await fetchJson(
         "https://api.linkedin.com/v2/me?projection=(id,localizedFirstName,localizedLastName)",
-        {
-          method: "GET",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }
+        { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } }
       );
 
       if (!legacyMe.ok || !legacyMe.json?.id) {
@@ -196,7 +189,7 @@ export async function GET(req: NextRequest) {
       pageName = nm ? nm : null;
     }
 
-    // 3) Save to social_accounts (this is the “Threads fix” equivalent)
+    // 3) Save
     await upsertLinkedInSocialAccount({
       organisationId,
       pageId,
