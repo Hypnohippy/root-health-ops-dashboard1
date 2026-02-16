@@ -89,10 +89,11 @@ const initialProviders: Provider[] = [
   },
 ];
 
+// ✅ IMPORTANT CHANGE: LinkedIn goes DIRECT to /api/oauth/linkedin/start
+// so it can't bounce back via the generic social connect router.
 const connectUrls: Record<ProviderId, string> = {
   facebook: "/api/social/connect/start?provider=facebook",
   instagram: "/api/social/connect/start?provider=instagram",
-  // ✅ FIX: use our dedicated LinkedIn OAuth routes (so the token is actually saved)
   linkedin: "/api/oauth/linkedin/start",
   threads: "/api/social/connect/start?provider=threads",
   tiktok: "/api/oauth/tiktok/start",
@@ -121,14 +122,11 @@ export default function DashboardConnectPage() {
       setProviders((prev) =>
         prev.map((p) => {
           const row = rows.find((r) => r.platform === p.id);
+
           const isActive = row ? row.is_active !== false : false;
 
           if (!row || !isActive) {
-            return {
-              ...p,
-              status: "disconnected",
-              accountName: undefined,
-            };
+            return { ...p, status: "disconnected", accountName: undefined };
           }
 
           return {
