@@ -1,8 +1,8 @@
-// app/dashboard/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import MediaDropzone, { UploadedMedia } from "./components/MediaDropzone";
+import Link from "next/link";
 
 type ProviderId =
   | "facebook"
@@ -62,6 +62,14 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
+type Mode = "now" | "approval";
+type MediaMode = "auto" | "image" | "video";
+
+/**
+ * Instagram publishing choice (comfort toggle)
+ */
+type IgPublishMode = "auto" | "feed_video" | "reel" | "montage_reel";
+
 type Draft = {
   id: string;
   savedAt: number;
@@ -69,7 +77,6 @@ type Draft = {
   imageUrl: string;
   videoUrl: string;
   selectedPlatforms: ProviderId[];
-  // NEW (safe to store locally; server can ignore for now)
   igPublishMode?: IgPublishMode;
   montageImageUrls?: string[];
 };
@@ -188,19 +195,6 @@ function defaultLocalDateTimePlus(minutes: number) {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
-type Mode = "now" | "approval";
-type MediaMode = "auto" | "image" | "video";
-
-/**
- * NEW:
- * Instagram publishing choice (comfort toggle)
- * - feed_video: normal video post to feed (when supported by backend)
- * - reel: post as reel
- * - auto: backend decides (default)
- * - montage_reel: multiple photos -> reel (we’ll wire server-side later)
- */
-type IgPublishMode = "auto" | "feed_video" | "reel" | "montage_reel";
-
 function looksLikeVideoUrl(u: string) {
   const s = (u || "").trim().toLowerCase();
   if (!s) return false;
@@ -217,6 +211,25 @@ function looksLikeImageUrl(u: string) {
     s.includes(".webp") ||
     s.includes(".gif")
   );
+}
+
+function detectPatternTypeHeuristic(text: string): "reflective" | "practical" | "story" {
+  const t = String(text || "").toLowerCase();
+  const hasSteps = t.includes("1)") || t.includes("1.") || t.includes("step") || t.includes("try this");
+  const hasStory = t.includes("i ") || t.includes("i’ve") || t.includes("i've") || t.includes("today i") || t.includes("when i");
+  if (hasSteps) return "practical";
+  if (hasStory) return "story";
+  return "reflective";
+}
+
+function defaultHookStyle(pt: string) {
+  if (pt === "practical") return "Clear first line + tiny steps";
+  if (pt === "story") return "Human moment + gentle insight";
+  return "Reflective opening + reassurance";
+}
+
+function defaultCtaStyle(msg: string) {
+  return msg.includes("?") ? "One gentle question" : "Soft invitation to comment";
 }
 
 export default function DashboardHomePage() {
@@ -241,10 +254,10 @@ export default function DashboardHomePage() {
 
   const [mediaMode, setMediaMode] = useState<MediaMode>("auto");
 
-  // NEW
+  // Instagram mode toggle
   const [igPublishMode, setIgPublishMode] = useState<IgPublishMode>("auto");
 
-  // NEW: montage image list
+  // Montage image list
   const [montageImages, setMontageImages] = useState<UploadedMedia[]>([]);
 
   const [selected, setSelected] = useState<ProviderId[]>([]);
@@ -259,6 +272,19 @@ export default function DashboardHomePage() {
   const [scheduledLocal, setScheduledLocal] = useState<string>(
     defaultLocalDateTimePlus(10)
   );
+
+  // ✅ Growth Memory modal state (output-stage control)
+  const [gmOpen, setGmOpen] = useState(false);
+  const [gmSaving, setGmSaving] = useState(false);
+  const [gmError, setGmError] = useState<string | null>(null);
+  const [gmToast, setGmToast] = useState<string | null>(null);
+
+  const [gmPlatform, setGmPlatform] = useState<ProviderId>("threads");
+  const [gmPatternType, setGmPatternType] = useState<"reflective" | "practical" | "story">("reflective");
+  const [gmFormat, setGmFormat] = useState<"text" | "image" | "video">("text");
+  const [gmHookStyle, setGmHookStyle] = useState("");
+  const [gmCtaStyle, setGmCtaStyle] = useState("");
+  const [gmNotes, setGmNotes] = useState("");
 
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
@@ -325,7 +351,9 @@ export default function DashboardHomePage() {
       videoUrl,
       selectedPlatforms: selected,
       igPublishMode,
-      montageImageUrls: montageImages.map((m) => String(m.url || "").trim()).filter(Boolean),
+      montageImageUrls: montageImages
+        .map((m) => String(m.url || "").trim())
+        .filter(Boolean),
     };
     const next = [d, ...drafts];
     setDrafts(next);
@@ -361,9 +389,7 @@ export default function DashboardHomePage() {
     try {
       const subject = aiSubject.trim();
       if (!subject) {
-        setAiError(
-          "Please type a subject first (e.g., 'coping with failure')."
-        );
+        setAiError("Please type a subject first (e.g., 'coping with failure').");
         return;
       }
 
@@ -426,9 +452,6 @@ export default function DashboardHomePage() {
     () => montageImages.map((m) => String(m?.url || "").trim()).filter(Boolean),
     [montageImages]
   );
-
-  // If montage mode is on but we only have 0/1 images, we can still post normally,
-  // but we warn the user it’s not a true montage yet.
   const montageReady = montageUrls.length >= 2;
 
   async function sendQuickBlastNow() {
@@ -447,7 +470,6 @@ export default function DashboardHomePage() {
           videoUrl: media.videoUrl,
           platforms: selected,
 
-          // NEW (safe): backend can ignore until you wire it
           igPublishMode,
           montageImageUrls: montageUrls,
         }),
@@ -518,6 +540,7 @@ export default function DashboardHomePage() {
       const res = await fetch("/api/social/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({
           message,
           platforms: selected,
@@ -531,7 +554,6 @@ export default function DashboardHomePage() {
               created_at: new Date().toISOString(),
             },
             ...(media.videoUrl ? { video_url: media.videoUrl } : {}),
-            // NEW (safe): stored in meta for later use
             ig_publish_mode: igPublishMode,
             montage_image_urls: montageUrls,
           },
@@ -646,7 +668,6 @@ export default function DashboardHomePage() {
     const isImage =
       kind === "image" || ct.startsWith("image/") || looksLikeImageUrl(url);
 
-    // If montage mode: collect images into a list (don’t overwrite)
     if (isMontageMode) {
       if (isImage) {
         setMontageImages((prev) => {
@@ -654,14 +675,12 @@ export default function DashboardHomePage() {
           if (exists) return prev;
           return [...prev, { ...m, url, kind: "image" }];
         });
-        // Keep primary imageUrl set to the first montage image so normal posts still work
         setImageUrl((prev) => (prev ? prev : url));
         setVideoUrl("");
         setMediaMode("image");
         return;
       }
 
-      // If user drops a video while in montage mode, treat it as a normal video post
       if (isVideo) {
         setVideoUrl(url);
         setImageUrl("");
@@ -670,7 +689,6 @@ export default function DashboardHomePage() {
       }
     }
 
-    // Normal behavior
     if (isVideo && !isImage) {
       setVideoUrl(url);
       setImageUrl("");
@@ -709,10 +727,7 @@ export default function DashboardHomePage() {
   }
 
   const media = effectiveMediaPayload();
-
-  // Comfort: always show the IG options, but disable when not applicable
   const hasEffectiveVideo = !!media.videoUrl;
-  const hasEffectiveImage = !!media.imageUrl;
 
   const igChoiceHint = useMemo(() => {
     if (igPublishMode === "montage_reel") {
@@ -726,13 +741,84 @@ export default function DashboardHomePage() {
     return "Auto (recommended).";
   }, [igPublishMode, montageUrls.length]);
 
-  // Safety: if user switches away from montage mode, keep the list but don’t force it.
   useEffect(() => {
     if (!isMontageMode) return;
-    // If montage mode and we have montage images, keep imageUrl set for compatibility
     if (!imageUrl && montageUrls.length > 0) setImageUrl(montageUrls[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMontageMode]);
+
+  // ✅ Open Growth Memory modal from the “output stage”
+  function openGrowthMemoryFromCurrentPost() {
+    const platforms = selected.length ? selected : ["threads"];
+    const first = platforms[0] || "threads";
+
+    const fmt: "text" | "image" | "video" = media.videoUrl
+      ? "video"
+      : media.imageUrl
+      ? "image"
+      : "text";
+
+    const pt = detectPatternTypeHeuristic(message);
+
+    setGmPlatform(first);
+    setGmFormat(fmt);
+    setGmPatternType(pt);
+    setGmHookStyle(defaultHookStyle(pt));
+    setGmCtaStyle(defaultCtaStyle(message));
+    setGmNotes("");
+    setGmError(null);
+    setGmOpen(true);
+  }
+
+  async function saveGrowthMemory() {
+    setGmSaving(true);
+    setGmError(null);
+
+    try {
+      const payload = {
+        suggestion: {
+          platform: gmPlatform,
+          pattern_type: gmPatternType,
+          format: gmFormat,
+          hook_style: gmHookStyle,
+          cta_style: gmCtaStyle,
+          notes:
+            (gmNotes || "").trim() ||
+            "Saved from Quick Blast — a pattern worth repeating.",
+          performance_score: null,
+          source_post_id: null,
+        },
+      };
+
+      const res = await fetch("/api/growth/patterns/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        setGmError(json?.error || "Could not save to Growth Memory.");
+        setGmSaving(false);
+        return;
+      }
+
+      setGmOpen(false);
+      setGmSaving(false);
+      setGmToast("⭐ Saved to Growth Memory");
+      setTimeout(() => setGmToast(null), 2500);
+    } catch (e: any) {
+      setGmSaving(false);
+      setGmError(e?.message || "Could not save to Growth Memory.");
+    }
+  }
+
+  function closeGrowthMemory() {
+    setGmOpen(false);
+    setGmSaving(false);
+    setGmError(null);
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
@@ -748,6 +834,15 @@ export default function DashboardHomePage() {
                 A calm, premium cockpit for social momentum. Send fast. Recover
                 cleanly. Keep going.
               </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  href="/dashboard/campaigns"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
+                >
+                  🧪 Open Growth Lab
+                </Link>
+              </div>
             </div>
 
             <div className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-xs text-slate-300">
@@ -770,6 +865,12 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
+          {gmToast ? (
+            <div className="mt-5 rounded-2xl border border-emerald-500/50 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+              {gmToast}
+            </div>
+          ) : null}
+
           <div className="mt-8 grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2 rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <div className="flex items-start justify-between gap-4">
@@ -781,10 +882,19 @@ export default function DashboardHomePage() {
                 </div>
                 <div className="text-right text-xs text-slate-400">
                   <div>{charCount} chars</div>
-                  <div className="mt-1 text-slate-300">{lengthHint}</div>
+                  <div className="mt-1 text-slate-300">
+                    {charCount === 0
+                      ? "Write something"
+                      : charCount <= 120
+                      ? "Great length"
+                      : charCount <= 240
+                      ? "A bit long (still OK)"
+                      : "Very long — consider shortening"}
+                  </div>
                 </div>
               </div>
 
+              {/* Dispatch mode */}
               <div className="mt-5 rounded-3xl border border-slate-700 bg-slate-950 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -861,7 +971,7 @@ export default function DashboardHomePage() {
                 )}
               </div>
 
-              {/* ✅ Media uploader (image/video) */}
+              {/* Media uploader */}
               <div className="mt-6 rounded-3xl border border-slate-700 bg-slate-950 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -911,7 +1021,7 @@ export default function DashboardHomePage() {
                   </div>
                 </div>
 
-                {/* NEW: Instagram publish choice (ALWAYS VISIBLE) */}
+                {/* Instagram style */}
                 <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -1100,12 +1210,6 @@ export default function DashboardHomePage() {
                   Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl:{" "}
                   {media.videoUrl ? "✅" : "—"}
                 </div>
-
-                {igPublishMode === "montage_reel" && !hasEffectiveImage && montageUrls.length > 0 && (
-                  <div className="mt-2 text-[11px] text-amber-200">
-                    Note: Montage has images, but Image URL is blank — refresh or upload one more image to set the first image as the primary imageUrl.
-                  </div>
-                )}
               </div>
 
               {/* AI Composer */}
@@ -1212,6 +1316,7 @@ export default function DashboardHomePage() {
                 )}
               </div>
 
+              {/* Message + Channels + Send */}
               <div className="mt-5 space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-300">
@@ -1226,7 +1331,6 @@ export default function DashboardHomePage() {
                   />
                 </div>
 
-                {/* Manual fields remain as fallback */}
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
                     <label className="block text-xs font-medium text-slate-300">
@@ -1316,9 +1420,7 @@ export default function DashboardHomePage() {
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={
-                      sending || message.trim().length === 0 || selected.length === 0
-                    }
+                    disabled={sending || message.trim().length === 0 || selected.length === 0}
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {sending
@@ -1350,11 +1452,8 @@ export default function DashboardHomePage() {
                 {result && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
-                      <div
-                        className={result.success ? "text-emerald-200" : "text-amber-200"}
-                      >
-                        {friendlySummary?.headline ||
-                          (result.success ? "Success." : "Not sent.")}
+                      <div className={result.success ? "text-emerald-200" : "text-amber-200"}>
+                        {friendlySummary?.headline || (result.success ? "Success." : "Not sent.")}
                       </div>
                       <div className="mt-1 text-[12px] text-slate-300">
                         {friendlySummary?.topMsg ||
@@ -1368,6 +1467,25 @@ export default function DashboardHomePage() {
                         </div>
                       ) : null}
                     </div>
+
+                    {/* ✅ Output-stage control: Save pattern */}
+                    {result.success ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={openGrowthMemoryFromCurrentPost}
+                          className="rounded-2xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                        >
+                          ⭐ Save this to Growth Memory
+                        </button>
+                        <Link
+                          href="/dashboard/campaigns"
+                          className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs text-slate-200 hover:border-slate-600"
+                        >
+                          View Growth Lab
+                        </Link>
+                      </div>
+                    ) : null}
 
                     {Array.isArray(result.results) && result.results.length > 0 && (
                       <div className="mt-4 space-y-2">
@@ -1513,6 +1631,147 @@ export default function DashboardHomePage() {
           </div>
         </div>
       </div>
+
+      {/* ✅ Growth Memory Modal */}
+      {gmOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/70" onClick={closeGrowthMemory} />
+
+          <div className="relative w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs text-slate-400">Growth Memory</div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">
+                  Save this as a pattern ⭐
+                </div>
+                <div className="mt-2 text-[12px] text-slate-400">
+                  This is the “output stage control” — you decide what’s worth repeating.
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeGrowthMemory}
+                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+              >
+                Close
+              </button>
+            </div>
+
+            {gmError ? (
+              <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">
+                {gmError}
+              </div>
+            ) : null}
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Platform</label>
+                <select
+                  value={gmPlatform}
+                  onChange={(e) => setGmPlatform(e.target.value as ProviderId)}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                >
+                  {selected.length > 0 ? (
+                    selected.map((p) => (
+                      <option key={p} value={p}>
+                        {PROVIDER_LABELS[p]}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="threads">Threads</option>
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Format</label>
+                <select
+                  value={gmFormat}
+                  onChange={(e) => setGmFormat(e.target.value as any)}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                >
+                  <option value="text">Text</option>
+                  <option value="image">Image</option>
+                  <option value="video">Video</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Pattern type</label>
+                <select
+                  value={gmPatternType}
+                  onChange={(e) => {
+                    const v = e.target.value as any;
+                    setGmPatternType(v);
+                    setGmHookStyle((prev) => prev || defaultHookStyle(v));
+                  }}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                >
+                  <option value="reflective">Reflective</option>
+                  <option value="practical">Practical</option>
+                  <option value="story">Story</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">CTA style</label>
+                <input
+                  value={gmCtaStyle}
+                  onChange={(e) => setGmCtaStyle(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  placeholder="e.g. One gentle question"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-slate-300">Hook style</label>
+                <input
+                  value={gmHookStyle}
+                  onChange={(e) => setGmHookStyle(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  placeholder="e.g. Reflective opening + reassurance"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-slate-300">Notes (optional)</label>
+                <textarea
+                  value={gmNotes}
+                  onChange={(e) => setGmNotes(e.target.value)}
+                  rows={3}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  placeholder="Why was this a good one?"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={saveGrowthMemory}
+                disabled={gmSaving}
+                className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {gmSaving ? "Saving…" : "Save to Growth Memory"}
+              </button>
+
+              <button
+                type="button"
+                onClick={closeGrowthMemory}
+                disabled={gmSaving}
+                className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            </div>
+
+            <div className="mt-4 text-[11px] text-slate-500">
+              Tip: If it felt good to write and it matched your style — save it. Your future self will thank you. 🙂
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
