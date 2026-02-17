@@ -1,28 +1,42 @@
 // app/api/oauth/tiktok/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import crypto from "crypto";
+import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 
-const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY || "";
-const TIKTOK_CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET || "";
-const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI || ""; // must match TikTok app setting
-const OAUTH_STATE_SECRET = process.env.OAUTH_STATE_SECRET || "dev-secret";
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const TIKTOK_CLIENT_KEY = (process.env.TIKTOK_CLIENT_KEY || "").trim();
+const TIKTOK_CLIENT_SECRET = (process.env.TIKTOK_CLIENT_SECRET || "").trim();
+const TIKTOK_REDIRECT_URI = (process.env.TIKTOK_REDIRECT_URI || "").trim(); // must match TikTok app setting
+
+const OAUTH_STATE_SECRET = (process.env.OAUTH_STATE_SECRET || "dev-secret").trim();
+
+// optional single-org override (server only)
+const SINGLE_ORG_ID = (process.env.SINGLE_ORG_ID || "").trim();
+
+function baseUrl(req: NextRequest) {
+  try {
+    return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
+  } catch {
+    return APP_URL ? APP_URL.replace(/\/$/, "") : "";
+  }
+}
+
+function norm(v: any) {
+  return String(v ?? "").trim();
+}
 
 function b64urlDecodeToString(input: string) {
-  // base64url -> base64
   const b64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  // pad
   const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
   return Buffer.from(b64 + pad, "base64").toString("utf8");
 }
 
+// expected: "<base64url(json)>.<base64url(signatureHex)>"
 function verifyAndParseSignedState(state: string): any | null {
-  // expected: "<base64url(json)>.<base64url(signatureHex)>"
   const parts = String(state || "").split(".");
   if (parts.length !== 2) return null;
 
@@ -57,16 +71,13 @@ function parseStateAny(state: string): any | null {
   const s = String(state || "").trim();
   if (!s) return null;
 
-  // 1) Try our signed state format
   const signed = verifyAndParseSignedState(s);
   if (signed) return signed;
 
-  // 2) Backwards compat: raw JSON state
   try {
     if (s.startsWith("{") && s.endsWith("}")) return JSON.parse(s);
   } catch {}
 
-  // 3) Backwards compat: base64/base64url JSON without signature
   try {
     const decoded = b64urlDecodeToString(s);
     if (decoded.startsWith("{") && decoded.endsWith("}")) return JSON.parse(decoded);
@@ -75,8 +86,13 @@ function parseStateAny(state: string): any | null {
   return null;
 }
 
+async function fetchJson(url: string, init?: RequestInit) {
+  const res = await fetch(url, { cache: "no-store", ...(init || {}) });
+  const json: any = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json };
+}
+
 async function exchangeCodeForToken(code: string) {
-  // TikTok OAuth token endpoint (v2)
   const url = "https://open.tiktokapis.com/v2/oauth/token/";
 
   const form = new URLSearchParams();
@@ -98,7 +114,6 @@ async function exchangeCodeForToken(code: string) {
 }
 
 async function fetchTikTokUser(accessToken: string) {
-  // Basic user info (TikTok Open API v2)
   const url =
     "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,username";
 
@@ -112,62 +127,179 @@ async function fetchTikTokUser(accessToken: string) {
   return { ok: res.ok, status: res.status, json };
 }
 
+async function getOrganisationIdFallback(): Promise<string | null> {
+  if (SINGLE_ORG_ID) return SINGLE_ORG_ID;
+
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id, created_at")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data?.id) return null;
+  return String(data.id);
+}
+
+/**
+ * ✅ IMPORTANT:
+ * Ensure exactly ONE active tiktok row per org.
+ */
+async function upsertTikTokSocialAccount(args: {
+  organisationId: string;
+  openId: string | null;
+  displayName: string | null;
+  accessToken: string;
+  tokenExpiresAt: string | null;
+  refreshToken?: string | null;
+  rawToken?: any;
+  rawUser?: any;
+}) {
+  const organisationId = norm(args.organisationId);
+  const accessToken = norm(args.accessToken);
+
+  if (!organisationId || !accessToken) {
+    throw new Error("Missing organisationId / accessToken");
+  }
+
+  // 1) deactivate ALL tiktok rows for this org
+  const { error: deactErr } = await supabaseAdmin
+    .from("social_accounts")
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq("organisation_id", organisationId)
+    .eq("platform", "tiktok");
+
+  if (deactErr) {
+    console.warn("[tiktok/callback] deactivate existing tiktok rows failed", deactErr);
+  }
+
+  // 2) find newest existing row (if any)
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from("social_accounts")
+    .select("id, created_at, updated_at")
+    .eq("organisation_id", organisationId)
+    .eq("platform", "tiktok")
+    .order("updated_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    console.warn("[tiktok/callback] existing lookup error", existingError);
+  }
+
+  const payload: any = {
+    page_id: args.openId ? String(args.openId) : null,
+    page_name: args.displayName ? String(args.displayName) : "TikTok",
+    connection_type: "tiktok_oauth",
+    make_webhook_url: null,
+    is_active: true,
+    page_access_token: accessToken,
+    token_expires_at: args.tokenExpiresAt,
+    updated_at: new Date().toISOString(),
+  };
+
+  // meta is useful, but if your table ever didn’t have it, we’ll fail gracefully
+  const metaPayload = {
+    refresh_token: args.refreshToken || null,
+    raw_token: args.rawToken || null,
+    raw_user: args.rawUser || null,
+  };
+
+  if (existing?.id) {
+    // try update with meta first
+    const attempt1 = await supabaseAdmin
+      .from("social_accounts")
+      .update({ ...payload, meta: metaPayload })
+      .eq("id", existing.id);
+
+    if (!attempt1.error) return;
+
+    // fallback update without meta
+    const attempt2 = await supabaseAdmin
+      .from("social_accounts")
+      .update(payload)
+      .eq("id", existing.id);
+
+    if (attempt2.error) throw attempt2.error;
+    return;
+  }
+
+  // insert new (try with meta, fallback without meta)
+  const attemptIns1 = await supabaseAdmin.from("social_accounts").insert({
+    id: randomUUID(),
+    organisation_id: organisationId,
+    platform: "tiktok",
+    created_at: new Date().toISOString(),
+    ...payload,
+    meta: metaPayload,
+  });
+
+  if (!attemptIns1.error) return;
+
+  const attemptIns2 = await supabaseAdmin.from("social_accounts").insert({
+    id: randomUUID(),
+    organisation_id: organisationId,
+    platform: "tiktok",
+    created_at: new Date().toISOString(),
+    ...payload,
+  });
+
+  if (attemptIns2.error) throw attemptIns2.error;
+}
+
 export async function GET(req: NextRequest) {
+  const back = new URL(`${baseUrl(req)}/dashboard/connect`);
+  back.searchParams.set("provider", "tiktok");
+
   try {
     const url = new URL(req.url);
 
-    const code = String(url.searchParams.get("code") || "").trim();
-    const stateRaw = String(url.searchParams.get("state") || "").trim();
-    const error = String(url.searchParams.get("error") || "").trim();
-    const errorDesc = String(url.searchParams.get("error_description") || "").trim();
-
+    const error = norm(url.searchParams.get("error"));
+    const errorDesc = norm(url.searchParams.get("error_description"));
     if (error) {
-      return NextResponse.json(
-        { success: false, error: errorDesc || error || "TikTok returned an error" },
-        { status: 400 }
-      );
+      back.searchParams.set("error", error);
+      if (errorDesc) back.searchParams.set("error_description", errorDesc);
+      return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
+    const code = norm(url.searchParams.get("code"));
+    const stateRaw = norm(url.searchParams.get("state"));
+
     if (!code) {
-      return NextResponse.json({ success: false, error: "Missing code" }, { status: 400 });
+      back.searchParams.set("error", "tiktok_missing_code");
+      return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
     const state = parseStateAny(stateRaw);
-    const organisationId = String(state?.organisationId || "").trim();
+    const organisationId =
+      norm(state?.organisationId) || (await getOrganisationIdFallback()) || "";
 
     if (!organisationId) {
-      return NextResponse.json(
-        { success: false, error: "Missing/invalid state (no organisation id)." },
-        { status: 400 }
-      );
+      back.searchParams.set("error", "no_organisation");
+      back.searchParams.set("error_description", "No organisation found to attach TikTok connection.");
+      return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
     if (!TIKTOK_CLIENT_KEY || !TIKTOK_CLIENT_SECRET || !TIKTOK_REDIRECT_URI) {
-      return NextResponse.json(
-        { success: false, error: "TikTok env missing (client key/secret/redirect uri)." },
-        { status: 500 }
-      );
-    }
-
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { success: false, error: "Supabase env missing (NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY)." },
-        { status: 500 }
-      );
+      back.searchParams.set("error", "tiktok_missing_env");
+      back.searchParams.set("error_description", "Missing TIKTOK_CLIENT_KEY/TIKTOK_CLIENT_SECRET/TIKTOK_REDIRECT_URI.");
+      return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
     // 1) Exchange code -> token
     const tokenRes = await exchangeCodeForToken(code);
     if (!tokenRes.ok) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: tokenRes.json?.error?.message || tokenRes.json?.message || "TikTok token exchange failed",
-          details: tokenRes.json,
-          status: tokenRes.status,
-        },
-        { status: 400 }
+      console.error("[tiktok/callback] token exchange failed", tokenRes.json);
+      back.searchParams.set("error", "tiktok_token_exchange_failed");
+      back.searchParams.set(
+        "error_description",
+        tokenRes.json?.error?.message ||
+          tokenRes.json?.message ||
+          tokenRes.json?.error_description ||
+          `Token exchange failed (HTTP ${tokenRes.status}).`
       );
+      return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
     const accessToken =
@@ -178,65 +310,42 @@ export async function GET(req: NextRequest) {
       Number(tokenRes.json?.expires_in ?? tokenRes.json?.data?.expires_in ?? 0) || 0;
 
     if (!accessToken) {
-      return NextResponse.json(
-        { success: false, error: "TikTok token exchange returned no access_token", details: tokenRes.json },
-        { status: 400 }
-      );
+      back.searchParams.set("error", "tiktok_missing_access_token");
+      back.searchParams.set("error_description", "TikTok token exchange returned no access_token.");
+      return NextResponse.redirect(back.toString(), { status: 302 });
     }
-
-    // 2) Fetch user info (nice for page_name/page_id)
-    const userRes = await fetchTikTokUser(accessToken);
-    const userData = userRes.json?.data?.user || userRes.json?.data || null;
-
-    const openId =
-      String(userData?.open_id || userData?.openId || tokenRes.json?.open_id || "").trim();
-    const displayName =
-      String(userData?.display_name || userData?.displayName || userData?.username || "").trim() ||
-      "TikTok";
-
-    // 3) Save to social_accounts
-    const service = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { persistSession: false },
-    });
 
     const tokenExpiresAt =
       expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
 
-    const { error: upsertErr } = await service
-      .from("social_accounts")
-      .upsert(
-        {
-          organisation_id: organisationId,
-          platform: "tiktok",
-          page_id: openId || null,
-          page_name: displayName,
-          connection_type: "oauth",
-          is_active: true,
-          page_access_token: accessToken,
-          token_expires_at: tokenExpiresAt,
-          // store refresh token etc in meta if you have a jsonb column (safe optional)
-          meta: {
-            refresh_token: refreshToken || null,
-            raw_token: tokenRes.json || null,
-            raw_user: userRes.json || null,
-          },
-        } as any,
-        { onConflict: "organisation_id,platform" }
-      );
+    // 2) Fetch user info (optional, but nice)
+    const userRes = await fetchTikTokUser(accessToken);
+    const userData = userRes.json?.data?.user || userRes.json?.data || null;
 
-    if (upsertErr) {
-      return NextResponse.json(
-        { success: false, error: `Failed to save TikTok connection: ${upsertErr.message}` },
-        { status: 500 }
-      );
-    }
+    const openId =
+      norm(userData?.open_id || userData?.openId || tokenRes.json?.open_id || "") || null;
 
-    // 4) Back to Connect page
-    return NextResponse.redirect(`${url.origin}/dashboard/connect?connected=tiktok`);
+    const displayName =
+      norm(userData?.display_name || userData?.displayName || userData?.username || "") || "TikTok";
+
+    // 3) Save
+    await upsertTikTokSocialAccount({
+      organisationId,
+      openId,
+      displayName,
+      accessToken,
+      tokenExpiresAt,
+      refreshToken,
+      rawToken: tokenRes.json || null,
+      rawUser: userRes.json || null,
+    });
+
+    back.searchParams.set("connected", "1");
+    return NextResponse.redirect(back.toString(), { status: 302 });
   } catch (e: any) {
-    return NextResponse.json(
-      { success: false, error: e?.message || "TikTok callback failed" },
-      { status: 500 }
-    );
+    console.error("[tiktok/callback] crashed", e);
+    back.searchParams.set("error", "tiktok_callback_crashed");
+    back.searchParams.set("error_description", e?.message || "unknown");
+    return NextResponse.redirect(back.toString(), { status: 302 });
   }
 }
