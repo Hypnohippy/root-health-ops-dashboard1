@@ -178,10 +178,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </li>
             <li>
               <Link
-                href="/dashboard/campaigns"
-                className={linkClasses("/dashboard/campaigns")}
+                href="/dashboard/growth lab"
+                className={linkClasses("/dashboard/growth lab")}
               >
-                Campaigns
+                Growth Lab
               </Link>
             </li>
             <li>
