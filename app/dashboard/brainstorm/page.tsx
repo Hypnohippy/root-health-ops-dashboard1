@@ -72,6 +72,30 @@ const PREFILL_SCHEDULED_KEYS = [
 // ✅ NEW: Brainstorm “Draft Locker” (prevents resets on navigation)
 const LOCKER_KEYS = ["rootops_brainstorm_locker_v1", "rh_brainstorm_locker_v1"];
 
+// ✅ NEW: Growth Lab → Brainstorm seed
+const GROWTH_SEED_KEYS = [
+  "rootops_growth_seed_brainstorm_v1",
+  "rh_growth_seed_brainstorm_v1",
+];
+
+type GrowthSeedPayload = {
+  v: number;
+  createdAt: string;
+  source: "growth_lab";
+  organisationId?: string | null;
+  experimentId?: string | null;
+  platform?: string | null;
+  title?: string | null;
+  hypothesis?: string | null;
+  pattern_type?: string | null;
+  format?: string | null;
+  hook_style?: string | null;
+  cta_style?: string | null;
+  notes?: string | null;
+  confidence?: number | null;
+  brief: string; // the important part
+};
+
 function uid() {
   try {
     return crypto.randomUUID();
@@ -165,13 +189,23 @@ const DEFAULT_CHAT: ChatMsg[] = [
   },
 ];
 
+function toChannelId(p?: string | null): ChannelId {
+  const k = String(p || "").toLowerCase().trim();
+  if (k === "facebook") return "facebook";
+  if (k === "instagram") return "instagram";
+  if (k === "threads") return "threads";
+  if (k === "linkedin") return "linkedin";
+  if (k === "tiktok") return "tiktok";
+  if (k === "reddit") return "reddit";
+  return "linkedin";
+}
+
 export default function BrainstormPage() {
   const [platform, setPlatform] = useState<ChannelId>("linkedin");
   const [tone, setTone] = useState<string>("Professional & confident");
   const [wantImages, setWantImages] = useState<boolean>(true);
 
   const [input, setInput] = useState<string>(DEFAULT_INPUT);
-
   const [chat, setChat] = useState<ChatMsg[]>(DEFAULT_CHAT);
 
   const [loading, setLoading] = useState(false);
@@ -194,6 +228,10 @@ export default function BrainstormPage() {
   // UX note bar
   const [toast, setToast] = useState<string | null>(null);
 
+  // ✅ Growth seed
+  const [growthSeed, setGrowthSeed] = useState<GrowthSeedPayload | null>(null);
+  const [showSeedBanner, setShowSeedBanner] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const canSend = useMemo(() => !!input.trim() && !loading, [input, loading]);
@@ -204,34 +242,129 @@ export default function BrainstormPage() {
     } catch {}
   };
 
+  function hasExistingWork(snapshot?: {
+    chat?: ChatMsg[];
+    input?: string;
+    angles?: string[];
+    drafts?: Draft[];
+  }) {
+    const c = snapshot?.chat ?? chat;
+    const i = snapshot?.input ?? input;
+    const a = snapshot?.angles ?? angles;
+    const d = snapshot?.drafts ?? drafts;
+
+    // “Existing work” = more than the default assistant message, or any drafts/angles
+    const chatHasMoreThanDefault = Array.isArray(c) && c.length > DEFAULT_CHAT.length;
+    const inputChanged = String(i || "").trim() && String(i || "").trim() !== String(DEFAULT_INPUT).trim();
+    const hasAngles = Array.isArray(a) && a.length > 0;
+    const hasDrafts = Array.isArray(d) && d.length > 0;
+
+    return chatHasMoreThanDefault || inputChanged || hasAngles || hasDrafts;
+  }
+
+  function applyGrowthSeed(seed: GrowthSeedPayload) {
+    // Gentle: don’t wipe chat. Just prefill input + set platform + nudge tone.
+    setPlatform(toChannelId(seed.platform));
+    setTone((prev) => {
+      const p = String(prev || "").trim();
+      // only adjust tone if it’s empty or default-ish
+      if (!p) return "Calm & supportive";
+      return p;
+    });
+
+    setInput(seed.brief || "");
+    setError(null);
+
+    setToast("Loaded from Growth Lab ✅");
+    setTimeout(() => setToast(null), 1800);
+
+    // Once applied, remove so it doesn’t keep prompting
+    removeLocalStorageMulti(GROWTH_SEED_KEYS);
+    setGrowthSeed(null);
+    setShowSeedBanner(false);
+  }
+
+  function clearGrowthSeed() {
+    removeLocalStorageMulti(GROWTH_SEED_KEYS);
+    setGrowthSeed(null);
+    setShowSeedBanner(false);
+    setToast("Cleared Growth Lab seed ✅");
+    setTimeout(() => setToast(null), 1500);
+  }
+
   // -------------------------
   // ✅ Draft Locker: restore
   // -------------------------
   useEffect(() => {
+    let restoredSnapshot: {
+      platform?: ChannelId;
+      tone?: string;
+      wantImages?: boolean;
+      input?: string;
+      chat?: ChatMsg[];
+      angles?: string[];
+      drafts?: Draft[];
+      draftImages?: Record<number, CommonsImage | null>;
+      draftImageQueryEdits?: Record<number, string>;
+    } | null = null;
+
     try {
       const raw = getLocalStorageFirst(LOCKER_KEYS);
-      if (!raw) return;
+      if (!raw) {
+        restoredSnapshot = null;
+      } else {
+        const parsed = JSON.parse(raw) as LockerPayload;
+        if (parsed && typeof parsed === "object" && parsed.v === 1) {
+          restoredSnapshot = parsed;
 
-      const parsed = JSON.parse(raw) as LockerPayload;
+          if (parsed.platform) setPlatform(parsed.platform);
+          if (typeof parsed.tone === "string") setTone(parsed.tone);
+          if (typeof parsed.wantImages === "boolean") setWantImages(parsed.wantImages);
+
+          if (typeof parsed.input === "string") setInput(parsed.input);
+          if (Array.isArray(parsed.chat) && parsed.chat.length > 0) setChat(parsed.chat);
+
+          if (Array.isArray(parsed.angles)) setAngles(parsed.angles);
+          if (Array.isArray(parsed.drafts)) setDrafts(parsed.drafts);
+
+          if (parsed.draftImages && typeof parsed.draftImages === "object") setDraftImages(parsed.draftImages);
+          if (parsed.draftImageQueryEdits && typeof parsed.draftImageQueryEdits === "object")
+            setDraftImageQueryEdits(parsed.draftImageQueryEdits);
+
+          setToast("Restored your Brainstorm drafts ✅");
+          setTimeout(() => setToast(null), 1800);
+        }
+      }
+    } catch {
+      restoredSnapshot = null;
+    }
+
+    // ✅ After locker restore attempt, check if a Growth seed exists
+    try {
+      const seedRaw = getLocalStorageFirst(GROWTH_SEED_KEYS);
+      if (!seedRaw) return;
+
+      const parsed = JSON.parse(seedRaw) as GrowthSeedPayload;
       if (!parsed || typeof parsed !== "object") return;
       if (parsed.v !== 1) return;
+      if (!String(parsed.brief || "").trim()) return;
 
-      if (parsed.platform) setPlatform(parsed.platform);
-      if (typeof parsed.tone === "string") setTone(parsed.tone);
-      if (typeof parsed.wantImages === "boolean") setWantImages(parsed.wantImages);
+      setGrowthSeed(parsed);
 
-      if (typeof parsed.input === "string") setInput(parsed.input);
-      if (Array.isArray(parsed.chat) && parsed.chat.length > 0) setChat(parsed.chat);
+      // If they already have work, show a banner instead of overwriting
+      const alreadyWorking = hasExistingWork({
+        chat: restoredSnapshot?.chat,
+        input: restoredSnapshot?.input,
+        angles: restoredSnapshot?.angles,
+        drafts: restoredSnapshot?.drafts,
+      });
 
-      if (Array.isArray(parsed.angles)) setAngles(parsed.angles);
-      if (Array.isArray(parsed.drafts)) setDrafts(parsed.drafts);
-
-      if (parsed.draftImages && typeof parsed.draftImages === "object") setDraftImages(parsed.draftImages);
-      if (parsed.draftImageQueryEdits && typeof parsed.draftImageQueryEdits === "object")
-        setDraftImageQueryEdits(parsed.draftImageQueryEdits);
-
-      setToast("Restored your Brainstorm drafts ✅");
-      setTimeout(() => setToast(null), 1800);
+      if (alreadyWorking) {
+        setShowSeedBanner(true);
+      } else {
+        // Fresh page → auto-load
+        applyGrowthSeed(parsed);
+      }
     } catch {
       // ignore
     }
@@ -545,6 +678,17 @@ export default function BrainstormPage() {
             </div>
 
             <div className="flex items-center gap-2">
+              {growthSeed ? (
+                <button
+                  type="button"
+                  onClick={clearGrowthSeed}
+                  className="rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/15 hover:text-amber-100"
+                  title="Clear the Growth Lab idea waiting to be loaded"
+                >
+                  Clear Growth Lab seed
+                </button>
+              ) : null}
+
               <button
                 type="button"
                 onClick={resetBrainstorm}
@@ -556,6 +700,31 @@ export default function BrainstormPage() {
           </div>
 
           <ConnectedChannelsBar title="Social connections" />
+
+          {showSeedBanner && growthSeed ? (
+            <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+              <div className="font-semibold">Growth Lab idea ready ✅</div>
+              <div className="mt-1 text-[12px] text-amber-200/90">
+                You already have work in Brainstorm. Want to load the Growth Lab brief into the input box (without wiping drafts)?
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => applyGrowthSeed(growthSeed)}
+                  className="rounded-full bg-amber-400 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-amber-300"
+                >
+                  Load it
+                </button>
+                <button
+                  type="button"
+                  onClick={clearGrowthSeed}
+                  className="rounded-full border border-amber-500/40 bg-transparent px-4 py-2 text-xs text-amber-100 hover:bg-amber-500/10"
+                >
+                  Ignore
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {toast ? (
             <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-2 text-xs text-slate-300">
