@@ -93,7 +93,6 @@ function formatWhen(ts?: string | null) {
 }
 
 export default function CampaignsPage() {
-  // Growth Lab = repurposed /dashboard/campaigns (enterprise-safe)
   const [loading, setLoading] = useState(true);
   const [patternsLoading, setPatternsLoading] = useState(true);
   const [experimentsLoading, setExperimentsLoading] = useState(true);
@@ -106,13 +105,16 @@ export default function CampaignsPage() {
   const [patterns, setPatterns] = useState<Pattern[]>([]);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
 
-  // Therapist control at “output stage” (before creating experiment)
+  // Start modal (friendlier wording)
   const [startOpen, setStartOpen] = useState(false);
   const [startTitle, setStartTitle] = useState("");
   const [startHypothesis, setStartHypothesis] = useState("");
-  const [startPlatform, setStartPlatform] = useState("");
-  const [startPatternType, setStartPatternType] = useState("");
-  const [startFormat, setStartFormat] = useState("");
+  const [startWhere, setStartWhere] = useState(""); // platform
+  const [startStyle, setStartStyle] = useState(""); // pattern_type
+  const [startPostType, setStartPostType] = useState(""); // format
+
+  // Modal-specific error (so it’s obvious)
+  const [startError, setStartError] = useState<string | null>(null);
 
   // Outcomes modal
   const [outcomeOpen, setOutcomeOpen] = useState(false);
@@ -202,7 +204,6 @@ export default function CampaignsPage() {
   }, [toast]);
 
   const hasSuggestion = !!suggestion;
-
   const savedCount = useMemo(() => patterns.length, [patterns]);
 
   const planned = useMemo(() => experiments.filter((e) => e.status === "planned"), [experiments]);
@@ -212,34 +213,34 @@ export default function CampaignsPage() {
   const roadmap = useMemo(() => {
     if (running.length > 0) {
       return {
-        title: "Today’s roadmap",
+        title: "Your simple roadmap",
         steps: [
-          "Pick ONE running experiment to focus on (keep it gentle).",
-          "Post once using that pattern.",
-          "Tomorrow: add one result number (even if it’s small).",
+          "Pick ONE running test.",
+          "Post once using that style.",
+          "Tomorrow: add one number (even small).",
         ],
-        mood: "You’re already doing it. Quiet consistency beats chaos.",
+        mood: "Quiet consistency beats chaos.",
       };
     }
 
     if (planned.length > 0) {
       return {
-        title: "Today’s roadmap",
+        title: "Your simple roadmap",
         steps: [
-          "Choose ONE planned experiment to start.",
-          "Run it for 2–3 posts (don’t overthink).",
-          "Add one outcome number when you’re ready.",
+          "Start ONE planned test.",
+          "Run it for 2–3 posts (no overthinking).",
+          "Add one result number when ready.",
         ],
-        mood: "Your future self will thank you for keeping it simple.",
+        mood: "Simple. Repeatable. Real.",
       };
     }
 
     return {
-      title: "Today’s roadmap",
+      title: "Your simple roadmap",
       steps: [
-        "Start your first experiment from the suggestion (it takes 30 seconds).",
+        "Start your first test from the suggestion.",
         "Post once. That’s the win.",
-        "Come back tomorrow for a new gentle nudge.",
+        "Come back tomorrow for the next gentle nudge.",
       ],
       mood: "No pressure. Just momentum.",
     };
@@ -268,7 +269,7 @@ export default function CampaignsPage() {
 
       showToast("⭐ Saved to Growth Memory");
       await loadPatterns();
-      await loadSuggestion(); // refresh to generate a fresh suggestion
+      await loadSuggestion();
     } catch (e: any) {
       setError(e?.message || "Failed to save.");
     } finally {
@@ -276,50 +277,68 @@ export default function CampaignsPage() {
     }
   }
 
-  function openStartExperimentFromSuggestion() {
+  function openStartFromSuggestion() {
     if (!suggestion) return;
 
-    // Therapist control: they can edit these before we create anything
-    const plat = String(suggestion.platform || "").trim();
-    const pt = String(suggestion.pattern_type || "").trim();
-    const fmt = String(suggestion.format || "").trim();
+    const where = String(suggestion.platform || "").trim();
+    const style = String(suggestion.pattern_type || "").trim();
+    const postType = String(suggestion.format || "").trim();
 
-    setStartPlatform(plat || "instagram");
-    setStartPatternType(pt);
-    setStartFormat(fmt);
+    setStartWhere(where || "instagram");
+    setStartStyle(style);
+    setStartPostType(postType);
 
-    // A friendly default title/hypothesis
+    // Friendly title (editable)
     setStartTitle(
-      pt && fmt
-        ? `${platformLabel(plat)}: ${pt} (${fmt})`
-        : `${platformLabel(plat)}: gentle growth experiment`
+      style
+        ? `${platformLabel(where)}: ${style} (${postType || "post"})`
+        : `${platformLabel(where)}: gentle test`
     );
 
+    // Friendly plain-English hypothesis (editable)
     setStartHypothesis(
-      pt
-        ? `If I use the "${pt}" pattern, I’ll get more engagement (comments/saves) because it matches what my audience responds to.`
-        : "If I keep my message simple and consistent, engagement will improve over time."
+      style
+        ? `If I post using a "${style}" style, more people will engage because it matches what my audience likes.`
+        : `If I stay consistent with simple posts, engagement will improve over time.`
     );
 
+    setStartError(null);
+    setStartOpen(true);
+  }
+
+  function openBlankStart() {
+    setStartTitle("New test");
+    setStartHypothesis("");
+    setStartWhere("instagram");
+    setStartStyle("");
+    setStartPostType("");
+    setStartError(null);
     setStartOpen(true);
   }
 
   function closeStart() {
     setStartOpen(false);
+    setStartError(null);
   }
 
   async function createExperiment() {
+    setStartError(null);
     setError(null);
 
     const title = startTitle.trim();
-    const platform = startPlatform.trim();
+    const where = startWhere.trim();
 
-    if (!title || !platform) {
-      setError("Please provide a title and platform.");
+    if (!title) {
+      setStartError("Give it a short name (e.g. “Facebook: practical video”).");
+      return;
+    }
+    if (!where) {
+      setStartError("Choose where you’re posting (Facebook / Instagram / etc).");
       return;
     }
 
     setSaving(true);
+
     try {
       const res = await fetch("/api/growth/experiments/create", {
         method: "POST",
@@ -328,9 +347,9 @@ export default function CampaignsPage() {
         body: JSON.stringify({
           title,
           hypothesis: startHypothesis.trim() || null,
-          platform,
-          pattern_type: startPatternType.trim() || null,
-          format: startFormat.trim() || null,
+          platform: where,
+          pattern_type: startStyle.trim() || null,
+          format: startPostType.trim() || null,
           status: "planned",
         }),
       });
@@ -338,18 +357,20 @@ export default function CampaignsPage() {
       const json = await res.json().catch(() => null);
 
       if (!res.ok || !json?.success) {
-        setError(json?.error || `Failed to create experiment (${res.status}).`);
+        setStartError(json?.error || `Create failed (${res.status}).`);
         setSaving(false);
         return;
       }
 
-      showToast("🧪 Experiment created");
+      showToast("🧪 Test saved → added to Planned");
       setStartOpen(false);
+      setSaving(false);
+
+      // Important: refresh board so you SEE it immediately
       await loadExperiments();
     } catch (e: any) {
-      setError(e?.message || "Failed to create experiment.");
-    } finally {
       setSaving(false);
+      setStartError(e?.message || "Create failed.");
     }
   }
 
@@ -436,39 +457,23 @@ export default function CampaignsPage() {
   };
 
   function totalsForExperiment(exp: Experiment) {
-    const outs = Array.isArray(exp.growth_experiment_outcomes)
-      ? exp.growth_experiment_outcomes
-      : [];
+    const outs = Array.isArray(exp.growth_experiment_outcomes) ? exp.growth_experiment_outcomes : [];
     const count = outs.length;
-    const last = count > 0 ? outs[0] : null;
-    return { count, last };
+    const latest = outs.length
+      ? [...outs].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))[0]
+      : null;
+    return { count, latest };
   }
 
   const boardCols: { key: Experiment["status"]; title: string; items: Experiment[]; hint: string }[] = [
-    {
-      key: "planned",
-      title: "Planned",
-      items: planned,
-      hint: "Pick one when you’re ready. Simple beats perfect.",
-    },
-    {
-      key: "running",
-      title: "Running",
-      items: running,
-      hint: "Keep it gentle. Repeat a pattern 2–3 times before judging it.",
-    },
-    {
-      key: "completed",
-      title: "Completed",
-      items: completed,
-      hint: "Your playbook is forming. Quiet wins count.",
-    },
+    { key: "planned", title: "Planned", items: planned, hint: "Saved ideas. Start one when ready." },
+    { key: "running", title: "Running", items: running, hint: "Try it for 2–3 posts before judging it." },
+    { key: "completed", title: "Completed", items: completed, hint: "Your playbook is forming." },
   ];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl space-y-6">
-        {/* Header */}
         <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
@@ -478,13 +483,10 @@ export default function CampaignsPage() {
               </h1>
 
               <p className="mt-3 text-sm text-slate-300 max-w-3xl">
-                Growth Lab helps you build momentum without the “campaign admin” headache.
-                We turn what works into a calm, repeatable playbook — one kind step at a time.
+                Here’s what a “test” means:
+                <span className="text-slate-100 font-semibold"> try one simple posting style </span>
+                for a few posts, then log a result number. That’s it.
               </p>
-
-              <div className="mt-3 text-[11px] text-slate-500">
-                Tiny reminder: if you’re tired, your only job is to do the next small thing. (Tea counts.)
-              </div>
 
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
@@ -495,13 +497,11 @@ export default function CampaignsPage() {
                 </button>
 
                 <div className="text-xs text-slate-400">
-                  Growth Memory saved:{" "}
-                  <span className="text-slate-200 font-semibold">{savedCount}</span>
+                  Growth Memory saved: <span className="text-slate-200 font-semibold">{savedCount}</span>
                 </div>
 
                 <div className="text-xs text-slate-400">
-                  Experiments:{" "}
-                  <span className="text-slate-200 font-semibold">{experiments.length}</span>
+                  Tests: <span className="text-slate-200 font-semibold">{experiments.length}</span>
                 </div>
               </div>
 
@@ -518,12 +518,9 @@ export default function CampaignsPage() {
               ) : null}
             </div>
 
-            {/* Roadmap card */}
             <div className="w-full md:w-[360px] rounded-3xl border border-slate-700 bg-slate-950 p-5">
               <div className="text-sm font-semibold">{roadmap.title}</div>
-              <div className="mt-2 text-[11px] text-slate-400">
-                Your growth plan, in human language.
-              </div>
+              <div className="mt-2 text-[11px] text-slate-400">A calm plan for today.</div>
 
               <ol className="mt-3 space-y-2 text-sm text-slate-200">
                 {roadmap.steps.map((s, i) => (
@@ -535,13 +532,11 @@ export default function CampaignsPage() {
               </ol>
 
               <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-3 text-[12px] text-slate-300">
-                <span className="text-slate-200 font-semibold">Coach note:</span>{" "}
-                {roadmap.mood}
+                <span className="text-slate-200 font-semibold">Coach note:</span> {roadmap.mood}
               </div>
 
               <div className="mt-3 text-[11px] text-slate-500">
-                Want ideas? Use <span className="text-slate-200 font-semibold">Brainstorm</span> for hooks/angles,
-                then come back here to track what actually worked.
+                (If your brain says “do everything”, pick <b>one</b>. We’re building a system, not a stress test.)
               </div>
             </div>
           </div>
@@ -552,9 +547,7 @@ export default function CampaignsPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <div className="text-sm font-semibold">Today’s gentle suggestion</div>
-              <div className="text-xs text-slate-400 mt-1">
-                You’re always in control. If it doesn’t feel right, skip it. No guilt. 🙂
-              </div>
+              <div className="text-xs text-slate-400 mt-1">You’re in control. Keep what fits. Skip what doesn’t.</div>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -574,11 +567,11 @@ export default function CampaignsPage() {
               </button>
 
               <button
-                onClick={openStartExperimentFromSuggestion}
+                onClick={openStartFromSuggestion}
                 disabled={!hasSuggestion}
                 className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-200 hover:bg-emerald-500/15 disabled:opacity-60"
               >
-                🧪 Start experiment
+                🧪 Save as a test
               </button>
             </div>
           </div>
@@ -594,16 +587,16 @@ export default function CampaignsPage() {
           ) : (
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-                <div className="text-xs text-slate-400">Platform</div>
+                <div className="text-xs text-slate-400">Where</div>
                 <div className="mt-1 text-lg font-semibold">{platformLabel(suggestion.platform)}</div>
 
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div>
-                    <div className="text-xs text-slate-400">Pattern</div>
+                    <div className="text-xs text-slate-400">Style</div>
                     <div className="mt-1 text-sm text-slate-100">{nice(suggestion.pattern_type)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-400">Format</div>
+                    <div className="text-xs text-slate-400">Post type</div>
                     <div className="mt-1 text-sm text-slate-100">{nice(suggestion.format)}</div>
                   </div>
                 </div>
@@ -618,9 +611,7 @@ export default function CampaignsPage() {
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
                 <div className="text-xs text-slate-400">Why this helps</div>
-                <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
-                  {nice(suggestion.notes)}
-                </div>
+                <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{nice(suggestion.notes)}</div>
 
                 <div className="mt-4 grid gap-2">
                   <div className="text-xs text-slate-400">Hook style</div>
@@ -634,34 +625,27 @@ export default function CampaignsPage() {
           )}
         </div>
 
-        {/* Experiments board */}
+        {/* Board */}
         <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
             <div>
-              <div className="text-sm font-semibold">🧭 Growth Roadmap Board</div>
+              <div className="text-sm font-semibold">🧭 Your Tests Board</div>
               <div className="text-xs text-slate-400 mt-1">
-                This replaces “campaign admin” with a calm workflow: plan → run → learn.
+                Create a test → start it → add one number → learn. That’s the whole system.
               </div>
             </div>
 
             <button
-              onClick={() => {
-                setStartTitle("New experiment");
-                setStartHypothesis("");
-                setStartPlatform("instagram");
-                setStartPatternType("");
-                setStartFormat("");
-                setStartOpen(true);
-              }}
+              onClick={openBlankStart}
               className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
             >
-              + New experiment
+              + New test
             </button>
           </div>
 
           {experimentsLoading ? (
             <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-              Loading experiments…
+              Loading tests…
             </div>
           ) : (
             <div className="mt-4 grid gap-4 lg:grid-cols-3">
@@ -681,25 +665,12 @@ export default function CampaignsPage() {
                     ) : (
                       col.items.map((exp) => {
                         const totals = totalsForExperiment(exp);
-                        const outs = Array.isArray(exp.growth_experiment_outcomes)
-                          ? exp.growth_experiment_outcomes
-                          : [];
-
-                        const latestOutcome =
-                          outs.length > 0
-                            ? [...outs].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))[0]
-                            : null;
 
                         return (
-                          <div
-                            key={exp.id}
-                            className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
-                          >
+                          <div key={exp.id} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
                             <div className="flex items-start justify-between gap-3">
                               <div>
-                                <div className="text-sm font-semibold text-slate-100">
-                                  {exp.title}
-                                </div>
+                                <div className="text-sm font-semibold text-slate-100">{exp.title}</div>
                                 <div className="mt-1 text-[11px] text-slate-400">
                                   {platformLabel(exp.platform)}
                                   {exp.pattern_type ? ` · ${exp.pattern_type}` : ""}
@@ -707,50 +678,28 @@ export default function CampaignsPage() {
                                 </div>
                               </div>
 
-                              <div
-                                className={[
-                                  "text-[11px] px-2 py-1 rounded-full border",
-                                  badgeClassesForStatus(exp.status),
-                                ].join(" ")}
-                              >
+                              <div className={["text-[11px] px-2 py-1 rounded-full border", badgeClassesForStatus(exp.status)].join(" ")}>
                                 {statusLabel(exp.status)}
                               </div>
                             </div>
 
                             {exp.hypothesis ? (
-                              <div className="mt-3 text-[12px] text-slate-300 whitespace-pre-wrap">
-                                {exp.hypothesis}
-                              </div>
+                              <div className="mt-3 text-[12px] text-slate-300 whitespace-pre-wrap">{exp.hypothesis}</div>
                             ) : null}
 
                             <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
-                              <div>
-                                <span className="text-slate-500">Started:</span>{" "}
-                                {formatWhen(exp.started_at)}
-                              </div>
-                              <div>
-                                <span className="text-slate-500">Completed:</span>{" "}
-                                {formatWhen(exp.completed_at)}
-                              </div>
-                              <div>
-                                <span className="text-slate-500">Results:</span>{" "}
-                                <span className="text-slate-200 font-semibold">{totals.count}</span>
-                              </div>
-                              <div>
-                                <span className="text-slate-500">Updated:</span>{" "}
-                                {formatWhen(exp.updated_at)}
-                              </div>
+                              <div><span className="text-slate-500">Started:</span> {formatWhen(exp.started_at)}</div>
+                              <div><span className="text-slate-500">Completed:</span> {formatWhen(exp.completed_at)}</div>
+                              <div><span className="text-slate-500">Results:</span> <span className="text-slate-200 font-semibold">{totals.count}</span></div>
+                              <div><span className="text-slate-500">Updated:</span> {formatWhen(exp.updated_at)}</div>
                             </div>
 
-                            {latestOutcome ? (
+                            {totals.latest ? (
                               <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950 p-3 text-[12px] text-slate-300">
                                 <div className="text-slate-400 text-[11px]">Latest result</div>
                                 <div className="mt-1">
-                                  <span className="text-slate-200 font-semibold">{latestOutcome.metric_name}</span>
-                                  {" — "}
-                                  <span className="text-slate-100 font-semibold">
-                                    {latestOutcome.metric_value ?? "—"}
-                                  </span>
+                                  <span className="text-slate-200 font-semibold">{totals.latest.metric_name}</span>{" — "}
+                                  <span className="text-slate-100 font-semibold">{totals.latest.metric_value ?? "—"}</span>
                                 </div>
                               </div>
                             ) : null}
@@ -802,25 +751,17 @@ export default function CampaignsPage() {
           )}
         </div>
 
-        {/* Pattern Library */}
+        {/* Memory */}
         <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold">🗂 Your Growth Memory</div>
-              <div className="text-xs text-slate-400 mt-1">
-                Saved patterns you can revisit anytime. (This becomes your “playbook”.)
-              </div>
-            </div>
+          <div>
+            <div className="text-sm font-semibold">🗂 Growth Memory</div>
+            <div className="text-xs text-slate-400 mt-1">Saved patterns you can revisit anytime.</div>
           </div>
 
           {patternsLoading ? (
-            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-              Loading saved patterns…
-            </div>
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">Loading saved patterns…</div>
           ) : patterns.length === 0 ? (
-            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-              Nothing saved yet. Save your first pattern above ⭐
-            </div>
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">Nothing saved yet. Save your first pattern above ⭐</div>
           ) : (
             <div className="mt-4 space-y-3">
               {patterns.map((p) => (
@@ -835,17 +776,11 @@ export default function CampaignsPage() {
                     </div>
                   </div>
 
-                  {p.notes ? (
-                    <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{p.notes}</div>
-                  ) : null}
+                  {p.notes ? <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{p.notes}</div> : null}
 
                   <div className="mt-3 grid md:grid-cols-2 gap-2 text-xs text-slate-300">
-                    <div>
-                      <span className="text-slate-400">Hook:</span> {nice(p.hook_style)}
-                    </div>
-                    <div>
-                      <span className="text-slate-400">CTA:</span> {nice(p.cta_style)}
-                    </div>
+                    <div><span className="text-slate-400">Hook:</span> {nice(p.hook_style)}</div>
+                    <div><span className="text-slate-400">CTA:</span> {nice(p.cta_style)}</div>
                   </div>
                 </div>
               ))}
@@ -853,13 +788,12 @@ export default function CampaignsPage() {
           )}
         </div>
 
-        {/* gentle footer */}
         <div className="text-xs text-slate-500 text-center">
           Growth Lab isn’t here to judge you. It’s here to help you keep going. One kind step at a time.
         </div>
       </div>
 
-      {/* Start experiment modal */}
+      {/* Start modal */}
       {startOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/70" onClick={closeStart} />
@@ -867,9 +801,11 @@ export default function CampaignsPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-xs text-slate-400">Growth Lab</div>
-                <div className="mt-1 text-lg font-semibold text-slate-100">Start an experiment</div>
-                <div className="mt-1 text-[12px] text-slate-400">
-                  You’re in control — edit the title/hypothesis before saving.
+                <div className="mt-1 text-lg font-semibold text-slate-100">Save a test</div>
+                <div className="mt-2 text-[12px] text-slate-400">
+                  This creates a “test card” in your board under <b>Planned</b>.
+                  <br />
+                  Later you click <b>Start</b> → post 2–3 times → add one result number.
                 </div>
               </div>
 
@@ -881,41 +817,55 @@ export default function CampaignsPage() {
               </button>
             </div>
 
+            {startError ? (
+              <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">
+                {startError}
+              </div>
+            ) : null}
+
             <div className="mt-4 grid gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-300">Title</label>
+                <label className="block text-xs font-medium text-slate-300">
+                  Name this test (human words)
+                </label>
                 <input
                   value={startTitle}
                   onChange={(e) => setStartTitle(e.target.value)}
                   className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  placeholder="e.g. Instagram: 3-step anxiety hook (video)"
+                  placeholder='e.g. "Facebook practical video"'
                 />
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Example: “Instagram calm reel” or “Threads short myth-busting post”
+                </div>
               </div>
 
               <div className="grid md:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">Platform</label>
+                  <label className="block text-xs font-medium text-slate-300">Where are you posting?</label>
                   <input
-                    value={startPlatform}
-                    onChange={(e) => setStartPlatform(e.target.value)}
+                    value={startWhere}
+                    onChange={(e) => setStartWhere(e.target.value)}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    placeholder="instagram"
+                    placeholder="facebook / instagram / linkedin"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">Pattern</label>
+                  <label className="block text-xs font-medium text-slate-300">Style (optional)</label>
                   <input
-                    value={startPatternType}
-                    onChange={(e) => setStartPatternType(e.target.value)}
+                    value={startStyle}
+                    onChange={(e) => setStartStyle(e.target.value)}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    placeholder="e.g. hook_story_cta"
+                    placeholder='e.g. "practical", "myth-busting"'
                   />
+                  <div className="mt-1 text-[11px] text-slate-500">This is just a label to remember the idea.</div>
                 </div>
+
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">Format</label>
+                  <label className="block text-xs font-medium text-slate-300">Post type (optional)</label>
                   <input
-                    value={startFormat}
-                    onChange={(e) => setStartFormat(e.target.value)}
+                    value={startPostType}
+                    onChange={(e) => setStartPostType(e.target.value)}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                     placeholder="text / image / video"
                   />
@@ -923,16 +873,18 @@ export default function CampaignsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300">Hypothesis (optional)</label>
+                <label className="block text-xs font-medium text-slate-300">
+                  Why do you think this will work? (optional)
+                </label>
                 <textarea
                   value={startHypothesis}
                   onChange={(e) => setStartHypothesis(e.target.value)}
                   rows={5}
                   className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  placeholder="If I do X, I expect Y, because Z..."
+                  placeholder='e.g. "People share practical steps more often, so it should increase saves and comments."'
                 />
                 <div className="mt-1 text-[11px] text-slate-500">
-                  Tip: Keep it simple. You can always refine later.
+                  You can leave this blank — it’s not homework 🙂
                 </div>
               </div>
 
@@ -943,7 +895,7 @@ export default function CampaignsPage() {
                   disabled={saving}
                   className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                 >
-                  {saving ? "Saving…" : "Create experiment"}
+                  {saving ? "Saving…" : "Save test"}
                 </button>
 
                 <button
@@ -957,7 +909,7 @@ export default function CampaignsPage() {
               </div>
 
               <div className="text-[11px] text-slate-500">
-                This starts as <b>Planned</b>. You can move it to <b>Running</b> when you’re ready.
+                After saving, you’ll see it under <b>Planned</b> on the board.
               </div>
             </div>
           </div>
@@ -971,13 +923,9 @@ export default function CampaignsPage() {
           <div className="relative w-full max-w-xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-xs text-slate-400">Add result</div>
-                <div className="mt-1 text-lg font-semibold text-slate-100">
-                  {outcomeExperiment.title}
-                </div>
-                <div className="mt-1 text-[12px] text-slate-400">
-                  Add one number. Even tiny progress counts.
-                </div>
+                <div className="text-xs text-slate-400">Add a result</div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">{outcomeExperiment.title}</div>
+                <div className="mt-1 text-[12px] text-slate-400">Add one number. Even small progress counts.</div>
               </div>
 
               <button
@@ -990,17 +938,17 @@ export default function CampaignsPage() {
 
             <div className="mt-4 grid gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-300">Metric name</label>
+                <label className="block text-xs font-medium text-slate-300">What are we measuring?</label>
                 <input
                   value={metricName}
                   onChange={(e) => setMetricName(e.target.value)}
                   className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  placeholder="e.g. reach, comments, saves, clicks"
+                  placeholder="reach / comments / saves / clicks"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300">Metric value (number)</label>
+                <label className="block text-xs font-medium text-slate-300">Number</label>
                 <input
                   value={metricValue}
                   onChange={(e) => setMetricValue(e.target.value)}
@@ -1008,9 +956,7 @@ export default function CampaignsPage() {
                   placeholder="e.g. 12"
                   inputMode="numeric"
                 />
-                <div className="mt-1 text-[11px] text-slate-500">
-                  Don’t have it right now? Leave blank and come back later.
-                </div>
+                <div className="mt-1 text-[11px] text-slate-500">Don’t have it now? Leave blank and come back.</div>
               </div>
 
               <div className="flex flex-wrap gap-3 pt-1">
@@ -1034,7 +980,7 @@ export default function CampaignsPage() {
               </div>
 
               <div className="text-[11px] text-slate-500">
-                Quiet wins: one metric per day is enough to build a real playbook.
+                One metric a day is enough to build a real playbook.
               </div>
             </div>
           </div>
