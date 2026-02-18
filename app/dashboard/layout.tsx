@@ -47,9 +47,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   async function tryLoadOrgId() {
     try {
-      // This endpoint already exists in your stack (you pasted its JSON output earlier).
+      // This endpoint already exists in your stack.
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
-      const json: SocialAccountsResponse = await res.json().catch(() => ({} as any));
+      const json: SocialAccountsResponse = await res
+        .json()
+        .catch(() => ({} as any));
       if (res.ok && json?.organisationId) {
         setOrgId(String(json.organisationId));
       }
@@ -176,14 +178,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 Metrics
               </Link>
             </li>
+
+            {/* ✅ FIXED: no spaces in routes; use /dashboard/growth-lab */}
             <li>
               <Link
-                href="/dashboard/growth lab"
-                className={linkClasses("/dashboard/growth lab")}
+                href="/dashboard/growth-lab"
+                className={linkClasses("/dashboard/growth-lab")}
               >
-                Growth Lab
+                🧪 Growth Lab
               </Link>
             </li>
+
             <li>
               <Link
                 href="/dashboard/sequences"
@@ -277,7 +282,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   Contact Root Health Ops
                 </div>
                 <div className="mt-1 text-[12px] text-slate-400">
-                  We’ll automatically attach the latest error details (JSON) so you don’t have to.
+                  We’ll automatically attach the latest error details (JSON) so
+                  you don’t have to.
                 </div>
               </div>
 
@@ -291,7 +297,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
             {supportDone === "ok" ? (
               <div className="mt-4 rounded-2xl border border-emerald-500/40 bg-emerald-950/20 p-4 text-emerald-100">
-                Sent ✅ We’ve received your message (with diagnostic details attached).
+                Sent ✅ We’ve received your message (with diagnostic details
+                attached).
               </div>
             ) : null}
 
@@ -326,7 +333,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   placeholder="Tell us what you tried and what you expected…"
                 />
                 <div className="mt-1 text-[11px] text-slate-500">
-                  Tip: mention the platform (e.g., LinkedIn/Threads) and whether it was Quick Blast or Scheduled.
+                  Tip: mention the platform (e.g., LinkedIn/Threads) and whether
+                  it was Quick Blast or Scheduled.
                 </div>
               </div>
 
@@ -356,11 +364,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
               {orgId ? (
                 <div className="text-[11px] text-slate-600">
-                  (Diagnostics will be attached for org <span className="break-all">{orgId}</span>)
+                  (Diagnostics will be attached for org{" "}
+                  <span className="break-all">{orgId}</span>)
                 </div>
               ) : (
                 <div className="text-[11px] text-slate-600">
-                  (Diagnostics will still send — org auto-detect will be attempted server-side.)
+                  (Diagnostics will still send — org auto-detect will be
+                  attempted server-side.)
                 </div>
               )}
             </div>
