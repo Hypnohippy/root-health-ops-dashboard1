@@ -1,3 +1,4 @@
+// app/dashboard/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -213,10 +214,21 @@ function looksLikeImageUrl(u: string) {
   );
 }
 
-function detectPatternTypeHeuristic(text: string): "reflective" | "practical" | "story" {
+function detectPatternTypeHeuristic(
+  text: string
+): "reflective" | "practical" | "story" {
   const t = String(text || "").toLowerCase();
-  const hasSteps = t.includes("1)") || t.includes("1.") || t.includes("step") || t.includes("try this");
-  const hasStory = t.includes("i ") || t.includes("i’ve") || t.includes("i've") || t.includes("today i") || t.includes("when i");
+  const hasSteps =
+    t.includes("1)") ||
+    t.includes("1.") ||
+    t.includes("step") ||
+    t.includes("try this");
+  const hasStory =
+    t.includes("i ") ||
+    t.includes("i’ve") ||
+    t.includes("i've") ||
+    t.includes("today i") ||
+    t.includes("when i");
   if (hasSteps) return "practical";
   if (hasStory) return "story";
   return "reflective";
@@ -280,7 +292,9 @@ export default function DashboardHomePage() {
   const [gmToast, setGmToast] = useState<string | null>(null);
 
   const [gmPlatform, setGmPlatform] = useState<ProviderId>("threads");
-  const [gmPatternType, setGmPatternType] = useState<"reflective" | "practical" | "story">("reflective");
+  const [gmPatternType, setGmPatternType] = useState<
+    "reflective" | "practical" | "story"
+  >("reflective");
   const [gmFormat, setGmFormat] = useState<"text" | "image" | "video">("text");
   const [gmHookStyle, setGmHookStyle] = useState("");
   const [gmCtaStyle, setGmCtaStyle] = useState("");
@@ -732,7 +746,8 @@ export default function DashboardHomePage() {
   const igChoiceHint = useMemo(() => {
     if (igPublishMode === "montage_reel") {
       if (montageUrls.length === 0) return "Add 2+ images for a montage.";
-      if (montageUrls.length === 1) return "Add at least one more image to form a montage.";
+      if (montageUrls.length === 1)
+        return "Add at least one more image to form a montage.";
       return "Montage selected (multiple images).";
     }
 
@@ -747,10 +762,13 @@ export default function DashboardHomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMontageMode]);
 
-  // ✅ Open Growth Memory modal from the “output stage”
+  // ✅ Open Growth Memory modal from the “output stage” (FIXED TYPES)
   function openGrowthMemoryFromCurrentPost() {
-    const platforms = selected.length ? selected : ["threads"];
-    const first = platforms[0] || "threads";
+    // Force platforms to be ProviderId[] (prevents TS widening to string[])
+    const platforms: ProviderId[] =
+      selected.length > 0 ? selected : (["threads"] as ProviderId[]);
+
+    const first: ProviderId = platforms[0] ?? "threads";
 
     const fmt: "text" | "image" | "video" = media.videoUrl
       ? "video"
@@ -963,7 +981,9 @@ export default function DashboardHomePage() {
                           </span>{" "}
                           as pending
                         </li>
-                        <li>• Approver sees full content + “Posted by Clinic Owner”</li>
+                        <li>
+                          • Approver sees full content + “Posted by Clinic Owner”
+                        </li>
                         <li>• Approve → it becomes ready → Post now</li>
                       </ul>
                     </div>
@@ -977,7 +997,8 @@ export default function DashboardHomePage() {
                   <div>
                     <div className="text-sm font-semibold">Media (optional)</div>
                     <div className="mt-1 text-[11px] text-slate-400">
-                      Drop a file here or click “Choose file”. We upload to Supabase and fill the correct URL automatically.
+                      Drop a file here or click “Choose file”. We upload to
+                      Supabase and fill the correct URL automatically.
                     </div>
                   </div>
 
@@ -1025,12 +1046,18 @@ export default function DashboardHomePage() {
                 <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-sm font-semibold">Instagram posting style</div>
+                      <div className="text-sm font-semibold">
+                        Instagram posting style
+                      </div>
                       <div className="mt-1 text-[11px] text-slate-400">
-                        Comfort toggle — always visible. We’ll keep today’s stable posting, and evolve this safely.
+                        Comfort toggle — always visible. We’ll keep today’s
+                        stable posting, and evolve this safely.
                       </div>
                       <div className="mt-2 text-[11px] text-slate-300">
-                        Current: <span className="text-slate-100 font-semibold">{igChoiceHint}</span>
+                        Current:{" "}
+                        <span className="text-slate-100 font-semibold">
+                          {igChoiceHint}
+                        </span>
                       </div>
                     </div>
 
@@ -1057,7 +1084,9 @@ export default function DashboardHomePage() {
                           igPublishMode === "feed_video"
                             ? "bg-emerald-500 text-slate-950"
                             : "text-slate-300",
-                          !hasEffectiveVideo ? "opacity-50 cursor-not-allowed" : "",
+                          !hasEffectiveVideo
+                            ? "opacity-50 cursor-not-allowed"
+                            : "",
                         ].join(" ")}
                         title={!hasEffectiveVideo ? "Upload/select a video first" : ""}
                       >
@@ -1073,7 +1102,9 @@ export default function DashboardHomePage() {
                           igPublishMode === "reel"
                             ? "bg-emerald-500 text-slate-950"
                             : "text-slate-300",
-                          !hasEffectiveVideo ? "opacity-50 cursor-not-allowed" : "",
+                          !hasEffectiveVideo
+                            ? "opacity-50 cursor-not-allowed"
+                            : "",
                         ].join(" ")}
                         title={!hasEffectiveVideo ? "Upload/select a video first" : ""}
                       >
@@ -1099,16 +1130,24 @@ export default function DashboardHomePage() {
                   {igPublishMode === "montage_reel" && (
                     <div className="mt-3 text-[11px] text-slate-300">
                       <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
-                        <div className="font-semibold text-slate-200">Montage builder</div>
+                        <div className="font-semibold text-slate-200">
+                          Montage builder
+                        </div>
                         <div className="mt-1 text-slate-400">
-                          Upload multiple images one-by-one. We’ll store a list here and send it to the API as{" "}
-                          <span className="text-slate-200 font-semibold">montageImageUrls</span>.
+                          Upload multiple images one-by-one. We’ll store a list
+                          here and send it to the API as{" "}
+                          <span className="text-slate-200 font-semibold">
+                            montageImageUrls
+                          </span>
+                          .
                         </div>
 
                         {!montageReady ? (
                           <div className="mt-2 text-amber-200">
-                            Add <span className="font-semibold">2+</span> images for a real montage.
-                            (Right now, your existing posting still works using the first image — we’ll wire true montage-to-reel server-side next.)
+                            Add <span className="font-semibold">2+</span> images
+                            for a real montage. (Right now, your existing
+                            posting still works using the first image — we’ll
+                            wire true montage-to-reel server-side next.)
                           </div>
                         ) : (
                           <div className="mt-2 text-emerald-200">
@@ -1207,8 +1246,8 @@ export default function DashboardHomePage() {
                 </div>
 
                 <div className="mt-2 text-[11px] text-slate-500">
-                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl:{" "}
-                  {media.videoUrl ? "✅" : "—"}
+                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} •
+                  videoUrl: {media.videoUrl ? "✅" : "—"}
                 </div>
               </div>
 
@@ -1218,7 +1257,8 @@ export default function DashboardHomePage() {
                   <div>
                     <div className="text-sm font-semibold">AI helper</div>
                     <div className="text-[11px] text-slate-400 mt-1">
-                      Type a subject + pick tone/length → Generate → Use (then edit if you want).
+                      Type a subject + pick tone/length → Generate → Use (then
+                      edit if you want).
                     </div>
                   </div>
                   <button
@@ -1390,7 +1430,9 @@ export default function DashboardHomePage() {
                           }`}
                         >
                           <div>
-                            <div className="font-medium">{PROVIDER_LABELS[p]}</div>
+                            <div className="font-medium">
+                              {PROVIDER_LABELS[p]}
+                            </div>
                             <div className="text-[11px] text-slate-500">
                               {isConnected ? "connected" : "not connected"}
                             </div>
@@ -1420,7 +1462,11 @@ export default function DashboardHomePage() {
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={sending || message.trim().length === 0 || selected.length === 0}
+                    disabled={
+                      sending ||
+                      message.trim().length === 0 ||
+                      selected.length === 0
+                    }
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {sending
@@ -1452,8 +1498,13 @@ export default function DashboardHomePage() {
                 {result && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
-                      <div className={result.success ? "text-emerald-200" : "text-amber-200"}>
-                        {friendlySummary?.headline || (result.success ? "Success." : "Not sent.")}
+                      <div
+                        className={
+                          result.success ? "text-emerald-200" : "text-amber-200"
+                        }
+                      >
+                        {friendlySummary?.headline ||
+                          (result.success ? "Success." : "Not sent.")}
                       </div>
                       <div className="mt-1 text-[12px] text-slate-300">
                         {friendlySummary?.topMsg ||
@@ -1487,56 +1538,64 @@ export default function DashboardHomePage() {
                       </div>
                     ) : null}
 
-                    {Array.isArray(result.results) && result.results.length > 0 && (
-                      <div className="mt-4 space-y-2">
-                        {result.results.map((r: any, idx: number) => {
-                          const platform =
-                            (String(r?.platform || "") as ProviderId) || "facebook";
-                          const ok = !!r?.ok;
-                          const skipped = !!r?.skipped;
-                          const label = formatPlatformName(r?.platform || platform);
+                    {Array.isArray(result.results) &&
+                      result.results.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                          {result.results.map((r: any, idx: number) => {
+                            const platform =
+                              (String(r?.platform || "") as ProviderId) ||
+                              "facebook";
+                            const ok = !!r?.ok;
+                            const skipped = !!r?.skipped;
+                            const label = formatPlatformName(
+                              r?.platform || platform
+                            );
 
-                          const friendly = ok ? "Posted." : extractFriendlyError(r);
-                          const tip = !ok
-                            ? friendlySuggestionForPlatform(platform, r)
-                            : null;
+                            const friendly = ok ? "Posted." : extractFriendlyError(r);
+                            const tip = !ok
+                              ? friendlySuggestionForPlatform(platform, r)
+                              : null;
 
-                          return (
-                            <div
-                              key={`${platform}-${idx}`}
-                              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="text-[12px] font-semibold text-slate-200">
-                                  {label}
-                                </div>
-                                <div
-                                  className={[
-                                    "text-[11px] rounded-full border px-2 py-0.5",
-                                    ok
-                                      ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                            return (
+                              <div
+                                key={`${platform}-${idx}`}
+                                className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="text-[12px] font-semibold text-slate-200">
+                                    {label}
+                                  </div>
+                                  <div
+                                    className={[
+                                      "text-[11px] rounded-full border px-2 py-0.5",
+                                      ok
+                                        ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                                        : skipped
+                                        ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                        : "border-red-500/50 text-red-200 bg-red-500/10",
+                                    ].join(" ")}
+                                  >
+                                    {ok
+                                      ? "✅ Posted"
                                       : skipped
-                                      ? "border-slate-600 text-slate-300 bg-slate-900/40"
-                                      : "border-red-500/50 text-red-200 bg-red-500/10",
-                                  ].join(" ")}
-                                >
-                                  {ok ? "✅ Posted" : skipped ? "⚠️ Skipped" : "❌ Failed"}
+                                      ? "⚠️ Skipped"
+                                      : "❌ Failed"}
+                                  </div>
                                 </div>
-                              </div>
 
-                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
-                                {friendly}
-                              </div>
-                              {tip ? (
-                                <div className="mt-1 text-[11px] text-slate-400">
-                                  {tip}
+                                <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
+                                  {friendly}
                                 </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                                {tip ? (
+                                  <div className="mt-1 text-[11px] text-slate-400">
+                                    {tip}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
 
                     {adminOpen && (
                       <details className="mt-4">
@@ -1554,19 +1613,28 @@ export default function DashboardHomePage() {
                 {adminOpen && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
                     <div className="text-slate-400 mb-2">Admin info (safe).</div>
-                    <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
+                    <div>
+                      Selected platforms: {selected.join(", ") || "(none)"}
+                    </div>
                     <div className="mt-1">
-                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
+                      Connected platforms:{" "}
+                      {Array.from(connectedPlatforms).join(", ") || "(none)"}
                     </div>
                     <div className="mt-1">
                       OrganisationId: {organisationId || "(loading…)"}
                     </div>
-                    <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
+                    <div className="mt-1">
+                      Mode: {mode === "now" ? "Send now" : "Queue for approval"}
+                    </div>
                     <div className="mt-1">mediaMode: {mediaMode}</div>
                     <div className="mt-1">igPublishMode: {igPublishMode}</div>
                     <div className="mt-1">montageImages: {montageUrls.length}</div>
-                    <div className="mt-1">imageUrl: {media.imageUrl ? "✅ set" : "—"}</div>
-                    <div className="mt-1">videoUrl: {media.videoUrl ? "✅ set" : "—"}</div>
+                    <div className="mt-1">
+                      imageUrl: {media.imageUrl ? "✅ set" : "—"}
+                    </div>
+                    <div className="mt-1">
+                      videoUrl: {media.videoUrl ? "✅ set" : "—"}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1635,7 +1703,10 @@ export default function DashboardHomePage() {
       {/* ✅ Growth Memory Modal */}
       {gmOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-black/70" onClick={closeGrowthMemory} />
+          <div
+            className="absolute inset-0 bg-black/70"
+            onClick={closeGrowthMemory}
+          />
 
           <div className="relative w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
@@ -1645,7 +1716,8 @@ export default function DashboardHomePage() {
                   Save this as a pattern ⭐
                 </div>
                 <div className="mt-2 text-[12px] text-slate-400">
-                  This is the “output stage control” — you decide what’s worth repeating.
+                  This is the “output stage control” — you decide what’s worth
+                  repeating.
                 </div>
               </div>
 
@@ -1666,7 +1738,9 @@ export default function DashboardHomePage() {
 
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <div>
-                <label className="block text-xs font-medium text-slate-300">Platform</label>
+                <label className="block text-xs font-medium text-slate-300">
+                  Platform
+                </label>
                 <select
                   value={gmPlatform}
                   onChange={(e) => setGmPlatform(e.target.value as ProviderId)}
@@ -1685,7 +1759,9 @@ export default function DashboardHomePage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300">Format</label>
+                <label className="block text-xs font-medium text-slate-300">
+                  Format
+                </label>
                 <select
                   value={gmFormat}
                   onChange={(e) => setGmFormat(e.target.value as any)}
@@ -1698,7 +1774,9 @@ export default function DashboardHomePage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300">Pattern type</label>
+                <label className="block text-xs font-medium text-slate-300">
+                  Pattern type
+                </label>
                 <select
                   value={gmPatternType}
                   onChange={(e) => {
@@ -1715,7 +1793,9 @@ export default function DashboardHomePage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300">CTA style</label>
+                <label className="block text-xs font-medium text-slate-300">
+                  CTA style
+                </label>
                 <input
                   value={gmCtaStyle}
                   onChange={(e) => setGmCtaStyle(e.target.value)}
@@ -1725,7 +1805,9 @@ export default function DashboardHomePage() {
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-slate-300">Hook style</label>
+                <label className="block text-xs font-medium text-slate-300">
+                  Hook style
+                </label>
                 <input
                   value={gmHookStyle}
                   onChange={(e) => setGmHookStyle(e.target.value)}
@@ -1735,7 +1817,9 @@ export default function DashboardHomePage() {
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-slate-300">Notes (optional)</label>
+                <label className="block text-xs font-medium text-slate-300">
+                  Notes (optional)
+                </label>
                 <textarea
                   value={gmNotes}
                   onChange={(e) => setGmNotes(e.target.value)}
@@ -1767,7 +1851,8 @@ export default function DashboardHomePage() {
             </div>
 
             <div className="mt-4 text-[11px] text-slate-500">
-              Tip: If it felt good to write and it matched your style — save it. Your future self will thank you. 🙂
+              Tip: If it felt good to write and it matched your style — save it.
+              Your future self will thank you. 🙂
             </div>
           </div>
         </div>
