@@ -1,4 +1,3 @@
-// app/api/growth/experiments/outcomes/add/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -10,52 +9,44 @@ function norm(v: any) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({} as any));
+    const body = await req.json().catch(() => ({}));
+    const experimentId = norm(body?.experimentId || body?.experiment_id);
+    const metric_name = norm(body?.metric_name);
+    const rawVal = body?.metric_value;
 
-    const experimentId = norm(body?.experimentId);
-    const metricName = norm(body?.metric_name || body?.metricName);
-    const metricValueRaw = body?.metric_value ?? body?.metricValue;
-
-    if (!experimentId || !metricName) {
-      return NextResponse.json(
-        { success: false, error: "Missing experimentId or metric_name." },
-        { status: 400 }
-      );
+    if (!experimentId) {
+      return NextResponse.json({ success: false, error: "Missing experimentId" }, { status: 400 });
+    }
+    if (!metric_name) {
+      return NextResponse.json({ success: false, error: "Missing metric_name" }, { status: 400 });
     }
 
-    const metricValue =
-      metricValueRaw === null || metricValueRaw === undefined || metricValueRaw === ""
+    const metric_value =
+      rawVal === null || rawVal === undefined || rawVal === ""
         ? null
-        : Number(metricValueRaw);
-
-    if (metricValue !== null && Number.isNaN(metricValue)) {
-      return NextResponse.json(
-        { success: false, error: "metric_value must be a number (or blank)." },
-        { status: 400 }
-      );
-    }
+        : Number(rawVal);
 
     const { data, error } = await supabaseAdmin
       .from("growth_experiment_outcomes")
       .insert({
         experiment_id: experimentId,
-        metric_name: metricName,
-        metric_value: metricValue,
+        metric_name,
+        metric_value: Number.isFinite(metric_value as any) ? metric_value : null,
+        meta: body?.meta && typeof body.meta === "object" ? body.meta : {},
       })
       .select()
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: 500 }
-      );
+      console.error("[growth/experiments/outcomes/add] insert error", error);
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, item: data });
   } catch (e: any) {
+    console.error("[growth/experiments/outcomes/add] crashed", e);
     return NextResponse.json(
-      { success: false, error: e?.message || "Failed to add outcome." },
+      { success: false, error: e?.message || "Add outcome failed" },
       { status: 500 }
     );
   }
