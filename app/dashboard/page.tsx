@@ -763,30 +763,30 @@ export default function DashboardHomePage() {
   }, [isMontageMode]);
 
   // ✅ Open Growth Memory modal from the “output stage” (FIXED TYPES)
-  function openGrowthMemoryFromCurrentPost() {
-    // Force platforms to be ProviderId[] (prevents TS widening to string[])
-    const platforms: ProviderId[] =
-      selected.length > 0 ? selected : (["threads"] as ProviderId[]);
+function openGrowthMemoryFromCurrentPost() {
+  const platforms: ProviderId[] = selected.length
+    ? selected
+    : (["threads"] as ProviderId[]);
 
-    const first: ProviderId = platforms[0] ?? "threads";
+  const first: ProviderId = platforms[0] ?? "threads";
 
-    const fmt: "text" | "image" | "video" = media.videoUrl
-      ? "video"
-      : media.imageUrl
-      ? "image"
-      : "text";
+  const fmt: "text" | "image" | "video" = media.videoUrl
+    ? "video"
+    : media.imageUrl
+    ? "image"
+    : "text";
 
-    const pt = detectPatternTypeHeuristic(message);
+  const pt = detectPatternTypeHeuristic(message);
 
-    setGmPlatform(first);
-    setGmFormat(fmt);
-    setGmPatternType(pt);
-    setGmHookStyle(defaultHookStyle(pt));
-    setGmCtaStyle(defaultCtaStyle(message));
-    setGmNotes("");
-    setGmError(null);
-    setGmOpen(true);
-  }
+  setGmPlatform(first);
+  setGmFormat(fmt);
+  setGmPatternType(pt);
+  setGmHookStyle(defaultHookStyle(pt));
+  setGmCtaStyle(defaultCtaStyle(message));
+  setGmNotes("");
+  setGmError(null);
+  setGmOpen(true);
+}
 
   async function saveGrowthMemory() {
     setGmSaving(true);
@@ -1493,50 +1493,24 @@ export default function DashboardHomePage() {
                   >
                     Admin view
                   </button>
-                </div>
+                </div>{Array.isArray(result.results) && result.results.some((r: any) => !!r?.ok) ? (
+  <div className="mt-4 flex flex-wrap gap-2">
+    <button
+      type="button"
+      onClick={openGrowthMemoryFromCurrentPost}
+      className="rounded-2xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+    >
+      ⭐ Save this to Growth Memory
+    </button>
+    <Link
+      href="/dashboard/campaigns"
+      className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs text-slate-200 hover:border-slate-600"
+    >
+      View Growth Lab
+    </Link>
+  </div>
+) : null}
 
-                {result && (
-                  <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
-                    <div className="text-sm">
-                      <div
-                        className={
-                          result.success ? "text-emerald-200" : "text-amber-200"
-                        }
-                      >
-                        {friendlySummary?.headline ||
-                          (result.success ? "Success." : "Not sent.")}
-                      </div>
-                      <div className="mt-1 text-[12px] text-slate-300">
-                        {friendlySummary?.topMsg ||
-                          (result.success
-                            ? "Nice — you’re live."
-                            : "No stress — we’ll fix what’s blocking it.")}
-                      </div>
-                      {result.note ? (
-                        <div className="mt-2 text-[12px] text-emerald-300">
-                          {result.note}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {/* ✅ Output-stage control: Save pattern */}
-                    {result.success ? (
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={openGrowthMemoryFromCurrentPost}
-                          className="rounded-2xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                        >
-                          ⭐ Save this to Growth Memory
-                        </button>
-                        <Link
-                          href="/dashboard/campaigns"
-                          className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs text-slate-200 hover:border-slate-600"
-                        >
-                          View Growth Lab
-                        </Link>
-                      </div>
-                    ) : null}
 
                     {Array.isArray(result.results) &&
                       result.results.length > 0 && (
