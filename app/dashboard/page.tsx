@@ -1,9 +1,7 @@
-// app/dashboard/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import MediaDropzone, { UploadedMedia } from "./components/MediaDropzone";
-import Link from "next/link";
 
 type ProviderId =
   | "facebook"
@@ -63,13 +61,8 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 
 const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
-type Mode = "now" | "approval";
-type MediaMode = "auto" | "image" | "video";
-
-/**
- * Instagram publishing choice (comfort toggle)
- */
-type IgPublishMode = "auto" | "feed_video" | "reel" | "montage_reel";
+// Local-only Growth Memory (we’ll wire Supabase later)
+const GROWTH_MEMORY_KEY = "rootops_growth_memory_v1";
 
 type Draft = {
   id: string;
@@ -80,6 +73,40 @@ type Draft = {
   selectedPlatforms: ProviderId[];
   igPublishMode?: IgPublishMode;
   montageImageUrls?: string[];
+};
+
+type Mode = "now" | "approval";
+type MediaMode = "auto" | "image" | "video";
+
+/**
+ * Instagram publishing choice (comfort toggle)
+ * - feed_video: normal video post to feed (when supported by backend)
+ * - reel: post as reel
+ * - auto: backend decides (default)
+ * - montage_reel: multiple photos -> reel (we’ll wire server-side later)
+ */
+type IgPublishMode = "auto" | "feed_video" | "reel" | "montage_reel";
+
+/**
+ * Growth Memory
+ * We’ll keep it simple & human:
+ * - platform/context
+ * - what you posted
+ * - what happened
+ * - what we should do next time
+ */
+type GrowthMemoryEntry = {
+  id: string;
+  createdAt: string;
+  organisationId: string | null;
+  platform: ProviderId;
+  format: "text" | "image" | "video";
+  message: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  outcome: "posted" | "partial" | "failed";
+  notes: string;
+  tags: string[];
 };
 
 function loadDrafts(): Draft[] {
@@ -97,6 +124,24 @@ function loadDrafts(): Draft[] {
 function saveDrafts(drafts: Draft[]) {
   try {
     localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts.slice(0, 50)));
+  } catch {}
+}
+
+function loadGrowthMemory(): GrowthMemoryEntry[] {
+  try {
+    const raw = localStorage.getItem(GROWTH_MEMORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as GrowthMemoryEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function saveGrowthMemory(items: GrowthMemoryEntry[]) {
+  try {
+    localStorage.setItem(GROWTH_MEMORY_KEY, JSON.stringify(items.slice(0, 300)));
   } catch {}
 }
 
@@ -214,34 +259,27 @@ function looksLikeImageUrl(u: string) {
   );
 }
 
-function detectPatternTypeHeuristic(
-  text: string
-): "reflective" | "practical" | "story" {
-  const t = String(text || "").toLowerCase();
-  const hasSteps =
-    t.includes("1)") ||
-    t.includes("1.") ||
-    t.includes("step") ||
-    t.includes("try this");
-  const hasStory =
-    t.includes("i ") ||
-    t.includes("i’ve") ||
-    t.includes("i've") ||
-    t.includes("today i") ||
-    t.includes("when i");
-  if (hasSteps) return "practical";
-  if (hasStory) return "story";
-  return "reflective";
+function detectFormatFromMedia(imageUrl: string, videoUrl: string): "text" | "image" | "video" {
+  const img = (imageUrl || "").trim();
+  const vid = (videoUrl || "").trim();
+  if (vid) return "video";
+  if (img) return "image";
+  return "text";
 }
 
-function defaultHookStyle(pt: string) {
-  if (pt === "practical") return "Clear first line + tiny steps";
-  if (pt === "story") return "Human moment + gentle insight";
-  return "Reflective opening + reassurance";
-}
-
-function defaultCtaStyle(msg: string) {
-  return msg.includes("?") ? "One gentle question" : "Soft invitation to comment";
+function safeProvider(p: any): ProviderId | null {
+  const s = String(p || "").toLowerCase().trim();
+  const allowed: ProviderId[] = [
+    "facebook",
+    "instagram",
+    "tiktok",
+    "linkedin",
+    "google",
+    "email",
+    "whatsapp",
+    "threads",
+  ];
+  return (allowed as string[]).includes(s) ? (s as ProviderId) : null;
 }
 
 export default function DashboardHomePage() {
@@ -257,19 +295,17 @@ export default function DashboardHomePage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
-  const [message, setMessage] = useState(
-    "Quick check-in from Root Health Ops Dashboard ✅"
-  );
+  const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
 
   const [imageUrl, setImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
 
   const [mediaMode, setMediaMode] = useState<MediaMode>("auto");
 
-  // Instagram mode toggle
+  // Instagram comfort toggle
   const [igPublishMode, setIgPublishMode] = useState<IgPublishMode>("auto");
 
-  // Montage image list
+  // Montage list (photos)
   const [montageImages, setMontageImages] = useState<UploadedMedia[]>([]);
 
   const [selected, setSelected] = useState<ProviderId[]>([]);
@@ -281,34 +317,21 @@ export default function DashboardHomePage() {
   const [adminOpen, setAdminOpen] = useState(false);
 
   const [mode, setMode] = useState<Mode>("now");
-  const [scheduledLocal, setScheduledLocal] = useState<string>(
-    defaultLocalDateTimePlus(10)
-  );
+  const [scheduledLocal, setScheduledLocal] = useState<string>(defaultLocalDateTimePlus(10));
 
-  // ✅ Growth Memory modal state (output-stage control)
+  // Growth Memory UI
   const [gmOpen, setGmOpen] = useState(false);
-  const [gmSaving, setGmSaving] = useState(false);
-  const [gmError, setGmError] = useState<string | null>(null);
-  const [gmToast, setGmToast] = useState<string | null>(null);
-
-  const [gmPlatform, setGmPlatform] = useState<ProviderId>("threads");
-  const [gmPatternType, setGmPatternType] = useState<
-    "reflective" | "practical" | "story"
-  >("reflective");
-  const [gmFormat, setGmFormat] = useState<"text" | "image" | "video">("text");
-  const [gmHookStyle, setGmHookStyle] = useState("");
-  const [gmCtaStyle, setGmCtaStyle] = useState("");
+  const [gmPlatform, setGmPlatform] = useState<ProviderId>("facebook");
   const [gmNotes, setGmNotes] = useState("");
+  const [gmTags, setGmTags] = useState<string>("");
+  const [gmSavedToast, setGmSavedToast] = useState<string | null>(null);
 
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
     return new Set(active.map((r) => r.platform));
   }, [socialAccounts]);
 
-  const connectedCount = useMemo(
-    () => connectedPlatforms.size,
-    [connectedPlatforms]
-  );
+  const connectedCount = useMemo(() => connectedPlatforms.size, [connectedPlatforms]);
 
   const charCount = message.length;
 
@@ -358,7 +381,7 @@ export default function DashboardHomePage() {
 
   function saveForLater() {
     const d: Draft = {
-      id: crypto.randomUUID(),
+      id: (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : String(Date.now())),
       savedAt: Date.now(),
       message,
       imageUrl,
@@ -426,9 +449,7 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const vars = Array.isArray((json as any)?.variants)
-        ? (json as any).variants
-        : [];
+      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
       if (vars.length === 0) {
         setAiError("AI returned no variants. Try Generate again.");
         return;
@@ -466,6 +487,7 @@ export default function DashboardHomePage() {
     () => montageImages.map((m) => String(m?.url || "").trim()).filter(Boolean),
     [montageImages]
   );
+
   const montageReady = montageUrls.length >= 2;
 
   async function sendQuickBlastNow() {
@@ -483,7 +505,6 @@ export default function DashboardHomePage() {
           imageUrl: media.imageUrl,
           videoUrl: media.videoUrl,
           platforms: selected,
-
           igPublishMode,
           montageImageUrls: montageUrls,
         }),
@@ -496,8 +517,7 @@ export default function DashboardHomePage() {
           success: false,
           error: json?.error || `Request failed (${res.status})`,
           userMessage:
-            json?.userMessage ||
-            "We couldn’t send that just now. Try again in a minute.",
+            json?.userMessage || "We couldn’t send that just now. Try again in a minute.",
         });
         return;
       }
@@ -554,7 +574,6 @@ export default function DashboardHomePage() {
       const res = await fetch("/api/social/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        cache: "no-store",
         body: JSON.stringify({
           message,
           platforms: selected,
@@ -623,9 +642,7 @@ export default function DashboardHomePage() {
 
   useEffect(() => {
     if (selected.length > 0) return;
-    const defaults = socialAccounts
-      .map((r) => r.platform)
-      .filter((p) => connectedPlatforms.has(p));
+    const defaults = socialAccounts.map((r) => r.platform).filter((p) => connectedPlatforms.has(p));
     if (defaults.length > 0) setSelected(defaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingAccounts, socialAccounts]);
@@ -645,12 +662,9 @@ export default function DashboardHomePage() {
     if (!result) return null;
 
     const attempted = result.summary?.attempted ?? (result.results?.length || 0);
-    const ok =
-      result.summary?.ok ??
-      (result.results || []).filter((r: any) => r?.ok).length;
+    const ok = result.summary?.ok ?? (result.results || []).filter((r: any) => r?.ok).length;
     const failed =
-      result.summary?.failed ??
-      (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
+      result.summary?.failed ?? (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
 
     const headline = result.success
       ? attempted > 0
@@ -662,9 +676,7 @@ export default function DashboardHomePage() {
 
     const topMsg =
       result.userMessage ||
-      (result.success
-        ? "Nice — you’re live."
-        : "No stress — we’ll fix what’s blocking it.");
+      (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.");
 
     return { attempted, ok, failed, headline, topMsg };
   }, [result]);
@@ -676,12 +688,10 @@ export default function DashboardHomePage() {
     const ct = String(m?.contentType || "").toLowerCase();
     const kind = String((m as any)?.kind || "").toLowerCase();
 
-    const isVideo =
-      kind === "video" || ct.startsWith("video/") || looksLikeVideoUrl(url);
+    const isVideo = kind === "video" || ct.startsWith("video/") || looksLikeVideoUrl(url);
+    const isImage = kind === "image" || ct.startsWith("image/") || looksLikeImageUrl(url);
 
-    const isImage =
-      kind === "image" || ct.startsWith("image/") || looksLikeImageUrl(url);
-
+    // If montage mode: collect images into a list (don’t overwrite)
     if (isMontageMode) {
       if (isImage) {
         setMontageImages((prev) => {
@@ -695,6 +705,7 @@ export default function DashboardHomePage() {
         return;
       }
 
+      // If user drops a video while in montage mode, treat it as a normal video post
       if (isVideo) {
         setVideoUrl(url);
         setImageUrl("");
@@ -703,6 +714,7 @@ export default function DashboardHomePage() {
       }
     }
 
+    // Normal behavior
     if (isVideo && !isImage) {
       setVideoUrl(url);
       setImageUrl("");
@@ -741,13 +753,14 @@ export default function DashboardHomePage() {
   }
 
   const media = effectiveMediaPayload();
+
   const hasEffectiveVideo = !!media.videoUrl;
+  const hasEffectiveImage = !!media.imageUrl;
 
   const igChoiceHint = useMemo(() => {
     if (igPublishMode === "montage_reel") {
       if (montageUrls.length === 0) return "Add 2+ images for a montage.";
-      if (montageUrls.length === 1)
-        return "Add at least one more image to form a montage.";
+      if (montageUrls.length === 1) return "Add at least one more image to form a montage.";
       return "Montage selected (multiple images).";
     }
 
@@ -762,80 +775,73 @@ export default function DashboardHomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMontageMode]);
 
-  // ✅ Open Growth Memory modal from the “output stage” (FIXED TYPES)
-function openGrowthMemoryFromCurrentPost() {
-  const platforms: ProviderId[] = selected.length
-    ? selected
-    : (["threads"] as ProviderId[]);
+  // ✅ Growth Memory opener (type-safe)
+  function openGrowthMemoryFromCurrentPost() {
+    const firstSelected = selected[0] || null;
+    const safe = safeProvider(firstSelected) || "facebook";
+    setGmPlatform(safe);
 
-  const first: ProviderId = platforms[0] ?? "threads";
+    const okCount = Array.isArray(result?.results)
+      ? result!.results!.filter((r: any) => !!r?.ok).length
+      : 0;
+    const attempted = Array.isArray(result?.results) ? result!.results!.length : 0;
 
-  const fmt: "text" | "image" | "video" = media.videoUrl
-    ? "video"
-    : media.imageUrl
-    ? "image"
-    : "text";
+    const outcome: GrowthMemoryEntry["outcome"] =
+      okCount > 0 && okCount === attempted ? "posted" : okCount > 0 ? "partial" : "failed";
 
-  const pt = detectPatternTypeHeuristic(message);
+    const format = detectFormatFromMedia(media.imageUrl, media.videoUrl);
 
-  setGmPlatform(first);
-  setGmFormat(fmt);
-  setGmPatternType(pt);
-  setGmHookStyle(defaultHookStyle(pt));
-  setGmCtaStyle(defaultCtaStyle(message));
-  setGmNotes("");
-  setGmError(null);
-  setGmOpen(true);
-}
+    const defaultNotes =
+      outcome === "posted"
+        ? "✅ This one landed. Keep the first line + CTA style, and reuse this structure."
+        : outcome === "partial"
+        ? "⚠️ Mixed outcome. Keep the core message, but adjust media/format for the failing platform(s)."
+        : "❌ Didn’t land. Consider: reconnect platform, simplify media, or post text-only once.";
 
-  async function saveGrowthMemory() {
-    setGmSaving(true);
-    setGmError(null);
+    setGmNotes(defaultNotes);
+    setGmTags("quick_blast, growth_lab");
 
-    try {
-      const payload = {
-        suggestion: {
-          platform: gmPlatform,
-          pattern_type: gmPatternType,
-          format: gmFormat,
-          hook_style: gmHookStyle,
-          cta_style: gmCtaStyle,
-          notes:
-            (gmNotes || "").trim() ||
-            "Saved from Quick Blast — a pattern worth repeating.",
-          performance_score: null,
-          source_post_id: null,
-        },
-      };
-
-      const res = await fetch("/api/growth/patterns/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify(payload),
-      });
-
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.success) {
-        setGmError(json?.error || "Could not save to Growth Memory.");
-        setGmSaving(false);
-        return;
-      }
-
-      setGmOpen(false);
-      setGmSaving(false);
-      setGmToast("⭐ Saved to Growth Memory");
-      setTimeout(() => setGmToast(null), 2500);
-    } catch (e: any) {
-      setGmSaving(false);
-      setGmError(e?.message || "Could not save to Growth Memory.");
-    }
+    setGmOpen(true);
   }
 
   function closeGrowthMemory() {
     setGmOpen(false);
-    setGmSaving(false);
-    setGmError(null);
+  }
+
+  function saveGrowthMemoryEntry() {
+    const format = detectFormatFromMedia(media.imageUrl, media.videoUrl);
+
+    const okCount = Array.isArray(result?.results)
+      ? result!.results!.filter((r: any) => !!r?.ok).length
+      : 0;
+    const attempted = Array.isArray(result?.results) ? result!.results!.length : 0;
+
+    const outcome: GrowthMemoryEntry["outcome"] =
+      okCount > 0 && okCount === attempted ? "posted" : okCount > 0 ? "partial" : "failed";
+
+    const entry: GrowthMemoryEntry = {
+      id: (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : String(Date.now())),
+      createdAt: new Date().toISOString(),
+      organisationId: organisationId || null,
+      platform: gmPlatform,
+      format,
+      message: String(message || "").trim(),
+      imageUrl: media.imageUrl ? media.imageUrl : undefined,
+      videoUrl: media.videoUrl ? media.videoUrl : undefined,
+      outcome,
+      notes: String(gmNotes || "").trim(),
+      tags: String(gmTags || "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+    };
+
+    const next = [entry, ...loadGrowthMemory()];
+    saveGrowthMemory(next);
+
+    setGmOpen(false);
+    setGmSavedToast("Saved to Growth Memory ✅");
+    setTimeout(() => setGmSavedToast(null), 2500);
   }
 
   return (
@@ -845,22 +851,10 @@ function openGrowthMemoryFromCurrentPost() {
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
-              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
-                Enterprise Beta
-              </h1>
+              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">Enterprise Beta</h1>
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-                A calm, premium cockpit for social momentum. Send fast. Recover
-                cleanly. Keep going.
+                A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Link
-                  href="/dashboard/campaigns"
-                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
-                >
-                  🧪 Open Growth Lab
-                </Link>
-              </div>
             </div>
 
             <div className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-xs text-slate-300">
@@ -883,9 +877,9 @@ function openGrowthMemoryFromCurrentPost() {
             </div>
           </div>
 
-          {gmToast ? (
-            <div className="mt-5 rounded-2xl border border-emerald-500/50 bg-emerald-500/10 p-3 text-sm text-emerald-200">
-              {gmToast}
+          {gmSavedToast ? (
+            <div className="mt-6 rounded-2xl border border-emerald-500/40 bg-emerald-950/25 p-3 text-sm text-emerald-100">
+              {gmSavedToast}
             </div>
           ) : null}
 
@@ -900,26 +894,16 @@ function openGrowthMemoryFromCurrentPost() {
                 </div>
                 <div className="text-right text-xs text-slate-400">
                   <div>{charCount} chars</div>
-                  <div className="mt-1 text-slate-300">
-                    {charCount === 0
-                      ? "Write something"
-                      : charCount <= 120
-                      ? "Great length"
-                      : charCount <= 240
-                      ? "A bit long (still OK)"
-                      : "Very long — consider shortening"}
-                  </div>
+                  <div className="mt-1 text-slate-300">{lengthHint}</div>
                 </div>
               </div>
 
-              {/* Dispatch mode */}
               <div className="mt-5 rounded-3xl border border-slate-700 bg-slate-950 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold">Dispatch mode</div>
                     <div className="text-[11px] text-slate-400 mt-1">
-                      Send now publishes immediately. Queue for approval routes
-                      it into your clinic workflow.
+                      Send now publishes immediately. Queue for approval routes it into your clinic workflow.
                     </div>
                   </div>
 
@@ -929,9 +913,7 @@ function openGrowthMemoryFromCurrentPost() {
                       onClick={() => setMode("now")}
                       className={[
                         "px-3 py-1.5",
-                        mode === "now"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
+                        mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                       ].join(" ")}
                     >
                       Send now
@@ -941,9 +923,7 @@ function openGrowthMemoryFromCurrentPost() {
                       onClick={() => setMode("approval")}
                       className={[
                         "px-3 py-1.5",
-                        mode === "approval"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
+                        mode === "approval" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                       ].join(" ")}
                     >
                       Queue for approval
@@ -964,26 +944,18 @@ function openGrowthMemoryFromCurrentPost() {
                         className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                       />
                       <div className="mt-1 text-[11px] text-slate-500">
-                        This is the scheduled time stored on the post (and shown
-                        in Approvals/Scheduled).
+                        This is the scheduled time stored on the post (and shown in Approvals/Scheduled).
                       </div>
                     </div>
 
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-300">
-                      <div className="font-semibold text-slate-200">
-                        What happens next
-                      </div>
+                      <div className="font-semibold text-slate-200">What happens next</div>
                       <ul className="mt-2 space-y-1">
                         <li>
                           • Your post lands in{" "}
-                          <span className="text-slate-100 font-semibold">
-                            Approvals
-                          </span>{" "}
-                          as pending
+                          <span className="text-slate-100 font-semibold">Approvals</span> as pending
                         </li>
-                        <li>
-                          • Approver sees full content + “Posted by Clinic Owner”
-                        </li>
+                        <li>• Approver sees full content + “Posted by Clinic Owner”</li>
                         <li>• Approve → it becomes ready → Post now</li>
                       </ul>
                     </div>
@@ -997,8 +969,7 @@ function openGrowthMemoryFromCurrentPost() {
                   <div>
                     <div className="text-sm font-semibold">Media (optional)</div>
                     <div className="mt-1 text-[11px] text-slate-400">
-                      Drop a file here or click “Choose file”. We upload to
-                      Supabase and fill the correct URL automatically.
+                      Drop a file here or click “Choose file”. We upload to Supabase and fill the correct URL automatically.
                     </div>
                   </div>
 
@@ -1008,9 +979,7 @@ function openGrowthMemoryFromCurrentPost() {
                       onClick={() => setMediaMode("auto")}
                       className={[
                         "px-3 py-1.5",
-                        mediaMode === "auto"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
+                        mediaMode === "auto" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                       ].join(" ")}
                     >
                       Auto
@@ -1020,9 +989,7 @@ function openGrowthMemoryFromCurrentPost() {
                       onClick={() => setMediaMode("image")}
                       className={[
                         "px-3 py-1.5",
-                        mediaMode === "image"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
+                        mediaMode === "image" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                       ].join(" ")}
                     >
                       Image
@@ -1032,9 +999,7 @@ function openGrowthMemoryFromCurrentPost() {
                       onClick={() => setMediaMode("video")}
                       className={[
                         "px-3 py-1.5",
-                        mediaMode === "video"
-                          ? "bg-emerald-500 text-slate-950"
-                          : "text-slate-300",
+                        mediaMode === "video" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                       ].join(" ")}
                     >
                       Video
@@ -1042,22 +1007,17 @@ function openGrowthMemoryFromCurrentPost() {
                   </div>
                 </div>
 
-                {/* Instagram style */}
+                {/* Instagram posting style */}
                 <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-sm font-semibold">
-                        Instagram posting style
-                      </div>
+                      <div className="text-sm font-semibold">Instagram posting style</div>
                       <div className="mt-1 text-[11px] text-slate-400">
-                        Comfort toggle — always visible. We’ll keep today’s
-                        stable posting, and evolve this safely.
+                        Comfort toggle — always visible. We’ll keep today’s stable posting, and evolve this safely.
                       </div>
                       <div className="mt-2 text-[11px] text-slate-300">
                         Current:{" "}
-                        <span className="text-slate-100 font-semibold">
-                          {igChoiceHint}
-                        </span>
+                        <span className="text-slate-100 font-semibold">{igChoiceHint}</span>
                       </div>
                     </div>
 
@@ -1067,9 +1027,7 @@ function openGrowthMemoryFromCurrentPost() {
                         onClick={() => setIgPublishMode("auto")}
                         className={[
                           "px-3 py-1.5",
-                          igPublishMode === "auto"
-                            ? "bg-emerald-500 text-slate-950"
-                            : "text-slate-300",
+                          igPublishMode === "auto" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                         ].join(" ")}
                       >
                         Auto
@@ -1084,9 +1042,7 @@ function openGrowthMemoryFromCurrentPost() {
                           igPublishMode === "feed_video"
                             ? "bg-emerald-500 text-slate-950"
                             : "text-slate-300",
-                          !hasEffectiveVideo
-                            ? "opacity-50 cursor-not-allowed"
-                            : "",
+                          !hasEffectiveVideo ? "opacity-50 cursor-not-allowed" : "",
                         ].join(" ")}
                         title={!hasEffectiveVideo ? "Upload/select a video first" : ""}
                       >
@@ -1099,12 +1055,8 @@ function openGrowthMemoryFromCurrentPost() {
                         disabled={!hasEffectiveVideo}
                         className={[
                           "px-3 py-1.5",
-                          igPublishMode === "reel"
-                            ? "bg-emerald-500 text-slate-950"
-                            : "text-slate-300",
-                          !hasEffectiveVideo
-                            ? "opacity-50 cursor-not-allowed"
-                            : "",
+                          igPublishMode === "reel" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                          !hasEffectiveVideo ? "opacity-50 cursor-not-allowed" : "",
                         ].join(" ")}
                         title={!hasEffectiveVideo ? "Upload/select a video first" : ""}
                       >
@@ -1130,24 +1082,16 @@ function openGrowthMemoryFromCurrentPost() {
                   {igPublishMode === "montage_reel" && (
                     <div className="mt-3 text-[11px] text-slate-300">
                       <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
-                        <div className="font-semibold text-slate-200">
-                          Montage builder
-                        </div>
+                        <div className="font-semibold text-slate-200">Montage builder</div>
                         <div className="mt-1 text-slate-400">
-                          Upload multiple images one-by-one. We’ll store a list
-                          here and send it to the API as{" "}
-                          <span className="text-slate-200 font-semibold">
-                            montageImageUrls
-                          </span>
-                          .
+                          Upload multiple images one-by-one. We’ll store a list here and send it to the API as{" "}
+                          <span className="text-slate-200 font-semibold">montageImageUrls</span>.
                         </div>
 
                         {!montageReady ? (
                           <div className="mt-2 text-amber-200">
-                            Add <span className="font-semibold">2+</span> images
-                            for a real montage. (Right now, your existing
-                            posting still works using the first image — we’ll
-                            wire true montage-to-reel server-side next.)
+                            Add <span className="font-semibold">2+</span> images for a real montage.
+                            (Right now, your existing posting still works using the first image — we’ll wire true montage-to-reel server-side next.)
                           </div>
                         ) : (
                           <div className="mt-2 text-emerald-200">
@@ -1221,9 +1165,7 @@ function openGrowthMemoryFromCurrentPost() {
                         </button>
                       ) : null}
                     </div>
-                    <div className="mt-1 break-all text-slate-200">
-                      {imageUrl || "—"}
-                    </div>
+                    <div className="mt-1 break-all text-slate-200">{imageUrl || "—"}</div>
                   </div>
 
                   <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
@@ -1239,16 +1181,20 @@ function openGrowthMemoryFromCurrentPost() {
                         </button>
                       ) : null}
                     </div>
-                    <div className="mt-1 break-all text-slate-200">
-                      {videoUrl || "—"}
-                    </div>
+                    <div className="mt-1 break-all text-slate-200">{videoUrl || "—"}</div>
                   </div>
                 </div>
 
                 <div className="mt-2 text-[11px] text-slate-500">
-                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} •
-                  videoUrl: {media.videoUrl ? "✅" : "—"}
+                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl:{" "}
+                  {media.videoUrl ? "✅" : "—"}
                 </div>
+
+                {igPublishMode === "montage_reel" && !hasEffectiveImage && montageUrls.length > 0 && (
+                  <div className="mt-2 text-[11px] text-amber-200">
+                    Note: Montage has images, but Image URL is blank — refresh or upload one more image to set the first image as the primary imageUrl.
+                  </div>
+                )}
               </div>
 
               {/* AI Composer */}
@@ -1257,8 +1203,7 @@ function openGrowthMemoryFromCurrentPost() {
                   <div>
                     <div className="text-sm font-semibold">AI helper</div>
                     <div className="text-[11px] text-slate-400 mt-1">
-                      Type a subject + pick tone/length → Generate → Use (then
-                      edit if you want).
+                      Type a subject + pick tone/length → Generate → Use (then edit if you want).
                     </div>
                   </div>
                   <button
@@ -1286,9 +1231,7 @@ function openGrowthMemoryFromCurrentPost() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">
-                        Tone
-                      </label>
+                      <label className="block text-xs font-medium text-slate-300">Tone</label>
                       <select
                         value={aiTone}
                         onChange={(e) => setAiTone(e.target.value)}
@@ -1303,9 +1246,7 @@ function openGrowthMemoryFromCurrentPost() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">
-                        Length
-                      </label>
+                      <label className="block text-xs font-medium text-slate-300">Length</label>
                       <select
                         value={aiLength}
                         onChange={(e) => setAiLength(e.target.value)}
@@ -1333,9 +1274,7 @@ function openGrowthMemoryFromCurrentPost() {
                         className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4"
                       >
                         <div className="flex items-start justify-between gap-3">
-                          <div className="text-sm font-semibold">
-                            {v.title || `Variant ${idx + 1}`}
-                          </div>
+                          <div className="text-sm font-semibold">{v.title || `Variant ${idx + 1}`}</div>
                           <button
                             type="button"
                             onClick={() => setMessage(joinVariant(v))}
@@ -1349,19 +1288,14 @@ function openGrowthMemoryFromCurrentPost() {
                         </div>
                       </div>
                     ))}
-                    <div className="text-[11px] text-slate-500">
-                      Tip: Click “Use this”, tweak the wording, then dispatch.
-                    </div>
+                    <div className="text-[11px] text-slate-500">Tip: Click “Use this”, tweak the wording, then dispatch.</div>
                   </div>
                 )}
               </div>
 
-              {/* Message + Channels + Send */}
               <div className="mt-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Message
-                  </label>
+                  <label className="block text-xs font-medium text-slate-300">Message</label>
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
@@ -1371,11 +1305,10 @@ function openGrowthMemoryFromCurrentPost() {
                   />
                 </div>
 
+                {/* Manual fields remain as fallback */}
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Image URL (optional)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Image URL (optional)</label>
                     <input
                       value={imageUrl}
                       onChange={(e) => setImageUrl(e.target.value)}
@@ -1384,9 +1317,7 @@ function openGrowthMemoryFromCurrentPost() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Video URL (optional)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Video URL (optional)</label>
                     <input
                       value={videoUrl}
                       onChange={(e) => setVideoUrl(e.target.value)}
@@ -1398,9 +1329,7 @@ function openGrowthMemoryFromCurrentPost() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="block text-xs font-medium text-slate-300">
-                      Channels
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Channels</label>
                     <button
                       type="button"
                       onClick={refreshChannels}
@@ -1430,9 +1359,7 @@ function openGrowthMemoryFromCurrentPost() {
                           }`}
                         >
                           <div>
-                            <div className="font-medium">
-                              {PROVIDER_LABELS[p]}
-                            </div>
+                            <div className="font-medium">{PROVIDER_LABELS[p]}</div>
                             <div className="text-[11px] text-slate-500">
                               {isConnected ? "connected" : "not connected"}
                             </div>
@@ -1453,20 +1380,14 @@ function openGrowthMemoryFromCurrentPost() {
                     })}
                   </div>
 
-                  <div className="mt-2 text-[11px] text-slate-500">
-                    Only connected channels will actually send.
-                  </div>
+                  <div className="mt-2 text-[11px] text-slate-500">Only connected channels will actually send.</div>
                 </div>
 
                 <div className="flex flex-wrap gap-3 pt-2">
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={
-                      sending ||
-                      message.trim().length === 0 ||
-                      selected.length === 0
-                    }
+                    disabled={sending || message.trim().length === 0 || selected.length === 0}
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {sending
@@ -1493,83 +1414,87 @@ function openGrowthMemoryFromCurrentPost() {
                   >
                     Admin view
                   </button>
-                </div>{Array.isArray(result.results) && result.results.some((r: any) => !!r?.ok) ? (
-  <div className="mt-4 flex flex-wrap gap-2">
-    <button
-      type="button"
-      onClick={openGrowthMemoryFromCurrentPost}
-      className="rounded-2xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-    >
-      ⭐ Save this to Growth Memory
-    </button>
-    <Link
-      href="/dashboard/campaigns"
-      className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs text-slate-200 hover:border-slate-600"
-    >
-      View Growth Lab
-    </Link>
-  </div>
-) : null}
+                </div>
 
+                {/* ✅ RESULT PANEL (fixed JSX) */}
+                {result && (
+                  <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
+                    <div className="text-sm">
+                      <div className={result.success ? "text-emerald-200" : "text-amber-200"}>
+                        {friendlySummary?.headline || (result.success ? "Success." : "Not sent.")}
+                      </div>
+                      <div className="mt-1 text-[12px] text-slate-300">
+                        {friendlySummary?.topMsg ||
+                          (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.")}
+                      </div>
+                      {result.note ? (
+                        <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div>
+                      ) : null}
+                    </div>
 
-                    {Array.isArray(result.results) &&
-                      result.results.length > 0 && (
-                        <div className="mt-4 space-y-2">
-                          {result.results.map((r: any, idx: number) => {
-                            const platform =
-                              (String(r?.platform || "") as ProviderId) ||
-                              "facebook";
-                            const ok = !!r?.ok;
-                            const skipped = !!r?.skipped;
-                            const label = formatPlatformName(
-                              r?.platform || platform
-                            );
+                    {Array.isArray(result.results) && result.results.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        {result.results.map((r: any, idx: number) => {
+                          const platform = (String(r?.platform || "") as ProviderId) || "facebook";
+                          const ok = !!r?.ok;
+                          const skipped = !!r?.skipped;
+                          const label = formatPlatformName(r?.platform || platform);
 
-                            const friendly = ok ? "Posted." : extractFriendlyError(r);
-                            const tip = !ok
-                              ? friendlySuggestionForPlatform(platform, r)
-                              : null;
+                          const friendly = ok ? "Posted." : extractFriendlyError(r);
+                          const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
 
-                            return (
-                              <div
-                                key={`${platform}-${idx}`}
-                                className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="text-[12px] font-semibold text-slate-200">
-                                    {label}
-                                  </div>
-                                  <div
-                                    className={[
-                                      "text-[11px] rounded-full border px-2 py-0.5",
-                                      ok
-                                        ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
-                                        : skipped
-                                        ? "border-slate-600 text-slate-300 bg-slate-900/40"
-                                        : "border-red-500/50 text-red-200 bg-red-500/10",
-                                    ].join(" ")}
-                                  >
-                                    {ok
-                                      ? "✅ Posted"
+                          return (
+                            <div
+                              key={`${platform}-${idx}`}
+                              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="text-[12px] font-semibold text-slate-200">{label}</div>
+                                <div
+                                  className={[
+                                    "text-[11px] rounded-full border px-2 py-0.5",
+                                    ok
+                                      ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
                                       : skipped
-                                      ? "⚠️ Skipped"
-                                      : "❌ Failed"}
-                                  </div>
+                                      ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                      : "border-red-500/50 text-red-200 bg-red-500/10",
+                                  ].join(" ")}
+                                >
+                                  {ok ? "✅ Posted" : skipped ? "⚠️ Skipped" : "❌ Failed"}
                                 </div>
-
-                                <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
-                                  {friendly}
-                                </div>
-                                {tip ? (
-                                  <div className="mt-1 text-[11px] text-slate-400">
-                                    {tip}
-                                  </div>
-                                ) : null}
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
+
+                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">{friendly}</div>
+
+                              {tip ? <div className="mt-1 text-[11px] text-slate-400">{tip}</div> : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* ✅ Only show Growth Memory if at least one platform posted */}
+                    {Array.isArray(result.results) && result.results.some((r: any) => !!r?.ok) ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={openGrowthMemoryFromCurrentPost}
+                          className="rounded-2xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                        >
+                          ⭐ Save this to Growth Memory
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (typeof window !== "undefined") window.location.href = "/dashboard/campaigns";
+                          }}
+                          className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs text-slate-200 hover:border-slate-600"
+                        >
+                          View Growth Lab
+                        </button>
+                      </div>
+                    ) : null}
 
                     {adminOpen && (
                       <details className="mt-4">
@@ -1587,28 +1512,17 @@ function openGrowthMemoryFromCurrentPost() {
                 {adminOpen && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
                     <div className="text-slate-400 mb-2">Admin info (safe).</div>
-                    <div>
-                      Selected platforms: {selected.join(", ") || "(none)"}
-                    </div>
+                    <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
                     <div className="mt-1">
-                      Connected platforms:{" "}
-                      {Array.from(connectedPlatforms).join(", ") || "(none)"}
+                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
                     </div>
-                    <div className="mt-1">
-                      OrganisationId: {organisationId || "(loading…)"}
-                    </div>
-                    <div className="mt-1">
-                      Mode: {mode === "now" ? "Send now" : "Queue for approval"}
-                    </div>
+                    <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
+                    <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
                     <div className="mt-1">mediaMode: {mediaMode}</div>
                     <div className="mt-1">igPublishMode: {igPublishMode}</div>
                     <div className="mt-1">montageImages: {montageUrls.length}</div>
-                    <div className="mt-1">
-                      imageUrl: {media.imageUrl ? "✅ set" : "—"}
-                    </div>
-                    <div className="mt-1">
-                      videoUrl: {media.videoUrl ? "✅ set" : "—"}
-                    </div>
+                    <div className="mt-1">imageUrl: {media.imageUrl ? "✅ set" : "—"}</div>
+                    <div className="mt-1">videoUrl: {media.videoUrl ? "✅ set" : "—"}</div>
                   </div>
                 )}
               </div>
@@ -1617,9 +1531,7 @@ function openGrowthMemoryFromCurrentPost() {
             {/* Drafts */}
             <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <h3 className="text-base font-semibold">Saved drafts</h3>
-              <p className="mt-1 text-sm text-slate-300">
-                Drafts are stored on this device. (Later we can sync per org.)
-              </p>
+              <p className="mt-1 text-sm text-slate-300">Drafts are stored on this device. (Later we can sync per org.)</p>
               <p className="mt-2 text-[11px] text-slate-500">
                 Use “Save for later” and we’ll restore the full draft library
               </p>
@@ -1631,13 +1543,8 @@ function openGrowthMemoryFromCurrentPost() {
                   </div>
                 ) : (
                   drafts.map((d) => (
-                    <div
-                      key={d.id}
-                      className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
-                    >
-                      <div className="text-[11px] text-slate-500">
-                        {new Date(d.savedAt).toLocaleString()}
-                      </div>
+                    <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                      <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
                       <div className="mt-1 text-sm text-slate-200 line-clamp-3">
                         {d.message || "(empty)"}
                       </div>
@@ -1668,33 +1575,25 @@ function openGrowthMemoryFromCurrentPost() {
             </div>
           </div>
 
-          <div className="mt-8 text-xs text-slate-500">
-            Tip: Upload media → write → choose channels → post (or queue).
-          </div>
+          <div className="mt-8 text-xs text-slate-500">Tip: Upload media → write → choose channels → post (or queue).</div>
         </div>
       </div>
 
       {/* ✅ Growth Memory Modal */}
       {gmOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div
-            className="absolute inset-0 bg-black/70"
-            onClick={closeGrowthMemory}
-          />
-
+          <div className="absolute inset-0 bg-black/70" onClick={closeGrowthMemory} />
           <div className="relative w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-xs text-slate-400">Growth Memory</div>
+                <div className="text-xs text-slate-400">Growth Lab</div>
                 <div className="mt-1 text-lg font-semibold text-slate-100">
-                  Save this as a pattern ⭐
+                  Save to Growth Memory
                 </div>
-                <div className="mt-2 text-[12px] text-slate-400">
-                  This is the “output stage control” — you decide what’s worth
-                  repeating.
+                <div className="mt-1 text-sm text-slate-300">
+                  Capture what worked (or what failed) so your future self gets smarter — without effort.
                 </div>
               </div>
-
               <button
                 type="button"
                 onClick={closeGrowthMemory}
@@ -1704,129 +1603,90 @@ function openGrowthMemoryFromCurrentPost() {
               </button>
             </div>
 
-            {gmError ? (
-              <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">
-                {gmError}
-              </div>
-            ) : null}
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="block text-xs font-medium text-slate-300">
-                  Platform
-                </label>
-                <select
-                  value={gmPlatform}
-                  onChange={(e) => setGmPlatform(e.target.value as ProviderId)}
-                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                >
-                  {selected.length > 0 ? (
-                    selected.map((p) => (
-                      <option key={p} value={p}>
-                        {PROVIDER_LABELS[p]}
-                      </option>
-                    ))
-                  ) : (
+            <div className="mt-5 grid gap-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Platform</label>
+                  <select
+                    value={gmPlatform}
+                    onChange={(e) => {
+                      const v = safeProvider(e.target.value) || "facebook";
+                      setGmPlatform(v);
+                    }}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="facebook">Facebook</option>
+                    <option value="instagram">Instagram</option>
+                    <option value="linkedin">LinkedIn</option>
                     <option value="threads">Threads</option>
-                  )}
-                </select>
+                    <option value="tiktok">TikTok</option>
+                    <option value="google">Google</option>
+                    <option value="email">Email</option>
+                    <option value="whatsapp">WhatsApp</option>
+                  </select>
+                </div>
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3 text-[12px] text-slate-300">
+                  <div className="font-semibold text-slate-200">Snapshot</div>
+                  <div className="mt-1 text-slate-400">
+                    Format:{" "}
+                    <span className="text-slate-100 font-semibold">
+                      {detectFormatFromMedia(media.imageUrl, media.videoUrl)}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-slate-400">
+                    Media:{" "}
+                    <span className="text-slate-100 font-semibold">
+                      {media.videoUrl ? "video" : media.imageUrl ? "image" : "none"}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300">
-                  Format
-                </label>
-                <select
-                  value={gmFormat}
-                  onChange={(e) => setGmFormat(e.target.value as any)}
-                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                >
-                  <option value="text">Text</option>
-                  <option value="image">Image</option>
-                  <option value="video">Video</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300">
-                  Pattern type
-                </label>
-                <select
-                  value={gmPatternType}
-                  onChange={(e) => {
-                    const v = e.target.value as any;
-                    setGmPatternType(v);
-                    setGmHookStyle((prev) => prev || defaultHookStyle(v));
-                  }}
-                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                >
-                  <option value="reflective">Reflective</option>
-                  <option value="practical">Practical</option>
-                  <option value="story">Story</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300">
-                  CTA style
-                </label>
-                <input
-                  value={gmCtaStyle}
-                  onChange={(e) => setGmCtaStyle(e.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  placeholder="e.g. One gentle question"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-slate-300">
-                  Hook style
-                </label>
-                <input
-                  value={gmHookStyle}
-                  onChange={(e) => setGmHookStyle(e.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  placeholder="e.g. Reflective opening + reassurance"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-slate-300">
-                  Notes (optional)
-                </label>
+                <label className="block text-xs font-medium text-slate-300">Notes (what happened / what to do next)</label>
                 <textarea
                   value={gmNotes}
                   onChange={(e) => setGmNotes(e.target.value)}
-                  rows={3}
+                  rows={5}
                   className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  placeholder="Why was this a good one?"
+                  placeholder="e.g. Hook worked. CTA too pushy. Try softer CTA + carousel next time."
                 />
               </div>
-            </div>
 
-            <div className="mt-5 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={saveGrowthMemory}
-                disabled={gmSaving}
-                className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-              >
-                {gmSaving ? "Saving…" : "Save to Growth Memory"}
-              </button>
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Tags (comma-separated)</label>
+                <input
+                  value={gmTags}
+                  onChange={(e) => setGmTags(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  placeholder="e.g. anxiety, workplace, calm_tone"
+                />
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Keep it simple. Later we’ll use these to suggest “what to post next”.
+                </div>
+              </div>
 
-              <button
-                type="button"
-                onClick={closeGrowthMemory}
-                disabled={gmSaving}
-                className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
-              >
-                Cancel
-              </button>
-            </div>
+              <div className="flex flex-wrap gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={saveGrowthMemoryEntry}
+                  className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={closeGrowthMemory}
+                  className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500"
+                >
+                  Cancel
+                </button>
+              </div>
 
-            <div className="mt-4 text-[11px] text-slate-500">
-              Tip: If it felt good to write and it matched your style — save it.
-              Your future self will thank you. 🙂
+              <div className="text-[11px] text-slate-500">
+                Tiny joke (whispered): your future self just high-fived you. 🤝
+              </div>
             </div>
           </div>
         </div>
