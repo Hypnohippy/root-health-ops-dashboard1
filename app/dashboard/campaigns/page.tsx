@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 
 type Pattern = {
   id: string;
@@ -35,51 +34,27 @@ type Suggestion = {
   error?: string;
 };
 
-type SocialAccountsResponse = {
-  success?: boolean;
-  organisationId?: string;
-  socialAccounts?: Array<{
-    platform?: string;
-    page_name?: string | null;
-    page_id?: string | null;
-    is_active?: boolean | null;
-    token_expires_at?: string | null;
-  }>;
-  error?: string;
-};
-
-type Tab = "today" | "roadmap" | "memory";
-
-const ROADMAP_KEY = "rootops_growthlab_roadmap_v1";
-const ASSUMPTIONS_KEY = "rootops_growthlab_assumptions_v1";
-const EXPERIMENTS_KEY = "rootops_growthlab_experiments_v1";
-
-type RoadmapItem = {
+type Outcome = {
   id: string;
-  label: string;
-  done: boolean;
-};
-
-type Assumptions = {
-  postsPerWeek: number;
-  avgReachPerPost: number;
-  saveRatePct: number;
-  dmRatePct: number;
-  bookingRatePct: number;
+  metric_name: string;
+  metric_value: number | null;
+  created_at: string;
 };
 
 type Experiment = {
   id: string;
-  createdAt: number;
+  organisation_id: string;
+  title: string;
+  hypothesis: string | null;
   platform: string;
-  goal: string;
-  format: "text" | "image" | "video";
-  patternType: string;
-  hookStyle: string;
-  ctaStyle: string;
-  notes: string;
-  status: "planned" | "running" | "done";
-  confidence?: number | null;
+  pattern_type: string | null;
+  format: string | null;
+  status: "planned" | "running" | "completed" | "abandoned";
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  growth_experiment_outcomes?: Outcome[];
 };
 
 function nice(s?: string | null) {
@@ -93,94 +68,62 @@ function platformLabel(p?: string | null) {
   if (k === "threads") return "Threads";
   if (k === "linkedin") return "LinkedIn";
   if (k === "tiktok") return "TikTok";
-  if (k === "google") return "Google Business Profile";
   return p || "—";
 }
 
-function clampNum(n: any, fallback: number, min: number, max: number) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return fallback;
-  return Math.max(min, Math.min(max, v));
+function statusLabel(s: Experiment["status"]) {
+  if (s === "planned") return "Planned";
+  if (s === "running") return "Running";
+  if (s === "completed") return "Completed";
+  return "Archived";
 }
 
-function loadJson<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
+function badgeClassesForStatus(s: Experiment["status"]) {
+  if (s === "planned") return "border-slate-600 text-slate-300 bg-slate-900/40";
+  if (s === "running") return "border-emerald-500/60 text-emerald-200 bg-emerald-500/10";
+  if (s === "completed") return "border-blue-500/60 text-blue-200 bg-blue-500/10";
+  return "border-slate-700 text-slate-400 bg-slate-900/30";
 }
 
-function saveJson(key: string, value: any) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
-}
-
-function uid() {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `id_${Math.random().toString(16).slice(2)}_${Date.now()}`;
-}
-
-function pillTone(score?: number | null) {
-  const n = Number(score);
-  if (!Number.isFinite(n)) return "border-slate-600 text-slate-300 bg-slate-900/40";
-  if (n >= 80) return "border-emerald-500/50 text-emerald-200 bg-emerald-500/10";
-  if (n >= 60) return "border-blue-500/50 text-blue-200 bg-blue-500/10";
-  if (n >= 40) return "border-amber-500/50 text-amber-200 bg-amber-500/10";
-  return "border-red-500/50 text-red-200 bg-red-500/10";
+function formatWhen(ts?: string | null) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString();
 }
 
 export default function CampaignsPage() {
-  // We’re repurposing the old /campaigns route as “Growth Lab”
-  const [tab, setTab] = useState<Tab>("today");
-
+  // Growth Lab = repurposed /dashboard/campaigns (enterprise-safe)
   const [loading, setLoading] = useState(true);
   const [patternsLoading, setPatternsLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [experimentsLoading, setExperimentsLoading] = useState(true);
 
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const [suggestion, setSuggestion] = useState<Suggestion["suggestion"] | null>(null);
   const [patterns, setPatterns] = useState<Pattern[]>([]);
-
-  // Connections glance
-  const [connLoading, setConnLoading] = useState(false);
-  const [connections, setConnections] = useState<SocialAccountsResponse["socialAccounts"]>([]);
-  const [organisationId, setOrganisationId] = useState<string | null>(null);
-
-  // Roadmap (local)
-  const [roadmap, setRoadmap] = useState<RoadmapItem[]>([]);
-  const roadmapDone = useMemo(() => roadmap.filter((r) => r.done).length, [roadmap]);
-
-  // Assumptions (local) for projections
-  const [assumptions, setAssumptions] = useState<Assumptions>({
-    postsPerWeek: 3,
-    avgReachPerPost: 350,
-    saveRatePct: 2.0,
-    dmRatePct: 0.6,
-    bookingRatePct: 0.15,
-  });
-
-  // Experiment builder
-  const [exPlatform, setExPlatform] = useState<string>("instagram");
-  const [exGoal, setExGoal] = useState<string>("More enquiries (DMs)");
-  const [exFormat, setExFormat] = useState<"text" | "image" | "video">("video");
-  const [exPatternType, setExPatternType] = useState<string>("micro_story");
-  const [exHookStyle, setExHookStyle] = useState<string>("relatable opening");
-  const [exCtaStyle, setExCtaStyle] = useState<string>("gentle question");
-  const [exNotes, setExNotes] = useState<string>(
-    "Keep it human. One key point. One clear next step."
-  );
   const [experiments, setExperiments] = useState<Experiment[]>([]);
 
-  // Quick helpers
-  const hasSuggestion = !!suggestion;
-  const savedCount = useMemo(() => patterns.length, [patterns]);
+  // Therapist control at “output stage” (before creating experiment)
+  const [startOpen, setStartOpen] = useState(false);
+  const [startTitle, setStartTitle] = useState("");
+  const [startHypothesis, setStartHypothesis] = useState("");
+  const [startPlatform, setStartPlatform] = useState("");
+  const [startPatternType, setStartPatternType] = useState("");
+  const [startFormat, setStartFormat] = useState("");
+
+  // Outcomes modal
+  const [outcomeOpen, setOutcomeOpen] = useState(false);
+  const [outcomeExperiment, setOutcomeExperiment] = useState<Experiment | null>(null);
+  const [metricName, setMetricName] = useState("comments");
+  const [metricValue, setMetricValue] = useState<string>("");
+  const [outcomeSaving, setOutcomeSaving] = useState(false);
+
+  function showToast(msg: string) {
+    setToast(msg);
+  }
 
   async function loadSuggestion() {
     setLoading(true);
@@ -226,23 +169,81 @@ export default function CampaignsPage() {
     }
   }
 
-  async function loadConnections() {
-    setConnLoading(true);
+  async function loadExperiments() {
+    setExperimentsLoading(true);
     try {
-      const res = await fetch("/api/social-accounts", { cache: "no-store" });
-      const json: SocialAccountsResponse = await res.json().catch(() => ({} as any));
-      if (res.ok) {
-        setOrganisationId(json?.organisationId ? String(json.organisationId) : null);
-        setConnections(Array.isArray(json?.socialAccounts) ? json.socialAccounts : []);
-      } else {
-        setConnections([]);
+      const res = await fetch("/api/growth/experiments/list", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        setExperiments([]);
+        setExperimentsLoading(false);
+        return;
       }
+
+      setExperiments(Array.isArray(json.items) ? json.items : []);
     } catch {
-      setConnections([]);
+      setExperiments([]);
     } finally {
-      setConnLoading(false);
+      setExperimentsLoading(false);
     }
   }
+
+  useEffect(() => {
+    void loadSuggestion();
+    void loadPatterns();
+    void loadExperiments();
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const hasSuggestion = !!suggestion;
+
+  const savedCount = useMemo(() => patterns.length, [patterns]);
+
+  const planned = useMemo(() => experiments.filter((e) => e.status === "planned"), [experiments]);
+  const running = useMemo(() => experiments.filter((e) => e.status === "running"), [experiments]);
+  const completed = useMemo(() => experiments.filter((e) => e.status === "completed"), [experiments]);
+
+  const roadmap = useMemo(() => {
+    if (running.length > 0) {
+      return {
+        title: "Today’s roadmap",
+        steps: [
+          "Pick ONE running experiment to focus on (keep it gentle).",
+          "Post once using that pattern.",
+          "Tomorrow: add one result number (even if it’s small).",
+        ],
+        mood: "You’re already doing it. Quiet consistency beats chaos.",
+      };
+    }
+
+    if (planned.length > 0) {
+      return {
+        title: "Today’s roadmap",
+        steps: [
+          "Choose ONE planned experiment to start.",
+          "Run it for 2–3 posts (don’t overthink).",
+          "Add one outcome number when you’re ready.",
+        ],
+        mood: "Your future self will thank you for keeping it simple.",
+      };
+    }
+
+    return {
+      title: "Today’s roadmap",
+      steps: [
+        "Start your first experiment from the suggestion (it takes 30 seconds).",
+        "Post once. That’s the win.",
+        "Come back tomorrow for a new gentle nudge.",
+      ],
+      mood: "No pressure. Just momentum.",
+    };
+  }, [planned.length, running.length]);
 
   async function saveSuggestion() {
     if (!suggestion) return;
@@ -265,9 +266,9 @@ export default function CampaignsPage() {
         return;
       }
 
-      setToast("⭐ Saved to Growth Memory");
+      showToast("⭐ Saved to Growth Memory");
       await loadPatterns();
-      await loadSuggestion();
+      await loadSuggestion(); // refresh to generate a fresh suggestion
     } catch (e: any) {
       setError(e?.message || "Failed to save.");
     } finally {
@@ -275,151 +276,194 @@ export default function CampaignsPage() {
     }
   }
 
-  // Init
-  useEffect(() => {
-    loadSuggestion();
-    loadPatterns();
-    loadConnections();
-
-    // Roadmap default (saved locally)
-    const defaultRoadmap: RoadmapItem[] = [
-      { id: "r1", label: "Post 3 times this week (small and steady)", done: false },
-      { id: "r2", label: "Save 1 pattern that worked (Growth Memory)", done: false },
-      { id: "r3", label: "Run 1 experiment with a new hook style", done: false },
-      { id: "r4", label: "Reply to every comment/DM for 20 minutes", done: false },
-      { id: "r5", label: "Ask one gentle question (CTA) in a post", done: false },
-    ];
-
-    const savedRoadmap = loadJson<RoadmapItem[]>(ROADMAP_KEY, defaultRoadmap);
-    setRoadmap(Array.isArray(savedRoadmap) && savedRoadmap.length ? savedRoadmap : defaultRoadmap);
-
-    const savedAssumptions = loadJson<Assumptions>(ASSUMPTIONS_KEY, assumptions);
-    setAssumptions({
-      postsPerWeek: clampNum(savedAssumptions.postsPerWeek, 3, 0, 50),
-      avgReachPerPost: clampNum(savedAssumptions.avgReachPerPost, 350, 0, 500000),
-      saveRatePct: clampNum(savedAssumptions.saveRatePct, 2.0, 0, 100),
-      dmRatePct: clampNum(savedAssumptions.dmRatePct, 0.6, 0, 100),
-      bookingRatePct: clampNum(savedAssumptions.bookingRatePct, 0.15, 0, 100),
-    });
-
-    const savedExperiments = loadJson<Experiment[]>(EXPERIMENTS_KEY, []);
-    setExperiments(Array.isArray(savedExperiments) ? savedExperiments : []);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Toast timer
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2600);
-    return () => clearTimeout(t);
-  }, [toast]);
-
-  // Persist roadmap/assumptions/experiments
-  useEffect(() => {
-    if (!roadmap) return;
-    saveJson(ROADMAP_KEY, roadmap);
-  }, [roadmap]);
-
-  useEffect(() => {
-    saveJson(ASSUMPTIONS_KEY, assumptions);
-  }, [assumptions]);
-
-  useEffect(() => {
-    saveJson(EXPERIMENTS_KEY, experiments);
-  }, [experiments]);
-
-  function toggleRoadmap(id: string) {
-    setRoadmap((prev) => prev.map((r) => (r.id === id ? { ...r, done: !r.done } : r)));
-  }
-
-  // Projection math (simple but useful)
-  const projection = useMemo(() => {
-    const posts = clampNum(assumptions.postsPerWeek, 3, 0, 50);
-    const reachPer = clampNum(assumptions.avgReachPerPost, 350, 0, 500000);
-    const weeklyReach = posts * reachPer;
-
-    const saveRate = clampNum(assumptions.saveRatePct, 2.0, 0, 100) / 100;
-    const dmRate = clampNum(assumptions.dmRatePct, 0.6, 0, 100) / 100;
-    const bookingRate = clampNum(assumptions.bookingRatePct, 0.15, 0, 100) / 100;
-
-    const saves = Math.round(weeklyReach * saveRate);
-    const dms = Math.round(weeklyReach * dmRate);
-    const bookings = Math.round(weeklyReach * bookingRate);
-
-    return {
-      posts,
-      weeklyReach,
-      saves,
-      dms,
-      bookings,
-    };
-  }, [assumptions]);
-
-  function buildExperimentFromSuggestion() {
+  function openStartExperimentFromSuggestion() {
     if (!suggestion) return;
 
-    setExPlatform(String(suggestion.platform || "instagram"));
-    setExFormat((suggestion.format as any) || "text");
-    setExPatternType(String(suggestion.pattern_type || "micro_story"));
-    setExHookStyle(String(suggestion.hook_style || "relatable opening"));
-    setExCtaStyle(String(suggestion.cta_style || "gentle question"));
-    setExNotes(String(suggestion.notes || "").trim() || "Try it once. Keep it gentle. Save what works.");
-    setToast("Loaded suggestion into the Experiment Builder ✅");
-    setTab("roadmap");
+    // Therapist control: they can edit these before we create anything
+    const plat = String(suggestion.platform || "").trim();
+    const pt = String(suggestion.pattern_type || "").trim();
+    const fmt = String(suggestion.format || "").trim();
+
+    setStartPlatform(plat || "instagram");
+    setStartPatternType(pt);
+    setStartFormat(fmt);
+
+    // A friendly default title/hypothesis
+    setStartTitle(
+      pt && fmt
+        ? `${platformLabel(plat)}: ${pt} (${fmt})`
+        : `${platformLabel(plat)}: gentle growth experiment`
+    );
+
+    setStartHypothesis(
+      pt
+        ? `If I use the "${pt}" pattern, I’ll get more engagement (comments/saves) because it matches what my audience responds to.`
+        : "If I keep my message simple and consistent, engagement will improve over time."
+    );
+
+    setStartOpen(true);
   }
 
-  function addExperiment() {
-    const exp: Experiment = {
-      id: uid(),
-      createdAt: Date.now(),
-      platform: String(exPlatform || "instagram"),
-      goal: String(exGoal || "More enquiries (DMs)"),
-      format: exFormat,
-      patternType: String(exPatternType || "micro_story"),
-      hookStyle: String(exHookStyle || "relatable opening"),
-      ctaStyle: String(exCtaStyle || "gentle question"),
-      notes: String(exNotes || "").trim(),
-      status: "planned",
-      confidence: suggestion?.performance_score ?? null,
-    };
-
-    setExperiments((prev) => [exp, ...prev].slice(0, 50));
-    setToast("Experiment added. You’re basically a scientist now. 🧪");
+  function closeStart() {
+    setStartOpen(false);
   }
 
-  function setExperimentStatus(id: string, status: Experiment["status"]) {
-    setExperiments((prev) => prev.map((e) => (e.id === id ? { ...e, status } : e)));
+  async function createExperiment() {
+    setError(null);
+
+    const title = startTitle.trim();
+    const platform = startPlatform.trim();
+
+    if (!title || !platform) {
+      setError("Please provide a title and platform.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch("/api/growth/experiments/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          title,
+          hypothesis: startHypothesis.trim() || null,
+          platform,
+          pattern_type: startPatternType.trim() || null,
+          format: startFormat.trim() || null,
+          status: "planned",
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        setError(json?.error || `Failed to create experiment (${res.status}).`);
+        setSaving(false);
+        return;
+      }
+
+      showToast("🧪 Experiment created");
+      setStartOpen(false);
+      await loadExperiments();
+    } catch (e: any) {
+      setError(e?.message || "Failed to create experiment.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function deleteExperiment(id: string) {
-    setExperiments((prev) => prev.filter((e) => e.id !== id));
+  async function setExperimentStatus(id: string, status: Experiment["status"]) {
+    setError(null);
+    try {
+      const res = await fetch("/api/growth/experiments/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ id, status }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        setError(json?.error || `Failed to update status (${res.status}).`);
+        return;
+      }
+      showToast(`✅ Moved to ${statusLabel(status)}`);
+      await loadExperiments();
+    } catch (e: any) {
+      setError(e?.message || "Failed to update status.");
+    }
   }
 
-  const connectedPlatforms = useMemo(() => {
-    const rows = Array.isArray(connections) ? connections : [];
-    const active = rows.filter((r) => r && r.is_active !== false);
-    return active.map((r) => String(r.platform || "").toLowerCase()).filter(Boolean);
-  }, [connections]);
+  function openOutcomeModal(exp: Experiment) {
+    setOutcomeExperiment(exp);
+    setMetricName("comments");
+    setMetricValue("");
+    setOutcomeOpen(true);
+  }
 
-  const connectedCount = connectedPlatforms.length;
+  function closeOutcomeModal() {
+    setOutcomeOpen(false);
+    setOutcomeExperiment(null);
+    setOutcomeSaving(false);
+  }
 
-  const quickBlastPrefill = useMemo(() => {
-    // Lightweight prefill text based on suggestion OR experiment builder
-    const p = suggestion?.platform ? platformLabel(suggestion.platform) : platformLabel(exPlatform);
-    const hook = nice(suggestion?.hook_style || exHookStyle);
-    const cta = nice(suggestion?.cta_style || exCtaStyle);
+  async function addOutcome() {
+    if (!outcomeExperiment) return;
 
-    const text = [
-      `Trying a gentle experiment today on ${p}.`,
-      ``,
-      `Hook style: ${hook}`,
-      `CTA style: ${cta}`,
-      ``,
-      `Keep it simple: one point, one next step.`,
-    ].join("\n");
+    const mn = metricName.trim();
+    if (!mn) {
+      setError("Please enter a metric name.");
+      return;
+    }
 
-    return encodeURIComponent(text);
-  }, [suggestion, exHookStyle, exCtaStyle, exPlatform]);
+    setOutcomeSaving(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/growth/experiments/outcomes/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          experimentId: outcomeExperiment.id,
+          metric_name: mn,
+          metric_value: metricValue.trim() === "" ? null : Number(metricValue),
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        setError(json?.error || `Failed to add outcome (${res.status}).`);
+        setOutcomeSaving(false);
+        return;
+      }
+
+      showToast("📈 Result added");
+      setOutcomeSaving(false);
+      setOutcomeOpen(false);
+      setOutcomeExperiment(null);
+      await loadExperiments();
+    } catch (e: any) {
+      setOutcomeSaving(false);
+      setError(e?.message || "Failed to add outcome.");
+    }
+  }
+
+  const refreshAll = async () => {
+    setError(null);
+    await Promise.all([loadSuggestion(), loadPatterns(), loadExperiments()]);
+  };
+
+  function totalsForExperiment(exp: Experiment) {
+    const outs = Array.isArray(exp.growth_experiment_outcomes)
+      ? exp.growth_experiment_outcomes
+      : [];
+    const count = outs.length;
+    const last = count > 0 ? outs[0] : null;
+    return { count, last };
+  }
+
+  const boardCols: { key: Experiment["status"]; title: string; items: Experiment[]; hint: string }[] = [
+    {
+      key: "planned",
+      title: "Planned",
+      items: planned,
+      hint: "Pick one when you’re ready. Simple beats perfect.",
+    },
+    {
+      key: "running",
+      title: "Running",
+      items: running,
+      hint: "Keep it gentle. Repeat a pattern 2–3 times before judging it.",
+    },
+    {
+      key: "completed",
+      title: "Completed",
+      items: completed,
+      hint: "Your playbook is forming. Quiet wins count.",
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
@@ -430,47 +474,34 @@ export default function CampaignsPage() {
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
               <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
-                🧪 Growth Lab{" "}
-                <span className="text-slate-400">— your gentle growth buddy</span>
+                🧪 Growth Lab <span className="text-slate-400">— your gentle growth buddy</span>
               </h1>
 
               <p className="mt-3 text-sm text-slate-300 max-w-3xl">
-                Growth Lab helps you build momentum without the admin headache. It suggests a next move, lets
-                you plan experiments (you stay in control), and saves what works — so you can grow without
-                feeling like a one-person circus.
+                Growth Lab helps you build momentum without the “campaign admin” headache.
+                We turn what works into a calm, repeatable playbook — one kind step at a time.
               </p>
+
+              <div className="mt-3 text-[11px] text-slate-500">
+                Tiny reminder: if you’re tired, your only job is to do the next small thing. (Tea counts.)
+              </div>
 
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
-                  onClick={() => {
-                    loadSuggestion();
-                    loadPatterns();
-                    loadConnections();
-                  }}
+                  onClick={refreshAll}
                   className="rounded-2xl border border-slate-600 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
                 >
                   Refresh
                 </button>
 
-                <Link
-                  href={`/dashboard?prefill=${quickBlastPrefill}`}
-                  className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
-                  title="Go to Quick Blast with a gentle experiment prefill"
-                >
-                  Send to Quick Blast
-                </Link>
-
-                <Link
-                  href={`/dashboard/brainstorm?prompt=${quickBlastPrefill}`}
-                  className="rounded-2xl border border-slate-600 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
-                  title="Open Brainstorm with a prefilled prompt (if your Brainstorm page reads query params)"
-                >
-                  Send to Brainstorm
-                </Link>
-
                 <div className="text-xs text-slate-400">
                   Growth Memory saved:{" "}
                   <span className="text-slate-200 font-semibold">{savedCount}</span>
+                </div>
+
+                <div className="text-xs text-slate-400">
+                  Experiments:{" "}
+                  <span className="text-slate-200 font-semibold">{experiments.length}</span>
                 </div>
               </div>
 
@@ -487,770 +518,528 @@ export default function CampaignsPage() {
               ) : null}
             </div>
 
-            {/* Connection glance */}
-            <div className="rounded-3xl border border-slate-700 bg-slate-950/60 p-5 w-full md:w-[360px]">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold">Connection glance</div>
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    Quick check only (not a full token audit yet).
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={loadConnections}
-                  className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-[11px] text-slate-200 hover:border-slate-600"
-                >
-                  {connLoading ? "Checking…" : "Check"}
-                </button>
+            {/* Roadmap card */}
+            <div className="w-full md:w-[360px] rounded-3xl border border-slate-700 bg-slate-950 p-5">
+              <div className="text-sm font-semibold">{roadmap.title}</div>
+              <div className="mt-2 text-[11px] text-slate-400">
+                Your growth plan, in human language.
               </div>
 
-              <div className="mt-3 flex items-center justify-between">
-                <div className="text-xs text-slate-400">Connected</div>
-                <div className="text-lg font-semibold text-slate-100">
-                  {connLoading ? "…" : connectedCount}
-                </div>
+              <ol className="mt-3 space-y-2 text-sm text-slate-200">
+                {roadmap.steps.map((s, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="text-slate-400">{i + 1}.</span>
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ol>
+
+              <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-3 text-[12px] text-slate-300">
+                <span className="text-slate-200 font-semibold">Coach note:</span>{" "}
+                {roadmap.mood}
               </div>
 
-              <div className="mt-3 space-y-2">
-                {connLoading ? (
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3 text-sm text-slate-300">
-                    Loading connections…
-                  </div>
-                ) : connections && connections.length > 0 ? (
-                  connections
-                    .slice(0, 6)
-                    .map((c, idx) => {
-                      const p = String(c?.platform || "—");
-                      const active = c?.is_active !== false;
-                      return (
-                        <div
-                          key={`${p}-${idx}`}
-                          className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/40 px-3 py-2"
-                        >
-                          <div className="text-sm text-slate-200">
-                            {platformLabel(p)}
-                            {c?.page_name ? (
-                              <span className="text-[11px] text-slate-400">
-                                {" "}
-                                · {c.page_name}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div
-                            className={[
-                              "text-[11px] rounded-full border px-2 py-0.5",
-                              active
-                                ? "border-emerald-500/50 text-emerald-200 bg-emerald-500/10"
-                                : "border-slate-700 text-slate-300 bg-slate-900/40",
-                            ].join(" ")}
-                          >
-                            {active ? "Active" : "Inactive"}
-                          </div>
-                        </div>
-                      );
-                    })
-                ) : (
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3 text-sm text-slate-300">
-                    No connections found yet. Head to <b>Connect</b> when you’re ready.
-                  </div>
-                )}
+              <div className="mt-3 text-[11px] text-slate-500">
+                Want ideas? Use <span className="text-slate-200 font-semibold">Brainstorm</span> for hooks/angles,
+                then come back here to track what actually worked.
               </div>
-
-              {organisationId ? (
-                <div className="mt-3 text-[11px] text-slate-500 break-all">
-                  Org: {organisationId}
-                </div>
-              ) : (
-                <div className="mt-3 text-[11px] text-slate-500">
-                  Org: (not loaded)
-                </div>
-              )}
             </div>
-          </div>
-
-          {/* Tabs */}
-          <div className="mt-6 flex flex-wrap gap-2">
-            {(["today", "roadmap", "memory"] as Tab[]).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTab(t)}
-                className={[
-                  "rounded-full border px-4 py-2 text-sm transition",
-                  tab === t
-                    ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
-                    : "border-slate-700 bg-slate-950 text-slate-200 hover:border-slate-600",
-                ].join(" ")}
-              >
-                {t === "today" ? "Today" : t === "roadmap" ? "Roadmap" : "Growth Memory"}
-              </button>
-            ))}
           </div>
         </div>
 
-        {/* TAB: TODAY */}
-        {tab === "today" ? (
-          <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold">Today’s gentle suggestion</div>
-                <div className="text-xs text-slate-400 mt-1">
-                  You’re always in control. If it doesn’t feel right, skip it. No guilt. 🙂
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={loadSuggestion}
-                  className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
-                >
-                  New suggestion
-                </button>
-
-                <button
-                  onClick={saveSuggestion}
-                  disabled={!hasSuggestion || saving}
-                  className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-                >
-                  {saving ? "Saving…" : "⭐ Save to Growth Memory"}
-                </button>
-
-                <button
-                  onClick={buildExperimentFromSuggestion}
-                  disabled={!hasSuggestion}
-                  className="rounded-2xl border border-slate-600 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
-                  title="Load this suggestion into the Experiment Builder"
-                >
-                  Use as experiment
-                </button>
+        {/* Suggestion */}
+        <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Today’s gentle suggestion</div>
+              <div className="text-xs text-slate-400 mt-1">
+                You’re always in control. If it doesn’t feel right, skip it. No guilt. 🙂
               </div>
             </div>
 
-            {loading ? (
-              <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-                Loading suggestion…
-              </div>
-            ) : !suggestion ? (
-              <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-                No suggestion yet. Post a few times first (Quick Blast counts), then come back here.
-                <div className="mt-2 text-[12px] text-slate-400">
-                  (Yes, Growth Lab is shy at first. Like a cat. 🐈)
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-                  <div className="text-xs text-slate-400">Platform</div>
-                  <div className="mt-1 text-lg font-semibold">
-                    {platformLabel(suggestion.platform)}
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-xs text-slate-400">Pattern</div>
-                      <div className="mt-1 text-sm text-slate-100">
-                        {nice(suggestion.pattern_type)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-slate-400">Format</div>
-                      <div className="mt-1 text-sm text-slate-100">
-                        {nice(suggestion.format)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="text-xs text-slate-400">Confidence</div>
-                    <div className="mt-2 inline-flex items-center gap-2">
-                      <span
-                        className={[
-                          "text-[11px] rounded-full border px-2 py-0.5",
-                          pillTone(suggestion.performance_score),
-                        ].join(" ")}
-                      >
-                        {Number.isFinite(suggestion.performance_score)
-                          ? `${suggestion.performance_score}/100`
-                          : "—"}
-                      </span>
-                      <span className="text-[11px] text-slate-400">
-                        (Not a verdict. Just a compass.)
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-                  <div className="text-xs text-slate-400">Why this helps</div>
-                  <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
-                    {nice(suggestion.notes)}
-                  </div>
-
-                  <div className="mt-4 grid gap-2">
-                    <div className="text-xs text-slate-400">Hook style</div>
-                    <div className="text-sm text-slate-200">
-                      {nice(suggestion.hook_style)}
-                    </div>
-
-                    <div className="text-xs text-slate-400 mt-2">CTA style</div>
-                    <div className="text-sm text-slate-200">
-                      {nice(suggestion.cta_style)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Micro “next step” */}
-            <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-              <div className="text-sm font-semibold">A tiny next step</div>
-              <div className="mt-2 text-sm text-slate-300">
-                Choose one: <b>Save it</b>, <b>run it as an experiment</b>, or <b>skip it</b>.
-                Growth isn’t a punishment schedule. 🙂
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {/* TAB: ROADMAP */}
-        {tab === "roadmap" ? (
-          <div className="grid gap-6 lg:grid-cols-3">
-            {/* Roadmap checklist */}
-            <div className="lg:col-span-1 rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold">Your calm growth roadmap</div>
-                  <div className="text-xs text-slate-400 mt-1">
-                    Small steps. Repeatable. No hustle theatre.
-                  </div>
-                </div>
-                <div className="text-right text-xs text-slate-400">
-                  <div className="text-slate-200 font-semibold">
-                    {roadmapDone}/{roadmap.length}
-                  </div>
-                  <div>done</div>
-                </div>
-              </div>
-
-              <div className="mt-4 space-y-2">
-                {roadmap.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => toggleRoadmap(r.id)}
-                    className={[
-                      "w-full text-left rounded-2xl border px-4 py-3 transition",
-                      r.done
-                        ? "border-emerald-500/40 bg-emerald-500/10"
-                        : "border-slate-800 bg-slate-900/40 hover:border-slate-700",
-                    ].join(" ")}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="text-sm text-slate-100">{r.label}</div>
-                      <div
-                        className={[
-                          "text-[11px] rounded-full border px-2 py-0.5",
-                          r.done
-                            ? "border-emerald-500/50 text-emerald-200 bg-emerald-500/10"
-                            : "border-slate-700 text-slate-300 bg-slate-900/40",
-                        ].join(" ")}
-                      >
-                        {r.done ? "Done" : "Do"}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-4 text-[11px] text-slate-500">
-                This checklist saves on this device. (We can sync to Supabase later.)
-              </div>
-            </div>
-
-            {/* Experiment builder + projections */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* Experiment builder */}
-              <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold">Experiment builder</div>
-                    <div className="text-xs text-slate-400 mt-1">
-                      You stay in control. Growth Lab just helps you think clearly.
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={addExperiment}
-                    className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
-                  >
-                    Add experiment
-                  </button>
-                </div>
-
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Platform
-                    </label>
-                    <select
-                      value={exPlatform}
-                      onChange={(e) => setExPlatform(e.target.value)}
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    >
-                      <option value="instagram">Instagram</option>
-                      <option value="facebook">Facebook</option>
-                      <option value="threads">Threads</option>
-                      <option value="linkedin">LinkedIn</option>
-                      <option value="tiktok">TikTok</option>
-                    </select>
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      Connected:{" "}
-                      <span className="text-slate-300">
-                        {connectedPlatforms.includes(String(exPlatform).toLowerCase())
-                          ? "✅ yes"
-                          : "— not connected"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Goal (what do you want?)
-                    </label>
-                    <input
-                      value={exGoal}
-                      onChange={(e) => setExGoal(e.target.value)}
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="e.g. More DMs, More comments, More profile visits"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Format
-                    </label>
-                    <select
-                      value={exFormat}
-                      onChange={(e) => setExFormat(e.target.value as any)}
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    >
-                      <option value="text">Text</option>
-                      <option value="image">Image</option>
-                      <option value="video">Video</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Pattern type
-                    </label>
-                    <input
-                      value={exPatternType}
-                      onChange={(e) => setExPatternType(e.target.value)}
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="e.g. micro_story, myth_bust, 3_steps"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Hook style
-                    </label>
-                    <input
-                      value={exHookStyle}
-                      onChange={(e) => setExHookStyle(e.target.value)}
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="e.g. relatable opening, contrarian truth"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      CTA style
-                    </label>
-                    <input
-                      value={exCtaStyle}
-                      onChange={(e) => setExCtaStyle(e.target.value)}
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="e.g. gentle question, invite to DM"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <label className="block text-xs font-medium text-slate-300">
-                    Notes (how you’ll run it)
-                  </label>
-                  <textarea
-                    value={exNotes}
-                    onChange={(e) => setExNotes(e.target.value)}
-                    rows={4}
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    placeholder="Keep it calm. Keep it clear. What will you do?"
-                  />
-                  <div className="mt-1 text-[11px] text-slate-500">
-                    Pro tip: the best experiment is the one you actually post. 🙂
-                  </div>
-                </div>
-
-                {experiments.length > 0 ? (
-                  <div className="mt-5">
-                    <div className="text-sm font-semibold">Your experiments</div>
-                    <div className="mt-3 space-y-3">
-                      {experiments.map((e) => (
-                        <div
-                          key={e.id}
-                          className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4"
-                        >
-                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                            <div className="text-sm text-slate-100 font-semibold">
-                              {platformLabel(e.platform)} · {e.format} · {e.patternType}
-                            </div>
-                            <div className="text-xs text-slate-400">
-                              {new Date(e.createdAt).toLocaleString()}
-                            </div>
-                          </div>
-
-                          <div className="mt-2 text-sm text-slate-200">
-                            <span className="text-slate-400">Goal:</span> {e.goal}
-                          </div>
-
-                          <div className="mt-2 grid md:grid-cols-2 gap-2 text-xs text-slate-300">
-                            <div>
-                              <span className="text-slate-400">Hook:</span>{" "}
-                              {nice(e.hookStyle)}
-                            </div>
-                            <div>
-                              <span className="text-slate-400">CTA:</span>{" "}
-                              {nice(e.ctaStyle)}
-                            </div>
-                          </div>
-
-                          {e.notes ? (
-                            <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
-                              {e.notes}
-                            </div>
-                          ) : null}
-
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <div
-                              className={[
-                                "text-[11px] rounded-full border px-2 py-0.5",
-                                e.status === "planned"
-                                  ? "border-slate-700 text-slate-300 bg-slate-900/40"
-                                  : e.status === "running"
-                                  ? "border-blue-500/50 text-blue-200 bg-blue-500/10"
-                                  : "border-emerald-500/50 text-emerald-200 bg-emerald-500/10",
-                              ].join(" ")}
-                            >
-                              {e.status === "planned"
-                                ? "Planned"
-                                : e.status === "running"
-                                ? "Running"
-                                : "Done"}
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => setExperimentStatus(e.id, "planned")}
-                              className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-600"
-                            >
-                              Plan
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setExperimentStatus(e.id, "running")}
-                              className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-600"
-                            >
-                              Run
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setExperimentStatus(e.id, "done")}
-                              className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-600"
-                            >
-                              Done
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => deleteExperiment(e.id)}
-                              className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-red-500 hover:text-red-200"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="mt-3 text-[11px] text-slate-500">
-                      Experiments are saved locally for now. (Later we’ll sync + attach outcomes.)
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-300">
-                    No experiments yet. Add one above and run it once. That’s it.
-                  </div>
-                )}
-              </div>
-
-              {/* Projections */}
-              <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold">Gentle projections</div>
-                    <div className="text-xs text-slate-400 mt-1">
-                      Not promises. Just a simple “if you do this, you might get this” map.
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-                    <div className="text-xs text-slate-400">Assumptions</div>
-
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[11px] text-slate-400">
-                          Posts / week
-                        </label>
-                        <input
-                          value={assumptions.postsPerWeek}
-                          onChange={(e) =>
-                            setAssumptions((p) => ({
-                              ...p,
-                              postsPerWeek: clampNum(e.target.value, 3, 0, 50),
-                            }))
-                          }
-                          className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] text-slate-400">
-                          Avg reach / post
-                        </label>
-                        <input
-                          value={assumptions.avgReachPerPost}
-                          onChange={(e) =>
-                            setAssumptions((p) => ({
-                              ...p,
-                              avgReachPerPost: clampNum(e.target.value, 350, 0, 500000),
-                            }))
-                          }
-                          className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-[11px] text-slate-400">
-                          Save rate %
-                        </label>
-                        <input
-                          value={assumptions.saveRatePct}
-                          onChange={(e) =>
-                            setAssumptions((p) => ({
-                              ...p,
-                              saveRatePct: clampNum(e.target.value, 2.0, 0, 100),
-                            }))
-                          }
-                          className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] text-slate-400">
-                          DM rate %
-                        </label>
-                        <input
-                          value={assumptions.dmRatePct}
-                          onChange={(e) =>
-                            setAssumptions((p) => ({
-                              ...p,
-                              dmRatePct: clampNum(e.target.value, 0.6, 0, 100),
-                            }))
-                          }
-                          className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] text-slate-400">
-                          Booking rate %
-                        </label>
-                        <input
-                          value={assumptions.bookingRatePct}
-                          onChange={(e) =>
-                            setAssumptions((p) => ({
-                              ...p,
-                              bookingRatePct: clampNum(e.target.value, 0.15, 0, 100),
-                            }))
-                          }
-                          className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-3 text-[11px] text-slate-500">
-                      These save on this device. Adjust them until they feel realistic for your clinic.
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-                    <div className="text-xs text-slate-400">Weekly projection</div>
-                    <div className="mt-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm text-slate-200">Reach</div>
-                        <div className="text-sm font-semibold text-slate-100">
-                          {projection.weeklyReach.toLocaleString()}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm text-slate-200">Saves</div>
-                        <div className="text-sm font-semibold text-slate-100">
-                          {projection.saves.toLocaleString()}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm text-slate-200">DMs</div>
-                        <div className="text-sm font-semibold text-slate-100">
-                          {projection.dms.toLocaleString()}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm text-slate-200">Bookings</div>
-                        <div className="text-sm font-semibold text-slate-100">
-                          {projection.bookings.toLocaleString()}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-3 text-[12px] text-slate-300">
-                      If you post <b>{projection.posts}</b> times/week and average{" "}
-                      <b>{assumptions.avgReachPerPost}</b> reach per post, this is a sensible “ballpark”.
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        Growth Lab promise: no false certainty. Just direction.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {/* TAB: MEMORY */}
-        {tab === "memory" ? (
-          <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold">🗂 Your Growth Memory</div>
-                <div className="text-xs text-slate-400 mt-1">
-                  Saved patterns you can revisit anytime. (This becomes your playbook.)
-                </div>
-              </div>
+            <div className="flex flex-wrap gap-2">
               <button
-                onClick={loadPatterns}
-                className="rounded-2xl border border-slate-600 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
+                onClick={loadSuggestion}
+                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
               >
-                Refresh
+                New suggestion
+              </button>
+
+              <button
+                onClick={saveSuggestion}
+                disabled={!hasSuggestion || saving}
+                className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {saving ? "Saving…" : "⭐ Save to Growth Memory"}
+              </button>
+
+              <button
+                onClick={openStartExperimentFromSuggestion}
+                disabled={!hasSuggestion}
+                className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-200 hover:bg-emerald-500/15 disabled:opacity-60"
+              >
+                🧪 Start experiment
               </button>
             </div>
+          </div>
 
-            {patternsLoading ? (
-              <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-                Loading saved patterns…
-              </div>
-            ) : patterns.length === 0 ? (
-              <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-                Nothing saved yet. Save your first pattern from “Today” ⭐
-              </div>
-            ) : (
-              <div className="mt-4 space-y-3">
-                {patterns.map((p) => (
-                  <div key={p.id} className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                      <div className="text-sm text-slate-100 font-semibold">
-                        {platformLabel(p.platform)} · {p.pattern_type} · {p.format}
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        {p.performance_score != null ? `${p.performance_score}/100` : "—"} · saved{" "}
-                        {new Date(p.created_at).toLocaleString()}
-                      </div>
-                    </div>
+          {loading ? (
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              Loading suggestion…
+            </div>
+          ) : !suggestion ? (
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              No suggestion yet. Post a few times first (Quick Blast counts), then come back here.
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="text-xs text-slate-400">Platform</div>
+                <div className="mt-1 text-lg font-semibold">{platformLabel(suggestion.platform)}</div>
 
-                    {p.notes ? (
-                      <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{p.notes}</div>
-                    ) : null}
-
-                    <div className="mt-3 grid md:grid-cols-2 gap-2 text-xs text-slate-300">
-                      <div>
-                        <span className="text-slate-400">Hook:</span> {nice(p.hook_style)}
-                      </div>
-                      <div>
-                        <span className="text-slate-400">CTA:</span> {nice(p.cta_style)}
-                      </div>
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Link
-                        href={`/dashboard?prefill=${encodeURIComponent(
-                          `Trying a saved Growth Memory pattern:\n\nPlatform: ${platformLabel(
-                            p.platform
-                          )}\nPattern: ${p.pattern_type}\nFormat: ${p.format}\nHook: ${nice(
-                            p.hook_style
-                          )}\nCTA: ${nice(p.cta_style)}\n\nNotes:\n${nice(p.notes)}`
-                        )}`}
-                        className="rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                        title="Open Quick Blast with a prefilled template based on this saved pattern"
-                      >
-                        Use in Quick Blast
-                      </Link>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExPlatform(String(p.platform || "instagram"));
-                          setExFormat((p.format as any) || "text");
-                          setExPatternType(String(p.pattern_type || "micro_story"));
-                          setExHookStyle(String(p.hook_style || "relatable opening"));
-                          setExCtaStyle(String(p.cta_style || "gentle question"));
-                          setExNotes(String(p.notes || "").trim() || "Try it once. Save the outcome.");
-                          setTab("roadmap");
-                          setToast("Loaded saved pattern into the Experiment Builder ✅");
-                        }}
-                        className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-600"
-                      >
-                        Load as experiment
-                      </button>
-                    </div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-xs text-slate-400">Pattern</div>
+                    <div className="mt-1 text-sm text-slate-100">{nice(suggestion.pattern_type)}</div>
                   </div>
-                ))}
-              </div>
-            )}
+                  <div>
+                    <div className="text-xs text-slate-400">Format</div>
+                    <div className="mt-1 text-sm text-slate-100">{nice(suggestion.format)}</div>
+                  </div>
+                </div>
 
-            <div className="mt-6 text-xs text-slate-500 text-center">
-              Growth Lab isn’t here to judge you. It’s here to help you keep going. One kind step at a time.
+                <div className="mt-4">
+                  <div className="text-xs text-slate-400">Confidence</div>
+                  <div className="mt-1 text-sm text-slate-100">
+                    {Number.isFinite(suggestion.performance_score) ? `${suggestion.performance_score}/100` : "—"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="text-xs text-slate-400">Why this helps</div>
+                <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
+                  {nice(suggestion.notes)}
+                </div>
+
+                <div className="mt-4 grid gap-2">
+                  <div className="text-xs text-slate-400">Hook style</div>
+                  <div className="text-sm text-slate-200">{nice(suggestion.hook_style)}</div>
+
+                  <div className="text-xs text-slate-400 mt-2">CTA style</div>
+                  <div className="text-sm text-slate-200">{nice(suggestion.cta_style)}</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Experiments board */}
+        <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold">🧭 Growth Roadmap Board</div>
+              <div className="text-xs text-slate-400 mt-1">
+                This replaces “campaign admin” with a calm workflow: plan → run → learn.
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setStartTitle("New experiment");
+                setStartHypothesis("");
+                setStartPlatform("instagram");
+                setStartPatternType("");
+                setStartFormat("");
+                setStartOpen(true);
+              }}
+              className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
+            >
+              + New experiment
+            </button>
+          </div>
+
+          {experimentsLoading ? (
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              Loading experiments…
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              {boardCols.map((col) => (
+                <div key={col.key} className="rounded-3xl border border-slate-800 bg-slate-900/30 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold">{col.title}</div>
+                    <div className="text-xs text-slate-400">{col.items.length}</div>
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-500">{col.hint}</div>
+
+                  <div className="mt-3 space-y-3">
+                    {col.items.length === 0 ? (
+                      <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
+                        Nothing here yet.
+                      </div>
+                    ) : (
+                      col.items.map((exp) => {
+                        const totals = totalsForExperiment(exp);
+                        const outs = Array.isArray(exp.growth_experiment_outcomes)
+                          ? exp.growth_experiment_outcomes
+                          : [];
+
+                        const latestOutcome =
+                          outs.length > 0
+                            ? [...outs].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))[0]
+                            : null;
+
+                        return (
+                          <div
+                            key={exp.id}
+                            className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-semibold text-slate-100">
+                                  {exp.title}
+                                </div>
+                                <div className="mt-1 text-[11px] text-slate-400">
+                                  {platformLabel(exp.platform)}
+                                  {exp.pattern_type ? ` · ${exp.pattern_type}` : ""}
+                                  {exp.format ? ` · ${exp.format}` : ""}
+                                </div>
+                              </div>
+
+                              <div
+                                className={[
+                                  "text-[11px] px-2 py-1 rounded-full border",
+                                  badgeClassesForStatus(exp.status),
+                                ].join(" ")}
+                              >
+                                {statusLabel(exp.status)}
+                              </div>
+                            </div>
+
+                            {exp.hypothesis ? (
+                              <div className="mt-3 text-[12px] text-slate-300 whitespace-pre-wrap">
+                                {exp.hypothesis}
+                              </div>
+                            ) : null}
+
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+                              <div>
+                                <span className="text-slate-500">Started:</span>{" "}
+                                {formatWhen(exp.started_at)}
+                              </div>
+                              <div>
+                                <span className="text-slate-500">Completed:</span>{" "}
+                                {formatWhen(exp.completed_at)}
+                              </div>
+                              <div>
+                                <span className="text-slate-500">Results:</span>{" "}
+                                <span className="text-slate-200 font-semibold">{totals.count}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-500">Updated:</span>{" "}
+                                {formatWhen(exp.updated_at)}
+                              </div>
+                            </div>
+
+                            {latestOutcome ? (
+                              <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950 p-3 text-[12px] text-slate-300">
+                                <div className="text-slate-400 text-[11px]">Latest result</div>
+                                <div className="mt-1">
+                                  <span className="text-slate-200 font-semibold">{latestOutcome.metric_name}</span>
+                                  {" — "}
+                                  <span className="text-slate-100 font-semibold">
+                                    {latestOutcome.metric_value ?? "—"}
+                                  </span>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {exp.status === "planned" ? (
+                                <button
+                                  onClick={() => setExperimentStatus(exp.id, "running")}
+                                  className="rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                                >
+                                  Start
+                                </button>
+                              ) : null}
+
+                              {exp.status === "running" ? (
+                                <>
+                                  <button
+                                    onClick={() => openOutcomeModal(exp)}
+                                    className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-600"
+                                  >
+                                    + Add result
+                                  </button>
+                                  <button
+                                    onClick={() => setExperimentStatus(exp.id, "completed")}
+                                    className="rounded-xl bg-blue-500 px-3 py-1.5 text-xs font-semibold text-slate-50 hover:bg-blue-400"
+                                  >
+                                    Complete
+                                  </button>
+                                </>
+                              ) : null}
+
+                              {exp.status === "completed" ? (
+                                <button
+                                  onClick={() => setExperimentStatus(exp.id, "running")}
+                                  className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-600"
+                                >
+                                  Re-run
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Pattern Library */}
+        <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">🗂 Your Growth Memory</div>
+              <div className="text-xs text-slate-400 mt-1">
+                Saved patterns you can revisit anytime. (This becomes your “playbook”.)
+              </div>
             </div>
           </div>
-        ) : null}
+
+          {patternsLoading ? (
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              Loading saved patterns…
+            </div>
+          ) : patterns.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              Nothing saved yet. Save your first pattern above ⭐
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {patterns.map((p) => (
+                <div key={p.id} className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div className="text-sm text-slate-100 font-semibold">
+                      {platformLabel(p.platform)} · {p.pattern_type} · {p.format}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {p.performance_score != null ? `${p.performance_score}/100` : "—"} · saved{" "}
+                      {new Date(p.created_at).toLocaleString()}
+                    </div>
+                  </div>
+
+                  {p.notes ? (
+                    <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{p.notes}</div>
+                  ) : null}
+
+                  <div className="mt-3 grid md:grid-cols-2 gap-2 text-xs text-slate-300">
+                    <div>
+                      <span className="text-slate-400">Hook:</span> {nice(p.hook_style)}
+                    </div>
+                    <div>
+                      <span className="text-slate-400">CTA:</span> {nice(p.cta_style)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* gentle footer */}
         <div className="text-xs text-slate-500 text-center">
-          If today feels hard: one small post is still a win. (Yes, even the messy one.)
+          Growth Lab isn’t here to judge you. It’s here to help you keep going. One kind step at a time.
         </div>
       </div>
+
+      {/* Start experiment modal */}
+      {startOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/70" onClick={closeStart} />
+          <div className="relative w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs text-slate-400">Growth Lab</div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">Start an experiment</div>
+                <div className="mt-1 text-[12px] text-slate-400">
+                  You’re in control — edit the title/hypothesis before saving.
+                </div>
+              </div>
+
+              <button
+                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+                onClick={closeStart}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Title</label>
+                <input
+                  value={startTitle}
+                  onChange={(e) => setStartTitle(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  placeholder="e.g. Instagram: 3-step anxiety hook (video)"
+                />
+              </div>
+
+              <div className="grid md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Platform</label>
+                  <input
+                    value={startPlatform}
+                    onChange={(e) => setStartPlatform(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    placeholder="instagram"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Pattern</label>
+                  <input
+                    value={startPatternType}
+                    onChange={(e) => setStartPatternType(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    placeholder="e.g. hook_story_cta"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Format</label>
+                  <input
+                    value={startFormat}
+                    onChange={(e) => setStartFormat(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    placeholder="text / image / video"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Hypothesis (optional)</label>
+                <textarea
+                  value={startHypothesis}
+                  onChange={(e) => setStartHypothesis(e.target.value)}
+                  rows={5}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  placeholder="If I do X, I expect Y, because Z..."
+                />
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Tip: Keep it simple. You can always refine later.
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={createExperiment}
+                  disabled={saving}
+                  className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                >
+                  {saving ? "Saving…" : "Create experiment"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={closeStart}
+                  disabled={saving}
+                  className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <div className="text-[11px] text-slate-500">
+                This starts as <b>Planned</b>. You can move it to <b>Running</b> when you’re ready.
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Outcome modal */}
+      {outcomeOpen && outcomeExperiment ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/70" onClick={closeOutcomeModal} />
+          <div className="relative w-full max-w-xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs text-slate-400">Add result</div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">
+                  {outcomeExperiment.title}
+                </div>
+                <div className="mt-1 text-[12px] text-slate-400">
+                  Add one number. Even tiny progress counts.
+                </div>
+              </div>
+
+              <button
+                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+                onClick={closeOutcomeModal}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Metric name</label>
+                <input
+                  value={metricName}
+                  onChange={(e) => setMetricName(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  placeholder="e.g. reach, comments, saves, clicks"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">Metric value (number)</label>
+                <input
+                  value={metricValue}
+                  onChange={(e) => setMetricValue(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  placeholder="e.g. 12"
+                  inputMode="numeric"
+                />
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Don’t have it right now? Leave blank and come back later.
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={addOutcome}
+                  disabled={outcomeSaving}
+                  className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                >
+                  {outcomeSaving ? "Saving…" : "Save result"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={closeOutcomeModal}
+                  disabled={outcomeSaving}
+                  className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <div className="text-[11px] text-slate-500">
+                Quiet wins: one metric per day is enough to build a real playbook.
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
