@@ -1,4 +1,3 @@
-// app/api/growth/experiments/create/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -8,7 +7,7 @@ function norm(v: any) {
   return String(v ?? "").trim();
 }
 
-async function getLatestOrganisationId(): Promise<string | null> {
+async function getLatestOrganisationId() {
   const { data, error } = await supabaseAdmin
     .from("organisations")
     .select("id, created_at")
@@ -16,64 +15,77 @@ async function getLatestOrganisationId(): Promise<string | null> {
     .limit(1)
     .maybeSingle();
 
-  if (error || !data?.id) return null;
-  return String(data.id);
+  if (error) {
+    console.error("[growth/experiments/create] organisations error", error);
+    return null;
+  }
+  return data?.id ? String(data.id) : null;
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({} as any));
+    const body = await req.json().catch(() => ({}));
+    const title = norm(body?.title);
+    const platform = norm(body?.platform);
+    const hypothesis = norm(body?.hypothesis) || null;
+    const pattern_type = norm(body?.pattern_type) || null;
+    const format = norm(body?.format) || null;
 
-    const organisationId =
-      norm(body?.organisationId) || (await getLatestOrganisationId());
+    let status = norm(body?.status || "planned").toLowerCase();
+    if (!["planned", "running", "completed", "abandoned"].includes(status)) status = "planned";
+
+    // org id (we support passing it, but fallback to latest org)
+    let organisationId = norm(body?.organisationId || body?.organisation_id);
+    if (!organisationId) {
+      organisationId = (await getLatestOrganisationId()) || "";
+    }
 
     if (!organisationId) {
       return NextResponse.json(
-        { success: false, error: "No organisation found." },
+        { success: false, error: "No organisation found to attach experiment to." },
         { status: 400 }
       );
     }
 
-    const title = norm(body?.title);
-    const platform = norm(body?.platform);
-
-    if (!title || !platform) {
-      return NextResponse.json(
-        { success: false, error: "Missing title or platform." },
-        { status: 400 }
-      );
+    if (!title) {
+      return NextResponse.json({ success: false, error: "Missing title" }, { status: 400 });
+    }
+    if (!platform) {
+      return NextResponse.json({ success: false, error: "Missing platform" }, { status: 400 });
     }
 
-    const row: any = {
-      organisation_id: organisationId,
-      title,
-      hypothesis: norm(body?.hypothesis) || null,
-      platform,
-      pattern_type: norm(body?.pattern_type) || null,
-      format: norm(body?.format) || null,
-      status: norm(body?.status) || "planned",
-      started_at: body?.started_at ? String(body.started_at) : null,
-      completed_at: body?.completed_at ? String(body.completed_at) : null,
-      updated_at: new Date().toISOString(),
-    };
+    const now = new Date().toISOString();
+
+    const started_at = status === "running" ? now : null;
+    const completed_at = status === "completed" ? now : null;
 
     const { data, error } = await supabaseAdmin
       .from("growth_experiments")
-      .insert(row)
+      .insert({
+        organisation_id: organisationId,
+        title,
+        hypothesis,
+        platform,
+        pattern_type,
+        format,
+        status,
+        started_at,
+        completed_at,
+        updated_at: now,
+      })
       .select()
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: 500 }
-      );
+      console.error("[growth/experiments/create] insert error", error);
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, item: data });
   } catch (e: any) {
+    console.error("[growth/experiments/create] crashed", e);
     return NextResponse.json(
-      { success: false, error: e?.message || "Failed to create experiment." },
+      { success: false, error: e?.message || "Create experiment failed" },
       { status: 500 }
     );
   }
