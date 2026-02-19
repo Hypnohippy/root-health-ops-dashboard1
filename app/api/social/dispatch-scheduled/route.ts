@@ -4,10 +4,7 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-// Vercel Cron will send: Authorization: Bearer <CRON_SECRET> (if CRON_SECRET is set)
 const CRON_SECRET = (process.env.CRON_SECRET || "").trim();
-
-// Kill switch
 const DISPATCH_DISABLED = (process.env.DISPATCH_DISABLED || "").trim() === "1";
 
 function norm(v: any) {
@@ -19,58 +16,43 @@ function originFromReq(req: NextRequest) {
 }
 
 function isAuthorized(req: NextRequest) {
-  if (!CRON_SECRET) return true; // allow if not set (dev)
+  if (!CRON_SECRET) return true;
   const auth = norm(req.headers.get("authorization"));
   return auth === `Bearer ${CRON_SECRET}`;
 }
 
-/**
- * Claim a due post so two cron runs don't post the same thing.
- * We flip queued/scheduled -> pending (allowed status in your constraint list).
- */
 async function claimScheduledPost(id: string) {
   const nowIso = new Date().toISOString();
 
   const { data, error } = await supabaseAdmin
     .from("scheduled_posts")
-    .update({
-      status: "pending",
-      updated_at: nowIso,
-    })
+    .update({ status: "pending", updated_at: nowIso })
     .eq("id", id)
     .in("status", ["queued", "scheduled"])
     .select("id, organisation_id, platforms")
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-
-  // data null => already claimed or status moved on
   return data;
 }
 
 async function markBackToQueued(id: string, note: string) {
   const nowIso = new Date().toISOString();
 
-  // Avoid overwriting existing meta – merge lightly
   const { data: current } = await supabaseAdmin
     .from("scheduled_posts")
     .select("meta")
     .eq("id", id)
     .maybeSingle();
 
-  const meta =
-    current?.meta && typeof current.meta === "object" ? (current.meta as any) : {};
+  const meta = current?.meta && typeof current.meta === "object" ? (current.meta as any) : {};
 
   const { error } = await supabaseAdmin
     .from("scheduled_posts")
     .update({
       status: "queued",
       updated_at: nowIso,
-      meta: {
-        ...meta,
-        dispatch_error: note,
-        dispatch_error_at: nowIso,
-      },
+      meta: { ...meta, dispatch_error: note, dispatch_error_at: nowIso },
     })
     .eq("id", id);
 
@@ -89,8 +71,6 @@ export async function GET(req: NextRequest) {
 
     const nowIso = new Date().toISOString();
 
-    // ✅ IMPORTANT CHANGE:
-    // Pick up BOTH queued and scheduled (some of your flows use queued, some might still use scheduled)
     const { data: due, error } = await supabaseAdmin
       .from("scheduled_posts")
       .select("id, organisation_id, scheduled_for, status")
@@ -130,16 +110,25 @@ export async function GET(req: NextRequest) {
 
         const publishJson = await publishRes.json().catch(() => null);
 
-        // Note: /api/publish/now updates scheduled_posts.error_info + status posted/failed.
+        const ok = publishRes.ok && !!publishJson?.success;
+
+        // ✅ Most important change: return a meaningful error + include publishJson
+        const err =
+          publishJson?.error ||
+          publishJson?.error_info?.error ||
+          publishJson?.results?.find?.((r: any) => r && r.ok === false)?.error ||
+          publishJson?.results?.find?.((r: any) => r && r.ok === false)?.userMessage ||
+          (!ok ? "Publish failed (no error returned)" : null);
+
         results.push({
           id,
-          ok: publishRes.ok && !!publishJson?.success,
+          ok,
           httpStatus: publishRes.status,
           summary: publishJson?.summary || null,
-          error: publishJson?.error || null,
+          error: err,
+          publish: publishJson || null, // ✅ so you can SEE the per-platform failures in QB response
         });
       } catch (e: any) {
-        // If publish crashed, we put it back to queued so it can retry next run
         await markBackToQueued(id, e?.message || "Publish crashed");
         results.push({ id, ok: false, error: e?.message || "Publish crashed (re-queued)" });
       }
