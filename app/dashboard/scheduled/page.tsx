@@ -156,6 +156,65 @@ function applyUkSpellings(input: string) {
 
 type RangeMode = "future" | "past" | "all";
 
+/**
+ * ✅ Import payloads (supports what Brainstorm sends)
+ */
+type PrefillScheduledPayload = {
+  mode?: "single" | "series";
+  platform?: string | null;
+  tone?: string | null;
+  items?: Array<{
+    title?: string;
+    text?: string;
+    imageUrl?: string;
+    attribution?: any;
+  }>;
+  note?: string;
+};
+
+const PREFILL_SCHEDULED_KEYS = ["rootops_prefill_scheduled_v1", "rh_prefill_scheduled_v1"];
+
+function getLocalStorageFirst(keys: string[]) {
+  try {
+    for (const k of keys) {
+      const raw = window.localStorage.getItem(k);
+      if (raw) return { key: k, raw };
+    }
+  } catch {}
+  return null;
+}
+
+function removeLocalStorageMulti(keys: string[]) {
+  try {
+    for (const k of keys) {
+      try {
+        window.localStorage.removeItem(k);
+      } catch {}
+    }
+  } catch {}
+}
+
+function safeParse(raw: string | null): any | null {
+  try {
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ✅ Tomorrow 09:00 local, returned as ISO (UTC in string)
+ */
+function tomorrowNineAmIso() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  return d.toISOString();
+}
+
 export default function ScheduledPage() {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<ScheduledRow[]>([]);
@@ -165,6 +224,12 @@ export default function ScheduledPage() {
 
   // ✅ Option A: range selector (future/past/all)
   const [range, setRange] = useState<RangeMode>("future");
+
+  // ✅ Org id for importer
+  const [orgId, setOrgId] = useState<string | null>(null);
+
+  // ✅ Toast
+  const [toast, setToast] = useState<string | null>(null);
 
   // Edit modal state
   const [editOpen, setEditOpen] = useState(false);
@@ -213,10 +278,125 @@ export default function ScheduledPage() {
     }
   }
 
+  // Load orgId (needed for importer)
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/social-accounts", { cache: "no-store" });
+        const data: any = await res.json().catch(() => null);
+        const id = data?.organisationId ? String(data.organisationId) : null;
+        setOrgId(id);
+      } catch {
+        setOrgId(null);
+      }
+    })();
+  }, []);
+
+  // ✅ Import Brainstorm → Scheduled (defaults to tomorrow 09:00, +15 mins each)
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!orgId) return;
+
+        const found = getLocalStorageFirst(PREFILL_SCHEDULED_KEYS);
+        if (!found?.raw) return;
+
+        const parsed = safeParse(found.raw) as PrefillScheduledPayload | null;
+        if (!parsed) return;
+
+        const platform = String(parsed.platform || "linkedin").toLowerCase().trim() || "linkedin";
+        const items = Array.isArray(parsed.items) ? parsed.items : [];
+
+        if (!items.length) {
+          removeLocalStorageMulti(PREFILL_SCHEDULED_KEYS);
+          return;
+        }
+
+        setToast(`Importing ${items.length} item(s) → scheduling for tomorrow morning…`);
+
+        const baseIso = tomorrowNineAmIso();
+        const base = new Date(baseIso);
+        const stepMinutes = 15;
+
+        let okCount = 0;
+        const failures: string[] = [];
+
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          const text = String(it?.text || "").trim();
+          if (!text) {
+            failures.push(`Item ${i + 1}: empty text`);
+            continue;
+          }
+
+          const when = new Date(base.getTime() + i * stepMinutes * 60 * 1000).toISOString();
+
+          const res = await fetch("/api/social/schedule", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+            body: JSON.stringify({
+              message: text,
+              platforms: [platform],
+              scheduledAt: when,
+              organisationId: orgId,
+              imageUrl: String(it?.imageUrl || "").trim() || null,
+              meta: {
+                source: "brainstorm",
+                batch: true,
+                part: i + 1,
+                total: items.length,
+                scheduledPreset: "tomorrow_09_00",
+                note: parsed?.note || null,
+              },
+            }),
+          });
+
+          const data: any = await res.json().catch(() => null);
+          if (!res.ok || !data?.success) {
+            failures.push(`Item ${i + 1}: ${data?.error || data?.message || `schedule failed (${res.status})`}`);
+          } else {
+            okCount++;
+          }
+        }
+
+        removeLocalStorageMulti(PREFILL_SCHEDULED_KEYS);
+
+        setRange("future");
+        setIncludeQuickBlast(false);
+
+        await load();
+
+        if (okCount && failures.length === 0) {
+          setToast(`✅ Imported + scheduled ${okCount}/${items.length} for tomorrow from 09:00`);
+        } else if (okCount) {
+          setToast(`⚠️ Scheduled ${okCount}/${items.length}. Some failed (open console / try again).`);
+          console.warn("Scheduled import failures:", failures);
+        } else {
+          setToast("❌ Import failed — none scheduled.");
+          console.warn("Scheduled import failures:", failures);
+        }
+
+        setTimeout(() => setToast(null), 3500);
+      } catch (e) {
+        console.warn("Scheduled importer error", e);
+        setToast("❌ Import failed");
+        setTimeout(() => setToast(null), 2500);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeQuickBlast, range]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const emptyState = !loading && !error && items.length === 0;
 
@@ -502,6 +682,12 @@ export default function ScheduledPage() {
               </label>
             </div>
           </div>
+
+          {toast ? (
+            <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+              {toast}
+            </div>
+          ) : null}
 
           {loading && (
             <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-slate-300">
@@ -901,7 +1087,9 @@ export default function ScheduledPage() {
                                 )}
                               </div>
                               <div className="p-3 space-y-1">
-                                <div className="text-xs font-semibold line-clamp-2">{img.title.replace(/^File:/, "")}</div>
+                                <div className="text-xs font-semibold line-clamp-2">
+                                  {img.title.replace(/^File:/, "")}
+                                </div>
                                 <div className="text-[11px] text-slate-400">{img.licenseShortName || "License unknown"}</div>
                                 {img.attribution ? (
                                   <div className="text-[11px] text-slate-300 line-clamp-2">{stripHtml(img.attribution)}</div>
