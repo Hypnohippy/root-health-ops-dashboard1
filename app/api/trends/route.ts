@@ -1,21 +1,13 @@
 import { NextResponse } from "next/server";
 
-/**
- * Trend Radar v1
- * Safe starter dataset.
- * Later we plug Google Trends + TikTok + Meta signals.
- */
-
 const BASE_TRENDS = [
   "ADHD overwhelm",
   "workplace anxiety",
   "burnout recovery",
   "sleep hygiene",
-  "dopamine detox",
   "nervous system regulation",
   "emotional boundaries",
   "high functioning depression",
-  "social exhaustion",
   "self compassion practice",
 ];
 
@@ -34,13 +26,7 @@ function expandTrend(t: string) {
 export async function GET() {
   try {
     const trends = BASE_TRENDS.map(expandTrend);
-
-    return NextResponse.json({
-      success: true,
-      trends,
-      source: "trend_radar_v1",
-      note: "Starter trends. Real platform signals coming.",
-    });
+    return NextResponse.json({ success: true, trends, source: "trend_radar_v1" });
   } catch (e: any) {
     return NextResponse.json(
       { success: false, error: e?.message || "Trend load failed" },
