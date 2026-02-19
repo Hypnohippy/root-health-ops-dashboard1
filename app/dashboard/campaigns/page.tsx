@@ -43,6 +43,12 @@ type Suggestion = {
   error?: string;
 };
 
+// ✅ Trend Radar types (new)
+type TrendItem = {
+  topic: string;
+  hooks?: string[];
+};
+
 function nice(s?: string | null) {
   return String(s || "").trim() || "—";
 }
@@ -100,6 +106,11 @@ export default function CampaignsPage() {
   const [hypothesis, setHypothesis] = useState("");
   const [notes, setNotes] = useState("");
 
+  // ✅ Trend Radar state (new)
+  const [loadingTrends, setLoadingTrends] = useState(true);
+  const [trendError, setTrendError] = useState<string | null>(null);
+  const [trends, setTrends] = useState<TrendItem[]>([]);
+
   // -------- load suggestion ----------
   async function loadSuggestion() {
     setLoadingSuggestion(true);
@@ -144,9 +155,33 @@ export default function CampaignsPage() {
     }
   }
 
+  // ✅ load trends (new)
+  async function loadTrends() {
+    setLoadingTrends(true);
+    setTrendError(null);
+    try {
+      const res = await fetch("/api/trends", { cache: "no-store" });
+      const json: any = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        setTrends([]);
+        setTrendError(json?.error || "No trends available yet.");
+        return;
+      }
+
+      setTrends(Array.isArray(json.trends) ? json.trends : []);
+    } catch (e: any) {
+      setTrends([]);
+      setTrendError(e?.message || "Failed to load trends.");
+    } finally {
+      setLoadingTrends(false);
+    }
+  }
+
   useEffect(() => {
     loadSuggestion();
     loadExperiments();
+    loadTrends(); // ✅ new
   }, []);
 
   useEffect(() => {
@@ -194,6 +229,30 @@ export default function CampaignsPage() {
       setNotes("");
     }
 
+    setCreateOpen(true);
+  }
+
+  // ✅ new: open create modal from a Trend
+  function openCreateFromTrend(t: TrendItem) {
+    setError(null);
+
+    // You can choose a default platform here (or keep your last one).
+    // We'll keep it simple: default to Facebook and practical text.
+    setPlatform("facebook");
+    setPatternType("practical");
+    setFormat("text");
+
+    setTitle(`Trend: ${t.topic}`);
+    setHypothesis(
+      `If I create a practical post about "${t.topic}" while it’s trending, I’ll get more engagement because it matches what people are actively searching for.`
+    );
+
+    const hookLines =
+      Array.isArray(t.hooks) && t.hooks.length > 0
+        ? `\n\nSuggested hooks:\n- ${t.hooks.join("\n- ")}`
+        : "";
+
+    setNotes(`Trend Radar topic: "${t.topic}".${hookLines}`);
     setCreateOpen(true);
   }
 
@@ -287,8 +346,6 @@ export default function CampaignsPage() {
   }
 
   function sendExperimentToBrainstorm(exp: Experiment) {
-    // This is the “connected loop” feel immediately.
-    // Brainstorm will pick this up, set platform, and prime the conversation.
     const payload = {
       source: "growth_lab",
       experimentId: exp.id,
@@ -306,6 +363,33 @@ export default function CampaignsPage() {
         ``,
         `Task: Generate 6 post drafts that match this experiment, with gentle tone + clear CTA.`,
         `Also give 10 hooks first, then the drafts.`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+
+    setLocalStorageMulti(PREFILL_BRAINSTORM_KEYS, payload);
+    window.location.href = "/dashboard/brainstorm";
+  }
+
+  // ✅ new: send Trend to Brainstorm
+  function sendTrendToBrainstorm(t: TrendItem) {
+    const hooks =
+      Array.isArray(t.hooks) && t.hooks.length > 0
+        ? `\n\nTrend hooks:\n- ${t.hooks.join("\n- ")}`
+        : "";
+
+    const payload = {
+      source: "trend_radar",
+      platform: "facebook",
+      title: `Trend: ${t.topic}`,
+      brief: [
+        `We are using Trend Radar to make a relevant post.`,
+        ``,
+        `Topic: ${t.topic}`,
+        hooks ? hooks : null,
+        ``,
+        `Task: Give 10 hooks first, then generate 6 post drafts in a gentle tone with clear CTA.`,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -335,6 +419,7 @@ export default function CampaignsPage() {
               onClick={() => {
                 loadSuggestion();
                 loadExperiments();
+                loadTrends(); // ✅ new
               }}
               className="rounded-2xl border border-slate-600 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
             >
@@ -366,6 +451,84 @@ export default function CampaignsPage() {
               {error}
             </div>
           ) : null}
+        </div>
+
+        {/* ✅ Trend Radar (NEW block, does NOT replace anything else) */}
+        <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">📡 Trend Radar</div>
+              <div className="text-xs text-slate-400 mt-1">
+                Lightweight starter trends (safe). Later we’ll plug real Google Trends + platform signals.
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={loadTrends}
+                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
+              >
+                Refresh trends
+              </button>
+            </div>
+          </div>
+
+          {trendError ? (
+            <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">
+              {trendError}
+            </div>
+          ) : null}
+
+          {loadingTrends ? (
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              Loading trends…
+            </div>
+          ) : trends.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              No trends yet.
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {trends.slice(0, 8).map((t, idx) => (
+                <div key={`${t.topic}-${idx}`} className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-sm font-semibold text-slate-100">{t.topic}</div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => sendTrendToBrainstorm(t)}
+                        className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                      >
+                        Develop in Brainstorm
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openCreateFromTrend(t)}
+                        className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+                      >
+                        Start experiment
+                      </button>
+                    </div>
+                  </div>
+
+                  {Array.isArray(t.hooks) && t.hooks.length > 0 ? (
+                    <div className="mt-3 text-[12px] text-slate-300">
+                      <div className="text-xs text-slate-400 mb-1">Example hooks</div>
+                      <ul className="list-disc pl-5 space-y-1">
+                        {t.hooks.slice(0, 4).map((h, i) => (
+                          <li key={i}>{h}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-3 text-[11px] text-slate-500">
+            Tip: We keep this “safe starter” for now (no API keys). Next step is real Google Trends and “UK region” filters.
+          </div>
         </div>
 
         {/* Suggestion */}
