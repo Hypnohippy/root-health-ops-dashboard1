@@ -1,27 +1,36 @@
-// app/dashboard/campaigns/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 
-type Pattern = {
+type ExperimentStatus = "planned" | "running" | "completed";
+
+type Experiment = {
   id: string;
   organisation_id: string;
-  source_post_id: string | null;
+  title?: string | null;
+  hypothesis?: string | null;
+
   platform: string | null;
-  pattern_type: string;
-  format: string;
+  goal: string | null;
+  format: string | null;
+  pattern_type: string | null;
   hook_style: string | null;
   cta_style: string | null;
   notes: string | null;
-  performance_score: number | null;
-  suggested: boolean;
-  saved_by_user: boolean;
+
+  status: string | null;
+  confidence: number | null;
+
   created_at: string;
+  updated_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  deleted_at?: string | null;
 };
 
 type Suggestion = {
   success: boolean;
-  organisationId: string;
+  organisationId?: string;
   suggestion?: {
     platform: string;
     pattern_type: string;
@@ -30,37 +39,9 @@ type Suggestion = {
     cta_style: string;
     notes: string;
     performance_score: number;
-    source_post_id?: string | null;
   };
   error?: string;
 };
-
-type GrowthSeedPayload = {
-  v: number;
-  createdAt: string;
-  source: "growth_lab";
-  organisationId?: string | null;
-  experimentId?: string | null;
-
-  platform?: string | null;
-  title?: string | null;
-  hypothesis?: string | null;
-
-  pattern_type?: string | null;
-  format?: string | null;
-  hook_style?: string | null;
-  cta_style?: string | null;
-  notes?: string | null;
-  confidence?: number | null;
-
-  brief: string;
-};
-
-// ✅ Growth Lab → Brainstorm seed keys
-const GROWTH_SEED_KEYS = [
-  "rootops_growth_seed_brainstorm_v1",
-  "rh_growth_seed_brainstorm_v1",
-];
 
 function nice(s?: string | null) {
   return String(s || "").trim() || "—";
@@ -76,6 +57,15 @@ function platformLabel(p?: string | null) {
   return p || "—";
 }
 
+function clampStatus(s?: string | null): ExperimentStatus {
+  const k = String(s || "").toLowerCase().trim();
+  if (k === "running") return "running";
+  if (k === "completed") return "completed";
+  return "planned";
+}
+
+const PREFILL_BRAINSTORM_KEYS = ["rootops_prefill_brainstorm_v1", "rh_prefill_brainstorm_v1"];
+
 function setLocalStorageMulti(keys: string[], payload: any) {
   try {
     const raw = JSON.stringify(payload);
@@ -87,70 +77,32 @@ function setLocalStorageMulti(keys: string[], payload: any) {
   } catch {}
 }
 
-function buildBrainstormBrief(args: {
-  title?: string | null;
-  platform?: string | null;
-  pattern_type?: string | null;
-  format?: string | null;
-  hook_style?: string | null;
-  cta_style?: string | null;
-  notes?: string | null;
-  confidence?: number | null;
-}) {
-  const title = String(args.title || "").trim();
-  const platform = String(args.platform || "").trim();
-  const pattern = String(args.pattern_type || "").trim();
-  const format = String(args.format || "").trim();
-  const hook = String(args.hook_style || "").trim();
-  const cta = String(args.cta_style || "").trim();
-  const notes = String(args.notes || "").trim();
-  const conf =
-    typeof args.confidence === "number" && Number.isFinite(args.confidence)
-      ? args.confidence
-      : null;
-
-  const lines: string[] = [];
-  lines.push("Growth Lab Experiment Brief");
-  lines.push("");
-
-  if (title) lines.push(`Title: ${title}`);
-  if (platform) lines.push(`Platform: ${platform}`);
-  if (pattern) lines.push(`Pattern: ${pattern}`);
-  if (format) lines.push(`Format: ${format}`);
-  if (hook) lines.push(`Hook style: ${hook}`);
-  if (cta) lines.push(`CTA style: ${cta}`);
-  if (conf !== null) lines.push(`Confidence: ${conf}/100`);
-
-  if (notes) {
-    lines.push("");
-    lines.push("Why this might work:");
-    lines.push(notes);
-  }
-
-  lines.push("");
-  lines.push("Now do this:");
-  lines.push("1) Give me 10 hooks for this experiment (gentle + human).");
-  lines.push("2) Draft 3 posts (short/medium/long).");
-  lines.push("3) Suggest a ‘safe’ CTA that fits therapists (no salesy vibe).");
-  lines.push("4) Give me a quick ‘what to measure’ checklist (likes/comments/saves/replies).");
-
-  return lines.join("\n").trim();
-}
-
 export default function CampaignsPage() {
-  // We’re repurposing the old /campaigns route as “Growth Lab”
-  const [loading, setLoading] = useState(true);
-  const [patternsLoading, setPatternsLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-
+  // Suggestion (existing behaviour)
+  const [loadingSuggestion, setLoadingSuggestion] = useState(true);
   const [suggestion, setSuggestion] = useState<Suggestion["suggestion"] | null>(null);
-  const [patterns, setPatterns] = useState<Pattern[]>([]);
 
+  // Experiments
+  const [loadingExperiments, setLoadingExperiments] = useState(true);
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
+
+  const [toast, setToast] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Modal state
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  const [title, setTitle] = useState("");
+  const [platform, setPlatform] = useState("facebook");
+  const [patternType, setPatternType] = useState("practical");
+  const [format, setFormat] = useState<"text" | "image" | "video">("text");
+  const [hypothesis, setHypothesis] = useState("");
+  const [notes, setNotes] = useState("");
+
+  // -------- load suggestion ----------
   async function loadSuggestion() {
-    setLoading(true);
+    setLoadingSuggestion(true);
     setError(null);
     setSuggestion(null);
 
@@ -161,7 +113,6 @@ export default function CampaignsPage() {
       if (!res.ok || !json?.success || !json?.suggestion) {
         setSuggestion(null);
         setError(json?.error || "No suggestion available yet.");
-        setLoading(false);
         return;
       }
 
@@ -169,33 +120,33 @@ export default function CampaignsPage() {
     } catch (e: any) {
       setError(e?.message || "Failed to load suggestion.");
     } finally {
-      setLoading(false);
+      setLoadingSuggestion(false);
     }
   }
 
-  async function loadPatterns() {
-    setPatternsLoading(true);
+  // -------- load experiments ----------
+  async function loadExperiments() {
+    setLoadingExperiments(true);
     try {
-      const res = await fetch("/api/growth/patterns/list", { cache: "no-store" });
-      const json = await res.json().catch(() => null);
+      const res = await fetch("/api/growth/experiments/list", { cache: "no-store" });
+      const json: any = await res.json().catch(() => null);
 
       if (!res.ok || !json?.success) {
-        setPatterns([]);
-        setPatternsLoading(false);
+        setExperiments([]);
         return;
       }
 
-      setPatterns(Array.isArray(json.items) ? json.items : []);
+      setExperiments(Array.isArray(json.items) ? json.items : []);
     } catch {
-      setPatterns([]);
+      setExperiments([]);
     } finally {
-      setPatternsLoading(false);
+      setLoadingExperiments(false);
     }
   }
 
   useEffect(() => {
-    void loadSuggestion();
-    void loadPatterns();
+    loadSuggestion();
+    loadExperiments();
   }, []);
 
   useEffect(() => {
@@ -204,112 +155,163 @@ export default function CampaignsPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const hasSuggestion = !!suggestion;
+  const counts = useMemo(() => {
+    const planned = experiments.filter((e) => clampStatus(e.status) === "planned").length;
+    const running = experiments.filter((e) => clampStatus(e.status) === "running").length;
+    const completed = experiments.filter((e) => clampStatus(e.status) === "completed").length;
+    return { planned, running, completed };
+  }, [experiments]);
 
-  const savedCount = useMemo(() => patterns.length, [patterns]);
+  const planned = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "planned"), [experiments]);
+  const running = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "running"), [experiments]);
+  const completed = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "completed"), [experiments]);
 
-  async function saveSuggestion() {
-    if (!suggestion) return;
+  function openCreateFromSuggestion() {
+    setError(null);
 
-    setSaving(true);
+    if (suggestion) {
+      const p = String(suggestion.platform || "facebook").toLowerCase();
+      const pt = String(suggestion.pattern_type || "practical").toLowerCase();
+      const fmt = (suggestion.format || "text") as any;
+
+      setPlatform(p || "facebook");
+      setPatternType(pt || "practical");
+      setFormat(fmt);
+
+      const autoTitle = `${platformLabel(p)}: ${pt} (${fmt})`;
+      setTitle(autoTitle);
+
+      const autoHyp = `If I use the "${pt}" pattern, I’ll get more engagement (comments/saves) because it matches what my audience responds to.`;
+      setHypothesis(autoHyp);
+
+      setNotes(String(suggestion.notes || "").trim());
+    } else {
+      setTitle("");
+      setPlatform("facebook");
+      setPatternType("practical");
+      setFormat("text");
+      setHypothesis("");
+      setNotes("");
+    }
+
+    setCreateOpen(true);
+  }
+
+  function closeCreate() {
+    setCreateOpen(false);
+    setCreating(false);
+  }
+
+  async function createExperiment() {
+    setCreating(true);
     setError(null);
 
     try {
-      const res = await fetch("/api/growth/patterns/save", {
+      const res = await fetch("/api/growth/experiments/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        body: JSON.stringify({ suggestion }),
+        body: JSON.stringify({
+          title: title.trim(),
+          platform: platform.trim(),
+          pattern_type: patternType.trim(),
+          format,
+          hypothesis: hypothesis.trim() || null,
+          notes: notes.trim() || null,
+        }),
       });
 
-      const json = await res.json().catch(() => null);
+      const json: any = await res.json().catch(() => null);
+
       if (!res.ok || !json?.success) {
-        setSaving(false);
-        setError(json?.error || "Failed to save.");
+        setError(json?.error || `Create failed (${res.status}).`);
+        setCreating(false);
         return;
       }
 
-      setToast("⭐ Saved to Growth Memory");
-      await loadPatterns();
-      await loadSuggestion(); // refresh to generate a fresh suggestion
+      setToast("✅ Experiment created (Planned)");
+      setCreateOpen(false);
+      setCreating(false);
+      await loadExperiments();
     } catch (e: any) {
-      setError(e?.message || "Failed to save.");
-    } finally {
-      setSaving(false);
+      setError(e?.message || "Create failed.");
+      setCreating(false);
     }
   }
 
-  function sendSuggestionToBrainstorm() {
-    if (!suggestion) return;
+  async function setStatus(id: string, status: ExperimentStatus) {
+    try {
+      const res = await fetch("/api/growth/experiments/set-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ id, status }),
+      });
+      const json: any = await res.json().catch(() => null);
 
-    const brief = buildBrainstormBrief({
-      title: `${platformLabel(suggestion.platform)}: ${suggestion.pattern_type} (${suggestion.format})`,
-      platform: suggestion.platform,
-      pattern_type: suggestion.pattern_type,
-      format: suggestion.format,
-      hook_style: suggestion.hook_style,
-      cta_style: suggestion.cta_style,
-      notes: suggestion.notes,
-      confidence:
-        typeof suggestion.performance_score === "number"
-          ? suggestion.performance_score
-          : null,
-    });
+      if (!res.ok || !json?.success) {
+        setToast(json?.error || "Status update failed.");
+        return;
+      }
 
-    const payload: GrowthSeedPayload = {
-      v: 1,
-      createdAt: new Date().toISOString(),
-      source: "growth_lab",
-      platform: suggestion.platform,
-      title: `${platformLabel(suggestion.platform)}: ${suggestion.pattern_type} (${suggestion.format})`,
-      pattern_type: suggestion.pattern_type,
-      format: suggestion.format,
-      hook_style: suggestion.hook_style,
-      cta_style: suggestion.cta_style,
-      notes: suggestion.notes,
-      confidence:
-        typeof suggestion.performance_score === "number"
-          ? suggestion.performance_score
-          : null,
-      brief,
-    };
-
-    setToast("Sending to Brainstorm…");
-    setLocalStorageMulti(GROWTH_SEED_KEYS, payload);
-    window.location.href = "/dashboard/brainstorm";
+      setToast(status === "running" ? "🏃 Now Running" : status === "completed" ? "🏁 Completed" : "📝 Back to Planned");
+      await loadExperiments();
+    } catch {
+      setToast("Status update failed.");
+    }
   }
 
-  function sendPatternToBrainstorm(p: Pattern) {
-    const brief = buildBrainstormBrief({
-      title: `${platformLabel(p.platform)}: ${p.pattern_type} (${p.format})`,
-      platform: p.platform,
-      pattern_type: p.pattern_type,
-      format: p.format,
-      hook_style: p.hook_style,
-      cta_style: p.cta_style,
-      notes: p.notes,
-      confidence:
-        typeof p.performance_score === "number" ? p.performance_score : null,
-    });
+  async function deleteExperiment(id: string) {
+    const ok = window.confirm("Delete this experiment? (This is a safe archive delete.)");
+    if (!ok) return;
 
-    const payload: GrowthSeedPayload = {
-      v: 1,
-      createdAt: new Date().toISOString(),
+    try {
+      const res = await fetch("/api/growth/experiments/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ id }),
+      });
+      const json: any = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        setToast(json?.error || "Delete failed.");
+        return;
+      }
+
+      setToast("🧹 Deleted");
+      await loadExperiments();
+    } catch {
+      setToast("Delete failed.");
+    }
+  }
+
+  function sendExperimentToBrainstorm(exp: Experiment) {
+    // This is the “connected loop” feel immediately.
+    // Brainstorm will pick this up, set platform, and prime the conversation.
+    const payload = {
       source: "growth_lab",
-      platform: p.platform,
-      title: `${platformLabel(p.platform)}: ${p.pattern_type} (${p.format})`,
-      pattern_type: p.pattern_type,
-      format: p.format,
-      hook_style: p.hook_style,
-      cta_style: p.cta_style,
-      notes: p.notes,
-      confidence:
-        typeof p.performance_score === "number" ? p.performance_score : null,
-      brief,
+      experimentId: exp.id,
+      platform: String(exp.platform || "facebook").toLowerCase(),
+      title: exp.title || "Growth Experiment",
+      brief: [
+        `We are running a Growth Experiment.`,
+        ``,
+        `Title: ${exp.title || "—"}`,
+        `Platform: ${platformLabel(exp.platform)}`,
+        `Pattern: ${nice(exp.pattern_type)}`,
+        `Format: ${nice(exp.format)}`,
+        exp.hypothesis ? `Hypothesis: ${exp.hypothesis}` : null,
+        exp.notes ? `Notes: ${exp.notes}` : null,
+        ``,
+        `Task: Generate 6 post drafts that match this experiment, with gentle tone + clear CTA.`,
+        `Also give 10 hooks first, then the drafts.`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
     };
 
-    setToast("Sending to Brainstorm…");
-    setLocalStorageMulti(GROWTH_SEED_KEYS, payload);
+    setLocalStorageMulti(PREFILL_BRAINSTORM_KEYS, payload);
     window.location.href = "/dashboard/brainstorm";
   }
 
@@ -320,29 +322,36 @@ export default function CampaignsPage() {
         <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
           <div className="text-xs text-slate-400">Root Health Ops</div>
           <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
-            🧪 Growth Lab{" "}
-            <span className="text-slate-400">— your gentle growth buddy</span>
+            🧪 Growth Lab <span className="text-slate-400">— your gentle growth buddy</span>
           </h1>
 
           <p className="mt-3 text-sm text-slate-300 max-w-3xl">
-            No messy admin. Growth Lab suggests what to try next, and helps you
-            save what works — so you can build momentum in small, kind steps.
+            Start small experiments → develop the post in Brainstorm → post via Quick Blast → learn what works.
+            No guilt. No chaos. Just momentum.
           </p>
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
               onClick={() => {
-                void loadSuggestion();
-                void loadPatterns();
+                loadSuggestion();
+                loadExperiments();
               }}
               className="rounded-2xl border border-slate-600 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
             >
               Refresh
             </button>
 
+            <button
+              onClick={openCreateFromSuggestion}
+              className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+            >
+              ➕ Start an experiment
+            </button>
+
             <div className="text-xs text-slate-400">
-              Growth Memory saved:{" "}
-              <span className="text-slate-200 font-semibold">{savedCount}</span>
+              Planned <span className="text-slate-200 font-semibold">{counts.planned}</span> · Running{" "}
+              <span className="text-slate-200 font-semibold">{counts.running}</span> · Completed{" "}
+              <span className="text-slate-200 font-semibold">{counts.completed}</span>
             </div>
           </div>
 
@@ -365,7 +374,7 @@ export default function CampaignsPage() {
             <div>
               <div className="text-sm font-semibold">Today’s gentle suggestion</div>
               <div className="text-xs text-slate-400 mt-1">
-                You’re always in control. If it doesn’t feel right, skip it. No guilt. 🙂
+                You’re always in control. Use it, edit it, or skip it. 🙂
               </div>
             </div>
 
@@ -378,25 +387,15 @@ export default function CampaignsPage() {
               </button>
 
               <button
-                onClick={sendSuggestionToBrainstorm}
-                disabled={!hasSuggestion}
-                className="rounded-2xl border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-100 hover:bg-blue-500/15 disabled:opacity-60"
-                title="Send this into Brainstorm as a ready-to-develop brief"
+                onClick={openCreateFromSuggestion}
+                className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
               >
-                🧠 Send to Brainstorm
-              </button>
-
-              <button
-                onClick={saveSuggestion}
-                disabled={!hasSuggestion || saving}
-                className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-              >
-                {saving ? "Saving…" : "⭐ Save to Growth Memory"}
+                Start experiment from this
               </button>
             </div>
           </div>
 
-          {loading ? (
+          {loadingSuggestion ? (
             <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
               Loading suggestion…
             </div>
@@ -408,31 +407,23 @@ export default function CampaignsPage() {
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
                 <div className="text-xs text-slate-400">Platform</div>
-                <div className="mt-1 text-lg font-semibold">
-                  {platformLabel(suggestion.platform)}
-                </div>
+                <div className="mt-1 text-lg font-semibold">{platformLabel(suggestion.platform)}</div>
 
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div>
                     <div className="text-xs text-slate-400">Pattern</div>
-                    <div className="mt-1 text-sm text-slate-100">
-                      {nice(suggestion.pattern_type)}
-                    </div>
+                    <div className="mt-1 text-sm text-slate-100">{nice(suggestion.pattern_type)}</div>
                   </div>
                   <div>
                     <div className="text-xs text-slate-400">Format</div>
-                    <div className="mt-1 text-sm text-slate-100">
-                      {nice(suggestion.format)}
-                    </div>
+                    <div className="mt-1 text-sm text-slate-100">{nice(suggestion.format)}</div>
                   </div>
                 </div>
 
                 <div className="mt-4">
                   <div className="text-xs text-slate-400">Confidence</div>
                   <div className="mt-1 text-sm text-slate-100">
-                    {Number.isFinite(suggestion.performance_score)
-                      ? `${suggestion.performance_score}/100`
-                      : "—"}
+                    {Number.isFinite(suggestion.performance_score) ? `${suggestion.performance_score}/100` : "—"}
                   </div>
                 </div>
               </div>
@@ -445,84 +436,322 @@ export default function CampaignsPage() {
 
                 <div className="mt-4 grid gap-2">
                   <div className="text-xs text-slate-400">Hook style</div>
-                  <div className="text-sm text-slate-200">
-                    {nice(suggestion.hook_style)}
-                  </div>
+                  <div className="text-sm text-slate-200">{nice(suggestion.hook_style)}</div>
 
                   <div className="text-xs text-slate-400 mt-2">CTA style</div>
-                  <div className="text-sm text-slate-200">
-                    {nice(suggestion.cta_style)}
-                  </div>
+                  <div className="text-sm text-slate-200">{nice(suggestion.cta_style)}</div>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Pattern Library */}
-        <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
-          <div className="flex items-center justify-between gap-3">
+        {/* Experiments */}
+        <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl space-y-4">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold">🗂 Your Growth Memory</div>
+              <div className="text-sm font-semibold">🧷 Experiments</div>
               <div className="text-xs text-slate-400 mt-1">
-                Saved patterns you can revisit anytime. (This becomes your “playbook”.)
+                Planned → develop in Brainstorm → move to Running → complete when you’ve tried 2–3 posts.
               </div>
             </div>
           </div>
 
-          {patternsLoading ? (
-            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-              Loading saved patterns…
+          {loadingExperiments ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              Loading experiments…
             </div>
-          ) : patterns.length === 0 ? (
-            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-              Nothing saved yet. Save your first pattern above ⭐
+          ) : experiments.length === 0 ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              Nothing here yet. Start your first experiment above ➕
             </div>
           ) : (
-            <div className="mt-4 space-y-3">
-              {patterns.map((p) => (
-                <div key={p.id} className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                    <div className="text-sm text-slate-100 font-semibold">
-                      {platformLabel(p.platform)} · {p.pattern_type} · {p.format}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => sendPatternToBrainstorm(p)}
-                        className="rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-100 hover:bg-blue-500/15"
-                        title="Send this saved pattern into Brainstorm as a brief"
-                      >
-                        🧠 Brainstorm
-                      </button>
-
-                      <div className="text-xs text-slate-400">
-                        {p.performance_score != null ? `${p.performance_score}/100` : "—"} · saved{" "}
-                        {new Date(p.created_at).toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-
-                  {p.notes ? (
-                    <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{p.notes}</div>
-                  ) : null}
-
-                  <div className="mt-3 grid md:grid-cols-2 gap-2 text-xs text-slate-300">
-                    <div>
-                      <span className="text-slate-400">Hook:</span> {nice(p.hook_style)}
-                    </div>
-                    <div>
-                      <span className="text-slate-400">CTA:</span> {nice(p.cta_style)}
-                    </div>
-                  </div>
+            <div className="grid gap-4 lg:grid-cols-3">
+              {/* Planned */}
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold">Planned</div>
+                  <div className="text-xs text-slate-400">{counts.planned}</div>
                 </div>
-              ))}
+                <div className="mt-2 text-[12px] text-slate-400">Saved ideas. Start one when ready.</div>
+
+                <div className="mt-3 space-y-3">
+                  {planned.length === 0 ? (
+                    <div className="text-sm text-slate-400">Nothing here yet.</div>
+                  ) : (
+                    planned.map((e) => (
+                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
+                        <div className="text-[12px] text-slate-300">
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
+                        </div>
+
+                        {e.hypothesis ? (
+                          <div className="text-[12px] text-slate-300 whitespace-pre-wrap">{e.hypothesis}</div>
+                        ) : null}
+
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => sendExperimentToBrainstorm(e)}
+                            className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                          >
+                            Develop in Brainstorm
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setStatus(e.id, "running")}
+                            className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                          >
+                            Start (Running)
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteExperiment(e.id)}
+                            className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-red-500 hover:text-red-200"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Running */}
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold">Running</div>
+                  <div className="text-xs text-slate-400">{counts.running}</div>
+                </div>
+                <div className="mt-2 text-[12px] text-slate-400">Try it for 2–3 posts before judging it.</div>
+
+                <div className="mt-3 space-y-3">
+                  {running.length === 0 ? (
+                    <div className="text-sm text-slate-400">Nothing here yet.</div>
+                  ) : (
+                    running.map((e) => (
+                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
+                        <div className="text-[12px] text-slate-300">
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => sendExperimentToBrainstorm(e)}
+                            className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                          >
+                            Make next post (Brainstorm)
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setStatus(e.id, "completed")}
+                            className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                          >
+                            Mark completed
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteExperiment(e.id)}
+                            className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-red-500 hover:text-red-200"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Completed */}
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold">Completed</div>
+                  <div className="text-xs text-slate-400">{counts.completed}</div>
+                </div>
+                <div className="mt-2 text-[12px] text-slate-400">Your playbook is forming.</div>
+
+                <div className="mt-3 space-y-3">
+                  {completed.length === 0 ? (
+                    <div className="text-sm text-slate-400">Nothing here yet.</div>
+                  ) : (
+                    completed.map((e) => (
+                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
+                        <div className="text-[12px] text-slate-300">
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setStatus(e.id, "planned")}
+                            className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                          >
+                            Re-run (back to Planned)
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteExperiment(e.id)}
+                            className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-red-500 hover:text-red-200"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
 
-        {/* gentle footer */}
+        {/* Create modal */}
+        {createOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div className="absolute inset-0 bg-black/70" onClick={closeCreate} />
+
+            <div className="relative w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-xs text-slate-400">Growth Lab</div>
+                  <div className="mt-1 text-lg font-semibold text-slate-100">Start an experiment</div>
+                  <div className="mt-1 text-[12px] text-slate-400">
+                    This creates a <b>Planned</b> experiment. You can develop the post in Brainstorm and start it when ready.
+                  </div>
+                </div>
+
+                <button
+                  className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+                  onClick={closeCreate}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Friendly name (what are we trying?)</label>
+                  <input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    placeholder='e.g. "Facebook: practical video tips"'
+                  />
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Tip: Keep it short. You can always rename later.
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Platform</label>
+                    <select
+                      value={platform}
+                      onChange={(e) => setPlatform(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                    >
+                      <option value="facebook">Facebook</option>
+                      <option value="instagram">Instagram</option>
+                      <option value="linkedin">LinkedIn</option>
+                      <option value="threads">Threads</option>
+                      <option value="tiktok">TikTok</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Pattern</label>
+                    <input
+                      value={patternType}
+                      onChange={(e) => setPatternType(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                      placeholder="e.g. practical"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Format</label>
+                    <select
+                      value={format}
+                      onChange={(e) => setFormat(e.target.value as any)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                    >
+                      <option value="text">Text</option>
+                      <option value="image">Image</option>
+                      <option value="video">Video</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Why might this work? (optional)</label>
+                  <textarea
+                    value={hypothesis}
+                    onChange={(e) => setHypothesis(e.target.value)}
+                    rows={3}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none"
+                    placeholder='e.g. "Short practical tips get saved more often."'
+                  />
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Tip: One sentence is enough. We’re not writing a PhD 😄
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Notes (optional)</label>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={3}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none"
+                    placeholder="Any context you want the AI to remember…"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={createExperiment}
+                    disabled={creating || !title.trim() || !platform.trim() || !patternType.trim()}
+                    className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                  >
+                    {creating ? "Creating…" : "Create experiment"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={closeCreate}
+                    disabled={creating}
+                    className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+
+                  <div className="text-[11px] text-slate-500 self-center">
+                    This starts as <b>Planned</b>. Move it to <b>Running</b> when you’re ready.
+                  </div>
+                </div>
+
+                {error ? (
+                  <div className="mt-2 rounded-2xl border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">
+                    {error}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="text-xs text-slate-500 text-center">
           Growth Lab isn’t here to judge you. It’s here to help you keep going. One kind step at a time.
         </div>
