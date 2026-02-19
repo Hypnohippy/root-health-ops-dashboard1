@@ -10,14 +10,11 @@ function norm(v: any) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const id = norm(body?.id);
-    let status = norm(body?.status).toLowerCase();
+    const id = norm(body.id);
+    const status = norm(body.status);
 
-    if (!id) {
-      return NextResponse.json({ success: false, error: "Missing id" }, { status: 400 });
-    }
-    if (!["planned", "running", "completed", "abandoned"].includes(status)) {
-      return NextResponse.json({ success: false, error: "Invalid status" }, { status: 400 });
+    if (!id || !status) {
+      return NextResponse.json({ success: false, error: "Missing id/status" }, { status: 400 });
     }
 
     const now = new Date().toISOString();
@@ -26,23 +23,19 @@ export async function POST(req: NextRequest) {
     if (status === "running") patch.started_at = now;
     if (status === "completed") patch.completed_at = now;
 
-    const { data, error } = await supabaseAdmin
+    const up = await supabaseAdmin
       .from("growth_experiments")
       .update(patch)
       .eq("id", id)
       .select()
       .maybeSingle();
 
-    if (error) {
-      console.error("[growth/experiments/status] update error", error);
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-    }
+    if (up.error) throw new Error(up.error.message);
 
-    return NextResponse.json({ success: true, item: data });
+    return NextResponse.json({ success: true, item: up.data });
   } catch (e: any) {
-    console.error("[growth/experiments/status] crashed", e);
     return NextResponse.json(
-      { success: false, error: e?.message || "Update status failed" },
+      { success: false, error: e?.message || "Failed to update status." },
       { status: 500 }
     );
   }
