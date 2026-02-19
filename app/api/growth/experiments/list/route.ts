@@ -3,11 +3,20 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function norm(v: any) {
-  return String(v ?? "").trim();
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
+const SINGLE_ORG_ID = (process.env.SINGLE_ORG_ID || "").trim();
+
+function baseUrl(req: NextRequest) {
+  try {
+    return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
+  } catch {
+    return APP_URL ? APP_URL.replace(/\/$/, "") : "";
+  }
 }
 
-async function getLatestOrganisationId() {
+async function getOrgIdFallback() {
+  if (SINGLE_ORG_ID) return SINGLE_ORG_ID;
+
   const { data, error } = await supabaseAdmin
     .from("organisations")
     .select("id, created_at")
@@ -15,72 +24,36 @@ async function getLatestOrganisationId() {
     .limit(1)
     .maybeSingle();
 
-  if (error) {
-    console.error("[growth/experiments/list] organisations error", error);
-    return null;
-  }
-  return data?.id ? String(data.id) : null;
+  if (error || !data?.id) return null;
+  return String(data.id);
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const url = new URL(req.url);
-    const orgFromQuery = norm(url.searchParams.get("organisationId"));
-
-    const organisationId = orgFromQuery || (await getLatestOrganisationId());
-    if (!organisationId) {
+    const orgId = await getOrgIdFallback();
+    if (!orgId) {
       return NextResponse.json(
         { success: false, error: "No organisation found." },
         { status: 400 }
       );
     }
 
-    // 1) experiments
-    const ex = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("growth_experiments")
       .select("*")
-      .eq("organisation_id", organisationId)
-      .order("updated_at", { ascending: false })
+      .eq("organisation_id", orgId)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
-    if (ex.error) {
-      console.error("[growth/experiments/list] experiments error", ex.error);
-      return NextResponse.json({ success: false, error: ex.error.message }, { status: 500 });
-    }
+    if (error) throw new Error(error.message);
 
-    const items = Array.isArray(ex.data) ? ex.data : [];
-
-    // 2) outcomes (batch)
-    const ids = items.map((i: any) => i.id).filter(Boolean);
-    let outcomesByExp: Record<string, any[]> = {};
-
-    if (ids.length > 0) {
-      const outs = await supabaseAdmin
-        .from("growth_experiment_outcomes")
-        .select("*")
-        .in("experiment_id", ids)
-        .order("created_at", { ascending: false });
-
-      if (!outs.error && Array.isArray(outs.data)) {
-        for (const o of outs.data) {
-          const k = String((o as any).experiment_id || "");
-          if (!k) continue;
-          if (!outcomesByExp[k]) outcomesByExp[k] = [];
-          outcomesByExp[k].push(o);
-        }
-      }
-    }
-
-    const merged = items.map((e: any) => ({
-      ...e,
-      growth_experiment_outcomes: outcomesByExp[String(e.id)] || [],
-    }));
-
-    return NextResponse.json({ success: true, organisationId, items: merged });
+    return NextResponse.json({ success: true, organisationId: orgId, items: data || [] });
   } catch (e: any) {
-    console.error("[growth/experiments/list] crashed", e);
+    const back = new URL(`${baseUrl(req)}/dashboard/campaigns`);
+    back.searchParams.set("error", "growth_experiments_list_failed");
+    back.searchParams.set("error_description", e?.message || "unknown");
     return NextResponse.json(
-      { success: false, error: e?.message || "List experiments failed" },
+      { success: false, error: e?.message || "Failed to list experiments." },
       { status: 500 }
     );
   }
