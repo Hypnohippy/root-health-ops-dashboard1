@@ -64,6 +64,38 @@ const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 // Local-only Growth Memory (we’ll wire Supabase later)
 const GROWTH_MEMORY_KEY = "rootops_growth_memory_v1";
 
+// ✅ Brainstorm → Quick Blast prefill keys (supports both naming families)
+const PREFILL_QUICKBLAST_KEYS = [
+  "rootops_prefill_quickblast_v1",
+  "rh_prefill_quickblast_v1",
+];
+
+// ✅ Experiment context key (persist a “current experiment” locally)
+const CURRENT_EXPERIMENT_KEYS = [
+  "rootops_current_experiment_v1",
+  "rh_current_experiment_v1",
+];
+
+type PrefillQuickBlastPayload = {
+  message?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  suggestedPlatforms?: ProviderId[];
+  // Optional future fields
+  attribution?: any;
+  experimentId?: string | null;
+  experimentTitle?: string | null;
+};
+
+type CurrentExperimentPayload = {
+  v: number;
+  updatedAt: string;
+  organisationId?: string | null;
+  experimentId?: string | null;
+  title?: string | null;
+  source?: string | null; // e.g. "growth_lab" | "brainstorm"
+};
+
 type Draft = {
   id: string;
   savedAt: number;
@@ -142,6 +174,37 @@ function loadGrowthMemory(): GrowthMemoryEntry[] {
 function saveGrowthMemory(items: GrowthMemoryEntry[]) {
   try {
     localStorage.setItem(GROWTH_MEMORY_KEY, JSON.stringify(items.slice(0, 300)));
+  } catch {}
+}
+
+function setLocalStorageMulti(keys: string[], payload: any) {
+  try {
+    const raw = JSON.stringify(payload);
+    for (const k of keys) {
+      try {
+        localStorage.setItem(k, raw);
+      } catch {}
+    }
+  } catch {}
+}
+
+function getLocalStorageFirst(keys: string[]) {
+  try {
+    for (const k of keys) {
+      const raw = localStorage.getItem(k);
+      if (raw) return raw;
+    }
+  } catch {}
+  return null;
+}
+
+function removeLocalStorageMulti(keys: string[]) {
+  try {
+    for (const k of keys) {
+      try {
+        localStorage.removeItem(k);
+      } catch {}
+    }
   } catch {}
 }
 
@@ -282,10 +345,22 @@ function safeProvider(p: any): ProviderId | null {
   return (allowed as string[]).includes(s) ? (s as ProviderId) : null;
 }
 
+function safeUuidLike(s?: any) {
+  const v = String(s || "").trim();
+  if (!v) return null;
+  // Loose but safe-ish: uuid v4 style
+  if (!/^[0-9a-fA-F-]{16,}$/.test(v)) return null;
+  return v;
+}
+
 export default function DashboardHomePage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
   const [organisationId, setOrganisationId] = useState<string | null>(null);
+
+  // ✅ Current experiment context (optional)
+  const [experimentId, setExperimentId] = useState<string | null>(null);
+  const [experimentTitle, setExperimentTitle] = useState<string | null>(null);
 
   // AI composer
   const [aiSubject, setAiSubject] = useState("");
@@ -490,6 +565,60 @@ export default function DashboardHomePage() {
 
   const montageReady = montageUrls.length >= 2;
 
+  async function logQuickBlastToExperiment(params: {
+    organisationId: string | null;
+    experimentId: string | null;
+    message: string;
+    imageUrl: string;
+    videoUrl: string;
+    igPublishMode: IgPublishMode;
+    montageImageUrls: string[];
+    result: QuickBlastResult | null;
+  }) {
+    try {
+      const org = params.organisationId;
+      if (!org) return;
+
+      const expId = safeUuidLike(params.experimentId);
+      // If not linked, we still allow logging as org activity (experiment_id null) if you want later
+      // For now we’ll only log when experiment exists.
+      if (!expId) return;
+
+      const results = Array.isArray(params.result?.results) ? params.result!.results! : [];
+
+      // One row per platform attempt
+      await fetch("/api/growth/experiments/log-event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          organisationId: org,
+          experimentId: expId,
+          action: "post_attempt",
+          contentPreview: String(params.message || "").slice(0, 400),
+          meta: {
+            imageUrl: params.imageUrl || null,
+            videoUrl: params.videoUrl || null,
+            igPublishMode: params.igPublishMode || "auto",
+            montageImageUrls: Array.isArray(params.montageImageUrls) ? params.montageImageUrls : [],
+            response: params.result || null,
+          },
+          // We send results so the server can optionally split, but we’ll also send flattened attempts here
+          attempts: results.map((r: any) => ({
+            platform: String(r?.platform || ""),
+            ok: !!r?.ok,
+            externalPostId:
+              String(r?.id || r?.post_id || r?.postId || r?.details?.id || "").trim() || null,
+            error: !r?.ok ? extractFriendlyError(r) : null,
+            raw: r,
+          })),
+        }),
+      }).catch(() => null);
+    } catch {
+      // silent
+    }
+  }
+
   async function sendQuickBlastNow() {
     setSending(true);
     setResult(null);
@@ -507,6 +636,9 @@ export default function DashboardHomePage() {
           platforms: selected,
           igPublishMode,
           montageImageUrls: montageUrls,
+
+          // ✅ pass experiment context through (server can ignore for now)
+          experimentId: experimentId || null,
         }),
       });
 
@@ -534,6 +666,18 @@ export default function DashboardHomePage() {
       };
 
       setResult(merged);
+
+      // ✅ Log to Growth Experiment Events (Supabase) if experiment linked
+      void logQuickBlastToExperiment({
+        organisationId,
+        experimentId,
+        message,
+        imageUrl: media.imageUrl,
+        videoUrl: media.videoUrl,
+        igPublishMode,
+        montageImageUrls: montageUrls,
+        result: merged,
+      });
     } catch (e: any) {
       setResult({
         success: false,
@@ -574,6 +718,7 @@ export default function DashboardHomePage() {
       const res = await fetch("/api/social/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({
           message,
           platforms: selected,
@@ -589,6 +734,9 @@ export default function DashboardHomePage() {
             ...(media.videoUrl ? { video_url: media.videoUrl } : {}),
             ig_publish_mode: igPublishMode,
             montage_image_urls: montageUrls,
+
+            // ✅ Persist experiment context into scheduled meta too
+            experiment_id: experimentId || null,
           },
           createdBy: {
             user_id: "owner",
@@ -612,12 +760,33 @@ export default function DashboardHomePage() {
         return;
       }
 
-      setResult({
+      const merged: QuickBlastResult = {
         success: true,
         organisationId,
         userMessage:
           "Queued for approval ✅ Head to Approvals to review and approve it (then Post now).",
         note: "Tip: This is exactly the ‘clinic workflow’ feel — author → approvals → publish.",
+      };
+
+      setResult(merged);
+
+      // ✅ Log queueing as an experiment event too (optional, but useful)
+      void logQuickBlastToExperiment({
+        organisationId,
+        experimentId,
+        message,
+        imageUrl: media.imageUrl,
+        videoUrl: media.videoUrl,
+        igPublishMode,
+        montageImageUrls: montageUrls,
+        result: {
+          success: true,
+          organisationId: organisationId || undefined,
+          userMessage: "Queued for approval",
+          note: "queued_for_approval",
+          results: selected.map((p) => ({ platform: p, ok: true, queued: true })),
+          summary: { attempted: selected.length, ok: selected.length, failed: 0 },
+        },
       });
     } catch (e: any) {
       setResult({
@@ -635,9 +804,88 @@ export default function DashboardHomePage() {
     return queueForApproval();
   }
 
+  // ✅ Apply Brainstorm prefill (if present)
+  function applyQuickBlastPrefill(prefill: PrefillQuickBlastPayload) {
+    const msg = String(prefill?.message || "").trim();
+    if (msg) setMessage(msg);
+
+    const img = String(prefill?.imageUrl || "").trim();
+    const vid = String(prefill?.videoUrl || "").trim();
+
+    if (vid) {
+      setVideoUrl(vid);
+      setImageUrl("");
+      setMediaMode("video");
+    } else if (img) {
+      setImageUrl(img);
+      setVideoUrl("");
+      setMediaMode("image");
+    }
+
+    const suggested = Array.isArray(prefill?.suggestedPlatforms)
+      ? prefill.suggestedPlatforms.map((x) => safeProvider(x)).filter(Boolean)
+      : [];
+
+    if (suggested.length > 0) {
+      setSelected(suggested as ProviderId[]);
+    }
+
+    const expId = safeUuidLike(prefill?.experimentId);
+    if (expId) {
+      setExperimentId(expId);
+      const t = String(prefill?.experimentTitle || "").trim();
+      setExperimentTitle(t || null);
+
+      const payload: CurrentExperimentPayload = {
+        v: 1,
+        updatedAt: new Date().toISOString(),
+        organisationId: organisationId || null,
+        experimentId: expId,
+        title: t || null,
+        source: "brainstorm",
+      };
+      setLocalStorageMulti(CURRENT_EXPERIMENT_KEYS, payload);
+    }
+  }
+
+  function clearExperimentLink() {
+    setExperimentId(null);
+    setExperimentTitle(null);
+    removeLocalStorageMulti(CURRENT_EXPERIMENT_KEYS);
+  }
+
   useEffect(() => {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
+
+    // 1) Load any persisted experiment context
+    try {
+      const raw = getLocalStorageFirst(CURRENT_EXPERIMENT_KEYS);
+      if (raw) {
+        const parsed = JSON.parse(raw) as CurrentExperimentPayload;
+        if (parsed && parsed.v === 1) {
+          const expId = safeUuidLike(parsed.experimentId);
+          if (expId) {
+            setExperimentId(expId);
+            setExperimentTitle(String(parsed.title || "").trim() || null);
+          }
+        }
+      }
+    } catch {}
+
+    // 2) Apply Brainstorm prefill once, then clear it
+    try {
+      const raw = getLocalStorageFirst(PREFILL_QUICKBLAST_KEYS);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PrefillQuickBlastPayload;
+        if (parsed && typeof parsed === "object") {
+          applyQuickBlastPrefill(parsed);
+        }
+        // clear so refresh doesn’t re-apply
+        removeLocalStorageMulti(PREFILL_QUICKBLAST_KEYS);
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -855,6 +1103,24 @@ export default function DashboardHomePage() {
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
+
+              {/* ✅ Experiment badge */}
+              {experimentId ? (
+                <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                  <span className="font-semibold">Linked to experiment</span>
+                  <span className="opacity-80">
+                    {experimentTitle ? `— ${experimentTitle}` : ""}
+                  </span>
+                  <span className="opacity-70">(events will auto-log)</span>
+                  <button
+                    type="button"
+                    onClick={clearExperimentLink}
+                    className="ml-1 rounded-full border border-amber-500/40 bg-transparent px-3 py-1 text-[11px] text-amber-100 hover:bg-amber-500/10"
+                  >
+                    Unlink
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-xs text-slate-300">
@@ -1416,7 +1682,7 @@ export default function DashboardHomePage() {
                   </button>
                 </div>
 
-                {/* ✅ RESULT PANEL (fixed JSX) */}
+                {/* ✅ RESULT PANEL */}
                 {result && (
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
@@ -1523,6 +1789,7 @@ export default function DashboardHomePage() {
                     <div className="mt-1">montageImages: {montageUrls.length}</div>
                     <div className="mt-1">imageUrl: {media.imageUrl ? "✅ set" : "—"}</div>
                     <div className="mt-1">videoUrl: {media.videoUrl ? "✅ set" : "—"}</div>
+                    <div className="mt-1">experimentId: {experimentId || "—"}</div>
                   </div>
                 )}
               </div>
