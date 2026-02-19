@@ -63,16 +63,16 @@ const PREFILL_STORIES_KEYS = [
   "rh_prefill_stories_v1",
 ];
 
-// ✅ NEW: Scheduled batch prefill (we’ll build the scheduled page importer next)
+// ✅ Scheduled batch prefill
 const PREFILL_SCHEDULED_KEYS = [
   "rootops_prefill_scheduled_v1",
   "rh_prefill_scheduled_v1",
 ];
 
-// ✅ NEW: Brainstorm “Draft Locker” (prevents resets on navigation)
+// ✅ Brainstorm “Draft Locker”
 const LOCKER_KEYS = ["rootops_brainstorm_locker_v1", "rh_brainstorm_locker_v1"];
 
-// ✅ NEW: Growth Lab → Brainstorm seed
+// ✅ Growth Lab → Brainstorm seed
 const GROWTH_SEED_KEYS = [
   "rootops_growth_seed_brainstorm_v1",
   "rh_growth_seed_brainstorm_v1",
@@ -93,7 +93,7 @@ type GrowthSeedPayload = {
   cta_style?: string | null;
   notes?: string | null;
   confidence?: number | null;
-  brief: string; // the important part
+  brief: string;
 };
 
 function uid() {
@@ -253,9 +253,10 @@ export default function BrainstormPage() {
     const a = snapshot?.angles ?? angles;
     const d = snapshot?.drafts ?? drafts;
 
-    // “Existing work” = more than the default assistant message, or any drafts/angles
     const chatHasMoreThanDefault = Array.isArray(c) && c.length > DEFAULT_CHAT.length;
-    const inputChanged = String(i || "").trim() && String(i || "").trim() !== String(DEFAULT_INPUT).trim();
+    const inputChanged =
+      String(i || "").trim() &&
+      String(i || "").trim() !== String(DEFAULT_INPUT).trim();
     const hasAngles = Array.isArray(a) && a.length > 0;
     const hasDrafts = Array.isArray(d) && d.length > 0;
 
@@ -263,11 +264,9 @@ export default function BrainstormPage() {
   }
 
   function applyGrowthSeed(seed: GrowthSeedPayload) {
-    // Gentle: don’t wipe chat. Just prefill input + set platform + nudge tone.
     setPlatform(toChannelId(seed.platform));
     setTone((prev) => {
       const p = String(prev || "").trim();
-      // only adjust tone if it’s empty or default-ish
       if (!p) return "Calm & supportive";
       return p;
     });
@@ -278,7 +277,6 @@ export default function BrainstormPage() {
     setToast("Loaded from Growth Lab ✅");
     setTimeout(() => setToast(null), 1800);
 
-    // Once applied, remove so it doesn’t keep prompting
     removeLocalStorageMulti(GROWTH_SEED_KEYS);
     setGrowthSeed(null);
     setShowSeedBanner(false);
@@ -351,7 +349,6 @@ export default function BrainstormPage() {
 
       setGrowthSeed(parsed);
 
-      // If they already have work, show a banner instead of overwriting
       const alreadyWorking = hasExistingWork({
         chat: restoredSnapshot?.chat,
         input: restoredSnapshot?.input,
@@ -362,7 +359,6 @@ export default function BrainstormPage() {
       if (alreadyWorking) {
         setShowSeedBanner(true);
       } else {
-        // Fresh page → auto-load
         applyGrowthSeed(parsed);
       }
     } catch {
@@ -396,7 +392,6 @@ export default function BrainstormPage() {
   }, [platform, tone, wantImages, input, chat, angles, drafts, draftImages, draftImageQueryEdits]);
 
   const resetBrainstorm = () => {
-    // Clear locker + UI state
     removeLocalStorageMulti(LOCKER_KEYS);
 
     setError(null);
@@ -418,6 +413,61 @@ export default function BrainstormPage() {
 
     setToast("Reset ✅");
     setTimeout(() => setToast(null), 1600);
+  };
+
+  // ✅ NEW: delete a single draft (and keep indexes clean)
+  const deleteDraftAt = (idx: number) => {
+    setDrafts((prev) => prev.filter((_, i) => i !== idx));
+
+    setDraftImages((prev) => {
+      const next: Record<number, CommonsImage | null> = {};
+      const kept = Object.keys(prev)
+        .map((k) => Number(k))
+        .filter((n) => Number.isFinite(n))
+        .sort((a, b) => a - b)
+        .filter((n) => n !== idx);
+
+      // reindex down so remaining drafts line up
+      let write = 0;
+      for (const oldIdx of kept) {
+        next[write] = prev[oldIdx] ?? null;
+        write++;
+      }
+      return next;
+    });
+
+    setDraftImageQueryEdits((prev) => {
+      const next: Record<number, string> = {};
+      const kept = Object.keys(prev)
+        .map((k) => Number(k))
+        .filter((n) => Number.isFinite(n))
+        .sort((a, b) => a - b)
+        .filter((n) => n !== idx);
+
+      let write = 0;
+      for (const oldIdx of kept) {
+        next[write] = prev[oldIdx] ?? "";
+        write++;
+      }
+      return next;
+    });
+
+    setToast("Draft deleted ✅");
+    setTimeout(() => setToast(null), 1200);
+  };
+
+  // ✅ NEW: clear all drafts quickly
+  const clearAllDrafts = () => {
+    const ok = window.confirm("Clear all drafts + angles? (Chat stays.)");
+    if (!ok) return;
+
+    setAngles([]);
+    setDrafts([]);
+    setDraftImages({});
+    setDraftImageQueryEdits({});
+
+    setToast("Cleared drafts ✅");
+    setTimeout(() => setToast(null), 1200);
   };
 
   const openPicker = async (idx: number) => {
@@ -492,7 +542,6 @@ export default function BrainstormPage() {
     const msg = input.trim();
     if (!msg) return;
 
-    // Use a snapshot for the request history so we don’t race setState
     const historyForReq = [...chat, { id: uid(), role: "user" as const, content: msg }];
 
     setChat(historyForReq);
@@ -527,7 +576,6 @@ export default function BrainstormPage() {
       const nextDrafts = Array.isArray(data.drafts) ? data.drafts : [];
       setDrafts(nextDrafts);
 
-      // Keep existing chosen images unless drafts count changed hard
       setDraftImages((prev) => {
         const next: Record<number, CommonsImage | null> = {};
         for (let i = 0; i < nextDrafts.length; i++) next[i] = prev[i] ?? null;
@@ -568,7 +616,6 @@ export default function BrainstormPage() {
       attribution: buildAttribution(img),
     };
 
-    // ✅ Ensure locker is saved before leaving
     setToast("Sending to Quick Blast…");
     setLocalStorageMulti(PREFILL_QUICKBLAST_KEYS, payload);
     window.location.href = "/dashboard";
@@ -576,13 +623,18 @@ export default function BrainstormPage() {
 
   const sendToStories = (d: Draft, img: CommonsImage | null) => {
     const payload = {
-      // Keep both shapes so importer can choose
-      idea: joinDraft(d),
-      direct: joinDraft(d),
+      mode: "single",
       platform,
       tone,
-      imageUrl: img?.url || "",
-      attribution: buildAttribution(img),
+      items: [
+        {
+          title: d.title || "Draft",
+          text: joinDraft(d),
+          imageUrl: img?.url || "",
+          attribution: buildAttribution(img),
+        },
+      ],
+      note: "Single draft sent from Brainstorm",
     };
 
     setToast("Sending to Stories…");
@@ -590,7 +642,6 @@ export default function BrainstormPage() {
     window.location.href = "/dashboard/stories/new";
   };
 
-  // ✅ NEW: send a single draft to Scheduled
   const sendToScheduled = (d: Draft, img: CommonsImage | null) => {
     const payload = {
       mode: "single",
@@ -604,6 +655,7 @@ export default function BrainstormPage() {
           attribution: buildAttribution(img),
         },
       ],
+      note: "Single draft sent from Brainstorm",
     };
 
     setToast("Sending to Scheduled…");
@@ -611,7 +663,6 @@ export default function BrainstormPage() {
     window.location.href = "/dashboard/scheduled";
   };
 
-  // ✅ NEW: send ALL drafts to Stories (as a series batch)
   const sendAllToStories = () => {
     if (!drafts.length) return;
 
@@ -638,7 +689,6 @@ export default function BrainstormPage() {
     window.location.href = "/dashboard/stories/new";
   };
 
-  // ✅ NEW: send ALL drafts to Scheduled
   const sendAllToScheduled = () => {
     if (!drafts.length) return;
 
@@ -677,7 +727,7 @@ export default function BrainstormPage() {
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {growthSeed ? (
                 <button
                   type="button"
@@ -688,6 +738,15 @@ export default function BrainstormPage() {
                   Clear Growth Lab seed
                 </button>
               ) : null}
+
+              <button
+                type="button"
+                onClick={clearAllDrafts}
+                disabled={!drafts.length && !angles.length}
+                className="rounded-full border border-slate-600 bg-slate-950 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60"
+              >
+                Clear drafts
+              </button>
 
               <button
                 type="button"
@@ -913,6 +972,16 @@ export default function BrainstormPage() {
                               className="rounded-full border border-slate-600 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
                             >
                               Send to Scheduled
+                            </button>
+
+                            {/* ✅ NEW: Delete */}
+                            <button
+                              type="button"
+                              onClick={() => deleteDraftAt(idx)}
+                              className="rounded-full border border-red-500/40 bg-red-950/20 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/35"
+                              title="Remove this draft from the list"
+                            >
+                              Delete
                             </button>
                           </div>
                         </div>
