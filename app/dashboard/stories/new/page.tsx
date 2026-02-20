@@ -42,11 +42,10 @@ type CtaStyleOption =
 type Mode = "now" | "schedule";
 
 /**
- * This page can receive prefills from:
- * - Growth Lab / older flows: { mode: "direct" | "story_series", series: [{title, body, cta...}], direct: "..." }
- * - Brainstorm (your current build): { mode: "single" | "series", items: [{title, text, imageUrl...}], platform, tone }
+ * Prefill sources:
+ * - Older flow: { mode, series: [{title, body...}], direct: "..." }
+ * - Brainstorm flow: { mode:"single"|"series", items:[{title,text,imageUrl...}], platform, tone }
  */
-
 type BrainstormItem = {
   title?: string;
   text?: string;
@@ -55,7 +54,7 @@ type BrainstormItem = {
   attribution?: any;
 };
 
-type BrainstormPrefill = {
+type Prefill = {
   mode?: "single" | "series" | "direct" | "story_series";
   platform?: ChannelId;
   tone?: string;
@@ -63,7 +62,6 @@ type BrainstormPrefill = {
   ctaStyle?: string;
   seriesLength?: number;
 
-  // Newer/older keys
   direct?: string | null;
   series?: Array<{
     title: string;
@@ -73,7 +71,6 @@ type BrainstormPrefill = {
     imagePrompt?: string;
   }> | null;
 
-  // Brainstorm keys
   items?: BrainstormItem[] | null;
 
   imageUrl?: string | null;
@@ -82,18 +79,17 @@ type BrainstormPrefill = {
   note?: string;
 };
 
-function safeParsePrefill(raw: string | null): BrainstormPrefill | null {
+function safeParsePrefill(raw: string | null): Prefill | null {
   try {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
-    return parsed as BrainstormPrefill;
+    return parsed as Prefill;
   } catch {
     return null;
   }
 }
 
-// ✅ Read from either key (Brainstorm writes both)
 const PREFILL_STORIES_KEYS = ["rootops_prefill_stories_v1", "rh_prefill_stories_v1"];
 
 function getLocalStorageFirst(keys: string[]) {
@@ -117,13 +113,16 @@ function removeLocalStorageMulti(keys: string[]) {
 }
 
 export default function StorySeriesBuilderPage() {
+  // Create lane
   const [idea, setIdea] = useState("");
-
   const [storyType, setStoryType] = useState<StoryTypeOption>("HR director perspective");
   const [tone, setTone] = useState<ToneOption>("Professional & confident");
   const [targetPlatform, setTargetPlatform] = useState<ChannelId>("linkedin");
   const [ctaStyle, setCtaStyle] = useState<CtaStyleOption>("Comment for more / next part");
   const [seriesLength, setSeriesLength] = useState<number>(3);
+
+  // Draft lane (this is what we SEND)
+  const [drafts, setDrafts] = useState<GeneratedPost[]>([]);
 
   const [autoVariation, setAutoVariation] = useState(true);
 
@@ -133,7 +132,6 @@ export default function StorySeriesBuilderPage() {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
-  const [posts, setPosts] = useState<GeneratedPost[]>([]);
 
   const [isDispatching, setIsDispatching] = useState(false);
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
@@ -143,7 +141,7 @@ export default function StorySeriesBuilderPage() {
 
   const [importedFromBrainstorm, setImportedFromBrainstorm] = useState(false);
 
-  // Media for story posts (optional)
+  // Media (global for this series of drafts)
   const [imageUrl, setImageUrl] = useState<string>("");
   const [videoUrl, setVideoUrl] = useState<string>("");
 
@@ -160,7 +158,7 @@ export default function StorySeriesBuilderPage() {
     })();
   }, []);
 
-  // ✅ Import from Brainstorm OR older flows
+  // ✅ Import from Brainstorm or older flows into DRAFTS
   useEffect(() => {
     try {
       const raw = getLocalStorageFirst(PREFILL_STORIES_KEYS);
@@ -213,46 +211,39 @@ export default function StorySeriesBuilderPage() {
         if (allowed.includes(cs)) setCtaStyle(cs);
       }
 
-      // ---- Brainstorm payload support ----
-      // Brainstorm sends { mode: "single"|"series", items:[{title,text,imageUrl...}] }
+      // Brainstorm payload: items[]
       if (Array.isArray(prefill.items) && prefill.items.length > 0) {
         const items = prefill.items;
 
-        // Carry the first item's media forward into the page-level media fields
+        // carry media if supplied
         const first = items[0] || {};
         if (first.imageUrl) setImageUrl(String(first.imageUrl));
         if (first.videoUrl) setVideoUrl(String(first.videoUrl));
 
-        const mapped: GeneratedPost[] = items.map((it) => ({
+        const mappedDrafts: GeneratedPost[] = items.map((it) => ({
           title: typeof it.title === "string" ? it.title : "",
           body: typeof it.text === "string" ? it.text : "",
           cta: "", // Brainstorm already joins CTA/hashtags into text; keep blank
         }));
 
-        setPosts(mapped);
-        setSeriesLength(mapped.length);
+        setDrafts(mappedDrafts);
+        setSeriesLength(mappedDrafts.length);
+
+        // IMPORTANT: keep create lane empty (that’s fine) — but drafts are now sendable.
+        if (prefill.mode === "single") setMode("now");
+        else setMode("schedule");
+
         setGenerationError(null);
         setDispatchStatus(null);
         setDispatchError(null);
-
-        // If Brainstorm sent "single", switch to send-now mode by default
-        if (prefill.mode === "single") setMode("now");
-        else setMode("schedule");
 
         removeLocalStorageMulti(PREFILL_STORIES_KEYS);
         return;
       }
 
-      // ---- Older payload support (series/direct) ----
-      if (typeof prefill.seriesLength === "number") {
-        setSeriesLength(Math.max(1, Math.min(10, prefill.seriesLength)));
-      }
-
-      if (prefill.imageUrl) setImageUrl(String(prefill.imageUrl));
-      if (prefill.videoUrl) setVideoUrl(String(prefill.videoUrl));
-
+      // Older payload: series[]
       if (Array.isArray(prefill.series) && prefill.series.length > 0) {
-        const mapped: GeneratedPost[] = prefill.series.map((p) => ({
+        const mappedDrafts: GeneratedPost[] = prefill.series.map((p) => ({
           title: typeof p.title === "string" ? p.title : "",
           body: typeof p.body === "string" ? p.body : "",
           platformSuggestion: typeof p.platformSuggestion === "string" ? p.platformSuggestion : undefined,
@@ -260,14 +251,17 @@ export default function StorySeriesBuilderPage() {
           imagePrompt: typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
         }));
 
-        setPosts(mapped);
-        setSeriesLength(mapped.length);
+        setDrafts(mappedDrafts);
+        setSeriesLength(mappedDrafts.length);
         setGenerationError(null);
         setDispatchStatus(null);
         setDispatchError(null);
       } else if (typeof prefill.direct === "string" && prefill.direct.trim()) {
         setIdea(prefill.direct.trim());
       }
+
+      if (prefill.imageUrl) setImageUrl(String(prefill.imageUrl));
+      if (prefill.videoUrl) setVideoUrl(String(prefill.videoUrl));
 
       removeLocalStorageMulti(PREFILL_STORIES_KEYS);
     } catch {
@@ -276,13 +270,14 @@ export default function StorySeriesBuilderPage() {
   }, []);
 
   const canGenerate = useMemo(() => !!idea.trim() && !isGenerating, [idea, isGenerating]);
+  const hasDrafts = drafts.length > 0;
 
   const normalizeIdea = (raw: string) => raw.replace(/\s+/g, " ").trim();
 
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationError(null);
-    setPosts([]);
+    setDrafts([]);
     setDispatchStatus(null);
     setDispatchError(null);
 
@@ -324,7 +319,7 @@ export default function StorySeriesBuilderPage() {
           imagePrompt: typeof p.imagePrompt === "string" ? p.imagePrompt : undefined,
         }));
 
-        setPosts(mapped);
+        setDrafts(mapped);
         setIsGenerating(false);
         return;
       } catch (err: any) {
@@ -360,54 +355,79 @@ export default function StorySeriesBuilderPage() {
     );
   };
 
-  const updatePost = (index: number, patch: Partial<GeneratedPost>) => {
-    setPosts((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
+  const updateDraft = (index: number, patch: Partial<GeneratedPost>) => {
+    setDrafts((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   };
 
-  const handleSendNow = async () => {
+  // ✅ NEW: Send drafts even when create lane is empty
+  const sendDraftsNow = async () => {
     setIsDispatching(true);
     setDispatchStatus(null);
     setDispatchError(null);
 
     try {
-      if (posts.length === 0) throw new Error("Generate a story first.");
+      if (!hasDrafts) throw new Error("No drafts to send.");
+      if (!orgId) throw new Error("Organisation not loaded yet. Refresh the page.");
 
-      const p = posts[0];
-      const message = buildMessage(p, { part: 1, total: posts.length });
-      if (!message) throw new Error("The post content is empty.");
+      let ok = 0;
+      let fail = 0;
+      const failures: string[] = [];
 
-      const res = await fetch("/api/social/quick-blast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message,
-          platforms: [targetPlatform],
-          imageUrl: imageUrl || undefined,
-          videoUrl: videoUrl || undefined,
-        }),
-      });
+      for (let i = 0; i < drafts.length; i++) {
+        const message = buildMessage(drafts[i], { part: i + 1, total: drafts.length });
+        if (!message) {
+          fail++;
+          failures.push(`Draft ${i + 1}: empty message`);
+          continue;
+        }
 
-      const data: any = await res.json().catch(() => null);
-      if (!res.ok || !data?.success) {
-        throw new Error(data?.error || data?.message || "Quick Blast failed.");
+        const res = await fetch("/api/social/quick-blast", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({
+            message,
+            platforms: [targetPlatform],
+            imageUrl: imageUrl || undefined,
+            videoUrl: videoUrl || undefined,
+          }),
+        });
+
+        const data: any = await res.json().catch(() => null);
+        if (!res.ok || !data?.success) {
+          fail++;
+          failures.push(`Draft ${i + 1}: ${data?.error || data?.message || `Failed (${res.status})`}`);
+        } else {
+          ok++;
+        }
       }
 
-      setDispatchStatus(`Sent now to ${targetPlatform}. Switch to Schedule to queue the full series.`);
-    } catch (err: any) {
-      setDispatchError(err?.message || "Send now failed.");
+      if (ok === 0) throw new Error(failures[0] || "All drafts failed.");
+
+      setDispatchStatus(
+        fail === 0
+          ? `Sent ${ok}/${drafts.length} drafts now ✅`
+          : `Sent ${ok}/${drafts.length} drafts now (some failed)`
+      );
+
+      if (failures.length) {
+        setDispatchError(failures.slice(0, 6).join("\n"));
+      }
+    } catch (e: any) {
+      setDispatchError(e?.message || "Send drafts failed.");
     } finally {
       setIsDispatching(false);
     }
   };
 
-  const handleScheduleSeries = async () => {
+  const scheduleDrafts = async () => {
     setIsDispatching(true);
     setDispatchStatus(null);
     setDispatchError(null);
 
     try {
       if (!orgId) throw new Error("Organisation not loaded yet. Refresh the page.");
-      if (posts.length === 0) throw new Error("Generate a story/series first.");
+      if (!hasDrafts) throw new Error("No drafts to schedule.");
       if (!seriesStart) throw new Error("Choose the first post date/time.");
 
       const base = new Date(seriesStart);
@@ -415,18 +435,25 @@ export default function StorySeriesBuilderPage() {
 
       const cadenceDays = Math.max(1, Math.min(14, Number(dailyCadence) || 1));
 
-      let successCount = 0;
-      const failures: { index: number; error: string }[] = [];
+      let ok = 0;
+      let fail = 0;
+      const failures: string[] = [];
 
-      for (let i = 0; i < posts.length; i++) {
+      for (let i = 0; i < drafts.length; i++) {
         const scheduledDate = new Date(base.getTime() + i * cadenceDays * 24 * 60 * 60 * 1000);
         const whenIso = scheduledDate.toISOString();
 
-        const message = buildMessage(posts[i], { part: i + 1, total: posts.length, whenIso });
+        const message = buildMessage(drafts[i], { part: i + 1, total: drafts.length, whenIso });
+        if (!message) {
+          fail++;
+          failures.push(`Draft ${i + 1}: empty message`);
+          continue;
+        }
 
         const res = await fetch("/api/social/schedule", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          cache: "no-store",
           body: JSON.stringify({
             message,
             platforms: [targetPlatform],
@@ -440,10 +467,11 @@ export default function StorySeriesBuilderPage() {
             },
 
             meta: {
-              series: posts.length > 1,
+              series: drafts.length > 1,
               part: i + 1,
-              total: posts.length,
+              total: drafts.length,
               cadenceDays,
+              source: "stories_drafts",
               video_url: videoUrl || null,
             },
 
@@ -453,61 +481,102 @@ export default function StorySeriesBuilderPage() {
 
         const data: any = await res.json().catch(() => null);
 
-        if (!data?.success) {
-          failures.push({ index: i, error: data?.error || data?.message || `Failed scheduling part ${i + 1}` });
+        if (!res.ok || !data?.success) {
+          fail++;
+          failures.push(`Draft ${i + 1}: ${data?.error || data?.message || `Failed (${res.status})`}`);
         } else {
-          successCount++;
+          ok++;
         }
       }
 
-      if (successCount === 0) throw new Error(failures[0]?.error || "Could not schedule any posts.");
+      if (ok === 0) throw new Error(failures[0] || "All drafts failed scheduling.");
 
       setDispatchStatus(
-        failures.length === 0
-          ? `Scheduled ${successCount} post(s). View them in Dashboard → Scheduled.`
-          : `Scheduled ${successCount} post(s), ${failures.length} failed. View Scheduled for details.`
+        fail === 0
+          ? `Scheduled ${ok}/${drafts.length} drafts ✅`
+          : `Scheduled ${ok}/${drafts.length} drafts (some failed)`
       );
 
       if (failures.length) {
-        setDispatchError(
-          `Some failed:\n` +
-            failures
-              .slice(0, 5)
-              .map((f) => `Part ${f.index + 1}: ${f.error}`)
-              .join("\n")
-        );
+        setDispatchError(failures.slice(0, 6).join("\n"));
       }
-    } catch (err: any) {
-      setDispatchError(err?.message || "Scheduling failed.");
+    } catch (e: any) {
+      setDispatchError(e?.message || "Schedule drafts failed.");
     } finally {
       setIsDispatching(false);
     }
   };
 
-  const isSingle = seriesLength === 1;
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-8">
-        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-semibold">Stories · Advanced Narrative Generator</h1>
-            <p className="mt-1 text-sm text-slate-300 max-w-xl">
-              Generate → edit → send now or schedule. Auto-variation helps prevent duplicate-content blocks.
-            </p>
-          </div>
+        <header className="space-y-2">
+          <h1 className="text-2xl md:text-3xl font-semibold">Stories</h1>
+          <p className="text-sm text-slate-300 max-w-3xl">
+            Generate on this page, or import drafts from Brainstorm — either way, you can now SEND/SCHEDULE drafts directly.
+          </p>
         </header>
 
         {importedFromBrainstorm ? (
           <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-            Imported from Brainstorm ✅ (You can edit before sending.)
+            Imported from Brainstorm ✅ Your drafts are ready to send (even if “Create” is empty).
           </div>
         ) : null}
 
+        {/* ✅ Media always available (even if Create is empty) */}
+        <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-3">
+          <div className="text-base font-semibold">Media (optional)</div>
+          <div className="text-[12px] text-slate-400">
+            Add media here AFTER importing from Brainstorm. It will apply to all drafts you send/schedule from this page.
+          </div>
+
+          <MediaDropzone
+            organisationId={orgId || undefined}
+            onUploaded={(m) => {
+              const ct = String(m?.contentType || "").toLowerCase();
+              if (ct.startsWith("video/")) {
+                setVideoUrl(m.url);
+                setImageUrl("");
+              } else {
+                setImageUrl(m.url);
+                setVideoUrl("");
+              }
+            }}
+          />
+
+          <div className="grid md:grid-cols-2 gap-3">
+            <div>
+              <div className="text-[11px] text-slate-400 mb-1">Image URL</div>
+              <input
+                className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none"
+                value={imageUrl}
+                onChange={(e) => {
+                  setImageUrl(e.target.value);
+                  if (e.target.value.trim()) setVideoUrl("");
+                }}
+                placeholder="Direct image URL (jpg/png)…"
+              />
+            </div>
+            <div>
+              <div className="text-[11px] text-slate-400 mb-1">Video URL</div>
+              <input
+                className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none"
+                value={videoUrl}
+                onChange={(e) => {
+                  setVideoUrl(e.target.value);
+                  if (e.target.value.trim()) setImageUrl("");
+                }}
+                placeholder="Direct video URL (mp4)…"
+              />
+            </div>
+          </div>
+        </section>
+
         <div className="grid gap-6 lg:grid-cols-2">
+          {/* Create lane */}
           <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-5">
             <div className="flex items-center justify-between">
-              <h2 className="text-base md:text-lg font-semibold">1) Create</h2>
+              <h2 className="text-base md:text-lg font-semibold">Create</h2>
 
               <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
                 <button
@@ -530,60 +599,13 @@ export default function StorySeriesBuilderPage() {
             <div className="space-y-2">
               <label className="block text-[11px] font-medium text-slate-300">Your idea / brief</label>
               <textarea
-                className="w-full min-h-[130px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                className="w-full min-h-[120px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
+                placeholder="Type an idea here to generate new stories…"
               />
             </div>
 
-            {/* Media */}
-            <div className="rounded-3xl border border-slate-700 bg-slate-950 p-4 space-y-3">
-              <div className="text-sm font-semibold">Media (optional)</div>
-              <div className="text-[11px] text-slate-400">Upload once → use for send-now or scheduling.</div>
-
-              <MediaDropzone
-                organisationId={orgId || undefined}
-                onUploaded={(m) => {
-                  const ct = String(m?.contentType || "").toLowerCase();
-                  if (ct.startsWith("video/")) {
-                    setVideoUrl(m.url);
-                    setImageUrl("");
-                  } else {
-                    setImageUrl(m.url);
-                    setVideoUrl("");
-                  }
-                }}
-              />
-
-              <div className="grid md:grid-cols-2 gap-3">
-                <div>
-                  <div className="text-[11px] text-slate-400 mb-1">Image URL</div>
-                  <input
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none"
-                    value={imageUrl}
-                    onChange={(e) => {
-                      setImageUrl(e.target.value);
-                      if (e.target.value.trim()) setVideoUrl("");
-                    }}
-                    placeholder="Direct image URL (jpg/png)…"
-                  />
-                </div>
-                <div>
-                  <div className="text-[11px] text-slate-400 mb-1">Video URL</div>
-                  <input
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none"
-                    value={videoUrl}
-                    onChange={(e) => {
-                      setVideoUrl(e.target.value);
-                      if (e.target.value.trim()) setImageUrl("");
-                    }}
-                    placeholder="Direct video URL (mp4)…"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Settings */}
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="block text-[11px] font-medium text-slate-300">Story type</label>
@@ -614,6 +636,7 @@ export default function StorySeriesBuilderPage() {
                   <option value="Warm & supportive">Warm & supportive</option>
                   <option value="Inspirational & human">Inspirational & human</option>
                   <option value="Strong thought-leader">Strong thought-leader</option>
+                  <option value="Data-backed but human">Data-backed but human</option>
                   <option value="Data-backed but human">Data-backed but human</option>
                 </select>
               </div>
@@ -671,7 +694,7 @@ export default function StorySeriesBuilderPage() {
                 disabled={!canGenerate}
                 className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
               >
-                {isGenerating ? "Generating…" : isSingle ? "Generate story" : "Generate series"}
+                {isGenerating ? "Generating…" : "Generate"}
               </button>
 
               <label className="flex items-center gap-2 text-[11px] text-slate-300">
@@ -680,10 +703,39 @@ export default function StorySeriesBuilderPage() {
               </label>
             </div>
 
-            {generationError && <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">{generationError}</div>}
+            {generationError ? (
+              <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">{generationError}</div>
+            ) : null}
+          </section>
 
-            {mode === "schedule" && posts.length > 0 && (
-              <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
+          {/* Drafts lane + ✅ NEW send buttons */}
+          <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <h2 className="text-base md:text-lg font-semibold">Drafts</h2>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={sendDraftsNow}
+                  disabled={!hasDrafts || isDispatching}
+                  className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                >
+                  {isDispatching ? "Sending…" : `Send drafts now → ${targetPlatform}`}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={scheduleDrafts}
+                  disabled={!hasDrafts || isDispatching || !seriesStart || !orgId}
+                  className="rounded-full border border-slate-600 bg-slate-950 px-4 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
+                >
+                  {isDispatching ? "Scheduling…" : "Schedule drafts"}
+                </button>
+              </div>
+            </div>
+
+            {mode === "schedule" && hasDrafts ? (
+              <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-3">
                 <div className="text-[11px] font-semibold text-slate-200">Scheduling options</div>
 
                 <div className="grid md:grid-cols-2 gap-3">
@@ -710,71 +762,39 @@ export default function StorySeriesBuilderPage() {
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
 
-            {posts.length > 0 && (
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                {mode === "now" ? (
-                  <button
-                    type="button"
-                    onClick={handleSendNow}
-                    disabled={isDispatching}
-                    className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
-                  >
-                    {isDispatching ? "Sending…" : `Send now to ${targetPlatform}`}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleScheduleSeries}
-                    disabled={isDispatching || !seriesStart || !orgId}
-                    className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
-                  >
-                    {isDispatching
-                      ? "Scheduling…"
-                      : orgId
-                      ? `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`
-                      : "Loading org…"}
-                  </button>
-                )}
-              </div>
-            )}
+            {dispatchStatus ? <div className="text-[11px] text-emerald-400">{dispatchStatus}</div> : null}
+            {dispatchError ? <div className="text-[11px] text-red-400 whitespace-pre-wrap">{dispatchError}</div> : null}
 
-            {dispatchStatus && <div className="mt-2 text-[11px] text-emerald-400">{dispatchStatus}</div>}
-            {dispatchError && <div className="mt-2 text-[11px] text-red-400 whitespace-pre-wrap">{dispatchError}</div>}
-          </section>
-
-          <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-4">
-            <h2 className="text-base md:text-lg font-semibold">2) Edit & preview</h2>
-
-            {posts.length === 0 ? (
-              <p className="text-sm text-slate-400">Your generated story/series will appear here.</p>
+            {!hasDrafts ? (
+              <div className="text-sm text-slate-400">No drafts yet — generate on the left or import from Brainstorm.</div>
             ) : (
               <div className="space-y-3 max-h-[620px] overflow-y-auto pr-1">
-                {posts.map((p, idx) => (
+                {drafts.map((p, idx) => (
                   <div key={idx} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 space-y-2">
                     <div className="text-[11px] text-slate-400">
-                      {posts.length > 1 ? `Episode ${idx + 1} / ${posts.length}` : "Single post"}
+                      {drafts.length > 1 ? `Episode ${idx + 1} / ${drafts.length}` : "Single post"}
                     </div>
 
                     <input
                       className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={p.title || ""}
-                      onChange={(e) => updatePost(idx, { title: e.target.value })}
+                      onChange={(e) => updateDraft(idx, { title: e.target.value })}
                       placeholder="Title (optional)"
                     />
 
                     <textarea
                       className="w-full min-h-[140px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none whitespace-pre-wrap"
                       value={p.body || ""}
-                      onChange={(e) => updatePost(idx, { body: e.target.value })}
+                      onChange={(e) => updateDraft(idx, { body: e.target.value })}
                       placeholder="Post body"
                     />
 
                     <input
                       className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
                       value={p.cta || ""}
-                      onChange={(e) => updatePost(idx, { cta: e.target.value })}
+                      onChange={(e) => updateDraft(idx, { cta: e.target.value })}
                       placeholder="CTA (optional)"
                     />
                   </div>
