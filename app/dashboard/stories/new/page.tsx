@@ -42,15 +42,28 @@ type CtaStyleOption =
 type Mode = "now" | "schedule";
 
 /**
- * Old prefill shape (what this file previously expected)
+ * This page can receive prefills from:
+ * - Growth Lab / older flows: { mode: "direct" | "story_series", series: [{title, body, cta...}], direct: "..." }
+ * - Brainstorm (your current build): { mode: "single" | "series", items: [{title, text, imageUrl...}], platform, tone }
  */
-type BrainstormPrefillOld = {
-  mode?: "direct" | "story_series";
+
+type BrainstormItem = {
+  title?: string;
+  text?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  attribution?: any;
+};
+
+type BrainstormPrefill = {
+  mode?: "single" | "series" | "direct" | "story_series";
   platform?: ChannelId;
   tone?: string;
   storyType?: string;
   ctaStyle?: string;
   seriesLength?: number;
+
+  // Newer/older keys
   direct?: string | null;
   series?: Array<{
     title: string;
@@ -59,63 +72,35 @@ type BrainstormPrefillOld = {
     cta?: string;
     imagePrompt?: string;
   }> | null;
+
+  // Brainstorm keys
+  items?: BrainstormItem[] | null;
+
   imageUrl?: string | null;
   videoUrl?: string | null;
   createdAt?: string;
-};
-
-/**
- * New prefill shape (what Brainstorm now sends)
- */
-type BrainstormPrefillNew = {
-  mode?: "single" | "series";
-  platform?: ChannelId;
-  tone?: string;
-  items?: Array<{
-    title?: string;
-    text?: string;
-    imageUrl?: string;
-    attribution?: any;
-  }>;
-  imageUrl?: string | null; // optional convenience
-  videoUrl?: string | null;
   note?: string;
-  createdAt?: string;
 };
 
-function safeParse(raw: string | null): any | null {
+function safeParsePrefill(raw: string | null): BrainstormPrefill | null {
   try {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
-    return parsed;
+    return parsed as BrainstormPrefill;
   } catch {
     return null;
   }
 }
 
-function toToneOption(raw?: string | null): ToneOption {
-  const t = String(raw || "");
-  const mapped: ToneOption =
-    t.includes("Warm")
-      ? "Warm & supportive"
-      : t.includes("Inspirational")
-      ? "Inspirational & human"
-      : t.toLowerCase().includes("thought")
-      ? "Strong thought-leader"
-      : t.includes("Data")
-      ? "Data-backed but human"
-      : "Professional & confident";
-  return mapped;
-}
-
+// ✅ Read from either key (Brainstorm writes both)
 const PREFILL_STORIES_KEYS = ["rootops_prefill_stories_v1", "rh_prefill_stories_v1"];
 
 function getLocalStorageFirst(keys: string[]) {
   try {
     for (const k of keys) {
       const raw = window.localStorage.getItem(k);
-      if (raw) return { key: k, raw };
+      if (raw) return raw;
     }
   } catch {}
   return null;
@@ -155,6 +140,7 @@ export default function StorySeriesBuilderPage() {
   const [dispatchError, setDispatchError] = useState<string | null>(null);
 
   const [orgId, setOrgId] = useState<string | null>(null);
+
   const [importedFromBrainstorm, setImportedFromBrainstorm] = useState(false);
 
   // Media for story posts (optional)
@@ -174,56 +160,32 @@ export default function StorySeriesBuilderPage() {
     })();
   }, []);
 
-  // ✅ Import from Brainstorm (supports BOTH old + new payload shapes, and BOTH keys)
+  // ✅ Import from Brainstorm OR older flows
   useEffect(() => {
     try {
-      const found = getLocalStorageFirst(PREFILL_STORIES_KEYS);
-      if (!found?.raw) return;
-
-      const parsed = safeParse(found.raw);
-      if (!parsed) return;
+      const raw = getLocalStorageFirst(PREFILL_STORIES_KEYS);
+      const prefill = safeParsePrefill(raw);
+      if (!prefill) return;
 
       setImportedFromBrainstorm(true);
 
-      // platform + tone are common
-      if (parsed.platform) setTargetPlatform(parsed.platform as ChannelId);
-      if (parsed.tone) setTone(toToneOption(parsed.tone));
+      if (prefill.platform) setTargetPlatform(prefill.platform);
 
-      // media
-      if (parsed.imageUrl) setImageUrl(String(parsed.imageUrl));
-      if (parsed.videoUrl) setVideoUrl(String(parsed.videoUrl));
-
-      // NEW shape: { mode:"single|series", items:[{title,text,...}] }
-      const looksNew = Array.isArray(parsed.items) && parsed.items.length > 0;
-
-      if (looksNew) {
-        const items = parsed.items as BrainstormPrefillNew["items"];
-
-        const mapped: GeneratedPost[] =
-          (items || []).map((it: any, idx: number) => ({
-            title: typeof it?.title === "string" && it.title.trim() ? it.title : `Episode ${idx + 1}`,
-            body: typeof it?.text === "string" ? it.text : "",
-          })) || [];
-
-        if (mapped.length) {
-          setPosts(mapped);
-          setSeriesLength(mapped.length);
-          setGenerationError(null);
-          setDispatchStatus(null);
-          setDispatchError(null);
-        }
-
-        // if single and no items somehow, fallback to idea
-        if (!mapped.length && typeof parsed?.direct === "string") setIdea(parsed.direct.trim());
-
-        removeLocalStorageMulti(PREFILL_STORIES_KEYS);
-        return;
+      if (prefill.tone) {
+        const t = String(prefill.tone);
+        const mapped: ToneOption =
+          t.includes("Warm")
+            ? "Warm & supportive"
+            : t.includes("Inspirational")
+            ? "Inspirational & human"
+            : t.includes("thought")
+            ? "Strong thought-leader"
+            : t.includes("Data")
+            ? "Data-backed but human"
+            : "Professional & confident";
+        setTone(mapped);
       }
 
-      // OLD shape
-      const prefill = parsed as BrainstormPrefillOld;
-
-      // optional: storyType/ctaStyle if present
       if (prefill.storyType) {
         const st = String(prefill.storyType) as StoryTypeOption;
         const allowed: StoryTypeOption[] = [
@@ -251,9 +213,43 @@ export default function StorySeriesBuilderPage() {
         if (allowed.includes(cs)) setCtaStyle(cs);
       }
 
+      // ---- Brainstorm payload support ----
+      // Brainstorm sends { mode: "single"|"series", items:[{title,text,imageUrl...}] }
+      if (Array.isArray(prefill.items) && prefill.items.length > 0) {
+        const items = prefill.items;
+
+        // Carry the first item's media forward into the page-level media fields
+        const first = items[0] || {};
+        if (first.imageUrl) setImageUrl(String(first.imageUrl));
+        if (first.videoUrl) setVideoUrl(String(first.videoUrl));
+
+        const mapped: GeneratedPost[] = items.map((it) => ({
+          title: typeof it.title === "string" ? it.title : "",
+          body: typeof it.text === "string" ? it.text : "",
+          cta: "", // Brainstorm already joins CTA/hashtags into text; keep blank
+        }));
+
+        setPosts(mapped);
+        setSeriesLength(mapped.length);
+        setGenerationError(null);
+        setDispatchStatus(null);
+        setDispatchError(null);
+
+        // If Brainstorm sent "single", switch to send-now mode by default
+        if (prefill.mode === "single") setMode("now");
+        else setMode("schedule");
+
+        removeLocalStorageMulti(PREFILL_STORIES_KEYS);
+        return;
+      }
+
+      // ---- Older payload support (series/direct) ----
       if (typeof prefill.seriesLength === "number") {
         setSeriesLength(Math.max(1, Math.min(10, prefill.seriesLength)));
       }
+
+      if (prefill.imageUrl) setImageUrl(String(prefill.imageUrl));
+      if (prefill.videoUrl) setVideoUrl(String(prefill.videoUrl));
 
       if (Array.isArray(prefill.series) && prefill.series.length > 0) {
         const mapped: GeneratedPost[] = prefill.series.map((p) => ({
@@ -368,15 +364,6 @@ export default function StorySeriesBuilderPage() {
     setPosts((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   };
 
-  // ⚠️ IG note: IG feed requires media; text-only will fail in most integrations
-  const requireMediaIfInstagram = () => {
-    if (targetPlatform !== "instagram") return;
-    const hasMedia = !!(imageUrl.trim() || videoUrl.trim());
-    if (!hasMedia) {
-      throw new Error("Instagram needs an image or video. Upload media before Quick Blast / scheduling.");
-    }
-  };
-
   const handleSendNow = async () => {
     setIsDispatching(true);
     setDispatchStatus(null);
@@ -384,7 +371,6 @@ export default function StorySeriesBuilderPage() {
 
     try {
       if (posts.length === 0) throw new Error("Generate a story first.");
-      requireMediaIfInstagram();
 
       const p = posts[0];
       const message = buildMessage(p, { part: 1, total: posts.length });
@@ -406,7 +392,7 @@ export default function StorySeriesBuilderPage() {
         throw new Error(data?.error || data?.message || "Quick Blast failed.");
       }
 
-      setDispatchStatus(`Queued for ${targetPlatform}. Check Scheduled → Past/All (include Quick Blast history) for dispatch results.`);
+      setDispatchStatus(`Sent now to ${targetPlatform}. Switch to Schedule to queue the full series.`);
     } catch (err: any) {
       setDispatchError(err?.message || "Send now failed.");
     } finally {
@@ -423,8 +409,6 @@ export default function StorySeriesBuilderPage() {
       if (!orgId) throw new Error("Organisation not loaded yet. Refresh the page.");
       if (posts.length === 0) throw new Error("Generate a story/series first.");
       if (!seriesStart) throw new Error("Choose the first post date/time.");
-
-      requireMediaIfInstagram();
 
       const base = new Date(seriesStart);
       if (isNaN(base.getTime())) throw new Error("Start date/time is not valid.");
@@ -448,6 +432,13 @@ export default function StorySeriesBuilderPage() {
             platforms: [targetPlatform],
             scheduledAt: whenIso,
             organisationId: orgId,
+
+            createdBy: {
+              user_id: "owner",
+              name: "Clinic Owner",
+              email: "owner@clinic.local",
+            },
+
             meta: {
               series: posts.length > 1,
               part: i + 1,
@@ -455,6 +446,7 @@ export default function StorySeriesBuilderPage() {
               cadenceDays,
               video_url: videoUrl || null,
             },
+
             imageUrl: imageUrl || null,
           }),
         });
@@ -508,7 +500,7 @@ export default function StorySeriesBuilderPage() {
 
         {importedFromBrainstorm ? (
           <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-            Imported from Brainstorm ✅ You can edit anything before sending/scheduling.
+            Imported from Brainstorm ✅ (You can edit before sending.)
           </div>
         ) : null}
 
@@ -547,9 +539,7 @@ export default function StorySeriesBuilderPage() {
             {/* Media */}
             <div className="rounded-3xl border border-slate-700 bg-slate-950 p-4 space-y-3">
               <div className="text-sm font-semibold">Media (optional)</div>
-              <div className="text-[11px] text-slate-400">
-                Upload once → use for send-now or scheduling. <b>Instagram requires media.</b>
-              </div>
+              <div className="text-[11px] text-slate-400">Upload once → use for send-now or scheduling.</div>
 
               <MediaDropzone
                 organisationId={orgId || undefined}
@@ -740,7 +730,11 @@ export default function StorySeriesBuilderPage() {
                     disabled={isDispatching || !seriesStart || !orgId}
                     className="inline-flex items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
                   >
-                    {isDispatching ? "Scheduling…" : orgId ? `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}` : "Loading org…"}
+                    {isDispatching
+                      ? "Scheduling…"
+                      : orgId
+                      ? `Schedule ${posts.length} post${posts.length > 1 ? "s" : ""}`
+                      : "Loading org…"}
                   </button>
                 )}
               </div>
