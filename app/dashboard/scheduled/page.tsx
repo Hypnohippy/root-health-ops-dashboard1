@@ -156,29 +156,14 @@ function applyUkSpellings(input: string) {
 
 type RangeMode = "future" | "past" | "all";
 
-/**
- * ✅ Import payloads (supports what Brainstorm sends)
- */
-type PrefillScheduledPayload = {
-  mode?: "single" | "series";
-  platform?: string | null;
-  tone?: string | null;
-  items?: Array<{
-    title?: string;
-    text?: string;
-    imageUrl?: string;
-    attribution?: any;
-  }>;
-  note?: string;
-};
-
+// ✅ Scheduled batch prefill keys (Brainstorm writes both)
 const PREFILL_SCHEDULED_KEYS = ["rootops_prefill_scheduled_v1", "rh_prefill_scheduled_v1"];
 
 function getLocalStorageFirst(keys: string[]) {
   try {
     for (const k of keys) {
       const raw = window.localStorage.getItem(k);
-      if (raw) return { key: k, raw };
+      if (raw) return raw;
     }
   } catch {}
   return null;
@@ -194,25 +179,30 @@ function removeLocalStorageMulti(keys: string[]) {
   } catch {}
 }
 
-function safeParse(raw: string | null): any | null {
+type PrefillItem = {
+  title?: string;
+  text?: string;
+  imageUrl?: string;
+  attribution?: any;
+};
+
+type ScheduledPrefill = {
+  mode?: "single" | "series";
+  platform?: string;
+  tone?: string;
+  items?: PrefillItem[];
+  note?: string;
+};
+
+function safeParsePrefill(raw: string | null): ScheduledPrefill | null {
   try {
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    return parsed;
+    const p = JSON.parse(raw);
+    if (!p || typeof p !== "object") return null;
+    return p as ScheduledPrefill;
   } catch {
     return null;
   }
-}
-
-/**
- * ✅ Tomorrow 09:00 local, returned as ISO (UTC in string)
- */
-function tomorrowNineAmIso() {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(9, 0, 0, 0);
-  return d.toISOString();
 }
 
 export default function ScheduledPage() {
@@ -224,12 +214,6 @@ export default function ScheduledPage() {
 
   // ✅ Option A: range selector (future/past/all)
   const [range, setRange] = useState<RangeMode>("future");
-
-  // ✅ Org id for importer
-  const [orgId, setOrgId] = useState<string | null>(null);
-
-  // ✅ Toast
-  const [toast, setToast] = useState<string | null>(null);
 
   // Edit modal state
   const [editOpen, setEditOpen] = useState(false);
@@ -249,15 +233,21 @@ export default function ScheduledPage() {
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerResults, setPickerResults] = useState<CommonsImage[]>([]);
 
+  // ✅ Org (needed for scheduling imports)
+  const [orgId, setOrgId] = useState<string | null>(null);
+
+  // ✅ Toast + import status
+  const [toast, setToast] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importNote, setImportNote] = useState<string | null>(null);
+
   async function load() {
     setLoading(true);
     setError(null);
 
     try {
       const res = await fetch(
-        `/api/social/scheduled?range=${encodeURIComponent(range)}&includeQuickBlast=${
-          includeQuickBlast ? "1" : "0"
-        }`,
+        `/api/social/scheduled?range=${encodeURIComponent(range)}&includeQuickBlast=${includeQuickBlast ? "1" : "0"}`,
         { cache: "no-store" }
       );
       const json = await res.json().catch(() => null);
@@ -278,7 +268,7 @@ export default function ScheduledPage() {
     }
   }
 
-  // Load orgId (needed for importer)
+  // Load org id once
   useEffect(() => {
     (async () => {
       try {
@@ -292,111 +282,10 @@ export default function ScheduledPage() {
     })();
   }, []);
 
-  // ✅ Import Brainstorm → Scheduled (defaults to tomorrow 09:00, +15 mins each)
-  useEffect(() => {
-    (async () => {
-      try {
-        if (!orgId) return;
-
-        const found = getLocalStorageFirst(PREFILL_SCHEDULED_KEYS);
-        if (!found?.raw) return;
-
-        const parsed = safeParse(found.raw) as PrefillScheduledPayload | null;
-        if (!parsed) return;
-
-        const platform = String(parsed.platform || "linkedin").toLowerCase().trim() || "linkedin";
-        const items = Array.isArray(parsed.items) ? parsed.items : [];
-
-        if (!items.length) {
-          removeLocalStorageMulti(PREFILL_SCHEDULED_KEYS);
-          return;
-        }
-
-        setToast(`Importing ${items.length} item(s) → scheduling for tomorrow morning…`);
-
-        const baseIso = tomorrowNineAmIso();
-        const base = new Date(baseIso);
-        const stepMinutes = 15;
-
-        let okCount = 0;
-        const failures: string[] = [];
-
-        for (let i = 0; i < items.length; i++) {
-          const it = items[i];
-          const text = String(it?.text || "").trim();
-          if (!text) {
-            failures.push(`Item ${i + 1}: empty text`);
-            continue;
-          }
-
-          const when = new Date(base.getTime() + i * stepMinutes * 60 * 1000).toISOString();
-
-          const res = await fetch("/api/social/schedule", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            cache: "no-store",
-            body: JSON.stringify({
-              message: text,
-              platforms: [platform],
-              scheduledAt: when,
-              organisationId: orgId,
-              imageUrl: String(it?.imageUrl || "").trim() || null,
-              meta: {
-                source: "brainstorm",
-                batch: true,
-                part: i + 1,
-                total: items.length,
-                scheduledPreset: "tomorrow_09_00",
-                note: parsed?.note || null,
-              },
-            }),
-          });
-
-          const data: any = await res.json().catch(() => null);
-          if (!res.ok || !data?.success) {
-            failures.push(`Item ${i + 1}: ${data?.error || data?.message || `schedule failed (${res.status})`}`);
-          } else {
-            okCount++;
-          }
-        }
-
-        removeLocalStorageMulti(PREFILL_SCHEDULED_KEYS);
-
-        setRange("future");
-        setIncludeQuickBlast(false);
-
-        await load();
-
-        if (okCount && failures.length === 0) {
-          setToast(`✅ Imported + scheduled ${okCount}/${items.length} for tomorrow from 09:00`);
-        } else if (okCount) {
-          setToast(`⚠️ Scheduled ${okCount}/${items.length}. Some failed (open console / try again).`);
-          console.warn("Scheduled import failures:", failures);
-        } else {
-          setToast("❌ Import failed — none scheduled.");
-          console.warn("Scheduled import failures:", failures);
-        }
-
-        setTimeout(() => setToast(null), 3500);
-      } catch (e) {
-        console.warn("Scheduled importer error", e);
-        setToast("❌ Import failed");
-        setTimeout(() => setToast(null), 2500);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId]);
-
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeQuickBlast, range]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3000);
-    return () => clearTimeout(t);
-  }, [toast]);
 
   const emptyState = !loading && !error && items.length === 0;
 
@@ -405,6 +294,109 @@ export default function ScheduledPage() {
     if (range === "past") return includeQuickBlast ? "Past (inc. Quick Blast)" : "Past";
     return includeQuickBlast ? "Scheduled Pipeline (including Quick Blast history)" : "Scheduled Pipeline";
   }, [includeQuickBlast, range]);
+
+  // ✅ Import Brainstorm → Scheduled (batch)
+  useEffect(() => {
+    // only run when orgId is known, and only once per visit
+    if (!orgId) return;
+    if (importing) return;
+
+    const raw = getLocalStorageFirst(PREFILL_SCHEDULED_KEYS);
+    const prefill = safeParsePrefill(raw);
+    if (!prefill) return;
+
+    const prefillItems = Array.isArray(prefill.items) ? prefill.items : [];
+    if (!prefillItems.length) {
+      removeLocalStorageMulti(PREFILL_SCHEDULED_KEYS);
+      return;
+    }
+
+    setImportNote(prefill.note ? String(prefill.note) : null);
+
+    (async () => {
+      setImporting(true);
+      setToast(`Importing ${prefillItems.length} item(s) into Scheduled…`);
+      try {
+        // queue them 1 min apart starting now+1min
+        const base = Date.now() + 60 * 1000;
+
+        let okCount = 0;
+        let failCount = 0;
+        const failures: string[] = [];
+
+        const platform = String(prefill.platform || "linkedin").toLowerCase().trim() || "linkedin";
+        const platforms = [platform];
+
+        for (let i = 0; i < prefillItems.length; i++) {
+          const it = prefillItems[i];
+          const message = String(it?.text || "").trim();
+          const imageUrl = String(it?.imageUrl || "").trim() || null;
+          const whenIso = new Date(base + i * 60 * 1000).toISOString();
+
+          if (!message) {
+            failCount++;
+            failures.push(`Item ${i + 1}: empty text`);
+            continue;
+          }
+
+          const res = await fetch("/api/social/schedule", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+            body: JSON.stringify({
+              organisationId: orgId,
+              message,
+              platforms,
+              scheduledAt: whenIso,
+              imageUrl,
+              createdBy: { user_id: "owner", name: "Clinic Owner", email: "owner@clinic.local" },
+              meta: {
+                source: "brainstorm",
+                title: String(it?.title || `Draft ${i + 1}`),
+                attribution: it?.attribution || null,
+              },
+            }),
+          });
+
+          const json: any = await res.json().catch(() => null);
+
+          if (!res.ok || !json?.success) {
+            failCount++;
+            failures.push(`Item ${i + 1}: ${json?.error || json?.message || `Failed (${res.status})`}`);
+          } else {
+            okCount++;
+          }
+        }
+
+        // clear prefill no matter what, so it doesn't re-run on refresh
+        removeLocalStorageMulti(PREFILL_SCHEDULED_KEYS);
+
+        if (okCount > 0 && failCount === 0) {
+          setToast(`Imported ${okCount}/${prefillItems.length} ✅`);
+        } else if (okCount > 0) {
+          setToast(`Imported ${okCount}/${prefillItems.length} (some failed)`);
+          if (failures.length) {
+            setError(`Some imports failed:\n${failures.slice(0, 6).join("\n")}`);
+          }
+        } else {
+          setToast("Import failed.");
+          setError(`Import failed:\n${failures.slice(0, 6).join("\n")}`);
+        }
+
+        // show them immediately
+        setRange("future");
+        await load();
+      } catch (e: any) {
+        removeLocalStorageMulti(PREFILL_SCHEDULED_KEYS);
+        setError(e?.message || "Import failed.");
+        setToast("Import failed.");
+      } finally {
+        setImporting(false);
+        setTimeout(() => setToast(null), 2200);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
 
   function openEdit(it: ScheduledRow) {
     setEditing(it);
@@ -550,9 +542,7 @@ export default function ScheduledPage() {
 
     if (isPastIso(iso)) {
       setEditSaving(false);
-      setEditError(
-        "That time is in the past. Scheduled posts won’t fire retroactively. Choose a future time, or click “Re-queue +1 min”."
-      );
+      setEditError("That time is in the past. Scheduled posts won’t fire retroactively. Choose a future time, or click “Re-queue +1 min”.");
       return;
     }
 
@@ -570,9 +560,7 @@ export default function ScheduledPage() {
 
     if (violatesLinkedInLimit(editMessage, editPlatforms)) {
       setEditSaving(false);
-      setEditError(
-        `LinkedIn post is too long (${getLinkedInCountText(editMessage)}). Shorten it or remove LinkedIn from platforms.`
-      );
+      setEditError(`LinkedIn post is too long (${getLinkedInCountText(editMessage)}). Shorten it or remove LinkedIn from platforms.`);
       return;
     }
 
@@ -657,7 +645,6 @@ export default function ScheduledPage() {
                 Refresh
               </button>
 
-              {/* ✅ Option A: range picker */}
               <label className="flex items-center gap-2 text-sm text-slate-300">
                 <span className="text-xs text-slate-400">View</span>
                 <select
@@ -684,8 +671,9 @@ export default function ScheduledPage() {
           </div>
 
           {toast ? (
-            <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
               {toast}
+              {importNote ? <div className="mt-1 text-[12px] text-slate-400">{importNote}</div> : null}
             </div>
           ) : null}
 
@@ -696,7 +684,7 @@ export default function ScheduledPage() {
           )}
 
           {error && (
-            <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-red-100">
+            <div className="mt-6 whitespace-pre-wrap rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-red-100">
               {error}
             </div>
           )}
@@ -962,9 +950,7 @@ export default function ScheduledPage() {
                         key={p}
                         type="button"
                         onClick={() =>
-                          setEditPlatforms((prev) =>
-                            prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
-                          )
+                          setEditPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
                         }
                         className={[
                           "flex items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm transition",
@@ -1021,9 +1007,7 @@ export default function ScheduledPage() {
                   <div className="p-5 border-b border-slate-700 flex items-start justify-between gap-3 sticky top-0 bg-slate-950 z-10">
                     <div>
                       <div className="text-lg font-semibold">Pick an image</div>
-                      <div className="text-[12px] text-slate-400">
-                        Uses Wikimedia Commons. Select one → it fills the Media URL.
-                      </div>
+                      <div className="text-[12px] text-slate-400">Uses Wikimedia Commons. Select one → it fills the Media URL.</div>
                     </div>
                     <button
                       type="button"
@@ -1081,15 +1065,11 @@ export default function ScheduledPage() {
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img src={u} alt={img.title} className="w-full h-full object-cover" />
                                 ) : (
-                                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                                    No preview
-                                  </div>
+                                  <div className="h-full flex items-center justify-center text-xs text-slate-400">No preview</div>
                                 )}
                               </div>
                               <div className="p-3 space-y-1">
-                                <div className="text-xs font-semibold line-clamp-2">
-                                  {img.title.replace(/^File:/, "")}
-                                </div>
+                                <div className="text-xs font-semibold line-clamp-2">{img.title.replace(/^File:/, "")}</div>
                                 <div className="text-[11px] text-slate-400">{img.licenseShortName || "License unknown"}</div>
                                 {img.attribution ? (
                                   <div className="text-[11px] text-slate-300 line-clamp-2">{stripHtml(img.attribution)}</div>
@@ -1103,8 +1083,7 @@ export default function ScheduledPage() {
                     )}
 
                     <div className="text-[11px] text-slate-500">
-                      If LinkedIn rejects an image URL, it usually needs a proper “upload asset” flow.
-                      For now this picker is great for FB/IG/Threads.
+                      If LinkedIn rejects an image URL, it usually needs a proper “upload asset” flow. For now this picker is great for FB/IG/Threads.
                     </div>
                   </div>
                 </div>
