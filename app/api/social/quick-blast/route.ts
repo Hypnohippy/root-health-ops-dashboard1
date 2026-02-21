@@ -35,6 +35,14 @@ function originFromReq(req: NextRequest) {
   return new URL(req.url).origin;
 }
 
+// Match the “uuid-like” check used in your log-event route (safe, permissive)
+function safeUuidLike(s: any) {
+  const v = String(s || "").trim();
+  if (!v) return null;
+  if (!/^[0-9a-fA-F-]{16,}$/.test(v)) return null;
+  return v;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -52,6 +60,9 @@ export async function POST(req: NextRequest) {
 
     const videoUrl =
       typeof body?.videoUrl === "string" && body.videoUrl.trim() ? body.videoUrl.trim() : "";
+
+    // ✅ Optional Growth Lab tracking (client should send this)
+    const experimentId = safeUuidLike(body?.experimentId || body?.experiment_id);
 
     if (!message.trim()) {
       return NextResponse.json({ success: false, error: "Message is required." }, { status: 200 });
@@ -96,6 +107,9 @@ export async function POST(req: NextRequest) {
         source: "quick_blast",
         created_at: nowIso,
         ...(videoUrl ? { video_url: videoUrl } : {}),
+
+        // ✅ Carry experiment ID through the pipeline (safe + optional)
+        ...(experimentId ? { experiment_id: experimentId } : {}),
       },
     };
 
@@ -111,6 +125,39 @@ export async function POST(req: NextRequest) {
         { success: false, error: "Could not queue post for dispatch.", details: (insErr as any)?.message || insErr || null },
         { status: 200 }
       );
+    }
+
+    // ✅ Log Growth Lab event: "queued from quick blast" (optional)
+    // This creates the audit trail for the experiment → post attempts.
+    if (experimentId) {
+      try {
+        const contentPreview = String(message || "").slice(0, 400);
+
+        const rows = platforms.map((p) => ({
+          organisation_id: organisationId,
+          experiment_id: experimentId,
+          platform: p,
+          action: "queued",
+          ok: true, // queued successfully
+          external_post_id: String(created.id), // scheduled_posts.id (internal id)
+          content_preview: contentPreview || null,
+          meta: {
+            source: "quick_blast",
+            scheduled_post_id: created.id,
+            has_image: !!imageUrl,
+            has_video: !!videoUrl,
+          },
+        }));
+
+        const { error: logErr } = await supabaseAdmin.from("growth_experiment_events").insert(rows);
+        if (logErr) {
+          console.warn("[quick-blast] growth_experiment_events insert failed", logErr);
+          // do not fail the whole request
+        }
+      } catch (e) {
+        console.warn("[quick-blast] growth log-event crashed", e);
+        // do not fail the whole request
+      }
     }
 
     // Trigger dispatcher immediately (optional)
@@ -142,6 +189,7 @@ export async function POST(req: NextRequest) {
         queued: true,
         organisationId,
         scheduledPostId: created.id,
+        experimentId: experimentId || null,
         note: CRON_SECRET ? "Queued and triggered dispatcher." : "Queued. CRON_SECRET not set; cron will pick it up.",
         dispatch: dispatchJson,
         userMessage: "Sent.",
