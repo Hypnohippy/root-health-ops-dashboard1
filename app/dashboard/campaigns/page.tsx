@@ -53,6 +53,28 @@ type OutcomeItem = {
   created_at: string;
 };
 
+type CoachFeedbackResponse = {
+  success: boolean;
+  experimentId?: string;
+  headline?: string;
+  keep?: string[];
+  change?: string[];
+  next?: string[];
+  snapshot?: {
+    postsAttempted?: number;
+    postsOk?: number;
+    postsFailed?: number;
+    platformsOk?: string[];
+    platformsFailed?: string[];
+    outcomes?: Array<{
+      metric_name: string;
+      metric_value: number | null;
+      note: string | null;
+    }>;
+  };
+  error?: string;
+};
+
 function nice(s?: string | null) {
   return String(s || "").trim() || "—";
 }
@@ -77,21 +99,13 @@ function clampStatus(s?: string | null): ExperimentStatus {
 /**
  * ✅ Brainstorm listens for these keys (Growth Seed)
  */
-const GROWTH_SEED_KEYS = [
-  "rootops_growth_seed_brainstorm_v1",
-  "rh_growth_seed_brainstorm_v1",
-];
+const GROWTH_SEED_KEYS = ["rootops_growth_seed_brainstorm_v1", "rh_growth_seed_brainstorm_v1"];
 
 /**
  * ✅ Active experiment keys:
  * Other pages can read this later to tag posts / events.
  */
-const ACTIVE_EXPERIMENT_KEYS = [
-  "rootops_active_experiment_v1",
-  "rh_active_experiment_v1",
-  "activeExperiment",
-  "growthLabActiveExperiment",
-];
+const ACTIVE_EXPERIMENT_KEYS = ["rootops_active_experiment_v1", "rh_active_experiment_v1", "activeExperiment", "growthLabActiveExperiment"];
 
 function setLocalStorageMulti(keys: string[], payload: any) {
   try {
@@ -129,9 +143,7 @@ function fmtMetricName(n: string) {
 export default function CampaignsPage() {
   // Suggestion
   const [loadingSuggestion, setLoadingSuggestion] = useState(true);
-  const [suggestion, setSuggestion] = useState<Suggestion["suggestion"] | null>(
-    null
-  );
+  const [suggestion, setSuggestion] = useState<Suggestion["suggestion"] | null>(null);
 
   // Experiments
   const [loadingExperiments, setLoadingExperiments] = useState(true);
@@ -139,9 +151,7 @@ export default function CampaignsPage() {
 
   // Outcomes
   const [loadingOutcomes, setLoadingOutcomes] = useState(false);
-  const [outcomesByExperiment, setOutcomesByExperiment] = useState<
-    Record<string, OutcomeItem[]>
-  >({});
+  const [outcomesByExperiment, setOutcomesByExperiment] = useState<Record<string, OutcomeItem[]>>({});
 
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -160,14 +170,17 @@ export default function CampaignsPage() {
   // Outcome modal
   const [outcomeOpen, setOutcomeOpen] = useState(false);
   const [outcomeSaving, setOutcomeSaving] = useState(false);
-  const [outcomeExperiment, setOutcomeExperiment] = useState<Experiment | null>(
-    null
-  );
-  const [metricName, setMetricName] = useState<
-    "leads" | "bookings" | "dms" | "clicks" | "saves" | "comments" | "likes" | "note"
-  >("leads");
+  const [outcomeExperiment, setOutcomeExperiment] = useState<Experiment | null>(null);
+  const [metricName, setMetricName] = useState<"leads" | "bookings" | "dms" | "clicks" | "saves" | "comments" | "likes" | "note">("leads");
   const [metricValue, setMetricValue] = useState<string>("1");
   const [personalNote, setPersonalNote] = useState<string>("");
+
+  // ✅ Coach feedback modal (Running only)
+  const [coachOpen, setCoachOpen] = useState(false);
+  const [coachLoading, setCoachLoading] = useState(false);
+  const [coachError, setCoachError] = useState<string | null>(null);
+  const [coachExperiment, setCoachExperiment] = useState<Experiment | null>(null);
+  const [coachData, setCoachData] = useState<CoachFeedbackResponse | null>(null);
 
   // -------- load suggestion ----------
   async function loadSuggestion() {
@@ -266,10 +279,10 @@ export default function CampaignsPage() {
   }, [toast]);
 
   const counts = useMemo(() => {
-    const planned = experiments.filter((e) => clampStatus(e.status) === "planned").length;
-    const running = experiments.filter((e) => clampStatus(e.status) === "running").length;
-    const completed = experiments.filter((e) => clampStatus(e.status) === "completed").length;
-    return { planned, running, completed };
+    const plannedCount = experiments.filter((e) => clampStatus(e.status) === "planned").length;
+    const runningCount = experiments.filter((e) => clampStatus(e.status) === "running").length;
+    const completedCount = experiments.filter((e) => clampStatus(e.status) === "completed").length;
+    return { planned: plannedCount, running: runningCount, completed: completedCount };
   }, [experiments]);
 
   const planned = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "planned"), [experiments]);
@@ -365,13 +378,7 @@ export default function CampaignsPage() {
         return false;
       }
 
-      setToast(
-        status === "running"
-          ? "🏃 Now Running"
-          : status === "completed"
-          ? "🏁 Completed"
-          : "📝 Back to Planned"
-      );
+      setToast(status === "running" ? "🏃 Now Running" : status === "completed" ? "🏁 Completed" : "📝 Back to Planned");
       await loadExperiments();
       return true;
     } catch {
@@ -497,8 +504,7 @@ export default function CampaignsPage() {
 
     try {
       const name = metricName === "note" ? "note" : metricName;
-      const val =
-        metricName === "note" ? null : metricValue === "" ? null : Number(metricValue);
+      const val = metricName === "note" ? null : metricValue === "" ? null : Number(metricValue);
 
       const res = await fetch("/api/growth/experiments/outcomes/add", {
         method: "POST",
@@ -549,10 +555,7 @@ export default function CampaignsPage() {
       <div className="mt-2 flex flex-wrap gap-2">
         {top.map((o) => {
           const label = fmtMetricName(o.metric_name);
-          const val =
-            o.metric_value === null || o.metric_value === undefined
-              ? ""
-              : `: ${o.metric_value}`;
+          const val = o.metric_value === null || o.metric_value === undefined ? "" : `: ${o.metric_value}`;
           const note = o?.meta?.note ? ` — ${String(o.meta.note).slice(0, 60)}` : "";
           return (
             <div
@@ -567,11 +570,64 @@ export default function CampaignsPage() {
           );
         })}
         {items.length > 3 ? (
-          <div className="text-[11px] text-slate-400 self-center">
-            +{items.length - 3} more
-          </div>
+          <div className="text-[11px] text-slate-400 self-center">+{items.length - 3} more</div>
         ) : null}
       </div>
+    );
+  }
+
+  // ✅ Coach modal helpers
+  function openCoachModal(exp: Experiment) {
+    setCoachExperiment(exp);
+    setCoachOpen(true);
+    setCoachLoading(true);
+    setCoachError(null);
+    setCoachData(null);
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/growth/experiments/coach-feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ experimentId: exp.id }),
+        });
+        const json: CoachFeedbackResponse = await res.json().catch(() => null as any);
+
+        if (!res.ok || !json?.success) {
+          setCoachError(json?.error || `Coach feedback failed (${res.status}).`);
+          setCoachLoading(false);
+          return;
+        }
+
+        setCoachData(json);
+        setCoachLoading(false);
+      } catch (e: any) {
+        setCoachError(e?.message || "Coach feedback failed.");
+        setCoachLoading(false);
+      }
+    })();
+  }
+
+  function closeCoachModal() {
+    setCoachOpen(false);
+    setCoachLoading(false);
+    setCoachError(null);
+    setCoachData(null);
+    setCoachExperiment(null);
+  }
+
+  function renderBullets(items?: string[]) {
+    const list = Array.isArray(items) ? items.filter(Boolean) : [];
+    if (list.length === 0) return <div className="text-sm text-slate-400">—</div>;
+    return (
+      <ul className="mt-2 space-y-2">
+        {list.map((t, idx) => (
+          <li key={`${idx}-${t}`} className="text-sm text-slate-200">
+            • {t}
+          </li>
+        ))}
+      </ul>
     );
   }
 
@@ -586,8 +642,7 @@ export default function CampaignsPage() {
           </h1>
 
           <p className="mt-3 text-sm text-slate-300 max-w-3xl">
-            Start small experiments → develop the post in Brainstorm → post via Quick Blast → learn what works.
-            No guilt. No chaos. Just momentum.
+            Start small experiments → develop the post in Brainstorm → post via Quick Blast → learn what works. No guilt. No chaos. Just momentum.
           </p>
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -714,9 +769,7 @@ export default function CampaignsPage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-semibold">🧷 Experiments</div>
-              <div className="text-xs text-slate-400 mt-1">
-                Planned → develop in Brainstorm → move to Running → complete when you’ve tried 2–3 posts.
-              </div>
+              <div className="text-xs text-slate-400 mt-1">Planned → develop in Brainstorm → move to Running → complete when you’ve tried 2–3 posts.</div>
             </div>
           </div>
 
@@ -747,9 +800,7 @@ export default function CampaignsPage() {
                           {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
                         </div>
 
-                        {e.hypothesis ? (
-                          <div className="text-[12px] text-slate-300 whitespace-pre-wrap">{e.hypothesis}</div>
-                        ) : null}
+                        {e.hypothesis ? <div className="text-[12px] text-slate-300 whitespace-pre-wrap">{e.hypothesis}</div> : null}
 
                         {renderOutcomeSummary(e.id)}
 
@@ -849,6 +900,16 @@ export default function CampaignsPage() {
                             ➕ Add result/note
                           </button>
 
+                          {/* ✅ NEW: Coach feedback (Running only) */}
+                          <button
+                            type="button"
+                            onClick={() => openCoachModal(e)}
+                            className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-100 hover:bg-amber-500/15"
+                            title="A gentle reflective summary: keep / change / next"
+                          >
+                            🧠 Coach feedback
+                          </button>
+
                           <button
                             type="button"
                             onClick={() => setStatus(e.id, "completed")}
@@ -941,10 +1002,7 @@ export default function CampaignsPage() {
                   </div>
                 </div>
 
-                <button
-                  className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
-                  onClick={closeCreate}
-                >
+                <button className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600" onClick={closeCreate}>
                   Close
                 </button>
               </div>
@@ -1059,12 +1117,8 @@ export default function CampaignsPage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-xs text-slate-400">Experiment feedback</div>
-                  <div className="mt-1 text-lg font-semibold text-slate-100">
-                    Add result / note
-                  </div>
-                  <div className="mt-1 text-[12px] text-slate-400">
-                    {outcomeExperiment.title || "Untitled experiment"}
-                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-100">Add result / note</div>
+                  <div className="mt-1 text-[12px] text-slate-400">{outcomeExperiment.title || "Untitled experiment"}</div>
                 </div>
 
                 <button
@@ -1106,9 +1160,7 @@ export default function CampaignsPage() {
                       placeholder="e.g. 2"
                       inputMode="numeric"
                     />
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      If you choose “Just a note”, value is ignored.
-                    </div>
+                    <div className="mt-1 text-[11px] text-slate-500">If you choose “Just a note”, value is ignored.</div>
                   </div>
                 </div>
 
@@ -1148,6 +1200,170 @@ export default function CampaignsPage() {
                     {error}
                   </div>
                 ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* ✅ Coach feedback modal */}
+        {coachOpen && coachExperiment ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div className="absolute inset-0 bg-black/70" onClick={closeCoachModal} />
+
+            <div className="relative w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-xs text-slate-400">Experiment coach</div>
+                  <div className="mt-1 text-lg font-semibold text-slate-100">🧠 Coach feedback</div>
+                  <div className="mt-1 text-[12px] text-slate-400">
+                    {coachExperiment.title || "Untitled experiment"} • {platformLabel(coachExperiment.platform)} • {nice(coachExperiment.pattern_type)} • {nice(coachExperiment.format)}
+                  </div>
+                </div>
+
+                <button
+                  className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+                  onClick={closeCoachModal}
+                  disabled={coachLoading}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-4">
+                {coachLoading ? (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+                    Thinking… pulling your events + results…
+                  </div>
+                ) : coachError ? (
+                  <div className="rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-red-100">
+                    {coachError}
+                    <div className="mt-2 text-[12px] text-red-200/80">
+                      Tip: make sure this API exists: <span className="font-semibold">/api/growth/experiments/coach-feedback</span>
+                    </div>
+                  </div>
+                ) : coachData ? (
+                  <div className="space-y-4">
+                    {coachData.headline ? (
+                      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+                        {coachData.headline}
+                      </div>
+                    ) : null}
+
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                        <div className="text-sm font-semibold text-slate-100">Keep</div>
+                        {renderBullets(coachData.keep)}
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                        <div className="text-sm font-semibold text-slate-100">Change</div>
+                        {renderBullets(coachData.change)}
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                        <div className="text-sm font-semibold text-slate-100">Next</div>
+                        {renderBullets(coachData.next)}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                      <div className="text-sm font-semibold text-slate-100">Snapshot</div>
+
+                      <div className="mt-2 grid gap-2 md:grid-cols-3 text-[12px] text-slate-300">
+                        <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                          <div className="text-slate-400">Attempts</div>
+                          <div className="mt-1 text-slate-100 font-semibold">
+                            {coachData.snapshot?.postsAttempted ?? "—"}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                          <div className="text-slate-400">OK</div>
+                          <div className="mt-1 text-emerald-200 font-semibold">
+                            {coachData.snapshot?.postsOk ?? "—"}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                          <div className="text-slate-400">Failed</div>
+                          <div className="mt-1 text-red-200 font-semibold">
+                            {coachData.snapshot?.postsFailed ?? "—"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {Array.isArray(coachData.snapshot?.outcomes) && coachData.snapshot!.outcomes!.length > 0 ? (
+                        <div className="mt-3">
+                          <div className="text-[12px] text-slate-400">Recent outcomes</div>
+                          <div className="mt-2 space-y-2">
+                            {coachData.snapshot!.outcomes!.slice(0, 6).map((o, idx) => (
+                              <div key={`${idx}-${o.metric_name}`} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="text-[12px] font-semibold text-slate-100">
+                                    {fmtMetricName(o.metric_name)}
+                                    {o.metric_value === null || o.metric_value === undefined ? "" : `: ${o.metric_value}`}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">logged</div>
+                                </div>
+                                {o.note ? (
+                                  <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">{o.note}</div>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-3 text-[12px] text-slate-400">
+                          No outcomes logged yet. Use “➕ Add result/note” after the next post.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeCoachModal();
+                          openOutcomeModal(coachExperiment);
+                        }}
+                        className="rounded-2xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                      >
+                        ➕ Add a result/note now
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeCoachModal();
+                          const activePayload = {
+                            v: 1,
+                            activatedAt: new Date().toISOString(),
+                            source: "growth_lab",
+                            organisationId: coachExperiment.organisation_id || null,
+                            experimentId: coachExperiment.id,
+                            title: coachExperiment.title || "Growth Experiment",
+                            platform: String(coachExperiment.platform || "facebook").toLowerCase(),
+                            pattern_type: coachExperiment.pattern_type || null,
+                            format: coachExperiment.format || null,
+                            hook_style: coachExperiment.hook_style || null,
+                            cta_style: coachExperiment.cta_style || null,
+                            hypothesis: coachExperiment.hypothesis || null,
+                            notes: coachExperiment.notes || null,
+                          };
+                          setLocalStorageMulti(ACTIVE_EXPERIMENT_KEYS, activePayload);
+                          sendExperimentToBrainstorm(coachExperiment);
+                        }}
+                        className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs text-slate-200 hover:border-slate-600"
+                      >
+                        Make next post (Brainstorm)
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+                    No coach feedback returned.
+                  </div>
+                )}
               </div>
             </div>
           </div>
