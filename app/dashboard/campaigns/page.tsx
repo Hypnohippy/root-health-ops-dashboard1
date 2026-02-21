@@ -44,6 +44,15 @@ type Suggestion = {
   error?: string;
 };
 
+type OutcomeItem = {
+  id: string;
+  experiment_id: string;
+  metric_name: string;
+  metric_value: number | null;
+  meta: any;
+  created_at: string;
+};
+
 function nice(s?: string | null) {
   return String(s || "").trim() || "—";
 }
@@ -66,8 +75,7 @@ function clampStatus(s?: string | null): ExperimentStatus {
 }
 
 /**
- * ✅ Brainstorm listens for these keys (Growth Seed),
- * so we must write to them.
+ * ✅ Brainstorm listens for these keys (Growth Seed)
  */
 const GROWTH_SEED_KEYS = [
   "rootops_growth_seed_brainstorm_v1",
@@ -76,8 +84,7 @@ const GROWTH_SEED_KEYS = [
 
 /**
  * ✅ Active experiment keys:
- * Other pages (Quick Blast / Stories / Scheduled) can read this later.
- * We write multiple keys so we don’t get stuck if your app already uses one.
+ * Other pages can read this later to tag posts / events.
  */
 const ACTIVE_EXPERIMENT_KEYS = [
   "rootops_active_experiment_v1",
@@ -105,6 +112,20 @@ function clearLocalStorageMulti(keys: string[]) {
   }
 }
 
+function fmtMetricName(n: string) {
+  const k = String(n || "").toLowerCase();
+  if (k === "leads") return "Leads";
+  if (k === "bookings") return "Bookings";
+  if (k === "dms") return "DMs";
+  if (k === "clicks") return "Clicks";
+  if (k === "saves") return "Saves";
+  if (k === "comments") return "Comments";
+  if (k === "likes") return "Likes";
+  if (k === "notes") return "Note";
+  if (k === "note") return "Note";
+  return n || "Metric";
+}
+
 export default function CampaignsPage() {
   // Suggestion
   const [loadingSuggestion, setLoadingSuggestion] = useState(true);
@@ -116,10 +137,16 @@ export default function CampaignsPage() {
   const [loadingExperiments, setLoadingExperiments] = useState(true);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
 
+  // Outcomes
+  const [loadingOutcomes, setLoadingOutcomes] = useState(false);
+  const [outcomesByExperiment, setOutcomesByExperiment] = useState<
+    Record<string, OutcomeItem[]>
+  >({});
+
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Modal state
+  // Create modal
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -130,6 +157,18 @@ export default function CampaignsPage() {
   const [hypothesis, setHypothesis] = useState("");
   const [notes, setNotes] = useState("");
 
+  // Outcome modal
+  const [outcomeOpen, setOutcomeOpen] = useState(false);
+  const [outcomeSaving, setOutcomeSaving] = useState(false);
+  const [outcomeExperiment, setOutcomeExperiment] = useState<Experiment | null>(
+    null
+  );
+  const [metricName, setMetricName] = useState<
+    "leads" | "bookings" | "dms" | "clicks" | "saves" | "comments" | "likes" | "note"
+  >("leads");
+  const [metricValue, setMetricValue] = useState<string>("1");
+  const [personalNote, setPersonalNote] = useState<string>("");
+
   // -------- load suggestion ----------
   async function loadSuggestion() {
     setLoadingSuggestion(true);
@@ -137,9 +176,7 @@ export default function CampaignsPage() {
     setSuggestion(null);
 
     try {
-      const res = await fetch("/api/growth/patterns/suggest", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/growth/patterns/suggest", { cache: "no-store" });
       const json: Suggestion = await res.json().catch(() => null as any);
 
       if (!res.ok || !json?.success || !json?.suggestion) {
@@ -156,13 +193,47 @@ export default function CampaignsPage() {
     }
   }
 
+  async function loadOutcomesForExperimentIds(experimentIds: string[]) {
+    if (!experimentIds.length) {
+      setOutcomesByExperiment({});
+      return;
+    }
+
+    setLoadingOutcomes(true);
+    try {
+      const res = await fetch("/api/growth/experiments/outcomes/list", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ experimentIds }),
+      });
+
+      const json: any = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        setLoadingOutcomes(false);
+        return;
+      }
+
+      const items: OutcomeItem[] = Array.isArray(json.items) ? json.items : [];
+      const map: Record<string, OutcomeItem[]> = {};
+      for (const it of items) {
+        const key = String(it.experiment_id);
+        if (!map[key]) map[key] = [];
+        map[key].push(it);
+      }
+      setOutcomesByExperiment(map);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingOutcomes(false);
+    }
+  }
+
   // -------- load experiments ----------
   async function loadExperiments() {
     setLoadingExperiments(true);
     try {
-      const res = await fetch("/api/growth/experiments/list", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/growth/experiments/list", { cache: "no-store" });
       const json: any = await res.json().catch(() => null);
 
       if (!res.ok || !json?.success) {
@@ -170,7 +241,12 @@ export default function CampaignsPage() {
         return;
       }
 
-      setExperiments(Array.isArray(json.items) ? json.items : []);
+      const items = Array.isArray(json.items) ? json.items : [];
+      setExperiments(items);
+
+      // Load outcomes for everything shown
+      const ids = items.map((e: Experiment) => e.id).filter(Boolean);
+      await loadOutcomesForExperimentIds(ids);
     } catch {
       setExperiments([]);
     } finally {
@@ -190,27 +266,15 @@ export default function CampaignsPage() {
   }, [toast]);
 
   const counts = useMemo(() => {
-    const planned = experiments.filter((e) => clampStatus(e.status) === "planned")
-      .length;
-    const running = experiments.filter((e) => clampStatus(e.status) === "running")
-      .length;
-    const completed = experiments.filter((e) => clampStatus(e.status) === "completed")
-      .length;
+    const planned = experiments.filter((e) => clampStatus(e.status) === "planned").length;
+    const running = experiments.filter((e) => clampStatus(e.status) === "running").length;
+    const completed = experiments.filter((e) => clampStatus(e.status) === "completed").length;
     return { planned, running, completed };
   }, [experiments]);
 
-  const planned = useMemo(
-    () => experiments.filter((e) => clampStatus(e.status) === "planned"),
-    [experiments]
-  );
-  const running = useMemo(
-    () => experiments.filter((e) => clampStatus(e.status) === "running"),
-    [experiments]
-  );
-  const completed = useMemo(
-    () => experiments.filter((e) => clampStatus(e.status) === "completed"),
-    [experiments]
-  );
+  const planned = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "planned"), [experiments]);
+  const running = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "running"), [experiments]);
+  const completed = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "completed"), [experiments]);
 
   function openCreateFromSuggestion() {
     setError(null);
@@ -287,7 +351,8 @@ export default function CampaignsPage() {
 
   async function setStatus(id: string, status: ExperimentStatus) {
     try {
-      const res = await fetch("/api/growth/experiments/set-status", {
+      // IMPORTANT: your repo uses /status (you showed the file)
+      const res = await fetch("/api/growth/experiments/status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
@@ -315,12 +380,6 @@ export default function CampaignsPage() {
     }
   }
 
-  /**
-   * ✅ “Connected” Start Running:
-   * - sets status to running
-   * - writes an “active experiment” payload to localStorage
-   * This is the bridge that other pages can read to attach metrics/posts to this experiment.
-   */
   async function startRunningConnected(exp: Experiment) {
     setError(null);
 
@@ -344,10 +403,7 @@ export default function CampaignsPage() {
     };
 
     setLocalStorageMulti(ACTIVE_EXPERIMENT_KEYS, activePayload);
-    setToast("✅ Tracking ON: this experiment is now the active one");
-
-    // Optional nice nudge: if they want to immediately make the next post
-    // window.location.href = "/dashboard/quick-blast";
+    setToast("✅ Tracking ON: this experiment is now active");
   }
 
   async function stopTrackingActiveExperiment() {
@@ -356,9 +412,7 @@ export default function CampaignsPage() {
   }
 
   async function deleteExperiment(id: string) {
-    const ok = window.confirm(
-      "Delete this experiment? (This is a safe archive delete.)"
-    );
+    const ok = window.confirm("Delete this experiment? (This is a safe archive delete.)");
     if (!ok) return;
 
     try {
@@ -420,6 +474,107 @@ export default function CampaignsPage() {
     window.location.href = "/dashboard/brainstorm";
   }
 
+  function openOutcomeModal(exp: Experiment) {
+    setError(null);
+    setOutcomeExperiment(exp);
+    setMetricName("leads");
+    setMetricValue("1");
+    setPersonalNote("");
+    setOutcomeOpen(true);
+  }
+
+  function closeOutcomeModal() {
+    setOutcomeOpen(false);
+    setOutcomeSaving(false);
+    setOutcomeExperiment(null);
+  }
+
+  async function addOutcome() {
+    if (!outcomeExperiment) return;
+
+    setOutcomeSaving(true);
+    setError(null);
+
+    try {
+      const name = metricName === "note" ? "note" : metricName;
+      const val =
+        metricName === "note" ? null : metricValue === "" ? null : Number(metricValue);
+
+      const res = await fetch("/api/growth/experiments/outcomes/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          experimentId: outcomeExperiment.id,
+          metric_name: name,
+          metric_value: Number.isFinite(val as any) ? val : null,
+          meta: personalNote ? { note: personalNote } : {},
+        }),
+      });
+
+      const json: any = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        setError(json?.error || "Add outcome failed.");
+        setOutcomeSaving(false);
+        return;
+      }
+
+      const item: OutcomeItem = json.item;
+
+      setOutcomesByExperiment((prev) => {
+        const next = { ...prev };
+        const key = String(item.experiment_id);
+        next[key] = [item, ...(next[key] || [])];
+        return next;
+      });
+
+      setToast("✅ Saved result/note");
+      setOutcomeSaving(false);
+      setOutcomeOpen(false);
+      setOutcomeExperiment(null);
+    } catch (e: any) {
+      setError(e?.message || "Add outcome failed.");
+      setOutcomeSaving(false);
+    }
+  }
+
+  function renderOutcomeSummary(expId: string) {
+    const items = outcomesByExperiment[expId] || [];
+    if (!items.length) return null;
+
+    // Show up to 3 most recent items as “chips”
+    const top = items.slice(0, 3);
+
+    return (
+      <div className="mt-2 flex flex-wrap gap-2">
+        {top.map((o) => {
+          const label = fmtMetricName(o.metric_name);
+          const val =
+            o.metric_value === null || o.metric_value === undefined
+              ? ""
+              : `: ${o.metric_value}`;
+          const note = o?.meta?.note ? ` — ${String(o.meta.note).slice(0, 60)}` : "";
+          return (
+            <div
+              key={o.id}
+              className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-[11px] text-slate-200"
+              title={o?.meta?.note ? String(o.meta.note) : ""}
+            >
+              {label}
+              {val}
+              {note}
+            </div>
+          );
+        })}
+        {items.length > 3 ? (
+          <div className="text-[11px] text-slate-400 self-center">
+            +{items.length - 3} more
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl space-y-6">
@@ -427,13 +582,12 @@ export default function CampaignsPage() {
         <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
           <div className="text-xs text-slate-400">Root Health Ops</div>
           <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
-            🧪 Growth Lab{" "}
-            <span className="text-slate-400">— your gentle growth buddy</span>
+            🧪 Growth Lab <span className="text-slate-400">— your gentle growth buddy</span>
           </h1>
 
           <p className="mt-3 text-sm text-slate-300 max-w-3xl">
-            Start small experiments → develop the post in Brainstorm → post via
-            Quick Blast → learn what works. No guilt. No chaos. Just momentum.
+            Start small experiments → develop the post in Brainstorm → post via Quick Blast → learn what works.
+            No guilt. No chaos. Just momentum.
           </p>
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -463,18 +617,10 @@ export default function CampaignsPage() {
             </button>
 
             <div className="text-xs text-slate-400">
-              Planned{" "}
-              <span className="text-slate-200 font-semibold">
-                {counts.planned}
-              </span>{" "}
-              · Running{" "}
-              <span className="text-slate-200 font-semibold">
-                {counts.running}
-              </span>{" "}
-              · Completed{" "}
-              <span className="text-slate-200 font-semibold">
-                {counts.completed}
-              </span>
+              Planned <span className="text-slate-200 font-semibold">{counts.planned}</span> · Running{" "}
+              <span className="text-slate-200 font-semibold">{counts.running}</span> · Completed{" "}
+              <span className="text-slate-200 font-semibold">{counts.completed}</span>
+              {loadingOutcomes ? <span className="ml-2 text-slate-500">(loading results…)</span> : null}
             </div>
           </div>
 
@@ -495,12 +641,8 @@ export default function CampaignsPage() {
         <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold">
-                Today’s gentle suggestion
-              </div>
-              <div className="text-xs text-slate-400 mt-1">
-                You’re always in control. Use it, edit it, or skip it. 🙂
-              </div>
+              <div className="text-sm font-semibold">Today’s gentle suggestion</div>
+              <div className="text-xs text-slate-400 mt-1">You’re always in control. Use it, edit it, or skip it. 🙂</div>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -521,63 +663,46 @@ export default function CampaignsPage() {
           </div>
 
           {loadingSuggestion ? (
-            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-              Loading suggestion…
-            </div>
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">Loading suggestion…</div>
           ) : !suggestion ? (
             <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-              No suggestion yet. Post a few times first (Quick Blast counts),
-              then come back here.
+              No suggestion yet. Post a few times first (Quick Blast counts), then come back here.
             </div>
           ) : (
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
                 <div className="text-xs text-slate-400">Platform</div>
-                <div className="mt-1 text-lg font-semibold">
-                  {platformLabel(suggestion.platform)}
-                </div>
+                <div className="mt-1 text-lg font-semibold">{platformLabel(suggestion.platform)}</div>
 
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div>
                     <div className="text-xs text-slate-400">Pattern</div>
-                    <div className="mt-1 text-sm text-slate-100">
-                      {nice(suggestion.pattern_type)}
-                    </div>
+                    <div className="mt-1 text-sm text-slate-100">{nice(suggestion.pattern_type)}</div>
                   </div>
                   <div>
                     <div className="text-xs text-slate-400">Format</div>
-                    <div className="mt-1 text-sm text-slate-100">
-                      {nice(suggestion.format)}
-                    </div>
+                    <div className="mt-1 text-sm text-slate-100">{nice(suggestion.format)}</div>
                   </div>
                 </div>
 
                 <div className="mt-4">
                   <div className="text-xs text-slate-400">Confidence</div>
                   <div className="mt-1 text-sm text-slate-100">
-                    {Number.isFinite(suggestion.performance_score)
-                      ? `${suggestion.performance_score}/100`
-                      : "—"}
+                    {Number.isFinite(suggestion.performance_score) ? `${suggestion.performance_score}/100` : "—"}
                   </div>
                 </div>
               </div>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
                 <div className="text-xs text-slate-400">Why this helps</div>
-                <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
-                  {nice(suggestion.notes)}
-                </div>
+                <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{nice(suggestion.notes)}</div>
 
                 <div className="mt-4 grid gap-2">
                   <div className="text-xs text-slate-400">Hook style</div>
-                  <div className="text-sm text-slate-200">
-                    {nice(suggestion.hook_style)}
-                  </div>
+                  <div className="text-sm text-slate-200">{nice(suggestion.hook_style)}</div>
 
                   <div className="text-xs text-slate-400 mt-2">CTA style</div>
-                  <div className="text-sm text-slate-200">
-                    {nice(suggestion.cta_style)}
-                  </div>
+                  <div className="text-sm text-slate-200">{nice(suggestion.cta_style)}</div>
                 </div>
               </div>
             </div>
@@ -590,16 +715,13 @@ export default function CampaignsPage() {
             <div>
               <div className="text-sm font-semibold">🧷 Experiments</div>
               <div className="text-xs text-slate-400 mt-1">
-                Planned → develop in Brainstorm → move to Running → complete when
-                you’ve tried 2–3 posts.
+                Planned → develop in Brainstorm → move to Running → complete when you’ve tried 2–3 posts.
               </div>
             </div>
           </div>
 
           {loadingExperiments ? (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-              Loading experiments…
-            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">Loading experiments…</div>
           ) : experiments.length === 0 ? (
             <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
               Nothing here yet. Start your first experiment above ➕
@@ -612,34 +734,24 @@ export default function CampaignsPage() {
                   <div className="text-sm font-semibold">Planned</div>
                   <div className="text-xs text-slate-400">{counts.planned}</div>
                 </div>
-                <div className="mt-2 text-[12px] text-slate-400">
-                  Saved ideas. Start one when ready.
-                </div>
+                <div className="mt-2 text-[12px] text-slate-400">Saved ideas. Start one when ready.</div>
 
                 <div className="mt-3 space-y-3">
                   {planned.length === 0 ? (
-                    <div className="text-sm text-slate-400">
-                      Nothing here yet.
-                    </div>
+                    <div className="text-sm text-slate-400">Nothing here yet.</div>
                   ) : (
                     planned.map((e) => (
-                      <div
-                        key={e.id}
-                        className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2"
-                      >
-                        <div className="text-sm font-semibold text-slate-100">
-                          {e.title || "Untitled experiment"}
-                        </div>
+                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
                         <div className="text-[12px] text-slate-300">
-                          {platformLabel(e.platform)} · {nice(e.pattern_type)} ·{" "}
-                          {nice(e.format)}
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
                         </div>
 
                         {e.hypothesis ? (
-                          <div className="text-[12px] text-slate-300 whitespace-pre-wrap">
-                            {e.hypothesis}
-                          </div>
+                          <div className="text-[12px] text-slate-300 whitespace-pre-wrap">{e.hypothesis}</div>
                         ) : null}
+
+                        {renderOutcomeSummary(e.id)}
 
                         <div className="flex flex-wrap gap-2 pt-1">
                           <button
@@ -650,14 +762,21 @@ export default function CampaignsPage() {
                             Develop in Brainstorm
                           </button>
 
-                          {/* ✅ CONNECTED START RUNNING */}
                           <button
                             type="button"
                             onClick={() => startRunningConnected(e)}
                             className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
-                            title="Sets this experiment to Running and marks it as the active one for tracking."
+                            title="Moves to Running and marks it as the active experiment for tracking."
                           >
                             Start running (track)
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openOutcomeModal(e)}
+                            className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+                          >
+                            ➕ Add result/note
                           </button>
 
                           <button
@@ -680,34 +799,25 @@ export default function CampaignsPage() {
                   <div className="text-sm font-semibold">Running</div>
                   <div className="text-xs text-slate-400">{counts.running}</div>
                 </div>
-                <div className="mt-2 text-[12px] text-slate-400">
-                  Try it for 2–3 posts before judging it.
-                </div>
+                <div className="mt-2 text-[12px] text-slate-400">Try it for 2–3 posts before judging it.</div>
 
                 <div className="mt-3 space-y-3">
                   {running.length === 0 ? (
-                    <div className="text-sm text-slate-400">
-                      Nothing here yet.
-                    </div>
+                    <div className="text-sm text-slate-400">Nothing here yet.</div>
                   ) : (
                     running.map((e) => (
-                      <div
-                        key={e.id}
-                        className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2"
-                      >
-                        <div className="text-sm font-semibold text-slate-100">
-                          {e.title || "Untitled experiment"}
-                        </div>
+                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
                         <div className="text-[12px] text-slate-300">
-                          {platformLabel(e.platform)} · {nice(e.pattern_type)} ·{" "}
-                          {nice(e.format)}
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
                         </div>
+
+                        {renderOutcomeSummary(e.id)}
 
                         <div className="flex flex-wrap gap-2 pt-1">
                           <button
                             type="button"
                             onClick={() => {
-                              // keep tracking set to this exp whenever you interact with it
                               const activePayload = {
                                 v: 1,
                                 activatedAt: new Date().toISOString(),
@@ -729,6 +839,14 @@ export default function CampaignsPage() {
                             className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
                           >
                             Make next post (Brainstorm)
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openOutcomeModal(e)}
+                            className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+                          >
+                            ➕ Add result/note
                           </button>
 
                           <button
@@ -759,30 +877,30 @@ export default function CampaignsPage() {
                   <div className="text-sm font-semibold">Completed</div>
                   <div className="text-xs text-slate-400">{counts.completed}</div>
                 </div>
-                <div className="mt-2 text-[12px] text-slate-400">
-                  Your playbook is forming.
-                </div>
+                <div className="mt-2 text-[12px] text-slate-400">Your playbook is forming.</div>
 
                 <div className="mt-3 space-y-3">
                   {completed.length === 0 ? (
-                    <div className="text-sm text-slate-400">
-                      Nothing here yet.
-                    </div>
+                    <div className="text-sm text-slate-400">Nothing here yet.</div>
                   ) : (
                     completed.map((e) => (
-                      <div
-                        key={e.id}
-                        className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2"
-                      >
-                        <div className="text-sm font-semibold text-slate-100">
-                          {e.title || "Untitled experiment"}
-                        </div>
+                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
                         <div className="text-[12px] text-slate-300">
-                          {platformLabel(e.platform)} · {nice(e.pattern_type)} ·{" "}
-                          {nice(e.format)}
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
                         </div>
 
+                        {renderOutcomeSummary(e.id)}
+
                         <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => openOutcomeModal(e)}
+                            className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+                          >
+                            ➕ Add result/note
+                          </button>
+
                           <button
                             type="button"
                             onClick={() => setStatus(e.id, "planned")}
@@ -817,12 +935,9 @@ export default function CampaignsPage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-xs text-slate-400">Growth Lab</div>
-                  <div className="mt-1 text-lg font-semibold text-slate-100">
-                    Start an experiment
-                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-100">Start an experiment</div>
                   <div className="mt-1 text-[12px] text-slate-400">
-                    This creates a <b>Planned</b> experiment. You can develop the
-                    post in Brainstorm and start it when ready.
+                    This creates a <b>Planned</b> experiment.
                   </div>
                 </div>
 
@@ -836,25 +951,18 @@ export default function CampaignsPage() {
 
               <div className="mt-4 grid gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Friendly name (what are we trying?)
-                  </label>
+                  <label className="block text-xs font-medium text-slate-300">Friendly name</label>
                   <input
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                     placeholder='e.g. "Facebook: practical video tips"'
                   />
-                  <div className="mt-1 text-[11px] text-slate-500">
-                    Tip: Keep it short. You can always rename later.
-                  </div>
                 </div>
 
                 <div className="grid md:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Platform
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Platform</label>
                     <select
                       value={platform}
                       onChange={(e) => setPlatform(e.target.value)}
@@ -869,9 +977,7 @@ export default function CampaignsPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Pattern
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Pattern</label>
                     <input
                       value={patternType}
                       onChange={(e) => setPatternType(e.target.value)}
@@ -881,9 +987,7 @@ export default function CampaignsPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Format
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Format</label>
                     <select
                       value={format}
                       onChange={(e) => setFormat(e.target.value as any)}
@@ -897,31 +1001,22 @@ export default function CampaignsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Why might this work? (optional)
-                  </label>
+                  <label className="block text-xs font-medium text-slate-300">Hypothesis (optional)</label>
                   <textarea
                     value={hypothesis}
                     onChange={(e) => setHypothesis(e.target.value)}
                     rows={3}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none"
-                    placeholder='e.g. "Short practical tips get saved more often."'
                   />
-                  <div className="mt-1 text-[11px] text-slate-500">
-                    Tip: One sentence is enough. We’re not writing a PhD 😄
-                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Notes (optional)
-                  </label>
+                  <label className="block text-xs font-medium text-slate-300">Notes (optional)</label>
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={3}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none"
-                    placeholder="Any context you want the AI to remember…"
                   />
                 </div>
 
@@ -929,9 +1024,7 @@ export default function CampaignsPage() {
                   <button
                     type="button"
                     onClick={createExperiment}
-                    disabled={
-                      creating || !title.trim() || !platform.trim() || !patternType.trim()
-                    }
+                    disabled={creating || !title.trim() || !platform.trim() || !patternType.trim()}
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {creating ? "Creating…" : "Create experiment"}
@@ -945,11 +1038,109 @@ export default function CampaignsPage() {
                   >
                     Cancel
                   </button>
+                </div>
 
-                  <div className="text-[11px] text-slate-500 self-center">
-                    This starts as <b>Planned</b>. Move it to <b>Running</b>{" "}
-                    when you’re ready.
+                {error ? (
+                  <div className="mt-2 rounded-2xl border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">
+                    {error}
                   </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Outcome modal */}
+        {outcomeOpen && outcomeExperiment ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div className="absolute inset-0 bg-black/70" onClick={closeOutcomeModal} />
+
+            <div className="relative w-full max-w-xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-xs text-slate-400">Experiment feedback</div>
+                  <div className="mt-1 text-lg font-semibold text-slate-100">
+                    Add result / note
+                  </div>
+                  <div className="mt-1 text-[12px] text-slate-400">
+                    {outcomeExperiment.title || "Untitled experiment"}
+                  </div>
+                </div>
+
+                <button
+                  className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+                  onClick={closeOutcomeModal}
+                  disabled={outcomeSaving}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                <div className="grid md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Metric</label>
+                    <select
+                      value={metricName}
+                      onChange={(e) => setMetricName(e.target.value as any)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                    >
+                      <option value="leads">Leads</option>
+                      <option value="bookings">Bookings</option>
+                      <option value="dms">DMs</option>
+                      <option value="clicks">Clicks</option>
+                      <option value="saves">Saves</option>
+                      <option value="comments">Comments</option>
+                      <option value="likes">Likes</option>
+                      <option value="note">Just a note (no number)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Value</label>
+                    <input
+                      value={metricValue}
+                      onChange={(e) => setMetricValue(e.target.value)}
+                      disabled={metricName === "note"}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none disabled:opacity-60"
+                      placeholder="e.g. 2"
+                      inputMode="numeric"
+                    />
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      If you choose “Just a note”, value is ignored.
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Personal note (optional)</label>
+                  <textarea
+                    value={personalNote}
+                    onChange={(e) => setPersonalNote(e.target.value)}
+                    rows={4}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none"
+                    placeholder='e.g. "Generated 2 leads. People replied more when I asked a direct question."'
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={addOutcome}
+                    disabled={outcomeSaving || !outcomeExperiment}
+                    className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                  >
+                    {outcomeSaving ? "Saving…" : "Save"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={closeOutcomeModal}
+                    disabled={outcomeSaving}
+                    className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
                 </div>
 
                 {error ? (
@@ -963,8 +1154,7 @@ export default function CampaignsPage() {
         ) : null}
 
         <div className="text-xs text-slate-500 text-center">
-          Growth Lab isn’t here to judge you. It’s here to help you keep going.
-          One kind step at a time.
+          Growth Lab isn’t here to judge you. It’s here to help you keep going. One kind step at a time.
         </div>
       </div>
     </div>
