@@ -1,585 +1,782 @@
+// app/dashboard/campaigns/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 
-type Pattern = {
+type ExperimentStatus = "planned" | "running" | "completed";
+
+type Experiment = {
   id: string;
   organisation_id: string;
-  source_post_id: string | null;
+  title?: string | null;
+  hypothesis?: string | null;
+
   platform: string | null;
-  pattern_type: string;
-  format: string;
+  goal: string | null;
+  format: string | null;
+  pattern_type: string | null;
   hook_style: string | null;
   cta_style: string | null;
   notes: string | null;
-  performance_score: number | null;
-  suggested: boolean;
-  saved_by_user: boolean;
+
+  status: string | null;
+  confidence: number | null;
+
   created_at: string;
+  updated_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  deleted_at?: string | null;
 };
 
-type SuggestionItem = {
-  platform: string;
-  pattern_type: string;
-  format: "text" | "image" | "video";
-  hook_style: string;
-  cta_style: string;
-  notes?: string;
-};
-
-type SuggestionResponse = {
+type Suggestion = {
   success: boolean;
   organisationId?: string;
-  suggestion?: SuggestionItem;
-  suggestions?: SuggestionItem[];
+  suggestion?: {
+    platform: string;
+    pattern_type: string;
+    format: "text" | "image" | "video";
+    hook_style: string;
+    cta_style: string;
+    notes: string;
+    performance_score: number;
+  };
   error?: string;
 };
 
-function getOrganisationIdFromLocalStorage(): string | null {
-  if (typeof window === "undefined") return null;
-
-  const keysToTry = [
-    "activeOrganisationId",
-    "activeOrganizationId",
-    "organisationId",
-    "organizationId",
-    "orgId",
-    "selectedOrganisationId",
-    "selectedOrganizationId",
-  ];
-
-  for (const key of keysToTry) {
-    const v = window.localStorage.getItem(key);
-    if (v && v.trim()) return v.trim();
-  }
-
-  // Some apps store a JSON blob; try a couple common ones
-  const jsonKeys = ["activeOrganisation", "activeOrganization", "org"];
-  for (const key of jsonKeys) {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) continue;
-    try {
-      const parsed = JSON.parse(raw);
-      const candidate =
-        parsed?.id || parsed?.organisation_id || parsed?.organization_id;
-      if (candidate && String(candidate).trim()) return String(candidate).trim();
-    } catch {
-      // ignore
-    }
-  }
-
-  return null;
+function nice(s?: string | null) {
+  return String(s || "").trim() || "—";
 }
 
-async function safeJson(res: Response) {
+function platformLabel(p?: string | null) {
+  const k = String(p || "").toLowerCase();
+  if (k === "facebook") return "Facebook";
+  if (k === "instagram") return "Instagram";
+  if (k === "threads") return "Threads";
+  if (k === "linkedin") return "LinkedIn";
+  if (k === "tiktok") return "TikTok";
+  return p || "—";
+}
+
+function clampStatus(s?: string | null): ExperimentStatus {
+  const k = String(s || "").toLowerCase().trim();
+  if (k === "running") return "running";
+  if (k === "completed") return "completed";
+  return "planned";
+}
+
+/**
+ * ✅ FIX: Brainstorm listens for these keys (Growth Seed),
+ * so we must write to them — not the old brainstorm prefill keys.
+ */
+const GROWTH_SEED_KEYS = [
+  "rootops_growth_seed_brainstorm_v1",
+  "rh_growth_seed_brainstorm_v1",
+];
+
+function setLocalStorageMulti(keys: string[], payload: any) {
   try {
-    return await res.json();
-  } catch {
-    return null;
-  }
+    const raw = JSON.stringify(payload);
+    for (const k of keys) {
+      try {
+        localStorage.setItem(k, raw);
+      } catch {}
+    }
+  } catch {}
 }
 
 export default function CampaignsPage() {
-  const [organisationId, setOrganisationId] = useState<string | null>(null);
+  // Suggestion (existing behaviour)
+  const [loadingSuggestion, setLoadingSuggestion] = useState(true);
+  const [suggestion, setSuggestion] = useState<Suggestion["suggestion"] | null>(null);
 
-  const [patterns, setPatterns] = useState<Pattern[]>([]);
-  const [loadingPatterns, setLoadingPatterns] = useState(false);
+  // Experiments
+  const [loadingExperiments, setLoadingExperiments] = useState(true);
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
 
-  const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-
-  const [activeTab, setActiveTab] = useState<"patterns" | "suggestions">(
-    "suggestions"
-  );
-
-  const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Filters
-  const [platformFilter, setPlatformFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [savedOnly, setSavedOnly] = useState<boolean>(false);
+  // Modal state
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  const [title, setTitle] = useState("");
+  const [platform, setPlatform] = useState("facebook");
+  const [patternType, setPatternType] = useState("practical");
+  const [format, setFormat] = useState<"text" | "image" | "video">("text");
+  const [hypothesis, setHypothesis] = useState("");
+  const [notes, setNotes] = useState("");
+
+  // -------- load suggestion ----------
+  async function loadSuggestion() {
+    setLoadingSuggestion(true);
+    setError(null);
+    setSuggestion(null);
+
+    try {
+      const res = await fetch("/api/growth/patterns/suggest", { cache: "no-store" });
+      const json: Suggestion = await res.json().catch(() => null as any);
+
+      if (!res.ok || !json?.success || !json?.suggestion) {
+        setSuggestion(null);
+        setError(json?.error || "No suggestion available yet.");
+        return;
+      }
+
+      setSuggestion(json.suggestion);
+    } catch (e: any) {
+      setError(e?.message || "Failed to load suggestion.");
+    } finally {
+      setLoadingSuggestion(false);
+    }
+  }
+
+  // -------- load experiments ----------
+  async function loadExperiments() {
+    setLoadingExperiments(true);
+    try {
+      const res = await fetch("/api/growth/experiments/list", { cache: "no-store" });
+      const json: any = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        setExperiments([]);
+        return;
+      }
+
+      setExperiments(Array.isArray(json.items) ? json.items : []);
+    } catch {
+      setExperiments([]);
+    } finally {
+      setLoadingExperiments(false);
+    }
+  }
 
   useEffect(() => {
-    const id = getOrganisationIdFromLocalStorage();
-    setOrganisationId(id);
+    loadSuggestion();
+    loadExperiments();
   }, []);
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2500);
+    const t = setTimeout(() => setToast(null), 2600);
     return () => clearTimeout(t);
   }, [toast]);
 
-  async function loadPatterns(orgId: string) {
-    setLoadingPatterns(true);
+  const counts = useMemo(() => {
+    const planned = experiments.filter((e) => clampStatus(e.status) === "planned").length;
+    const running = experiments.filter((e) => clampStatus(e.status) === "running").length;
+    const completed = experiments.filter((e) => clampStatus(e.status) === "completed").length;
+    return { planned, running, completed };
+  }, [experiments]);
+
+  const planned = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "planned"), [experiments]);
+  const running = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "running"), [experiments]);
+  const completed = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "completed"), [experiments]);
+
+  function openCreateFromSuggestion() {
     setError(null);
-    try {
-      // ✅ Adjust this route name if your API differs
-      const res = await fetch(`/api/campaigns/patterns?organisationId=${encodeURIComponent(orgId)}`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
 
-      const data = await safeJson(res);
-      if (!res.ok) {
-        throw new Error(
-          data?.error || data?.message || `Failed to load patterns (${res.status})`
-        );
-      }
+    if (suggestion) {
+      const p = String(suggestion.platform || "facebook").toLowerCase();
+      const pt = String(suggestion.pattern_type || "practical").toLowerCase();
+      const fmt = (suggestion.format || "text") as any;
 
-      const items: Pattern[] = data?.patterns || data?.data || [];
-      setPatterns(Array.isArray(items) ? items : []);
-    } catch (e: any) {
-      setError(e?.message || "Failed to load patterns");
-    } finally {
-      setLoadingPatterns(false);
+      setPlatform(p || "facebook");
+      setPatternType(pt || "practical");
+      setFormat(fmt);
+
+      const autoTitle = `${platformLabel(p)}: ${pt} (${fmt})`;
+      setTitle(autoTitle);
+
+      const autoHyp = `If I use the "${pt}" pattern, I’ll get more engagement (comments/saves) because it matches what my audience responds to.`;
+      setHypothesis(autoHyp);
+
+      setNotes(String(suggestion.notes || "").trim());
+    } else {
+      setTitle("");
+      setPlatform("facebook");
+      setPatternType("practical");
+      setFormat("text");
+      setHypothesis("");
+      setNotes("");
     }
+
+    setCreateOpen(true);
   }
 
-  async function loadSuggestions(orgId: string) {
-    setLoadingSuggestions(true);
-    setError(null);
-    try {
-      // ✅ Adjust this route name if your API differs
-      const res = await fetch(`/api/campaigns/suggest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organisationId: orgId }),
-      });
-
-      const data: SuggestionResponse | null = await safeJson(res);
-      if (!res.ok || !data?.success) {
-        throw new Error(
-          data?.error || `Failed to generate suggestions (${res.status})`
-        );
-      }
-
-      const items = data.suggestions || (data.suggestion ? [data.suggestion] : []);
-      setSuggestions(Array.isArray(items) ? items : []);
-      setToast("Suggestions refreshed ✅");
-    } catch (e: any) {
-      setError(e?.message || "Failed to load suggestions");
-    } finally {
-      setLoadingSuggestions(false);
-    }
+  function closeCreate() {
+    setCreateOpen(false);
+    setCreating(false);
   }
 
-  useEffect(() => {
-    if (!organisationId) return;
-    // Load both, but start user on suggestions tab (usually the goal)
-    loadPatterns(organisationId);
-    loadSuggestions(organisationId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organisationId]);
-
-  async function saveSuggestionAsPattern(item: SuggestionItem) {
-    if (!organisationId) return;
-
+  async function createExperiment() {
+    setCreating(true);
     setError(null);
+
     try {
-      // ✅ Adjust this route name if your API differs
-      const res = await fetch(`/api/campaigns/patterns`, {
+      const res = await fetch("/api/growth/experiments/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({
-          organisationId,
-          platform: item.platform,
-          pattern_type: item.pattern_type,
-          format: item.format,
-          hook_style: item.hook_style,
-          cta_style: item.cta_style,
-          notes: item.notes || null,
-          suggested: true,
+          title: title.trim(),
+          platform: platform.trim(),
+          pattern_type: patternType.trim(),
+          format,
+          hypothesis: hypothesis.trim() || null,
+          notes: notes.trim() || null,
         }),
       });
 
-      const data = await safeJson(res);
-      if (!res.ok) {
-        throw new Error(
-          data?.error || data?.message || `Failed to save pattern (${res.status})`
-        );
+      const json: any = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        setError(json?.error || `Create failed (${res.status}).`);
+        setCreating(false);
+        return;
       }
 
-      setToast("Saved to Patterns ✅");
-      // Refresh patterns list
-      await loadPatterns(organisationId);
-      setActiveTab("patterns");
+      setToast("✅ Experiment created (Planned)");
+      setCreateOpen(false);
+      setCreating(false);
+      await loadExperiments();
     } catch (e: any) {
-      setError(e?.message || "Failed to save suggestion");
+      setError(e?.message || "Create failed.");
+      setCreating(false);
     }
   }
 
-  async function toggleSaved(patternId: string, nextSaved: boolean) {
-    if (!organisationId) return;
-
-    setError(null);
+  async function setStatus(id: string, status: ExperimentStatus) {
     try {
-      // ✅ Adjust this route name if your API differs
-      const res = await fetch(`/api/campaigns/patterns/${encodeURIComponent(patternId)}`, {
-        method: "PATCH",
+      const res = await fetch("/api/growth/experiments/set-status", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organisationId, saved_by_user: nextSaved }),
+        cache: "no-store",
+        body: JSON.stringify({ id, status }),
       });
+      const json: any = await res.json().catch(() => null);
 
-      const data = await safeJson(res);
-      if (!res.ok) {
-        throw new Error(
-          data?.error || data?.message || `Failed to update (${res.status})`
-        );
+      if (!res.ok || !json?.success) {
+        setToast(json?.error || "Status update failed.");
+        return;
       }
 
-      setPatterns((prev) =>
-        prev.map((p) => (p.id === patternId ? { ...p, saved_by_user: nextSaved } : p))
-      );
-    } catch (e: any) {
-      setError(e?.message || "Failed to update saved status");
+      setToast(status === "running" ? "🏃 Now Running" : status === "completed" ? "🏁 Completed" : "📝 Back to Planned");
+      await loadExperiments();
+    } catch {
+      setToast("Status update failed.");
     }
   }
 
-  const filteredPatterns = useMemo(() => {
-    let list = [...patterns];
+  async function deleteExperiment(id: string) {
+    const ok = window.confirm("Delete this experiment? (This is a safe archive delete.)");
+    if (!ok) return;
 
-    if (platformFilter !== "all") {
-      list = list.filter((p) => (p.platform || "unknown") === platformFilter);
+    try {
+      const res = await fetch("/api/growth/experiments/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ id }),
+      });
+      const json: any = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        setToast(json?.error || "Delete failed.");
+        return;
+      }
+
+      setToast("🧹 Deleted");
+      await loadExperiments();
+    } catch {
+      setToast("Delete failed.");
     }
-    if (typeFilter !== "all") {
-      list = list.filter((p) => p.pattern_type === typeFilter);
-    }
-    if (savedOnly) {
-      list = list.filter((p) => p.saved_by_user);
-    }
+  }
 
-    // Sort newest first
-    list.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-    return list;
-  }, [patterns, platformFilter, typeFilter, savedOnly]);
+  function sendExperimentToBrainstorm(exp: Experiment) {
+    /**
+     * ✅ FIX: match Brainstorm’s GrowthSeedPayload shape + keys
+     * Brainstorm expects { v: 1, brief: string, platform: ... }
+     */
+    const payload = {
+      v: 1,
+      createdAt: new Date().toISOString(),
+      source: "growth_lab",
+      organisationId: exp.organisation_id || null,
+      experimentId: exp.id,
+      platform: String(exp.platform || "facebook").toLowerCase(),
+      title: exp.title || "Growth Experiment",
+      hypothesis: exp.hypothesis || null,
+      pattern_type: exp.pattern_type || null,
+      format: exp.format || null,
+      hook_style: exp.hook_style || null,
+      cta_style: exp.cta_style || null,
+      notes: exp.notes || null,
+      confidence: exp.confidence ?? null,
+      brief: [
+        `We are running a Growth Experiment.`,
+        ``,
+        `Title: ${exp.title || "—"}`,
+        `Platform: ${platformLabel(exp.platform)}`,
+        `Pattern: ${nice(exp.pattern_type)}`,
+        `Format: ${nice(exp.format)}`,
+        exp.hypothesis ? `Hypothesis: ${exp.hypothesis}` : null,
+        exp.notes ? `Notes: ${exp.notes}` : null,
+        ``,
+        `Task: Generate 6 post drafts that match this experiment, with gentle tone + clear CTA.`,
+        `Also give 10 hooks first, then the drafts.`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
 
-  const platformOptions = useMemo(() => {
-    const set = new Set<string>();
-    patterns.forEach((p) => set.add(p.platform || "unknown"));
-    suggestions.forEach((s) => set.add(s.platform || "unknown"));
-    return ["all", ...Array.from(set).sort()];
-  }, [patterns, suggestions]);
-
-  const typeOptions = useMemo(() => {
-    const set = new Set<string>();
-    patterns.forEach((p) => set.add(p.pattern_type));
-    return ["all", ...Array.from(set).sort()];
-  }, [patterns]);
+    setToast("Sending to Brainstorm…");
+    setLocalStorageMulti(GROWTH_SEED_KEYS, payload);
+    window.location.href = "/dashboard/brainstorm";
+  }
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        <div>
-          <h1 style={{ fontSize: 28, margin: 0 }}>Campaigns</h1>
-          <p style={{ marginTop: 8, opacity: 0.8 }}>
-            Growth Lab: capture winning content patterns and generate new ones.
+    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
+        {/* Header */}
+        <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
+          <div className="text-xs text-slate-400">Root Health Ops</div>
+          <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
+            🧪 Growth Lab <span className="text-slate-400">— your gentle growth buddy</span>
+          </h1>
+
+          <p className="mt-3 text-sm text-slate-300 max-w-3xl">
+            Start small experiments → develop the post in Brainstorm → post via Quick Blast → learn what works.
+            No guilt. No chaos. Just momentum.
           </p>
-          <p style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-            Org: {organisationId || "Not found (check localStorage key / org selection)"}
-          </p>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => {
+                loadSuggestion();
+                loadExperiments();
+              }}
+              className="rounded-2xl border border-slate-600 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
+            >
+              Refresh
+            </button>
+
+            <button
+              onClick={openCreateFromSuggestion}
+              className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+            >
+              ➕ Start an experiment
+            </button>
+
+            <div className="text-xs text-slate-400">
+              Planned <span className="text-slate-200 font-semibold">{counts.planned}</span> · Running{" "}
+              <span className="text-slate-200 font-semibold">{counts.running}</span> · Completed{" "}
+              <span className="text-slate-200 font-semibold">{counts.completed}</span>
+            </div>
+          </div>
+
+          {toast ? (
+            <div className="mt-4 rounded-2xl border border-emerald-500/50 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+              {toast}
+            </div>
+          ) : null}
+
+          {error ? (
+            <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">
+              {error}
+            </div>
+          ) : null}
         </div>
 
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={() => setActiveTab("suggestions")}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.15)",
-              background: activeTab === "suggestions" ? "rgba(255,255,255,0.10)" : "transparent",
-              cursor: "pointer",
-            }}
-          >
-            Suggestions
-          </button>
-          <button
-            onClick={() => setActiveTab("patterns")}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.15)",
-              background: activeTab === "patterns" ? "rgba(255,255,255,0.10)" : "transparent",
-              cursor: "pointer",
-            }}
-          >
-            Patterns
-          </button>
+        {/* Suggestion */}
+        <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Today’s gentle suggestion</div>
+              <div className="text-xs text-slate-400 mt-1">
+                You’re always in control. Use it, edit it, or skip it. 🙂
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={loadSuggestion}
+                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
+              >
+                New suggestion
+              </button>
+
+              <button
+                onClick={openCreateFromSuggestion}
+                className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+              >
+                Start experiment from this
+              </button>
+            </div>
+          </div>
+
+          {loadingSuggestion ? (
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              Loading suggestion…
+            </div>
+          ) : !suggestion ? (
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              No suggestion yet. Post a few times first (Quick Blast counts), then come back here.
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="text-xs text-slate-400">Platform</div>
+                <div className="mt-1 text-lg font-semibold">{platformLabel(suggestion.platform)}</div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-xs text-slate-400">Pattern</div>
+                    <div className="mt-1 text-sm text-slate-100">{nice(suggestion.pattern_type)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-400">Format</div>
+                    <div className="mt-1 text-sm text-slate-100">{nice(suggestion.format)}</div>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <div className="text-xs text-slate-400">Confidence</div>
+                  <div className="mt-1 text-sm text-slate-100">
+                    {Number.isFinite(suggestion.performance_score) ? `${suggestion.performance_score}/100` : "—"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="text-xs text-slate-400">Why this helps</div>
+                <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
+                  {nice(suggestion.notes)}
+                </div>
+
+                <div className="mt-4 grid gap-2">
+                  <div className="text-xs text-slate-400">Hook style</div>
+                  <div className="text-sm text-slate-200">{nice(suggestion.hook_style)}</div>
+
+                  <div className="text-xs text-slate-400 mt-2">CTA style</div>
+                  <div className="text-sm text-slate-200">{nice(suggestion.cta_style)}</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Experiments */}
+        <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">🧷 Experiments</div>
+              <div className="text-xs text-slate-400 mt-1">
+                Planned → develop in Brainstorm → move to Running → complete when you’ve tried 2–3 posts.
+              </div>
+            </div>
+          </div>
+
+          {loadingExperiments ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              Loading experiments…
+            </div>
+          ) : experiments.length === 0 ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
+              Nothing here yet. Start your first experiment above ➕
+            </div>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-3">
+              {/* Planned */}
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold">Planned</div>
+                  <div className="text-xs text-slate-400">{counts.planned}</div>
+                </div>
+                <div className="mt-2 text-[12px] text-slate-400">Saved ideas. Start one when ready.</div>
+
+                <div className="mt-3 space-y-3">
+                  {planned.length === 0 ? (
+                    <div className="text-sm text-slate-400">Nothing here yet.</div>
+                  ) : (
+                    planned.map((e) => (
+                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
+                        <div className="text-[12px] text-slate-300">
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
+                        </div>
+
+                        {e.hypothesis ? (
+                          <div className="text-[12px] text-slate-300 whitespace-pre-wrap">{e.hypothesis}</div>
+                        ) : null}
+
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => sendExperimentToBrainstorm(e)}
+                            className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                          >
+                            Develop in Brainstorm
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setStatus(e.id, "running")}
+                            className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                          >
+                            Start (Running)
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteExperiment(e.id)}
+                            className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-red-500 hover:text-red-200"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Running */}
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold">Running</div>
+                  <div className="text-xs text-slate-400">{counts.running}</div>
+                </div>
+                <div className="mt-2 text-[12px] text-slate-400">Try it for 2–3 posts before judging it.</div>
+
+                <div className="mt-3 space-y-3">
+                  {running.length === 0 ? (
+                    <div className="text-sm text-slate-400">Nothing here yet.</div>
+                  ) : (
+                    running.map((e) => (
+                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
+                        <div className="text-[12px] text-slate-300">
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => sendExperimentToBrainstorm(e)}
+                            className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                          >
+                            Make next post (Brainstorm)
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setStatus(e.id, "completed")}
+                            className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                          >
+                            Mark completed
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteExperiment(e.id)}
+                            className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-red-500 hover:text-red-200"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Completed */}
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold">Completed</div>
+                  <div className="text-xs text-slate-400">{counts.completed}</div>
+                </div>
+                <div className="mt-2 text-[12px] text-slate-400">Your playbook is forming.</div>
+
+                <div className="mt-3 space-y-3">
+                  {completed.length === 0 ? (
+                    <div className="text-sm text-slate-400">Nothing here yet.</div>
+                  ) : (
+                    completed.map((e) => (
+                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
+                        <div className="text-[12px] text-slate-300">
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setStatus(e.id, "planned")}
+                            className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                          >
+                            Re-run (back to Planned)
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteExperiment(e.id)}
+                            className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-red-500 hover:text-red-200"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Create modal */}
+        {createOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div className="absolute inset-0 bg-black/70" onClick={closeCreate} />
+
+            <div className="relative w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-xs text-slate-400">Growth Lab</div>
+                  <div className="mt-1 text-lg font-semibold text-slate-100">Start an experiment</div>
+                  <div className="mt-1 text-[12px] text-slate-400">
+                    This creates a <b>Planned</b> experiment. You can develop the post in Brainstorm and start it when ready.
+                  </div>
+                </div>
+
+                <button
+                  className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+                  onClick={closeCreate}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Friendly name (what are we trying?)</label>
+                  <input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    placeholder='e.g. "Facebook: practical video tips"'
+                  />
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Tip: Keep it short. You can always rename later.
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Platform</label>
+                    <select
+                      value={platform}
+                      onChange={(e) => setPlatform(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                    >
+                      <option value="facebook">Facebook</option>
+                      <option value="instagram">Instagram</option>
+                      <option value="linkedin">LinkedIn</option>
+                      <option value="threads">Threads</option>
+                      <option value="tiktok">TikTok</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Pattern</label>
+                    <input
+                      value={patternType}
+                      onChange={(e) => setPatternType(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                      placeholder="e.g. practical"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Format</label>
+                    <select
+                      value={format}
+                      onChange={(e) => setFormat(e.target.value as any)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                    >
+                      <option value="text">Text</option>
+                      <option value="image">Image</option>
+                      <option value="video">Video</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Why might this work? (optional)</label>
+                  <textarea
+                    value={hypothesis}
+                    onChange={(e) => setHypothesis(e.target.value)}
+                    rows={3}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none"
+                    placeholder='e.g. "Short practical tips get saved more often."'
+                  />
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Tip: One sentence is enough. We’re not writing a PhD 😄
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Notes (optional)</label>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={3}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none"
+                    placeholder="Any context you want the AI to remember…"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={createExperiment}
+                    disabled={creating || !title.trim() || !platform.trim() || !patternType.trim()}
+                    className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                  >
+                    {creating ? "Creating…" : "Create experiment"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={closeCreate}
+                    disabled={creating}
+                    className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+
+                  <div className="text-[11px] text-slate-500 self-center">
+                    This starts as <b>Planned</b>. Move it to <b>Running</b> when you’re ready.
+                  </div>
+                </div>
+
+                {error ? (
+                  <div className="mt-2 rounded-2xl border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">
+                    {error}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="text-xs text-slate-500 text-center">
+          Growth Lab isn’t here to judge you. It’s here to help you keep going. One kind step at a time.
         </div>
       </div>
-
-      {!organisationId && (
-        <div
-          style={{
-            padding: 14,
-            borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.15)",
-            background: "rgba(255,255,255,0.05)",
-            marginBottom: 16,
-          }}
-        >
-          <strong>Organisation ID not found.</strong>
-          <div style={{ marginTop: 8, opacity: 0.85 }}>
-            This page looks for your org id in localStorage. If your app stores it
-            under a different key, tell me the key name and I’ll wire it in.
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <div
-          style={{
-            padding: 14,
-            borderRadius: 12,
-            border: "1px solid rgba(255,0,0,0.25)",
-            background: "rgba(255,0,0,0.08)",
-            marginBottom: 16,
-          }}
-        >
-          <strong>Problem:</strong> {error}
-        </div>
-      )}
-
-      {toast && (
-        <div
-          style={{
-            padding: 12,
-            borderRadius: 12,
-            border: "1px solid rgba(0,255,0,0.20)",
-            background: "rgba(0,255,0,0.08)",
-            marginBottom: 16,
-          }}
-        >
-          {toast}
-        </div>
-      )}
-
-      {activeTab === "suggestions" && (
-        <div
-          style={{
-            borderRadius: 14,
-            border: "1px solid rgba(255,255,255,0.15)",
-            background: "rgba(255,255,255,0.04)",
-            padding: 16,
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-            <h2 style={{ margin: 0, fontSize: 18 }}>Suggested Patterns</h2>
-
-            <button
-              disabled={!organisationId || loadingSuggestions}
-              onClick={() => organisationId && loadSuggestions(organisationId)}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.15)",
-                background: "rgba(255,255,255,0.08)",
-                cursor: !organisationId || loadingSuggestions ? "not-allowed" : "pointer",
-                opacity: !organisationId || loadingSuggestions ? 0.6 : 1,
-              }}
-            >
-              {loadingSuggestions ? "Refreshing…" : "Refresh suggestions"}
-            </button>
-          </div>
-
-          <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-            {suggestions.length === 0 && (
-              <div style={{ opacity: 0.8, padding: 12 }}>
-                No suggestions yet. Click “Refresh suggestions”.
-              </div>
-            )}
-
-            {suggestions.map((s, idx) => (
-              <div
-                key={`${s.platform}-${s.pattern_type}-${idx}`}
-                style={{
-                  padding: 14,
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.03)",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>
-                      {s.platform.toUpperCase()} • {s.pattern_type} • {s.format}
-                    </div>
-                    <div style={{ marginTop: 8, opacity: 0.85 }}>
-                      <div>Hook: {s.hook_style}</div>
-                      <div>CTA: {s.cta_style}</div>
-                      {s.notes && <div style={{ marginTop: 6 }}>Notes: {s.notes}</div>}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => saveSuggestionAsPattern(s)}
-                    disabled={!organisationId}
-                    style={{
-                      height: 40,
-                      padding: "0 12px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.15)",
-                      background: "rgba(255,255,255,0.08)",
-                      cursor: !organisationId ? "not-allowed" : "pointer",
-                      opacity: !organisationId ? 0.6 : 1,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {activeTab === "patterns" && (
-        <div
-          style={{
-            borderRadius: 14,
-            border: "1px solid rgba(255,255,255,0.15)",
-            background: "rgba(255,255,255,0.04)",
-            padding: 16,
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-            <h2 style={{ margin: 0, fontSize: 18 }}>Saved Patterns</h2>
-
-            <button
-              disabled={!organisationId || loadingPatterns}
-              onClick={() => organisationId && loadPatterns(organisationId)}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.15)",
-                background: "rgba(255,255,255,0.08)",
-                cursor: !organisationId || loadingPatterns ? "not-allowed" : "pointer",
-                opacity: !organisationId || loadingPatterns ? 0.6 : 1,
-              }}
-            >
-              {loadingPatterns ? "Refreshing…" : "Refresh patterns"}
-            </button>
-          </div>
-
-          <div
-            style={{
-              marginTop: 12,
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 10,
-              alignItems: "center",
-            }}
-          >
-            <label style={{ fontSize: 13, opacity: 0.9 }}>
-              Platform{" "}
-              <select
-                value={platformFilter}
-                onChange={(e) => setPlatformFilter(e.target.value)}
-                style={{ marginLeft: 6, padding: 6, borderRadius: 8 }}
-              >
-                {platformOptions.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label style={{ fontSize: 13, opacity: 0.9 }}>
-              Type{" "}
-              <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                style={{ marginLeft: 6, padding: 6, borderRadius: 8 }}
-              >
-                {typeOptions.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label style={{ fontSize: 13, opacity: 0.9 }}>
-              <input
-                type="checkbox"
-                checked={savedOnly}
-                onChange={(e) => setSavedOnly(e.target.checked)}
-                style={{ marginRight: 6 }}
-              />
-              Saved only
-            </label>
-          </div>
-
-          <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-            {loadingPatterns && (
-              <div style={{ opacity: 0.8, padding: 12 }}>Loading patterns…</div>
-            )}
-
-            {!loadingPatterns && filteredPatterns.length === 0 && (
-              <div style={{ opacity: 0.8, padding: 12 }}>
-                No patterns yet. Save a suggestion first.
-              </div>
-            )}
-
-            {filteredPatterns.map((p) => (
-              <div
-                key={p.id}
-                style={{
-                  padding: 14,
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.03)",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>
-                      {(p.platform || "unknown").toUpperCase()} • {p.pattern_type} • {p.format}
-                    </div>
-                    <div style={{ marginTop: 8, opacity: 0.85 }}>
-                      <div>Hook: {p.hook_style || "—"}</div>
-                      <div>CTA: {p.cta_style || "—"}</div>
-                      {p.performance_score !== null && (
-                        <div>Score: {p.performance_score}</div>
-                      )}
-                      {p.notes && <div style={{ marginTop: 6 }}>Notes: {p.notes}</div>}
-                    </div>
-                    <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
-                      Created: {new Date(p.created_at).toLocaleString()}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => toggleSaved(p.id, !p.saved_by_user)}
-                    style={{
-                      height: 40,
-                      padding: "0 12px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.15)",
-                      background: p.saved_by_user ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)",
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {p.saved_by_user ? "Saved ✓" : "Save"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
