@@ -66,12 +66,24 @@ function clampStatus(s?: string | null): ExperimentStatus {
 }
 
 /**
- * ✅ FIX: Brainstorm listens for these keys (Growth Seed),
- * so we must write to them — not the old brainstorm prefill keys.
+ * ✅ Brainstorm listens for these keys (Growth Seed),
+ * so we must write to them.
  */
 const GROWTH_SEED_KEYS = [
   "rootops_growth_seed_brainstorm_v1",
   "rh_growth_seed_brainstorm_v1",
+];
+
+/**
+ * ✅ Active experiment keys:
+ * Other pages (Quick Blast / Stories / Scheduled) can read this later.
+ * We write multiple keys so we don’t get stuck if your app already uses one.
+ */
+const ACTIVE_EXPERIMENT_KEYS = [
+  "rootops_active_experiment_v1",
+  "rh_active_experiment_v1",
+  "activeExperiment",
+  "growthLabActiveExperiment",
 ];
 
 function setLocalStorageMulti(keys: string[], payload: any) {
@@ -85,10 +97,20 @@ function setLocalStorageMulti(keys: string[], payload: any) {
   } catch {}
 }
 
+function clearLocalStorageMulti(keys: string[]) {
+  for (const k of keys) {
+    try {
+      localStorage.removeItem(k);
+    } catch {}
+  }
+}
+
 export default function CampaignsPage() {
-  // Suggestion (existing behaviour)
+  // Suggestion
   const [loadingSuggestion, setLoadingSuggestion] = useState(true);
-  const [suggestion, setSuggestion] = useState<Suggestion["suggestion"] | null>(null);
+  const [suggestion, setSuggestion] = useState<Suggestion["suggestion"] | null>(
+    null
+  );
 
   // Experiments
   const [loadingExperiments, setLoadingExperiments] = useState(true);
@@ -115,7 +137,9 @@ export default function CampaignsPage() {
     setSuggestion(null);
 
     try {
-      const res = await fetch("/api/growth/patterns/suggest", { cache: "no-store" });
+      const res = await fetch("/api/growth/patterns/suggest", {
+        cache: "no-store",
+      });
       const json: Suggestion = await res.json().catch(() => null as any);
 
       if (!res.ok || !json?.success || !json?.suggestion) {
@@ -136,7 +160,9 @@ export default function CampaignsPage() {
   async function loadExperiments() {
     setLoadingExperiments(true);
     try {
-      const res = await fetch("/api/growth/experiments/list", { cache: "no-store" });
+      const res = await fetch("/api/growth/experiments/list", {
+        cache: "no-store",
+      });
       const json: any = await res.json().catch(() => null);
 
       if (!res.ok || !json?.success) {
@@ -164,15 +190,27 @@ export default function CampaignsPage() {
   }, [toast]);
 
   const counts = useMemo(() => {
-    const planned = experiments.filter((e) => clampStatus(e.status) === "planned").length;
-    const running = experiments.filter((e) => clampStatus(e.status) === "running").length;
-    const completed = experiments.filter((e) => clampStatus(e.status) === "completed").length;
+    const planned = experiments.filter((e) => clampStatus(e.status) === "planned")
+      .length;
+    const running = experiments.filter((e) => clampStatus(e.status) === "running")
+      .length;
+    const completed = experiments.filter((e) => clampStatus(e.status) === "completed")
+      .length;
     return { planned, running, completed };
   }, [experiments]);
 
-  const planned = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "planned"), [experiments]);
-  const running = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "running"), [experiments]);
-  const completed = useMemo(() => experiments.filter((e) => clampStatus(e.status) === "completed"), [experiments]);
+  const planned = useMemo(
+    () => experiments.filter((e) => clampStatus(e.status) === "planned"),
+    [experiments]
+  );
+  const running = useMemo(
+    () => experiments.filter((e) => clampStatus(e.status) === "running"),
+    [experiments]
+  );
+  const completed = useMemo(
+    () => experiments.filter((e) => clampStatus(e.status) === "completed"),
+    [experiments]
+  );
 
   function openCreateFromSuggestion() {
     setError(null);
@@ -259,18 +297,68 @@ export default function CampaignsPage() {
 
       if (!res.ok || !json?.success) {
         setToast(json?.error || "Status update failed.");
-        return;
+        return false;
       }
 
-      setToast(status === "running" ? "🏃 Now Running" : status === "completed" ? "🏁 Completed" : "📝 Back to Planned");
+      setToast(
+        status === "running"
+          ? "🏃 Now Running"
+          : status === "completed"
+          ? "🏁 Completed"
+          : "📝 Back to Planned"
+      );
       await loadExperiments();
+      return true;
     } catch {
       setToast("Status update failed.");
+      return false;
     }
   }
 
+  /**
+   * ✅ “Connected” Start Running:
+   * - sets status to running
+   * - writes an “active experiment” payload to localStorage
+   * This is the bridge that other pages can read to attach metrics/posts to this experiment.
+   */
+  async function startRunningConnected(exp: Experiment) {
+    setError(null);
+
+    const ok = await setStatus(exp.id, "running");
+    if (!ok) return;
+
+    const activePayload = {
+      v: 1,
+      activatedAt: new Date().toISOString(),
+      source: "growth_lab",
+      organisationId: exp.organisation_id || null,
+      experimentId: exp.id,
+      title: exp.title || "Growth Experiment",
+      platform: String(exp.platform || "facebook").toLowerCase(),
+      pattern_type: exp.pattern_type || null,
+      format: exp.format || null,
+      hook_style: exp.hook_style || null,
+      cta_style: exp.cta_style || null,
+      hypothesis: exp.hypothesis || null,
+      notes: exp.notes || null,
+    };
+
+    setLocalStorageMulti(ACTIVE_EXPERIMENT_KEYS, activePayload);
+    setToast("✅ Tracking ON: this experiment is now the active one");
+
+    // Optional nice nudge: if they want to immediately make the next post
+    // window.location.href = "/dashboard/quick-blast";
+  }
+
+  async function stopTrackingActiveExperiment() {
+    clearLocalStorageMulti(ACTIVE_EXPERIMENT_KEYS);
+    setToast("🛑 Tracking OFF: cleared active experiment");
+  }
+
   async function deleteExperiment(id: string) {
-    const ok = window.confirm("Delete this experiment? (This is a safe archive delete.)");
+    const ok = window.confirm(
+      "Delete this experiment? (This is a safe archive delete.)"
+    );
     if (!ok) return;
 
     try {
@@ -295,10 +383,6 @@ export default function CampaignsPage() {
   }
 
   function sendExperimentToBrainstorm(exp: Experiment) {
-    /**
-     * ✅ FIX: match Brainstorm’s GrowthSeedPayload shape + keys
-     * Brainstorm expects { v: 1, brief: string, platform: ... }
-     */
     const payload = {
       v: 1,
       createdAt: new Date().toISOString(),
@@ -343,12 +427,13 @@ export default function CampaignsPage() {
         <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
           <div className="text-xs text-slate-400">Root Health Ops</div>
           <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
-            🧪 Growth Lab <span className="text-slate-400">— your gentle growth buddy</span>
+            🧪 Growth Lab{" "}
+            <span className="text-slate-400">— your gentle growth buddy</span>
           </h1>
 
           <p className="mt-3 text-sm text-slate-300 max-w-3xl">
-            Start small experiments → develop the post in Brainstorm → post via Quick Blast → learn what works.
-            No guilt. No chaos. Just momentum.
+            Start small experiments → develop the post in Brainstorm → post via
+            Quick Blast → learn what works. No guilt. No chaos. Just momentum.
           </p>
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -369,10 +454,27 @@ export default function CampaignsPage() {
               ➕ Start an experiment
             </button>
 
+            <button
+              onClick={stopTrackingActiveExperiment}
+              className="rounded-2xl border border-slate-600 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
+              title="Clears the active experiment tracker"
+            >
+              Stop tracking
+            </button>
+
             <div className="text-xs text-slate-400">
-              Planned <span className="text-slate-200 font-semibold">{counts.planned}</span> · Running{" "}
-              <span className="text-slate-200 font-semibold">{counts.running}</span> · Completed{" "}
-              <span className="text-slate-200 font-semibold">{counts.completed}</span>
+              Planned{" "}
+              <span className="text-slate-200 font-semibold">
+                {counts.planned}
+              </span>{" "}
+              · Running{" "}
+              <span className="text-slate-200 font-semibold">
+                {counts.running}
+              </span>{" "}
+              · Completed{" "}
+              <span className="text-slate-200 font-semibold">
+                {counts.completed}
+              </span>
             </div>
           </div>
 
@@ -393,7 +495,9 @@ export default function CampaignsPage() {
         <div className="rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-xl">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold">Today’s gentle suggestion</div>
+              <div className="text-sm font-semibold">
+                Today’s gentle suggestion
+              </div>
               <div className="text-xs text-slate-400 mt-1">
                 You’re always in control. Use it, edit it, or skip it. 🙂
               </div>
@@ -422,29 +526,38 @@ export default function CampaignsPage() {
             </div>
           ) : !suggestion ? (
             <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-slate-300">
-              No suggestion yet. Post a few times first (Quick Blast counts), then come back here.
+              No suggestion yet. Post a few times first (Quick Blast counts),
+              then come back here.
             </div>
           ) : (
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
                 <div className="text-xs text-slate-400">Platform</div>
-                <div className="mt-1 text-lg font-semibold">{platformLabel(suggestion.platform)}</div>
+                <div className="mt-1 text-lg font-semibold">
+                  {platformLabel(suggestion.platform)}
+                </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div>
                     <div className="text-xs text-slate-400">Pattern</div>
-                    <div className="mt-1 text-sm text-slate-100">{nice(suggestion.pattern_type)}</div>
+                    <div className="mt-1 text-sm text-slate-100">
+                      {nice(suggestion.pattern_type)}
+                    </div>
                   </div>
                   <div>
                     <div className="text-xs text-slate-400">Format</div>
-                    <div className="mt-1 text-sm text-slate-100">{nice(suggestion.format)}</div>
+                    <div className="mt-1 text-sm text-slate-100">
+                      {nice(suggestion.format)}
+                    </div>
                   </div>
                 </div>
 
                 <div className="mt-4">
                   <div className="text-xs text-slate-400">Confidence</div>
                   <div className="mt-1 text-sm text-slate-100">
-                    {Number.isFinite(suggestion.performance_score) ? `${suggestion.performance_score}/100` : "—"}
+                    {Number.isFinite(suggestion.performance_score)
+                      ? `${suggestion.performance_score}/100`
+                      : "—"}
                   </div>
                 </div>
               </div>
@@ -457,10 +570,14 @@ export default function CampaignsPage() {
 
                 <div className="mt-4 grid gap-2">
                   <div className="text-xs text-slate-400">Hook style</div>
-                  <div className="text-sm text-slate-200">{nice(suggestion.hook_style)}</div>
+                  <div className="text-sm text-slate-200">
+                    {nice(suggestion.hook_style)}
+                  </div>
 
                   <div className="text-xs text-slate-400 mt-2">CTA style</div>
-                  <div className="text-sm text-slate-200">{nice(suggestion.cta_style)}</div>
+                  <div className="text-sm text-slate-200">
+                    {nice(suggestion.cta_style)}
+                  </div>
                 </div>
               </div>
             </div>
@@ -473,7 +590,8 @@ export default function CampaignsPage() {
             <div>
               <div className="text-sm font-semibold">🧷 Experiments</div>
               <div className="text-xs text-slate-400 mt-1">
-                Planned → develop in Brainstorm → move to Running → complete when you’ve tried 2–3 posts.
+                Planned → develop in Brainstorm → move to Running → complete when
+                you’ve tried 2–3 posts.
               </div>
             </div>
           </div>
@@ -494,21 +612,33 @@ export default function CampaignsPage() {
                   <div className="text-sm font-semibold">Planned</div>
                   <div className="text-xs text-slate-400">{counts.planned}</div>
                 </div>
-                <div className="mt-2 text-[12px] text-slate-400">Saved ideas. Start one when ready.</div>
+                <div className="mt-2 text-[12px] text-slate-400">
+                  Saved ideas. Start one when ready.
+                </div>
 
                 <div className="mt-3 space-y-3">
                   {planned.length === 0 ? (
-                    <div className="text-sm text-slate-400">Nothing here yet.</div>
+                    <div className="text-sm text-slate-400">
+                      Nothing here yet.
+                    </div>
                   ) : (
                     planned.map((e) => (
-                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
-                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
+                      <div
+                        key={e.id}
+                        className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2"
+                      >
+                        <div className="text-sm font-semibold text-slate-100">
+                          {e.title || "Untitled experiment"}
+                        </div>
                         <div className="text-[12px] text-slate-300">
-                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} ·{" "}
+                          {nice(e.format)}
                         </div>
 
                         {e.hypothesis ? (
-                          <div className="text-[12px] text-slate-300 whitespace-pre-wrap">{e.hypothesis}</div>
+                          <div className="text-[12px] text-slate-300 whitespace-pre-wrap">
+                            {e.hypothesis}
+                          </div>
                         ) : null}
 
                         <div className="flex flex-wrap gap-2 pt-1">
@@ -520,12 +650,14 @@ export default function CampaignsPage() {
                             Develop in Brainstorm
                           </button>
 
+                          {/* ✅ CONNECTED START RUNNING */}
                           <button
                             type="button"
-                            onClick={() => setStatus(e.id, "running")}
+                            onClick={() => startRunningConnected(e)}
                             className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                            title="Sets this experiment to Running and marks it as the active one for tracking."
                           >
-                            Start (Running)
+                            Start running (track)
                           </button>
 
                           <button
@@ -548,23 +680,52 @@ export default function CampaignsPage() {
                   <div className="text-sm font-semibold">Running</div>
                   <div className="text-xs text-slate-400">{counts.running}</div>
                 </div>
-                <div className="mt-2 text-[12px] text-slate-400">Try it for 2–3 posts before judging it.</div>
+                <div className="mt-2 text-[12px] text-slate-400">
+                  Try it for 2–3 posts before judging it.
+                </div>
 
                 <div className="mt-3 space-y-3">
                   {running.length === 0 ? (
-                    <div className="text-sm text-slate-400">Nothing here yet.</div>
+                    <div className="text-sm text-slate-400">
+                      Nothing here yet.
+                    </div>
                   ) : (
                     running.map((e) => (
-                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
-                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
+                      <div
+                        key={e.id}
+                        className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2"
+                      >
+                        <div className="text-sm font-semibold text-slate-100">
+                          {e.title || "Untitled experiment"}
+                        </div>
                         <div className="text-[12px] text-slate-300">
-                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} ·{" "}
+                          {nice(e.format)}
                         </div>
 
                         <div className="flex flex-wrap gap-2 pt-1">
                           <button
                             type="button"
-                            onClick={() => sendExperimentToBrainstorm(e)}
+                            onClick={() => {
+                              // keep tracking set to this exp whenever you interact with it
+                              const activePayload = {
+                                v: 1,
+                                activatedAt: new Date().toISOString(),
+                                source: "growth_lab",
+                                organisationId: e.organisation_id || null,
+                                experimentId: e.id,
+                                title: e.title || "Growth Experiment",
+                                platform: String(e.platform || "facebook").toLowerCase(),
+                                pattern_type: e.pattern_type || null,
+                                format: e.format || null,
+                                hook_style: e.hook_style || null,
+                                cta_style: e.cta_style || null,
+                                hypothesis: e.hypothesis || null,
+                                notes: e.notes || null,
+                              };
+                              setLocalStorageMulti(ACTIVE_EXPERIMENT_KEYS, activePayload);
+                              sendExperimentToBrainstorm(e);
+                            }}
                             className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
                           >
                             Make next post (Brainstorm)
@@ -598,17 +759,27 @@ export default function CampaignsPage() {
                   <div className="text-sm font-semibold">Completed</div>
                   <div className="text-xs text-slate-400">{counts.completed}</div>
                 </div>
-                <div className="mt-2 text-[12px] text-slate-400">Your playbook is forming.</div>
+                <div className="mt-2 text-[12px] text-slate-400">
+                  Your playbook is forming.
+                </div>
 
                 <div className="mt-3 space-y-3">
                   {completed.length === 0 ? (
-                    <div className="text-sm text-slate-400">Nothing here yet.</div>
+                    <div className="text-sm text-slate-400">
+                      Nothing here yet.
+                    </div>
                   ) : (
                     completed.map((e) => (
-                      <div key={e.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
-                        <div className="text-sm font-semibold text-slate-100">{e.title || "Untitled experiment"}</div>
+                      <div
+                        key={e.id}
+                        className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2"
+                      >
+                        <div className="text-sm font-semibold text-slate-100">
+                          {e.title || "Untitled experiment"}
+                        </div>
                         <div className="text-[12px] text-slate-300">
-                          {platformLabel(e.platform)} · {nice(e.pattern_type)} · {nice(e.format)}
+                          {platformLabel(e.platform)} · {nice(e.pattern_type)} ·{" "}
+                          {nice(e.format)}
                         </div>
 
                         <div className="flex flex-wrap gap-2 pt-1">
@@ -646,9 +817,12 @@ export default function CampaignsPage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-xs text-slate-400">Growth Lab</div>
-                  <div className="mt-1 text-lg font-semibold text-slate-100">Start an experiment</div>
+                  <div className="mt-1 text-lg font-semibold text-slate-100">
+                    Start an experiment
+                  </div>
                   <div className="mt-1 text-[12px] text-slate-400">
-                    This creates a <b>Planned</b> experiment. You can develop the post in Brainstorm and start it when ready.
+                    This creates a <b>Planned</b> experiment. You can develop the
+                    post in Brainstorm and start it when ready.
                   </div>
                 </div>
 
@@ -662,7 +836,9 @@ export default function CampaignsPage() {
 
               <div className="mt-4 grid gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">Friendly name (what are we trying?)</label>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Friendly name (what are we trying?)
+                  </label>
                   <input
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
@@ -676,7 +852,9 @@ export default function CampaignsPage() {
 
                 <div className="grid md:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">Platform</label>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Platform
+                    </label>
                     <select
                       value={platform}
                       onChange={(e) => setPlatform(e.target.value)}
@@ -691,7 +869,9 @@ export default function CampaignsPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">Pattern</label>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Pattern
+                    </label>
                     <input
                       value={patternType}
                       onChange={(e) => setPatternType(e.target.value)}
@@ -701,7 +881,9 @@ export default function CampaignsPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">Format</label>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Format
+                    </label>
                     <select
                       value={format}
                       onChange={(e) => setFormat(e.target.value as any)}
@@ -715,7 +897,9 @@ export default function CampaignsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">Why might this work? (optional)</label>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Why might this work? (optional)
+                  </label>
                   <textarea
                     value={hypothesis}
                     onChange={(e) => setHypothesis(e.target.value)}
@@ -729,7 +913,9 @@ export default function CampaignsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">Notes (optional)</label>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Notes (optional)
+                  </label>
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
@@ -743,7 +929,9 @@ export default function CampaignsPage() {
                   <button
                     type="button"
                     onClick={createExperiment}
-                    disabled={creating || !title.trim() || !platform.trim() || !patternType.trim()}
+                    disabled={
+                      creating || !title.trim() || !platform.trim() || !patternType.trim()
+                    }
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
                     {creating ? "Creating…" : "Create experiment"}
@@ -759,7 +947,8 @@ export default function CampaignsPage() {
                   </button>
 
                   <div className="text-[11px] text-slate-500 self-center">
-                    This starts as <b>Planned</b>. Move it to <b>Running</b> when you’re ready.
+                    This starts as <b>Planned</b>. Move it to <b>Running</b>{" "}
+                    when you’re ready.
                   </div>
                 </div>
 
@@ -774,7 +963,8 @@ export default function CampaignsPage() {
         ) : null}
 
         <div className="text-xs text-slate-500 text-center">
-          Growth Lab isn’t here to judge you. It’s here to help you keep going. One kind step at a time.
+          Growth Lab isn’t here to judge you. It’s here to help you keep going.
+          One kind step at a time.
         </div>
       </div>
     </div>
