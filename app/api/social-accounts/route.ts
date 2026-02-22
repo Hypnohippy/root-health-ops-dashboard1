@@ -1,167 +1,127 @@
-// app/api/social-accounts/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function norm(v: any) {
-  return String(v ?? "").trim();
-}
-
 function normPlatform(p: any) {
   return String(p || "").trim().toLowerCase();
 }
 
-function parseCookie(req: NextRequest, name: string) {
-  const raw = req.headers.get("cookie") || "";
-  const parts = raw.split(";").map((p) => p.trim());
-  for (const p of parts) {
-    if (p.startsWith(name + "=")) return decodeURIComponent(p.slice(name.length + 1));
-  }
-  return null;
-}
+async function getOrganisationId(): Promise<string | null> {
+  // Optional: force a specific org via env var (useful in beta)
+  const forced =
+    (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim() ||
+    (process.env.SINGLE_ORG_ID || "").trim();
 
-async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
-  // 1) Authorization: Bearer <token>
-  const auth = norm(req.headers.get("authorization"));
-  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  if (bearer) {
-    const { data, error } = await supabaseAdmin.auth.getUser(bearer);
-    if (!error && data?.user?.id) return data.user.id;
-  }
+  if (forced) return forced;
 
-  // 2) Supabase cookie patterns (covers many setups)
-  const access =
-    parseCookie(req, "sb-access-token") ||
-    parseCookie(req, "supabase-auth-token");
+  // Fallback: MOST RECENT org
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id, created_at")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  if (access) {
-    // supabase-auth-token can be JSON like ["access","refresh"] in some setups
-    const token = access.startsWith("[")
-      ? (() => {
-          try {
-            const arr = JSON.parse(access);
-            return Array.isArray(arr) ? String(arr[0] || "") : "";
-          } catch {
-            return "";
-          }
-        })()
-      : access;
-
-    if (token) {
-      const { data, error } = await supabaseAdmin.auth.getUser(token);
-      if (!error && data?.user?.id) return data.user.id;
-    }
-  }
-
-  return null;
-}
-
-async function requireOrgForUser(req: NextRequest): Promise<{ userId: string; organisationId: string }> {
-  const userId = await getUserIdFromReq(req);
-  if (!userId) throw new Error("Not authenticated");
-
-  // 1) Prefer explicit org id (query param)
-  const fromQuery = norm(req.nextUrl.searchParams.get("organisationId"));
-
-  // 2) Optional env forced org (useful in controlled beta)
-  const forced = norm(process.env.NEXT_PUBLIC_SINGLE_ORG_ID || process.env.SINGLE_ORG_ID);
-
-  const requestedOrgId = fromQuery || forced;
-
-  if (requestedOrgId) {
-    const { data: mem, error: memErr } = await supabaseAdmin
-      .from("organisation_members")
-      .select("organisation_id")
-      .eq("organisation_id", requestedOrgId)
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (memErr) throw new Error(memErr.message);
-    if (!mem?.organisation_id) throw new Error("Not a member of this organisation");
-
-    return { userId, organisationId: requestedOrgId };
-  }
-
-  // 3) Fallback: first org membership for this user
-  const { data: memberships, error } = await supabaseAdmin
-    .from("organisation_members")
-    .select("organisation_id, created_at")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (error) throw new Error(error.message);
-
-  const orgId = memberships?.[0]?.organisation_id ? String(memberships[0].organisation_id) : null;
-  if (!orgId) throw new Error("No organisation membership found");
-
-  return { userId, organisationId: orgId };
+  if (error || !data?.id) return null;
+  return String(data.id);
 }
 
 /**
- * GET /api/social-accounts?organisationId=...
- * Returns:
- * {
- *   success: true,
- *   organisationId: string,
- *   socialAccounts: Array<{ platform, page_id, page_name, is_active, token_expires_at, updated_at, created_at }>
- * }
+ * GET /api/social-accounts
+ * Returns SAFE connection state WITHOUT exposing tokens
  */
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
-    const { organisationId } = await requireOrgForUser(req);
+    const organisationId = await getOrganisationId();
+    if (!organisationId) {
+      return NextResponse.json(
+        { success: false, error: "No organisation found." },
+        { status: 400 }
+      );
+    }
 
+    // ✅ We select page_access_token ONLY to compute has_token
+    // ✅ We do NOT return the token to the client.
     const { data, error } = await supabaseAdmin
       .from("social_accounts")
-      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at")
+      .select(
+        "platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at,page_access_token"
+      )
       .eq("organisation_id", organisationId)
       .order("updated_at", { ascending: false });
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 500 }
+      );
+    }
+
+    const safe = (data || []).map((row: any) => {
+      const tok = String(row?.page_access_token || "").trim();
+      const has_token = !!tok;
+
+      return {
+        organisation_id: organisationId,
+        platform: String(row?.platform || "").toLowerCase(),
+        page_id: row?.page_id ?? null,
+        page_name: row?.page_name ?? null,
+        is_active: !!row?.is_active,
+        token_expires_at: row?.token_expires_at ?? null,
+        updated_at: row?.updated_at ?? null,
+        created_at: row?.created_at ?? null,
+
+        // ✅ what the UI actually needs
+        has_token,
+        token_state: has_token ? "HAS_TOKEN" : "NO_TOKEN",
+      };
+    });
 
     return NextResponse.json({
       success: true,
       organisationId,
-      socialAccounts: data || [],
+      socialAccounts: safe,
     });
   } catch (e: any) {
-    const msg = e?.message || "Failed to load social accounts";
-    const status = msg === "Not authenticated" ? 401 : msg.includes("Not a member") ? 403 : 500;
-    return NextResponse.json({ success: false, error: msg }, { status });
+    return NextResponse.json(
+      { success: false, error: e?.message || "Failed to load social accounts" },
+      { status: 500 }
+    );
   }
 }
 
 /**
- * POST /api/social-accounts?organisationId=...
- * Body:
- * {
- *   platform: "facebook" | "instagram" | "threads" | "linkedin" | "tiktok" | ...
- *   page_id?: string
- *   page_name?: string
- *   page_access_token?: string
- *   token_expires_at?: string | null
- *   is_active?: boolean
- * }
- *
- * Behavior:
- * - Upserts (update if exists, insert if missing)
- * - is_active defaults to true unless explicitly false
+ * POST /api/social-accounts
+ * Upserts a social account row (token stored server-side)
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({} as any));
-    const platform = normPlatform(body?.platform);
 
+    const platform = normPlatform(body?.platform);
     if (!platform) {
-      return NextResponse.json({ success: false, error: "Missing platform." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Missing platform." },
+        { status: 400 }
+      );
     }
 
-    const { organisationId } = await requireOrgForUser(req);
+    const organisationId = await getOrganisationId();
+    if (!organisationId) {
+      return NextResponse.json(
+        { success: false, error: "No organisation found." },
+        { status: 400 }
+      );
+    }
 
     const page_id = body?.page_id ? String(body.page_id).trim() : null;
     const page_name = body?.page_name ? String(body.page_name).trim() : null;
-    const page_access_token = body?.page_access_token ? String(body.page_access_token).trim() : null;
+
+    // Token stored server-side only
+    const page_access_token = body?.page_access_token
+      ? String(body.page_access_token).trim()
+      : null;
 
     const token_expires_at =
       body?.token_expires_at === null || body?.token_expires_at === undefined
@@ -169,9 +129,10 @@ export async function POST(req: NextRequest) {
         : String(body.token_expires_at).trim() || null;
 
     const is_active = body?.is_active === false ? false : true;
+
     const now = new Date().toISOString();
 
-    // 1) Update existing row first
+    // 1) Try update
     const { data: updated, error: uErr } = await supabaseAdmin
       .from("social_accounts")
       .update({
@@ -184,20 +145,31 @@ export async function POST(req: NextRequest) {
       })
       .eq("organisation_id", organisationId)
       .eq("platform", platform)
-      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at")
+      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at,page_access_token")
       .maybeSingle();
 
     if (!uErr && updated) {
+      const tok = String(updated?.page_access_token || "").trim();
       return NextResponse.json({
         success: true,
         organisationId,
         saved: true,
-        socialAccount: updated,
+        socialAccount: {
+          platform: updated.platform,
+          page_id: updated.page_id,
+          page_name: updated.page_name,
+          is_active: updated.is_active,
+          token_expires_at: updated.token_expires_at,
+          updated_at: updated.updated_at,
+          created_at: updated.created_at,
+          has_token: !!tok,
+          token_state: tok ? "HAS_TOKEN" : "NO_TOKEN",
+        },
         mode: "updated",
       });
     }
 
-    // 2) Insert new row
+    // 2) Insert
     const { data: inserted, error: iErr } = await supabaseAdmin
       .from("social_accounts")
       .insert({
@@ -211,29 +183,45 @@ export async function POST(req: NextRequest) {
         created_at: now,
         updated_at: now,
       })
-      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at")
+      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at,page_access_token")
       .single();
 
-    if (iErr) throw new Error(iErr.message);
+    if (iErr) {
+      return NextResponse.json(
+        { success: false, error: iErr.message },
+        { status: 500 }
+      );
+    }
+
+    const tok = String(inserted?.page_access_token || "").trim();
 
     return NextResponse.json({
       success: true,
       organisationId,
       saved: true,
-      socialAccount: inserted,
+      socialAccount: {
+        platform: inserted.platform,
+        page_id: inserted.page_id,
+        page_name: inserted.page_name,
+        is_active: inserted.is_active,
+        token_expires_at: inserted.token_expires_at,
+        updated_at: inserted.updated_at,
+        created_at: inserted.created_at,
+        has_token: !!tok,
+        token_state: tok ? "HAS_TOKEN" : "NO_TOKEN",
+      },
       mode: "inserted",
     });
   } catch (e: any) {
-    const msg = e?.message || "Failed to save social account";
-    const status = msg === "Not authenticated" ? 401 : msg.includes("Not a member") ? 403 : 500;
-    return NextResponse.json({ success: false, error: msg }, { status });
+    return NextResponse.json(
+      { success: false, error: e?.message || "Failed to save social account" },
+      { status: 500 }
+    );
   }
 }
 
 /**
- * DELETE /api/social-accounts?organisationId=...
- * Body: { platform }
- *
+ * DELETE /api/social-accounts
  * Soft disconnect:
  * - is_active=false
  * - clears token + expiry
@@ -244,10 +232,19 @@ export async function DELETE(req: NextRequest) {
     const platform = normPlatform(body?.platform);
 
     if (!platform) {
-      return NextResponse.json({ success: false, error: "Missing platform." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Missing platform." },
+        { status: 400 }
+      );
     }
 
-    const { organisationId } = await requireOrgForUser(req);
+    const organisationId = await getOrganisationId();
+    if (!organisationId) {
+      return NextResponse.json(
+        { success: false, error: "No organisation found." },
+        { status: 400 }
+      );
+    }
 
     const { error } = await supabaseAdmin
       .from("social_accounts")
@@ -260,12 +257,18 @@ export async function DELETE(req: NextRequest) {
       .eq("organisation_id", organisationId)
       .eq("platform", platform);
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 500 }
+      );
+    }
 
-    return NextResponse.json({ success: true, organisationId });
+    return NextResponse.json({ success: true });
   } catch (e: any) {
-    const msg = e?.message || "Disconnect failed";
-    const status = msg === "Not authenticated" ? 401 : msg.includes("Not a member") ? 403 : 500;
-    return NextResponse.json({ success: false, error: msg }, { status });
+    return NextResponse.json(
+      { success: false, error: e?.message || "Disconnect failed" },
+      { status: 500 }
+    );
   }
 }
