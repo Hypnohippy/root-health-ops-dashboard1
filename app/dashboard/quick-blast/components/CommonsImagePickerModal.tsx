@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type CommonsItem = {
   title: string;
-  url: string;   // full image URL
+  url: string; // full image URL
   thumb?: string; // thumbnail URL
 };
 
@@ -22,13 +22,13 @@ type Props = {
   helpText?: string;
 };
 
-function safeStr(v: any) {
+function safeStr(v: unknown) {
   return String(v || "").trim();
 }
 
 function isAllowedImageUrl(u: string) {
   const s = u.toLowerCase();
-  // Avoid SVG for posting (Meta/Threads often choke on SVG, and some systems treat it as non-photo)
+  // Avoid SVG for posting (Meta/Threads often choke on SVG)
   if (s.endsWith(".svg")) return false;
 
   return (
@@ -41,14 +41,12 @@ function isAllowedImageUrl(u: string) {
 }
 
 function pickBestUrl(item: CommonsItem) {
-  // Prefer the direct URL if it's not svg; otherwise thumb if allowed
   const url = safeStr(item?.url);
   const thumb = safeStr(item?.thumb);
 
   if (url && isAllowedImageUrl(url)) return url;
   if (thumb && isAllowedImageUrl(thumb)) return thumb;
 
-  // If both are svg or unknown, return url anyway (user can still pick, but we warn)
   return url || thumb || "";
 }
 
@@ -95,7 +93,6 @@ export default function CommonsImagePickerModal({
   useEffect(() => {
     if (!open) return;
 
-    // only seed on the first open, so user edits persist during this open session
     if (!firstOpenRef.current) {
       firstOpenRef.current = true;
       if (initialQuery && !query) setQuery(initialQuery);
@@ -119,34 +116,33 @@ export default function CommonsImagePickerModal({
     setError(null);
 
     try {
-      // IMPORTANT:
-      // Your API (based on your JSON) returns: { success: true, items: [...] }
-      // Some older code expects { results: [...] } — we support BOTH here.
       const res = await fetch(`/api/images/commons?q=${encodeURIComponent(qTrim)}`, {
         cache: "no-store",
       });
 
-      const json: any = await res.json().catch(() => null);
+      const json: unknown = await res.json().catch(() => null);
 
       if (!res.ok) {
-        setError(json?.error || `Search failed (${res.status})`);
+        const j = json as any;
+        setError(j?.error || `Search failed (${res.status})`);
         setItems([]);
         return;
       }
 
-      const arr =
-        (Array.isArray(json?.items) ? json.items : null) ||
-        (Array.isArray(json?.results) ? json.results : null) ||
+      const j = json as any;
+
+      const arr: any[] =
+        (Array.isArray(j?.items) ? j.items : null) ||
+        (Array.isArray(j?.results) ? j.results : null) ||
         [];
 
-      // Normalize + filter out junk
       const cleaned: CommonsItem[] = arr
         .map((x: any) => ({
           title: safeStr(x?.title),
           url: safeStr(x?.url),
           thumb: safeStr(x?.thumb),
         }))
-        .filter((x) => x.url || x.thumb);
+        .filter((x: CommonsItem) => x.url || x.thumb);
 
       setItems(cleaned);
       setError(null);
@@ -158,7 +154,7 @@ export default function CommonsImagePickerModal({
     }
   }
 
-  // Debounced search while typing (so it feels like Brainstorm)
+  // Debounced search while typing
   useEffect(() => {
     if (!open) return;
 
@@ -177,7 +173,6 @@ export default function CommonsImagePickerModal({
   }, [query, open]);
 
   const filtered = useMemo(() => {
-    // Prefer actual photos; still allow weird types but push them down
     const allowed: CommonsItem[] = [];
     const other: CommonsItem[] = [];
 
@@ -202,12 +197,10 @@ export default function CommonsImagePickerModal({
     onClose();
   }
 
-  // Reset selection when opening
   useEffect(() => {
     if (!open) return;
     setSelectedUrl("");
     setError(null);
-    // don't wipe query on open; user expects it to stay
   }, [open]);
 
   if (!open) return null;
@@ -233,12 +226,8 @@ export default function CommonsImagePickerModal({
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Image Search</div>
-              <div className="mt-1 text-lg font-semibold text-slate-100">
-                Commons image picker
-              </div>
-              <div className="mt-1 text-sm text-slate-300">
-                Search → click an image → Pick.
-              </div>
+              <div className="mt-1 text-lg font-semibold text-slate-100">Commons image picker</div>
+              <div className="mt-1 text-sm text-slate-300">Search → click an image → Pick.</div>
               {helpText ? (
                 <div className="mt-1 text-[11px] text-slate-400">{helpText}</div>
               ) : (
@@ -296,18 +285,11 @@ export default function CommonsImagePickerModal({
           {/* Status row */}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px]">
             <div className="text-slate-400">
-              {busy
-                ? "Searching…"
-                : safeStr(query)
-                ? `${filtered.length} result(s)`
-                : "Type a search term to begin."}
+              {busy ? "Searching…" : safeStr(query) ? `${filtered.length} result(s)` : "Type a search term to begin."}
             </div>
 
             <div className="text-slate-500">
-              Selected:{" "}
-              <span className="text-slate-200 break-all">
-                {selectedUrl ? selectedUrl : "—"}
-              </span>
+              Selected: <span className="text-slate-200 break-all">{selectedUrl ? selectedUrl : "—"}</span>
             </div>
           </div>
 
@@ -328,10 +310,7 @@ export default function CommonsImagePickerModal({
           ) : busy && filtered.length === 0 ? (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {Array.from({ length: 9 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="h-40 rounded-2xl border border-slate-800 bg-slate-900/40 animate-pulse"
-                />
+                <div key={i} className="h-40 rounded-2xl border border-slate-800 bg-slate-900/40 animate-pulse" />
               ))}
             </div>
           ) : filtered.length === 0 ? (
@@ -354,20 +333,13 @@ export default function CommonsImagePickerModal({
                     onClick={() => choose(it)}
                     className={[
                       "group text-left rounded-2xl border p-3 transition",
-                      isSelected
-                        ? "border-emerald-500/70 bg-emerald-500/10"
-                        : "border-slate-800 bg-slate-950 hover:border-slate-700",
+                      isSelected ? "border-emerald-500/70 bg-emerald-500/10" : "border-slate-800 bg-slate-950 hover:border-slate-700",
                     ].join(" ")}
                     title={it.title || "Image"}
                   >
                     <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-900/40">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={thumb}
-                        alt={it.title || "Image"}
-                        className="h-40 w-full object-cover"
-                        loading="lazy"
-                      />
+                      <img src={thumb} alt={it.title || "Image"} className="h-40 w-full object-cover" loading="lazy" />
                       {!allowed ? (
                         <div className="absolute bottom-2 left-2 rounded-full border border-amber-500/40 bg-amber-950/60 px-2 py-1 text-[10px] text-amber-200">
                           May not post (SVG/unknown)
@@ -375,17 +347,9 @@ export default function CommonsImagePickerModal({
                       ) : null}
                     </div>
 
-                    <div className="mt-2 text-[12px] font-semibold text-slate-200 line-clamp-2">
-                      {it.title || "Untitled"}
-                    </div>
-
-                    <div className="mt-1 text-[11px] text-slate-400 break-all line-clamp-2">
-                      {best || "—"}
-                    </div>
-
-                    <div className="mt-2 text-[11px] text-slate-500">
-                      Click to select
-                    </div>
+                    <div className="mt-2 text-[12px] font-semibold text-slate-200 line-clamp-2">{it.title || "Untitled"}</div>
+                    <div className="mt-1 text-[11px] text-slate-400 break-all line-clamp-2">{best || "—"}</div>
+                    <div className="mt-2 text-[11px] text-slate-500">Click to select</div>
                   </button>
                 );
               })}
@@ -397,7 +361,7 @@ export default function CommonsImagePickerModal({
         <div className="rounded-b-3xl border-t border-slate-800 bg-slate-950 px-5 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-[11px] text-slate-400">
-              Note: Many “public” image hosts fail Meta/IG/Threads download checks. If posting fails, use the uploader.
+              Note: Many public hosts fail Meta/IG/Threads download checks. If posting fails, use the uploader.
             </div>
 
             <div className="flex gap-2">
