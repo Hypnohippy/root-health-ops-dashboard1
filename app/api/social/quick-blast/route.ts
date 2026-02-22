@@ -43,6 +43,20 @@ function safeUuidLike(s: any) {
   return v;
 }
 
+function normaliseMediaUrl(raw: any) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+
+  // strip placeholder junk if it ever gets into payloads
+  if (s === "PASTE_THE_IMAGE_URL_HERE") return "";
+  if (s.toLowerCase().includes("paste_the_image_url_here")) return "";
+
+  // only allow http(s)
+  if (!/^https?:\/\//i.test(s)) return "";
+
+  return s;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -55,11 +69,9 @@ export async function POST(req: NextRequest) {
         ? body.organisationId.trim()
         : null;
 
-    const imageUrl =
-      typeof body?.imageUrl === "string" && body.imageUrl.trim() ? body.imageUrl.trim() : "";
-
-    const videoUrl =
-      typeof body?.videoUrl === "string" && body.videoUrl.trim() ? body.videoUrl.trim() : "";
+    // ✅ Accept both styles, and clean placeholders/non-http
+    const imageUrl = normaliseMediaUrl(body?.imageUrl || body?.image_url);
+    const videoUrl = normaliseMediaUrl(body?.videoUrl || body?.video_url);
 
     // ✅ Optional Growth Lab tracking (client should send this)
     const experimentId = safeUuidLike(body?.experimentId || body?.experiment_id);
@@ -94,8 +106,7 @@ export async function POST(req: NextRequest) {
 
     const nowIso = new Date().toISOString();
 
-    // ✅ For Quick Blast, we still “queue” into scheduled_posts but with scheduled_for = now.
-    // publish/now reads meta.video_url and will deliver video properly.
+    // ✅ Quick Blast queues into scheduled_posts with scheduled_for = now
     const insertPayload: any = {
       organisation_id: organisationId,
       message,
@@ -107,8 +118,6 @@ export async function POST(req: NextRequest) {
         source: "quick_blast",
         created_at: nowIso,
         ...(videoUrl ? { video_url: videoUrl } : {}),
-
-        // ✅ Carry experiment ID through the pipeline (safe + optional)
         ...(experimentId ? { experiment_id: experimentId } : {}),
       },
     };
@@ -127,8 +136,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ Log Growth Lab event: "queued from quick blast" (optional)
-    // This creates the audit trail for the experiment → post attempts.
+    // ✅ Log Growth Lab event (optional)
     if (experimentId) {
       try {
         const contentPreview = String(message || "").slice(0, 400);
@@ -138,8 +146,8 @@ export async function POST(req: NextRequest) {
           experiment_id: experimentId,
           platform: p,
           action: "queued",
-          ok: true, // queued successfully
-          external_post_id: String(created.id), // scheduled_posts.id (internal id)
+          ok: true,
+          external_post_id: String(created.id),
           content_preview: contentPreview || null,
           meta: {
             source: "quick_blast",
@@ -150,13 +158,9 @@ export async function POST(req: NextRequest) {
         }));
 
         const { error: logErr } = await supabaseAdmin.from("growth_experiment_events").insert(rows);
-        if (logErr) {
-          console.warn("[quick-blast] growth_experiment_events insert failed", logErr);
-          // do not fail the whole request
-        }
+        if (logErr) console.warn("[quick-blast] growth_experiment_events insert failed", logErr);
       } catch (e) {
         console.warn("[quick-blast] growth log-event crashed", e);
-        // do not fail the whole request
       }
     }
 
