@@ -5,7 +5,7 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 export const runtime = "nodejs";
 
 /**
- * GET /api/social/scheduled?range=future&includeQuickBlast=0
+ * GET /api/social/scheduled?range=future&includeQuickBlast=0&organisationId=xxx
  *
  * range:
  * - future (default): upcoming + not-posted + recently posted (last 24h) so results don't "disappear"
@@ -14,6 +14,10 @@ export const runtime = "nodejs";
  *
  * includeQuickBlast:
  * - 0 default: hides meta.source === "quick_blast"
+ *
+ * organisationId:
+ * - if provided, we use it (THIS FIXES "items not showing")
+ * - if missing, we fall back to latest org (legacy behavior)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -22,19 +26,25 @@ export async function GET(req: NextRequest) {
     const range = String(url.searchParams.get("range") || "future").toLowerCase();
     const includeQuickBlast = String(url.searchParams.get("includeQuickBlast") || "0") === "1";
 
-    // ✅ single-tenant: use latest org (consistent with other fixes)
-    const { data: org, error: orgErr } = await supabaseAdmin
-      .from("organisations")
-      .select("id, created_at")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // ✅ Prefer explicit orgId (matches how scheduling routes write)
+    let organisationId = String(url.searchParams.get("organisationId") || "").trim();
 
-    if (orgErr || !org?.id) {
-      return NextResponse.json({ success: false, error: "No organisation found." }, { status: 200 });
+    // Legacy fallback: latest org (only if orgId not provided)
+    if (!organisationId) {
+      const { data: org, error: orgErr } = await supabaseAdmin
+        .from("organisations")
+        .select("id, created_at")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (orgErr || !org?.id) {
+        return NextResponse.json({ success: false, error: "No organisation found." }, { status: 200 });
+      }
+
+      organisationId = String(org.id);
     }
 
-    const organisationId = String(org.id);
     const nowIso = new Date().toISOString();
     const last24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
@@ -47,12 +57,13 @@ export async function GET(req: NextRequest) {
 
     // Hide quick blast rows by default
     if (!includeQuickBlast) {
+      // keep rows where meta.source is null OR source != quick_blast
       q = q.or("meta->>source.is.null,meta->>source.neq.quick_blast");
     }
 
     // Range filtering
     if (range === "future") {
-      // ✅ show:
+      // Show:
       // - anything not posted yet
       // - anything scheduled in the future
       // - anything posted in last 24h (so it doesn't “disappear” after it runs)
@@ -65,8 +76,11 @@ export async function GET(req: NextRequest) {
 
     if (error) return NextResponse.json({ success: false, error: error.message }, { status: 200 });
 
-    return NextResponse.json({ success: true, items: data || [] }, { status: 200 });
+    return NextResponse.json({ success: true, items: data || [], organisationId }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ success: false, error: e?.message || "Failed to load scheduled posts." }, { status: 200 });
+    return NextResponse.json(
+      { success: false, error: e?.message || "Failed to load scheduled posts." },
+      { status: 200 }
+    );
   }
 }
