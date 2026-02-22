@@ -5,12 +5,12 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 export const runtime = "nodejs";
 
 /**
- * GET /api/social/scheduled?range=future&includeQuickBlast=0&organisationId=...
+ * GET /api/social/scheduled?range=future|past|all&includeQuickBlast=0|1&organisationId=...
  *
  * range:
- * - future (default): upcoming + not-posted + recently posted (last 24h) so results don't "disappear"
- * - past: older than now
- * - all: everything (capped)
+ * - future: (not posted AND scheduled_for >= now) OR (posted in last 24h)
+ * - past: (posted older than 24h) OR (not posted AND scheduled_for < now)
+ * - all: everything
  *
  * includeQuickBlast:
  * - 0 default: hides meta.source === "quick_blast"
@@ -22,11 +22,10 @@ export async function GET(req: NextRequest) {
     const range = String(url.searchParams.get("range") || "future").toLowerCase();
     const includeQuickBlast = String(url.searchParams.get("includeQuickBlast") || "0") === "1";
 
-    // ✅ Prefer explicit orgId from client (prevents "ghost" org mismatches)
+    // Prefer explicit orgId from client
     let organisationId = String(url.searchParams.get("organisationId") || "").trim();
 
     if (!organisationId) {
-      // fallback: forced env or latest org
       const forced =
         (process.env.SINGLE_ORG_ID || "").trim() ||
         (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
@@ -63,13 +62,30 @@ export async function GET(req: NextRequest) {
       q = q.or("meta->>source.is.null,meta->>source.neq.quick_blast");
     }
 
+    /**
+     * IMPORTANT:
+     * We must group logic properly using PostgREST "or(and(...),and(...))" style.
+     */
     if (range === "future") {
-      q = q.or(`posted_at.is.null,scheduled_for.gte.${nowIso},posted_at.gte.${last24hIso}`);
+      // (posted_at is null AND scheduled_for >= now) OR (posted_at >= last24h)
+      q = q.or(
+        `and(posted_at.is.null,scheduled_for.gte.${nowIso}),and(posted_at.gte.${last24hIso})`
+      );
     } else if (range === "past") {
-      q = q.lt("scheduled_for", nowIso);
+      // (posted_at is not null AND posted_at < last24h) OR (posted_at is null AND scheduled_for < now)
+      q = q.or(
+        `and(posted_at.not.is.null,posted_at.lt.${last24hIso}),and(posted_at.is.null,scheduled_for.lt.${nowIso})`
+      );
+    } else {
+      // all -> no extra filter
     }
 
-    const { data, error } = await q.order("scheduled_for", { ascending: true }).limit(120);
+    // Order:
+    // - future: soonest first
+    // - past/all: newest first (more useful)
+    const ascending = range === "future";
+
+    const { data, error } = await q.order("scheduled_for", { ascending }).limit(160);
 
     if (error) return NextResponse.json({ success: false, error: error.message }, { status: 200 });
 
