@@ -92,6 +92,9 @@ function safeParsePrefill(raw: string | null): Prefill | null {
 
 const PREFILL_STORIES_KEYS = ["rootops_prefill_stories_v1", "rh_prefill_stories_v1"];
 
+// ✅ NEW: Stories Draft Locker (prevents “drafts vanish when navigating away”)
+const STORIES_LOCKER_KEYS = ["rootops_stories_locker_v1", "rh_stories_locker_v1"];
+
 function getLocalStorageFirst(keys: string[]) {
   try {
     for (const k of keys) {
@@ -100,6 +103,17 @@ function getLocalStorageFirst(keys: string[]) {
     }
   } catch {}
   return null;
+}
+
+function setLocalStorageMulti(keys: string[], payload: any) {
+  try {
+    const raw = JSON.stringify(payload);
+    for (const k of keys) {
+      try {
+        window.localStorage.setItem(k, raw);
+      } catch {}
+    }
+  } catch {}
 }
 
 function removeLocalStorageMulti(keys: string[]) {
@@ -111,6 +125,32 @@ function removeLocalStorageMulti(keys: string[]) {
     }
   } catch {}
 }
+
+type StoriesLockerPayload = {
+  v: 1;
+  savedAt: string;
+
+  // create lane
+  idea: string;
+  storyType: StoryTypeOption;
+  tone: ToneOption;
+  targetPlatform: ChannelId;
+  ctaStyle: CtaStyleOption;
+  seriesLength: number;
+  autoVariation: boolean;
+
+  mode: Mode;
+  seriesStart: string;
+  dailyCadence: number;
+
+  // drafts lane
+  drafts: GeneratedPost[];
+  importedFromBrainstorm: boolean;
+
+  // media
+  imageUrl: string;
+  videoUrl: string;
+};
 
 export default function StorySeriesBuilderPage() {
   // Create lane
@@ -144,6 +184,88 @@ export default function StorySeriesBuilderPage() {
   // Media (global for this series of drafts)
   const [imageUrl, setImageUrl] = useState<string>("");
   const [videoUrl, setVideoUrl] = useState<string>("");
+
+  // ✅ Restore locker on first mount (so drafts persist across navigation)
+  useEffect(() => {
+    try {
+      const raw = getLocalStorageFirst(STORIES_LOCKER_KEYS);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as StoriesLockerPayload;
+      if (!parsed || typeof parsed !== "object") return;
+      if (parsed.v !== 1) return;
+
+      setIdea(parsed.idea || "");
+      setStoryType(parsed.storyType || "HR director perspective");
+      setTone(parsed.tone || "Professional & confident");
+      setTargetPlatform(parsed.targetPlatform || "linkedin");
+      setCtaStyle(parsed.ctaStyle || "Comment for more / next part");
+      setSeriesLength(Number(parsed.seriesLength) || 3);
+
+      setAutoVariation(parsed.autoVariation !== false);
+
+      setMode(parsed.mode || "schedule");
+      setSeriesStart(parsed.seriesStart || "");
+      setDailyCadence(Number(parsed.dailyCadence) || 1);
+
+      setDrafts(Array.isArray(parsed.drafts) ? parsed.drafts : []);
+      setImportedFromBrainstorm(!!parsed.importedFromBrainstorm);
+
+      setImageUrl(parsed.imageUrl || "");
+      setVideoUrl(parsed.videoUrl || "");
+
+      // don’t touch errors/status here
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ✅ Persist locker whenever important state changes
+  useEffect(() => {
+    try {
+      const payload: StoriesLockerPayload = {
+        v: 1,
+        savedAt: new Date().toISOString(),
+
+        idea,
+        storyType,
+        tone,
+        targetPlatform,
+        ctaStyle,
+        seriesLength,
+        autoVariation,
+
+        mode,
+        seriesStart,
+        dailyCadence,
+
+        drafts,
+        importedFromBrainstorm,
+
+        imageUrl,
+        videoUrl,
+      };
+      setLocalStorageMulti(STORIES_LOCKER_KEYS, payload);
+    } catch {
+      // ignore
+    }
+  }, [
+    idea,
+    storyType,
+    tone,
+    targetPlatform,
+    ctaStyle,
+    seriesLength,
+    autoVariation,
+    mode,
+    seriesStart,
+    dailyCadence,
+    drafts,
+    importedFromBrainstorm,
+    imageUrl,
+    videoUrl,
+  ]);
 
   useEffect(() => {
     (async () => {
@@ -223,13 +345,12 @@ export default function StorySeriesBuilderPage() {
         const mappedDrafts: GeneratedPost[] = items.map((it) => ({
           title: typeof it.title === "string" ? it.title : "",
           body: typeof it.text === "string" ? it.text : "",
-          cta: "", // Brainstorm already joins CTA/hashtags into text; keep blank
+          cta: "",
         }));
 
         setDrafts(mappedDrafts);
         setSeriesLength(mappedDrafts.length);
 
-        // IMPORTANT: keep create lane empty (that’s fine) — but drafts are now sendable.
         if (prefill.mode === "single") setMode("now");
         else setMode("schedule");
 
@@ -237,6 +358,7 @@ export default function StorySeriesBuilderPage() {
         setDispatchStatus(null);
         setDispatchError(null);
 
+        // IMPORTANT: clear prefill so it doesn't re-run on refresh
         removeLocalStorageMulti(PREFILL_STORIES_KEYS);
         return;
       }
@@ -267,6 +389,7 @@ export default function StorySeriesBuilderPage() {
     } catch {
       // ignore
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const canGenerate = useMemo(() => !!idea.trim() && !isGenerating, [idea, isGenerating]);
@@ -347,7 +470,7 @@ export default function StorySeriesBuilderPage() {
         scheduledAtIso: ctx?.whenIso,
       },
       {
-        enabled: autoVariation,
+        enabled: true,
         includePartTag: true,
         includeMicroLine: true,
         includeCtaRotation: true,
@@ -359,7 +482,7 @@ export default function StorySeriesBuilderPage() {
     setDrafts((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   };
 
-  // ✅ NEW: Send drafts even when create lane is empty
+  // ✅ Send drafts now
   const sendDraftsNow = async () => {
     setIsDispatching(true);
     setDispatchStatus(null);
@@ -507,23 +630,45 @@ export default function StorySeriesBuilderPage() {
     }
   };
 
+  const clearStoriesLocker = () => {
+    const ok = window.confirm("Clear Stories drafts + saved state?");
+    if (!ok) return;
+    removeLocalStorageMulti(STORIES_LOCKER_KEYS);
+    setDrafts([]);
+    setImportedFromBrainstorm(false);
+    setDispatchStatus(null);
+    setDispatchError(null);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-8">
         <header className="space-y-2">
-          <h1 className="text-2xl md:text-3xl font-semibold">Stories</h1>
-          <p className="text-sm text-slate-300 max-w-3xl">
-            Generate on this page, or import drafts from Brainstorm — either way, you can now SEND/SCHEDULE drafts directly.
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-semibold">Stories</h1>
+              <p className="text-sm text-slate-300 max-w-3xl">
+                Generate on this page, or import drafts from Brainstorm — drafts persist now (Draft Locker).
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={clearStoriesLocker}
+              className="rounded-full border border-slate-600 bg-slate-950 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10"
+            >
+              Clear drafts
+            </button>
+          </div>
         </header>
 
         {importedFromBrainstorm ? (
           <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-            Imported from Brainstorm ✅ Your drafts are ready to send (even if “Create” is empty).
+            Imported from Brainstorm ✅ Your drafts are saved (won’t vanish when you navigate away).
           </div>
         ) : null}
 
-        {/* ✅ Media always available (even if Create is empty) */}
+        {/* Media */}
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-3">
           <div className="text-base font-semibold">Media (optional)</div>
           <div className="text-[12px] text-slate-400">
@@ -637,7 +782,6 @@ export default function StorySeriesBuilderPage() {
                   <option value="Inspirational & human">Inspirational & human</option>
                   <option value="Strong thought-leader">Strong thought-leader</option>
                   <option value="Data-backed but human">Data-backed but human</option>
-                  <option value="Data-backed but human">Data-backed but human</option>
                 </select>
               </div>
             </div>
@@ -708,7 +852,7 @@ export default function StorySeriesBuilderPage() {
             ) : null}
           </section>
 
-          {/* Drafts lane + ✅ NEW send buttons */}
+          {/* Drafts lane */}
           <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6 space-y-4">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <h2 className="text-base md:text-lg font-semibold">Drafts</h2>
