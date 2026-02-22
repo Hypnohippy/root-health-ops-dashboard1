@@ -179,10 +179,17 @@ function removeLocalStorageMulti(keys: string[]) {
   } catch {}
 }
 
+/**
+ * ✅ IMPORTANT:
+ * Some flows will send imageUrl (camelCase),
+ * some older flows will send image_url (snake_case),
+ * and some bad UI versions left a placeholder string.
+ */
 type PrefillItem = {
   title?: string;
   text?: string;
   imageUrl?: string;
+  image_url?: string;
   attribution?: any;
 };
 
@@ -203,6 +210,29 @@ function safeParsePrefill(raw: string | null): ScheduledPrefill | null {
   } catch {
     return null;
   }
+}
+
+function normaliseMediaUrl(raw: any): string | null {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+
+  // Strip the meme placeholder if it ever gets through
+  if (s === "PASTE_THE_IMAGE_URL_HERE") return null;
+  if (s.toLowerCase().includes("paste_the_image_url_here")) return null;
+
+  // Only allow http(s)
+  if (!/^https?:\/\//i.test(s)) return null;
+
+  return s;
+}
+
+function getPrefillImageUrl(it: PrefillItem): string | null {
+  // accept both styles, and normalise
+  const a = normaliseMediaUrl((it as any)?.imageUrl);
+  if (a) return a;
+  const b = normaliseMediaUrl((it as any)?.image_url);
+  if (b) return b;
+  return null;
 }
 
 export default function ScheduledPage() {
@@ -242,32 +272,32 @@ export default function ScheduledPage() {
 
   // Load org id once
   useEffect(() => {
-  (async () => {
-    try {
-      const res = await fetch("/api/org/current", { cache: "no-store" });
-      const data: any = await res.json().catch(() => null);
+    (async () => {
+      try {
+        const res = await fetch("/api/org/current", { cache: "no-store" });
+        const data: any = await res.json().catch(() => null);
 
-      const id = data?.organisationId ? String(data.organisationId) : null;
+        const id = data?.organisationId ? String(data.organisationId) : null;
 
-      if (!id) {
+        if (!id) {
+          setOrgId(null);
+          setOrgError(data?.error || "Organisation not found.");
+          return;
+        }
+
+        setOrgId(id);
+        setOrgError(null);
+      } catch (e: any) {
         setOrgId(null);
-        setOrgError(data?.error || "Organisation not found.");
-        return;
+        setOrgError(e?.message || "Failed to load organisation. Refresh the page.");
       }
-
-      setOrgId(id);
-      setOrgError(null);
-    } catch (e: any) {
-      setOrgId(null);
-      setOrgError(e?.message || "Failed to load organisation. Refresh the page.");
-    }
-  })();
-}, []);
+    })();
+  }, []);
 
   async function load(forceOrgId?: string | null) {
     const useOrg = String(forceOrgId ?? orgId ?? "").trim();
 
-    // ✅ do NOT load without orgId (this was causing your ghost behaviour)
+    // ✅ do NOT load without orgId
     if (!useOrg) {
       setLoading(false);
       setItems([]);
@@ -352,7 +382,10 @@ export default function ScheduledPage() {
         for (let i = 0; i < prefillItems.length; i++) {
           const it = prefillItems[i];
           const message = String(it?.text || "").trim();
-          const imageUrl = String(it?.imageUrl || "").trim() || null;
+
+          // ✅ accept both styles + strip placeholders
+          const imageUrl = getPrefillImageUrl(it);
+
           const whenIso = new Date(base + i * 60 * 1000).toISOString();
 
           if (!message) {
@@ -370,7 +403,11 @@ export default function ScheduledPage() {
               message,
               platforms,
               scheduledAt: whenIso,
-              imageUrl,
+
+              // ✅ BACKWARDS-COMPAT: send both keys (some servers read one, some the other)
+              imageUrl: imageUrl,
+              image_url: imageUrl,
+
               createdBy: { user_id: "owner", name: "Clinic Owner", email: "owner@clinic.local" },
               meta: {
                 source: "brainstorm",
@@ -594,6 +631,8 @@ export default function ScheduledPage() {
     }
 
     try {
+      const cleaned = normaliseMediaUrl(editImageUrl) || null;
+
       const res = await fetch("/api/social/scheduled/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -604,7 +643,7 @@ export default function ScheduledPage() {
           message: editMessage,
           scheduled_for: iso,
           platforms: editPlatforms,
-          image_url: editImageUrl.trim() || null,
+          image_url: cleaned,
           force_requeue: true,
         }),
       });
@@ -670,9 +709,7 @@ export default function ScheduledPage() {
               <p className="mt-2 text-sm text-slate-300 max-w-3xl">
                 Future = your pipeline. Past/All = where “posted” items live (so they don’t look like they disappeared).
               </p>
-              <div className="mt-2 text-xs text-slate-500 break-all">
-                Org: {orgId || "—"}
-              </div>
+              <div className="mt-2 text-xs text-slate-500 break-all">Org: {orgId || "—"}</div>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -752,6 +789,8 @@ export default function ScheduledPage() {
                 const source = String(it?.meta?.source || "").trim();
                 const sourceBadge = source === "quick_blast" ? "Quick Blast" : source ? source : "Scheduled";
 
+                const media = normaliseMediaUrl(it.image_url) || null;
+
                 return (
                   <div key={it.id} className="rounded-3xl border border-slate-700 bg-slate-950 p-5">
                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
@@ -776,9 +815,16 @@ export default function ScheduledPage() {
                           {String(it.message || "").trim() || "—"}
                         </div>
 
-                        {it.image_url ? (
-                          <div className="mt-2 text-xs text-slate-400 break-all">Media: {it.image_url}</div>
-                        ) : null}
+                        {media ? (
+                          <div className="mt-2 text-xs text-slate-400 break-all">
+                            Media:{" "}
+                            <a className="text-emerald-300 hover:text-emerald-200" href={media} target="_blank" rel="noreferrer">
+                              {media}
+                            </a>
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-xs text-slate-500">Media: —</div>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap gap-2">
@@ -1139,7 +1185,7 @@ export default function ScheduledPage() {
             ) : null}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
