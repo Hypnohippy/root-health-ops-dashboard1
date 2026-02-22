@@ -242,24 +242,27 @@ export default function ScheduledPage() {
 
   // Load org id once
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/social-accounts", { cache: "no-store" });
-        const data: any = await res.json().catch(() => null);
-        const id = data?.organisationId ? String(data.organisationId) : null;
-        if (!id) {
-          setOrgId(null);
-          setOrgError("Organisation not found. Please refresh or complete org setup.");
-          return;
-        }
-        setOrgId(id);
-        setOrgError(null);
-      } catch {
+  (async () => {
+    try {
+      const res = await fetch("/api/org/current", { cache: "no-store" });
+      const data: any = await res.json().catch(() => null);
+
+      const id = data?.organisationId ? String(data.organisationId) : null;
+
+      if (!id) {
         setOrgId(null);
-        setOrgError("Failed to load organisation. Refresh the page.");
+        setOrgError(data?.error || "Organisation not found.");
+        return;
       }
-    })();
-  }, []);
+
+      setOrgId(id);
+      setOrgError(null);
+    } catch (e: any) {
+      setOrgId(null);
+      setOrgError(e?.message || "Failed to load organisation. Refresh the page.");
+    }
+  })();
+}, []);
 
   async function load(forceOrgId?: string | null) {
     const useOrg = String(forceOrgId ?? orgId ?? "").trim();
