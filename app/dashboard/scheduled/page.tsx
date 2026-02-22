@@ -85,11 +85,6 @@ function stripHtml(s: string) {
     .trim();
 }
 
-/**
- * Fixes:
- * - "Unknown error" showing for OK results
- * - "[object Object]" showing for failures
- */
 function describeResult(r: any) {
   const ok = !!r?.ok;
 
@@ -129,9 +124,7 @@ function describeResult(r: any) {
   return "FAILED — Unknown error";
 }
 
-// LinkedIn share text is fussy. We’ll enforce a safe limit in UI.
 const LINKEDIN_TEXT_LIMIT = 3000;
-
 const ALL_PLATFORMS = ["facebook", "instagram", "threads", "linkedin", "tiktok"];
 
 function applyUkSpellings(input: string) {
@@ -156,7 +149,6 @@ function applyUkSpellings(input: string) {
 
 type RangeMode = "future" | "past" | "all";
 
-// ✅ Scheduled batch prefill keys (Brainstorm writes both)
 const PREFILL_SCHEDULED_KEYS = ["rootops_prefill_scheduled_v1", "rh_prefill_scheduled_v1"];
 
 function getLocalStorageFirst(keys: string[]) {
@@ -179,12 +171,6 @@ function removeLocalStorageMulti(keys: string[]) {
   } catch {}
 }
 
-/**
- * ✅ IMPORTANT:
- * Some flows will send imageUrl (camelCase),
- * some older flows will send image_url (snake_case),
- * and some bad UI versions left a placeholder string.
- */
 type PrefillItem = {
   title?: string;
   text?: string;
@@ -216,18 +202,15 @@ function normaliseMediaUrl(raw: any): string | null {
   const s = String(raw || "").trim();
   if (!s) return null;
 
-  // Strip the meme placeholder if it ever gets through
   if (s === "PASTE_THE_IMAGE_URL_HERE") return null;
   if (s.toLowerCase().includes("paste_the_image_url_here")) return null;
 
-  // Only allow http(s)
   if (!/^https?:\/\//i.test(s)) return null;
 
   return s;
 }
 
 function getPrefillImageUrl(it: PrefillItem): string | null {
-  // accept both styles, and normalise
   const a = normaliseMediaUrl((it as any)?.imageUrl);
   if (a) return a;
   const b = normaliseMediaUrl((it as any)?.image_url);
@@ -243,7 +226,6 @@ export default function ScheduledPage() {
   const [includeQuickBlast, setIncludeQuickBlast] = useState(false);
   const [range, setRange] = useState<RangeMode>("future");
 
-  // Edit modal state
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -254,23 +236,19 @@ export default function ScheduledPage() {
   const [editImageUrl, setEditImageUrl] = useState("");
   const [editPlatforms, setEditPlatforms] = useState<string[]>([]);
 
-  // Media picker inside modal
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerResults, setPickerResults] = useState<CommonsImage[]>([]);
 
-  // ✅ Org (hard requirement now)
   const [orgId, setOrgId] = useState<string | null>(null);
   const [orgError, setOrgError] = useState<string | null>(null);
 
-  // Toast + import status
   const [toast, setToast] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importNote, setImportNote] = useState<string | null>(null);
 
-  // Load org id once
   useEffect(() => {
     (async () => {
       try {
@@ -297,7 +275,6 @@ export default function ScheduledPage() {
   async function load(forceOrgId?: string | null) {
     const useOrg = String(forceOrgId ?? orgId ?? "").trim();
 
-    // ✅ do NOT load without orgId
     if (!useOrg) {
       setLoading(false);
       setItems([]);
@@ -333,7 +310,6 @@ export default function ScheduledPage() {
     }
   }
 
-  // ✅ only load once orgId exists
   useEffect(() => {
     if (!orgId) return;
     load(orgId);
@@ -349,7 +325,6 @@ export default function ScheduledPage() {
     return includeQuickBlast ? "Scheduled Pipeline (including Quick Blast history)" : "Scheduled Pipeline";
   }, [includeQuickBlast, range]);
 
-  // ✅ Import Brainstorm → Scheduled (batch)
   useEffect(() => {
     if (!orgId) return;
     if (importing) return;
@@ -382,10 +357,7 @@ export default function ScheduledPage() {
         for (let i = 0; i < prefillItems.length; i++) {
           const it = prefillItems[i];
           const message = String(it?.text || "").trim();
-
-          // ✅ accept both styles + strip placeholders
           const imageUrl = getPrefillImageUrl(it);
-
           const whenIso = new Date(base + i * 60 * 1000).toISOString();
 
           if (!message) {
@@ -404,8 +376,8 @@ export default function ScheduledPage() {
               platforms,
               scheduledAt: whenIso,
 
-              // ✅ BACKWARDS-COMPAT: send both keys (some servers read one, some the other)
-              imageUrl: imageUrl,
+              // backwards compatible
+              imageUrl,
               image_url: imageUrl,
 
               createdBy: { user_id: "owner", name: "Clinic Owner", email: "owner@clinic.local" },
@@ -484,7 +456,6 @@ export default function ScheduledPage() {
     setPickerLoading(false);
   }
 
-  // ESC closes modal (and picker if open)
   useEffect(() => {
     if (!editOpen) return;
 
@@ -905,8 +876,8 @@ export default function ScheduledPage() {
         </div>
       </div>
 
-      {/* Edit modal */}
-      {editOpen && editing && (
+      {/* ✅ Edit modal (FIXED: ternary wrapper) */}
+      {editOpen && editing ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/70" onClick={closeEdit} />
 
@@ -975,11 +946,6 @@ export default function ScheduledPage() {
                   rows={7}
                   className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                 />
-                {editPlatforms.includes("linkedin") ? (
-                  <div className="mt-1 text-[11px] text-slate-500">
-                    LinkedIn is strict. We enforce a safe limit in the editor to reduce “too long” failures.
-                  </div>
-                ) : null}
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
@@ -1002,7 +968,6 @@ export default function ScheduledPage() {
                     onChange={(e) => setEditScheduledFor(e.target.value)}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   />
-                  <div className="mt-1 text-[11px] text-slate-500">Saved as UTC in the database.</div>
                 </div>
 
                 <div>
@@ -1023,10 +988,6 @@ export default function ScheduledPage() {
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                     placeholder="https://..."
                   />
-
-                  <div className="mt-2 text-[11px] text-slate-500">
-                    Heads-up: LinkedIn usually needs an upload asset (URN). This field is best for FB/IG/Threads.
-                  </div>
                 </div>
               </div>
 
@@ -1082,10 +1043,6 @@ export default function ScheduledPage() {
                 >
                   Cancel
                 </button>
-              </div>
-
-              <div className="text-[11px] text-slate-500">
-                Tip: Click outside the modal or press <b>Esc</b> to close.
               </div>
             </div>
 
@@ -1174,11 +1131,6 @@ export default function ScheduledPage() {
                         })}
                       </div>
                     )}
-
-                    <div className="text-[11px] text-slate-500">
-                      If LinkedIn rejects an image URL, it usually needs a proper “upload asset” flow. For now this picker
-                      is great for FB/IG/Threads.
-                    </div>
                   </div>
                 </div>
               </div>
