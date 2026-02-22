@@ -104,12 +104,6 @@ function uid() {
   }
 }
 
-function joinDraft(d: Draft) {
-  const hash = d.hashtags?.length ? `\n\n${d.hashtags.join(" ")}` : "";
-  const cta = d.cta?.trim() ? `\n\n${d.cta.trim()}` : "";
-  return `${(d.text || "").trim()}${cta}${hash}`.trim();
-}
-
 function safeUrl(u?: string | null) {
   const s = String(u || "").trim();
   if (!s) return "";
@@ -130,13 +124,9 @@ function setLocalStorageMulti(keys: string[], payload: any) {
     for (const k of keys) {
       try {
         localStorage.setItem(k, raw);
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 function getLocalStorageFirst(keys: string[]) {
@@ -173,6 +163,9 @@ type LockerPayload = {
   angles: string[];
   drafts: Draft[];
 
+  // ✅ NEW: per-draft editable final text
+  draftEdits: Record<number, string>;
+
   draftImages: Record<number, CommonsImage | null>;
   draftImageQueryEdits: Record<number, string>;
 };
@@ -200,6 +193,65 @@ function toChannelId(p?: string | null): ChannelId {
   return "linkedin";
 }
 
+/**
+ * ✅ Join the model’s structured fields.
+ * NOTE: We will sanitize the result before using it.
+ */
+function joinDraft(d: Draft) {
+  const hash = d.hashtags?.length ? `\n\n${d.hashtags.join(" ")}` : "";
+  const cta = d.cta?.trim() ? `\n\n${d.cta.trim()}` : "";
+  return `${(d.text || "").trim()}${cta}${hash}`.trim();
+}
+
+/**
+ * ✅ Enterprise-safe “final post extractor”
+ * This prevents Hook/CTA/Notes chatter from leaking into the final publish text.
+ */
+function extractFinalPost(raw: string) {
+  let s = String(raw || "").replace(/\r\n/g, "\n").trim();
+  if (!s) return "";
+
+  // If model uses explicit labels, prefer those.
+  const labelPatterns: Array<RegExp> = [
+    /(^|\n)\s*(final post|final|post)\s*:\s*/i,
+    /(^|\n)\s*(caption)\s*:\s*/i,
+  ];
+
+  for (const re of labelPatterns) {
+    const m = re.exec(s);
+    if (m) {
+      const idx = (m.index || 0) + m[0].length;
+      const candidate = s.slice(idx).trim();
+      if (candidate) {
+        s = candidate;
+        break;
+      }
+    }
+  }
+
+  const badLine = /^\s*(hook|hooks|cta|ctas|notes|note|reason|why this works|image prompt|image query|hashtags?)\s*:\s*/i;
+
+  // Remove “planning” lines (Hook:, CTA:, Notes:, etc)
+  const lines = s.split("\n");
+  const cleaned: string[] = [];
+  for (const line of lines) {
+    if (badLine.test(line)) continue;
+    cleaned.push(line);
+  }
+
+  // Remove common headings blocks like "Hooks:" followed by bullets
+  const joined = cleaned.join("\n").trim();
+
+  // If they gave a “Hooks” section first, try to drop it:
+  // e.g. "Hooks:\n- ...\n- ...\n\nDraft:\n..."
+  const dropHooksSection = joined.replace(
+    /^\s*hooks?\s*:\s*\n(?:\s*[-•].*\n)+\s*/i,
+    ""
+  );
+
+  return dropHooksSection.trim();
+}
+
 export default function BrainstormPage() {
   const [platform, setPlatform] = useState<ChannelId>("linkedin");
   const [tone, setTone] = useState<string>("Professional & confident");
@@ -213,6 +265,9 @@ export default function BrainstormPage() {
 
   const [angles, setAngles] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
+
+  // ✅ NEW: per-draft editable final text
+  const [draftEdits, setDraftEdits] = useState<Record<number, string>>({});
 
   // chosen image per draft
   const [draftImages, setDraftImages] = useState<Record<number, CommonsImage | null>>({});
@@ -302,6 +357,7 @@ export default function BrainstormPage() {
       chat?: ChatMsg[];
       angles?: string[];
       drafts?: Draft[];
+      draftEdits?: Record<number, string>;
       draftImages?: Record<number, CommonsImage | null>;
       draftImageQueryEdits?: Record<number, string>;
     } | null = null;
@@ -324,6 +380,8 @@ export default function BrainstormPage() {
 
           if (Array.isArray(parsed.angles)) setAngles(parsed.angles);
           if (Array.isArray(parsed.drafts)) setDrafts(parsed.drafts);
+
+          if (parsed.draftEdits && typeof parsed.draftEdits === "object") setDraftEdits(parsed.draftEdits);
 
           if (parsed.draftImages && typeof parsed.draftImages === "object") setDraftImages(parsed.draftImages);
           if (parsed.draftImageQueryEdits && typeof parsed.draftImageQueryEdits === "object")
@@ -382,14 +440,13 @@ export default function BrainstormPage() {
         chat,
         angles,
         drafts,
+        draftEdits,
         draftImages,
         draftImageQueryEdits,
       };
       setLocalStorageMulti(LOCKER_KEYS, payload);
-    } catch {
-      // ignore
-    }
-  }, [platform, tone, wantImages, input, chat, angles, drafts, draftImages, draftImageQueryEdits]);
+    } catch {}
+  }, [platform, tone, wantImages, input, chat, angles, drafts, draftEdits, draftImages, draftImageQueryEdits]);
 
   const resetBrainstorm = () => {
     removeLocalStorageMulti(LOCKER_KEYS);
@@ -399,6 +456,7 @@ export default function BrainstormPage() {
 
     setAngles([]);
     setDrafts([]);
+    setDraftEdits({});
 
     setDraftImages({});
     setDraftImageQueryEdits({});
@@ -415,9 +473,25 @@ export default function BrainstormPage() {
     setTimeout(() => setToast(null), 1600);
   };
 
-  // ✅ NEW: delete a single draft (and keep indexes clean)
+  // ✅ Delete a single draft (and keep indexes clean)
   const deleteDraftAt = (idx: number) => {
     setDrafts((prev) => prev.filter((_, i) => i !== idx));
+
+    setDraftEdits((prev) => {
+      const next: Record<number, string> = {};
+      const kept = Object.keys(prev)
+        .map((k) => Number(k))
+        .filter((n) => Number.isFinite(n))
+        .sort((a, b) => a - b)
+        .filter((n) => n !== idx);
+
+      let write = 0;
+      for (const oldIdx of kept) {
+        next[write] = prev[oldIdx] ?? "";
+        write++;
+      }
+      return next;
+    });
 
     setDraftImages((prev) => {
       const next: Record<number, CommonsImage | null> = {};
@@ -427,7 +501,6 @@ export default function BrainstormPage() {
         .sort((a, b) => a - b)
         .filter((n) => n !== idx);
 
-      // reindex down so remaining drafts line up
       let write = 0;
       for (const oldIdx of kept) {
         next[write] = prev[oldIdx] ?? null;
@@ -456,13 +529,14 @@ export default function BrainstormPage() {
     setTimeout(() => setToast(null), 1200);
   };
 
-  // ✅ NEW: clear all drafts quickly
+  // ✅ Clear all drafts quickly
   const clearAllDrafts = () => {
     const ok = window.confirm("Clear all drafts + angles? (Chat stays.)");
     if (!ok) return;
 
     setAngles([]);
     setDrafts([]);
+    setDraftEdits({});
     setDraftImages({});
     setDraftImageQueryEdits({});
 
@@ -576,6 +650,16 @@ export default function BrainstormPage() {
       const nextDrafts = Array.isArray(data.drafts) ? data.drafts : [];
       setDrafts(nextDrafts);
 
+      // ✅ Initialize editable final text for each draft (sanitized)
+      setDraftEdits((prev) => {
+        const next: Record<number, string> = {};
+        for (let i = 0; i < nextDrafts.length; i++) {
+          const base = extractFinalPost(joinDraft(nextDrafts[i]));
+          next[i] = (prev[i] ?? base ?? "").trim();
+        }
+        return next;
+      });
+
       setDraftImages((prev) => {
         const next: Record<number, CommonsImage | null> = {};
         for (let i = 0; i < nextDrafts.length; i++) next[i] = prev[i] ?? null;
@@ -608,9 +692,17 @@ export default function BrainstormPage() {
         }
       : null;
 
-  const sendToQuickBlast = (d: Draft, img: CommonsImage | null, suggestedPlatform: ChannelId) => {
+  const getFinalTextFor = (idx: number, d: Draft) => {
+    const fromEdit = String(draftEdits[idx] ?? "").trim();
+    if (fromEdit) return fromEdit;
+    return extractFinalPost(joinDraft(d));
+  };
+
+  const sendToQuickBlast = (idx: number, d: Draft, img: CommonsImage | null, suggestedPlatform: ChannelId) => {
+    const finalText = getFinalTextFor(idx, d);
+
     const payload = {
-      message: joinDraft(d),
+      message: finalText,
       imageUrl: img?.url || "",
       suggestedPlatforms: [suggestedPlatform],
       attribution: buildAttribution(img),
@@ -621,7 +713,9 @@ export default function BrainstormPage() {
     window.location.href = "/dashboard";
   };
 
-  const sendToStories = (d: Draft, img: CommonsImage | null) => {
+  const sendToStories = (idx: number, d: Draft, img: CommonsImage | null) => {
+    const finalText = getFinalTextFor(idx, d);
+
     const payload = {
       mode: "single",
       platform,
@@ -629,7 +723,7 @@ export default function BrainstormPage() {
       items: [
         {
           title: d.title || "Draft",
-          text: joinDraft(d),
+          text: finalText,
           imageUrl: img?.url || "",
           attribution: buildAttribution(img),
         },
@@ -642,7 +736,9 @@ export default function BrainstormPage() {
     window.location.href = "/dashboard/stories/new";
   };
 
-  const sendToScheduled = (d: Draft, img: CommonsImage | null) => {
+  const sendToScheduled = (idx: number, d: Draft, img: CommonsImage | null) => {
+    const finalText = getFinalTextFor(idx, d);
+
     const payload = {
       mode: "single",
       platform,
@@ -650,7 +746,7 @@ export default function BrainstormPage() {
       items: [
         {
           title: d.title || "Draft",
-          text: joinDraft(d),
+          text: finalText,
           imageUrl: img?.url || "",
           attribution: buildAttribution(img),
         },
@@ -668,9 +764,10 @@ export default function BrainstormPage() {
 
     const items = drafts.map((d, idx) => {
       const img = draftImages[idx] ?? null;
+      const finalText = getFinalTextFor(idx, d);
       return {
         title: d.title || `Draft ${idx + 1}`,
-        text: joinDraft(d),
+        text: finalText,
         imageUrl: img?.url || "",
         attribution: buildAttribution(img),
       };
@@ -694,9 +791,10 @@ export default function BrainstormPage() {
 
     const items = drafts.map((d, idx) => {
       const img = draftImages[idx] ?? null;
+      const finalText = getFinalTextFor(idx, d);
       return {
         title: d.title || `Draft ${idx + 1}`,
-        text: joinDraft(d),
+        text: finalText,
         imageUrl: img?.url || "",
         attribution: buildAttribution(img),
       };
@@ -723,7 +821,7 @@ export default function BrainstormPage() {
             <div>
               <h1 className="text-2xl md:text-3xl font-semibold">💬 Brainstorm</h1>
               <p className="text-sm text-slate-300 max-w-3xl">
-                Talk it out like a text thread. We riff first, then draft posts you can push into Quick Blast or Stories.
+                Talk it out like a text thread. We riff first, then draft posts you can edit and push into Quick Blast / Stories / Scheduled.
               </p>
             </div>
 
@@ -936,6 +1034,8 @@ export default function BrainstormPage() {
                     const previewUrl = safeUrl(img?.url);
                     const filePageUrl = safeUrl(img?.pageUrl);
 
+                    const finalText = getFinalTextFor(idx, d);
+
                     return (
                       <div
                         key={idx}
@@ -952,7 +1052,7 @@ export default function BrainstormPage() {
                           <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
-                              onClick={() => sendToQuickBlast(d, img, platform)}
+                              onClick={() => sendToQuickBlast(idx, d, img, platform)}
                               className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
                             >
                               Send to Quick Blast
@@ -960,7 +1060,7 @@ export default function BrainstormPage() {
 
                             <button
                               type="button"
-                              onClick={() => sendToStories(d, img)}
+                              onClick={() => sendToStories(idx, d, img)}
                               className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
                             >
                               Send to Stories
@@ -968,13 +1068,12 @@ export default function BrainstormPage() {
 
                             <button
                               type="button"
-                              onClick={() => sendToScheduled(d, img)}
+                              onClick={() => sendToScheduled(idx, d, img)}
                               className="rounded-full border border-slate-600 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
                             >
                               Send to Scheduled
                             </button>
 
-                            {/* ✅ NEW: Delete */}
                             <button
                               type="button"
                               onClick={() => deleteDraftAt(idx)}
@@ -986,7 +1085,19 @@ export default function BrainstormPage() {
                           </div>
                         </div>
 
-                        <pre className="whitespace-pre-wrap text-sm text-slate-100">{joinDraft(d)}</pre>
+                        {/* ✅ Editable final post */}
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-slate-400">
+                            Edit before sending (this is what will publish)
+                          </div>
+                          <textarea
+                            className="w-full min-h-[160px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none whitespace-pre-wrap"
+                            value={String(draftEdits[idx] ?? finalText)}
+                            onChange={(e) =>
+                              setDraftEdits((prev) => ({ ...prev, [idx]: e.target.value }))
+                            }
+                          />
+                        </div>
 
                         {/* Image chooser */}
                         <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-3 space-y-3">
@@ -1105,7 +1216,7 @@ export default function BrainstormPage() {
         </section>
 
         <footer className="text-xs text-slate-500">
-          “Choose image” opens a 6-image picker from Wikimedia Commons. Draft Locker keeps your drafts until you hit Reset.
+          Drafts are now editable before send. We also strip “Hook/CTA/Notes” labels so the publish text stays clean.
         </footer>
 
         {/* Modal */}
