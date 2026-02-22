@@ -1,3 +1,4 @@
+// app/dashboard/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -81,7 +82,6 @@ type PrefillQuickBlastPayload = {
   imageUrl?: string;
   videoUrl?: string;
   suggestedPlatforms?: ProviderId[];
-  // Optional future fields
   attribution?: any;
   experimentId?: string | null;
   experimentTitle?: string | null;
@@ -121,11 +121,6 @@ type IgPublishMode = "auto" | "feed_video" | "reel" | "montage_reel";
 
 /**
  * Growth Memory
- * We’ll keep it simple & human:
- * - platform/context
- * - what you posted
- * - what happened
- * - what we should do next time
  */
 type GrowthMemoryEntry = {
   id: string;
@@ -139,6 +134,19 @@ type GrowthMemoryEntry = {
   outcome: "posted" | "partial" | "failed";
   notes: string;
   tags: string[];
+};
+
+/**
+ * ✅ Commons image picker item (from /api/media/commons-images)
+ * We accept a few possible shapes to avoid breaking if your route differs slightly.
+ */
+type CommonsImage = {
+  title?: string;
+  url?: string;
+  imageUrl?: string;
+  thumb?: string;
+  thumbnail?: string;
+  source?: string;
 };
 
 function loadDrafts(): Draft[] {
@@ -266,14 +274,17 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
     if (msg.includes("limit how often") || msg.includes("spam")) {
       return "Tip: This is a temporary Meta rate-limit. Wait a bit (often 15–60 mins) then try again.";
     }
-    if (msg.includes("invalid") || msg.includes("missing")) {
-      return "Tip: Upload via the uploader so you get a clean direct URL.";
+    if (msg.includes("invalid") || msg.includes("missing") || msg.includes("can't read files") || msg.includes("couldn't be uploaded")) {
+      return "Tip: Use Upload or Search Images (we import into your storage) — random external URLs often fail on Meta.";
     }
   }
 
   if (platform === "threads") {
     if (msg.includes("permission")) {
       return "Tip: This usually means the app/token lacks permission for that content type (e.g., media).";
+    }
+    if (msg.includes("media") || msg.includes("download") || msg.includes("uri")) {
+      return "Tip: Threads/IG often refuse external image URLs. Use Search Images (import) or Upload so the URL is clean.";
     }
   }
 
@@ -348,9 +359,26 @@ function safeProvider(p: any): ProviderId | null {
 function safeUuidLike(s?: any) {
   const v = String(s || "").trim();
   if (!v) return null;
-  // Loose but safe-ish: uuid v4 style
   if (!/^[0-9a-fA-F-]{16,}$/.test(v)) return null;
   return v;
+}
+
+// ✅ Picks best URL fields from commons item
+function pickCommonsUrl(it: CommonsImage): string {
+  return (
+    String(it?.url || "").trim() ||
+    String(it?.imageUrl || "").trim() ||
+    String(it?.source || "").trim() ||
+    ""
+  );
+}
+
+function pickCommonsThumb(it: CommonsImage): string {
+  return (
+    String(it?.thumb || "").trim() ||
+    String(it?.thumbnail || "").trim() ||
+    pickCommonsUrl(it)
+  );
 }
 
 export default function DashboardHomePage() {
@@ -400,6 +428,15 @@ export default function DashboardHomePage() {
   const [gmNotes, setGmNotes] = useState("");
   const [gmTags, setGmTags] = useState<string>("");
   const [gmSavedToast, setGmSavedToast] = useState<string | null>(null);
+
+  // ✅ Commons image picker UI
+  const [imgPickerOpen, setImgPickerOpen] = useState(false);
+  const [imgPickerQuery, setImgPickerQuery] = useState("mental health calm");
+  const [imgPickerBusy, setImgPickerBusy] = useState(false);
+  const [imgPickerError, setImgPickerError] = useState<string | null>(null);
+  const [imgPickerItems, setImgPickerItems] = useState<CommonsImage[]>([]);
+  const [imgImportBusyUrl, setImgImportBusyUrl] = useState<string | null>(null);
+  const [imgImportError, setImgImportError] = useState<string | null>(null);
 
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
@@ -580,13 +617,10 @@ export default function DashboardHomePage() {
       if (!org) return;
 
       const expId = safeUuidLike(params.experimentId);
-      // If not linked, we still allow logging as org activity (experiment_id null) if you want later
-      // For now we’ll only log when experiment exists.
       if (!expId) return;
 
       const results = Array.isArray(params.result?.results) ? params.result!.results! : [];
 
-      // One row per platform attempt
       await fetch("/api/growth/experiments/log-event", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -603,7 +637,6 @@ export default function DashboardHomePage() {
             montageImageUrls: Array.isArray(params.montageImageUrls) ? params.montageImageUrls : [],
             response: params.result || null,
           },
-          // We send results so the server can optionally split, but we’ll also send flattened attempts here
           attempts: results.map((r: any) => ({
             platform: String(r?.platform || ""),
             ok: !!r?.ok,
@@ -636,8 +669,6 @@ export default function DashboardHomePage() {
           platforms: selected,
           igPublishMode,
           montageImageUrls: montageUrls,
-
-          // ✅ pass experiment context through (server can ignore for now)
           experimentId: experimentId || null,
         }),
       });
@@ -667,7 +698,6 @@ export default function DashboardHomePage() {
 
       setResult(merged);
 
-      // ✅ Log to Growth Experiment Events (Supabase) if experiment linked
       void logQuickBlastToExperiment({
         organisationId,
         experimentId,
@@ -734,8 +764,6 @@ export default function DashboardHomePage() {
             ...(media.videoUrl ? { video_url: media.videoUrl } : {}),
             ig_publish_mode: igPublishMode,
             montage_image_urls: montageUrls,
-
-            // ✅ Persist experiment context into scheduled meta too
             experiment_id: experimentId || null,
           },
           createdBy: {
@@ -770,7 +798,6 @@ export default function DashboardHomePage() {
 
       setResult(merged);
 
-      // ✅ Log queueing as an experiment event too (optional, but useful)
       void logQuickBlastToExperiment({
         organisationId,
         experimentId,
@@ -881,7 +908,6 @@ export default function DashboardHomePage() {
         if (parsed && typeof parsed === "object") {
           applyQuickBlastPrefill(parsed);
         }
-        // clear so refresh doesn’t re-apply
         removeLocalStorageMulti(PREFILL_QUICKBLAST_KEYS);
       }
     } catch {}
@@ -953,7 +979,6 @@ export default function DashboardHomePage() {
         return;
       }
 
-      // If user drops a video while in montage mode, treat it as a normal video post
       if (isVideo) {
         setVideoUrl(url);
         setImageUrl("");
@@ -962,7 +987,6 @@ export default function DashboardHomePage() {
       }
     }
 
-    // Normal behavior
     if (isVideo && !isImage) {
       setVideoUrl(url);
       setImageUrl("");
@@ -1092,6 +1116,125 @@ export default function DashboardHomePage() {
     setTimeout(() => setGmSavedToast(null), 2500);
   }
 
+  // ✅ Commons image picker actions
+  async function searchCommonsImages(q: string) {
+    const query = String(q || "").trim();
+    if (!query) {
+      setImgPickerError("Type something to search (e.g. 'calm anxiety nature').");
+      return;
+    }
+
+    setImgPickerBusy(true);
+    setImgPickerError(null);
+    setImgPickerItems([]);
+
+    try {
+      const res = await fetch(`/api/media/commons-images?q=${encodeURIComponent(query)}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const json: any = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setImgPickerError(json?.error || `Search failed (${res.status})`);
+        return;
+      }
+
+      const items: CommonsImage[] = Array.isArray(json?.items)
+        ? json.items
+        : Array.isArray(json?.results)
+        ? json.results
+        : Array.isArray(json)
+        ? json
+        : [];
+
+      if (!items || items.length === 0) {
+        setImgPickerError("No results. Try a different search.");
+        return;
+      }
+
+      setImgPickerItems(items);
+    } catch (e: any) {
+      setImgPickerError(e?.message || "Search failed");
+    } finally {
+      setImgPickerBusy(false);
+    }
+  }
+
+  async function importCommonsImageToStorage(externalUrl: string) {
+    const url = String(externalUrl || "").trim();
+    if (!url) return;
+
+    if (!organisationId) {
+      setImgImportError("Organisation not loaded yet. Refresh and try again.");
+      return;
+    }
+
+    setImgImportBusyUrl(url);
+    setImgImportError(null);
+
+    try {
+      const res = await fetch("/api/media/import-external", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          url,
+          organisationId,
+        }),
+      });
+
+      const json: any = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        setImgImportError(json?.error || `Import failed (${res.status})`);
+        return;
+      }
+
+      const publicUrl = String(json?.url || "").trim();
+      if (!publicUrl) {
+        setImgImportError("Import succeeded but returned no URL.");
+        return;
+      }
+
+      // ✅ Apply: set as imageUrl and clear video
+      setImageUrl(publicUrl);
+      setVideoUrl("");
+      setMediaMode("image");
+
+      // If montage mode, also add to montage list (nice UX)
+      if (isMontageMode) {
+        setMontageImages((prev) => {
+          const exists = prev.some((x) => String(x?.url || "").trim() === publicUrl);
+          if (exists) return prev;
+          return [...prev, { url: publicUrl, kind: "image" as const }];
+        });
+      }
+
+      setImgPickerOpen(false);
+    } catch (e: any) {
+      setImgImportError(e?.message || "Import failed");
+    } finally {
+      setImgImportBusyUrl(null);
+    }
+  }
+
+  function openImagePicker() {
+    setImgImportError(null);
+    setImgPickerError(null);
+    setImgPickerOpen(true);
+
+    // Lazy auto-search once when opening (only if no results yet)
+    if (imgPickerItems.length === 0 && !imgPickerBusy) {
+      void searchCommonsImages(imgPickerQuery);
+    }
+  }
+
+  function closeImagePicker() {
+    setImgPickerOpen(false);
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
@@ -1108,9 +1251,7 @@ export default function DashboardHomePage() {
               {experimentId ? (
                 <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
                   <span className="font-semibold">Linked to experiment</span>
-                  <span className="opacity-80">
-                    {experimentTitle ? `— ${experimentTitle}` : ""}
-                  </span>
+                  <span className="opacity-80">{experimentTitle ? `— ${experimentTitle}` : ""}</span>
                   <span className="opacity-70">(events will auto-log)</span>
                   <button
                     type="button"
@@ -1127,9 +1268,7 @@ export default function DashboardHomePage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-slate-400">Connected:</div>
-                  <div className="text-lg font-semibold text-slate-100">
-                    {loadingAccounts ? "…" : connectedCount}
-                  </div>
+                  <div className="text-lg font-semibold text-slate-100">{loadingAccounts ? "…" : connectedCount}</div>
                 </div>
                 <button
                   type="button"
@@ -1235,41 +1374,52 @@ export default function DashboardHomePage() {
                   <div>
                     <div className="text-sm font-semibold">Media (optional)</div>
                     <div className="mt-1 text-[11px] text-slate-400">
-                      Drop a file here or click “Choose file”. We upload to Supabase and fill the correct URL automatically.
+                      Upload from your laptop, or search for an image (we import it into your storage so Meta can read it).
                     </div>
                   </div>
 
-                  <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setMediaMode("auto")}
-                      className={[
-                        "px-3 py-1.5",
-                        mediaMode === "auto" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
-                      ].join(" ")}
+                      onClick={openImagePicker}
+                      className="rounded-2xl border border-slate-600 bg-slate-950 px-3 py-2 text-[11px] text-slate-200 hover:border-slate-500"
+                      title="Search images and import to your storage"
                     >
-                      Auto
+                      🔎 Search images
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setMediaMode("image")}
-                      className={[
-                        "px-3 py-1.5",
-                        mediaMode === "image" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
-                      ].join(" ")}
-                    >
-                      Image
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMediaMode("video")}
-                      className={[
-                        "px-3 py-1.5",
-                        mediaMode === "video" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
-                      ].join(" ")}
-                    >
-                      Video
-                    </button>
+
+                    <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setMediaMode("auto")}
+                        className={[
+                          "px-3 py-1.5",
+                          mediaMode === "auto" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        ].join(" ")}
+                      >
+                        Auto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMediaMode("image")}
+                        className={[
+                          "px-3 py-1.5",
+                          mediaMode === "image" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        ].join(" ")}
+                      >
+                        Image
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMediaMode("video")}
+                        className={[
+                          "px-3 py-1.5",
+                          mediaMode === "video" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        ].join(" ")}
+                      >
+                        Video
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1282,8 +1432,7 @@ export default function DashboardHomePage() {
                         Comfort toggle — always visible. We’ll keep today’s stable posting, and evolve this safely.
                       </div>
                       <div className="mt-2 text-[11px] text-slate-300">
-                        Current:{" "}
-                        <span className="text-slate-100 font-semibold">{igChoiceHint}</span>
+                        Current: <span className="text-slate-100 font-semibold">{igChoiceHint}</span>
                       </div>
                     </div>
 
@@ -1305,9 +1454,7 @@ export default function DashboardHomePage() {
                         disabled={!hasEffectiveVideo}
                         className={[
                           "px-3 py-1.5",
-                          igPublishMode === "feed_video"
-                            ? "bg-emerald-500 text-slate-950"
-                            : "text-slate-300",
+                          igPublishMode === "feed_video" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                           !hasEffectiveVideo ? "opacity-50 cursor-not-allowed" : "",
                         ].join(" ")}
                         title={!hasEffectiveVideo ? "Upload/select a video first" : ""}
@@ -1334,9 +1481,7 @@ export default function DashboardHomePage() {
                         onClick={() => setIgPublishMode("montage_reel")}
                         className={[
                           "px-3 py-1.5",
-                          igPublishMode === "montage_reel"
-                            ? "bg-emerald-500 text-slate-950"
-                            : "text-slate-300",
+                          igPublishMode === "montage_reel" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
                         ].join(" ")}
                         title="Add multiple images to build a montage reel"
                       >
@@ -1350,7 +1495,7 @@ export default function DashboardHomePage() {
                       <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
                         <div className="font-semibold text-slate-200">Montage builder</div>
                         <div className="mt-1 text-slate-400">
-                          Upload multiple images one-by-one. We’ll store a list here and send it to the API as{" "}
+                          Upload multiple images one-by-one, or use Search Images. We’ll store a list and send it as{" "}
                           <span className="text-slate-200 font-semibold">montageImageUrls</span>.
                         </div>
 
@@ -1360,9 +1505,7 @@ export default function DashboardHomePage() {
                             (Right now, your existing posting still works using the first image — we’ll wire true montage-to-reel server-side next.)
                           </div>
                         ) : (
-                          <div className="mt-2 text-emerald-200">
-                            Montage ready ✅ ({montageUrls.length} images)
-                          </div>
+                          <div className="mt-2 text-emerald-200">Montage ready ✅ ({montageUrls.length} images)</div>
                         )}
 
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -1452,8 +1595,7 @@ export default function DashboardHomePage() {
                 </div>
 
                 <div className="mt-2 text-[11px] text-slate-500">
-                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl:{" "}
-                  {media.videoUrl ? "✅" : "—"}
+                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl: {media.videoUrl ? "✅" : "—"}
                 </div>
 
                 {igPublishMode === "montage_reel" && !hasEffectiveImage && montageUrls.length > 0 && (
@@ -1484,9 +1626,7 @@ export default function DashboardHomePage() {
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Subject (what’s the post about?)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300">Subject (what’s the post about?)</label>
                     <input
                       value={aiSubject}
                       onChange={(e) => setAiSubject(e.target.value)}
@@ -1535,10 +1675,7 @@ export default function DashboardHomePage() {
                 {aiVariants.length > 0 && (
                   <div className="mt-4 space-y-3">
                     {aiVariants.map((v, idx) => (
-                      <div
-                        key={`${idx}-${v.title}`}
-                        className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4"
-                      >
+                      <div key={`${idx}-${v.title}`} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div className="text-sm font-semibold">{v.title || `Variant ${idx + 1}`}</div>
                           <button
@@ -1549,12 +1686,12 @@ export default function DashboardHomePage() {
                             Use this
                           </button>
                         </div>
-                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
-                          {joinVariant(v)}
-                        </div>
+                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{joinVariant(v)}</div>
                       </div>
                     ))}
-                    <div className="text-[11px] text-slate-500">Tip: Click “Use this”, tweak the wording, then dispatch.</div>
+                    <div className="text-[11px] text-slate-500">
+                      Tip: Click “Use this”, tweak the wording, then dispatch.
+                    </div>
                   </div>
                 )}
               </div>
@@ -1596,11 +1733,7 @@ export default function DashboardHomePage() {
                 <div>
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-medium text-slate-300">Channels</label>
-                    <button
-                      type="button"
-                      onClick={refreshChannels}
-                      className="text-[11px] text-slate-400 hover:text-slate-300"
-                    >
+                    <button type="button" onClick={refreshChannels} className="text-[11px] text-slate-400 hover:text-slate-300">
                       Refresh
                     </button>
                   </div>
@@ -1626,9 +1759,7 @@ export default function DashboardHomePage() {
                         >
                           <div>
                             <div className="font-medium">{PROVIDER_LABELS[p]}</div>
-                            <div className="text-[11px] text-slate-500">
-                              {isConnected ? "connected" : "not connected"}
-                            </div>
+                            <div className="text-[11px] text-slate-500">{isConnected ? "connected" : "not connected"}</div>
                           </div>
                           <div
                             className={`text-[11px] px-2 py-1 rounded-full border ${
@@ -1656,13 +1787,7 @@ export default function DashboardHomePage() {
                     disabled={sending || message.trim().length === 0 || selected.length === 0}
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
-                    {sending
-                      ? mode === "now"
-                        ? "Sending…"
-                        : "Queueing…"
-                      : mode === "now"
-                      ? "Send Quick Blast"
-                      : "Queue for approval"}
+                    {sending ? (mode === "now" ? "Sending…" : "Queueing…") : mode === "now" ? "Send Quick Blast" : "Queue for approval"}
                   </button>
 
                   <button
@@ -1693,9 +1818,7 @@ export default function DashboardHomePage() {
                         {friendlySummary?.topMsg ||
                           (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.")}
                       </div>
-                      {result.note ? (
-                        <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div>
-                      ) : null}
+                      {result.note ? <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div> : null}
                     </div>
 
                     {Array.isArray(result.results) && result.results.length > 0 && (
@@ -1710,10 +1833,7 @@ export default function DashboardHomePage() {
                           const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
 
                           return (
-                            <div
-                              key={`${platform}-${idx}`}
-                              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                            >
+                            <div key={`${platform}-${idx}`} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
                               <div className="flex items-start justify-between gap-3">
                                 <div className="text-[12px] font-semibold text-slate-200">{label}</div>
                                 <div
@@ -1779,9 +1899,7 @@ export default function DashboardHomePage() {
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
                     <div className="text-slate-400 mb-2">Admin info (safe).</div>
                     <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
-                    <div className="mt-1">
-                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
-                    </div>
+                    <div className="mt-1">Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}</div>
                     <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
                     <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
                     <div className="mt-1">mediaMode: {mediaMode}</div>
@@ -1799,9 +1917,7 @@ export default function DashboardHomePage() {
             <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <h3 className="text-base font-semibold">Saved drafts</h3>
               <p className="mt-1 text-sm text-slate-300">Drafts are stored on this device. (Later we can sync per org.)</p>
-              <p className="mt-2 text-[11px] text-slate-500">
-                Use “Save for later” and we’ll restore the full draft library
-              </p>
+              <p className="mt-2 text-[11px] text-slate-500">Use “Save for later” and we’ll restore the full draft library</p>
 
               <div className="mt-4 space-y-3">
                 {drafts.length === 0 ? (
@@ -1812,9 +1928,7 @@ export default function DashboardHomePage() {
                   drafts.map((d) => (
                     <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
                       <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
-                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">
-                        {d.message || "(empty)"}
-                      </div>
+                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
                       <div className="mt-2 text-[11px] text-slate-500">
                         Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
                       </div>
@@ -1842,9 +1956,122 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
-          <div className="mt-8 text-xs text-slate-500">Tip: Upload media → write → choose channels → post (or queue).</div>
+          <div className="mt-8 text-xs text-slate-500">Tip: Upload/Search media → write → choose channels → post (or queue).</div>
         </div>
       </div>
+
+      {/* ✅ Commons Image Picker Modal */}
+      {imgPickerOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/70" onClick={closeImagePicker} />
+          <div className="relative w-full max-w-5xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs text-slate-400">Media Library</div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">Search images</div>
+                <div className="mt-1 text-sm text-slate-300">
+                  Pick an image → we import it into your storage (so Facebook/IG/Threads can actually read it).
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeImagePicker}
+                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+              >
+                Close
+              </button>
+            </div>
+
+            {imgImportError ? (
+              <div className="mt-4 rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
+                {imgImportError}
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex flex-col md:flex-row gap-3">
+              <input
+                value={imgPickerQuery}
+                onChange={(e) => setImgPickerQuery(e.target.value)}
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                placeholder='e.g. "calm nature therapy"'
+              />
+              <button
+                type="button"
+                onClick={() => searchCommonsImages(imgPickerQuery)}
+                disabled={imgPickerBusy}
+                className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {imgPickerBusy ? "Searching…" : "Search"}
+              </button>
+            </div>
+
+            {imgPickerError ? (
+              <div className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-950/25 px-4 py-3 text-sm text-amber-100">
+                {imgPickerError}
+              </div>
+            ) : null}
+
+            <div className="mt-5">
+              {imgPickerBusy && imgPickerItems.length === 0 ? (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-sm text-slate-300">
+                  Searching…
+                </div>
+              ) : imgPickerItems.length === 0 ? (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-sm text-slate-400">
+                  No results yet. Search above.
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {imgPickerItems.slice(0, 24).map((it, idx) => {
+                    const full = pickCommonsUrl(it);
+                    const thumb = pickCommonsThumb(it);
+                    const title = String(it?.title || "").trim() || `Image ${idx + 1}`;
+                    const importing = imgImportBusyUrl === full;
+
+                    return (
+                      <div key={`${full}-${idx}`} className="rounded-2xl border border-slate-800 bg-slate-950/70 overflow-hidden">
+                        <div className="aspect-[4/3] bg-slate-900">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={thumb}
+                            alt={title}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+                        <div className="p-3">
+                          <div className="text-xs font-semibold text-slate-100 line-clamp-1">{title}</div>
+                          <div className="mt-1 text-[11px] text-slate-400 line-clamp-2 break-all">{full}</div>
+
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => importCommonsImageToStorage(full)}
+                              disabled={!full || importing}
+                              className="w-full rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                            >
+                              {importing ? "Importing…" : "Use this image"}
+                            </button>
+                          </div>
+
+                          <div className="mt-2 text-[11px] text-slate-500">
+                            We’ll copy it into your storage first (Meta-safe).
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 text-[11px] text-slate-500">
+              If Meta ever says “can’t read files”, it usually means the URL wasn’t fetchable or the image was too large.
+              Import fixes that by hosting it under your own clean URL.
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* ✅ Growth Memory Modal */}
       {gmOpen ? (
@@ -1854,9 +2081,7 @@ export default function DashboardHomePage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-xs text-slate-400">Growth Lab</div>
-                <div className="mt-1 text-lg font-semibold text-slate-100">
-                  Save to Growth Memory
-                </div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">Save to Growth Memory</div>
                 <div className="mt-1 text-sm text-slate-300">
                   Capture what worked (or what failed) so your future self gets smarter — without effort.
                 </div>
@@ -1911,7 +2136,9 @@ export default function DashboardHomePage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300">Notes (what happened / what to do next)</label>
+                <label className="block text-xs font-medium text-slate-300">
+                  Notes (what happened / what to do next)
+                </label>
                 <textarea
                   value={gmNotes}
                   onChange={(e) => setGmNotes(e.target.value)}
