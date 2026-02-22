@@ -229,7 +229,8 @@ function extractFinalPost(raw: string) {
     }
   }
 
-  const badLine = /^\s*(hook|hooks|cta|ctas|notes|note|reason|why this works|image prompt|image query|hashtags?)\s*:\s*/i;
+  const badLine =
+    /^\s*(hook|hooks|cta|ctas|notes|note|reason|why this works|image prompt|image query|hashtags?)\s*:\s*/i;
 
   // Remove “planning” lines (Hook:, CTA:, Notes:, etc)
   const lines = s.split("\n");
@@ -698,14 +699,33 @@ export default function BrainstormPage() {
     return extractFinalPost(joinDraft(d));
   };
 
+  // ✅ helper: include both camel + snake keys so downstream pages/APIs can’t drop media silently
+  const withImageKeys = (img: CommonsImage | null) => {
+    const u = String(img?.url || "").trim();
+    return {
+      imageUrl: u,     // camelCase
+      image_url: u,    // snake_case (many server inserts expect this)
+    };
+  };
+
   const sendToQuickBlast = (idx: number, d: Draft, img: CommonsImage | null, suggestedPlatform: ChannelId) => {
     const finalText = getFinalTextFor(idx, d);
 
     const payload = {
       message: finalText,
-      imageUrl: img?.url || "",
+
+      // ✅ BOTH spellings
+      ...withImageKeys(img),
+
       suggestedPlatforms: [suggestedPlatform],
       attribution: buildAttribution(img),
+
+      // ✅ extra compatibility (some pages look for this)
+      meta: {
+        attribution: buildAttribution(img),
+        ...withImageKeys(img),
+        source: "brainstorm",
+      },
     };
 
     setToast("Sending to Quick Blast…");
@@ -724,8 +744,16 @@ export default function BrainstormPage() {
         {
           title: d.title || "Draft",
           text: finalText,
-          imageUrl: img?.url || "",
+
+          // ✅ BOTH spellings
+          ...withImageKeys(img),
+
           attribution: buildAttribution(img),
+          meta: {
+            attribution: buildAttribution(img),
+            ...withImageKeys(img),
+            source: "brainstorm",
+          },
         },
       ],
       note: "Single draft sent from Brainstorm",
@@ -747,8 +775,16 @@ export default function BrainstormPage() {
         {
           title: d.title || "Draft",
           text: finalText,
-          imageUrl: img?.url || "",
+
+          // ✅ BOTH spellings
+          ...withImageKeys(img),
+
           attribution: buildAttribution(img),
+          meta: {
+            attribution: buildAttribution(img),
+            ...withImageKeys(img),
+            source: "brainstorm",
+          },
         },
       ],
       note: "Single draft sent from Brainstorm",
@@ -768,8 +804,16 @@ export default function BrainstormPage() {
       return {
         title: d.title || `Draft ${idx + 1}`,
         text: finalText,
-        imageUrl: img?.url || "",
+
+        // ✅ BOTH spellings
+        ...withImageKeys(img),
+
         attribution: buildAttribution(img),
+        meta: {
+          attribution: buildAttribution(img),
+          ...withImageKeys(img),
+          source: "brainstorm",
+        },
       };
     });
 
@@ -795,8 +839,16 @@ export default function BrainstormPage() {
       return {
         title: d.title || `Draft ${idx + 1}`,
         text: finalText,
-        imageUrl: img?.url || "",
+
+        // ✅ BOTH spellings
+        ...withImageKeys(img),
+
         attribution: buildAttribution(img),
+        meta: {
+          attribution: buildAttribution(img),
+          ...withImageKeys(img),
+          source: "brainstorm",
+        },
       };
     });
 
