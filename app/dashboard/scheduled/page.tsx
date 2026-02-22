@@ -211,8 +211,6 @@ export default function ScheduledPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [includeQuickBlast, setIncludeQuickBlast] = useState(false);
-
-  // ✅ Option A: range selector (future/past/all)
   const [range, setRange] = useState<RangeMode>("future");
 
   // Edit modal state
@@ -233,21 +231,55 @@ export default function ScheduledPage() {
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerResults, setPickerResults] = useState<CommonsImage[]>([]);
 
-  // ✅ Org (needed for scheduling imports)
+  // ✅ Org (hard requirement now)
   const [orgId, setOrgId] = useState<string | null>(null);
+  const [orgError, setOrgError] = useState<string | null>(null);
 
-  // ✅ Toast + import status
+  // Toast + import status
   const [toast, setToast] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importNote, setImportNote] = useState<string | null>(null);
 
-  async function load() {
+  // Load org id once
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/social-accounts", { cache: "no-store" });
+        const data: any = await res.json().catch(() => null);
+        const id = data?.organisationId ? String(data.organisationId) : null;
+        if (!id) {
+          setOrgId(null);
+          setOrgError("Organisation not found. Please refresh or complete org setup.");
+          return;
+        }
+        setOrgId(id);
+        setOrgError(null);
+      } catch {
+        setOrgId(null);
+        setOrgError("Failed to load organisation. Refresh the page.");
+      }
+    })();
+  }, []);
+
+  async function load(forceOrgId?: string | null) {
+    const useOrg = String(forceOrgId ?? orgId ?? "").trim();
+
+    // ✅ do NOT load without orgId (this was causing your ghost behaviour)
+    if (!useOrg) {
+      setLoading(false);
+      setItems([]);
+      setError(orgError || "Organisation not loaded yet.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
       const res = await fetch(
-        `/api/social/scheduled?range=${encodeURIComponent(range)}&includeQuickBlast=${includeQuickBlast ? "1" : "0"}`,
+        `/api/social/scheduled?range=${encodeURIComponent(range)}&includeQuickBlast=${
+          includeQuickBlast ? "1" : "0"
+        }&organisationId=${encodeURIComponent(useOrg)}`,
         { cache: "no-store" }
       );
       const json = await res.json().catch(() => null);
@@ -268,36 +300,24 @@ export default function ScheduledPage() {
     }
   }
 
-  // Load org id once
+  // ✅ only load once orgId exists
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/social-accounts", { cache: "no-store" });
-        const data: any = await res.json().catch(() => null);
-        const id = data?.organisationId ? String(data.organisationId) : null;
-        setOrgId(id);
-      } catch {
-        setOrgId(null);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    load();
+    if (!orgId) return;
+    load(orgId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeQuickBlast, range]);
+  }, [orgId, includeQuickBlast, range]);
 
   const emptyState = !loading && !error && items.length === 0;
 
   const title = useMemo(() => {
-    if (range === "all") return includeQuickBlast ? "All scheduled history (inc. Quick Blast)" : "All scheduled history";
+    if (range === "all")
+      return includeQuickBlast ? "All scheduled history (inc. Quick Blast)" : "All scheduled history";
     if (range === "past") return includeQuickBlast ? "Past (inc. Quick Blast)" : "Past";
     return includeQuickBlast ? "Scheduled Pipeline (including Quick Blast history)" : "Scheduled Pipeline";
   }, [includeQuickBlast, range]);
 
   // ✅ Import Brainstorm → Scheduled (batch)
   useEffect(() => {
-    // only run when orgId is known, and only once per visit
     if (!orgId) return;
     if (importing) return;
 
@@ -317,7 +337,6 @@ export default function ScheduledPage() {
       setImporting(true);
       setToast(`Importing ${prefillItems.length} item(s) into Scheduled…`);
       try {
-        // queue them 1 min apart starting now+1min
         const base = Date.now() + 60 * 1000;
 
         let okCount = 0;
@@ -368,7 +387,6 @@ export default function ScheduledPage() {
           }
         }
 
-        // clear prefill no matter what, so it doesn't re-run on refresh
         removeLocalStorageMulti(PREFILL_SCHEDULED_KEYS);
 
         if (okCount > 0 && failCount === 0) {
@@ -383,9 +401,8 @@ export default function ScheduledPage() {
           setError(`Import failed:\n${failures.slice(0, 6).join("\n")}`);
         }
 
-        // show them immediately
         setRange("future");
-        await load();
+        await load(orgId);
       } catch (e: any) {
         removeLocalStorageMulti(PREFILL_SCHEDULED_KEYS);
         setError(e?.message || "Import failed.");
@@ -427,7 +444,7 @@ export default function ScheduledPage() {
     setPickerLoading(false);
   }
 
-  // ✅ ESC closes modal (and picker if open)
+  // ESC closes modal (and picker if open)
   useEffect(() => {
     if (!editOpen) return;
 
@@ -530,6 +547,11 @@ export default function ScheduledPage() {
 
   async function saveEdit() {
     if (!editing) return;
+    if (!orgId) {
+      setEditError("Organisation not loaded yet. Refresh the page.");
+      return;
+    }
+
     setEditSaving(true);
     setEditError(null);
 
@@ -542,7 +564,9 @@ export default function ScheduledPage() {
 
     if (isPastIso(iso)) {
       setEditSaving(false);
-      setEditError("That time is in the past. Scheduled posts won’t fire retroactively. Choose a future time, or click “Re-queue +1 min”.");
+      setEditError(
+        "That time is in the past. Scheduled posts won’t fire retroactively. Choose a future time, or click “Re-queue +1 min”."
+      );
       return;
     }
 
@@ -560,7 +584,9 @@ export default function ScheduledPage() {
 
     if (violatesLinkedInLimit(editMessage, editPlatforms)) {
       setEditSaving(false);
-      setEditError(`LinkedIn post is too long (${getLinkedInCountText(editMessage)}). Shorten it or remove LinkedIn from platforms.`);
+      setEditError(
+        `LinkedIn post is too long (${getLinkedInCountText(editMessage)}). Shorten it or remove LinkedIn from platforms.`
+      );
       return;
     }
 
@@ -571,6 +597,7 @@ export default function ScheduledPage() {
         cache: "no-store",
         body: JSON.stringify({
           id: editing.id,
+          organisationId: orgId,
           message: editMessage,
           scheduled_for: iso,
           platforms: editPlatforms,
@@ -587,7 +614,7 @@ export default function ScheduledPage() {
       }
 
       closeEdit();
-      load();
+      load(orgId);
     } catch (e: any) {
       setEditSaving(false);
       setEditError(e?.message || "Update failed.");
@@ -595,6 +622,11 @@ export default function ScheduledPage() {
   }
 
   async function deletePost(it: ScheduledRow) {
+    if (!orgId) {
+      alert("Organisation not loaded yet. Refresh the page.");
+      return;
+    }
+
     const status = String(it.status || "").toLowerCase();
     if (status === "posted") {
       alert("This post is already posted. Deleting is blocked to avoid accidental data loss.");
@@ -609,7 +641,7 @@ export default function ScheduledPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        body: JSON.stringify({ id: it.id }),
+        body: JSON.stringify({ id: it.id, organisationId: orgId }),
       });
 
       const json = await res.json().catch(() => null);
@@ -618,7 +650,7 @@ export default function ScheduledPage() {
         return;
       }
 
-      load();
+      load(orgId);
     } catch (e: any) {
       alert(e?.message || "Delete failed.");
     }
@@ -635,11 +667,14 @@ export default function ScheduledPage() {
               <p className="mt-2 text-sm text-slate-300 max-w-3xl">
                 Future = your pipeline. Past/All = where “posted” items live (so they don’t look like they disappeared).
               </p>
+              <div className="mt-2 text-xs text-slate-500 break-all">
+                Org: {orgId || "—"}
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
               <button
-                onClick={load}
+                onClick={() => load(orgId)}
                 className="rounded-2xl border border-slate-600 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
               >
                 Refresh
@@ -669,6 +704,12 @@ export default function ScheduledPage() {
               </label>
             </div>
           </div>
+
+          {orgError ? (
+            <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-red-100">
+              {orgError}
+            </div>
+          ) : null}
 
           {toast ? (
             <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
@@ -999,7 +1040,6 @@ export default function ScheduledPage() {
               </div>
             </div>
 
-            {/* Media picker modal */}
             {pickerOpen ? (
               <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
                 <div className="absolute inset-0 bg-black/70" onClick={closePicker} aria-hidden="true" />
@@ -1007,7 +1047,9 @@ export default function ScheduledPage() {
                   <div className="p-5 border-b border-slate-700 flex items-start justify-between gap-3 sticky top-0 bg-slate-950 z-10">
                     <div>
                       <div className="text-lg font-semibold">Pick an image</div>
-                      <div className="text-[12px] text-slate-400">Uses Wikimedia Commons. Select one → it fills the Media URL.</div>
+                      <div className="text-[12px] text-slate-400">
+                        Uses Wikimedia Commons. Select one → it fills the Media URL.
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -1065,7 +1107,9 @@ export default function ScheduledPage() {
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img src={u} alt={img.title} className="w-full h-full object-cover" />
                                 ) : (
-                                  <div className="h-full flex items-center justify-center text-xs text-slate-400">No preview</div>
+                                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                                    No preview
+                                  </div>
                                 )}
                               </div>
                               <div className="p-3 space-y-1">
@@ -1083,7 +1127,8 @@ export default function ScheduledPage() {
                     )}
 
                     <div className="text-[11px] text-slate-500">
-                      If LinkedIn rejects an image URL, it usually needs a proper “upload asset” flow. For now this picker is great for FB/IG/Threads.
+                      If LinkedIn rejects an image URL, it usually needs a proper “upload asset” flow. For now this picker
+                      is great for FB/IG/Threads.
                     </div>
                   </div>
                 </div>
