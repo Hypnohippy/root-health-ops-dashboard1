@@ -5,7 +5,7 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 export const runtime = "nodejs";
 
 // Bucket name you already use for uploads (change if yours differs)
-const BUCKET = (process.env.SUPABASE_MEDIA_BUCKET || "media").trim();
+const BUCKET = (process.env.SUPABASE_MEDIA_BUCKET || "public-media").trim();
 
 // Hard safety limits (Meta hates big files)
 const MAX_BYTES = 9.5 * 1024 * 1024; // 9.5MB
