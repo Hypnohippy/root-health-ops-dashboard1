@@ -8,89 +8,134 @@ function norm(v: any) {
   return String(v ?? "").trim();
 }
 
-function parseCookies(req: NextRequest): Record<string, string> {
-  const raw = req.headers.get("cookie") || "";
-  const out: Record<string, string> = {};
-  raw.split(";").forEach((part) => {
-    const p = part.trim();
-    if (!p) return;
-    const idx = p.indexOf("=");
-    if (idx === -1) return;
-    const k = p.slice(0, idx).trim();
-    const v = p.slice(idx + 1).trim();
-    try {
-      out[k] = decodeURIComponent(v);
-    } catch {
-      out[k] = v;
-    }
-  });
-  return out;
-}
-
 /**
- * Supabase cookie formats vary:
+ * Supabase cookies can be:
+ * - sb-<project>-auth-token
+ * - sb-<project>-auth-token.0 / .1 / .2 (chunked)
  * - sb-access-token (older)
  * - supabase-auth-token (sometimes)
- * - sb-<project-ref>-auth-token (common in prod)
  *
- * Values are often JSON like: ["ACCESS_TOKEN","REFRESH_TOKEN",...]
- * Sometimes object-ish. We handle both.
+ * We must:
+ * 1) read cookies reliably (req.cookies)
+ * 2) rebuild chunked cookie values
+ * 3) extract the access token (array/object/raw string)
  */
-function extractAccessTokenFromCookies(req: NextRequest): string | null {
-  const cookies = parseCookies(req);
+function getCookieValue(req: NextRequest, name: string): string | null {
+  try {
+    return req.cookies.get(name)?.value ?? null;
+  } catch {
+    return null;
+  }
+}
 
-  // 1) direct known keys
-  const direct =
-    cookies["sb-access-token"] ||
-    cookies["supabase-auth-token"] ||
-    cookies["sb:token"] || // rare/older
-    null;
+function getChunkedCookieValue(req: NextRequest, baseName: string): string | null {
+  // exact cookie present?
+  const direct = getCookieValue(req, baseName);
+  if (direct) return direct;
 
-  const candidates: string[] = [];
+  // gather chunks: baseName.0, baseName.1, ...
+  const chunks: Array<{ idx: number; value: string }> = [];
+  try {
+    const all = req.cookies.getAll();
+    for (const c of all) {
+      const n = c.name || "";
+      if (!n.startsWith(baseName + ".")) continue;
 
-  if (direct) candidates.push(direct);
+      const tail = n.slice(baseName.length + 1); // after "base."
+      const idx = Number(tail);
+      if (!Number.isFinite(idx)) continue;
 
-  // 2) any cookie that ends with "auth-token" (covers sb-<ref>-auth-token)
-  for (const [name, value] of Object.entries(cookies)) {
-    if (name === "sb-access-token" || name === "supabase-auth-token") continue;
-    if (name.toLowerCase().endsWith("auth-token")) candidates.push(value);
+      chunks.push({ idx, value: c.value || "" });
+    }
+  } catch {
+    // ignore
   }
 
-  // 3) try each candidate and extract access token
-  for (const raw of candidates) {
-    const v = norm(raw);
-    if (!v) continue;
+  if (chunks.length === 0) return null;
 
-    // Sometimes it’s a JSON array: ["access","refresh",...]
-    if (v.startsWith("[")) {
-      try {
-        const arr = JSON.parse(v);
-        const token = Array.isArray(arr) ? norm(arr[0]) : "";
-        if (token) return token;
-      } catch {}
+  chunks.sort((a, b) => a.idx - b.idx);
+  const combined = chunks.map((c) => c.value).join("");
+  return combined || null;
+}
+
+function tryExtractAccessToken(raw: string): string | null {
+  const v = norm(raw);
+  if (!v) return null;
+
+  // JSON array: ["access","refresh",...]
+  if (v.startsWith("[")) {
+    try {
+      const arr = JSON.parse(v);
+      const token = Array.isArray(arr) ? norm(arr[0]) : "";
+      if (token) return token;
+    } catch {}
+  }
+
+  // JSON object: { access_token: "...", ... } OR { currentSession: { access_token: "..." } }
+  if (v.startsWith("{")) {
+    try {
+      const obj = JSON.parse(v);
+      const token =
+        norm(obj?.access_token) ||
+        norm(obj?.currentSession?.access_token) ||
+        norm(obj?.session?.access_token) ||
+        "";
+      if (token) return token;
+    } catch {}
+  }
+
+  // Raw JWT-ish string fallback
+  if (v.length > 40) return v;
+
+  return null;
+}
+
+function extractAccessTokenFromReq(req: NextRequest): string | null {
+  // 1) Older direct tokens (rare now)
+  const directOld =
+    getCookieValue(req, "sb-access-token") ||
+    getCookieValue(req, "supabase-auth-token");
+
+  const tok1 = directOld ? tryExtractAccessToken(directOld) : null;
+  if (tok1) return tok1;
+
+  // 2) Find ANY cookie that ends with "auth-token" (and rebuild chunked)
+  // Common: sb-<project-ref>-auth-token (possibly chunked)
+  let baseNames: string[] = [];
+  try {
+    const all = req.cookies.getAll();
+    for (const c of all) {
+      const name = String(c.name || "");
+      const lower = name.toLowerCase();
+
+      // include base cookie itself
+      if (lower.endsWith("auth-token") && !name.includes(".")) {
+        baseNames.push(name);
+      }
+
+      // include chunk base: "...auth-token.0" -> "...auth-token"
+      const m = name.match(/^(.*auth-token)\.\d+$/i);
+      if (m?.[1]) baseNames.push(m[1]);
     }
+  } catch {
+    // ignore
+  }
 
-    // Sometimes it’s a JSON object containing access_token
-    if (v.startsWith("{")) {
-      try {
-        const obj = JSON.parse(v);
-        const token =
-          norm(obj?.access_token) ||
-          norm(obj?.currentSession?.access_token) ||
-          "";
-        if (token) return token;
-      } catch {}
-    }
+  // de-dupe
+  baseNames = Array.from(new Set(baseNames));
 
-    // Otherwise, assume it is already an access token string
-    if (v.length > 40) return v;
+  for (const base of baseNames) {
+    const raw = getChunkedCookieValue(req, base);
+    if (!raw) continue;
+    const token = tryExtractAccessToken(raw);
+    if (token) return token;
   }
 
   return null;
 }
 
 async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
-  // A) Bearer token (if client ever sends it)
+  // A) Bearer token (if you ever send it)
   const auth = norm(req.headers.get("authorization"));
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
   if (bearer) {
@@ -98,8 +143,8 @@ async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
     if (!error && data?.user?.id) return data.user.id;
   }
 
-  // B) Cookies (normal browser flow)
-  const access = extractAccessTokenFromCookies(req);
+  // B) Cookies (normal browser login)
+  const access = extractAccessTokenFromReq(req);
   if (access) {
     const { data, error } = await supabaseAdmin.auth.getUser(access);
     if (!error && data?.user?.id) return data.user.id;
