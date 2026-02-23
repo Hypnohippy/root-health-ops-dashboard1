@@ -274,12 +274,7 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
     if (msg.includes("limit how often") || msg.includes("spam")) {
       return "Tip: This is a temporary Meta rate-limit. Wait a bit (often 15–60 mins) then try again.";
     }
-    if (
-      msg.includes("invalid") ||
-      msg.includes("missing") ||
-      msg.includes("can't read files") ||
-      msg.includes("couldn't be uploaded")
-    ) {
+    if (msg.includes("invalid") || msg.includes("missing") || msg.includes("can't read files") || msg.includes("couldn't be uploaded")) {
       return "Tip: Use Upload or Search Images (we import into your storage) — random external URLs often fail on Meta.";
     }
   }
@@ -338,10 +333,7 @@ function looksLikeImageUrl(u: string) {
   );
 }
 
-function detectFormatFromMedia(
-  imageUrl: string,
-  videoUrl: string
-): "text" | "image" | "video" {
+function detectFormatFromMedia(imageUrl: string, videoUrl: string): "text" | "image" | "video" {
   const img = (imageUrl || "").trim();
   const vid = (videoUrl || "").trim();
   if (vid) return "video";
@@ -406,9 +398,7 @@ export default function DashboardHomePage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
-  const [message, setMessage] = useState(
-    "Quick check-in from Root Health Ops Dashboard ✅"
-  );
+  const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
 
   const [imageUrl, setImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
@@ -430,9 +420,7 @@ export default function DashboardHomePage() {
   const [adminOpen, setAdminOpen] = useState(false);
 
   const [mode, setMode] = useState<Mode>("now");
-  const [scheduledLocal, setScheduledLocal] = useState<string>(
-    defaultLocalDateTimePlus(10)
-  );
+  const [scheduledLocal, setScheduledLocal] = useState<string>(defaultLocalDateTimePlus(10));
 
   // Growth Memory UI
   const [gmOpen, setGmOpen] = useState(false);
@@ -450,21 +438,21 @@ export default function DashboardHomePage() {
   const [imgImportBusyUrl, setImgImportBusyUrl] = useState<string | null>(null);
   const [imgImportError, setImgImportError] = useState<string | null>(null);
 
-  // ✅ FIX: lock background scroll while modal is open + ESC to close
+  // ✅ NEW: lock background scroll while modal is open + ESC closes
   useEffect(() => {
     if (!imgPickerOpen) return;
 
-    const prev = document.body.style.overflow;
+    const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    const onKey = (e: KeyboardEvent) => {
+    const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setImgPickerOpen(false);
     };
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKeyDown);
 
     return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKeyDown);
     };
   }, [imgPickerOpen]);
 
@@ -473,10 +461,7 @@ export default function DashboardHomePage() {
     return new Set(active.map((r) => r.platform));
   }, [socialAccounts]);
 
-  const connectedCount = useMemo(
-    () => connectedPlatforms.size,
-    [connectedPlatforms]
-  );
+  const connectedCount = useMemo(() => connectedPlatforms.size, [connectedPlatforms]);
 
   const charCount = message.length;
 
@@ -526,9 +511,7 @@ export default function DashboardHomePage() {
 
   function saveForLater() {
     const d: Draft = {
-      id: (globalThis.crypto?.randomUUID
-        ? globalThis.crypto.randomUUID()
-        : String(Date.now())),
+      id: (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : String(Date.now())),
       savedAt: Date.now(),
       message,
       imageUrl,
@@ -573,9 +556,7 @@ export default function DashboardHomePage() {
     try {
       const subject = aiSubject.trim();
       if (!subject) {
-        setAiError(
-          "Please type a subject first (e.g., 'coping with failure')."
-        );
+        setAiError("Please type a subject first (e.g., 'coping with failure').");
         return;
       }
 
@@ -598,9 +579,7 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const vars = Array.isArray((json as any)?.variants)
-        ? (json as any).variants
-        : [];
+      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
       if (vars.length === 0) {
         setAiError("AI returned no variants. Try Generate again.");
         return;
@@ -658,9 +637,7 @@ export default function DashboardHomePage() {
       const expId = safeUuidLike(params.experimentId);
       if (!expId) return;
 
-      const results = Array.isArray(params.result?.results)
-        ? params.result!.results!
-        : [];
+      const results = Array.isArray(params.result?.results) ? params.result!.results! : [];
 
       await fetch("/api/growth/experiments/log-event", {
         method: "POST",
@@ -675,18 +652,14 @@ export default function DashboardHomePage() {
             imageUrl: params.imageUrl || null,
             videoUrl: params.videoUrl || null,
             igPublishMode: params.igPublishMode || "auto",
-            montageImageUrls: Array.isArray(params.montageImageUrls)
-              ? params.montageImageUrls
-              : [],
+            montageImageUrls: Array.isArray(params.montageImageUrls) ? params.montageImageUrls : [],
             response: params.result || null,
           },
           attempts: results.map((r: any) => ({
             platform: String(r?.platform || ""),
             ok: !!r?.ok,
             externalPostId:
-              String(
-                r?.id || r?.post_id || r?.postId || r?.details?.id || ""
-              ).trim() || null,
+              String(r?.id || r?.post_id || r?.postId || r?.details?.id || "").trim() || null,
             error: !r?.ok ? extractFriendlyError(r) : null,
             raw: r,
           })),
@@ -725,8 +698,7 @@ export default function DashboardHomePage() {
           success: false,
           error: json?.error || `Request failed (${res.status})`,
           userMessage:
-            json?.userMessage ||
-            "We couldn’t send that just now. Try again in a minute.",
+            json?.userMessage || "We couldn’t send that just now. Try again in a minute.",
         });
         return;
       }
@@ -851,6 +823,7 @@ export default function DashboardHomePage() {
         imageUrl: media.imageUrl,
         videoUrl: media.videoUrl,
         igPublishMode,
+        montage_image_urls: montageUrls,
         montageImageUrls: montageUrls,
         result: {
           success: true,
@@ -859,8 +832,8 @@ export default function DashboardHomePage() {
           note: "queued_for_approval",
           results: selected.map((p) => ({ platform: p, ok: true, queued: true })),
           summary: { attempted: selected.length, ok: selected.length, failed: 0 },
-        },
-      });
+        } as any,
+      } as any);
     } catch (e: any) {
       setResult({
         success: false,
@@ -962,9 +935,7 @@ export default function DashboardHomePage() {
 
   useEffect(() => {
     if (selected.length > 0) return;
-    const defaults = socialAccounts
-      .map((r) => r.platform)
-      .filter((p) => connectedPlatforms.has(p));
+    const defaults = socialAccounts.map((r) => r.platform).filter((p) => connectedPlatforms.has(p));
     if (defaults.length > 0) setSelected(defaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingAccounts, socialAccounts]);
@@ -984,14 +955,9 @@ export default function DashboardHomePage() {
     if (!result) return null;
 
     const attempted = result.summary?.attempted ?? (result.results?.length || 0);
-    const ok =
-      result.summary?.ok ??
-      (result.results || []).filter((r: any) => r?.ok).length;
+    const ok = result.summary?.ok ?? (result.results || []).filter((r: any) => r?.ok).length;
     const failed =
-      result.summary?.failed ??
-      (result.results || []).filter(
-        (r: any) => r && !r.ok && !r.skipped
-      ).length;
+      result.summary?.failed ?? (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
 
     const headline = result.success
       ? attempted > 0
@@ -1024,7 +990,7 @@ export default function DashboardHomePage() {
         setMontageImages((prev) => {
           const exists = prev.some((x) => String(x?.url || "").trim() === url);
           if (exists) return prev;
-          return [...prev, { ...m, url, kind: "image" }];
+          return [...prev, { ...m, url, kind: "image" as const }];
         });
         setImageUrl((prev) => (prev ? prev : url));
         setVideoUrl("");
@@ -1292,36 +1258,745 @@ export default function DashboardHomePage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
         <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
-          {/* ... everything above is unchanged in your file ... */}
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+            <div>
+              <div className="text-xs text-slate-400">Root Health Ops</div>
+              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">Enterprise Beta</h1>
+              <p className="mt-2 text-sm text-slate-300 max-w-2xl">
+                A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
+              </p>
 
-          {/* (Your main UI continues exactly as you pasted it) */}
+              {/* ✅ Experiment badge */}
+              {experimentId ? (
+                <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                  <span className="font-semibold">Linked to experiment</span>
+                  <span className="opacity-80">{experimentTitle ? `— ${experimentTitle}` : ""}</span>
+                  <span className="opacity-70">(events will auto-log)</span>
+                  <button
+                    type="button"
+                    onClick={clearExperimentLink}
+                    className="ml-1 rounded-full border border-amber-500/40 bg-transparent px-3 py-1 text-[11px] text-amber-100 hover:bg-amber-500/10"
+                  >
+                    Unlink
+                  </button>
+                </div>
+              ) : null}
+            </div>
 
-          <div className="mt-8 text-xs text-slate-500">
-            Tip: Upload/Search media → write → choose channels → post (or queue).
+            <div className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-xs text-slate-300">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-slate-400">Connected:</div>
+                  <div className="text-lg font-semibold text-slate-100">{loadingAccounts ? "…" : connectedCount}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={refreshChannels}
+                  className="rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-500"
+                >
+                  Refresh
+                </button>
+              </div>
+              <div className="mt-2 text-slate-500">Loaded from connections</div>
+            </div>
           </div>
+
+          {gmSavedToast ? (
+            <div className="mt-6 rounded-2xl border border-emerald-500/40 bg-emerald-950/25 p-3 text-sm text-emerald-100">
+              {gmSavedToast}
+            </div>
+          ) : null}
+
+          <div className="mt-8 grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2 rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Quick Blast</h2>
+                  <p className="mt-1 text-sm text-slate-300">
+                    Write once, choose channels, send — or queue for approval.
+                  </p>
+                </div>
+                <div className="text-right text-xs text-slate-400">
+                  <div>{charCount} chars</div>
+                  <div className="mt-1 text-slate-300">{lengthHint}</div>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-3xl border border-slate-700 bg-slate-950 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">Dispatch mode</div>
+                    <div className="text-[11px] text-slate-400 mt-1">
+                      Send now publishes immediately. Queue for approval routes it into your clinic workflow.
+                    </div>
+                  </div>
+
+                  <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setMode("now")}
+                      className={[
+                        "px-3 py-1.5",
+                        mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                      ].join(" ")}
+                    >
+                      Send now
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode("approval")}
+                      className={[
+                        "px-3 py-1.5",
+                        mode === "approval" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                      ].join(" ")}
+                    >
+                      Queue for approval
+                    </button>
+                  </div>
+                </div>
+
+                {mode === "approval" && (
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300">
+                        When should it land in the queue?
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={scheduledLocal}
+                        onChange={(e) => setScheduledLocal(e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      />
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        This is the scheduled time stored on the post (and shown in Approvals/Scheduled).
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-300">
+                      <div className="font-semibold text-slate-200">What happens next</div>
+                      <ul className="mt-2 space-y-1">
+                        <li>
+                          • Your post lands in{" "}
+                          <span className="text-slate-100 font-semibold">Approvals</span> as pending
+                        </li>
+                        <li>• Approver sees full content + “Posted by Clinic Owner”</li>
+                        <li>• Approve → it becomes ready → Post now</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Media uploader */}
+              <div className="mt-6 rounded-3xl border border-slate-700 bg-slate-950 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">Media (optional)</div>
+                    <div className="mt-1 text-[11px] text-slate-400">
+                      Upload from your laptop, or search for an image (we import it into your storage so Meta can read it).
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={openImagePicker}
+                      className="rounded-2xl border border-slate-600 bg-slate-950 px-3 py-2 text-[11px] text-slate-200 hover:border-slate-500"
+                      title="Search images and import to your storage"
+                    >
+                      🔎 Search images
+                    </button>
+
+                    <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setMediaMode("auto")}
+                        className={[
+                          "px-3 py-1.5",
+                          mediaMode === "auto" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        ].join(" ")}
+                      >
+                        Auto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMediaMode("image")}
+                        className={[
+                          "px-3 py-1.5",
+                          mediaMode === "image" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        ].join(" ")}
+                      >
+                        Image
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMediaMode("video")}
+                        className={[
+                          "px-3 py-1.5",
+                          mediaMode === "video" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        ].join(" ")}
+                      >
+                        Video
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Instagram posting style */}
+                <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">Instagram posting style</div>
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        Comfort toggle — always visible. We’ll keep today’s stable posting, and evolve this safely.
+                      </div>
+                      <div className="mt-2 text-[11px] text-slate-300">
+                        Current: <span className="text-slate-100 font-semibold">{igChoiceHint}</span>
+                      </div>
+                    </div>
+
+                    <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setIgPublishMode("auto")}
+                        className={[
+                          "px-3 py-1.5",
+                          igPublishMode === "auto" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        ].join(" ")}
+                      >
+                        Auto
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIgPublishMode("feed_video")}
+                        disabled={!hasEffectiveVideo}
+                        className={[
+                          "px-3 py-1.5",
+                          igPublishMode === "feed_video" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                          !hasEffectiveVideo ? "opacity-50 cursor-not-allowed" : "",
+                        ].join(" ")}
+                        title={!hasEffectiveVideo ? "Upload/select a video first" : ""}
+                      >
+                        Video post
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIgPublishMode("reel")}
+                        disabled={!hasEffectiveVideo}
+                        className={[
+                          "px-3 py-1.5",
+                          igPublishMode === "reel" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                          !hasEffectiveVideo ? "opacity-50 cursor-not-allowed" : "",
+                        ].join(" ")}
+                        title={!hasEffectiveVideo ? "Upload/select a video first" : ""}
+                      >
+                        Reel
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIgPublishMode("montage_reel")}
+                        className={[
+                          "px-3 py-1.5",
+                          igPublishMode === "montage_reel" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        ].join(" ")}
+                        title="Add multiple images to build a montage reel"
+                      >
+                        Montage
+                      </button>
+                    </div>
+                  </div>
+
+                  {igPublishMode === "montage_reel" && (
+                    <div className="mt-3 text-[11px] text-slate-300">
+                      <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
+                        <div className="font-semibold text-slate-200">Montage builder</div>
+                        <div className="mt-1 text-slate-400">
+                          Upload multiple images one-by-one, or use Search Images. We’ll store a list and send it as{" "}
+                          <span className="text-slate-200 font-semibold">montageImageUrls</span>.
+                        </div>
+
+                        {!montageReady ? (
+                          <div className="mt-2 text-amber-200">
+                            Add <span className="font-semibold">2+</span> images for a real montage.
+                            (Right now, your existing posting still works using the first image — we’ll wire true montage-to-reel server-side next.)
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-emerald-200">Montage ready ✅ ({montageUrls.length} images)</div>
+                        )}
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={clearMontage}
+                            className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-600"
+                          >
+                            Clear montage
+                          </button>
+                        </div>
+
+                        {montageUrls.length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {montageUrls.map((u, idx) => (
+                              <div
+                                key={`${u}-${idx}`}
+                                className="flex items-start justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                              >
+                                <div className="text-[11px] text-slate-200 break-all">
+                                  {idx + 1}. {u}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => removeMontageAt(idx)}
+                                  className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 hover:border-red-500 hover:text-red-200"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3">
+                  <MediaDropzone
+                    organisationId={organisationId || undefined}
+                    label="Upload image or video"
+                    helpText={
+                      igPublishMode === "montage_reel"
+                        ? "Montage mode: drop multiple images one-by-one (or click to choose)"
+                        : "Drag & drop an image/video here (or click to choose)"
+                    }
+                    accept="image/*,video/*"
+                    maxMb={50}
+                    disabled={loadingAccounts}
+                    onUploaded={onUploadedQuickBlast}
+                  />
+                </div>
+
+                <div className="mt-3 grid gap-2 md:grid-cols-2 text-[11px]">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-slate-400">Image URL</div>
+                      {imageUrl ? (
+                        <button
+                          type="button"
+                          onClick={clearImage}
+                          className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200 hover:bg-white/10"
+                        >
+                          Clear
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 break-all text-slate-200">{imageUrl || "—"}</div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-slate-400">Video URL</div>
+                      {videoUrl ? (
+                        <button
+                          type="button"
+                          onClick={clearVideo}
+                          className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200 hover:bg-white/10"
+                        >
+                          Clear
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 break-all text-slate-200">{videoUrl || "—"}</div>
+                  </div>
+                </div>
+
+                <div className="mt-2 text-[11px] text-slate-500">
+                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl: {media.videoUrl ? "✅" : "—"}
+                </div>
+
+                {igPublishMode === "montage_reel" && !hasEffectiveImage && montageUrls.length > 0 && (
+                  <div className="mt-2 text-[11px] text-amber-200">
+                    Note: Montage has images, but Image URL is blank — refresh or upload one more image to set the first image as the primary imageUrl.
+                  </div>
+                )}
+              </div>
+
+              {/* AI Composer */}
+              <div className="mt-6 rounded-3xl border border-slate-700 bg-slate-950 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">AI helper</div>
+                    <div className="text-[11px] text-slate-400 mt-1">
+                      Type a subject + pick tone/length → Generate → Use (then edit if you want).
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={generateAiQuickBlast}
+                    disabled={aiBusy}
+                    className="rounded-2xl bg-blue-500 px-4 py-2 text-xs font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60"
+                  >
+                    {aiBusy ? "Generating…" : "Generate"}
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Subject (what’s the post about?)</label>
+                    <input
+                      value={aiSubject}
+                      onChange={(e) => setAiSubject(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder='e.g. "coping with failure"'
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300">Tone</label>
+                      <select
+                        value={aiTone}
+                        onChange={(e) => setAiTone(e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      >
+                        <option value="calm">Calm</option>
+                        <option value="supportive">Supportive</option>
+                        <option value="direct">Direct</option>
+                        <option value="philosophical">Philosophical</option>
+                        <option value="story">Story-style</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300">Length</label>
+                      <select
+                        value={aiLength}
+                        onChange={(e) => setAiLength(e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      >
+                        <option value="short">Short</option>
+                        <option value="medium">Medium</option>
+                        <option value="long">Long</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {aiError && (
+                  <div className="mt-3 rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
+                    {aiError}
+                  </div>
+                )}
+
+                {aiVariants.length > 0 && (
+                  <div className="mt-4 space-y-3">
+                    {aiVariants.map((v, idx) => (
+                      <div key={`${idx}-${v.title}`} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="text-sm font-semibold">{v.title || `Variant ${idx + 1}`}</div>
+                          <button
+                            type="button"
+                            onClick={() => setMessage(joinVariant(v))}
+                            className="rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                          >
+                            Use this
+                          </button>
+                        </div>
+                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{joinVariant(v)}</div>
+                      </div>
+                    ))}
+                    <div className="text-[11px] text-slate-500">
+                      Tip: Click “Use this”, tweak the wording, then dispatch.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">Message</label>
+                  <textarea
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    rows={5}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    placeholder="Write a quick update…"
+                  />
+                </div>
+
+                {/* Manual fields remain as fallback */}
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Image URL (optional)</label>
+                    <input
+                      value={imageUrl}
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder="Paste a direct image URL…"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">Video URL (optional)</label>
+                    <input
+                      value={videoUrl}
+                      onChange={(e) => setVideoUrl(e.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder="Paste a direct video URL…"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-medium text-slate-300">Channels</label>
+                    <button type="button" onClick={refreshChannels} className="text-[11px] text-slate-400 hover:text-slate-300">
+                      Refresh
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {channelCards.map((p) => {
+                      const isConnected = connectedPlatforms.has(p);
+                      const isSelected = selected.includes(p);
+
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => togglePlatform(p)}
+                          disabled={!isConnected}
+                          className={`flex items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm transition ${
+                            !isConnected
+                              ? "border-slate-800 bg-slate-950/40 text-slate-600 cursor-not-allowed"
+                              : isSelected
+                              ? "border-emerald-500/60 bg-emerald-500/10 text-slate-100"
+                              : "border-slate-700 bg-slate-950 text-slate-200 hover:border-slate-600"
+                          }`}
+                        >
+                          <div>
+                            <div className="font-medium">{PROVIDER_LABELS[p]}</div>
+                            <div className="text-[11px] text-slate-500">{isConnected ? "connected" : "not connected"}</div>
+                          </div>
+                          <div
+                            className={`text-[11px] px-2 py-1 rounded-full border ${
+                              !isConnected
+                                ? "border-slate-800 text-slate-600"
+                                : isSelected
+                                ? "border-emerald-500/60 text-emerald-200"
+                                : "border-slate-600 text-slate-300"
+                            }`}
+                          >
+                            {isSelected ? "Selected" : "Select"}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-2 text-[11px] text-slate-500">Only connected channels will actually send.</div>
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={sendQuickBlast}
+                    disabled={sending || message.trim().length === 0 || selected.length === 0}
+                    className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                  >
+                    {sending ? (mode === "now" ? "Sending…" : "Queueing…") : mode === "now" ? "Send Quick Blast" : "Queue for approval"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={saveForLater}
+                    className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500"
+                  >
+                    Save for later
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAdminOpen((v) => !v)}
+                    className="rounded-2xl border border-slate-700 bg-slate-900/80 px-5 py-2 text-sm text-slate-200 hover:border-slate-600"
+                  >
+                    Admin view
+                  </button>
+                </div>
+
+                {/* ✅ RESULT PANEL */}
+                {result && (
+                  <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
+                    <div className="text-sm">
+                      <div className={result.success ? "text-emerald-200" : "text-amber-200"}>
+                        {friendlySummary?.headline || (result.success ? "Success." : "Not sent.")}
+                      </div>
+                      <div className="mt-1 text-[12px] text-slate-300">
+                        {friendlySummary?.topMsg ||
+                          (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.")}
+                      </div>
+                      {result.note ? <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div> : null}
+                    </div>
+
+                    {Array.isArray(result.results) && result.results.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        {result.results.map((r: any, idx: number) => {
+                          const platform = (String(r?.platform || "") as ProviderId) || "facebook";
+                          const ok = !!r?.ok;
+                          const skipped = !!r?.skipped;
+                          const label = formatPlatformName(r?.platform || platform);
+
+                          const friendly = ok ? "Posted." : extractFriendlyError(r);
+                          const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
+
+                          return (
+                            <div key={`${platform}-${idx}`} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="text-[12px] font-semibold text-slate-200">{label}</div>
+                                <div
+                                  className={[
+                                    "text-[11px] rounded-full border px-2 py-0.5",
+                                    ok
+                                      ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                                      : skipped
+                                      ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                      : "border-red-500/50 text-red-200 bg-red-500/10",
+                                  ].join(" ")}
+                                >
+                                  {ok ? "✅ Posted" : skipped ? "⚠️ Skipped" : "❌ Failed"}
+                                </div>
+                              </div>
+
+                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">{friendly}</div>
+
+                              {tip ? <div className="mt-1 text-[11px] text-slate-400">{tip}</div> : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* ✅ Only show Growth Memory if at least one platform posted */}
+                    {Array.isArray(result.results) && result.results.some((r: any) => !!r?.ok) ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={openGrowthMemoryFromCurrentPost}
+                          className="rounded-2xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                        >
+                          ⭐ Save this to Growth Memory
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (typeof window !== "undefined") window.location.href = "/dashboard/campaigns";
+                          }}
+                          className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs text-slate-200 hover:border-slate-600"
+                        >
+                          View Growth Lab
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {adminOpen && (
+                      <details className="mt-4">
+                        <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-300">
+                          Show technical details (admin)
+                        </summary>
+                        <pre className="mt-2 max-h-72 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 text-[11px] text-slate-200">
+{JSON.stringify(result, null, 2)}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                )}
+
+                {adminOpen && (
+                  <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
+                    <div className="text-slate-400 mb-2">Admin info (safe).</div>
+                    <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
+                    <div className="mt-1">Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}</div>
+                    <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
+                    <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
+                    <div className="mt-1">mediaMode: {mediaMode}</div>
+                    <div className="mt-1">igPublishMode: {igPublishMode}</div>
+                    <div className="mt-1">montageImages: {montageUrls.length}</div>
+                    <div className="mt-1">imageUrl: {media.imageUrl ? "✅ set" : "—"}</div>
+                    <div className="mt-1">videoUrl: {media.videoUrl ? "✅ set" : "—"}</div>
+                    <div className="mt-1">experimentId: {experimentId || "—"}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Drafts */}
+            <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
+              <h3 className="text-base font-semibold">Saved drafts</h3>
+              <p className="mt-1 text-sm text-slate-300">Drafts are stored on this device. (Later we can sync per org.)</p>
+              <p className="mt-2 text-[11px] text-slate-500">Use “Save for later” and we’ll restore the full draft library</p>
+
+              <div className="mt-4 space-y-3">
+                {drafts.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                    No drafts yet.
+                  </div>
+                ) : (
+                  drafts.map((d) => (
+                    <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                      <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
+                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
+                      <div className="mt-2 text-[11px] text-slate-500">
+                        Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => restoreDraft(d)}
+                          className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-slate-800"
+                        >
+                          Restore
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteDraft(d.id)}
+                          className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-red-500 hover:text-red-200"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 text-xs text-slate-500">Tip: Upload/Search media → write → choose channels → post (or queue).</div>
         </div>
       </div>
 
-      {/* ✅ Commons Image Picker Modal (FIXED: scroll + close + body lock) */}
+      {/* ✅ Commons Image Picker Modal (FIXED) */}
       {imgPickerOpen ? (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
-          {/* backdrop */}
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          {/* Backdrop */}
           <button
             type="button"
-            aria-label="Close"
+            aria-label="Close modal"
             className="absolute inset-0 bg-black/70"
             onClick={closeImagePicker}
           />
 
-          {/* panel */}
+          {/* Panel */}
           <div className="relative w-full max-w-5xl max-h-[85vh] overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl flex flex-col">
-            {/* header (sticky-ish) */}
+            {/* Header */}
             <div className="flex items-start justify-between gap-4 p-6 border-b border-slate-800">
               <div>
                 <div className="text-xs text-slate-400">Media Library</div>
-                <div className="mt-1 text-lg font-semibold text-slate-100">
-                  Search images
-                </div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">Search images</div>
                 <div className="mt-1 text-sm text-slate-300">
                   Pick an image → we import it into your storage (so Facebook/IG/Threads can actually read it).
                 </div>
@@ -1335,7 +2010,7 @@ export default function DashboardHomePage() {
               </button>
             </div>
 
-            {/* scrollable body */}
+            {/* Scrollable body */}
             <div className="flex-1 overflow-y-auto p-6">
               {imgImportError ? (
                 <div className="mb-4 rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
@@ -1384,10 +2059,7 @@ export default function DashboardHomePage() {
                       const importing = imgImportBusyUrl === full;
 
                       return (
-                        <div
-                          key={`${full}-${idx}`}
-                          className="rounded-2xl border border-slate-800 bg-slate-950/70 overflow-hidden"
-                        >
+                        <div key={`${full}-${idx}`} className="rounded-2xl border border-slate-800 bg-slate-950/70 overflow-hidden">
                           <div className="aspect-[4/3] bg-slate-900">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
@@ -1398,12 +2070,8 @@ export default function DashboardHomePage() {
                             />
                           </div>
                           <div className="p-3">
-                            <div className="text-xs font-semibold text-slate-100 line-clamp-1">
-                              {title}
-                            </div>
-                            <div className="mt-1 text-[11px] text-slate-400 line-clamp-2 break-all">
-                              {full}
-                            </div>
+                            <div className="text-xs font-semibold text-slate-100 line-clamp-1">{title}</div>
+                            <div className="mt-1 text-[11px] text-slate-400 line-clamp-2 break-all">{full}</div>
 
                             <div className="mt-3 flex gap-2">
                               <button
@@ -1444,9 +2112,7 @@ export default function DashboardHomePage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-xs text-slate-400">Growth Lab</div>
-                <div className="mt-1 text-lg font-semibold text-slate-100">
-                  Save to Growth Memory
-                </div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">Save to Growth Memory</div>
                 <div className="mt-1 text-sm text-slate-300">
                   Capture what worked (or what failed) so your future self gets smarter — without effort.
                 </div>
@@ -1463,9 +2129,7 @@ export default function DashboardHomePage() {
             <div className="mt-5 grid gap-4">
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Platform
-                  </label>
+                  <label className="block text-xs font-medium text-slate-300">Platform</label>
                   <select
                     value={gmPlatform}
                     onChange={(e) => {
@@ -1516,9 +2180,7 @@ export default function DashboardHomePage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300">
-                  Tags (comma-separated)
-                </label>
+                <label className="block text-xs font-medium text-slate-300">Tags (comma-separated)</label>
                 <input
                   value={gmTags}
                   onChange={(e) => setGmTags(e.target.value)}
