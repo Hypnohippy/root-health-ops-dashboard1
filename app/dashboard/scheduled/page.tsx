@@ -41,6 +41,20 @@ function fmt(dt?: string | null) {
   return d.toLocaleString();
 }
 
+function fmtShort(dt?: string | null) {
+  if (!dt) return "—";
+  const d = new Date(dt);
+  if (isNaN(d.getTime())) return dt;
+  // compact, readable
+  return d.toLocaleString(undefined, {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function toLocalInputValue(iso: string | null | undefined) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -218,6 +232,44 @@ function getPrefillImageUrl(it: PrefillItem): string | null {
   return null;
 }
 
+function clampOneLine(s: string, max = 140) {
+  const t = String(s || "").replace(/\s+/g, " ").trim();
+  if (!t) return "—";
+  if (t.length <= max) return t;
+  return t.slice(0, max).trimEnd() + "…";
+}
+
+function safeLower(s: any) {
+  return String(s || "").toLowerCase().trim();
+}
+
+function isoDayKey(iso: string) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "Unknown date";
+  // YYYY-MM-DD in local time
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function dayLabelFromKey(key: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return key;
+
+  const [y, m, d] = key.split("-").map((x) => Number(x));
+  const dt = new Date(y, m - 1, d);
+  const today = new Date();
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const k0 = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+  const diffDays = Math.round((k0 - t0) / (24 * 60 * 60 * 1000));
+
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Tomorrow";
+  if (diffDays === -1) return "Yesterday";
+
+  return dt.toLocaleDateString(undefined, { weekday: "long", day: "2-digit", month: "short", year: "numeric" });
+}
+
 export default function ScheduledPage() {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<ScheduledRow[]>([]);
@@ -225,6 +277,19 @@ export default function ScheduledPage() {
 
   const [includeQuickBlast, setIncludeQuickBlast] = useState(false);
   const [range, setRange] = useState<RangeMode>("future");
+
+  // ✅ NEW: filters + view controls
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [platformFilter, setPlatformFilter] = useState<string>("all");
+  const [groupByDay, setGroupByDay] = useState(true);
+
+  // ✅ NEW: selection + bulk delete
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  // ✅ expand/collapse
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -301,7 +366,12 @@ export default function ScheduledPage() {
         return;
       }
 
-      setItems(Array.isArray(json.items) ? json.items : []);
+      const next = Array.isArray(json.items) ? json.items : [];
+      setItems(next);
+
+      // ✅ reset selection and expand state when list reloads
+      setSelectedIds(new Set());
+      setExpandedIds(new Set());
     } catch (e: any) {
       setItems([]);
       setError(e?.message || "Failed to load scheduled posts.");
@@ -375,11 +445,8 @@ export default function ScheduledPage() {
               message,
               platforms,
               scheduledAt: whenIso,
-
-              // backwards compatible
               imageUrl,
               image_url: imageUrl,
-
               createdBy: { user_id: "owner", name: "Clinic Owner", email: "owner@clinic.local" },
               meta: {
                 source: "brainstorm",
@@ -502,7 +569,7 @@ export default function ScheduledPage() {
       const res = await fetch(`/api/media/commons-images?q=${encodeURIComponent(query)}&limit=9`, {
         cache: "no-store",
       });
-      const data: CommonsImagesApiResponse = await res.json().catch(() => null);
+      const data: CommonsImagesApiResponse = await res.json().catch(() => null as any);
 
       if (!res.ok || !data?.success) {
         throw new Error(data?.error || `Image search failed (${res.status})`);
@@ -640,7 +707,7 @@ export default function ScheduledPage() {
       return;
     }
 
-    const status = String(it.status || "").toLowerCase();
+    const status = safeLower(it.status);
     if (status === "posted") {
       alert("This post is already posted. Deleting is blocked to avoid accidental data loss.");
       return;
@@ -669,6 +736,167 @@ export default function ScheduledPage() {
     }
   }
 
+  // ✅ NEW: derived list with real filtering + sorting
+  const filtered = useMemo(() => {
+    const query = safeLower(q);
+    const sFilter = safeLower(statusFilter);
+    const pFilter = safeLower(platformFilter);
+
+    const arr = [...(items || [])];
+
+    // sort: future => soonest first, past/all => newest first
+    arr.sort((a, b) => {
+      const aT =
+        new Date(a.scheduled_for || a.created_at || 0).getTime() ||
+        new Date(a.created_at || 0).getTime() ||
+        0;
+      const bT =
+        new Date(b.scheduled_for || b.created_at || 0).getTime() ||
+        new Date(b.created_at || 0).getTime() ||
+        0;
+      if (range === "future") return aT - bT;
+      return bT - aT;
+    });
+
+    return arr.filter((it) => {
+      const status = safeLower(it.status || "");
+      const platforms = Array.isArray(it.platforms) ? it.platforms.map((x) => safeLower(x)) : [];
+      const msg = safeLower(it.message || "");
+      const source = safeLower(it?.meta?.source || "");
+
+      const hay = `${msg} ${status} ${platforms.join(" ")} ${source}`;
+
+      if (query && !hay.includes(query)) return false;
+      if (sFilter !== "all" && status !== sFilter) return false;
+      if (pFilter !== "all" && !platforms.includes(pFilter)) return false;
+
+      return true;
+    });
+  }, [items, q, statusFilter, platformFilter, range]);
+
+  const statusOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const it of items) {
+      const s = safeLower(it.status || "");
+      if (s) set.add(s);
+    }
+    const list = Array.from(set).sort();
+    return ["all", ...list];
+  }, [items]);
+
+  const emptyFiltered = !loading && !error && filtered.length === 0;
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function isSelected(id: string) {
+    return selectedIds.has(id);
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  function selectAllVisible() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const it of filtered) next.add(it.id);
+      return next;
+    });
+  }
+
+  async function deleteSelected() {
+    if (!orgId) {
+      alert("Organisation not loaded yet. Refresh the page.");
+      return;
+    }
+
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    const deletable = filtered.filter((it) => selectedIds.has(it.id)).filter((it) => safeLower(it.status) !== "posted");
+    const blocked = ids.length - deletable.length;
+
+    const msg =
+      blocked > 0
+        ? `Delete ${deletable.length} scheduled item(s)? (${blocked} posted item(s) will be kept)`
+        : `Delete ${deletable.length} scheduled item(s)? This cannot be undone.`;
+
+    const ok = confirm(msg);
+    if (!ok) return;
+
+    setBulkBusy(true);
+    setToast(`Deleting ${deletable.length}…`);
+
+    let okCount = 0;
+    let failCount = 0;
+
+    for (const it of deletable) {
+      try {
+        const res = await fetch("/api/social/scheduled/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ id: it.id, organisationId: orgId }),
+        });
+
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.success) {
+          failCount++;
+        } else {
+          okCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    }
+
+    setToast(failCount === 0 ? `Deleted ${okCount} ✅` : `Deleted ${okCount}, failed ${failCount}`);
+    setTimeout(() => setToast(null), 1800);
+
+    clearSelection();
+    setBulkBusy(false);
+    await load(orgId);
+  }
+
+  const grouped = useMemo(() => {
+    if (!groupByDay) return null;
+
+    const map = new Map<string, ScheduledRow[]>();
+
+    for (const it of filtered) {
+      const when = it.scheduled_for || it.created_at || "";
+      const key = when ? isoDayKey(when) : "Unknown date";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(it);
+    }
+
+    // sort groups by date key (future => asc, else desc)
+    const keys = Array.from(map.keys()).sort((a, b) => {
+      if (a === "Unknown date") return 1;
+      if (b === "Unknown date") return -1;
+      if (range === "future") return a.localeCompare(b);
+      return b.localeCompare(a);
+    });
+
+    return keys.map((k) => ({ key: k, label: dayLabelFromKey(k), items: map.get(k)! }));
+  }, [filtered, groupByDay, range]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
@@ -678,7 +906,7 @@ export default function ScheduledPage() {
               <div className="text-xs text-slate-400">Root Health Ops</div>
               <h1 className="mt-1 text-2xl md:text-3xl font-semibold">{title}</h1>
               <p className="mt-2 text-sm text-slate-300 max-w-3xl">
-                Future = your pipeline. Past/All = where “posted” items live (so they don’t look like they disappeared).
+                Filter + select + delete without drowning in a wall of posts.
               </p>
               <div className="mt-2 text-xs text-slate-500 break-all">Org: {orgId || "—"}</div>
             </div>
@@ -716,6 +944,115 @@ export default function ScheduledPage() {
             </div>
           </div>
 
+          {/* ✅ Filters bar */}
+          <div className="mt-6 grid gap-3 md:grid-cols-4">
+            <div className="md:col-span-2">
+              <div className="text-[11px] text-slate-400 mb-1">Search</div>
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                placeholder='Search message, status, platform, source… (e.g. "tiktok", "failed", "brainstorm")'
+              />
+            </div>
+
+            <div>
+              <div className="text-[11px] text-slate-400 mb-1">Status</div>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none hover:border-slate-600"
+              >
+                {statusOptions.map((s) => (
+                  <option key={s} value={s}>
+                    {s === "all" ? "All" : s}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <div className="text-[11px] text-slate-400 mb-1">Platform</div>
+              <select
+                value={platformFilter}
+                onChange={(e) => setPlatformFilter(e.target.value)}
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none hover:border-slate-600"
+              >
+                <option value="all">All</option>
+                {ALL_PLATFORMS.map((p) => (
+                  <option key={p} value={p}>
+                    {platformLabel(p)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* ✅ Bulk actions bar */}
+          <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="text-xs text-slate-400">
+              Showing <span className="text-slate-200 font-semibold">{filtered.length}</span> of{" "}
+              <span className="text-slate-200 font-semibold">{items.length}</span>
+              {selectedIds.size > 0 ? (
+                <>
+                  {" "}
+                  · Selected <span className="text-emerald-200 font-semibold">{selectedIds.size}</span>
+                </>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setGroupByDay((v) => !v)}
+                className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-600"
+                title="Group posts by day"
+              >
+                {groupByDay ? "Grouped by day" : "Flat list"}
+              </button>
+
+              {selectedIds.size > 0 ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={selectAllVisible}
+                    className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-600"
+                    disabled={bulkBusy}
+                  >
+                    Select all (visible)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-600"
+                    disabled={bulkBusy}
+                  >
+                    Clear
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={deleteSelected}
+                    className="rounded-2xl border border-red-500/40 bg-red-950/30 px-3 py-2 text-xs text-red-100 hover:border-red-500 disabled:opacity-60"
+                    disabled={bulkBusy}
+                  >
+                    {bulkBusy ? "Deleting…" : "Delete selected"}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={selectAllVisible}
+                  className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-600"
+                  disabled={filtered.length === 0}
+                >
+                  Select all (visible)
+                </button>
+              )}
+            </div>
+          </div>
+
           {orgError ? (
             <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-red-100">
               {orgError}
@@ -750,133 +1087,216 @@ export default function ScheduledPage() {
             </div>
           )}
 
-          {!loading && !error && items.length > 0 && (
+          {emptyFiltered && !emptyState && (
+            <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-5 text-slate-300">
+              No results match your filters.
+              <div className="mt-2 text-xs text-slate-500">Try clearing Search / Status / Platform.</div>
+            </div>
+          )}
+
+          {/* ✅ List */}
+          {!loading && !error && filtered.length > 0 && (
             <div className="mt-6 space-y-4">
-              {items.map((it) => {
-                const platforms = Array.isArray(it.platforms) ? it.platforms : [];
-                const results = it?.error_info?.results;
-                const hasResults = Array.isArray(results) && results.length > 0;
+              {(grouped ? grouped : [{ key: "all", label: "Results", items: filtered }]).map((grp) => (
+                <div key={grp.key} className="space-y-3">
+                  {groupByDay ? (
+                    <div className="sticky top-2 z-10">
+                      <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/85 px-3 py-2 text-xs text-slate-200 backdrop-blur">
+                        <span className="font-semibold">{grp.label}</span>
+                        <span className="text-slate-400">({grp.items.length})</span>
+                      </div>
+                    </div>
+                  ) : null}
 
-                const source = String(it?.meta?.source || "").trim();
-                const sourceBadge = source === "quick_blast" ? "Quick Blast" : source ? source : "Scheduled";
+                  {grp.items.map((it) => {
+                    const platforms = Array.isArray(it.platforms) ? it.platforms : [];
+                    const results = it?.error_info?.results;
+                    const hasResults = Array.isArray(results) && results.length > 0;
 
-                const media = normaliseMediaUrl(it.image_url) || null;
+                    const source = String(it?.meta?.source || "").trim();
+                    const sourceBadge = source === "quick_blast" ? "Quick Blast" : source ? source : "Scheduled";
 
-                return (
-                  <div key={it.id} className="rounded-3xl border border-slate-700 bg-slate-950 p-5">
-                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                      <div>
-                        <div className="text-xs text-slate-400">
-                          {fmt(it.scheduled_for)} · {platforms.map(platformLabel).join(", ") || "—"}
-                        </div>
+                    const media = normaliseMediaUrl(it.image_url) || null;
 
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-semibold text-slate-100">{it.status || "—"}</span>
+                    const expanded = expandedIds.has(it.id);
+                    const status = safeLower(it.status || "");
+                    const statusChip =
+                      status === "posted"
+                        ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                        : status.includes("fail")
+                        ? "border-red-500/50 text-red-200 bg-red-500/10"
+                        : status.includes("pending") || status.includes("queue")
+                        ? "border-amber-500/40 text-amber-200 bg-amber-500/10"
+                        : "border-slate-700 text-slate-200 bg-slate-900/40";
 
-                          <span className="text-xs rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-slate-200">
-                            {sourceBadge}
-                          </span>
+                    const canDelete = status !== "posted";
 
-                          {it.posted_at ? (
-                            <span className="text-xs text-slate-400">posted {fmt(it.posted_at)}</span>
+                    return (
+                      <div key={it.id} className="rounded-3xl border border-slate-700 bg-slate-950 p-4 md:p-5">
+                        {/* Top row */}
+                        <div className="flex flex-col gap-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-3">
+                              <input
+                                type="checkbox"
+                                checked={isSelected(it.id)}
+                                onChange={() => toggleSelected(it.id)}
+                                className="mt-1 h-4 w-4"
+                                aria-label="Select"
+                              />
+
+                              <div>
+                                <div className="text-xs text-slate-400">
+                                  {fmtShort(it.scheduled_for)} · {platforms.map(platformLabel).join(", ") || "—"}
+                                </div>
+
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  <span className={["text-xs rounded-full border px-2 py-0.5", statusChip].join(" ")}>
+                                    {it.status || "—"}
+                                  </span>
+
+                                  <span className="text-xs rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-slate-200">
+                                    {sourceBadge}
+                                  </span>
+
+                                  {it.posted_at ? (
+                                    <span className="text-xs text-slate-400">posted {fmtShort(it.posted_at)}</span>
+                                  ) : null}
+
+                                  {media ? (
+                                    <span className="text-xs text-slate-400">media ✅</span>
+                                  ) : (
+                                    <span className="text-xs text-slate-500">media —</span>
+                                  )}
+                                </div>
+
+                                <div className="mt-3 text-sm text-slate-200">
+                                  {expanded ? String(it.message || "").trim() || "—" : clampOneLine(String(it.message || ""), 160)}
+                                </div>
+
+                                {expanded ? (
+                                  <>
+                                    {media ? (
+                                      <div className="mt-2 text-xs text-slate-400 break-all">
+                                        Media:{" "}
+                                        <a
+                                          className="text-emerald-300 hover:text-emerald-200"
+                                          href={media}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                        >
+                                          {media}
+                                        </a>
+                                      </div>
+                                    ) : (
+                                      <div className="mt-2 text-xs text-slate-500">Media: —</div>
+                                    )}
+                                  </>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 justify-end">
+                              <button
+                                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 hover:border-slate-600"
+                                onClick={() => toggleExpanded(it.id)}
+                              >
+                                {expanded ? "Hide" : "View"}
+                              </button>
+
+                              <button
+                                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 hover:border-slate-600"
+                                onClick={() => openEdit(it)}
+                              >
+                                Edit
+                              </button>
+
+                              <button
+                                className={[
+                                  "rounded-2xl border px-3 py-2 text-xs",
+                                  canDelete
+                                    ? "border-red-500/40 bg-red-950/30 text-red-100 hover:border-red-500"
+                                    : "border-slate-800 bg-slate-950/40 text-slate-600 cursor-not-allowed",
+                                ].join(" ")}
+                                onClick={() => (canDelete ? deletePost(it) : null)}
+                                title={canDelete ? "Delete scheduled post" : "Posted items are protected"}
+                              >
+                                Delete
+                              </button>
+
+                              <button
+                                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 hover:border-slate-600"
+                                onClick={() => navigator.clipboard.writeText(it.id)}
+                              >
+                                Copy ID
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Expanded details */}
+                          {expanded ? (
+                            <div className="mt-2 rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-semibold text-slate-100">Dispatch results</div>
+                                <div className="text-[11px] text-slate-400">Created: {fmt(it.created_at)}</div>
+                              </div>
+
+                              {!hasResults ? (
+                                <div className="mt-2 text-sm text-slate-400">No dispatch results stored yet.</div>
+                              ) : (
+                                <div className="mt-3 space-y-2">
+                                  {results.map((r: any, idx: number) => {
+                                    const platform = String(r?.platform || "—");
+                                    const ok = !!r?.ok;
+                                    const skipped = !!r?.skipped;
+
+                                    const badge = ok ? "✅ OK" : skipped ? "⚠️ Skipped" : "❌ Failed";
+
+                                    return (
+                                      <div
+                                        key={`${platform}-${idx}`}
+                                        className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                                      >
+                                        <div className="text-sm text-slate-200">
+                                          <span className="font-semibold">{platformLabel(platform)}:</span>{" "}
+                                          {describeResult(r)}
+                                        </div>
+
+                                        <div
+                                          className={[
+                                            "text-xs rounded-full border px-2 py-0.5",
+                                            ok
+                                              ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
+                                              : skipped
+                                              ? "border-slate-600 text-slate-300 bg-slate-900/40"
+                                              : "border-red-500/50 text-red-200 bg-red-500/10",
+                                          ].join(" ")}
+                                        >
+                                          {badge}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
                           ) : null}
                         </div>
-
-                        <div className="mt-3 whitespace-pre-wrap text-sm text-slate-200">
-                          {String(it.message || "").trim() || "—"}
-                        </div>
-
-                        {media ? (
-                          <div className="mt-2 text-xs text-slate-400 break-all">
-                            Media:{" "}
-                            <a className="text-emerald-300 hover:text-emerald-200" href={media} target="_blank" rel="noreferrer">
-                              {media}
-                            </a>
-                          </div>
-                        ) : (
-                          <div className="mt-2 text-xs text-slate-500">Media: —</div>
-                        )}
                       </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
-                          onClick={() => openEdit(it)}
-                        >
-                          Edit
-                        </button>
-
-                        <button
-                          className="rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-2 text-sm text-red-100 hover:border-red-500"
-                          onClick={() => deletePost(it)}
-                        >
-                          Delete
-                        </button>
-
-                        <button
-                          className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-slate-600"
-                          onClick={() => navigator.clipboard.writeText(it.id)}
-                        >
-                          Copy ID
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-                      <div className="text-sm font-semibold text-slate-100">Dispatch results</div>
-
-                      {!hasResults ? (
-                        <div className="mt-2 text-sm text-slate-400">No dispatch results stored yet.</div>
-                      ) : (
-                        <div className="mt-3 space-y-2">
-                          {results.map((r: any, idx: number) => {
-                            const platform = String(r?.platform || "—");
-                            const ok = !!r?.ok;
-                            const skipped = !!r?.skipped;
-
-                            const badge = ok ? "✅ OK" : skipped ? "⚠️ Skipped" : "❌ Failed";
-
-                            return (
-                              <div
-                                key={`${platform}-${idx}`}
-                                className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                              >
-                                <div className="text-sm text-slate-200">
-                                  <span className="font-semibold">{platformLabel(platform)}:</span>{" "}
-                                  {describeResult(r)}
-                                </div>
-
-                                <div
-                                  className={[
-                                    "text-xs rounded-full border px-2 py-0.5",
-                                    ok
-                                      ? "border-emerald-500/60 text-emerald-200 bg-emerald-500/10"
-                                      : skipped
-                                      ? "border-slate-600 text-slate-300 bg-slate-900/40"
-                                      : "border-red-500/50 text-red-200 bg-red-500/10",
-                                  ].join(" ")}
-                                >
-                                  {badge}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           )}
 
           <div className="mt-8 text-xs text-slate-500">
-            Tip: “Future” keeps the pipeline clean. Use Past/All for audit/history (posted items won’t “disappear”).
+            Tip: Use Search + Status + Platform. Tick a batch → Delete selected.
           </div>
         </div>
       </div>
 
-      {/* ✅ Edit modal (FIXED: ternary wrapper) */}
+      {/* ✅ Edit modal */}
       {editOpen && editing ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/70" onClick={closeEdit} />
