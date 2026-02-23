@@ -1,3 +1,4 @@
+// app/api/growth/experiments/create/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -7,16 +8,89 @@ function norm(v: any) {
   return String(v ?? "").trim();
 }
 
-function parseCookie(req: NextRequest, name: string) {
+function parseCookies(req: NextRequest): Record<string, string> {
   const raw = req.headers.get("cookie") || "";
-  const parts = raw.split(";").map((p) => p.trim());
-  for (const p of parts) {
-    if (p.startsWith(name + "=")) return decodeURIComponent(p.slice(name.length + 1));
+  const out: Record<string, string> = {};
+  raw.split(";").forEach((part) => {
+    const p = part.trim();
+    if (!p) return;
+    const idx = p.indexOf("=");
+    if (idx === -1) return;
+    const k = p.slice(0, idx).trim();
+    const v = p.slice(idx + 1).trim();
+    try {
+      out[k] = decodeURIComponent(v);
+    } catch {
+      out[k] = v;
+    }
+  });
+  return out;
+}
+
+/**
+ * Supabase cookie formats vary:
+ * - sb-access-token (older)
+ * - supabase-auth-token (sometimes)
+ * - sb-<project-ref>-auth-token (common in prod)
+ *
+ * Values are often JSON like: ["ACCESS_TOKEN","REFRESH_TOKEN",...]
+ * Sometimes object-ish. We handle both.
+ */
+function extractAccessTokenFromCookies(req: NextRequest): string | null {
+  const cookies = parseCookies(req);
+
+  // 1) direct known keys
+  const direct =
+    cookies["sb-access-token"] ||
+    cookies["supabase-auth-token"] ||
+    cookies["sb:token"] || // rare/older
+    null;
+
+  const candidates: string[] = [];
+
+  if (direct) candidates.push(direct);
+
+  // 2) any cookie that ends with "auth-token" (covers sb-<ref>-auth-token)
+  for (const [name, value] of Object.entries(cookies)) {
+    if (name === "sb-access-token" || name === "supabase-auth-token") continue;
+    if (name.toLowerCase().endsWith("auth-token")) candidates.push(value);
   }
+
+  // 3) try each candidate and extract access token
+  for (const raw of candidates) {
+    const v = norm(raw);
+    if (!v) continue;
+
+    // Sometimes it’s a JSON array: ["access","refresh",...]
+    if (v.startsWith("[")) {
+      try {
+        const arr = JSON.parse(v);
+        const token = Array.isArray(arr) ? norm(arr[0]) : "";
+        if (token) return token;
+      } catch {}
+    }
+
+    // Sometimes it’s a JSON object containing access_token
+    if (v.startsWith("{")) {
+      try {
+        const obj = JSON.parse(v);
+        const token =
+          norm(obj?.access_token) ||
+          norm(obj?.currentSession?.access_token) ||
+          "";
+        if (token) return token;
+      } catch {}
+    }
+
+    // Otherwise, assume it is already an access token string
+    if (v.length > 40) return v;
+  }
+
   return null;
 }
 
 async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
+  // A) Bearer token (if client ever sends it)
   const auth = norm(req.headers.get("authorization"));
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
   if (bearer) {
@@ -24,26 +98,11 @@ async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
     if (!error && data?.user?.id) return data.user.id;
   }
 
-  const access =
-    parseCookie(req, "sb-access-token") ||
-    parseCookie(req, "supabase-auth-token");
-
+  // B) Cookies (normal browser flow)
+  const access = extractAccessTokenFromCookies(req);
   if (access) {
-    const token = access.startsWith("[")
-      ? (() => {
-          try {
-            const arr = JSON.parse(access);
-            return Array.isArray(arr) ? String(arr[0] || "") : "";
-          } catch {
-            return "";
-          }
-        })()
-      : access;
-
-    if (token) {
-      const { data, error } = await supabaseAdmin.auth.getUser(token);
-      if (!error && data?.user?.id) return data.user.id;
-    }
+    const { data, error } = await supabaseAdmin.auth.getUser(access);
+    if (!error && data?.user?.id) return data.user.id;
   }
 
   return null;
@@ -124,7 +183,7 @@ export async function POST(req: NextRequest) {
     const ins = await supabaseAdmin.from("growth_experiments").insert(row).select().maybeSingle();
     if (ins.error) throw new Error(ins.error.message);
 
-    return NextResponse.json({ success: true, organisationId, item: ins.data });
+    return NextResponse.json({ success: true, organisationId, item: ins.data }, { status: 200 });
   } catch (e: any) {
     const msg = e?.message || "Failed to create experiment.";
     const status = msg === "Not authenticated" ? 401 : msg.includes("Not a member") ? 403 : 500;
