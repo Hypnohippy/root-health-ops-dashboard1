@@ -329,12 +329,12 @@ export default function CampaignsPage() {
     setCreating(true);
     setError(null);
 
-    try {
-      const res = await fetch("/api/growth/experiments/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
+    try {const res = await fetch("/api/growth/experiments/create", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  cache: "no-store",
+  credentials: "include",
+  body: JSON.stringify({
           title: title.trim(),
           platform: platform.trim(),
           pattern_type: patternType.trim(),
