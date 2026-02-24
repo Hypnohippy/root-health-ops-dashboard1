@@ -45,7 +45,6 @@ function fmtShort(dt?: string | null) {
   if (!dt) return "—";
   const d = new Date(dt);
   if (isNaN(d.getTime())) return dt;
-  // compact, readable
   return d.toLocaleString(undefined, {
     weekday: "short",
     day: "2-digit",
@@ -199,6 +198,10 @@ type ScheduledPrefill = {
   tone?: string;
   items?: PrefillItem[];
   note?: string;
+
+  // ✅ Optional scheduling controls coming from Brainstorm (enterprise-safe: just data)
+  scheduledStartIso?: string;
+  intervalMinutes?: number;
 };
 
 function safeParsePrefill(raw: string | null): ScheduledPrefill | null {
@@ -246,7 +249,6 @@ function safeLower(s: any) {
 function isoDayKey(iso: string) {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "Unknown date";
-  // YYYY-MM-DD in local time
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
@@ -278,13 +280,13 @@ export default function ScheduledPage() {
   const [includeQuickBlast, setIncludeQuickBlast] = useState(false);
   const [range, setRange] = useState<RangeMode>("future");
 
-  // ✅ NEW: filters + view controls
+  // ✅ filters + view controls
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [platformFilter, setPlatformFilter] = useState<string>("all");
   const [groupByDay, setGroupByDay] = useState(true);
 
-  // ✅ NEW: selection + bulk delete
+  // ✅ selection + bulk delete
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -314,6 +316,7 @@ export default function ScheduledPage() {
   const [importing, setImporting] = useState(false);
   const [importNote, setImportNote] = useState<string | null>(null);
 
+  // Load org id (enterprise-safe: uses server route that already enforces org)
   useEffect(() => {
     (async () => {
       try {
@@ -395,6 +398,7 @@ export default function ScheduledPage() {
     return includeQuickBlast ? "Scheduled Pipeline (including Quick Blast history)" : "Scheduled Pipeline";
   }, [includeQuickBlast, range]);
 
+  // ✅ IMPORT from Brainstorm (prefill -> schedule posts)
   useEffect(() => {
     if (!orgId) return;
     if (importing) return;
@@ -414,21 +418,40 @@ export default function ScheduledPage() {
     (async () => {
       setImporting(true);
       setToast(`Importing ${prefillItems.length} item(s) into Scheduled…`);
-      try {
-        const base = Date.now() + 60 * 1000;
 
+      try {
         let okCount = 0;
         let failCount = 0;
         const failures: string[] = [];
 
-        const platform = String(prefill.platform || "linkedin").toLowerCase().trim() || "linkedin";
-        const platforms = [platform];
+        // Platforms from prefill (defaults to Facebook)
+        const platformFromPrefill = safeLower((prefill as any)?.platform || "");
+        const platforms =
+          platformFromPrefill && ALL_PLATFORMS.includes(platformFromPrefill)
+            ? [platformFromPrefill]
+            : ["facebook"];
+
+        // ✅ Use Brainstorm-provided schedule if present, else default (now + 1 min)
+        const startIso = (prefill as any)?.scheduledStartIso ? String((prefill as any).scheduledStartIso) : "";
+        const intervalMinRaw = (prefill as any)?.intervalMinutes;
+
+        const startMs = (() => {
+          const d = new Date(startIso);
+          if (startIso && !isNaN(d.getTime())) return d.getTime();
+          return Date.now() + 60 * 1000; // default: 1 min from now
+        })();
+
+        const intervalMinutes = Number.isFinite(Number(intervalMinRaw)) ? Math.max(1, Number(intervalMinRaw)) : 1;
+        const intervalMs = intervalMinutes * 60 * 1000;
 
         for (let i = 0; i < prefillItems.length; i++) {
           const it = prefillItems[i];
-          const message = String(it?.text || "").trim();
+
+          const message = String((it as any)?.text || "").trim();
           const imageUrl = getPrefillImageUrl(it);
-          const whenIso = new Date(base + i * 60 * 1000).toISOString();
+
+          // ✅ key line: each item gets its own schedule time
+          const whenIso = new Date(startMs + i * intervalMs).toISOString();
 
           if (!message) {
             failCount++;
@@ -450,8 +473,8 @@ export default function ScheduledPage() {
               createdBy: { user_id: "owner", name: "Clinic Owner", email: "owner@clinic.local" },
               meta: {
                 source: "brainstorm",
-                title: String(it?.title || `Draft ${i + 1}`),
-                attribution: it?.attribution || null,
+                title: String((it as any)?.title || `Draft ${i + 1}`),
+                attribution: (it as any)?.attribution || null,
               },
             }),
           });
@@ -472,9 +495,7 @@ export default function ScheduledPage() {
           setToast(`Imported ${okCount}/${prefillItems.length} ✅`);
         } else if (okCount > 0) {
           setToast(`Imported ${okCount}/${prefillItems.length} (some failed)`);
-          if (failures.length) {
-            setError(`Some imports failed:\n${failures.slice(0, 6).join("\n")}`);
-          }
+          if (failures.length) setError(`Some imports failed:\n${failures.slice(0, 6).join("\n")}`);
         } else {
           setToast("Import failed.");
           setError(`Import failed:\n${failures.slice(0, 6).join("\n")}`);
@@ -736,7 +757,7 @@ export default function ScheduledPage() {
     }
   }
 
-  // ✅ NEW: derived list with real filtering + sorting
+  // ✅ derived list with real filtering + sorting
   const filtered = useMemo(() => {
     const query = safeLower(q);
     const sFilter = safeLower(statusFilter);
@@ -747,13 +768,9 @@ export default function ScheduledPage() {
     // sort: future => soonest first, past/all => newest first
     arr.sort((a, b) => {
       const aT =
-        new Date(a.scheduled_for || a.created_at || 0).getTime() ||
-        new Date(a.created_at || 0).getTime() ||
-        0;
+        new Date(a.scheduled_for || a.created_at || 0).getTime() || new Date(a.created_at || 0).getTime() || 0;
       const bT =
-        new Date(b.scheduled_for || b.created_at || 0).getTime() ||
-        new Date(b.created_at || 0).getTime() ||
-        0;
+        new Date(b.scheduled_for || b.created_at || 0).getTime() || new Date(b.created_at || 0).getTime() || 0;
       if (range === "future") return aT - bT;
       return bT - aT;
     });
@@ -829,7 +846,9 @@ export default function ScheduledPage() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
 
-    const deletable = filtered.filter((it) => selectedIds.has(it.id)).filter((it) => safeLower(it.status) !== "posted");
+    const deletable = filtered
+      .filter((it) => selectedIds.has(it.id))
+      .filter((it) => safeLower(it.status) !== "posted");
     const blocked = ids.length - deletable.length;
 
     const msg =
@@ -905,9 +924,7 @@ export default function ScheduledPage() {
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
               <h1 className="mt-1 text-2xl md:text-3xl font-semibold">{title}</h1>
-              <p className="mt-2 text-sm text-slate-300 max-w-3xl">
-                Filter + select + delete without drowning in a wall of posts.
-              </p>
+              <p className="mt-2 text-sm text-slate-300 max-w-3xl">Filter + select + delete without drowning in a wall of posts.</p>
               <div className="mt-2 text-xs text-slate-500 break-all">Org: {orgId || "—"}</div>
             </div>
 
@@ -1054,9 +1071,7 @@ export default function ScheduledPage() {
           </div>
 
           {orgError ? (
-            <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-red-100">
-              {orgError}
-            </div>
+            <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-950/30 p-4 text-red-100">{orgError}</div>
           ) : null}
 
           {toast ? (
@@ -1067,9 +1082,7 @@ export default function ScheduledPage() {
           ) : null}
 
           {loading && (
-            <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-slate-300">
-              Loading…
-            </div>
+            <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-slate-300">Loading…</div>
           )}
 
           {error && (
@@ -1179,12 +1192,7 @@ export default function ScheduledPage() {
                                     {media ? (
                                       <div className="mt-2 text-xs text-slate-400 break-all">
                                         Media:{" "}
-                                        <a
-                                          className="text-emerald-300 hover:text-emerald-200"
-                                          href={media}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                        >
+                                        <a className="text-emerald-300 hover:text-emerald-200" href={media} target="_blank" rel="noreferrer">
                                           {media}
                                         </a>
                                       </div>
@@ -1290,9 +1298,7 @@ export default function ScheduledPage() {
             </div>
           )}
 
-          <div className="mt-8 text-xs text-slate-500">
-            Tip: Use Search + Status + Platform. Tick a batch → Delete selected.
-          </div>
+          <div className="mt-8 text-xs text-slate-500">Tip: Use Search + Status + Platform. Tick a batch → Delete selected.</div>
         </div>
       </div>
 
@@ -1473,9 +1479,7 @@ export default function ScheduledPage() {
                   <div className="p-5 border-b border-slate-700 flex items-start justify-between gap-3 sticky top-0 bg-slate-950 z-10">
                     <div>
                       <div className="text-lg font-semibold">Pick an image</div>
-                      <div className="text-[12px] text-slate-400">
-                        Uses Wikimedia Commons. Select one → it fills the Media URL.
-                      </div>
+                      <div className="text-[12px] text-slate-400">Uses Wikimedia Commons. Select one → it fills the Media URL.</div>
                     </div>
                     <button
                       type="button"
@@ -1533,13 +1537,13 @@ export default function ScheduledPage() {
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img src={u} alt={img.title} className="w-full h-full object-cover" />
                                 ) : (
-                                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                                    No preview
-                                  </div>
+                                  <div className="h-full flex items-center justify-center text-xs text-slate-400">No preview</div>
                                 )}
                               </div>
                               <div className="p-3 space-y-1">
-                                <div className="text-xs font-semibold line-clamp-2">{img.title.replace(/^File:/, "")}</div>
+                                <div className="text-xs font-semibold line-clamp-2">
+                                  {img.title.replace(/^File:/, "")}
+                                </div>
                                 <div className="text-[11px] text-slate-400">{img.licenseShortName || "License unknown"}</div>
                                 {img.attribution ? (
                                   <div className="text-[11px] text-slate-300 line-clamp-2">{stripHtml(img.attribution)}</div>
