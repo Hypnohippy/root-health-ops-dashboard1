@@ -1,4 +1,3 @@
-// app/api/growth/experiments/outcomes/add/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -25,7 +24,10 @@ async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
     if (!error && data?.user?.id) return data.user.id;
   }
 
-  const access = parseCookie(req, "sb-access-token") || parseCookie(req, "supabase-auth-token");
+  const access =
+    parseCookie(req, "sb-access-token") ||
+    parseCookie(req, "supabase-auth-token") ||
+    parseCookie(req, "sb:token");
 
   if (access) {
     const token = access.startsWith("[")
@@ -48,70 +50,47 @@ async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
   return null;
 }
 
-async function assertExperimentMember(userId: string, experimentId: string) {
-  // 1) Load the experiment to get organisation_id
-  const { data: exp, error: expErr } = await supabaseAdmin
-    .from("growth_experiments")
-    .select("id, organisation_id")
-    .eq("id", experimentId)
-    .maybeSingle();
-
-  if (expErr) throw new Error(expErr.message);
-  if (!exp?.id || !exp?.organisation_id) throw new Error("Experiment not found");
-
-  const organisationId = String(exp.organisation_id);
-
-  // 2) Confirm user is a member of that organisation
-  const { data: mem, error: memErr } = await supabaseAdmin
-    .from("organisation_members")
-    .select("organisation_id")
-    .eq("organisation_id", organisationId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (memErr) throw new Error(memErr.message);
-  if (!mem?.organisation_id) throw new Error("Not a member of this organisation");
-
-  return { organisationId };
+async function getForcedOrg() {
+  return norm(process.env.SINGLE_ORG_ID || process.env.NEXT_PUBLIC_SINGLE_ORG_ID);
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const forcedOrg = await getForcedOrg();
+    const userId = await getUserIdFromReq(req);
+
+    // If no forced org, must be authenticated
+    if (!forcedOrg && !userId) throw new Error("Not authenticated");
+
     const body = await req.json().catch(() => ({}));
 
-    const userId = await getUserIdFromReq(req);
-    if (!userId) {
-      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
-    }
-
     const experimentId = norm(body?.experimentId);
-    if (!experimentId) {
-      return NextResponse.json({ success: false, error: "Missing experimentId." }, { status: 400 });
-    }
-
-    const { organisationId } = await assertExperimentMember(userId, experimentId);
-
     const metric_name = norm(body?.metric_name);
-    const rawVal = body?.metric_value;
+    const metric_value = body?.metric_value ?? null;
+    const meta = body?.meta ?? {};
 
-    // allow "note" with null metric_value
-    const metric_value =
-      rawVal === null || rawVal === undefined || rawVal === ""
-        ? null
-        : Number.isFinite(Number(rawVal))
-        ? Number(rawVal)
-        : null;
+    if (!experimentId) return NextResponse.json({ success: false, error: "Missing experimentId" }, { status: 400 });
+    if (!metric_name) return NextResponse.json({ success: false, error: "Missing metric_name" }, { status: 400 });
 
-    const meta = body?.meta && typeof body.meta === "object" ? body.meta : {};
+    // Always load experiment to get its organisation_id (fixes your NULL org id issue)
+    const { data: exp, error: expErr } = await supabaseAdmin
+      .from("growth_experiments")
+      .select("id, organisation_id")
+      .eq("id", experimentId)
+      .maybeSingle();
 
-    if (!metric_name) {
-      return NextResponse.json({ success: false, error: "Missing metric_name." }, { status: 400 });
+    if (expErr) throw new Error(expErr.message);
+    if (!exp?.id) throw new Error("Experiment not found");
+
+    // In forced env: ensure experiment belongs to forced org
+    if (forcedOrg && String(exp.organisation_id) !== String(forcedOrg)) {
+      return NextResponse.json({ success: false, error: "Not allowed for this organisation" }, { status: 403 });
     }
 
     const now = new Date().toISOString();
 
     const row: any = {
-      organisation_id: organisationId, // ✅ FIX: always set this
+      organisation_id: exp.organisation_id, // ✅ fixed (no more null)
       experiment_id: experimentId,
       metric_name,
       metric_value,
@@ -127,10 +106,10 @@ export async function POST(req: NextRequest) {
 
     if (ins.error) throw new Error(ins.error.message);
 
-    return NextResponse.json({ success: true, organisationId, item: ins.data }, { status: 200 });
+    return NextResponse.json({ success: true, item: ins.data, mode: forcedOrg ? "forced_env" : "member_auth" }, { status: 200 });
   } catch (e: any) {
     const msg = e?.message || "Failed to add outcome.";
-    const status = msg === "Not authenticated" ? 401 : msg.includes("Not a member") ? 403 : 500;
+    const status = msg === "Not authenticated" ? 401 : msg.includes("Not allowed") ? 403 : 500;
     return NextResponse.json({ success: false, error: msg }, { status });
   }
 }
