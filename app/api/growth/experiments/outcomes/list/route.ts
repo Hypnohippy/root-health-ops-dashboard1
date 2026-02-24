@@ -24,7 +24,11 @@ async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
     if (!error && data?.user?.id) return data.user.id;
   }
 
-  const access = parseCookie(req, "sb-access-token") || parseCookie(req, "supabase-auth-token");
+  const access =
+    parseCookie(req, "sb-access-token") ||
+    parseCookie(req, "supabase-auth-token") ||
+    parseCookie(req, "sb:token");
+
   if (access) {
     const token = access.startsWith("[")
       ? (() => {
@@ -46,59 +50,32 @@ async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
   return null;
 }
 
-async function getAllowedExperimentIds(userId: string, requestedIds: string[]) {
-  const ids = requestedIds.map((x) => norm(x)).filter(Boolean);
-  if (!ids.length) return [];
-
-  // Find experiments where user is a member of the org
-  const { data, error } = await supabaseAdmin
-    .from("growth_experiments")
-    .select("id, organisation_id")
-    .in("id", ids);
-
-  if (error) throw new Error(error.message);
-
-  const orgIds = Array.from(new Set((data || []).map((r: any) => String(r.organisation_id)))).filter(Boolean);
-  if (!orgIds.length) return [];
-
-  const { data: mem, error: memErr } = await supabaseAdmin
-    .from("organisation_members")
-    .select("organisation_id")
-    .eq("user_id", userId)
-    .in("organisation_id", orgIds);
-
-  if (memErr) throw new Error(memErr.message);
-
-  const allowedOrgIds = new Set((mem || []).map((m: any) => String(m.organisation_id)));
-  const allowedExpIds = (data || [])
-    .filter((r: any) => allowedOrgIds.has(String(r.organisation_id)))
-    .map((r: any) => String(r.id));
-
-  return allowedExpIds;
-}
-
 export async function POST(req: NextRequest) {
   try {
+    const forcedOrg = norm(process.env.SINGLE_ORG_ID || process.env.NEXT_PUBLIC_SINGLE_ORG_ID);
     const userId = await getUserIdFromReq(req);
-    if (!userId) return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
+
+    if (!forcedOrg && !userId) throw new Error("Not authenticated");
 
     const body = await req.json().catch(() => ({}));
-    const experimentIds = Array.isArray(body?.experimentIds) ? body.experimentIds : [];
-    const allowedIds = await getAllowedExperimentIds(userId, experimentIds);
+    const ids = Array.isArray(body?.experimentIds) ? body.experimentIds.map((x: any) => norm(x)).filter(Boolean) : [];
 
-    if (!allowedIds.length) {
-      return NextResponse.json({ success: true, items: [] });
-    }
+    if (ids.length === 0) return NextResponse.json({ success: true, items: [] }, { status: 200 });
 
-    const { data, error } = await supabaseAdmin
+    // In forced env: only outcomes for forced org
+    let q = supabaseAdmin
       .from("growth_experiment_outcomes")
       .select("*")
-      .in("experiment_id", allowedIds)
-      .order("created_at", { ascending: false });
+      .in("experiment_id", ids)
+      .order("created_at", { ascending: false })
+      .limit(400);
 
+    if (forcedOrg) q = q.eq("organisation_id", forcedOrg);
+
+    const { data, error } = await q;
     if (error) throw new Error(error.message);
 
-    return NextResponse.json({ success: true, items: data || [] });
+    return NextResponse.json({ success: true, items: data || [], mode: forcedOrg ? "forced_env" : "member_auth" }, { status: 200 });
   } catch (e: any) {
     const msg = e?.message || "Failed to list outcomes.";
     const status = msg === "Not authenticated" ? 401 : 500;
