@@ -1,4 +1,3 @@
-// app/api/growth/experiments/create/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -8,134 +7,50 @@ function norm(v: any) {
   return String(v ?? "").trim();
 }
 
-/**
- * Supabase cookies can be:
- * - sb-<project>-auth-token
- * - sb-<project>-auth-token.0 / .1 / .2 (chunked)
- * - sb-access-token (older)
- * - supabase-auth-token (sometimes)
- *
- * We must:
- * 1) read cookies reliably (req.cookies)
- * 2) rebuild chunked cookie values
- * 3) extract the access token (array/object/raw string)
- */
-function getCookieValue(req: NextRequest, name: string): string | null {
-  try {
-    return req.cookies.get(name)?.value ?? null;
-  } catch {
-    return null;
-  }
+function parseCookies(req: NextRequest) {
+  const raw = req.headers.get("cookie") || "";
+  const out: Record<string, string> = {};
+  raw
+    .split(";")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .forEach((p) => {
+      const idx = p.indexOf("=");
+      if (idx === -1) return;
+      const k = p.slice(0, idx).trim();
+      const v = p.slice(idx + 1).trim();
+      out[k] = decodeURIComponent(v);
+    });
+  return out;
 }
 
-function getChunkedCookieValue(req: NextRequest, baseName: string): string | null {
-  // exact cookie present?
-  const direct = getCookieValue(req, baseName);
-  if (direct) return direct;
+function extractTokenFromCookieValue(v: string): string[] {
+  const candidates: string[] = [];
+  const raw = String(v || "").trim();
+  if (!raw) return candidates;
 
-  // gather chunks: baseName.0, baseName.1, ...
-  const chunks: Array<{ idx: number; value: string }> = [];
+  // Many Supabase cookies are JSON:
+  // - ["access_token","refresh_token",...]
+  // - {"access_token":"..."}
   try {
-    const all = req.cookies.getAll();
-    for (const c of all) {
-      const n = c.name || "";
-      if (!n.startsWith(baseName + ".")) continue;
-
-      const tail = n.slice(baseName.length + 1); // after "base."
-      const idx = Number(tail);
-      if (!Number.isFinite(idx)) continue;
-
-      chunks.push({ idx, value: c.value || "" });
+    const j = JSON.parse(raw);
+    if (Array.isArray(j)) {
+      const first = String(j[0] || "").trim();
+      if (first) candidates.push(first);
+    } else if (j && typeof j === "object") {
+      const at = String((j as any).access_token || "").trim();
+      if (at) candidates.push(at);
     }
   } catch {
-    // ignore
+    // Not JSON - treat as raw token
+    candidates.push(raw);
   }
 
-  if (chunks.length === 0) return null;
-
-  chunks.sort((a, b) => a.idx - b.idx);
-  const combined = chunks.map((c) => c.value).join("");
-  return combined || null;
-}
-
-function tryExtractAccessToken(raw: string): string | null {
-  const v = norm(raw);
-  if (!v) return null;
-
-  // JSON array: ["access","refresh",...]
-  if (v.startsWith("[")) {
-    try {
-      const arr = JSON.parse(v);
-      const token = Array.isArray(arr) ? norm(arr[0]) : "";
-      if (token) return token;
-    } catch {}
-  }
-
-  // JSON object: { access_token: "...", ... } OR { currentSession: { access_token: "..." } }
-  if (v.startsWith("{")) {
-    try {
-      const obj = JSON.parse(v);
-      const token =
-        norm(obj?.access_token) ||
-        norm(obj?.currentSession?.access_token) ||
-        norm(obj?.session?.access_token) ||
-        "";
-      if (token) return token;
-    } catch {}
-  }
-
-  // Raw JWT-ish string fallback
-  if (v.length > 40) return v;
-
-  return null;
-}
-
-function extractAccessTokenFromReq(req: NextRequest): string | null {
-  // 1) Older direct tokens (rare now)
-  const directOld =
-    getCookieValue(req, "sb-access-token") ||
-    getCookieValue(req, "supabase-auth-token");
-
-  const tok1 = directOld ? tryExtractAccessToken(directOld) : null;
-  if (tok1) return tok1;
-
-  // 2) Find ANY cookie that ends with "auth-token" (and rebuild chunked)
-  // Common: sb-<project-ref>-auth-token (possibly chunked)
-  let baseNames: string[] = [];
-  try {
-    const all = req.cookies.getAll();
-    for (const c of all) {
-      const name = String(c.name || "");
-      const lower = name.toLowerCase();
-
-      // include base cookie itself
-      if (lower.endsWith("auth-token") && !name.includes(".")) {
-        baseNames.push(name);
-      }
-
-      // include chunk base: "...auth-token.0" -> "...auth-token"
-      const m = name.match(/^(.*auth-token)\.\d+$/i);
-      if (m?.[1]) baseNames.push(m[1]);
-    }
-  } catch {
-    // ignore
-  }
-
-  // de-dupe
-  baseNames = Array.from(new Set(baseNames));
-
-  for (const base of baseNames) {
-    const raw = getChunkedCookieValue(req, base);
-    if (!raw) continue;
-    const token = tryExtractAccessToken(raw);
-    if (token) return token;
-  }
-
-  return null;
+  return candidates.filter(Boolean);
 }
 
 async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
-  // A) Bearer token (if you ever send it)
+  // 1) Authorization: Bearer <token>
   const auth = norm(req.headers.get("authorization"));
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
   if (bearer) {
@@ -143,11 +58,33 @@ async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
     if (!error && data?.user?.id) return data.user.id;
   }
 
-  // B) Cookies (normal browser login)
-  const access = extractAccessTokenFromReq(req);
-  if (access) {
-    const { data, error } = await supabaseAdmin.auth.getUser(access);
-    if (!error && data?.user?.id) return data.user.id;
+  // 2) Cookies
+  const cookies = parseCookies(req);
+
+  // common cookie names people use
+  const directNames = ["sb-access-token", "supabase-auth-token", "sb:token", "access_token"];
+
+  const tokenValues: string[] = [];
+
+  for (const name of directNames) {
+    if (cookies[name]) tokenValues.push(cookies[name]);
+  }
+
+  // Supabase auth-helpers often store: sb-<project-ref>-auth-token
+  for (const [k, v] of Object.entries(cookies)) {
+    if (/^sb-.*-auth-token$/i.test(k)) tokenValues.push(v);
+  }
+
+  // Try every possible token candidate we can extract
+  const tried = new Set<string>();
+  for (const val of tokenValues) {
+    for (const token of extractTokenFromCookieValue(val)) {
+      if (!token || tried.has(token)) continue;
+      tried.add(token);
+
+      const { data, error } = await supabaseAdmin.auth.getUser(token);
+      if (!error && data?.user?.id) return data.user.id;
+    }
   }
 
   return null;
@@ -160,6 +97,7 @@ async function requireOrgForUser(req: NextRequest, bodyOrgId?: string | null) {
   const forced = norm(process.env.SINGLE_ORG_ID || process.env.NEXT_PUBLIC_SINGLE_ORG_ID);
   const requested = norm(bodyOrgId) || forced;
 
+  // If org is specified, verify membership
   if (requested) {
     const { data: mem, error: memErr } = await supabaseAdmin
       .from("organisation_members")
@@ -173,6 +111,7 @@ async function requireOrgForUser(req: NextRequest, bodyOrgId?: string | null) {
     return { userId, organisationId: requested };
   }
 
+  // Otherwise pick first membership
   const { data: memberships, error } = await supabaseAdmin
     .from("organisation_members")
     .select("organisation_id, created_at")
