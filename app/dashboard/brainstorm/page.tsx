@@ -58,25 +58,16 @@ const PREFILL_QUICKBLAST_KEYS = [
   "rh_prefill_quickblast_v1",
 ];
 
-const PREFILL_STORIES_KEYS = [
-  "rootops_prefill_stories_v1",
-  "rh_prefill_stories_v1",
-];
+const PREFILL_STORIES_KEYS = ["rootops_prefill_stories_v1", "rh_prefill_stories_v1"];
 
 // ✅ Scheduled batch prefill
-const PREFILL_SCHEDULED_KEYS = [
-  "rootops_prefill_scheduled_v1",
-  "rh_prefill_scheduled_v1",
-];
+const PREFILL_SCHEDULED_KEYS = ["rootops_prefill_scheduled_v1", "rh_prefill_scheduled_v1"];
 
 // ✅ Brainstorm “Draft Locker”
 const LOCKER_KEYS = ["rootops_brainstorm_locker_v1", "rh_brainstorm_locker_v1"];
 
 // ✅ Growth Lab → Brainstorm seed
-const GROWTH_SEED_KEYS = [
-  "rootops_growth_seed_brainstorm_v1",
-  "rh_growth_seed_brainstorm_v1",
-];
+const GROWTH_SEED_KEYS = ["rootops_growth_seed_brainstorm_v1", "rh_growth_seed_brainstorm_v1"];
 
 type GrowthSeedPayload = {
   v: number;
@@ -168,6 +159,10 @@ type LockerPayload = {
 
   draftImages: Record<number, CommonsImage | null>;
   draftImageQueryEdits: Record<number, string>;
+
+  // ✅ Scheduled settings
+  scheduledStartLocal?: string; // datetime-local string
+  scheduledIntervalMinutes?: number;
 };
 
 const DEFAULT_INPUT =
@@ -245,12 +240,36 @@ function extractFinalPost(raw: string) {
 
   // If they gave a “Hooks” section first, try to drop it:
   // e.g. "Hooks:\n- ...\n- ...\n\nDraft:\n..."
-  const dropHooksSection = joined.replace(
-    /^\s*hooks?\s*:\s*\n(?:\s*[-•].*\n)+\s*/i,
-    ""
-  );
+  const dropHooksSection = joined.replace(/^\s*hooks?\s*:\s*\n(?:\s*[-•].*\n)+\s*/i, "");
 
   return dropHooksSection.trim();
+}
+
+/** ✅ datetime-local helpers (same pattern as Scheduled page) */
+function toLocalInputValue(iso: string | null | undefined) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const mm = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mi = pad(d.getMinutes());
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
+function localInputToIso(v: string) {
+  if (!v) return "";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString();
+}
+
+function clampIntervalMinutes(n: any) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 30;
+  return Math.max(1, Math.min(24 * 60, Math.round(x)));
 }
 
 export default function BrainstormPage() {
@@ -273,6 +292,14 @@ export default function BrainstormPage() {
   // chosen image per draft
   const [draftImages, setDraftImages] = useState<Record<number, CommonsImage | null>>({});
   const [draftImageQueryEdits, setDraftImageQueryEdits] = useState<Record<number, string>>({});
+
+  // ✅ NEW: Scheduled controls (start time + spacing)
+  const [scheduledStartLocal, setScheduledStartLocal] = useState<string>(() => {
+    // default: now + 10 minutes (local)
+    const d = new Date(Date.now() + 10 * 60 * 1000);
+    return toLocalInputValue(d.toISOString());
+  });
+  const [scheduledIntervalMinutes, setScheduledIntervalMinutes] = useState<number>(60);
 
   // modal picker
   const [pickerOpenFor, setPickerOpenFor] = useState<number | null>(null);
@@ -298,21 +325,14 @@ export default function BrainstormPage() {
     } catch {}
   };
 
-  function hasExistingWork(snapshot?: {
-    chat?: ChatMsg[];
-    input?: string;
-    angles?: string[];
-    drafts?: Draft[];
-  }) {
+  function hasExistingWork(snapshot?: { chat?: ChatMsg[]; input?: string; angles?: string[]; drafts?: Draft[] }) {
     const c = snapshot?.chat ?? chat;
     const i = snapshot?.input ?? input;
     const a = snapshot?.angles ?? angles;
     const d = snapshot?.drafts ?? drafts;
 
     const chatHasMoreThanDefault = Array.isArray(c) && c.length > DEFAULT_CHAT.length;
-    const inputChanged =
-      String(i || "").trim() &&
-      String(i || "").trim() !== String(DEFAULT_INPUT).trim();
+    const inputChanged = String(i || "").trim() && String(i || "").trim() !== String(DEFAULT_INPUT).trim();
     const hasAngles = Array.isArray(a) && a.length > 0;
     const hasDrafts = Array.isArray(d) && d.length > 0;
 
@@ -361,6 +381,8 @@ export default function BrainstormPage() {
       draftEdits?: Record<number, string>;
       draftImages?: Record<number, CommonsImage | null>;
       draftImageQueryEdits?: Record<number, string>;
+      scheduledStartLocal?: string;
+      scheduledIntervalMinutes?: number;
     } | null = null;
 
     try {
@@ -387,6 +409,13 @@ export default function BrainstormPage() {
           if (parsed.draftImages && typeof parsed.draftImages === "object") setDraftImages(parsed.draftImages);
           if (parsed.draftImageQueryEdits && typeof parsed.draftImageQueryEdits === "object")
             setDraftImageQueryEdits(parsed.draftImageQueryEdits);
+
+          if (typeof parsed.scheduledStartLocal === "string" && parsed.scheduledStartLocal) {
+            setScheduledStartLocal(parsed.scheduledStartLocal);
+          }
+          if (typeof parsed.scheduledIntervalMinutes === "number" && Number.isFinite(parsed.scheduledIntervalMinutes)) {
+            setScheduledIntervalMinutes(clampIntervalMinutes(parsed.scheduledIntervalMinutes));
+          }
 
           setToast("Restored your Brainstorm drafts ✅");
           setTimeout(() => setToast(null), 1800);
@@ -444,10 +473,25 @@ export default function BrainstormPage() {
         draftEdits,
         draftImages,
         draftImageQueryEdits,
+        scheduledStartLocal,
+        scheduledIntervalMinutes,
       };
       setLocalStorageMulti(LOCKER_KEYS, payload);
     } catch {}
-  }, [platform, tone, wantImages, input, chat, angles, drafts, draftEdits, draftImages, draftImageQueryEdits]);
+  }, [
+    platform,
+    tone,
+    wantImages,
+    input,
+    chat,
+    angles,
+    drafts,
+    draftEdits,
+    draftImages,
+    draftImageQueryEdits,
+    scheduledStartLocal,
+    scheduledIntervalMinutes,
+  ]);
 
   const resetBrainstorm = () => {
     removeLocalStorageMulti(LOCKER_KEYS);
@@ -469,6 +513,11 @@ export default function BrainstormPage() {
 
     setInput(DEFAULT_INPUT);
     setChat(DEFAULT_CHAT);
+
+    // reset schedule defaults
+    const d = new Date(Date.now() + 10 * 60 * 1000);
+    setScheduledStartLocal(toLocalInputValue(d.toISOString()));
+    setScheduledIntervalMinutes(60);
 
     setToast("Reset ✅");
     setTimeout(() => setToast(null), 1600);
@@ -578,10 +627,9 @@ export default function BrainstormPage() {
     setPickerResults([]);
 
     try {
-      const res = await fetch(
-        `/api/media/commons-images?q=${encodeURIComponent(query)}&limit=6`,
-        { cache: "no-store" }
-      );
+      const res = await fetch(`/api/media/commons-images?q=${encodeURIComponent(query)}&limit=6`, {
+        cache: "no-store",
+      });
       const data: CommonsImagesApiResponse = await res.json().catch(() => null);
 
       if (!res.ok || !data?.success) {
@@ -703,9 +751,33 @@ export default function BrainstormPage() {
   const withImageKeys = (img: CommonsImage | null) => {
     const u = String(img?.url || "").trim();
     return {
-      imageUrl: u,     // camelCase
-      image_url: u,    // snake_case (many server inserts expect this)
+      imageUrl: u, // camelCase
+      image_url: u, // snake_case (many server inserts expect this)
     };
+  };
+
+  // ✅ helper: prepare scheduled settings
+  const getScheduledSettings = () => {
+    const startIso = localInputToIso(scheduledStartLocal);
+    const interval = clampIntervalMinutes(scheduledIntervalMinutes);
+    return { scheduledStartIso: startIso, intervalMinutes: interval };
+  };
+
+  const ensureScheduledSettingsOkOrToast = () => {
+    const { scheduledStartIso } = getScheduledSettings();
+    if (!scheduledStartIso) {
+      setToast("Pick a valid Schedule start time first 👇");
+      setTimeout(() => setToast(null), 1800);
+      return false;
+    }
+    return true;
+  };
+
+  const bumpScheduleStart = (mins: number) => {
+    const base = localInputToIso(scheduledStartLocal);
+    const t0 = base ? new Date(base).getTime() : Date.now();
+    const d = new Date(t0 + mins * 60 * 1000);
+    setScheduledStartLocal(toLocalInputValue(d.toISOString()));
   };
 
   const sendToQuickBlast = (idx: number, d: Draft, img: CommonsImage | null, suggestedPlatform: ChannelId) => {
@@ -765,12 +837,19 @@ export default function BrainstormPage() {
   };
 
   const sendToScheduled = (idx: number, d: Draft, img: CommonsImage | null) => {
+    if (!ensureScheduledSettingsOkOrToast()) return;
+
     const finalText = getFinalTextFor(idx, d);
+    const { scheduledStartIso } = getScheduledSettings();
 
     const payload = {
       mode: "single",
       platform,
       tone,
+
+      // ✅ NEW: tells Scheduled when to set the first item
+      scheduledStartIso,
+
       items: [
         {
           title: d.title || "Draft",
@@ -832,6 +911,7 @@ export default function BrainstormPage() {
 
   const sendAllToScheduled = () => {
     if (!drafts.length) return;
+    if (!ensureScheduledSettingsOkOrToast()) return;
 
     const items = drafts.map((d, idx) => {
       const img = draftImages[idx] ?? null;
@@ -852,10 +932,17 @@ export default function BrainstormPage() {
       };
     });
 
+    const { scheduledStartIso, intervalMinutes } = getScheduledSettings();
+
     const payload = {
       mode: "series",
       platform,
       tone,
+
+      // ✅ NEW: tells Scheduled how to stagger the imports
+      scheduledStartIso,
+      intervalMinutes,
+
       items,
       note: "Series sent from Brainstorm",
     };
@@ -873,7 +960,8 @@ export default function BrainstormPage() {
             <div>
               <h1 className="text-2xl md:text-3xl font-semibold">💬 Brainstorm</h1>
               <p className="text-sm text-slate-300 max-w-3xl">
-                Talk it out like a text thread. We riff first, then draft posts you can edit and push into Quick Blast / Stories / Scheduled.
+                Talk it out like a text thread. We riff first, then draft posts you can edit and push into Quick Blast /
+                Stories / Scheduled.
               </p>
             </div>
 
@@ -914,7 +1002,8 @@ export default function BrainstormPage() {
             <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
               <div className="font-semibold">Growth Lab idea ready ✅</div>
               <div className="mt-1 text-[12px] text-amber-200/90">
-                You already have work in Brainstorm. Want to load the Growth Lab brief into the input box (without wiping drafts)?
+                You already have work in Brainstorm. Want to load the Growth Lab brief into the input box (without
+                wiping drafts)?
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
@@ -936,9 +1025,7 @@ export default function BrainstormPage() {
           ) : null}
 
           {toast ? (
-            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-2 text-xs text-slate-300">
-              {toast}
-            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-2 text-xs text-slate-300">{toast}</div>
           ) : null}
         </header>
 
@@ -972,11 +1059,7 @@ export default function BrainstormPage() {
             <div className="space-y-1">
               <label className="text-[11px] text-slate-300">Extras</label>
               <label className="flex items-center gap-2 text-sm rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2">
-                <input
-                  type="checkbox"
-                  checked={wantImages}
-                  onChange={(e) => setWantImages(e.target.checked)}
-                />
+                <input type="checkbox" checked={wantImages} onChange={(e) => setWantImages(e.target.checked)} />
                 Image picker
               </label>
             </div>
@@ -1051,8 +1134,72 @@ export default function BrainstormPage() {
 
             {/* Drafts */}
             <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-3">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <h2 className="font-semibold">Draft posts</h2>
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold">Draft posts</h2>
+                  <div className="mt-2 rounded-2xl border border-slate-700 bg-slate-950/60 p-3">
+                    <div className="text-[11px] text-slate-400 mb-2">Scheduled settings (used by “Send → Scheduled”)</div>
+
+                    <div className="grid md:grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <div className="text-[11px] text-slate-400">Schedule start</div>
+                        <input
+                          type="datetime-local"
+                          value={scheduledStartLocal}
+                          onChange={(e) => setScheduledStartLocal(e.target.value)}
+                          className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="text-[11px] text-slate-400">Spacing (minutes)</div>
+                        <input
+                          type="number"
+                          min={1}
+                          max={1440}
+                          value={scheduledIntervalMinutes}
+                          onChange={(e) => setScheduledIntervalMinutes(clampIntervalMinutes(e.target.value))}
+                          className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="text-[11px] text-slate-400">Quick bump</div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => bumpScheduleStart(10)}
+                            className="rounded-full border border-slate-600 bg-slate-950 px-3 py-2 text-xs text-slate-100 hover:bg-white/10"
+                          >
+                            +10m
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => bumpScheduleStart(60)}
+                            className="rounded-full border border-slate-600 bg-slate-950 px-3 py-2 text-xs text-slate-100 hover:bg-white/10"
+                          >
+                            +1h
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const d = new Date(Date.now() + 10 * 60 * 1000);
+                              setScheduledStartLocal(toLocalInputValue(d.toISOString()));
+                            }}
+                            className="rounded-full border border-slate-600 bg-slate-950 px-3 py-2 text-xs text-slate-100 hover:bg-white/10"
+                            title="Reset to now + 10 minutes"
+                          >
+                            Reset
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      “Send all → Scheduled” will stagger posts: start time, then +spacing, +spacing, etc.
+                    </div>
+                  </div>
+                </div>
 
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -1089,10 +1236,7 @@ export default function BrainstormPage() {
                     const finalText = getFinalTextFor(idx, d);
 
                     return (
-                      <div
-                        key={idx}
-                        className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 space-y-3"
-                      >
+                      <div key={idx} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 space-y-3">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <div className="text-sm font-semibold">{d.title || `Draft ${idx + 1}`}</div>
@@ -1122,6 +1266,7 @@ export default function BrainstormPage() {
                               type="button"
                               onClick={() => sendToScheduled(idx, d, img)}
                               className="rounded-full border border-slate-600 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                              title="Uses the Schedule start time above"
                             >
                               Send to Scheduled
                             </button>
@@ -1139,15 +1284,11 @@ export default function BrainstormPage() {
 
                         {/* ✅ Editable final post */}
                         <div className="space-y-1">
-                          <div className="text-[11px] text-slate-400">
-                            Edit before sending (this is what will publish)
-                          </div>
+                          <div className="text-[11px] text-slate-400">Edit before sending (this is what will publish)</div>
                           <textarea
                             className="w-full min-h-[160px] rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none whitespace-pre-wrap"
                             value={String(draftEdits[idx] ?? finalText)}
-                            onChange={(e) =>
-                              setDraftEdits((prev) => ({ ...prev, [idx]: e.target.value }))
-                            }
+                            onChange={(e) => setDraftEdits((prev) => ({ ...prev, [idx]: e.target.value }))}
                           />
                         </div>
 
@@ -1230,8 +1371,7 @@ export default function BrainstormPage() {
                                   )}
                                 </div>
                                 <div>
-                                  <span className="text-slate-400">License:</span>{" "}
-                                  {img.licenseShortName || "Unknown"}
+                                  <span className="text-slate-400">License:</span> {img.licenseShortName || "Unknown"}
                                   {img.licenseUrl ? (
                                     <>
                                       {" "}
@@ -1248,8 +1388,7 @@ export default function BrainstormPage() {
                                 </div>
                                 {img.attribution ? (
                                   <div>
-                                    <span className="text-slate-400">Attribution:</span>{" "}
-                                    {stripHtml(img.attribution)}
+                                    <span className="text-slate-400">Attribution:</span> {stripHtml(img.attribution)}
                                   </div>
                                 ) : null}
                               </div>
@@ -1269,6 +1408,7 @@ export default function BrainstormPage() {
 
         <footer className="text-xs text-slate-500">
           Drafts are now editable before send. We also strip “Hook/CTA/Notes” labels so the publish text stays clean.
+          Scheduled now supports: start time + spacing.
         </footer>
 
         {/* Modal */}
@@ -1345,12 +1485,8 @@ export default function BrainstormPage() {
                             )}
                           </div>
                           <div className="p-3 space-y-1">
-                            <div className="text-xs font-semibold line-clamp-2">
-                              {img.title.replace(/^File:/, "")}
-                            </div>
-                            <div className="text-[11px] text-slate-400">
-                              {img.licenseShortName || "License unknown"}
-                            </div>
+                            <div className="text-xs font-semibold line-clamp-2">{img.title.replace(/^File:/, "")}</div>
+                            <div className="text-[11px] text-slate-400">{img.licenseShortName || "License unknown"}</div>
                             <div className="text-[11px] text-emerald-300 line-clamp-1">Select this</div>
                           </div>
                         </button>
