@@ -4,11 +4,16 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 /**
- * GET /api/media/commons-images?q=calm+health
+ * GET /api/media/commons-images?q=calm+health&limit=9
  * Also supports: ?query=...
  *
- * Returns:
- * { success: true, items: [{ title, url, thumb }] }
+ * Returns BOTH shapes to avoid UI drift:
+ * {
+ *   success: true,
+ *   query: "calm health",
+ *   images: [{ url, title, pageUrl, licenseShortName?, licenseUrl?, attribution? }],
+ *   items:  [{ title, url, thumb }]
+ * }
  */
 export async function GET(req: NextRequest) {
   try {
@@ -19,6 +24,9 @@ export async function GET(req: NextRequest) {
       String(url.searchParams.get("q") || "").trim() ||
       String(url.searchParams.get("query") || "").trim();
 
+    const limitRaw = url.searchParams.get("limit");
+    const limit = Number.isFinite(Number(limitRaw)) ? Math.min(24, Math.max(1, Number(limitRaw))) : 12;
+
     if (!q) {
       return NextResponse.json(
         { success: false, error: "Missing query param: q (or query)" },
@@ -26,11 +34,34 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // MediaWiki API (Commons)
-    // We do a search for files, then fetch imageinfo (URL + thumbnail)
     const endpoint = "https://commons.wikimedia.org/w/api.php";
 
-    // 1) Search files
+    // Helpers
+    const isImageTitle = (t: string) => {
+      const s = String(t || "").toLowerCase().trim();
+      // Only allow common image extensions
+      return (
+        s.endsWith(".jpg") ||
+        s.endsWith(".jpeg") ||
+        s.endsWith(".png") ||
+        s.endsWith(".gif") ||
+        s.endsWith(".webp") ||
+        s.endsWith(".svg") ||
+        s.endsWith(".tif") ||
+        s.endsWith(".tiff")
+      );
+    };
+
+    const toFilePageUrl = (title: string) =>
+      `https://commons.wikimedia.org/wiki/${encodeURIComponent(title.replace(/\s+/g, "_"))}`;
+
+    const pickExtMetaText = (ext: any, key: string) => {
+      const v = ext?.[key];
+      const raw = typeof v?.value === "string" ? v.value : "";
+      return raw || "";
+    };
+
+    // 1) Search Commons for File: pages
     const searchParams = new URLSearchParams({
       action: "query",
       format: "json",
@@ -38,7 +69,7 @@ export async function GET(req: NextRequest) {
       list: "search",
       srsearch: q,
       srnamespace: "6", // File namespace
-      srlimit: "24",
+      srlimit: String(Math.min(24, Math.max(1, limit * 3))), // grab extra, we filter non-images
     });
 
     const searchRes = await fetch(`${endpoint}?${searchParams.toString()}`, {
@@ -48,33 +79,31 @@ export async function GET(req: NextRequest) {
     });
 
     const searchJson: any = await searchRes.json().catch(() => null);
-
-    const searchHits: any[] = Array.isArray(searchJson?.query?.search)
-      ? searchJson.query.search
-      : [];
+    const searchHits: any[] = Array.isArray(searchJson?.query?.search) ? searchJson.query.search : [];
 
     if (searchHits.length === 0) {
-      return NextResponse.json({ success: true, items: [] }, { status: 200 });
+      return NextResponse.json({ success: true, query: q, images: [], items: [] }, { status: 200 });
     }
 
-    // Convert search results into page titles
+    // Convert search results into page titles, filter to image file extensions
     const titles = searchHits
       .map((s) => String(s?.title || "").trim())
       .filter(Boolean)
+      .filter(isImageTitle)
       .slice(0, 24);
 
     if (titles.length === 0) {
-      return NextResponse.json({ success: true, items: [] }, { status: 200 });
+      return NextResponse.json({ success: true, query: q, images: [], items: [] }, { status: 200 });
     }
 
-    // 2) Fetch imageinfo (full url + thumb)
+    // 2) Fetch imageinfo (url + thumb + extmetadata for licensing)
     const infoParams = new URLSearchParams({
       action: "query",
       format: "json",
       origin: "*",
       prop: "imageinfo",
-      iiprop: "url",
-      iiurlwidth: "640",
+      iiprop: "url|extmetadata",
+      iiurlwidth: "960",
       titles: titles.join("|"),
     });
 
@@ -87,21 +116,73 @@ export async function GET(req: NextRequest) {
     const infoJson: any = await infoRes.json().catch(() => null);
     const pages = infoJson?.query?.pages || {};
 
-    const items = Object.values(pages)
+    const images = Object.values(pages)
       .map((p: any) => {
         const title = String(p?.title || "").trim();
+        if (!title || !isImageTitle(title)) return null;
+
         const ii = Array.isArray(p?.imageinfo) ? p.imageinfo[0] : null;
+        const fileUrl = String(ii?.url || "").trim();
+        const thumbUrl = String(ii?.thumburl || "").trim();
 
-        const url = String(ii?.url || "").trim();
-        const thumb = String(ii?.thumburl || "").trim();
+        if (!fileUrl) return null;
 
-        if (!title || !url) return null;
+        const ext = ii?.extmetadata || {};
+        const licenseShortName =
+          pickExtMetaText(ext, "LicenseShortName") ||
+          pickExtMetaText(ext, "License") ||
+          "";
 
-        return { title, url, thumb: thumb || url };
+        const licenseUrl =
+          pickExtMetaText(ext, "LicenseUrl") ||
+          "";
+
+        // Best-effort attribution (Commons varies a lot)
+        const attribution =
+          pickExtMetaText(ext, "Attribution") ||
+          pickExtMetaText(ext, "Artist") ||
+          pickExtMetaText(ext, "Credit") ||
+          "";
+
+        return {
+          url: fileUrl,
+          title,
+          pageUrl: toFilePageUrl(title),
+          licenseShortName: licenseShortName || undefined,
+          licenseUrl: licenseUrl || undefined,
+          attribution: attribution || undefined,
+
+          // keep thumb around internally (Scheduled page uses thumb sometimes)
+          _thumb: thumbUrl || fileUrl,
+        };
       })
-      .filter(Boolean);
+      .filter(Boolean) as Array<{
+      url: string;
+      title: string;
+      pageUrl: string;
+      licenseShortName?: string;
+      licenseUrl?: string;
+      attribution?: string;
+      _thumb: string;
+    }>;
 
-    return NextResponse.json({ success: true, items }, { status: 200 });
+    // Apply limit after filtering
+    const trimmed = images.slice(0, limit);
+
+    // Backwards compatible "items" (your earlier consumers)
+    const items = trimmed.map((img) => ({
+      title: img.title,
+      url: img.url,
+      thumb: img._thumb || img.url,
+    }));
+
+    // Drop internal field
+    const imagesOut = trimmed.map(({ _thumb, ...rest }) => rest);
+
+    return NextResponse.json(
+      { success: true, query: q, images: imagesOut, items },
+      { status: 200 }
+    );
   } catch (e: any) {
     return NextResponse.json(
       { success: false, error: e?.message || "commons-images failed" },
