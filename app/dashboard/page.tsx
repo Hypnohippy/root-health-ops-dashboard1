@@ -274,7 +274,12 @@ function friendlySuggestionForPlatform(platform: ProviderId, item: any) {
     if (msg.includes("limit how often") || msg.includes("spam")) {
       return "Tip: This is a temporary Meta rate-limit. Wait a bit (often 15–60 mins) then try again.";
     }
-    if (msg.includes("invalid") || msg.includes("missing") || msg.includes("can't read files") || msg.includes("couldn't be uploaded")) {
+    if (
+      msg.includes("invalid") ||
+      msg.includes("missing") ||
+      msg.includes("can't read files") ||
+      msg.includes("couldn't be uploaded")
+    ) {
       return "Tip: Use Upload or Search Images (we import into your storage) — random external URLs often fail on Meta.";
     }
   }
@@ -333,7 +338,10 @@ function looksLikeImageUrl(u: string) {
   );
 }
 
-function detectFormatFromMedia(imageUrl: string, videoUrl: string): "text" | "image" | "video" {
+function detectFormatFromMedia(
+  imageUrl: string,
+  videoUrl: string
+): "text" | "image" | "video" {
   const img = (imageUrl || "").trim();
   const vid = (videoUrl || "").trim();
   if (vid) return "video";
@@ -398,7 +406,9 @@ export default function DashboardHomePage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
 
-  const [message, setMessage] = useState("Quick check-in from Root Health Ops Dashboard ✅");
+  const [message, setMessage] = useState(
+    "Quick check-in from Root Health Ops Dashboard ✅"
+  );
 
   const [imageUrl, setImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
@@ -420,7 +430,9 @@ export default function DashboardHomePage() {
   const [adminOpen, setAdminOpen] = useState(false);
 
   const [mode, setMode] = useState<Mode>("now");
-  const [scheduledLocal, setScheduledLocal] = useState<string>(defaultLocalDateTimePlus(10));
+  const [scheduledLocal, setScheduledLocal] = useState<string>(
+    defaultLocalDateTimePlus(10)
+  );
 
   // Growth Memory UI
   const [gmOpen, setGmOpen] = useState(false);
@@ -461,7 +473,10 @@ export default function DashboardHomePage() {
     return new Set(active.map((r) => r.platform));
   }, [socialAccounts]);
 
-  const connectedCount = useMemo(() => connectedPlatforms.size, [connectedPlatforms]);
+  const connectedCount = useMemo(
+    () => connectedPlatforms.size,
+    [connectedPlatforms]
+  );
 
   const charCount = message.length;
 
@@ -511,7 +526,9 @@ export default function DashboardHomePage() {
 
   function saveForLater() {
     const d: Draft = {
-      id: (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : String(Date.now())),
+      id: globalThis.crypto?.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : String(Date.now()),
       savedAt: Date.now(),
       message,
       imageUrl,
@@ -579,7 +596,9 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const vars = Array.isArray((json as any)?.variants) ? (json as any).variants : [];
+      const vars = Array.isArray((json as any)?.variants)
+        ? (json as any).variants
+        : [];
       if (vars.length === 0) {
         setAiError("AI returned no variants. Try Generate again.");
         return;
@@ -637,7 +656,9 @@ export default function DashboardHomePage() {
       const expId = safeUuidLike(params.experimentId);
       if (!expId) return;
 
-      const results = Array.isArray(params.result?.results) ? params.result!.results! : [];
+      const results = Array.isArray(params.result?.results)
+        ? params.result!.results!
+        : [];
 
       await fetch("/api/growth/experiments/log-event", {
         method: "POST",
@@ -652,14 +673,22 @@ export default function DashboardHomePage() {
             imageUrl: params.imageUrl || null,
             videoUrl: params.videoUrl || null,
             igPublishMode: params.igPublishMode || "auto",
-            montageImageUrls: Array.isArray(params.montageImageUrls) ? params.montageImageUrls : [],
+            montageImageUrls: Array.isArray(params.montageImageUrls)
+              ? params.montageImageUrls
+              : [],
             response: params.result || null,
           },
           attempts: results.map((r: any) => ({
             platform: String(r?.platform || ""),
             ok: !!r?.ok,
             externalPostId:
-              String(r?.id || r?.post_id || r?.postId || r?.details?.id || "").trim() || null,
+              String(
+                r?.id ||
+                  r?.post_id ||
+                  r?.postId ||
+                  r?.details?.id ||
+                  ""
+              ).trim() || null,
             error: !r?.ok ? extractFriendlyError(r) : null,
             raw: r,
           })),
@@ -698,7 +727,8 @@ export default function DashboardHomePage() {
           success: false,
           error: json?.error || `Request failed (${res.status})`,
           userMessage:
-            json?.userMessage || "We couldn’t send that just now. Try again in a minute.",
+            json?.userMessage ||
+            "We couldn’t send that just now. Try again in a minute.",
         });
         return;
       }
@@ -823,7 +853,6 @@ export default function DashboardHomePage() {
         imageUrl: media.imageUrl,
         videoUrl: media.videoUrl,
         igPublishMode,
-        montage_image_urls: montageUrls,
         montageImageUrls: montageUrls,
         result: {
           success: true,
@@ -833,7 +862,7 @@ export default function DashboardHomePage() {
           results: selected.map((p) => ({ platform: p, ok: true, queued: true })),
           summary: { attempted: selected.length, ok: selected.length, failed: 0 },
         } as any,
-      } as any);
+      });
     } catch (e: any) {
       setResult({
         success: false,
@@ -935,7 +964,9 @@ export default function DashboardHomePage() {
 
   useEffect(() => {
     if (selected.length > 0) return;
-    const defaults = socialAccounts.map((r) => r.platform).filter((p) => connectedPlatforms.has(p));
+    const defaults = socialAccounts
+      .map((r) => r.platform)
+      .filter((p) => connectedPlatforms.has(p));
     if (defaults.length > 0) setSelected(defaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingAccounts, socialAccounts]);
@@ -955,9 +986,12 @@ export default function DashboardHomePage() {
     if (!result) return null;
 
     const attempted = result.summary?.attempted ?? (result.results?.length || 0);
-    const ok = result.summary?.ok ?? (result.results || []).filter((r: any) => r?.ok).length;
+    const ok =
+      result.summary?.ok ??
+      (result.results || []).filter((r: any) => r?.ok).length;
     const failed =
-      result.summary?.failed ?? (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
+      result.summary?.failed ??
+      (result.results || []).filter((r: any) => r && !r.ok && !r.skipped).length;
 
     const headline = result.success
       ? attempted > 0
@@ -981,8 +1015,10 @@ export default function DashboardHomePage() {
     const ct = String(m?.contentType || "").toLowerCase();
     const kind = String((m as any)?.kind || "").toLowerCase();
 
-    const isVideo = kind === "video" || ct.startsWith("video/") || looksLikeVideoUrl(url);
-    const isImage = kind === "image" || ct.startsWith("image/") || looksLikeImageUrl(url);
+    const isVideo =
+      kind === "video" || ct.startsWith("video/") || looksLikeVideoUrl(url);
+    const isImage =
+      kind === "image" || ct.startsWith("image/") || looksLikeImageUrl(url);
 
     // If montage mode: collect images into a list (don’t overwrite)
     if (isMontageMode) {
@@ -1051,7 +1087,8 @@ export default function DashboardHomePage() {
   const igChoiceHint = useMemo(() => {
     if (igPublishMode === "montage_reel") {
       if (montageUrls.length === 0) return "Add 2+ images for a montage.";
-      if (montageUrls.length === 1) return "Add at least one more image to form a montage.";
+      if (montageUrls.length === 1)
+        return "Add at least one more image to form a montage.";
       return "Montage selected (multiple images).";
     }
 
@@ -1078,7 +1115,11 @@ export default function DashboardHomePage() {
     const attempted = Array.isArray(result?.results) ? result!.results!.length : 0;
 
     const outcome: GrowthMemoryEntry["outcome"] =
-      okCount > 0 && okCount === attempted ? "posted" : okCount > 0 ? "partial" : "failed";
+      okCount > 0 && okCount === attempted
+        ? "posted"
+        : okCount > 0
+        ? "partial"
+        : "failed";
 
     const format = detectFormatFromMedia(media.imageUrl, media.videoUrl);
 
@@ -1108,10 +1149,16 @@ export default function DashboardHomePage() {
     const attempted = Array.isArray(result?.results) ? result!.results!.length : 0;
 
     const outcome: GrowthMemoryEntry["outcome"] =
-      okCount > 0 && okCount === attempted ? "posted" : okCount > 0 ? "partial" : "failed";
+      okCount > 0 && okCount === attempted
+        ? "posted"
+        : okCount > 0
+        ? "partial"
+        : "failed";
 
     const entry: GrowthMemoryEntry = {
-      id: (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : String(Date.now())),
+      id: globalThis.crypto?.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : String(Date.now()),
       createdAt: new Date().toISOString(),
       organisationId: organisationId || null,
       platform: gmPlatform,
@@ -1148,10 +1195,13 @@ export default function DashboardHomePage() {
     setImgPickerItems([]);
 
     try {
-      const res = await fetch(`/api/media/commons-images?q=${encodeURIComponent(query)}`, {
-        method: "GET",
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/media/commons-images?q=${encodeURIComponent(query)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
 
       const json: any = await res.json().catch(() => null);
 
@@ -1261,7 +1311,12 @@ export default function DashboardHomePage() {
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
-              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">Enterprise Beta</h1>
+
+              {/* ✅ Removed "Enterprise Beta" title */}
+              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
+                Dashboard
+              </h1>
+
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
@@ -1270,7 +1325,9 @@ export default function DashboardHomePage() {
               {experimentId ? (
                 <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
                   <span className="font-semibold">Linked to experiment</span>
-                  <span className="opacity-80">{experimentTitle ? `— ${experimentTitle}` : ""}</span>
+                  <span className="opacity-80">
+                    {experimentTitle ? `— ${experimentTitle}` : ""}
+                  </span>
                   <span className="opacity-70">(events will auto-log)</span>
                   <button
                     type="button"
@@ -1287,7 +1344,9 @@ export default function DashboardHomePage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-slate-400">Connected:</div>
-                  <div className="text-lg font-semibold text-slate-100">{loadingAccounts ? "…" : connectedCount}</div>
+                  <div className="text-lg font-semibold text-slate-100">
+                    {loadingAccounts ? "…" : connectedCount}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -1337,7 +1396,9 @@ export default function DashboardHomePage() {
                       onClick={() => setMode("now")}
                       className={[
                         "px-3 py-1.5",
-                        mode === "now" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        mode === "now"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
                       ].join(" ")}
                     >
                       Send now
@@ -1347,7 +1408,9 @@ export default function DashboardHomePage() {
                       onClick={() => setMode("approval")}
                       className={[
                         "px-3 py-1.5",
-                        mode === "approval" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                        mode === "approval"
+                          ? "bg-emerald-500 text-slate-950"
+                          : "text-slate-300",
                       ].join(" ")}
                     >
                       Queue for approval
@@ -1373,11 +1436,16 @@ export default function DashboardHomePage() {
                     </div>
 
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-300">
-                      <div className="font-semibold text-slate-200">What happens next</div>
+                      <div className="font-semibold text-slate-200">
+                        What happens next
+                      </div>
                       <ul className="mt-2 space-y-1">
                         <li>
                           • Your post lands in{" "}
-                          <span className="text-slate-100 font-semibold">Approvals</span> as pending
+                          <span className="text-slate-100 font-semibold">
+                            Approvals
+                          </span>{" "}
+                          as pending
                         </li>
                         <li>• Approver sees full content + “Posted by Clinic Owner”</li>
                         <li>• Approve → it becomes ready → Post now</li>
@@ -1389,31 +1457,35 @@ export default function DashboardHomePage() {
 
               {/* Media uploader */}
               <div className="mt-6 rounded-3xl border border-slate-700 bg-slate-950 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
+                {/* ✅ FIX: make this header wrap so buttons never get pushed off-screen */}
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                  <div className="min-w-0">
                     <div className="text-sm font-semibold">Media (optional)</div>
                     <div className="mt-1 text-[11px] text-slate-400">
                       Upload from your laptop, or search for an image (we import it into your storage so Meta can read it).
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  {/* ✅ FIX: wrap controls instead of overflowing */}
+                  <div className="flex flex-wrap items-center justify-start md:justify-end gap-2">
                     <button
                       type="button"
                       onClick={openImagePicker}
-                      className="rounded-2xl border border-slate-600 bg-slate-950 px-3 py-2 text-[11px] text-slate-200 hover:border-slate-500"
+                      className="shrink-0 rounded-2xl border border-slate-600 bg-slate-950 px-3 py-2 text-[11px] text-slate-200 hover:border-slate-500"
                       title="Search images and import to your storage"
                     >
                       🔎 Search images
                     </button>
 
-                    <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                    <div className="shrink-0 inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px] whitespace-nowrap">
                       <button
                         type="button"
                         onClick={() => setMediaMode("auto")}
                         className={[
                           "px-3 py-1.5",
-                          mediaMode === "auto" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                          mediaMode === "auto"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
                         ].join(" ")}
                       >
                         Auto
@@ -1423,7 +1495,9 @@ export default function DashboardHomePage() {
                         onClick={() => setMediaMode("image")}
                         className={[
                           "px-3 py-1.5",
-                          mediaMode === "image" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                          mediaMode === "image"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
                         ].join(" ")}
                       >
                         Image
@@ -1433,7 +1507,9 @@ export default function DashboardHomePage() {
                         onClick={() => setMediaMode("video")}
                         className={[
                           "px-3 py-1.5",
-                          mediaMode === "video" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                          mediaMode === "video"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
                         ].join(" ")}
                       >
                         Video
@@ -1446,22 +1522,29 @@ export default function DashboardHomePage() {
                 <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-sm font-semibold">Instagram posting style</div>
+                      <div className="text-sm font-semibold">
+                        Instagram posting style
+                      </div>
                       <div className="mt-1 text-[11px] text-slate-400">
                         Comfort toggle — always visible. We’ll keep today’s stable posting, and evolve this safely.
                       </div>
                       <div className="mt-2 text-[11px] text-slate-300">
-                        Current: <span className="text-slate-100 font-semibold">{igChoiceHint}</span>
+                        Current:{" "}
+                        <span className="text-slate-100 font-semibold">
+                          {igChoiceHint}
+                        </span>
                       </div>
                     </div>
 
-                    <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px]">
+                    <div className="inline-flex rounded-full bg-slate-900 border border-slate-700 overflow-hidden text-[11px] whitespace-nowrap">
                       <button
                         type="button"
                         onClick={() => setIgPublishMode("auto")}
                         className={[
                           "px-3 py-1.5",
-                          igPublishMode === "auto" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                          igPublishMode === "auto"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
                         ].join(" ")}
                       >
                         Auto
@@ -1473,7 +1556,9 @@ export default function DashboardHomePage() {
                         disabled={!hasEffectiveVideo}
                         className={[
                           "px-3 py-1.5",
-                          igPublishMode === "feed_video" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                          igPublishMode === "feed_video"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
                           !hasEffectiveVideo ? "opacity-50 cursor-not-allowed" : "",
                         ].join(" ")}
                         title={!hasEffectiveVideo ? "Upload/select a video first" : ""}
@@ -1487,7 +1572,9 @@ export default function DashboardHomePage() {
                         disabled={!hasEffectiveVideo}
                         className={[
                           "px-3 py-1.5",
-                          igPublishMode === "reel" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                          igPublishMode === "reel"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
                           !hasEffectiveVideo ? "opacity-50 cursor-not-allowed" : "",
                         ].join(" ")}
                         title={!hasEffectiveVideo ? "Upload/select a video first" : ""}
@@ -1500,7 +1587,9 @@ export default function DashboardHomePage() {
                         onClick={() => setIgPublishMode("montage_reel")}
                         className={[
                           "px-3 py-1.5",
-                          igPublishMode === "montage_reel" ? "bg-emerald-500 text-slate-950" : "text-slate-300",
+                          igPublishMode === "montage_reel"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-300",
                         ].join(" ")}
                         title="Add multiple images to build a montage reel"
                       >
@@ -1512,19 +1601,26 @@ export default function DashboardHomePage() {
                   {igPublishMode === "montage_reel" && (
                     <div className="mt-3 text-[11px] text-slate-300">
                       <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
-                        <div className="font-semibold text-slate-200">Montage builder</div>
+                        <div className="font-semibold text-slate-200">
+                          Montage builder
+                        </div>
                         <div className="mt-1 text-slate-400">
                           Upload multiple images one-by-one, or use Search Images. We’ll store a list and send it as{" "}
-                          <span className="text-slate-200 font-semibold">montageImageUrls</span>.
+                          <span className="text-slate-200 font-semibold">
+                            montageImageUrls
+                          </span>
+                          .
                         </div>
 
                         {!montageReady ? (
                           <div className="mt-2 text-amber-200">
-                            Add <span className="font-semibold">2+</span> images for a real montage.
-                            (Right now, your existing posting still works using the first image — we’ll wire true montage-to-reel server-side next.)
+                            Add <span className="font-semibold">2+</span> images
+                            for a real montage. (Right now, your existing posting still works using the first image — we’ll wire true montage-to-reel server-side next.)
                           </div>
                         ) : (
-                          <div className="mt-2 text-emerald-200">Montage ready ✅ ({montageUrls.length} images)</div>
+                          <div className="mt-2 text-emerald-200">
+                            Montage ready ✅ ({montageUrls.length} images)
+                          </div>
                         )}
 
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -1593,7 +1689,9 @@ export default function DashboardHomePage() {
                         </button>
                       ) : null}
                     </div>
-                    <div className="mt-1 break-all text-slate-200">{imageUrl || "—"}</div>
+                    <div className="mt-1 break-all text-slate-200">
+                      {imageUrl || "—"}
+                    </div>
                   </div>
 
                   <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
@@ -1609,19 +1707,24 @@ export default function DashboardHomePage() {
                         </button>
                       ) : null}
                     </div>
-                    <div className="mt-1 break-all text-slate-200">{videoUrl || "—"}</div>
+                    <div className="mt-1 break-all text-slate-200">
+                      {videoUrl || "—"}
+                    </div>
                   </div>
                 </div>
 
                 <div className="mt-2 text-[11px] text-slate-500">
-                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl: {media.videoUrl ? "✅" : "—"}
+                  Effective payload → imageUrl: {media.imageUrl ? "✅" : "—"} • videoUrl:{" "}
+                  {media.videoUrl ? "✅" : "—"}
                 </div>
 
-                {igPublishMode === "montage_reel" && !hasEffectiveImage && montageUrls.length > 0 && (
-                  <div className="mt-2 text-[11px] text-amber-200">
-                    Note: Montage has images, but Image URL is blank — refresh or upload one more image to set the first image as the primary imageUrl.
-                  </div>
-                )}
+                {igPublishMode === "montage_reel" &&
+                  !hasEffectiveImage &&
+                  montageUrls.length > 0 && (
+                    <div className="mt-2 text-[11px] text-amber-200">
+                      Note: Montage has images, but Image URL is blank — refresh or upload one more image to set the first image as the primary imageUrl.
+                    </div>
+                  )}
               </div>
 
               {/* AI Composer */}
@@ -1645,7 +1748,9 @@ export default function DashboardHomePage() {
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">Subject (what’s the post about?)</label>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Subject (what’s the post about?)
+                    </label>
                     <input
                       value={aiSubject}
                       onChange={(e) => setAiSubject(e.target.value)}
@@ -1656,7 +1761,9 @@ export default function DashboardHomePage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">Tone</label>
+                      <label className="block text-xs font-medium text-slate-300">
+                        Tone
+                      </label>
                       <select
                         value={aiTone}
                         onChange={(e) => setAiTone(e.target.value)}
@@ -1671,7 +1778,9 @@ export default function DashboardHomePage() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-300">Length</label>
+                      <label className="block text-xs font-medium text-slate-300">
+                        Length
+                      </label>
                       <select
                         value={aiLength}
                         onChange={(e) => setAiLength(e.target.value)}
@@ -1694,9 +1803,14 @@ export default function DashboardHomePage() {
                 {aiVariants.length > 0 && (
                   <div className="mt-4 space-y-3">
                     {aiVariants.map((v, idx) => (
-                      <div key={`${idx}-${v.title}`} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
+                      <div
+                        key={`${idx}-${v.title}`}
+                        className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4"
+                      >
                         <div className="flex items-start justify-between gap-3">
-                          <div className="text-sm font-semibold">{v.title || `Variant ${idx + 1}`}</div>
+                          <div className="text-sm font-semibold">
+                            {v.title || `Variant ${idx + 1}`}
+                          </div>
                           <button
                             type="button"
                             onClick={() => setMessage(joinVariant(v))}
@@ -1705,7 +1819,9 @@ export default function DashboardHomePage() {
                             Use this
                           </button>
                         </div>
-                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">{joinVariant(v)}</div>
+                        <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
+                          {joinVariant(v)}
+                        </div>
                       </div>
                     ))}
                     <div className="text-[11px] text-slate-500">
@@ -1717,7 +1833,9 @@ export default function DashboardHomePage() {
 
               <div className="mt-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300">Message</label>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Message
+                  </label>
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
@@ -1730,7 +1848,9 @@ export default function DashboardHomePage() {
                 {/* Manual fields remain as fallback */}
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">Image URL (optional)</label>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Image URL (optional)
+                    </label>
                     <input
                       value={imageUrl}
                       onChange={(e) => setImageUrl(e.target.value)}
@@ -1739,7 +1859,9 @@ export default function DashboardHomePage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">Video URL (optional)</label>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Video URL (optional)
+                    </label>
                     <input
                       value={videoUrl}
                       onChange={(e) => setVideoUrl(e.target.value)}
@@ -1751,8 +1873,14 @@ export default function DashboardHomePage() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="block text-xs font-medium text-slate-300">Channels</label>
-                    <button type="button" onClick={refreshChannels} className="text-[11px] text-slate-400 hover:text-slate-300">
+                    <label className="block text-xs font-medium text-slate-300">
+                      Channels
+                    </label>
+                    <button
+                      type="button"
+                      onClick={refreshChannels}
+                      className="text-[11px] text-slate-400 hover:text-slate-300"
+                    >
                       Refresh
                     </button>
                   </div>
@@ -1778,7 +1906,9 @@ export default function DashboardHomePage() {
                         >
                           <div>
                             <div className="font-medium">{PROVIDER_LABELS[p]}</div>
-                            <div className="text-[11px] text-slate-500">{isConnected ? "connected" : "not connected"}</div>
+                            <div className="text-[11px] text-slate-500">
+                              {isConnected ? "connected" : "not connected"}
+                            </div>
                           </div>
                           <div
                             className={`text-[11px] px-2 py-1 rounded-full border ${
@@ -1796,17 +1926,27 @@ export default function DashboardHomePage() {
                     })}
                   </div>
 
-                  <div className="mt-2 text-[11px] text-slate-500">Only connected channels will actually send.</div>
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    Only connected channels will actually send.
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-3 pt-2">
                   <button
                     type="button"
                     onClick={sendQuickBlast}
-                    disabled={sending || message.trim().length === 0 || selected.length === 0}
+                    disabled={
+                      sending || message.trim().length === 0 || selected.length === 0
+                    }
                     className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                   >
-                    {sending ? (mode === "now" ? "Sending…" : "Queueing…") : mode === "now" ? "Send Quick Blast" : "Queue for approval"}
+                    {sending
+                      ? mode === "now"
+                        ? "Sending…"
+                        : "Queueing…"
+                      : mode === "now"
+                      ? "Send Quick Blast"
+                      : "Queue for approval"}
                   </button>
 
                   <button
@@ -1831,19 +1971,25 @@ export default function DashboardHomePage() {
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4">
                     <div className="text-sm">
                       <div className={result.success ? "text-emerald-200" : "text-amber-200"}>
-                        {friendlySummary?.headline || (result.success ? "Success." : "Not sent.")}
+                        {friendlySummary?.headline ||
+                          (result.success ? "Success." : "Not sent.")}
                       </div>
                       <div className="mt-1 text-[12px] text-slate-300">
                         {friendlySummary?.topMsg ||
-                          (result.success ? "Nice — you’re live." : "No stress — we’ll fix what’s blocking it.")}
+                          (result.success
+                            ? "Nice — you’re live."
+                            : "No stress — we’ll fix what’s blocking it.")}
                       </div>
-                      {result.note ? <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div> : null}
+                      {result.note ? (
+                        <div className="mt-2 text-[12px] text-emerald-300">{result.note}</div>
+                      ) : null}
                     </div>
 
                     {Array.isArray(result.results) && result.results.length > 0 && (
                       <div className="mt-4 space-y-2">
                         {result.results.map((r: any, idx: number) => {
-                          const platform = (String(r?.platform || "") as ProviderId) || "facebook";
+                          const platform =
+                            (String(r?.platform || "") as ProviderId) || "facebook";
                           const ok = !!r?.ok;
                           const skipped = !!r?.skipped;
                           const label = formatPlatformName(r?.platform || platform);
@@ -1852,9 +1998,14 @@ export default function DashboardHomePage() {
                           const tip = !ok ? friendlySuggestionForPlatform(platform, r) : null;
 
                           return (
-                            <div key={`${platform}-${idx}`} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                            <div
+                              key={`${platform}-${idx}`}
+                              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                            >
                               <div className="flex items-start justify-between gap-3">
-                                <div className="text-[12px] font-semibold text-slate-200">{label}</div>
+                                <div className="text-[12px] font-semibold text-slate-200">
+                                  {label}
+                                </div>
                                 <div
                                   className={[
                                     "text-[11px] rounded-full border px-2 py-0.5",
@@ -1869,9 +2020,13 @@ export default function DashboardHomePage() {
                                 </div>
                               </div>
 
-                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">{friendly}</div>
+                              <div className="mt-1 text-[12px] text-slate-300 whitespace-pre-wrap">
+                                {friendly}
+                              </div>
 
-                              {tip ? <div className="mt-1 text-[11px] text-slate-400">{tip}</div> : null}
+                              {tip ? (
+                                <div className="mt-1 text-[11px] text-slate-400">{tip}</div>
+                              ) : null}
                             </div>
                           );
                         })}
@@ -1879,7 +2034,8 @@ export default function DashboardHomePage() {
                     )}
 
                     {/* ✅ Only show Growth Memory if at least one platform posted */}
-                    {Array.isArray(result.results) && result.results.some((r: any) => !!r?.ok) ? (
+                    {Array.isArray(result.results) &&
+                    result.results.some((r: any) => !!r?.ok) ? (
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -1892,7 +2048,8 @@ export default function DashboardHomePage() {
                         <button
                           type="button"
                           onClick={() => {
-                            if (typeof window !== "undefined") window.location.href = "/dashboard/campaigns";
+                            if (typeof window !== "undefined")
+                              window.location.href = "/dashboard/campaigns";
                           }}
                           className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs text-slate-200 hover:border-slate-600"
                         >
@@ -1918,7 +2075,9 @@ export default function DashboardHomePage() {
                   <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs text-slate-300">
                     <div className="text-slate-400 mb-2">Admin info (safe).</div>
                     <div>Selected platforms: {selected.join(", ") || "(none)"}</div>
-                    <div className="mt-1">Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}</div>
+                    <div className="mt-1">
+                      Connected platforms: {Array.from(connectedPlatforms).join(", ") || "(none)"}
+                    </div>
                     <div className="mt-1">OrganisationId: {organisationId || "(loading…)"}</div>
                     <div className="mt-1">Mode: {mode === "now" ? "Send now" : "Queue for approval"}</div>
                     <div className="mt-1">mediaMode: {mediaMode}</div>
@@ -1935,8 +2094,12 @@ export default function DashboardHomePage() {
             {/* Drafts */}
             <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <h3 className="text-base font-semibold">Saved drafts</h3>
-              <p className="mt-1 text-sm text-slate-300">Drafts are stored on this device. (Later we can sync per org.)</p>
-              <p className="mt-2 text-[11px] text-slate-500">Use “Save for later” and we’ll restore the full draft library</p>
+              <p className="mt-1 text-sm text-slate-300">
+                Drafts are stored on this device. (Later we can sync per org.)
+              </p>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Use “Save for later” and we’ll restore the full draft library
+              </p>
 
               <div className="mt-4 space-y-3">
                 {drafts.length === 0 ? (
@@ -1945,9 +2108,16 @@ export default function DashboardHomePage() {
                   </div>
                 ) : (
                   drafts.map((d) => (
-                    <div key={d.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                      <div className="text-[11px] text-slate-500">{new Date(d.savedAt).toLocaleString()}</div>
-                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">{d.message || "(empty)"}</div>
+                    <div
+                      key={d.id}
+                      className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
+                    >
+                      <div className="text-[11px] text-slate-500">
+                        {new Date(d.savedAt).toLocaleString()}
+                      </div>
+                      <div className="mt-1 text-sm text-slate-200 line-clamp-3">
+                        {d.message || "(empty)"}
+                      </div>
                       <div className="mt-2 text-[11px] text-slate-500">
                         Channels: {d.selectedPlatforms?.join(", ") || "(none)"}
                       </div>
@@ -1975,7 +2145,9 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
-          <div className="mt-8 text-xs text-slate-500">Tip: Upload/Search media → write → choose channels → post (or queue).</div>
+          <div className="mt-8 text-xs text-slate-500">
+            Tip: Upload/Search media → write → choose channels → post (or queue).
+          </div>
         </div>
       </div>
 
@@ -1996,7 +2168,9 @@ export default function DashboardHomePage() {
             <div className="flex items-start justify-between gap-4 p-6 border-b border-slate-800">
               <div>
                 <div className="text-xs text-slate-400">Media Library</div>
-                <div className="mt-1 text-lg font-semibold text-slate-100">Search images</div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">
+                  Search images
+                </div>
                 <div className="mt-1 text-sm text-slate-300">
                   Pick an image → we import it into your storage (so Facebook/IG/Threads can actually read it).
                 </div>
@@ -2055,11 +2229,15 @@ export default function DashboardHomePage() {
                     {imgPickerItems.slice(0, 24).map((it, idx) => {
                       const full = pickCommonsUrl(it);
                       const thumb = pickCommonsThumb(it);
-                      const title = String(it?.title || "").trim() || `Image ${idx + 1}`;
+                      const title =
+                        String(it?.title || "").trim() || `Image ${idx + 1}`;
                       const importing = imgImportBusyUrl === full;
 
                       return (
-                        <div key={`${full}-${idx}`} className="rounded-2xl border border-slate-800 bg-slate-950/70 overflow-hidden">
+                        <div
+                          key={`${full}-${idx}`}
+                          className="rounded-2xl border border-slate-800 bg-slate-950/70 overflow-hidden"
+                        >
                           <div className="aspect-[4/3] bg-slate-900">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
@@ -2070,8 +2248,12 @@ export default function DashboardHomePage() {
                             />
                           </div>
                           <div className="p-3">
-                            <div className="text-xs font-semibold text-slate-100 line-clamp-1">{title}</div>
-                            <div className="mt-1 text-[11px] text-slate-400 line-clamp-2 break-all">{full}</div>
+                            <div className="text-xs font-semibold text-slate-100 line-clamp-1">
+                              {title}
+                            </div>
+                            <div className="mt-1 text-[11px] text-slate-400 line-clamp-2 break-all">
+                              {full}
+                            </div>
 
                             <div className="mt-3 flex gap-2">
                               <button
@@ -2112,7 +2294,9 @@ export default function DashboardHomePage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-xs text-slate-400">Growth Lab</div>
-                <div className="mt-1 text-lg font-semibold text-slate-100">Save to Growth Memory</div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">
+                  Save to Growth Memory
+                </div>
                 <div className="mt-1 text-sm text-slate-300">
                   Capture what worked (or what failed) so your future self gets smarter — without effort.
                 </div>
