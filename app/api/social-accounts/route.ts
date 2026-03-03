@@ -1,43 +1,85 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
+
+type Db = any;
 
 function normPlatform(p: any) {
   return String(p || "").trim().toLowerCase();
 }
 
-async function getOrganisationId(): Promise<string | null> {
-  // Optional: force a specific org via env var (useful in beta)
+async function getAuthedUserId() {
+  const supabase = createRouteHandlerClient<Db>({ cookies });
+  const { data, error } = await supabase.auth.getUser();
+  if (error) return null;
+  return data?.user?.id || null;
+}
+
+async function getOrgIdFromRequest(req: NextRequest): Promise<string | null> {
+  // Enterprise rule: caller must specify org explicitly
+  // (You can pass it as ?organisationId=... or ?organisation_id=...)
+  const url = new URL(req.url);
+  const org =
+    String(url.searchParams.get("organisationId") || "").trim() ||
+    String(url.searchParams.get("organisation_id") || "").trim();
+
+  // Optional: allow env forced org for private beta, BUT STILL require membership
   const forced =
     (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim() ||
     (process.env.SINGLE_ORG_ID || "").trim();
 
-  if (forced) return forced;
+  return org || forced || null;
+}
 
-  // Fallback: MOST RECENT org
+async function requireMembership(organisationId: string, userId: string) {
   const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id, created_at")
-    .order("created_at", { ascending: false })
-    .limit(1)
+    .from("organisation_members")
+    .select("role")
+    .eq("organisation_id", organisationId)
+    .eq("user_id", userId)
     .maybeSingle();
 
-  if (error || !data?.id) return null;
-  return String(data.id);
+  if (error) return { ok: false, role: null as string | null };
+  if (!data) return { ok: false, role: null as string | null };
+  return { ok: true, role: String(data.role || "").trim() || null };
+}
+
+function isWriteRole(role: string | null) {
+  const r = String(role || "").toLowerCase();
+  // adjust if you use different role names
+  return r === "owner" || r === "admin" || r === "manager";
 }
 
 /**
- * GET /api/social-accounts
+ * GET /api/social-accounts?organisationId=...
  * Returns SAFE connection state WITHOUT exposing tokens
  */
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    const organisationId = await getOrganisationId();
+    const userId = await getAuthedUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: "Not signed in." },
+        { status: 401 }
+      );
+    }
+
+    const organisationId = await getOrgIdFromRequest(req);
     if (!organisationId) {
       return NextResponse.json(
-        { success: false, error: "No organisation found." },
+        { success: false, error: "Missing organisationId." },
         { status: 400 }
+      );
+    }
+
+    const mem = await requireMembership(organisationId, userId);
+    if (!mem.ok) {
+      return NextResponse.json(
+        { success: false, error: "Not a member of this organisation." },
+        { status: 403 }
       );
     }
 
@@ -72,7 +114,6 @@ export async function GET(_req: NextRequest) {
         updated_at: row?.updated_at ?? null,
         created_at: row?.created_at ?? null,
 
-        // ✅ what the UI actually needs
         has_token,
         token_state: has_token ? "HAS_TOKEN" : "NO_TOKEN",
       };
@@ -92,25 +133,48 @@ export async function GET(_req: NextRequest) {
 }
 
 /**
- * POST /api/social-accounts
+ * POST /api/social-accounts?organisationId=...
  * Upserts a social account row (token stored server-side)
+ * ✅ Requires org membership + write role
  */
 export async function POST(req: NextRequest) {
   try {
+    const userId = await getAuthedUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: "Not signed in." },
+        { status: 401 }
+      );
+    }
+
+    const organisationId = await getOrgIdFromRequest(req);
+    if (!organisationId) {
+      return NextResponse.json(
+        { success: false, error: "Missing organisationId." },
+        { status: 400 }
+      );
+    }
+
+    const mem = await requireMembership(organisationId, userId);
+    if (!mem.ok) {
+      return NextResponse.json(
+        { success: false, error: "Not a member of this organisation." },
+        { status: 403 }
+      );
+    }
+    if (!isWriteRole(mem.role)) {
+      return NextResponse.json(
+        { success: false, error: "Insufficient role to update connections." },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json().catch(() => ({} as any));
 
     const platform = normPlatform(body?.platform);
     if (!platform) {
       return NextResponse.json(
         { success: false, error: "Missing platform." },
-        { status: 400 }
-      );
-    }
-
-    const organisationId = await getOrganisationId();
-    if (!organisationId) {
-      return NextResponse.json(
-        { success: false, error: "No organisation found." },
         { status: 400 }
       );
     }
@@ -145,7 +209,9 @@ export async function POST(req: NextRequest) {
       })
       .eq("organisation_id", organisationId)
       .eq("platform", platform)
-      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at,page_access_token")
+      .select(
+        "platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at,page_access_token"
+      )
       .maybeSingle();
 
     if (!uErr && updated) {
@@ -183,7 +249,9 @@ export async function POST(req: NextRequest) {
         created_at: now,
         updated_at: now,
       })
-      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at,page_access_token")
+      .select(
+        "platform,page_id,page_name,is_active,token_expires_at,updated_at,created_at,page_access_token"
+      )
       .single();
 
     if (iErr) {
@@ -221,27 +289,47 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * DELETE /api/social-accounts
- * Soft disconnect:
- * - is_active=false
- * - clears token + expiry
+ * DELETE /api/social-accounts?organisationId=...
+ * Soft disconnect (requires write role)
  */
 export async function DELETE(req: NextRequest) {
   try {
+    const userId = await getAuthedUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: "Not signed in." },
+        { status: 401 }
+      );
+    }
+
+    const organisationId = await getOrgIdFromRequest(req);
+    if (!organisationId) {
+      return NextResponse.json(
+        { success: false, error: "Missing organisationId." },
+        { status: 400 }
+      );
+    }
+
+    const mem = await requireMembership(organisationId, userId);
+    if (!mem.ok) {
+      return NextResponse.json(
+        { success: false, error: "Not a member of this organisation." },
+        { status: 403 }
+      );
+    }
+    if (!isWriteRole(mem.role)) {
+      return NextResponse.json(
+        { success: false, error: "Insufficient role to update connections." },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json().catch(() => ({} as any));
     const platform = normPlatform(body?.platform);
 
     if (!platform) {
       return NextResponse.json(
         { success: false, error: "Missing platform." },
-        { status: 400 }
-      );
-    }
-
-    const organisationId = await getOrganisationId();
-    if (!organisationId) {
-      return NextResponse.json(
-        { success: false, error: "No organisation found." },
         { status: 400 }
       );
     }
