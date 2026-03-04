@@ -1,37 +1,64 @@
+// app/api/social-accounts/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createServerClient } from "@supabase/ssr";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-type Db = any;
+type ProviderId =
+  | "facebook"
+  | "instagram"
+  | "tiktok"
+  | "linkedin"
+  | "google"
+  | "email"
+  | "whatsapp"
+  | "threads";
 
 function normPlatform(p: any) {
   return String(p || "").trim().toLowerCase();
 }
 
-async function getAuthedUserId() {
-  const supabase = createRouteHandlerClient<Db>({ cookies });
-  const { data, error } = await supabase.auth.getUser();
-  if (error) return null;
-  return data?.user?.id || null;
-}
-
-async function getOrgIdFromRequest(req: NextRequest): Promise<string | null> {
-  // Enterprise rule: caller must specify org explicitly
-  // (You can pass it as ?organisationId=... or ?organisation_id=...)
+function getOrgIdFromRequest(req: NextRequest): string | null {
   const url = new URL(req.url);
   const org =
     String(url.searchParams.get("organisationId") || "").trim() ||
     String(url.searchParams.get("organisation_id") || "").trim();
 
-  // Optional: allow env forced org for private beta, BUT STILL require membership
   const forced =
     (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim() ||
     (process.env.SINGLE_ORG_ID || "").trim();
 
-  return org || forced || null;
+  // If you force single org in beta, use it (but we still require membership)
+  return forced || org || null;
+}
+
+async function getAuthedUserId(): Promise<string | null> {
+  // Reads cookies from the incoming request (Route Handler context)
+  const cookieStore = cookies();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          // In route handlers, you can set cookies via cookieStore.set
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+
+  const { data, error } = await supabase.auth.getUser();
+  if (error) return null;
+  return data?.user?.id || null;
 }
 
 async function requireMembership(organisationId: string, userId: string) {
@@ -49,7 +76,6 @@ async function requireMembership(organisationId: string, userId: string) {
 
 function isWriteRole(role: string | null) {
   const r = String(role || "").toLowerCase();
-  // adjust if you use different role names
   return r === "owner" || r === "admin" || r === "manager";
 }
 
@@ -67,7 +93,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const organisationId = await getOrgIdFromRequest(req);
+    const organisationId = getOrgIdFromRequest(req);
     if (!organisationId) {
       return NextResponse.json(
         { success: false, error: "Missing organisationId." },
@@ -83,8 +109,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // ✅ We select page_access_token ONLY to compute has_token
-    // ✅ We do NOT return the token to the client.
     const { data, error } = await supabaseAdmin
       .from("social_accounts")
       .select(
@@ -106,14 +130,13 @@ export async function GET(req: NextRequest) {
 
       return {
         organisation_id: organisationId,
-        platform: String(row?.platform || "").toLowerCase(),
+        platform: String(row?.platform || "").toLowerCase() as ProviderId,
         page_id: row?.page_id ?? null,
         page_name: row?.page_name ?? null,
         is_active: !!row?.is_active,
         token_expires_at: row?.token_expires_at ?? null,
         updated_at: row?.updated_at ?? null,
         created_at: row?.created_at ?? null,
-
         has_token,
         token_state: has_token ? "HAS_TOKEN" : "NO_TOKEN",
       };
@@ -135,7 +158,7 @@ export async function GET(req: NextRequest) {
 /**
  * POST /api/social-accounts?organisationId=...
  * Upserts a social account row (token stored server-side)
- * ✅ Requires org membership + write role
+ * Requires org membership + write role
  */
 export async function POST(req: NextRequest) {
   try {
@@ -147,7 +170,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const organisationId = await getOrgIdFromRequest(req);
+    const organisationId = getOrgIdFromRequest(req);
     if (!organisationId) {
       return NextResponse.json(
         { success: false, error: "Missing organisationId." },
@@ -170,7 +193,6 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({} as any));
-
     const platform = normPlatform(body?.platform);
     if (!platform) {
       return NextResponse.json(
@@ -182,7 +204,6 @@ export async function POST(req: NextRequest) {
     const page_id = body?.page_id ? String(body.page_id).trim() : null;
     const page_name = body?.page_name ? String(body.page_name).trim() : null;
 
-    // Token stored server-side only
     const page_access_token = body?.page_access_token
       ? String(body.page_access_token).trim()
       : null;
@@ -193,10 +214,9 @@ export async function POST(req: NextRequest) {
         : String(body.token_expires_at).trim() || null;
 
     const is_active = body?.is_active === false ? false : true;
-
     const now = new Date().toISOString();
 
-    // 1) Try update
+    // Update first
     const { data: updated, error: uErr } = await supabaseAdmin
       .from("social_accounts")
       .update({
@@ -235,7 +255,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2) Insert
+    // Insert
     const { data: inserted, error: iErr } = await supabaseAdmin
       .from("social_accounts")
       .insert({
@@ -262,7 +282,6 @@ export async function POST(req: NextRequest) {
     }
 
     const tok = String(inserted?.page_access_token || "").trim();
-
     return NextResponse.json({
       success: true,
       organisationId,
@@ -302,7 +321,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const organisationId = await getOrgIdFromRequest(req);
+    const organisationId = getOrgIdFromRequest(req);
     if (!organisationId) {
       return NextResponse.json(
         { success: false, error: "Missing organisationId." },
