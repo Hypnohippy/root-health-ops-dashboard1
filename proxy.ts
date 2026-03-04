@@ -10,17 +10,17 @@ function isPublicPath(pathname: string) {
   if (pathname.startsWith("/robots.txt")) return true;
   if (pathname.startsWith("/sitemap")) return true;
 
-  // Your marketing site pages (keep public)
+  // Marketing site routes (keep public)
   if (pathname === "/") return true;
   if (pathname.startsWith("/pricing")) return true;
   if (pathname.startsWith("/how-it-works")) return true;
   if (pathname.startsWith("/colleges")) return true;
 
-  // Auth pages/routes must remain public
+  // Auth routes must remain public
   if (pathname.startsWith("/auth")) return true;
   if (pathname.startsWith("/api/auth")) return true;
 
-  // Webhooks must remain public (adjust if you have these)
+  // Webhooks must remain public (adjust if you use different paths)
   if (pathname.startsWith("/api/webhooks")) return true;
 
   return false;
@@ -29,24 +29,22 @@ function isPublicPath(pathname: string) {
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Allow public paths through
+  // Let public pages through untouched
   if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
 
-  // Protect only:
-  // - /dashboard/*
-  // - /api/* (except the allowlisted ones above)
-  const protecting =
+  // Only guard dashboard + api
+  const shouldGuard =
     pathname === "/dashboard" ||
     pathname.startsWith("/dashboard/") ||
     pathname.startsWith("/api/");
 
-  if (!protecting) {
+  if (!shouldGuard) {
     return NextResponse.next();
   }
 
-  // Create a response we can attach cookies to
+  // Create a response we can attach refreshed cookies to
   let res = NextResponse.next();
 
   const supabase = createServerClient(
@@ -66,12 +64,13 @@ export async function proxy(req: NextRequest) {
     }
   );
 
+  // ✅ This both refreshes session (if present) and tells us if user exists
   const { data } = await supabase.auth.getUser();
   const user = data?.user;
 
   if (!user) {
     const url = req.nextUrl.clone();
-    url.pathname = "/auth/sign-in";
+    url.pathname = "/auth/sign-in"; // change if your sign-in route differs
     url.searchParams.set("redirect", pathname);
     return NextResponse.redirect(url);
   }
@@ -79,7 +78,7 @@ export async function proxy(req: NextRequest) {
   return res;
 }
 
-// Match only the areas we want to guard
+// ✅ Only run on protected areas (keeps landing pages calm + fast)
 export const config = {
   matcher: ["/dashboard/:path*", "/api/:path*"],
 };
