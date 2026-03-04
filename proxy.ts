@@ -55,11 +55,17 @@ export async function proxy(req: NextRequest) {
         getAll() {
           return req.cookies.getAll();
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            res.cookies.set(name, value, options);
-          });
-        },
+        setAll(
+  cookiesToSet: Array<{
+    name: string;
+    value: string;
+    options?: Record<string, any>;
+  }>
+) {
+  cookiesToSet.forEach(({ name, value, options }) => {
+    res.cookies.set(name, value, options as any);
+  });
+},
       },
     }
   );
