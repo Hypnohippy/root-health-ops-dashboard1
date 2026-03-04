@@ -3,6 +3,11 @@ const nextConfig = {
   async redirects() {
     return [
       {
+        source: "/tiktok-developers-site-verification.txt",
+        destination: "/tiktok-developers-site-verification.txt",
+        permanent: false,
+      },
+      {
         source: "/tiktok-developers-site-verification.txt/",
         destination: "/tiktok-developers-site-verification.txt",
         permanent: false,
