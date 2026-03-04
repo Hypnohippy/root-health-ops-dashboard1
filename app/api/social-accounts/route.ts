@@ -1,6 +1,5 @@
 // app/api/social-accounts/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
@@ -34,23 +33,19 @@ function getOrgIdFromRequest(req: NextRequest): string | null {
   return forced || org || null;
 }
 
-async function getAuthedUserId(): Promise<string | null> {
-  // Reads cookies from the incoming request (Route Handler context)
-  const cookieStore = cookies();
-
+async function getAuthedUserId(req: NextRequest): Promise<string | null> {
+  // ✅ Use req.cookies (sync) — avoids Next 16 async cookies() typing issue
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll();
+          return req.cookies.getAll();
         },
-        setAll(cookiesToSet) {
-          // In route handlers, you can set cookies via cookieStore.set
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
+        setAll() {
+          // Route Handlers: not required for getUser().
+          // Keeping as no-op avoids build/type issues.
         },
       },
     }
@@ -85,7 +80,7 @@ function isWriteRole(role: string | null) {
  */
 export async function GET(req: NextRequest) {
   try {
-    const userId = await getAuthedUserId();
+    const userId = await getAuthedUserId(req);
     if (!userId) {
       return NextResponse.json(
         { success: false, error: "Not signed in." },
@@ -162,7 +157,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const userId = await getAuthedUserId();
+    const userId = await getAuthedUserId(req);
     if (!userId) {
       return NextResponse.json(
         { success: false, error: "Not signed in." },
@@ -313,7 +308,7 @@ export async function POST(req: NextRequest) {
  */
 export async function DELETE(req: NextRequest) {
   try {
-    const userId = await getAuthedUserId();
+    const userId = await getAuthedUserId(req);
     if (!userId) {
       return NextResponse.json(
         { success: false, error: "Not signed in." },
