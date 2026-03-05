@@ -1,75 +1,57 @@
-import { NextRequest, NextResponse } from "next/server";
+// app/api/debug/auth-org/route.ts
+import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabaseServer";
-import { supabaseService } from "../../../../lib/supabaseService";
 
 export const runtime = "nodejs";
 
-export async function GET(_req: NextRequest) {
+export async function GET() {
   try {
+    // IMPORTANT: await in case createSupabaseServerClient is async (or typed as async)
+    const supabase = await createSupabaseServerClient();
+
     // 1) Who am I (from auth cookie)?
-    const supabase = createSupabaseServerClient();
-    const { data, error } = await supabase.auth.getUser();
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
 
-    const userId = data?.user?.id ?? null;
-
-    if (error) {
+    if (userErr) {
       return NextResponse.json(
-        { success: false, step: "getUser", error: error.message, userId: null },
+        { ok: false, step: "auth.getUser", error: userErr.message },
         { status: 200 }
       );
     }
 
-    if (!userId) {
+    const user = userData?.user || null;
+    if (!user) {
       return NextResponse.json(
-        {
-          success: true,
-          userId: null,
-          note:
-            "No logged-in user found in cookies. Open this while logged into /dashboard in the SAME browser.",
-        },
+        { ok: true, signedIn: false, user: null, memberships: [] },
         { status: 200 }
       );
     }
 
-    // 2) What organisation_members rows exist for this user?
-    const { data: members, error: memErr } = await supabaseService
+    // 2) What orgs am I a member of?
+    const { data: memberships, error: memErr } = await supabase
       .from("organisation_members")
-      .select("*")
-      .eq("user_id", userId)
-      .limit(10);
+      .select("organisation_id, role, created_at")
+      .eq("user_id", user.id);
 
     if (memErr) {
       return NextResponse.json(
-        {
-          success: false,
-          userId,
-          step: "organisation_members lookup",
-          error: memErr.message,
-          hint:
-            "This may mean your organisation_members table uses a different column name than user_id.",
-        },
+        { ok: false, step: "organisation_members.select", error: memErr.message, userId: user.id },
         { status: 200 }
       );
     }
 
-    const organisationIds = (members || [])
-      .map((m: any) => m.organisation_id)
-      .filter(Boolean)
-      .map((x: any) => String(x));
-
     return NextResponse.json(
       {
-        success: true,
-        userId,
-        membersCount: members?.length ?? 0,
-        organisationIds,
-        members,
+        ok: true,
+        signedIn: true,
+        user: { id: user.id, email: user.email },
+        memberships: memberships || [],
       },
       { status: 200 }
     );
   } catch (e: any) {
     return NextResponse.json(
-      { success: false, error: e?.message || "debug failed" },
+      { ok: false, error: e?.message || "debug/auth-org failed" },
       { status: 500 }
     );
   }
