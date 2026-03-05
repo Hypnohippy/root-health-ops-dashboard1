@@ -1,6 +1,9 @@
+// app/signin/page.tsx
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { supabaseBrowser } from "../../lib/supabaseBrowser";
 
 export default function SignInPage() {
   const [email, setEmail] = useState("");
@@ -10,24 +13,29 @@ export default function SignInPage() {
   async function handleLogin() {
     setStatus("");
 
-    if (!email || !password) {
+    const e = email.trim();
+    if (!e || !password) {
       setStatus("Please enter email + password.");
       return;
     }
 
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ email: email.trim(), password }),
+    const { error } = await supabaseBrowser.auth.signInWithPassword({
+      email: e,
+      password,
     });
 
-    const json = await res.json().catch(() => null);
-
-    if (!res.ok || !json?.success) {
-      setStatus(json?.error || "Login failed.");
+    if (error) {
+      setStatus(error.message || "Login failed.");
       return;
     }
+
+    // (Optional but recommended) bootstrap org/membership if you have that endpoint
+    // If you haven't created it yet, this will just silently fail and not block login.
+    await fetch("/api/onboarding/bootstrap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+    }).catch(() => null);
 
     setStatus("Signed in. Redirecting…");
     window.location.href = "/dashboard";
@@ -47,6 +55,7 @@ export default function SignInPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@domain.com"
+            autoComplete="email"
             style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
           />
         </label>
@@ -58,6 +67,7 @@ export default function SignInPage() {
             onChange={(e) => setPassword(e.target.value)}
             type="password"
             placeholder="••••••••"
+            autoComplete="current-password"
             style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
           />
         </label>
@@ -74,6 +84,11 @@ export default function SignInPage() {
         >
           Sign in
         </button>
+
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <Link href="/pricing">See pricing</Link>
+          <Link href="/">Back to home</Link>
+        </div>
 
         {status ? (
           <div
