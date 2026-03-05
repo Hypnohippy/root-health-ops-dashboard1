@@ -48,7 +48,9 @@ export default function ClientDashboardLayout({ children }: DashboardLayoutProps
   async function tryLoadOrgId() {
     try {
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
-      const json: SocialAccountsResponse = await res.json().catch(() => ({} as any));
+      const json: SocialAccountsResponse = await res
+        .json()
+        .catch(() => ({} as any));
       if (res.ok && json?.organisationId) {
         setOrgId(String(json.organisationId));
       }
@@ -132,8 +134,10 @@ export default function ClientDashboardLayout({ children }: DashboardLayoutProps
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 flex flex-col">
+      {/* Top Nav */}
       <header className="border-b border-white/10 bg-black/30 backdrop-blur-xl">
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+          {/* Brand */}
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-emerald-400/80 shadow-lg shadow-emerald-500/40" />
             <div className="flex flex-col leading-tight">
@@ -146,6 +150,7 @@ export default function ClientDashboardLayout({ children }: DashboardLayoutProps
             </div>
           </div>
 
+          {/* Nav links */}
           <ul className="flex items-center gap-2 flex-wrap justify-end">
             <li>
               <Link href="/dashboard" className={linkClasses("/dashboard")}>
@@ -168,6 +173,7 @@ export default function ClientDashboardLayout({ children }: DashboardLayoutProps
                 Metrics
               </Link>
             </li>
+
             <li>
               <Link
                 href="/dashboard/growth-lab"
@@ -176,6 +182,7 @@ export default function ClientDashboardLayout({ children }: DashboardLayoutProps
                 🧪 Growth Lab
               </Link>
             </li>
+
             <li>
               <Link
                 href="/dashboard/sequences"
@@ -228,8 +235,10 @@ export default function ClientDashboardLayout({ children }: DashboardLayoutProps
         </nav>
       </header>
 
+      {/* Main content */}
       <main className="flex-1 p-6">{children}</main>
 
+      {/* App Footer (legal + contact) */}
       <footer className="border-t border-white/10 py-4 text-[12px] text-slate-400">
         <div className="mx-auto max-w-6xl px-4 flex flex-col md:flex-row items-center justify-between gap-2">
           <div>© {new Date().getFullYear()} Root Health Ops</div>
@@ -254,6 +263,7 @@ export default function ClientDashboardLayout({ children }: DashboardLayoutProps
         </div>
       </footer>
 
+      {/* Support Modal */}
       {supportOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/70" onClick={closeSupport} />
