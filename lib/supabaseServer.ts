@@ -7,35 +7,39 @@ const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export function createSupabaseServerClient() {
-  const cookieStore = cookies() as any;
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error(
+    "Missing Supabase env vars (NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY / NEXT_PUBLIC_SUPABASE_ANON_KEY)"
+  );
+}
+
+/**
+ * ✅ Next 16 note:
+ * `cookies()` is async in Server Components/layouts.
+ * This helper is intended for SERVER CONTEXT usage (layouts, server components, route handlers).
+ *
+ * For layouts/server components we generally DO NOT need to set cookies here,
+ * because your `proxy.ts` refreshes the session cookies on real requests.
+ */
+export async function createSupabaseServerClient() {
+  const cookieStore = await cookies();
 
   return createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
       },
-      setAll(
-        cookiesToSet: {
-          name: string;
-          value: string;
-          options?: any;
-        }[]
-      ) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options as any);
-          });
-        } catch {
-          // Route Handlers can't always set cookies; safe to ignore.
-        }
-      },
+      /**
+       * In Server Components/layouts: setting cookies is not reliable.
+       * Your proxy/session refresh handles it, so we safely no-op here.
+       */
+      setAll() {},
     },
   });
 }
 
 export async function getCurrentUserId(): Promise<string | null> {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.getUser();
 
   if (error) {
