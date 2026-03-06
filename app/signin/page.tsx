@@ -1,44 +1,64 @@
 // app/signin/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { supabaseBrowser } from "../../lib/supabaseBrowser";
 
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const nextUrl = useMemo(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const next = String(sp.get("next") || "").trim();
+      return next || "/dashboard";
+    } catch {
+      return "/dashboard";
+    }
+  }, []);
 
   async function handleLogin() {
     setStatus("");
 
     const e = email.trim();
-    if (!e || !password) {
+    const p = password;
+
+    if (!e || !p) {
       setStatus("Please enter email + password.");
       return;
     }
 
-    const { error } = await supabaseBrowser.auth.signInWithPassword({
-      email: e,
-      password,
-    });
+    setBusy(true);
 
-    if (error) {
-      setStatus(error.message || "Login failed.");
-      return;
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: e, password: p }),
+      });
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        setStatus(json?.error || "Login failed.");
+        setBusy(false);
+        return;
+      }
+
+      setStatus("Signed in. Redirecting…");
+
+      // ✅ IMPORTANT:
+      // Do NOT call /api/onboarding/bootstrap here.
+      // The session cookie may not be visible to another server route immediately.
+      window.location.href = nextUrl;
+    } catch (e: any) {
+      setStatus(e?.message || "Login failed.");
+      setBusy(false);
     }
-
-    // (Optional but recommended) bootstrap org/membership if you have that endpoint
-    // If you haven't created it yet, this will just silently fail and not block login.
-    await fetch("/api/onboarding/bootstrap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-    }).catch(() => null);
-
-    setStatus("Signed in. Redirecting…");
-    window.location.href = "/dashboard";
   }
 
   return (
@@ -74,15 +94,17 @@ export default function SignInPage() {
 
         <button
           onClick={handleLogin}
+          disabled={busy}
           style={{
             padding: 12,
             borderRadius: 12,
             border: "1px solid #111",
             fontWeight: 700,
-            cursor: "pointer",
+            cursor: busy ? "not-allowed" : "pointer",
+            opacity: busy ? 0.7 : 1,
           }}
         >
-          Sign in
+          {busy ? "Signing in…" : "Sign in"}
         </button>
 
         <div style={{ display: "flex", justifyContent: "space-between" }}>
