@@ -5,12 +5,34 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 
+function parseHashParams() {
+  try {
+    const hash = window.location.hash.startsWith("#")
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+
+    const sp = new URLSearchParams(hash);
+
+    return {
+      access_token: String(sp.get("access_token") || "").trim(),
+      refresh_token: String(sp.get("refresh_token") || "").trim(),
+      type: String(sp.get("type") || "").trim(),
+    };
+  } catch {
+    return {
+      access_token: "",
+      refresh_token: "",
+      type: "",
+    };
+  }
+}
+
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState("Checking your reset link…");
   const [error, setError] = useState("");
 
   const canSubmit = useMemo(() => {
@@ -26,50 +48,87 @@ export default function ResetPasswordPage() {
     let mounted = true;
 
     async function boot() {
-      setError("");
-      setStatus("Checking your reset link…");
-
       try {
-        const url = new URL(window.location.href);
-        const code = url.searchParams.get("code");
+        setError("");
+        setStatus("Checking your reset link…");
 
-        // PKCE-style code exchange if present
+        const url = new URL(window.location.href);
+        const code = String(url.searchParams.get("code") || "").trim();
+
+        const hashParams = parseHashParams();
+        const hasHashTokens =
+          !!hashParams.access_token && !!hashParams.refresh_token;
+
+        // Case 1: PKCE code flow
         if (code) {
           const { error } = await supabaseBrowser.auth.exchangeCodeForSession(code);
+
           if (error) {
-            if (mounted) {
+            if (!mounted) return;
+
+            setReady(false);
+
+            if (
+              String(error.message || "")
+                .toLowerCase()
+                .includes("code verifier")
+            ) {
+              setError(
+                "This reset link was opened without its matching browser session. Please go back to Sign in, click Forgot password again, and open the new email on this same browser and device using https://www.roothealthops.com."
+              );
+            } else {
               setError(error.message || "This reset link is invalid or expired.");
-              setStatus("");
-              setReady(false);
             }
+
+            setStatus("");
             return;
           }
+
+          if (!mounted) return;
+          setReady(true);
+          setStatus("Reset link accepted. Enter your new password.");
+          return;
         }
 
-        // Some flows land with tokens in the URL/hash and session becomes available automatically.
+        // Case 2: Hash token flow
+        if (hasHashTokens) {
+          const { error } = await supabaseBrowser.auth.setSession({
+            access_token: hashParams.access_token,
+            refresh_token: hashParams.refresh_token,
+          });
+
+          if (error) {
+            if (!mounted) return;
+            setReady(false);
+            setError(error.message || "Could not restore your recovery session.");
+            setStatus("");
+            return;
+          }
+
+          if (!mounted) return;
+          setReady(true);
+          setStatus("Recovery confirmed. Enter your new password.");
+          return;
+        }
+
+        // Case 3: Session already present
         const {
           data: { session },
         } = await supabaseBrowser.auth.getSession();
 
-        const hash = window.location.hash || "";
-        const looksLikeRecoveryHash =
-          hash.includes("type=recovery") ||
-          hash.includes("access_token=") ||
-          hash.includes("refresh_token=");
-
         if (!mounted) return;
 
-        if (session || looksLikeRecoveryHash) {
+        if (session) {
           setReady(true);
-          setStatus("Reset link accepted. Enter your new password.");
-          setError("");
-        } else {
-          setReady(false);
-          setStatus("");
-          setError(
-            "This reset link is invalid, expired, or missing recovery data. Request a new password reset email."
-          );
+          setStatus("Recovery confirmed. Enter your new password.");
+          return;
         }
+
+        setReady(false);
+        setStatus("");
+        setError(
+          "This reset link is invalid, expired, or missing recovery data. Please request a new password reset email."
+        );
       } catch (e: any) {
         if (!mounted) return;
         setReady(false);
@@ -133,11 +192,10 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      setStatus("Password updated successfully. You can now sign in.");
+      setStatus("Password updated successfully. Redirecting to sign in…");
       setError("");
       setBusy(false);
 
-      // Optional small delay so user sees success message
       setTimeout(() => {
         window.location.href = "/signin";
       }, 1200);
@@ -166,8 +224,8 @@ export default function ResetPasswordPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
-              className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
               placeholder="At least 8 characters"
+              className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
             />
           </div>
 
@@ -180,8 +238,8 @@ export default function ResetPasswordPage() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               autoComplete="new-password"
-              className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
               placeholder="Type it again"
+              className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
             />
           </div>
 
