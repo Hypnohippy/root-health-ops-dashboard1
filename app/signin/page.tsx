@@ -5,6 +5,8 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 
+const RESET_REDIRECT_URL = "https://www.roothealthops.com/reset-password";
+
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -71,10 +73,8 @@ export default function SignInPage() {
     setResetBusy(true);
 
     try {
-      const redirectTo = `${window.location.origin}/reset-password`;
-
       const { error } = await supabaseBrowser.auth.resetPasswordForEmail(e, {
-        redirectTo,
+        redirectTo: RESET_REDIRECT_URL,
       });
 
       if (error) {
@@ -83,7 +83,9 @@ export default function SignInPage() {
         return;
       }
 
-      setStatus("Password reset email sent. Check your inbox.");
+      setStatus(
+        "Password reset email sent. Open it on this same browser and device."
+      );
       setResetBusy(false);
     } catch (e: any) {
       setStatus(e?.message || "Could not send password reset email.");
