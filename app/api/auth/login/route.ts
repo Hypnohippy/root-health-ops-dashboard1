@@ -11,7 +11,15 @@ const supabaseKey =
 type CookieToSet = {
   name: string;
   value: string;
-  options?: any;
+  options?: {
+    path?: string;
+    domain?: string;
+    maxAge?: number;
+    expires?: Date;
+    httpOnly?: boolean;
+    secure?: boolean;
+    sameSite?: "lax" | "strict" | "none";
+  };
 };
 
 export async function POST(req: NextRequest) {
@@ -27,7 +35,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Collect cookies Supabase wants to set, then apply them to the final response.
     const pendingCookies: CookieToSet[] = [];
 
     const supabase = createServerClient(supabaseUrl, supabaseKey, {
@@ -58,9 +65,13 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
 
-    // Apply cookies to the response we are returning
+    // IMPORTANT:
+    // Force auth cookies onto the whole site so /dashboard can read them.
     pendingCookies.forEach(({ name, value, options }) => {
-      response.cookies.set(name, value, options);
+      response.cookies.set(name, value, {
+        ...options,
+        path: "/",
+      });
     });
 
     return response;
