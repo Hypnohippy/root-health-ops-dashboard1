@@ -37,12 +37,15 @@ export default function SignInPage() {
     setBusy(true);
 
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ email: e, password: p }),
-      });
+     const res = await fetch("/api/auth/login", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  credentials: "include",
+  body: JSON.stringify({
+    email: email.trim(),
+    password,
+  }),
+});
 
       const json = await res.json().catch(() => null);
 
