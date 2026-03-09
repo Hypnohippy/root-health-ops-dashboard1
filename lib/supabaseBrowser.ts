@@ -14,10 +14,8 @@ if (!supabaseUrl || !supabaseKey) {
   );
 }
 
-// Backwards-compatible singleton export (what your components already import)
 export const supabaseBrowser = createBrowserClient(supabaseUrl, supabaseKey);
 
-// Also provide a factory (useful in some cases)
 export function createSupabaseBrowserClient() {
   return createBrowserClient(supabaseUrl, supabaseKey);
 }
