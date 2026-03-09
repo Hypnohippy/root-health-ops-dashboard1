@@ -5,6 +5,8 @@ import ClientDashboardLayout from "./ClientDashboardLayout";
 import { createSupabaseServerClient } from "../../lib/supabaseServer";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type DashboardLayoutProps = {
   children: React.ReactNode;
