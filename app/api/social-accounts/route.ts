@@ -1,6 +1,5 @@
 // app/api/social-accounts/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -19,41 +18,83 @@ function normPlatform(p: any) {
   return String(p || "").trim().toLowerCase();
 }
 
-function getOrgIdFromRequest(req: NextRequest): string | null {
-  const url = new URL(req.url);
-  const org =
-    String(url.searchParams.get("organisationId") || "").trim() ||
-    String(url.searchParams.get("organisation_id") || "").trim();
+function getForcedOrgId() {
+  return (
+    String(process.env.SINGLE_ORG_ID || "").trim() ||
+    String(process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim() ||
+    null
+  );
+}
 
-  const forced =
-    (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim() ||
-    (process.env.SINGLE_ORG_ID || "").trim();
+function tryParseSbCookie(raw: string | undefined | null): any | null {
+  if (!raw) return null;
 
-  // If you force single org in beta, use it (but we still require membership)
-  return forced || org || null;
+  const attempts = [raw];
+
+  try {
+    attempts.push(decodeURIComponent(raw));
+  } catch {}
+
+  for (const value of attempts) {
+    try {
+      return JSON.parse(value);
+    } catch {}
+  }
+
+  return null;
+}
+
+function extractAccessTokenFromCookies(req: NextRequest): string | null {
+  const all = req.cookies.getAll();
+  const sbCookie = all.find(
+    (c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token")
+  );
+
+  const parsed = tryParseSbCookie(sbCookie?.value);
+  const token = String(parsed?.access_token || "").trim();
+
+  return token || null;
 }
 
 async function getAuthedUserId(req: NextRequest): Promise<string | null> {
-  // ✅ Use req.cookies (sync) — avoids Next 16 async cookies() typing issue
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return req.cookies.getAll();
-        },
-        setAll() {
-          // Route Handlers: not required for getUser().
-          // Keeping as no-op avoids build/type issues.
-        },
-      },
-    }
-  );
+  const accessToken = extractAccessTokenFromCookies(req);
+  if (!accessToken) return null;
 
-  const { data, error } = await supabase.auth.getUser();
-  if (error) return null;
-  return data?.user?.id || null;
+  const {
+    data: { user },
+    error,
+  } = await supabaseAdmin.auth.getUser(accessToken);
+
+  if (error || !user) return null;
+  return String(user.id);
+}
+
+async function getOrgIdFromRequestOrMembership(
+  req: NextRequest,
+  userId: string
+): Promise<string | null> {
+  const url = new URL(req.url);
+
+  const queryOrg =
+    String(url.searchParams.get("organisationId") || "").trim() ||
+    String(url.searchParams.get("organisation_id") || "").trim();
+
+  if (queryOrg) return queryOrg;
+
+  const forced = getForcedOrgId();
+  if (forced) return forced;
+
+  // Fallback: first org membership for this user
+  const { data, error } = await supabaseAdmin
+    .from("organisation_members")
+    .select("organisation_id, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data?.organisation_id) return null;
+  return String(data.organisation_id);
 }
 
 async function requireMembership(organisationId: string, userId: string) {
@@ -75,6 +116,7 @@ function isWriteRole(role: string | null) {
 }
 
 /**
+ * GET /api/social-accounts
  * GET /api/social-accounts?organisationId=...
  * Returns SAFE connection state WITHOUT exposing tokens
  */
@@ -88,7 +130,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const organisationId = getOrgIdFromRequest(req);
+    const organisationId = await getOrgIdFromRequestOrMembership(req, userId);
     if (!organisationId) {
       return NextResponse.json(
         { success: false, error: "Missing organisationId." },
@@ -151,6 +193,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
+ * POST /api/social-accounts
  * POST /api/social-accounts?organisationId=...
  * Upserts a social account row (token stored server-side)
  * Requires org membership + write role
@@ -165,7 +208,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const organisationId = getOrgIdFromRequest(req);
+    const organisationId = await getOrgIdFromRequestOrMembership(req, userId);
     if (!organisationId) {
       return NextResponse.json(
         { success: false, error: "Missing organisationId." },
@@ -211,7 +254,6 @@ export async function POST(req: NextRequest) {
     const is_active = body?.is_active === false ? false : true;
     const now = new Date().toISOString();
 
-    // Update first
     const { data: updated, error: uErr } = await supabaseAdmin
       .from("social_accounts")
       .update({
@@ -250,7 +292,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Insert
     const { data: inserted, error: iErr } = await supabaseAdmin
       .from("social_accounts")
       .insert({
@@ -303,6 +344,7 @@ export async function POST(req: NextRequest) {
 }
 
 /**
+ * DELETE /api/social-accounts
  * DELETE /api/social-accounts?organisationId=...
  * Soft disconnect (requires write role)
  */
@@ -316,7 +358,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const organisationId = getOrgIdFromRequest(req);
+    const organisationId = await getOrgIdFromRequestOrMembership(req, userId);
     if (!organisationId) {
       return NextResponse.json(
         { success: false, error: "Missing organisationId." },
