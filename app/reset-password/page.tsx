@@ -54,32 +54,18 @@ export default function ResetPasswordPage() {
 
         const url = new URL(window.location.href);
         const code = String(url.searchParams.get("code") || "").trim();
-
         const hashParams = parseHashParams();
         const hasHashTokens =
           !!hashParams.access_token && !!hashParams.refresh_token;
 
-        // Case 1: PKCE code flow
         if (code) {
-          const { error } = await supabaseBrowser.auth.exchangeCodeForSession(code);
+          const { error } =
+            await supabaseBrowser.auth.exchangeCodeForSession(code);
 
           if (error) {
             if (!mounted) return;
-
             setReady(false);
-
-            if (
-              String(error.message || "")
-                .toLowerCase()
-                .includes("code verifier")
-            ) {
-              setError(
-                "This reset link was opened without its matching browser session. Please go back to Sign in, click Forgot password again, and open the new email on this same browser and device using https://www.roothealthops.com."
-              );
-            } else {
-              setError(error.message || "This reset link is invalid or expired.");
-            }
-
+            setError(error.message || "This reset link is invalid or expired.");
             setStatus("");
             return;
           }
@@ -90,7 +76,6 @@ export default function ResetPasswordPage() {
           return;
         }
 
-        // Case 2: Hash token flow
         if (hasHashTokens) {
           const { error } = await supabaseBrowser.auth.setSession({
             access_token: hashParams.access_token,
@@ -111,7 +96,6 @@ export default function ResetPasswordPage() {
           return;
         }
 
-        // Case 3: Session already present
         const {
           data: { session },
         } = await supabaseBrowser.auth.getSession();
@@ -157,7 +141,8 @@ export default function ResetPasswordPage() {
     };
   }, []);
 
-  async function handleReset() {
+  async function handleReset(e: React.FormEvent) {
+    e.preventDefault();
     setError("");
     setStatus("");
 
@@ -214,7 +199,7 @@ export default function ResetPasswordPage() {
           Set a new password for your account.
         </p>
 
-        <div className="mt-6 grid gap-4">
+        <form onSubmit={handleReset} className="mt-6 grid gap-4">
           <div>
             <label className="block text-xs font-medium text-slate-300">
               New password
@@ -244,8 +229,7 @@ export default function ResetPasswordPage() {
           </div>
 
           <button
-            type="button"
-            onClick={handleReset}
+            type="submit"
             disabled={!canSubmit}
             className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
           >
@@ -269,7 +253,7 @@ export default function ResetPasswordPage() {
               Back to sign in
             </Link>
           </div>
-        </div>
+        </form>
       </div>
     </main>
   );
