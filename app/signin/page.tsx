@@ -1,10 +1,11 @@
+// app/signin/page.tsx
 "use client";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 
-const RESET_REDIRECT_URL = "https://www.roothealthops.com/reset-password";
+const RESET_REDIRECT_URL = "https://roothealthops.com/reset-password";
 
 export default function SignInPage() {
   const [email, setEmail] = useState("");
@@ -23,42 +24,36 @@ export default function SignInPage() {
     }
   }, []);
 
-  async function handleLogin() {
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
     setStatus("");
 
-    const e = email.trim();
-    const p = password;
+    const userEmail = email.trim();
+    const userPassword = password;
 
-    if (!e || !p) {
-      setStatus("Please enter email + password.");
+    if (!userEmail || !userPassword) {
+      setStatus("Please enter email and password.");
       return;
     }
 
     setBusy(true);
 
     try {
-     const res = await fetch("/api/auth/login", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  credentials: "include",
-  body: JSON.stringify({
-    email: email.trim(),
-    password,
-  }),
-});
+      const { error } = await supabaseBrowser.auth.signInWithPassword({
+        email: userEmail,
+        password: userPassword,
+      });
 
-      const json = await res.json().catch(() => null);
-
-      if (!res.ok || !json?.success) {
-        setStatus(json?.error || "Login failed.");
+      if (error) {
+        setStatus(error.message || "Login failed.");
         setBusy(false);
         return;
       }
 
       setStatus("Signed in. Redirecting…");
       window.location.href = nextUrl;
-    } catch (e: any) {
-      setStatus(e?.message || "Login failed.");
+    } catch (err: any) {
+      setStatus(err?.message || "Login failed.");
       setBusy(false);
     }
   }
@@ -66,8 +61,8 @@ export default function SignInPage() {
   async function handleForgotPassword() {
     setStatus("");
 
-    const e = email.trim();
-    if (!e) {
+    const userEmail = email.trim();
+    if (!userEmail) {
       setStatus("Enter your email first, then click Forgot password.");
       return;
     }
@@ -75,9 +70,12 @@ export default function SignInPage() {
     setResetBusy(true);
 
     try {
-      const { error } = await supabaseBrowser.auth.resetPasswordForEmail(e, {
-        redirectTo: RESET_REDIRECT_URL,
-      });
+      const { error } = await supabaseBrowser.auth.resetPasswordForEmail(
+        userEmail,
+        {
+          redirectTo: RESET_REDIRECT_URL,
+        }
+      );
 
       if (error) {
         setStatus(error.message || "Could not send password reset email.");
@@ -85,12 +83,10 @@ export default function SignInPage() {
         return;
       }
 
-      setStatus(
-        "Password reset email sent. Open it on this same browser and device."
-      );
+      setStatus("Password reset email sent.");
       setResetBusy(false);
-    } catch (e: any) {
-      setStatus(e?.message || "Could not send password reset email.");
+    } catch (err: any) {
+      setStatus(err?.message || "Could not send password reset email.");
       setResetBusy(false);
     }
   }
@@ -104,7 +100,7 @@ export default function SignInPage() {
           Sign in to your dashboard.
         </p>
 
-        <div className="mt-6 grid gap-4">
+        <form onSubmit={handleLogin} className="mt-6 grid gap-4">
           <div>
             <label className="block text-xs font-medium text-slate-300">
               Email
@@ -133,8 +129,7 @@ export default function SignInPage() {
           </div>
 
           <button
-            type="button"
-            onClick={handleLogin}
+            type="submit"
             disabled={busy}
             className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
           >
@@ -157,14 +152,14 @@ export default function SignInPage() {
           ) : null}
 
           <div className="flex items-center justify-between text-sm pt-1">
-            <Link href="/pricing" className="text-slate-300 hover:text-slate-100">
-              See pricing
+            <Link href="/get-started" className="text-slate-300 hover:text-slate-100">
+              Create account
             </Link>
             <Link href="/" className="text-slate-300 hover:text-slate-100">
               Back to home
             </Link>
           </div>
-        </div>
+        </form>
       </div>
     </main>
   );
