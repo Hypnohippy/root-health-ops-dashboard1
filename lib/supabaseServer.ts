@@ -22,8 +22,8 @@ export async function createSupabaseServerClient() {
         return cookieStore.getAll();
       },
       setAll() {
-        // In server components/layouts we do not try to mutate cookies here.
-        // proxy.ts handles refresh/session cookie updates on real requests.
+        // In server components/layouts we do not mutate cookies here.
+        // proxy.ts handles refresh/update on real requests.
       },
     },
   });
