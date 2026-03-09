@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { supabaseBrowser } from "../../lib/supabaseBrowser";
+import { supabaseBrowser } from "../../../lib/supabaseBrowser";
 
 export default function GetStartedPage() {
   const [email, setEmail] = useState("");
