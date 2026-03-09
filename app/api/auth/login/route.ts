@@ -22,6 +22,27 @@ type CookieToSet = {
   };
 };
 
+function cookieDomainForHost(hostname: string): string | undefined {
+  const host = String(hostname || "").toLowerCase();
+
+  // For local dev, do not set domain
+  if (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host.endsWith(".localhost")
+  ) {
+    return undefined;
+  }
+
+  // Share across roothealthops.com and www.roothealthops.com
+  if (host === "roothealthops.com" || host === "www.roothealthops.com") {
+    return "roothealthops.com";
+  }
+
+  // For preview/vercel hosts, keep host-only
+  return undefined;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
@@ -65,14 +86,18 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
 
-    // IMPORTANT:
-    // Force auth cookies onto the whole site so /dashboard can read them.
-    pendingCookies.forEach(({ name, value, options }) => {
+    const domain = cookieDomainForHost(req.nextUrl.hostname);
+    const secure = req.nextUrl.protocol === "https:";
+
+    for (const { name, value, options } of pendingCookies) {
       response.cookies.set(name, value, {
         ...options,
         path: "/",
+        domain,
+        secure,
+        sameSite: "lax",
       });
-    });
+    }
 
     return response;
   } catch (e: any) {
