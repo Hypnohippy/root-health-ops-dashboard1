@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
         audience: audience || null,
         notes: notes || null,
         status: status || "draft",
+        generated_content: {},
       })
       .select("*")
       .single();
@@ -61,6 +62,54 @@ export async function POST(req: NextRequest) {
     if (error) {
       return NextResponse.json(
         { error: "Could not create sequence", details: error.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true, sequence: data }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: "Internal error", details: e?.message },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { organisationId, sequenceId, generatedContent, status } = body || {};
+
+    if (!organisationId || !sequenceId) {
+      return NextResponse.json(
+        { error: "organisationId and sequenceId are required" },
+        { status: 400 }
+      );
+    }
+
+    const updatePayload: any = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (generatedContent !== undefined) {
+      updatePayload.generated_content = generatedContent;
+    }
+
+    if (typeof status === "string" && status.trim()) {
+      updatePayload.status = status.trim();
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("sequences")
+      .update(updatePayload)
+      .eq("id", sequenceId)
+      .eq("organisation_id", organisationId)
+      .select("*")
+      .single();
+
+    if (error) {
+      return NextResponse.json(
+        { error: "Could not update sequence", details: error.message },
         { status: 500 }
       );
     }
