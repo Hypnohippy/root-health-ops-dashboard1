@@ -16,7 +16,6 @@ function baseUrl(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-
     if (!GOOGLE_CLIENT_ID || !GOOGLE_REDIRECT_URI) {
       return NextResponse.json(
         { error: "Missing GOOGLE_CLIENT_ID or GOOGLE_REDIRECT_URI" },
@@ -30,7 +29,7 @@ export async function GET(req: NextRequest) {
     const statePayload = {
       organisationId,
       provider: "google",
-      createdAt: Date.now()
+      createdAt: Date.now(),
     };
 
     const state = Buffer.from(
@@ -43,24 +42,28 @@ export async function GET(req: NextRequest) {
       response_type: "code",
       access_type: "offline",
       prompt: "consent",
+      include_granted_scopes: "true",
       scope: [
         "openid",
         "https://www.googleapis.com/auth/userinfo.profile",
-        "https://www.googleapis.com/auth/userinfo.email"
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/business.manage",
       ].join(" "),
-      state
+      state,
     });
 
     const authUrl =
       `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 
     return NextResponse.redirect(authUrl);
-
   } catch (error: any) {
-
     const back = new URL(`${baseUrl(req)}/dashboard/connect`);
     back.searchParams.set("provider", "google");
     back.searchParams.set("error", "google_start_failed");
+    back.searchParams.set(
+      "error_description",
+      error?.message || "Google start failed."
+    );
 
     return NextResponse.redirect(back.toString(), { status: 302 });
   }
