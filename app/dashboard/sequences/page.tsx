@@ -12,6 +12,15 @@ type Sequence = {
   notes: string | null;
   status: string;
   created_at: string;
+  updated_at?: string | null;
+  generated_content?: {
+    starterIdeas?: AiVariant[];
+    lastGeneratedAt?: string;
+    brainstormSends?: Array<{
+      sentAt: string;
+      variantTitle?: string | null;
+    }>;
+  } | null;
 };
 
 type AiVariant = {
@@ -20,8 +29,6 @@ type AiVariant = {
   cta: string;
   hashtags: string[];
 };
-
-type GeneratedIdeasBySequence = Record<string, AiVariant[]>;
 
 type GeneratingBySequence = Record<string, boolean>;
 type ErrorBySequence = Record<string, string | null>;
@@ -62,7 +69,6 @@ export default function SequencesPage() {
   const [audience, setAudience] = useState("");
   const [notes, setNotes] = useState("");
 
-  const [generatedIdeas, setGeneratedIdeas] = useState<GeneratedIdeasBySequence>({});
   const [generatingMap, setGeneratingMap] = useState<GeneratingBySequence>({});
   const [generateErrors, setGenerateErrors] = useState<ErrorBySequence>({});
   const [toast, setToast] = useState<string | null>(null);
@@ -164,6 +170,33 @@ export default function SequencesPage() {
     }
   }
 
+  async function saveGeneratedContent(
+    sequenceId: string,
+    generatedContent: Sequence["generated_content"],
+    nextStatus?: string
+  ) {
+    if (!organisationId) throw new Error("Organisation not loaded.");
+
+    const res = await fetch("/api/sequences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        organisationId,
+        sequenceId,
+        generatedContent,
+        status: nextStatus,
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(data?.error || "Failed to update campaign");
+    }
+
+    return data?.sequence as Sequence;
+  }
+
   async function generateIdeasForSequence(s: Sequence) {
     const subject = [
       s.name || "",
@@ -206,12 +239,16 @@ export default function SequencesPage() {
 
       const variants = Array.isArray(data?.variants) ? data.variants : [];
 
-      setGeneratedIdeas((prev) => ({
-        ...prev,
-        [s.id]: variants,
-      }));
+      const nextGeneratedContent = {
+        ...(s.generated_content || {}),
+        starterIdeas: variants,
+        lastGeneratedAt: new Date().toISOString(),
+      };
 
-      setToast("Starter ideas generated ✅");
+      await saveGeneratedContent(s.id, nextGeneratedContent, "draft");
+      await loadSequences();
+
+      setToast("Starter ideas saved ✅");
       setTimeout(() => setToast(null), 1800);
     } catch (e: any) {
       setGenerateErrors((prev) => ({
@@ -223,7 +260,7 @@ export default function SequencesPage() {
     }
   }
 
-  function sendCampaignToBrainstorm(s: Sequence, variant?: AiVariant) {
+  async function sendCampaignToBrainstorm(s: Sequence, variant?: AiVariant) {
     const briefParts = [
       `Campaign: ${s.name}`,
       s.goal ? `Goal: ${s.goal}` : "",
@@ -232,6 +269,30 @@ export default function SequencesPage() {
       variant ? `Starter draft idea: ${joinVariant(variant)}` : "",
       "Please help me develop this into stronger social post ideas and polished drafts I can send to Quick Blast, Stories, or Scheduled.",
     ].filter(Boolean);
+
+    try {
+      const existing = s.generated_content || {};
+      const brainstormSends = Array.isArray(existing.brainstormSends)
+        ? existing.brainstormSends
+        : [];
+
+      const nextGeneratedContent = {
+        ...existing,
+        brainstormSends: [
+          {
+            sentAt: new Date().toISOString(),
+            variantTitle: variant?.title || null,
+          },
+          ...brainstormSends,
+        ].slice(0, 20),
+      };
+
+      await saveGeneratedContent(s.id, nextGeneratedContent, "in_progress");
+      await loadSequences();
+    } catch (e) {
+      // do not block Brainstorm handoff if save fails
+      console.error("[sequences] failed to save brainstorm handoff", e);
+    }
 
     const payload = {
       v: 1,
@@ -364,9 +425,14 @@ export default function SequencesPage() {
 
           <div className="grid md:grid-cols-2 gap-3">
             {sequences.map((s) => {
-              const variants = generatedIdeas[s.id] || [];
+              const variants = Array.isArray(s.generated_content?.starterIdeas)
+                ? s.generated_content?.starterIdeas
+                : [];
               const generating = !!generatingMap[s.id];
               const generateError = generateErrors[s.id];
+              const handoffCount = Array.isArray(s.generated_content?.brainstormSends)
+                ? s.generated_content?.brainstormSends?.length || 0
+                : 0;
 
               return (
                 <div
@@ -414,10 +480,24 @@ export default function SequencesPage() {
                     <div className="text-[11px] text-red-400">{generateError}</div>
                   ) : null}
 
+                  {(s.generated_content?.lastGeneratedAt || handoffCount > 0) && (
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 text-[11px] text-slate-300 space-y-1">
+                      {s.generated_content?.lastGeneratedAt && (
+                        <div>
+                          Last generated:{" "}
+                          {new Date(s.generated_content.lastGeneratedAt).toLocaleString()}
+                        </div>
+                      )}
+                      {handoffCount > 0 && (
+                        <div>Sent to Brainstorm: {handoffCount} time(s)</div>
+                      )}
+                    </div>
+                  )}
+
                   {variants.length > 0 ? (
                     <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
                       <div className="text-xs font-semibold text-slate-200">
-                        Starter ideas
+                        Stored starter ideas
                       </div>
 
                       {variants.map((v, idx) => (
