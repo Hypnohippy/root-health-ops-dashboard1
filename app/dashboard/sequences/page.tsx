@@ -3,6 +3,19 @@
 
 import React, { useEffect, useState } from "react";
 
+type AiVariant = {
+  title: string;
+  text: string;
+  cta: string;
+  hashtags: string[];
+};
+
+type IdeaState = "active" | "used" | "archived";
+
+type StoredStarterIdea = AiVariant & {
+  state?: IdeaState;
+};
+
 type Sequence = {
   id: string;
   organisation_id: string;
@@ -14,7 +27,7 @@ type Sequence = {
   created_at: string;
   updated_at?: string | null;
   generated_content?: {
-    starterIdeas?: AiVariant[];
+    starterIdeas?: StoredStarterIdea[];
     lastGeneratedAt?: string;
     brainstormSends?: Array<{
       sentAt: string;
@@ -23,15 +36,9 @@ type Sequence = {
   } | null;
 };
 
-type AiVariant = {
-  title: string;
-  text: string;
-  cta: string;
-  hashtags: string[];
-};
-
 type GeneratingBySequence = Record<string, boolean>;
 type ErrorBySequence = Record<string, string | null>;
+type ArchivedOpenBySequence = Record<string, boolean>;
 
 const GROWTH_SEED_KEYS = [
   "rootops_growth_seed_brainstorm_v1",
@@ -58,6 +65,22 @@ function joinVariant(v: AiVariant) {
   return `${(v.text || "").trim()}${cta}${hash}`.trim();
 }
 
+function normaliseIdeas(input: any): StoredStarterIdea[] {
+  if (!Array.isArray(input)) return [];
+  return input.map((x: any) => ({
+    title: String(x?.title || "").trim(),
+    text: String(x?.text || "").trim(),
+    cta: String(x?.cta || "").trim(),
+    hashtags: Array.isArray(x?.hashtags)
+      ? x.hashtags.map((h: any) => String(h || "").trim()).filter(Boolean)
+      : [],
+    state:
+      x?.state === "used" || x?.state === "archived" || x?.state === "active"
+        ? x.state
+        : "active",
+  }));
+}
+
 export default function SequencesPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [sequences, setSequences] = useState<Sequence[]>([]);
@@ -71,6 +94,7 @@ export default function SequencesPage() {
 
   const [generatingMap, setGeneratingMap] = useState<GeneratingBySequence>({});
   const [generateErrors, setGenerateErrors] = useState<ErrorBySequence>({});
+  const [archivedOpen, setArchivedOpen] = useState<ArchivedOpenBySequence>({});
   const [toast, setToast] = useState<string | null>(null);
 
   async function loadOrganisation() {
@@ -238,10 +262,14 @@ export default function SequencesPage() {
       }
 
       const variants = Array.isArray(data?.variants) ? data.variants : [];
+      const storedIdeas: StoredStarterIdea[] = variants.map((v: AiVariant) => ({
+        ...v,
+        state: "active",
+      }));
 
       const nextGeneratedContent = {
         ...(s.generated_content || {}),
-        starterIdeas: variants,
+        starterIdeas: storedIdeas,
         lastGeneratedAt: new Date().toISOString(),
       };
 
@@ -260,7 +288,79 @@ export default function SequencesPage() {
     }
   }
 
-  async function sendCampaignToBrainstorm(s: Sequence, variant?: AiVariant) {
+  async function updateIdeaState(
+    s: Sequence,
+    ideaIndex: number,
+    nextState: IdeaState
+  ) {
+    try {
+      const existing = s.generated_content || {};
+      const ideas = normaliseIdeas(existing.starterIdeas);
+
+      if (!ideas[ideaIndex]) return;
+
+      ideas[ideaIndex] = {
+        ...ideas[ideaIndex],
+        state: nextState,
+      };
+
+      const nextGeneratedContent = {
+        ...existing,
+        starterIdeas: ideas,
+      };
+
+      await saveGeneratedContent(s.id, nextGeneratedContent, s.status || "draft");
+      await loadSequences();
+
+      const label =
+        nextState === "used"
+          ? "Idea marked as used ✅"
+          : nextState === "archived"
+          ? "Idea archived ✅"
+          : "Idea updated ✅";
+
+      setToast(label);
+      setTimeout(() => setToast(null), 1400);
+    } catch (e: any) {
+      setGenerateErrors((prev) => ({
+        ...prev,
+        [s.id]: e?.message || "Failed to update idea",
+      }));
+    }
+  }
+
+  async function deleteIdea(s: Sequence, ideaIndex: number) {
+    try {
+      const existing = s.generated_content || {};
+      const ideas = normaliseIdeas(existing.starterIdeas);
+
+      if (!ideas[ideaIndex]) return;
+
+      const nextIdeas = ideas.filter((_, idx) => idx !== ideaIndex);
+
+      const nextGeneratedContent = {
+        ...existing,
+        starterIdeas: nextIdeas,
+      };
+
+      await saveGeneratedContent(s.id, nextGeneratedContent, s.status || "draft");
+      await loadSequences();
+
+      setToast("Idea deleted ✅");
+      setTimeout(() => setToast(null), 1400);
+    } catch (e: any) {
+      setGenerateErrors((prev) => ({
+        ...prev,
+        [s.id]: e?.message || "Failed to delete idea",
+      }));
+    }
+  }
+
+  async function sendCampaignToBrainstorm(
+    s: Sequence,
+    variant?: StoredStarterIdea,
+    ideaIndex?: number
+  ) {
     const briefParts = [
       `Campaign: ${s.name}`,
       s.goal ? `Goal: ${s.goal}` : "",
@@ -276,8 +376,18 @@ export default function SequencesPage() {
         ? existing.brainstormSends
         : [];
 
+      const ideas = normaliseIdeas(existing.starterIdeas);
+
+      if (typeof ideaIndex === "number" && ideas[ideaIndex]) {
+        ideas[ideaIndex] = {
+          ...ideas[ideaIndex],
+          state: "used",
+        };
+      }
+
       const nextGeneratedContent = {
         ...existing,
+        starterIdeas: ideas,
         brainstormSends: [
           {
             sentAt: new Date().toISOString(),
@@ -288,9 +398,7 @@ export default function SequencesPage() {
       };
 
       await saveGeneratedContent(s.id, nextGeneratedContent, "in_progress");
-      await loadSequences();
     } catch (e) {
-      // do not block Brainstorm handoff if save fails
       console.error("[sequences] failed to save brainstorm handoff", e);
     }
 
@@ -425,9 +533,14 @@ export default function SequencesPage() {
 
           <div className="grid md:grid-cols-2 gap-3">
             {sequences.map((s) => {
-              const variants = Array.isArray(s.generated_content?.starterIdeas)
-                ? s.generated_content?.starterIdeas
-                : [];
+              const allIdeas = normaliseIdeas(s.generated_content?.starterIdeas);
+              const activeAndUsedIdeas = allIdeas.filter(
+                (v) => (v.state || "active") !== "archived"
+              );
+              const archivedIdeas = allIdeas.filter(
+                (v) => (v.state || "active") === "archived"
+              );
+
               const generating = !!generatingMap[s.id];
               const generateError = generateErrors[s.id];
               const handoffCount = Array.isArray(s.generated_content?.brainstormSends)
@@ -494,36 +607,147 @@ export default function SequencesPage() {
                     </div>
                   )}
 
-                  {variants.length > 0 ? (
+                  {activeAndUsedIdeas.length > 0 ? (
                     <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
                       <div className="text-xs font-semibold text-slate-200">
-                        Stored starter ideas
+                        Starter ideas
                       </div>
 
-                      {variants.map((v, idx) => (
-                        <div
-                          key={`${s.id}-${idx}`}
-                          className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-2"
-                        >
-                          <div className="text-sm font-semibold text-slate-100">
-                            {v.title || `Idea ${idx + 1}`}
-                          </div>
+                      {allIdeas.map((v, idx) => {
+                        const state = v.state || "active";
+                        if (state === "archived") return null;
 
-                          <div className="text-[12px] text-slate-300 whitespace-pre-wrap">
-                            {joinVariant(v)}
-                          </div>
+                        return (
+                          <div
+                            key={`${s.id}-${idx}`}
+                            className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-2"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-sm font-semibold text-slate-100">
+                                {v.title || `Idea ${idx + 1}`}
+                              </div>
 
-                          <div className="flex flex-wrap gap-2 pt-1">
-                            <button
-                              type="button"
-                              onClick={() => sendCampaignToBrainstorm(s, v)}
-                              className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                            >
-                              Develop this in Brainstorm
-                            </button>
+                              <span
+                                className={[
+                                  "text-[10px] uppercase tracking-wide px-2 py-1 rounded-full border",
+                                  state === "used"
+                                    ? "border-emerald-500/40 text-emerald-200 bg-emerald-500/10"
+                                    : "border-slate-700 text-slate-300 bg-slate-900/60",
+                                ].join(" ")}
+                              >
+                                {state}
+                              </span>
+                            </div>
+
+                            <div className="text-[12px] text-slate-300 whitespace-pre-wrap">
+                              {joinVariant(v)}
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => sendCampaignToBrainstorm(s, v, idx)}
+                                className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                              >
+                                Develop this in Brainstorm
+                              </button>
+
+                              {state !== "used" && (
+                                <button
+                                  type="button"
+                                  onClick={() => updateIdeaState(s, idx, "used")}
+                                  className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                                >
+                                  Mark as used
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => updateIdeaState(s, idx, "archived")}
+                                className="rounded-full border border-slate-600 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                              >
+                                Archive
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => deleteIdea(s, idx)}
+                                className="rounded-full border border-red-500/40 bg-red-950/20 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/35"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
+                        );
+                      })}
+
+                      {archivedIdeas.length > 0 && (
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setArchivedOpen((prev) => ({
+                                ...prev,
+                                [s.id]: !prev[s.id],
+                              }))
+                            }
+                            className="text-xs text-slate-300 hover:text-slate-100"
+                          >
+                            {archivedOpen[s.id]
+                              ? `Hide archived ideas (${archivedIdeas.length})`
+                              : `Show archived ideas (${archivedIdeas.length})`}
+                          </button>
+
+                          {archivedOpen[s.id] && (
+                            <div className="mt-3 space-y-3">
+                              {allIdeas.map((v, idx) => {
+                                const state = v.state || "active";
+                                if (state !== "archived") return null;
+
+                                return (
+                                  <div
+                                    key={`${s.id}-archived-${idx}`}
+                                    className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="text-sm font-semibold text-slate-200">
+                                        {v.title || `Idea ${idx + 1}`}
+                                      </div>
+
+                                      <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded-full border border-slate-700 text-slate-300 bg-slate-900/60">
+                                        archived
+                                      </span>
+                                    </div>
+
+                                    <div className="text-[12px] text-slate-400 whitespace-pre-wrap">
+                                      {joinVariant(v)}
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-2 pt-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => updateIdeaState(s, idx, "active")}
+                                        className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                                      >
+                                        Restore
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => deleteIdea(s, idx)}
+                                        className="rounded-full border border-red-500/40 bg-red-950/20 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/35"
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                      ))}
+                      )}
                     </div>
                   ) : null}
 
