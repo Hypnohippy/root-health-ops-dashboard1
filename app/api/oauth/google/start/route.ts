@@ -42,12 +42,10 @@ export async function GET(req: NextRequest) {
       response_type: "code",
       access_type: "offline",
       prompt: "consent",
-      include_granted_scopes: "true",
       scope: [
         "openid",
         "https://www.googleapis.com/auth/userinfo.profile",
         "https://www.googleapis.com/auth/userinfo.email",
-        "https://www.googleapis.com/auth/business.manage",
       ].join(" "),
       state,
     });
@@ -60,10 +58,6 @@ export async function GET(req: NextRequest) {
     const back = new URL(`${baseUrl(req)}/dashboard/connect`);
     back.searchParams.set("provider", "google");
     back.searchParams.set("error", "google_start_failed");
-    back.searchParams.set(
-      "error_description",
-      error?.message || "Google start failed."
-    );
 
     return NextResponse.redirect(back.toString(), { status: 302 });
   }
