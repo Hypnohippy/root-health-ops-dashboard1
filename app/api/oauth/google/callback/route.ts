@@ -11,19 +11,6 @@ const GOOGLE_CLIENT_SECRET = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
 const GOOGLE_REDIRECT_URI = (process.env.GOOGLE_REDIRECT_URI || "").trim();
 const SINGLE_ORG_ID = (process.env.SINGLE_ORG_ID || "").trim();
 
-type GoogleAccount = {
-  name?: string;
-  accountName?: string;
-  type?: string;
-};
-
-type GoogleLocation = {
-  name?: string;
-  title?: string;
-  storeCode?: string;
-  websiteUri?: string;
-};
-
 function baseUrl(req: NextRequest) {
   try {
     return APP_URL ? APP_URL.replace(/\/$/, "") : req.nextUrl.origin;
@@ -59,85 +46,18 @@ async function getOrganisationIdFallback(): Promise<string | null> {
   return String(data.id);
 }
 
-async function googleGetJson<T = any>(url: string, accessToken: string): Promise<T> {
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json",
-    },
-    cache: "no-store",
-  });
-
-  const json: any = await res.json().catch(() => null);
-
-  if (!res.ok) {
-    const msg =
-      json?.error?.message ||
-      json?.message ||
-      `Google request failed (${res.status})`;
-    throw new Error(msg);
-  }
-
-  return json as T;
-}
-
-async function listGoogleBusinessAccounts(accessToken: string): Promise<GoogleAccount[]> {
-  const json = await googleGetJson<{ accounts?: GoogleAccount[] }>(
-    "https://mybusinessaccountmanagement.googleapis.com/v1/accounts?pageSize=20",
-    accessToken
-  );
-
-  return Array.isArray(json?.accounts) ? json.accounts : [];
-}
-
-async function listGoogleBusinessLocations(
-  accessToken: string,
-  accountName: string
-): Promise<GoogleLocation[]> {
-  const params = new URLSearchParams({
-    pageSize: "20",
-    readMask: "name,title,storeCode,websiteUri",
-  });
-
-  const json = await googleGetJson<{ locations?: GoogleLocation[] }>(
-    `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?${params.toString()}`,
-    accessToken
-  );
-
-  return Array.isArray(json?.locations) ? json.locations : [];
-}
-
-function pickBestAccount(accounts: GoogleAccount[]): GoogleAccount | null {
-  if (!Array.isArray(accounts) || accounts.length === 0) return null;
-
-  const personal =
-    accounts.find((a) => norm(a?.type).toUpperCase() === "PERSONAL") || null;
-
-  return personal || accounts[0] || null;
-}
-
-function pickBestLocation(locations: GoogleLocation[]): GoogleLocation | null {
-  if (!Array.isArray(locations) || locations.length === 0) return null;
-
-  const withTitle = locations.find((l) => norm(l?.title));
-  return withTitle || locations[0] || null;
-}
-
 async function upsertGoogleSocialAccount(args: {
   organisationId: string;
-  locationResourceName: string;
-  locationTitle?: string | null;
+  googleUserId: string;
+  name?: string | null;
   accessToken: string;
   tokenExpiresAt?: string | null;
 }) {
   const row: any = {
     organisation_id: args.organisationId,
     platform: "google",
-    page_id: String(args.locationResourceName),
-    page_name: args.locationTitle
-      ? String(args.locationTitle)
-      : "Google Business Profile",
+    page_id: String(args.googleUserId),
+    page_name: args.name ? String(args.name) : "Google Business Profile",
     connection_type: "google_oauth",
     make_webhook_url: null,
     is_active: true,
@@ -229,9 +149,19 @@ export async function GET(req: NextRequest) {
     });
 
     const me = await oauth2.userinfo.get();
-    const fallbackName = norm(
-      me.data.name || me.data.email || "Google Business Profile"
-    );
+    const googleUserId = norm(me.data.id || "");
+    const name = norm(me.data.name || me.data.email || "Google Business Profile");
+
+    if (!googleUserId) {
+      back.searchParams.set("error", "google_userinfo_failed");
+      back.searchParams.set("error_description", "Could not read Google user profile.");
+      return NextResponse.redirect(back.toString(), { status: 302 });
+    }
+
+    const expiresAt =
+      typeof tokens.expiry_date === "number"
+        ? new Date(tokens.expiry_date).toISOString()
+        : null;
 
     const organisationId =
       (st?.organisationId ? String(st.organisationId) : "") ||
@@ -246,49 +176,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
-    const accounts = await listGoogleBusinessAccounts(accessToken);
-    const pickedAccount = pickBestAccount(accounts);
-
-    if (!pickedAccount?.name) {
-      back.searchParams.set("error", "google_no_business_accounts");
-      back.searchParams.set(
-        "error_description",
-        "Google connected, but no Business Profile account was found."
-      );
-      return NextResponse.redirect(back.toString(), { status: 302 });
-    }
-
-    const locations = await listGoogleBusinessLocations(
-      accessToken,
-      pickedAccount.name
-    );
-
-    const pickedLocation = pickBestLocation(locations);
-
-    if (!pickedLocation?.name) {
-      back.searchParams.set("error", "google_no_business_locations");
-      back.searchParams.set(
-        "error_description",
-        "Google connected, but no Business Profile location was found."
-      );
-      return NextResponse.redirect(back.toString(), { status: 302 });
-    }
-
-    const locationTitle =
-      norm(pickedLocation.title) ||
-      norm(pickedLocation.storeCode) ||
-      fallbackName ||
-      "Google Business Profile";
-
-    const expiresAt =
-      typeof tokens.expiry_date === "number"
-        ? new Date(tokens.expiry_date).toISOString()
-        : null;
-
     await upsertGoogleSocialAccount({
       organisationId,
-      locationResourceName: pickedLocation.name,
-      locationTitle,
+      googleUserId,
+      name,
       accessToken,
       tokenExpiresAt: expiresAt,
     });
