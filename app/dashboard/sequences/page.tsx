@@ -14,6 +14,43 @@ type Sequence = {
   created_at: string;
 };
 
+type AiVariant = {
+  title: string;
+  text: string;
+  cta: string;
+  hashtags: string[];
+};
+
+type GeneratedIdeasBySequence = Record<string, AiVariant[]>;
+
+type GeneratingBySequence = Record<string, boolean>;
+type ErrorBySequence = Record<string, string | null>;
+
+const GROWTH_SEED_KEYS = [
+  "rootops_growth_seed_brainstorm_v1",
+  "rh_growth_seed_brainstorm_v1",
+];
+
+function setLocalStorageMulti(keys: string[], payload: any) {
+  try {
+    const raw = JSON.stringify(payload);
+    for (const k of keys) {
+      try {
+        localStorage.setItem(k, raw);
+      } catch {}
+    }
+  } catch {}
+}
+
+function joinVariant(v: AiVariant) {
+  const hash =
+    Array.isArray(v.hashtags) && v.hashtags.length > 0
+      ? `\n\n${v.hashtags.join(" ")}`
+      : "";
+  const cta = v.cta ? `\n\n${v.cta}` : "";
+  return `${(v.text || "").trim()}${cta}${hash}`.trim();
+}
+
 export default function SequencesPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [sequences, setSequences] = useState<Sequence[]>([]);
@@ -25,7 +62,11 @@ export default function SequencesPage() {
   const [audience, setAudience] = useState("");
   const [notes, setNotes] = useState("");
 
-  // load organisation safely
+  const [generatedIdeas, setGeneratedIdeas] = useState<GeneratedIdeasBySequence>({});
+  const [generatingMap, setGeneratingMap] = useState<GeneratingBySequence>({});
+  const [generateErrors, setGenerateErrors] = useState<ErrorBySequence>({});
+  const [toast, setToast] = useState<string | null>(null);
+
   async function loadOrganisation() {
     try {
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
@@ -36,7 +77,7 @@ export default function SequencesPage() {
       }
 
       setOrganisationId(data.organisationId);
-      return data.organisationId;
+      return data.organisationId as string;
     } catch (e: any) {
       setErr(e?.message || "Failed to load organisation");
       return null;
@@ -113,7 +154,9 @@ export default function SequencesPage() {
       setAudience("");
       setNotes("");
 
-      loadSequences();
+      await loadSequences();
+      setToast("Campaign created ✅");
+      setTimeout(() => setToast(null), 1800);
     } catch (e: any) {
       setErr(e?.message || "Failed to create campaign");
     } finally {
@@ -121,18 +164,107 @@ export default function SequencesPage() {
     }
   }
 
+  async function generateIdeasForSequence(s: Sequence) {
+    const subject = [
+      s.name || "",
+      s.goal ? `Goal: ${s.goal}` : "",
+      s.audience ? `Audience: ${s.audience}` : "",
+      s.notes ? `Notes: ${s.notes}` : "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    if (!subject.trim()) {
+      setGenerateErrors((prev) => ({
+        ...prev,
+        [s.id]: "This campaign needs at least a name before ideas can be generated.",
+      }));
+      return;
+    }
+
+    setGeneratingMap((prev) => ({ ...prev, [s.id]: true }));
+    setGenerateErrors((prev) => ({ ...prev, [s.id]: null }));
+
+    try {
+      const res = await fetch("/api/ai/quick-blast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject,
+          tone: "calm",
+          length: "medium",
+          audience: s.audience || "clients",
+          platforms: ["facebook", "linkedin", "instagram"],
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to generate starter ideas");
+      }
+
+      const variants = Array.isArray(data?.variants) ? data.variants : [];
+
+      setGeneratedIdeas((prev) => ({
+        ...prev,
+        [s.id]: variants,
+      }));
+
+      setToast("Starter ideas generated ✅");
+      setTimeout(() => setToast(null), 1800);
+    } catch (e: any) {
+      setGenerateErrors((prev) => ({
+        ...prev,
+        [s.id]: e?.message || "Failed to generate starter ideas",
+      }));
+    } finally {
+      setGeneratingMap((prev) => ({ ...prev, [s.id]: false }));
+    }
+  }
+
+  function sendCampaignToBrainstorm(s: Sequence, variant?: AiVariant) {
+    const briefParts = [
+      `Campaign: ${s.name}`,
+      s.goal ? `Goal: ${s.goal}` : "",
+      s.audience ? `Audience: ${s.audience}` : "",
+      s.notes ? `Notes: ${s.notes}` : "",
+      variant ? `Starter draft idea: ${joinVariant(variant)}` : "",
+      "Please help me develop this into stronger social post ideas and polished drafts I can send to Quick Blast, Stories, or Scheduled.",
+    ].filter(Boolean);
+
+    const payload = {
+      v: 1,
+      createdAt: new Date().toISOString(),
+      source: "growth_lab",
+      organisationId: organisationId || s.organisation_id || null,
+      experimentId: null,
+      platform: "linkedin",
+      title: s.name,
+      hypothesis: s.goal || "",
+      pattern_type: "campaign",
+      format: "text",
+      hook_style: "gentle authority",
+      cta_style: "soft question",
+      notes: s.notes || "",
+      confidence: 80,
+      brief: briefParts.join("\n"),
+    };
+
+    setLocalStorageMulti(GROWTH_SEED_KEYS, payload);
+    window.location.href = "/dashboard/brainstorm";
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-6">
-
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold">
               Campaign Studio
             </h1>
-
             <p className="mt-1 text-sm text-slate-300">
-              Plan a narrative → develop posts → send through Brainstorm and Quick Blast.
+              Create a campaign shell, generate starter ideas, then develop them in Brainstorm.
             </p>
           </div>
 
@@ -141,12 +273,16 @@ export default function SequencesPage() {
           </span>
         </header>
 
-        {/* Create campaign */}
+        {toast ? (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            {toast}
+          </div>
+        ) : null}
+
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-4">
           <h2 className="text-base font-semibold">Create a campaign</h2>
 
           <div className="grid md:grid-cols-2 gap-4">
-
             <div className="space-y-1">
               <label className="block text-[11px] font-medium text-slate-300">
                 Campaign name
@@ -194,7 +330,6 @@ export default function SequencesPage() {
                 placeholder="Internal planning notes"
               />
             </div>
-
           </div>
 
           <button
@@ -205,17 +340,12 @@ export default function SequencesPage() {
             {loading ? "Working…" : "Create campaign"}
           </button>
 
-          {err && (
-            <div className="text-[11px] text-red-400">{err}</div>
-          )}
+          {err && <div className="text-[11px] text-red-400">{err}</div>}
         </section>
 
-        {/* Campaign list */}
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-3">
-
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold">Your campaigns</h2>
-
             <button
               onClick={() => loadSequences()}
               className="text-xs text-slate-300 hover:text-slate-100"
@@ -224,9 +354,7 @@ export default function SequencesPage() {
             </button>
           </div>
 
-          {loading && (
-            <div className="text-sm text-slate-400">Loading…</div>
-          )}
+          {loading && <div className="text-sm text-slate-400">Loading…</div>}
 
           {!loading && sequences.length === 0 && (
             <div className="text-sm text-slate-400">
@@ -235,48 +363,98 @@ export default function SequencesPage() {
           )}
 
           <div className="grid md:grid-cols-2 gap-3">
+            {sequences.map((s) => {
+              const variants = generatedIdeas[s.id] || [];
+              const generating = !!generatingMap[s.id];
+              const generateError = generateErrors[s.id];
 
-            {sequences.map((s) => (
-              <div
-                key={s.id}
-                className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4"
-              >
-                <div className="flex items-center justify-between gap-2">
-
-                  <div className="font-semibold">
-                    {s.name}
+              return (
+                <div
+                  key={s.id}
+                  className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 space-y-4"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold">{s.name}</div>
+                    <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                      {s.status}
+                    </span>
                   </div>
 
-                  <span className="text-[10px] uppercase tracking-wide text-slate-400">
-                    {s.status}
-                  </span>
+                  {(s.goal || s.audience) && (
+                    <div className="text-[11px] text-slate-300 space-y-1">
+                      {s.goal && <div>Goal: {s.goal}</div>}
+                      {s.audience && <div>Audience: {s.audience}</div>}
+                    </div>
+                  )}
 
+                  {s.notes && (
+                    <div className="text-[11px] text-slate-400">{s.notes}</div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => generateIdeasForSequence(s)}
+                      disabled={generating}
+                      className="rounded-full bg-blue-500 px-3 py-2 text-xs font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60"
+                    >
+                      {generating ? "Generating…" : "Generate starter ideas"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => sendCampaignToBrainstorm(s)}
+                      className="rounded-full border border-slate-600 bg-slate-900 px-3 py-2 text-xs text-slate-100 hover:bg-white/10"
+                    >
+                      Develop in Brainstorm
+                    </button>
+                  </div>
+
+                  {generateError ? (
+                    <div className="text-[11px] text-red-400">{generateError}</div>
+                  ) : null}
+
+                  {variants.length > 0 ? (
+                    <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
+                      <div className="text-xs font-semibold text-slate-200">
+                        Starter ideas
+                      </div>
+
+                      {variants.map((v, idx) => (
+                        <div
+                          key={`${s.id}-${idx}`}
+                          className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-2"
+                        >
+                          <div className="text-sm font-semibold text-slate-100">
+                            {v.title || `Idea ${idx + 1}`}
+                          </div>
+
+                          <div className="text-[12px] text-slate-300 whitespace-pre-wrap">
+                            {joinVariant(v)}
+                          </div>
+
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => sendCampaignToBrainstorm(s, v)}
+                              className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                            >
+                              Develop this in Brainstorm
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="text-[10px] text-slate-500">
+                    Created: {new Date(s.created_at).toLocaleString()}
+                  </div>
                 </div>
-
-                {(s.goal || s.audience) && (
-                  <div className="mt-1 text-[11px] text-slate-300 space-y-1">
-                    {s.goal && <div>Goal: {s.goal}</div>}
-                    {s.audience && <div>Audience: {s.audience}</div>}
-                  </div>
-                )}
-
-                {s.notes && (
-                  <div className="mt-2 text-[11px] text-slate-400">
-                    {s.notes}
-                  </div>
-                )}
-
-                <div className="mt-3 text-[10px] text-slate-500">
-                  Created: {new Date(s.created_at).toLocaleString()}
-                </div>
-
-              </div>
-            ))}
-
+              );
+            })}
           </div>
-
         </section>
-
       </div>
     </div>
   );
