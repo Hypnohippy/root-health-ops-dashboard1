@@ -68,9 +68,10 @@ const initialProviders: Provider[] = [
   },
   {
     id: "google",
-    name: "Google Business Profile",
+    name: "Google",
     label: "Google Business Profile",
     description: "Local SEO posts so clients find you when they’re searching.",
+    hint: "Connect your Google account for Business Profile posting.",
     status: "disconnected",
   },
   {
@@ -89,15 +90,14 @@ const initialProviders: Provider[] = [
   },
 ];
 
-// ✅ IMPORTANT CHANGE: LinkedIn goes DIRECT to /api/oauth/linkedin/start
-// so it can't bounce back via the generic social connect router.
+// ✅ Updated: Google now uses the real OAuth start route
 const connectUrls: Record<ProviderId, string> = {
   facebook: "/api/social/connect/start?provider=facebook",
   instagram: "/api/social/connect/start?provider=instagram",
   linkedin: "/api/oauth/linkedin/start",
   threads: "/api/social/connect/start?provider=threads",
   tiktok: "/api/oauth/tiktok/start",
-  google: "#",
+  google: "/api/oauth/google/start",
   email: "#",
   whatsapp: "#",
 };
@@ -122,7 +122,6 @@ export default function DashboardConnectPage() {
       setProviders((prev) =>
         prev.map((p) => {
           const row = rows.find((r) => r.platform === p.id);
-
           const isActive = row ? row.is_active !== false : false;
 
           if (!row || !isActive) {
@@ -138,6 +137,8 @@ export default function DashboardConnectPage() {
       );
     } catch (e) {
       console.error("[dashboard/connect] loadSocialAccounts failed", e);
+    } finally {
+      setBusyProvider(null);
     }
   }
 
@@ -167,7 +168,12 @@ export default function DashboardConnectPage() {
     setProviders((prev) =>
       prev.map((p) =>
         p.id === provider.id
-          ? { ...p, status: "disconnected", accountName: undefined, lastSync: undefined }
+          ? {
+              ...p,
+              status: "disconnected",
+              accountName: undefined,
+              lastSync: undefined,
+            }
           : p
       )
     );
@@ -190,9 +196,12 @@ export default function DashboardConnectPage() {
       <div className="mx-auto w-full max-w-6xl bg-slate-900/70 border border-slate-700 rounded-3xl shadow-xl p-6 md:p-10 backdrop-blur">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold">Connect your channels</h1>
+            <h1 className="text-2xl md:text-3xl font-semibold">
+              Connect your channels
+            </h1>
             <p className="text-sm text-slate-300 mt-1 max-w-xl">
-              One-click OAuth connections. You stay in control — we only post what you approve.
+              One-click OAuth connections. You stay in control — we only post
+              what you approve.
             </p>
           </div>
           <div className="text-xs text-slate-400 bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 max-w-xs">
@@ -214,7 +223,9 @@ export default function DashboardConnectPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold">{provider.label}</span>
+                      <span className="text-sm font-semibold">
+                        {provider.label}
+                      </span>
                       <span
                         className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
                           provider.status === "connected"
@@ -232,14 +243,20 @@ export default function DashboardConnectPage() {
                       </span>
                     </div>
 
-                    <p className="mt-1 text-xs text-slate-300">{provider.description}</p>
+                    <p className="mt-1 text-xs text-slate-300">
+                      {provider.description}
+                    </p>
+
                     {provider.hint && (
-                      <p className="mt-1 text-[11px] text-slate-500">{provider.hint}</p>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        {provider.hint}
+                      </p>
                     )}
 
                     {provider.accountName && connected && (
                       <p className="mt-2 text-[11px] text-emerald-300">
-                        Connected as <span className="font-medium">{provider.accountName}</span>
+                        Connected as{" "}
+                        <span className="font-medium">{provider.accountName}</span>
                       </p>
                     )}
                   </div>
@@ -253,7 +270,9 @@ export default function DashboardConnectPage() {
                       disabled={busy}
                       className="rounded-full bg-blue-500 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-blue-400 disabled:opacity-60"
                     >
-                      {busy ? `Opening ${provider.name}…` : `Connect ${provider.name}`}
+                      {busy
+                        ? `Opening ${provider.name}…`
+                        : `Connect ${provider.name}`}
                     </button>
                   )}
 
@@ -281,7 +300,8 @@ export default function DashboardConnectPage() {
         </section>
 
         <footer className="mt-8 text-xs text-slate-400">
-          Tip: Always click Connect from this page. Don’t bookmark callback URLs — they need live OAuth state.
+          Tip: Always click Connect from this page. Don’t bookmark callback URLs
+          — they need live OAuth state.
         </footer>
       </div>
     </div>
