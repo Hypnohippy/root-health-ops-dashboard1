@@ -16,6 +16,14 @@ type StoredStarterIdea = AiVariant & {
   state?: IdeaState;
 };
 
+type CampaignPathPhase = {
+  phase: string;
+  goal: string;
+  hook_style: string;
+  hooks: string[];
+  post_ideas: string[];
+};
+
 type Sequence = {
   id: string;
   organisation_id: string;
@@ -33,12 +41,16 @@ type Sequence = {
       sentAt: string;
       variantTitle?: string | null;
     }>;
+    campaignPath?: CampaignPathPhase[];
+    campaignPathGeneratedAt?: string;
   } | null;
 };
 
 type GeneratingBySequence = Record<string, boolean>;
 type ErrorBySequence = Record<string, string | null>;
 type ArchivedOpenBySequence = Record<string, boolean>;
+type PathGeneratingBySequence = Record<string, boolean>;
+type PathErrorsBySequence = Record<string, string | null>;
 
 const GROWTH_SEED_KEYS = [
   "rootops_growth_seed_brainstorm_v1",
@@ -81,6 +93,21 @@ function normaliseIdeas(input: any): StoredStarterIdea[] {
   }));
 }
 
+function normaliseCampaignPath(input: any): CampaignPathPhase[] {
+  if (!Array.isArray(input)) return [];
+  return input.map((x: any) => ({
+    phase: String(x?.phase || "").trim(),
+    goal: String(x?.goal || "").trim(),
+    hook_style: String(x?.hook_style || "").trim(),
+    hooks: Array.isArray(x?.hooks)
+      ? x.hooks.map((h: any) => String(h || "").trim()).filter(Boolean)
+      : [],
+    post_ideas: Array.isArray(x?.post_ideas)
+      ? x.post_ideas.map((p: any) => String(p || "").trim()).filter(Boolean)
+      : [],
+  }));
+}
+
 export default function SequencesPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [sequences, setSequences] = useState<Sequence[]>([]);
@@ -95,6 +122,8 @@ export default function SequencesPage() {
   const [generatingMap, setGeneratingMap] = useState<GeneratingBySequence>({});
   const [generateErrors, setGenerateErrors] = useState<ErrorBySequence>({});
   const [archivedOpen, setArchivedOpen] = useState<ArchivedOpenBySequence>({});
+  const [pathGeneratingMap, setPathGeneratingMap] = useState<PathGeneratingBySequence>({});
+  const [pathErrors, setPathErrors] = useState<PathErrorsBySequence>({});
   const [toast, setToast] = useState<string | null>(null);
 
   async function loadOrganisation() {
@@ -288,6 +317,51 @@ export default function SequencesPage() {
     }
   }
 
+  async function generateCampaignPath(s: Sequence) {
+    setPathGeneratingMap((prev) => ({ ...prev, [s.id]: true }));
+    setPathErrors((prev) => ({ ...prev, [s.id]: null }));
+
+    try {
+      const res = await fetch("/api/ai/campaign-path", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: s.name,
+          goal: s.goal || "",
+          audience: s.audience || "",
+          notes: s.notes || "",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to generate campaign path");
+      }
+
+      const phases = normaliseCampaignPath(data?.phases);
+
+      const nextGeneratedContent = {
+        ...(s.generated_content || {}),
+        campaignPath: phases,
+        campaignPathGeneratedAt: new Date().toISOString(),
+      };
+
+      await saveGeneratedContent(s.id, nextGeneratedContent, "draft");
+      await loadSequences();
+
+      setToast("Campaign path saved ✅");
+      setTimeout(() => setToast(null), 1800);
+    } catch (e: any) {
+      setPathErrors((prev) => ({
+        ...prev,
+        [s.id]: e?.message || "Failed to generate campaign path",
+      }));
+    } finally {
+      setPathGeneratingMap((prev) => ({ ...prev, [s.id]: false }));
+    }
+  }
+
   async function updateIdeaState(
     s: Sequence,
     ideaIndex: number,
@@ -424,6 +498,43 @@ export default function SequencesPage() {
     window.location.href = "/dashboard/brainstorm";
   }
 
+  function sendPhaseToBrainstorm(
+    s: Sequence,
+    phase: CampaignPathPhase,
+    postIdea: string
+  ) {
+    const payload = {
+      v: 1,
+      createdAt: new Date().toISOString(),
+      source: "growth_lab",
+      organisationId: organisationId || s.organisation_id || null,
+      experimentId: null,
+      platform: "linkedin",
+      title: `${s.name} — ${phase.phase}`,
+      hypothesis: s.goal || "",
+      pattern_type: phase.hook_style || "campaign_phase",
+      format: "text",
+      hook_style: phase.hook_style || "gentle authority",
+      cta_style: "soft question",
+      notes: s.notes || "",
+      confidence: 85,
+      brief: [
+        `Campaign: ${s.name}`,
+        `Phase: ${phase.phase}`,
+        `Phase goal: ${phase.goal}`,
+        `Suggested hook style: ${phase.hook_style}`,
+        phase.hooks?.length ? `Example hooks: ${phase.hooks.join(" | ")}` : "",
+        `Develop this post idea: ${postIdea}`,
+        "Please turn this into stronger hooks and polished post drafts I can send to Quick Blast, Stories, or Scheduled.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+
+    setLocalStorageMulti(GROWTH_SEED_KEYS, payload);
+    window.location.href = "/dashboard/brainstorm";
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-6">
@@ -540,9 +651,12 @@ export default function SequencesPage() {
               const archivedIdeas = allIdeas.filter(
                 (v) => (v.state || "active") === "archived"
               );
+              const campaignPath = normaliseCampaignPath(s.generated_content?.campaignPath);
 
               const generating = !!generatingMap[s.id];
               const generateError = generateErrors[s.id];
+              const pathGenerating = !!pathGeneratingMap[s.id];
+              const pathError = pathErrors[s.id];
               const handoffCount = Array.isArray(s.generated_content?.brainstormSends)
                 ? s.generated_content?.brainstormSends?.length || 0
                 : 0;
@@ -582,6 +696,15 @@ export default function SequencesPage() {
 
                     <button
                       type="button"
+                      onClick={() => generateCampaignPath(s)}
+                      disabled={pathGenerating}
+                      className="rounded-full bg-violet-500 px-3 py-2 text-xs font-semibold text-slate-50 hover:bg-violet-400 disabled:opacity-60"
+                    >
+                      {pathGenerating ? "Generating path…" : "Generate Campaign Path"}
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => sendCampaignToBrainstorm(s)}
                       className="rounded-full border border-slate-600 bg-slate-900 px-3 py-2 text-xs text-slate-100 hover:bg-white/10"
                     >
@@ -593,12 +716,24 @@ export default function SequencesPage() {
                     <div className="text-[11px] text-red-400">{generateError}</div>
                   ) : null}
 
-                  {(s.generated_content?.lastGeneratedAt || handoffCount > 0) && (
+                  {pathError ? (
+                    <div className="text-[11px] text-red-400">{pathError}</div>
+                  ) : null}
+
+                  {(s.generated_content?.lastGeneratedAt ||
+                    s.generated_content?.campaignPathGeneratedAt ||
+                    handoffCount > 0) && (
                     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 text-[11px] text-slate-300 space-y-1">
                       {s.generated_content?.lastGeneratedAt && (
                         <div>
-                          Last generated:{" "}
+                          Starter ideas:{" "}
                           {new Date(s.generated_content.lastGeneratedAt).toLocaleString()}
+                        </div>
+                      )}
+                      {s.generated_content?.campaignPathGeneratedAt && (
+                        <div>
+                          Campaign path:{" "}
+                          {new Date(s.generated_content.campaignPathGeneratedAt).toLocaleString()}
                         </div>
                       )}
                       {handoffCount > 0 && (
@@ -606,6 +741,88 @@ export default function SequencesPage() {
                       )}
                     </div>
                   )}
+
+                  {campaignPath.length > 0 ? (
+                    <div className="space-y-3 rounded-2xl border border-violet-900/40 bg-violet-950/10 p-3">
+                      <div className="text-xs font-semibold text-violet-200">
+                        Root Coach Campaign Path
+                      </div>
+
+                      {campaignPath.map((phase, phaseIdx) => (
+                        <div
+                          key={`${s.id}-phase-${phaseIdx}`}
+                          className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-3"
+                        >
+                          <div>
+                            <div className="text-sm font-semibold text-slate-100">
+                              {phase.phase}
+                            </div>
+                            <div className="mt-1 text-[12px] text-slate-300">
+                              {phase.goal}
+                            </div>
+                          </div>
+
+                          {phase.hook_style ? (
+                            <div className="text-[12px] text-slate-300">
+                              <span className="text-slate-400">Suggested hook style:</span>{" "}
+                              <span className="font-semibold text-violet-200">
+                                {phase.hook_style}
+                              </span>
+                            </div>
+                          ) : null}
+
+                          {phase.hooks.length > 0 ? (
+                            <div>
+                              <div className="text-[11px] font-semibold text-slate-300">
+                                Example hooks
+                              </div>
+                              <div className="mt-2 space-y-1">
+                                {phase.hooks.map((hook, hookIdx) => (
+                                  <div
+                                    key={`${s.id}-phase-${phaseIdx}-hook-${hookIdx}`}
+                                    className="text-[12px] text-slate-300"
+                                  >
+                                    • {hook}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {phase.post_ideas.length > 0 ? (
+                            <div>
+                              <div className="text-[11px] font-semibold text-slate-300">
+                                Suggested post ideas
+                              </div>
+                              <div className="mt-2 space-y-2">
+                                {phase.post_ideas.map((postIdea, postIdx) => (
+                                  <div
+                                    key={`${s.id}-phase-${phaseIdx}-post-${postIdx}`}
+                                    className="rounded-lg border border-slate-800 bg-slate-900/50 p-3"
+                                  >
+                                    <div className="text-[12px] text-slate-300">
+                                      {postIdea}
+                                    </div>
+                                    <div className="mt-2">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          sendPhaseToBrainstorm(s, phase, postIdea)
+                                        }
+                                        className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                                      >
+                                        Develop in Brainstorm
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
 
                   {activeAndUsedIdeas.length > 0 ? (
                     <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
