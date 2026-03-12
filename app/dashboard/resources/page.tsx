@@ -43,6 +43,14 @@ type StarterTemplate = {
   };
 };
 
+type CreateResourceType =
+  | "webinar_outline"
+  | "presentation"
+  | "guide"
+  | "worksheet";
+
+type FillLevel = "skeleton" | "draft" | "ready";
+
 const GROWTH_SEED_KEYS = [
   "rootops_growth_seed_brainstorm_v1",
   "rh_growth_seed_brainstorm_v1",
@@ -63,6 +71,20 @@ function prettyType(v: string) {
   const s = String(v || "").trim();
   if (!s) return "resource";
   return s.replace(/_/g, " ");
+}
+
+function defaultTitleForType(type: CreateResourceType) {
+  if (type === "webinar_outline") return "New Webinar";
+  if (type === "presentation") return "New Presentation";
+  if (type === "guide") return "New Guide";
+  return "New Worksheet";
+}
+
+function typeLabel(type: CreateResourceType) {
+  if (type === "webinar_outline") return "Webinar";
+  if (type === "presentation") return "Presentation";
+  if (type === "guide") return "Guide";
+  return "Worksheet";
 }
 
 const STARTER_TEMPLATES: StarterTemplate[] = [
@@ -299,6 +321,16 @@ export default function ResourcesPage() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  const [creatorOpen, setCreatorOpen] = useState(false);
+  const [creatorType, setCreatorType] = useState<CreateResourceType>("webinar_outline");
+  const [creatorTitle, setCreatorTitle] = useState("New Webinar");
+  const [creatorGoal, setCreatorGoal] = useState("");
+  const [creatorAudience, setCreatorAudience] = useState("");
+  const [creatorNotes, setCreatorNotes] = useState("");
+  const [creatorTone, setCreatorTone] = useState("calm and professional");
+  const [creatorDuration, setCreatorDuration] = useState("30 mins");
+  const [creatorFillLevel, setCreatorFillLevel] = useState<FillLevel>("draft");
+
   async function loadOrganisation() {
     try {
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
@@ -363,6 +395,23 @@ export default function ResourcesPage() {
     const t = setTimeout(() => setToast(null), 1800);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    setCreatorTitle(defaultTitleForType(creatorType));
+    if (creatorType === "webinar_outline") {
+      setCreatorDuration("30 mins");
+      setCreatorTone("calm and professional");
+    } else if (creatorType === "presentation") {
+      setCreatorDuration("30 mins");
+      setCreatorTone("calm and professional");
+    } else if (creatorType === "guide") {
+      setCreatorDuration("n/a");
+      setCreatorTone("supportive and clear");
+    } else if (creatorType === "worksheet") {
+      setCreatorDuration("n/a");
+      setCreatorTone("gentle and practical");
+    }
+  }, [creatorType]);
 
   const filteredResources = useMemo(() => {
     if (filter === "all") return resources;
@@ -600,6 +649,98 @@ export default function ResourcesPage() {
     }
   }
 
+  async function createResource() {
+    if (!organisationId) return;
+
+    const title = creatorTitle.trim();
+    if (!title) {
+      setError("Title is required.");
+      return;
+    }
+
+    setBusyAction("create-resource");
+    setError(null);
+
+    try {
+      let route = "";
+      let body: any = {
+        topic: title,
+        name: title,
+        goal: creatorGoal.trim(),
+        audience: creatorAudience.trim(),
+        notes: creatorNotes.trim(),
+        tone: creatorTone.trim(),
+        fillLevel: creatorFillLevel,
+      };
+
+      if (creatorType === "webinar_outline") {
+        route = "/api/ai/webinar-outline";
+      } else if (creatorType === "presentation") {
+        route = "/api/ai/presentation-outline";
+        body.duration = creatorDuration.trim() || "30 mins";
+      } else if (creatorType === "guide") {
+        route = "/api/ai/guide";
+      } else if (creatorType === "worksheet") {
+        route = "/api/ai/worksheet";
+      }
+
+      const aiRes = await fetch(route, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const aiData = await aiRes.json().catch(() => null);
+
+      if (!aiRes.ok || !aiData?.success) {
+        throw new Error(aiData?.error || "Failed to generate resource");
+      }
+
+      let resourceType = creatorType;
+      let content: any = null;
+
+      if (creatorType === "webinar_outline") {
+        content = aiData?.outline || null;
+      } else if (creatorType === "presentation") {
+        content = aiData?.presentation || null;
+      } else if (creatorType === "guide") {
+        content = aiData?.guide || null;
+      } else if (creatorType === "worksheet") {
+        content = aiData?.worksheet || null;
+      }
+
+      const saveRes = await fetch("/api/resource-library", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId,
+          title,
+          resource_type: resourceType,
+          content,
+        }),
+      });
+
+      const saveData = await saveRes.json().catch(() => null);
+
+      if (!saveRes.ok || !saveData?.success) {
+        throw new Error(saveData?.error || "Failed to save resource");
+      }
+
+      await loadResources();
+      if (saveData?.resource) {
+        setSelected(saveData.resource);
+      }
+
+      setLibraryTab("saved");
+      setCreatorOpen(false);
+      setToast(`${typeLabel(creatorType)} created ✅`);
+    } catch (e: any) {
+      setError(e?.message || "Failed to create resource");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   const selectedType = String((selected as any)?.resource_type || "").trim();
   const selectedContent = isTemplate(selected)
     ? selected.outline
@@ -612,17 +753,27 @@ export default function ResourcesPage() {
           <div>
             <h1 className="text-2xl font-semibold">Resource Library</h1>
             <p className="text-sm text-slate-400 mt-1">
-              Saved resources plus starter teaching templates for webinars, presentations and workshops.
+              Saved resources plus starter teaching templates for webinars, presentations, guides and worksheets.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => loadResources()}
-            className="rounded-full border border-slate-700 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10"
-          >
-            Refresh
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setCreatorOpen(true)}
+              className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+            >
+              + Create Resource
+            </button>
+
+            <button
+              type="button"
+              onClick={() => loadResources()}
+              className="rounded-full border border-slate-700 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10"
+            >
+              Refresh
+            </button>
+          </div>
         </header>
 
         {toast ? (
@@ -870,6 +1021,33 @@ export default function ResourcesPage() {
                       </div>
                     ) : null}
 
+                    {selectedContent?.objective ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">Objective</div>
+                        <div className="mt-2 text-sm text-slate-300">
+                          {selectedContent.objective}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {selectedContent?.summary ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">Summary</div>
+                        <div className="mt-2 text-sm text-slate-300">
+                          {selectedContent.summary}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {selectedContent?.purpose ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">Purpose</div>
+                        <div className="mt-2 text-sm text-slate-300">
+                          {selectedContent.purpose}
+                        </div>
+                      </div>
+                    ) : null}
+
                     {selectedContent?.audience_takeaway ? (
                       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
                         <div className="text-sm font-semibold text-emerald-200">
@@ -877,6 +1055,28 @@ export default function ResourcesPage() {
                         </div>
                         <div className="mt-2 text-sm text-slate-300">
                           {selectedContent.audience_takeaway}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {selectedContent?.intended_reader ? (
+                      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                        <div className="text-sm font-semibold text-emerald-200">
+                          Intended reader
+                        </div>
+                        <div className="mt-2 text-sm text-slate-300">
+                          {selectedContent.intended_reader}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {selectedContent?.instructions ? (
+                      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                        <div className="text-sm font-semibold text-emerald-200">
+                          Instructions
+                        </div>
+                        <div className="mt-2 text-sm text-slate-300">
+                          {selectedContent.instructions}
                         </div>
                       </div>
                     ) : null}
@@ -909,6 +1109,68 @@ export default function ResourcesPage() {
                       </div>
                     ) : null}
 
+                    {Array.isArray(selectedContent?.slides) &&
+                    selectedContent.slides.length > 0 ? (
+                      <div className="space-y-3">
+                        {selectedContent.slides.map((slide: any, idx: number) => (
+                          <div
+                            key={`${(selected as any).id}-slide-${idx}`}
+                            className="rounded-xl border border-slate-800 bg-slate-950/60 p-4"
+                          >
+                            <div className="text-sm font-semibold text-slate-200">
+                              Slide {idx + 1}. {String(slide?.slide_title || "").trim()}
+                            </div>
+
+                            <div className="mt-2 space-y-1">
+                              {Array.isArray(slide?.bullets) &&
+                                slide.bullets.map((bullet: any, bulletIdx: number) => (
+                                  <div
+                                    key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
+                                    className="text-sm text-slate-300"
+                                  >
+                                    • {String(bullet || "").trim()}
+                                  </div>
+                                ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {Array.isArray(selectedContent?.reflection_prompts) &&
+                    selectedContent.reflection_prompts.length > 0 ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">Reflection prompts</div>
+                        <div className="mt-2 space-y-1">
+                          {selectedContent.reflection_prompts.map((prompt: any, idx: number) => (
+                            <div
+                              key={`${(selected as any).id}-reflection-${idx}`}
+                              className="text-sm text-slate-300"
+                            >
+                              • {String(prompt || "").trim()}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {Array.isArray(selectedContent?.action_prompts) &&
+                    selectedContent.action_prompts.length > 0 ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">Action prompts</div>
+                        <div className="mt-2 space-y-1">
+                          {selectedContent.action_prompts.map((prompt: any, idx: number) => (
+                            <div
+                              key={`${(selected as any).id}-action-${idx}`}
+                              className="text-sm text-slate-300"
+                            >
+                              • {String(prompt || "").trim()}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
                     {selectedContent?.closing_invitation ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">
@@ -916,6 +1178,28 @@ export default function ResourcesPage() {
                         </div>
                         <div className="mt-2 text-sm text-slate-300">
                           {selectedContent.closing_invitation}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {selectedContent?.closing_encouragement ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">
+                          Closing encouragement
+                        </div>
+                        <div className="mt-2 text-sm text-slate-300">
+                          {selectedContent.closing_encouragement}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {selectedContent?.closing_note ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">
+                          Closing note
+                        </div>
+                        <div className="mt-2 text-sm text-slate-300">
+                          {selectedContent.closing_note}
                         </div>
                       </div>
                     ) : null}
@@ -947,6 +1231,183 @@ export default function ResourcesPage() {
           </div>
         </div>
       </div>
+
+      {creatorOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div
+            className="absolute inset-0 bg-black/70"
+            onClick={() => setCreatorOpen(false)}
+          />
+
+          <div className="relative w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs text-slate-400">Content Creator</div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">
+                  Create Resource
+                </div>
+                <div className="mt-1 text-[12px] text-slate-400">
+                  Generate a calm, useful long-form resource and save it straight to the library.
+                </div>
+              </div>
+
+              <button
+                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+                onClick={() => setCreatorOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Resource type
+                  </label>
+                  <select
+                    value={creatorType}
+                    onChange={(e) => setCreatorType(e.target.value as CreateResourceType)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  >
+                    <option value="webinar_outline">Webinar</option>
+                    <option value="presentation">Presentation</option>
+                    <option value="guide">Guide</option>
+                    <option value="worksheet">Worksheet</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Fill level
+                  </label>
+                  <select
+                    value={creatorFillLevel}
+                    onChange={(e) => setCreatorFillLevel(e.target.value as FillLevel)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  >
+                    <option value="skeleton">Skeleton</option>
+                    <option value="draft">Draft</option>
+                    <option value="ready">Ready</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">
+                  Title / topic
+                </label>
+                <input
+                  value={creatorTitle}
+                  onChange={(e) => setCreatorTitle(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  placeholder="e.g. Workplace Stress Webinar"
+                />
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Goal
+                  </label>
+                  <input
+                    value={creatorGoal}
+                    onChange={(e) => setCreatorGoal(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    placeholder="e.g. Webinar signups or workplace education"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Audience
+                  </label>
+                  <input
+                    value={creatorAudience}
+                    onChange={(e) => setCreatorAudience(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    placeholder="e.g. HR leaders, managers, staff"
+                  />
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Tone
+                  </label>
+                  <input
+                    value={creatorTone}
+                    onChange={(e) => setCreatorTone(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    placeholder="e.g. calm and professional"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Duration
+                  </label>
+                  <input
+                    value={creatorDuration}
+                    onChange={(e) => setCreatorDuration(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    placeholder="e.g. 30 mins"
+                    disabled={creatorType === "guide" || creatorType === "worksheet"}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">
+                  Notes
+                </label>
+                <textarea
+                  value={creatorNotes}
+                  onChange={(e) => setCreatorNotes(e.target.value)}
+                  rows={5}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm"
+                  placeholder="Add extra context, delivery angle, key teaching points, or desired emphasis..."
+                />
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 text-[12px] text-slate-300">
+                <div className="font-semibold text-slate-200">What gets created</div>
+                <div className="mt-2">
+                  {creatorType === "webinar_outline" &&
+                    "A webinar structure with title, promise, takeaway, sections, and a closing invitation."}
+                  {creatorType === "presentation" &&
+                    "A slide-by-slide presentation structure with objective, takeaway, 8 slides, and a closing invitation."}
+                  {creatorType === "guide" &&
+                    "A readable guide with summary, intended reader, 5 sections, and a closing encouragement."}
+                  {creatorType === "worksheet" &&
+                    "A practical worksheet with instructions, reflection prompts, action prompts, and a closing note."}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={createResource}
+                  disabled={busyAction === "create-resource"}
+                  className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                >
+                  {busyAction === "create-resource" ? "Creating…" : "Create Resource"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCreatorOpen(false)}
+                  disabled={busyAction === "create-resource"}
+                  className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
