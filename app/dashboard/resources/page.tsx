@@ -1239,8 +1239,8 @@ export default function ResourcesPage() {
             onClick={() => setCreatorOpen(false)}
           />
 
-          <div className="relative w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
+          <div className="relative w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl flex flex-col">
+            <div className="flex items-start justify-between gap-4 px-6 pt-6 shrink-0">
               <div>
                 <div className="text-xs text-slate-400">Content Creator</div>
                 <div className="mt-1 text-lg font-semibold text-slate-100">
@@ -1259,7 +1259,7 @@ export default function ResourcesPage() {
               </button>
             </div>
 
-            <div className="mt-5 grid gap-4">
+            <div className="mt-5 grid gap-4 overflow-y-auto px-6 pb-6">
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-300">
