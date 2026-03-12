@@ -1,4 +1,3 @@
-// app/api/ai/quick-blast/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
@@ -26,6 +25,27 @@ function asProviderList(input: any): ProviderId[] {
     .filter((x) => PROVIDERS.includes(x as ProviderId)) as ProviderId[];
 }
 
+function containsExplicitConditionLanguage(text: string) {
+  const s = String(text || "").toLowerCase();
+  const keywords = [
+    "adhd",
+    "anxiety",
+    "autism",
+    "asd",
+    "depression",
+    "trauma",
+    "ptsd",
+    "ocd",
+    "burnout",
+    "panic",
+    "neurodivergent",
+    "diagnosis",
+    "diagnosed",
+    "mental health condition",
+  ];
+  return keywords.some((k) => s.includes(k));
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!OPENAI_API_KEY) {
@@ -39,7 +59,7 @@ export async function POST(req: NextRequest) {
 
     const subject = String(body?.subject ?? "").trim();
     const tone = String(body?.tone ?? "calm").trim();
-    const length = String(body?.length ?? "short").trim(); // short | medium | long
+    const length = String(body?.length ?? "short").trim();
     const audience = String(body?.audience ?? "clients").trim();
     const platforms = asProviderList(body?.platforms);
 
@@ -50,13 +70,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const explicitConditionTopic =
+      containsExplicitConditionLanguage(subject) ||
+      containsExplicitConditionLanguage(audience);
+
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-    // Keep outputs safe + therapist-friendly by default
     const system = [
-      "You write concise, warm, premium social posts for a mental health brand called Root Health.",
-      "The tone must be supportive, human, non-salesy, non-medical (no diagnosis or treatment claims).",
+      "You write concise, warm, premium social posts for a health and wellbeing brand called Root Health.",
+      "The tone must be supportive, human, non-salesy, and non-medical.",
+      "Do not make diagnosis, treatment, recovery, or cure claims.",
       "Avoid absolute promises. Avoid crisis advice. Encourage gentle self-compassion.",
+      explicitConditionTopic
+        ? "The user has explicitly chosen a condition/topic. You may refer to that topic carefully, respectfully, and in broad educational language without sounding diagnostic or reductive."
+        : "Do not assume any diagnosis, condition, neurotype, disorder, or label unless the user explicitly asked for that topic. Default to broad, non-diagnostic language such as stress, overwhelm, focus, confidence, work pressure, emotional wellbeing, or feeling stuck.",
+      "Avoid labelling the audience as if all readers share one condition.",
       "Use UK spelling.",
       "Return ONLY valid JSON that matches the provided schema.",
     ].join(" ");
@@ -79,6 +107,9 @@ export async function POST(req: NextRequest) {
       `Tone: ${tone}`,
       platformHint,
       lengthHint,
+      explicitConditionTopic
+        ? "Use the requested topic carefully, without over-labelling people."
+        : "Keep the language broad and inclusive. Do not introduce diagnostic labels that were not requested.",
       "",
       "Generate 3 distinct variants:",
       "- Variant 1: reflective / philosophical",
@@ -161,6 +192,7 @@ export async function POST(req: NextRequest) {
         tone,
         length,
         platforms,
+        explicitConditionTopic,
         ...json,
       },
       { status: 200 }
