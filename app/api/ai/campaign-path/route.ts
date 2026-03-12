@@ -6,6 +6,27 @@ export const runtime = "nodejs";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 
+function containsExplicitConditionLanguage(text: string) {
+  const s = String(text || "").toLowerCase();
+  const keywords = [
+    "adhd",
+    "anxiety",
+    "autism",
+    "asd",
+    "depression",
+    "trauma",
+    "ptsd",
+    "ocd",
+    "burnout",
+    "panic",
+    "neurodivergent",
+    "diagnosis",
+    "diagnosed",
+    "mental health condition",
+  ];
+  return keywords.some((k) => s.includes(k));
+}
+
 async function getHookPatterns() {
   const { data, error } = await supabaseAdmin
     .from("hook_patterns")
@@ -43,6 +64,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const explicitConditionTopic =
+      containsExplicitConditionLanguage(campaignName) ||
+      containsExplicitConditionLanguage(goal) ||
+      containsExplicitConditionLanguage(audience) ||
+      containsExplicitConditionLanguage(notes);
+
     const hooks = await getHookPatterns();
 
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
@@ -62,6 +89,10 @@ export async function POST(req: NextRequest) {
       "- hooks (3 examples)",
       "- post_ideas (2 examples)",
       "Use the supplied hook pattern library where relevant.",
+      explicitConditionTopic
+        ? "The user has explicitly chosen a condition/topic. You may refer to that topic carefully, respectfully, and in broad educational language without sounding diagnostic or reductive."
+        : "Do not assume any diagnosis, condition, neurotype, disorder, or label unless the user explicitly asked for that topic. Default to broad, non-diagnostic language such as stress, overwhelm, focus, confidence, emotional wellbeing, work pressure, resilience, or support.",
+      "Avoid writing as if all readers share the same diagnosis or label.",
       "Use UK spelling.",
       "Return only valid JSON matching the schema.",
     ].join(" ");
@@ -71,6 +102,9 @@ export async function POST(req: NextRequest) {
       `Goal: ${goal || "Not specified"}`,
       `Audience: ${audience || "Not specified"}`,
       `Notes: ${notes || "None"}`,
+      explicitConditionTopic
+        ? "Use the requested topic carefully and respectfully."
+        : "Keep the campaign broad, inclusive, and non-diagnostic unless the user clearly requested otherwise.",
       "",
       "Hook pattern library:",
       JSON.stringify(hooks, null, 2),
@@ -148,6 +182,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       campaign: campaignName,
+      explicitConditionTopic,
       phases: Array.isArray(parsed?.phases) ? parsed.phases : [],
     });
   } catch (e: any) {
