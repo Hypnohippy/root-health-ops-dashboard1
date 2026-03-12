@@ -1,4 +1,3 @@
-// app/dashboard/ClientDashboardLayout.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -16,20 +15,21 @@ type SocialAccountsResponse = {
   error?: string;
 };
 
-export default function ClientDashboardLayout({ children }: DashboardLayoutProps) {
+type PrimaryNavItem = {
+  label: string;
+  href: string;
+  match: (pathname: string) => boolean;
+};
+
+type SecondaryNavItem = {
+  label: string;
+  href: string;
+};
+
+export default function ClientDashboardLayout({
+  children,
+}: DashboardLayoutProps) {
   const pathname = usePathname();
-
-  const linkClasses = (href: string) => {
-    const isActive =
-      pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
-
-    return [
-      "block rounded-md px-3 py-1.5 text-sm transition-colors",
-      isActive
-        ? "bg-emerald-400 text-slate-950"
-        : "text-slate-100 hover:bg-white/10",
-    ].join(" ");
-  };
 
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportEmail, setSupportEmail] = useState("");
@@ -37,7 +37,6 @@ export default function ClientDashboardLayout({ children }: DashboardLayoutProps
   const [supportSending, setSupportSending] = useState(false);
   const [supportDone, setSupportDone] = useState<null | "ok" | "fail">(null);
   const [supportError, setSupportError] = useState<string | null>(null);
-
   const [orgId, setOrgId] = useState<string>("");
 
   const canSend = useMemo(() => {
@@ -106,7 +105,8 @@ export default function ClientDashboardLayout({ children }: DashboardLayoutProps
           message: supportMsg.trim(),
           pathname: pathname || null,
           href: typeof window !== "undefined" ? window.location.href : null,
-          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+          userAgent:
+            typeof navigator !== "undefined" ? navigator.userAgent : null,
         }),
       });
 
@@ -128,102 +128,145 @@ export default function ClientDashboardLayout({ children }: DashboardLayoutProps
     }
   }
 
+  const primaryNav: PrimaryNavItem[] = [
+    {
+      label: "Home",
+      href: "/dashboard",
+      match: (p) => p === "/dashboard",
+    },
+    {
+      label: "Campaign Studio",
+      href: "/dashboard/sequences",
+      match: (p) => p.startsWith("/dashboard/sequences"),
+    },
+    {
+      label: "Brainstorm",
+      href: "/dashboard/brainstorm",
+      match: (p) => p.startsWith("/dashboard/brainstorm"),
+    },
+    {
+      label: "Publishing",
+      href: "/dashboard/stories/new",
+      match: (p) =>
+        p.startsWith("/dashboard/stories") ||
+        p.startsWith("/dashboard/scheduled") ||
+        p.startsWith("/dashboard/approvals") ||
+        p.startsWith("/dashboard/responses"),
+    },
+    {
+      label: "Resources",
+      href: "/dashboard/resources",
+      match: (p) => p.startsWith("/dashboard/resources"),
+    },
+    {
+      label: "Growth Lab",
+      href: "/dashboard/growth-lab",
+      match: (p) => p.startsWith("/dashboard/growth-lab"),
+    },
+    {
+      label: "Connect",
+      href: "/dashboard/connect",
+      match: (p) =>
+        p.startsWith("/dashboard/connect") || p.startsWith("/dashboard/metrics"),
+    },
+  ];
+
+  const activePrimary = useMemo(() => {
+    return primaryNav.find((item) => item.match(pathname))?.label || "Home";
+  }, [pathname]);
+
+  const secondaryNav = useMemo<SecondaryNavItem[]>(() => {
+    if (activePrimary === "Publishing") {
+      return [
+        { label: "Stories", href: "/dashboard/stories/new" },
+        { label: "Scheduled", href: "/dashboard/scheduled" },
+        { label: "Approvals", href: "/dashboard/approvals" },
+        { label: "Responses", href: "/dashboard/responses" },
+      ];
+    }
+
+    if (activePrimary === "Connect") {
+      return [
+        { label: "Connections", href: "/dashboard/connect" },
+        { label: "Metrics", href: "/dashboard/metrics" },
+      ];
+    }
+
+    return [];
+  }, [activePrimary]);
+
+  const primaryLinkClasses = (item: PrimaryNavItem) => {
+    const isActive = item.match(pathname);
+
+    return [
+      "inline-flex items-center rounded-full px-4 py-2 text-sm font-medium transition-all",
+      isActive
+        ? "bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20"
+        : "text-slate-100 hover:bg-white/10",
+    ].join(" ");
+  };
+
+  const secondaryLinkClasses = (href: string) => {
+    const isActive = pathname === href || pathname.startsWith(href + "/");
+
+    return [
+      "inline-flex items-center rounded-full px-3 py-1.5 text-xs transition-colors",
+      isActive
+        ? "bg-white/12 text-slate-50 border border-white/10"
+        : "text-slate-300 hover:bg-white/8",
+    ].join(" ");
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 flex flex-col">
       <header className="border-b border-white/10 bg-black/30 backdrop-blur-xl">
-        <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-xl bg-emerald-400/80 shadow-lg shadow-emerald-500/40" />
-            <div className="flex flex-col leading-tight">
-              <span className="text-sm font-semibold text-slate-50">
-                Root Health Ops
-              </span>
-              <span className="text-[11px] text-slate-300">
-                Your cockpit for growth
-              </span>
-            </div>
-          </div>
+        <div className="mx-auto max-w-6xl px-4 py-4">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-9 w-9 rounded-2xl bg-emerald-400/80 shadow-lg shadow-emerald-500/40 shrink-0" />
+                <div className="flex flex-col leading-tight min-w-0">
+                  <span className="text-sm font-semibold text-slate-50">
+                    Root Health Ops
+                  </span>
+                  <span className="text-[11px] text-slate-300">
+                    Your cockpit for growth
+                  </span>
+                </div>
+              </div>
 
-          <ul className="flex items-center gap-2 flex-wrap justify-end">
-            <li>
-              <Link href="/dashboard" className={linkClasses("/dashboard")}>
-                Home
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/dashboard/connect"
-                className={linkClasses("/dashboard/connect")}
-              >
-                Connect
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/dashboard/metrics"
-                className={linkClasses("/dashboard/metrics")}
-              >
-                Metrics
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/dashboard/growth-lab"
-                className={linkClasses("/dashboard/growth-lab")}
-              >
-                🧪 Growth Lab
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/dashboard/sequences"
-                className={linkClasses("/dashboard/sequences")}
-              >
-                Sequences
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/dashboard/stories/new"
-                className={linkClasses("/dashboard/stories/new")}
-              >
-                Stories
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/dashboard/scheduled"
-                className={linkClasses("/dashboard/scheduled")}
-              >
-                Scheduled
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/dashboard/approvals"
-                className={linkClasses("/dashboard/approvals")}
-              >
-                Approvals
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/dashboard/responses"
-                className={linkClasses("/dashboard/responses")}
-              >
-                Responses
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/dashboard/brainstorm"
-                className={linkClasses("/dashboard/brainstorm")}
-              >
-                🧠 Brainstorm
-              </Link>
-            </li>
-          </ul>
-        </nav>
+              <div className="text-[11px] text-slate-400">
+                {activePrimary}
+              </div>
+            </div>
+
+            <nav className="flex flex-wrap items-center gap-2">
+              {primaryNav.map((item) => (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  className={primaryLinkClasses(item)}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+
+            {secondaryNav.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
+                {secondaryNav.map((item) => (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    className={secondaryLinkClasses(item.href)}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
       </header>
 
       <main className="flex-1 p-6">{children}</main>
@@ -314,8 +357,8 @@ export default function ClientDashboardLayout({ children }: DashboardLayoutProps
                   placeholder="Tell us what you tried and what you expected…"
                 />
                 <div className="mt-1 text-[11px] text-slate-500">
-                  Tip: mention the platform (e.g., LinkedIn/Threads) and whether
-                  it was Quick Blast or Scheduled.
+                  Tip: mention the platform and whether it was Campaign Studio,
+                  Brainstorm, Publishing, or Resources.
                 </div>
               </div>
 
