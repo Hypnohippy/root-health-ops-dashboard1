@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 type AiVariant = {
   title: string;
@@ -68,6 +68,8 @@ type PathGeneratingBySequence = Record<string, boolean>;
 type PathErrorsBySequence = Record<string, string | null>;
 type WebinarGeneratingBySequence = Record<string, boolean>;
 type WebinarErrorsBySequence = Record<string, string | null>;
+type WebinarSavingBySequence = Record<string, boolean>;
+type WebinarSaveErrorsBySequence = Record<string, string | null>;
 type GeneratorKind = "starter_ideas" | "campaign_path" | "webinar_outline";
 
 const GROWTH_SEED_KEYS = [
@@ -173,6 +175,8 @@ export default function SequencesPage() {
   const [pathErrors, setPathErrors] = useState<PathErrorsBySequence>({});
   const [webinarGeneratingMap, setWebinarGeneratingMap] = useState<WebinarGeneratingBySequence>({});
   const [webinarErrors, setWebinarErrors] = useState<WebinarErrorsBySequence>({});
+  const [webinarSavingMap, setWebinarSavingMap] = useState<WebinarSavingBySequence>({});
+  const [webinarSaveErrors, setWebinarSaveErrors] = useState<WebinarSaveErrorsBySequence>({});
   const [generatorChoice, setGeneratorChoice] = useState<Record<string, GeneratorKind>>({});
   const [toast, setToast] = useState<string | null>(null);
 
@@ -456,6 +460,44 @@ export default function SequencesPage() {
       }));
     } finally {
       setWebinarGeneratingMap((prev) => ({ ...prev, [s.id]: false }));
+    }
+  }
+
+  async function saveWebinarToLibrary(s: Sequence) {
+    const webinarOutline = normaliseWebinarOutline(s.generated_content?.webinarOutline);
+    if (!organisationId || !webinarOutline) return;
+
+    setWebinarSavingMap((prev) => ({ ...prev, [s.id]: true }));
+    setWebinarSaveErrors((prev) => ({ ...prev, [s.id]: null }));
+
+    try {
+      const res = await fetch("/api/resource-library", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId,
+          sequenceId: s.id,
+          title: webinarOutline.title || `${s.name} Webinar Outline`,
+          resource_type: "webinar_outline",
+          content: webinarOutline,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to save webinar to library");
+      }
+
+      setToast("Saved to Resource Library ✅");
+      setTimeout(() => setToast(null), 1800);
+    } catch (e: any) {
+      setWebinarSaveErrors((prev) => ({
+        ...prev,
+        [s.id]: e?.message || "Failed to save webinar to library",
+      }));
+    } finally {
+      setWebinarSavingMap((prev) => ({ ...prev, [s.id]: false }));
     }
   }
 
@@ -769,6 +811,8 @@ export default function SequencesPage() {
               const pathError = pathErrors[s.id];
               const webinarGenerating = !!webinarGeneratingMap[s.id];
               const webinarError = webinarErrors[s.id];
+              const webinarSaving = !!webinarSavingMap[s.id];
+              const webinarSaveError = webinarSaveErrors[s.id];
               const handoffCount = Array.isArray(s.generated_content?.brainstormSends)
                 ? s.generated_content?.brainstormSends?.length || 0
                 : 0;
@@ -792,7 +836,6 @@ export default function SequencesPage() {
 
                   {s.notes && <div className="text-[11px] text-slate-400">{s.notes}</div>}
 
-                  {/* Progress */}
                   {campaignPath.length > 0 ? (
                     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-2">
                       <div className="text-[11px] font-semibold text-slate-300">Campaign progress</div>
@@ -800,7 +843,6 @@ export default function SequencesPage() {
                     </div>
                   ) : null}
 
-                  {/* Generator selector */}
                   <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-3">
                     <div className="text-[11px] font-semibold text-slate-300">Generator</div>
 
@@ -850,6 +892,7 @@ export default function SequencesPage() {
                   {generateError ? <div className="text-[11px] text-red-400">{generateError}</div> : null}
                   {pathError ? <div className="text-[11px] text-red-400">{pathError}</div> : null}
                   {webinarError ? <div className="text-[11px] text-red-400">{webinarError}</div> : null}
+                  {webinarSaveError ? <div className="text-[11px] text-red-400">{webinarSaveError}</div> : null}
 
                   {(s.generated_content?.lastGeneratedAt ||
                     s.generated_content?.campaignPathGeneratedAt ||
@@ -871,7 +914,6 @@ export default function SequencesPage() {
                     </div>
                   )}
 
-                  {/* Campaign path */}
                   {campaignPath.length > 0 ? (
                     <div className="space-y-3 rounded-2xl border border-violet-900/40 bg-violet-950/10 p-3">
                       <div className="text-xs font-semibold text-violet-200">Root Coach Campaign Path</div>
@@ -945,11 +987,33 @@ export default function SequencesPage() {
                     </div>
                   ) : null}
 
-                  {/* Webinar outline */}
                   {webinarOutline ? (
                     <div className="space-y-3 rounded-2xl border border-amber-900/40 bg-amber-950/10 p-3">
-                      <div className="text-xs font-semibold text-amber-200">
-                        Webinar / Presentation Outline
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-semibold text-amber-200">
+                          Webinar / Presentation Outline
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => saveWebinarToLibrary(s)}
+                            disabled={webinarSaving}
+                            className="rounded-full bg-amber-400 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
+                          >
+                            {webinarSaving ? "Saving…" : "Save to Library"}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              window.location.href = "/dashboard/resources";
+                            }}
+                            className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                          >
+                            Open Library
+                          </button>
+                        </div>
                       </div>
 
                       <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-3">
@@ -1008,7 +1072,6 @@ export default function SequencesPage() {
                     </div>
                   ) : null}
 
-                  {/* Starter ideas */}
                   {activeAndUsedIdeas.length > 0 ? (
                     <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
                       <div className="text-xs font-semibold text-slate-200">Starter ideas</div>
