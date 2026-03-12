@@ -190,6 +190,74 @@ function countCompletedPhases(campaignPath: CampaignPathPhase[]) {
   return order.filter((p) => phases.includes(p)).length;
 }
 
+type CoachSuggestion = {
+  title: string;
+  body: string;
+  cta: string;
+  action:
+    | "generate_campaign_path"
+    | "generate_starter_ideas"
+    | "develop_brainstorm"
+    | "save_webinar"
+    | "open_library"
+    | "generate_webinar_outline";
+};
+
+function getCoachSuggestion(args: {
+  campaignPath: CampaignPathPhase[];
+  ideas: StoredStarterIdea[];
+  webinarOutline: WebinarOutline | null;
+  brainstormSends: number;
+}): CoachSuggestion {
+  const { campaignPath, ideas, webinarOutline, brainstormSends } = args;
+
+  const usableIdeas = ideas.filter((i) => (i.state || "active") !== "archived");
+  const usedIdeas = ideas.filter((i) => (i.state || "active") === "used");
+
+  if (campaignPath.length === 0) {
+    return {
+      title: "Root Coach suggests",
+      body: "Start with a campaign path so the platform can map the journey from awareness to invitation.",
+      cta: "Generate Campaign Path",
+      action: "generate_campaign_path",
+    };
+  }
+
+  if (usableIdeas.length === 0) {
+    return {
+      title: "Root Coach suggests",
+      body: "Now that the strategy exists, generate starter ideas so you have posts ready to develop.",
+      cta: "Generate Starter Ideas",
+      action: "generate_starter_ideas",
+    };
+  }
+
+  if (brainstormSends === 0 && usedIdeas.length === 0) {
+    return {
+      title: "Root Coach suggests",
+      body: "You have ideas ready. Develop one in Brainstorm to turn it into polished content for publishing.",
+      cta: "Open Brainstorm",
+      action: "develop_brainstorm",
+    };
+  }
+
+  if (!webinarOutline) {
+    return {
+      title: "Root Coach suggests",
+      body: "You already have campaign momentum. Generate a webinar outline to create a deeper resource from this campaign.",
+      cta: "Generate Webinar Outline",
+      action: "generate_webinar_outline",
+    };
+  }
+
+  return {
+    title: "Root Coach suggests",
+    body: "Your campaign already has strategy, ideas, and a webinar asset. Save it to the library so it becomes a reusable resource.",
+    cta: "Save Webinar to Library",
+    action: "save_webinar",
+  };
+}
+
 export default function SequencesPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [sequences, setSequences] = useState<Sequence[]>([]);
@@ -767,6 +835,27 @@ export default function SequencesPage() {
     window.location.href = "/dashboard/brainstorm";
   }
 
+  function handleCoachAction(s: Sequence, action: CoachSuggestion["action"]) {
+    if (action === "generate_campaign_path") {
+      return generateCampaignPath(s);
+    }
+    if (action === "generate_starter_ideas") {
+      return generateIdeasForSequence(s);
+    }
+    if (action === "develop_brainstorm") {
+      return sendCampaignToBrainstorm(s);
+    }
+    if (action === "generate_webinar_outline") {
+      return generateWebinarOutline(s);
+    }
+    if (action === "save_webinar") {
+      return saveWebinarToLibrary(s);
+    }
+    if (action === "open_library") {
+      window.location.href = "/dashboard/resources";
+    }
+  }
+
   const progressPills = (campaignPath: CampaignPathPhase[]) => {
     const phases = campaignPath.map((p) => String(p.phase || "").trim().toLowerCase());
     const order = ["awareness", "understanding", "support", "invitation"];
@@ -960,6 +1049,12 @@ export default function SequencesPage() {
               const currentChoice = generatorChoice[s.id] || "starter_ideas";
 
               const summary = campaignSummary.find((x) => x.id === s.id);
+              const coach = getCoachSuggestion({
+                campaignPath,
+                ideas: allIdeas,
+                webinarOutline,
+                brainstormSends: handoffCount,
+              });
 
               return (
                 <div key={s.id} className="rounded-3xl border border-slate-700 bg-slate-950/60 p-5 space-y-4">
@@ -1013,6 +1108,24 @@ export default function SequencesPage() {
                         <div className="mt-1 text-lg font-semibold text-slate-100">
                           {summary?.hasWebinar ? "1" : "0"}
                         </div>
+                      </div>
+                    </div>
+
+                    {/* Root Coach */}
+                    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-emerald-200">
+                        {coach.title}
+                      </div>
+                      <div className="mt-2 text-sm text-slate-200">{coach.body}</div>
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={() => handleCoachAction(s, coach.action)}
+                          disabled={generating || pathGenerating || webinarGenerating || webinarSaving}
+                          className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                        >
+                          {coach.cta}
+                        </button>
                       </div>
                     </div>
 
