@@ -295,7 +295,9 @@ export default function ResourcesPage() {
   const [filter, setFilter] = useState<FilterType>("all");
   const [libraryTab, setLibraryTab] = useState<"saved" | "templates">("saved");
   const [loading, setLoading] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   async function loadOrganisation() {
     try {
@@ -355,6 +357,12 @@ export default function ResourcesPage() {
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 1800);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const filteredResources = useMemo(() => {
     if (filter === "all") return resources;
@@ -422,6 +430,176 @@ export default function ResourcesPage() {
     window.location.href = "/dashboard/brainstorm";
   }
 
+  function sendSavedResourceToBrainstorm(resource: Resource) {
+    const content = resource?.content || null;
+
+    const sections =
+      Array.isArray(content?.sections) && content.sections.length > 0
+        ? content.sections
+            .map((s: any) => {
+              const title = String(s?.title || "").trim();
+              const bullets = Array.isArray(s?.bullets)
+                ? s.bullets.map((b: any) => String(b || "").trim()).filter(Boolean)
+                : [];
+              return `${title}${bullets.length ? ` (${bullets.join(" | ")})` : ""}`;
+            })
+            .join(" || ")
+        : "";
+
+    const payload = {
+      v: 1,
+      createdAt: new Date().toISOString(),
+      source: "growth_lab",
+      organisationId: organisationId || null,
+      experimentId: null,
+      platform: "linkedin",
+      title: resource.title,
+      hypothesis: String(content?.promise || resource.title || "").trim(),
+      pattern_type: "resource_library",
+      format: "resource",
+      hook_style: "gentle authority",
+      cta_style: "soft question",
+      notes: `Resource type: ${resource.resource_type}`,
+      confidence: 90,
+      brief: [
+        `Saved resource: ${resource.title}`,
+        `Resource type: ${resource.resource_type}`,
+        content?.promise ? `Promise: ${String(content.promise).trim()}` : "",
+        content?.audience_takeaway
+          ? `Audience takeaway: ${String(content.audience_takeaway).trim()}`
+          : "",
+        sections ? `Sections: ${sections}` : "",
+        content?.closing_invitation
+          ? `Closing invitation: ${String(content.closing_invitation).trim()}`
+          : "",
+        "Please turn this into a polished teaching resource and supporting content. I may want slides, webinar notes, social promo posts, email copy, or a refined delivery version.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+
+    setLocalStorageMulti(GROWTH_SEED_KEYS, payload);
+    window.location.href = "/dashboard/brainstorm";
+  }
+
+  async function renameResource(resource: Resource) {
+    if (!organisationId) return;
+
+    const nextTitle = window.prompt("Rename resource", resource.title || "");
+    if (!nextTitle) return;
+
+    const trimmed = nextTitle.trim();
+    if (!trimmed || trimmed === resource.title) return;
+
+    setBusyAction(`rename:${resource.id}`);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/resource-library", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId,
+          resourceId: resource.id,
+          title: trimmed,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to rename resource");
+      }
+
+      await loadResources();
+
+      setSelected((prev) => {
+        if (!prev || isTemplate(prev)) return prev;
+        if (prev.id !== resource.id) return prev;
+        return { ...prev, title: trimmed };
+      });
+
+      setToast("Resource renamed ✅");
+    } catch (e: any) {
+      setError(e?.message || "Failed to rename resource");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function duplicateResource(resource: Resource) {
+    if (!organisationId) return;
+
+    setBusyAction(`duplicate:${resource.id}`);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/resource-library", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "duplicate",
+          organisationId,
+          resourceId: resource.id,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to duplicate resource");
+      }
+
+      await loadResources();
+      if (data?.resource) {
+        setSelected(data.resource);
+      }
+
+      setToast("Resource duplicated ✅");
+    } catch (e: any) {
+      setError(e?.message || "Failed to duplicate resource");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function deleteResource(resource: Resource) {
+    if (!organisationId) return;
+
+    const ok = window.confirm(`Delete "${resource.title}"?`);
+    if (!ok) return;
+
+    setBusyAction(`delete:${resource.id}`);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/resource-library", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId,
+          resourceId: resource.id,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to delete resource");
+      }
+
+      const remaining = resources.filter((r) => r.id !== resource.id);
+      setResources(remaining);
+      setSelected(remaining[0] || null);
+
+      setToast("Resource deleted ✅");
+    } catch (e: any) {
+      setError(e?.message || "Failed to delete resource");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   const selectedType = String((selected as any)?.resource_type || "").trim();
   const selectedContent = isTemplate(selected)
     ? selected.outline
@@ -446,6 +624,12 @@ export default function ResourcesPage() {
             Refresh
           </button>
         </header>
+
+        {toast ? (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            {toast}
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap gap-2">
           <button
@@ -636,7 +820,44 @@ export default function ResourcesPage() {
                       Open Campaign Studio
                     </button>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => sendSavedResourceToBrainstorm(selected as Resource)}
+                      className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                    >
+                      Send to Brainstorm
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => renameResource(selected as Resource)}
+                      disabled={busyAction === `rename:${(selected as Resource).id}`}
+                      className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
+                    >
+                      {busyAction === `rename:${(selected as Resource).id}` ? "Renaming…" : "Rename"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => duplicateResource(selected as Resource)}
+                      disabled={busyAction === `duplicate:${(selected as Resource).id}`}
+                      className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
+                    >
+                      {busyAction === `duplicate:${(selected as Resource).id}` ? "Duplicating…" : "Duplicate"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => deleteResource(selected as Resource)}
+                      disabled={busyAction === `delete:${(selected as Resource).id}`}
+                      className="rounded-full border border-red-500/40 bg-red-950/20 px-4 py-2 text-xs text-red-200 hover:bg-red-950/35 disabled:opacity-60"
+                    >
+                      {busyAction === `delete:${(selected as Resource).id}` ? "Deleting…" : "Delete"}
+                    </button>
+                  </div>
+                )}
 
                 {selectedContent ? (
                   <div className="space-y-4">
