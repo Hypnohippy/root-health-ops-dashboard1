@@ -34,34 +34,24 @@ async function getHookPatterns() {
     .order("created_at", { ascending: true })
     .limit(20);
 
-  if (error) {
-    throw new Error(error.message);
-  }
-
+  if (error) throw new Error(error.message);
   return data || [];
 }
 
 export async function POST(req: NextRequest) {
   try {
     if (!OPENAI_API_KEY) {
-      return NextResponse.json(
-        { error: "Missing OPENAI_API_KEY" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Missing OPENAI_API_KEY" }, { status: 500 });
     }
 
     const body = await req.json().catch(() => ({}));
-
     const campaignName = String(body?.name || "").trim();
     const goal = String(body?.goal || "").trim();
     const audience = String(body?.audience || "").trim();
     const notes = String(body?.notes || "").trim();
 
     if (!campaignName) {
-      return NextResponse.json(
-        { error: "Campaign name is required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Campaign name is required." }, { status: 400 });
     }
 
     const explicitConditionTopic =
@@ -71,7 +61,6 @@ export async function POST(req: NextRequest) {
       containsExplicitConditionLanguage(notes);
 
     const hooks = await getHookPatterns();
-
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
@@ -85,6 +74,7 @@ export async function POST(req: NextRequest) {
       "Each phase must include:",
       "- phase",
       "- goal",
+      "- why_this_works (one short plain-English explanation for non-marketers)",
       "- hook_style",
       "- hooks (3 examples)",
       "- post_ideas (2 examples)",
@@ -125,10 +115,11 @@ export async function POST(req: NextRequest) {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["phase", "goal", "hook_style", "hooks", "post_ideas"],
+              required: ["phase", "goal", "why_this_works", "hook_style", "hooks", "post_ideas"],
               properties: {
                 phase: { type: "string" },
                 goal: { type: "string" },
+                why_this_works: { type: "string" },
                 hook_style: { type: "string" },
                 hooks: {
                   type: "array",
@@ -164,17 +155,13 @@ export async function POST(req: NextRequest) {
     });
 
     const raw = resp.output_text || "";
-
     let parsed: any = null;
 
     try {
       parsed = JSON.parse(raw);
     } catch {
       return NextResponse.json(
-        {
-          error: "AI did not return valid JSON",
-          raw: raw.slice(0, 2000),
-        },
+        { error: "AI did not return valid JSON", raw: raw.slice(0, 2000) },
         { status: 500 }
       );
     }
