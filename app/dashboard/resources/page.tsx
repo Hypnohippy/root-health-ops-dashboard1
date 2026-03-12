@@ -396,7 +396,7 @@ export default function ResourcesPage() {
       experimentId: null,
       platform: "linkedin",
       title: template.title,
-      hypothesis: template.promise,
+      hypothesis: template.outline.promise,
       pattern_type: "template",
       format: "presentation",
       hook_style: "gentle authority",
