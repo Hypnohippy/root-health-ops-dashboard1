@@ -1,4 +1,3 @@
-// app/dashboard/sequences/page.tsx
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -19,6 +18,7 @@ type StoredStarterIdea = AiVariant & {
 type CampaignPathPhase = {
   phase: string;
   goal: string;
+  why_this_works?: string;
   hook_style: string;
   hooks: string[];
   post_ideas: string[];
@@ -98,6 +98,7 @@ function normaliseCampaignPath(input: any): CampaignPathPhase[] {
   return input.map((x: any) => ({
     phase: String(x?.phase || "").trim(),
     goal: String(x?.goal || "").trim(),
+    why_this_works: String(x?.why_this_works || "").trim(),
     hook_style: String(x?.hook_style || "").trim(),
     hooks: Array.isArray(x?.hooks)
       ? x.hooks.map((h: any) => String(h || "").trim()).filter(Boolean)
@@ -370,13 +371,9 @@ export default function SequencesPage() {
     try {
       const existing = s.generated_content || {};
       const ideas = normaliseIdeas(existing.starterIdeas);
-
       if (!ideas[ideaIndex]) return;
 
-      ideas[ideaIndex] = {
-        ...ideas[ideaIndex],
-        state: nextState,
-      };
+      ideas[ideaIndex] = { ...ideas[ideaIndex], state: nextState };
 
       const nextGeneratedContent = {
         ...existing,
@@ -407,7 +404,6 @@ export default function SequencesPage() {
     try {
       const existing = s.generated_content || {};
       const ideas = normaliseIdeas(existing.starterIdeas);
-
       if (!ideas[ideaIndex]) return;
 
       const nextIdeas = ideas.filter((_, idx) => idx !== ideaIndex);
@@ -449,14 +445,10 @@ export default function SequencesPage() {
       const brainstormSends = Array.isArray(existing.brainstormSends)
         ? existing.brainstormSends
         : [];
-
       const ideas = normaliseIdeas(existing.starterIdeas);
 
       if (typeof ideaIndex === "number" && ideas[ideaIndex]) {
-        ideas[ideaIndex] = {
-          ...ideas[ideaIndex],
-          state: "used",
-        };
+        ideas[ideaIndex] = { ...ideas[ideaIndex], state: "used" };
       }
 
       const nextGeneratedContent = {
@@ -522,6 +514,7 @@ export default function SequencesPage() {
         `Campaign: ${s.name}`,
         `Phase: ${phase.phase}`,
         `Phase goal: ${phase.goal}`,
+        phase.why_this_works ? `Why this works: ${phase.why_this_works}` : "",
         `Suggested hook style: ${phase.hook_style}`,
         phase.hooks?.length ? `Example hooks: ${phase.hooks.join(" | ")}` : "",
         `Develop this post idea: ${postIdea}`,
@@ -540,9 +533,7 @@ export default function SequencesPage() {
       <div className="w-full max-w-6xl space-y-6">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold">
-              Campaign Studio
-            </h1>
+            <h1 className="text-2xl md:text-3xl font-semibold">Campaign Studio</h1>
             <p className="mt-1 text-sm text-slate-300">
               Create a campaign shell, generate starter ideas, then develop them in Brainstorm.
             </p>
@@ -564,9 +555,7 @@ export default function SequencesPage() {
 
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="block text-[11px] font-medium text-slate-300">
-                Campaign name
-              </label>
+              <label className="block text-[11px] font-medium text-slate-300">Campaign name</label>
               <input
                 className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                 value={name}
@@ -576,9 +565,7 @@ export default function SequencesPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="block text-[11px] font-medium text-slate-300">
-                Goal (optional)
-              </label>
+              <label className="block text-[11px] font-medium text-slate-300">Goal (optional)</label>
               <input
                 className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                 value={goal}
@@ -588,9 +575,7 @@ export default function SequencesPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="block text-[11px] font-medium text-slate-300">
-                Audience (optional)
-              </label>
+              <label className="block text-[11px] font-medium text-slate-300">Audience (optional)</label>
               <input
                 className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                 value={audience}
@@ -600,9 +585,7 @@ export default function SequencesPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="block text-[11px] font-medium text-slate-300">
-                Notes (optional)
-              </label>
+              <label className="block text-[11px] font-medium text-slate-300">Notes (optional)</label>
               <input
                 className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                 value={notes}
@@ -626,10 +609,7 @@ export default function SequencesPage() {
         <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold">Your campaigns</h2>
-            <button
-              onClick={() => loadSequences()}
-              className="text-xs text-slate-300 hover:text-slate-100"
-            >
+            <button onClick={() => loadSequences()} className="text-xs text-slate-300 hover:text-slate-100">
               Refresh
             </button>
           </div>
@@ -645,12 +625,8 @@ export default function SequencesPage() {
           <div className="grid md:grid-cols-2 gap-3">
             {sequences.map((s) => {
               const allIdeas = normaliseIdeas(s.generated_content?.starterIdeas);
-              const activeAndUsedIdeas = allIdeas.filter(
-                (v) => (v.state || "active") !== "archived"
-              );
-              const archivedIdeas = allIdeas.filter(
-                (v) => (v.state || "active") === "archived"
-              );
+              const activeAndUsedIdeas = allIdeas.filter((v) => (v.state || "active") !== "archived");
+              const archivedIdeas = allIdeas.filter((v) => (v.state || "active") === "archived");
               const campaignPath = normaliseCampaignPath(s.generated_content?.campaignPath);
 
               const generating = !!generatingMap[s.id];
@@ -662,10 +638,7 @@ export default function SequencesPage() {
                 : 0;
 
               return (
-                <div
-                  key={s.id}
-                  className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 space-y-4"
-                >
+                <div key={s.id} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 space-y-4">
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-semibold">{s.name}</div>
                     <span className="text-[10px] uppercase tracking-wide text-slate-400">
@@ -680,9 +653,7 @@ export default function SequencesPage() {
                     </div>
                   )}
 
-                  {s.notes && (
-                    <div className="text-[11px] text-slate-400">{s.notes}</div>
-                  )}
+                  {s.notes && <div className="text-[11px] text-slate-400">{s.notes}</div>}
 
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -712,41 +683,26 @@ export default function SequencesPage() {
                     </button>
                   </div>
 
-                  {generateError ? (
-                    <div className="text-[11px] text-red-400">{generateError}</div>
-                  ) : null}
-
-                  {pathError ? (
-                    <div className="text-[11px] text-red-400">{pathError}</div>
-                  ) : null}
+                  {generateError ? <div className="text-[11px] text-red-400">{generateError}</div> : null}
+                  {pathError ? <div className="text-[11px] text-red-400">{pathError}</div> : null}
 
                   {(s.generated_content?.lastGeneratedAt ||
                     s.generated_content?.campaignPathGeneratedAt ||
                     handoffCount > 0) && (
                     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 text-[11px] text-slate-300 space-y-1">
                       {s.generated_content?.lastGeneratedAt && (
-                        <div>
-                          Starter ideas:{" "}
-                          {new Date(s.generated_content.lastGeneratedAt).toLocaleString()}
-                        </div>
+                        <div>Starter ideas: {new Date(s.generated_content.lastGeneratedAt).toLocaleString()}</div>
                       )}
                       {s.generated_content?.campaignPathGeneratedAt && (
-                        <div>
-                          Campaign path:{" "}
-                          {new Date(s.generated_content.campaignPathGeneratedAt).toLocaleString()}
-                        </div>
+                        <div>Campaign path: {new Date(s.generated_content.campaignPathGeneratedAt).toLocaleString()}</div>
                       )}
-                      {handoffCount > 0 && (
-                        <div>Sent to Brainstorm: {handoffCount} time(s)</div>
-                      )}
+                      {handoffCount > 0 && <div>Sent to Brainstorm: {handoffCount} time(s)</div>}
                     </div>
                   )}
 
                   {campaignPath.length > 0 ? (
                     <div className="space-y-3 rounded-2xl border border-violet-900/40 bg-violet-950/10 p-3">
-                      <div className="text-xs font-semibold text-violet-200">
-                        Root Coach Campaign Path
-                      </div>
+                      <div className="text-xs font-semibold text-violet-200">Root Coach Campaign Path</div>
 
                       {campaignPath.map((phase, phaseIdx) => (
                         <div
@@ -754,28 +710,27 @@ export default function SequencesPage() {
                           className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-3"
                         >
                           <div>
-                            <div className="text-sm font-semibold text-slate-100">
-                              {phase.phase}
-                            </div>
-                            <div className="mt-1 text-[12px] text-slate-300">
-                              {phase.goal}
-                            </div>
+                            <div className="text-sm font-semibold text-slate-100">{phase.phase}</div>
+                            <div className="mt-1 text-[12px] text-slate-300">{phase.goal}</div>
                           </div>
+
+                          {phase.why_this_works ? (
+                            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-[12px] text-slate-200">
+                              <div className="font-semibold text-emerald-200">Why this works</div>
+                              <div className="mt-1 text-slate-300">{phase.why_this_works}</div>
+                            </div>
+                          ) : null}
 
                           {phase.hook_style ? (
                             <div className="text-[12px] text-slate-300">
                               <span className="text-slate-400">Suggested hook style:</span>{" "}
-                              <span className="font-semibold text-violet-200">
-                                {phase.hook_style}
-                              </span>
+                              <span className="font-semibold text-violet-200">{phase.hook_style}</span>
                             </div>
                           ) : null}
 
                           {phase.hooks.length > 0 ? (
                             <div>
-                              <div className="text-[11px] font-semibold text-slate-300">
-                                Example hooks
-                              </div>
+                              <div className="text-[11px] font-semibold text-slate-300">Example hooks</div>
                               <div className="mt-2 space-y-1">
                                 {phase.hooks.map((hook, hookIdx) => (
                                   <div
@@ -791,24 +746,18 @@ export default function SequencesPage() {
 
                           {phase.post_ideas.length > 0 ? (
                             <div>
-                              <div className="text-[11px] font-semibold text-slate-300">
-                                Suggested post ideas
-                              </div>
+                              <div className="text-[11px] font-semibold text-slate-300">Suggested post ideas</div>
                               <div className="mt-2 space-y-2">
                                 {phase.post_ideas.map((postIdea, postIdx) => (
                                   <div
                                     key={`${s.id}-phase-${phaseIdx}-post-${postIdx}`}
                                     className="rounded-lg border border-slate-800 bg-slate-900/50 p-3"
                                   >
-                                    <div className="text-[12px] text-slate-300">
-                                      {postIdea}
-                                    </div>
+                                    <div className="text-[12px] text-slate-300">{postIdea}</div>
                                     <div className="mt-2">
                                       <button
                                         type="button"
-                                        onClick={() =>
-                                          sendPhaseToBrainstorm(s, phase, postIdea)
-                                        }
+                                        onClick={() => sendPhaseToBrainstorm(s, phase, postIdea)}
                                         className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
                                       >
                                         Develop in Brainstorm
@@ -826,9 +775,7 @@ export default function SequencesPage() {
 
                   {activeAndUsedIdeas.length > 0 ? (
                     <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
-                      <div className="text-xs font-semibold text-slate-200">
-                        Starter ideas
-                      </div>
+                      <div className="text-xs font-semibold text-slate-200">Starter ideas</div>
 
                       {allIdeas.map((v, idx) => {
                         const state = v.state || "active";
