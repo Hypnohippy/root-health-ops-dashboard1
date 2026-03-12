@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 type AiVariant = {
   title: string;
@@ -24,6 +24,19 @@ type CampaignPathPhase = {
   post_ideas: string[];
 };
 
+type WebinarOutlineSection = {
+  title: string;
+  bullets: string[];
+};
+
+type WebinarOutline = {
+  title: string;
+  promise: string;
+  audience_takeaway: string;
+  sections: WebinarOutlineSection[];
+  closing_invitation: string;
+};
+
 type Sequence = {
   id: string;
   organisation_id: string;
@@ -43,6 +56,8 @@ type Sequence = {
     }>;
     campaignPath?: CampaignPathPhase[];
     campaignPathGeneratedAt?: string;
+    webinarOutline?: WebinarOutline | null;
+    webinarOutlineGeneratedAt?: string;
   } | null;
 };
 
@@ -51,6 +66,9 @@ type ErrorBySequence = Record<string, string | null>;
 type ArchivedOpenBySequence = Record<string, boolean>;
 type PathGeneratingBySequence = Record<string, boolean>;
 type PathErrorsBySequence = Record<string, string | null>;
+type WebinarGeneratingBySequence = Record<string, boolean>;
+type WebinarErrorsBySequence = Record<string, string | null>;
+type GeneratorKind = "starter_ideas" | "campaign_path" | "webinar_outline";
 
 const GROWTH_SEED_KEYS = [
   "rootops_growth_seed_brainstorm_v1",
@@ -109,6 +127,34 @@ function normaliseCampaignPath(input: any): CampaignPathPhase[] {
   }));
 }
 
+function normaliseWebinarOutline(input: any): WebinarOutline | null {
+  if (!input || typeof input !== "object") return null;
+
+  return {
+    title: String(input?.title || "").trim(),
+    promise: String(input?.promise || "").trim(),
+    audience_takeaway: String(input?.audience_takeaway || "").trim(),
+    sections: Array.isArray(input?.sections)
+      ? input.sections.map((s: any) => ({
+          title: String(s?.title || "").trim(),
+          bullets: Array.isArray(s?.bullets)
+            ? s.bullets.map((b: any) => String(b || "").trim()).filter(Boolean)
+            : [],
+        }))
+      : [],
+    closing_invitation: String(input?.closing_invitation || "").trim(),
+  };
+}
+
+function getPhaseOrder(phase: string) {
+  const p = String(phase || "").toLowerCase().trim();
+  if (p === "awareness") return 1;
+  if (p === "understanding") return 2;
+  if (p === "support") return 3;
+  if (p === "invitation") return 4;
+  return 99;
+}
+
 export default function SequencesPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [sequences, setSequences] = useState<Sequence[]>([]);
@@ -125,6 +171,9 @@ export default function SequencesPage() {
   const [archivedOpen, setArchivedOpen] = useState<ArchivedOpenBySequence>({});
   const [pathGeneratingMap, setPathGeneratingMap] = useState<PathGeneratingBySequence>({});
   const [pathErrors, setPathErrors] = useState<PathErrorsBySequence>({});
+  const [webinarGeneratingMap, setWebinarGeneratingMap] = useState<WebinarGeneratingBySequence>({});
+  const [webinarErrors, setWebinarErrors] = useState<WebinarErrorsBySequence>({});
+  const [generatorChoice, setGeneratorChoice] = useState<Record<string, GeneratorKind>>({});
   const [toast, setToast] = useState<string | null>(null);
 
   async function loadOrganisation() {
@@ -340,7 +389,9 @@ export default function SequencesPage() {
         throw new Error(data?.error || "Failed to generate campaign path");
       }
 
-      const phases = normaliseCampaignPath(data?.phases);
+      const phases = normaliseCampaignPath(data?.phases).sort(
+        (a, b) => getPhaseOrder(a.phase) - getPhaseOrder(b.phase)
+      );
 
       const nextGeneratedContent = {
         ...(s.generated_content || {}),
@@ -361,6 +412,59 @@ export default function SequencesPage() {
     } finally {
       setPathGeneratingMap((prev) => ({ ...prev, [s.id]: false }));
     }
+  }
+
+  async function generateWebinarOutline(s: Sequence) {
+    setWebinarGeneratingMap((prev) => ({ ...prev, [s.id]: true }));
+    setWebinarErrors((prev) => ({ ...prev, [s.id]: null }));
+
+    try {
+      const res = await fetch("/api/ai/webinar-outline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: s.name,
+          goal: s.goal || "",
+          audience: s.audience || "",
+          notes: s.notes || "",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to generate webinar outline");
+      }
+
+      const outline = normaliseWebinarOutline(data?.outline);
+
+      const nextGeneratedContent = {
+        ...(s.generated_content || {}),
+        webinarOutline: outline,
+        webinarOutlineGeneratedAt: new Date().toISOString(),
+      };
+
+      await saveGeneratedContent(s.id, nextGeneratedContent, "draft");
+      await loadSequences();
+
+      setToast("Webinar outline saved ✅");
+      setTimeout(() => setToast(null), 1800);
+    } catch (e: any) {
+      setWebinarErrors((prev) => ({
+        ...prev,
+        [s.id]: e?.message || "Failed to generate webinar outline",
+      }));
+    } finally {
+      setWebinarGeneratingMap((prev) => ({ ...prev, [s.id]: false }));
+    }
+  }
+
+  async function runSelectedGenerator(s: Sequence) {
+    const choice = generatorChoice[s.id] || "starter_ideas";
+
+    if (choice === "starter_ideas") return generateIdeasForSequence(s);
+    if (choice === "campaign_path") return generateCampaignPath(s);
+    if (choice === "webinar_outline") return generateWebinarOutline(s);
   }
 
   async function updateIdeaState(
@@ -528,6 +632,33 @@ export default function SequencesPage() {
     window.location.href = "/dashboard/brainstorm";
   }
 
+  const progressPills = (campaignPath: CampaignPathPhase[]) => {
+    const phases = campaignPath.map((p) => String(p.phase || "").trim().toLowerCase());
+    const order = ["awareness", "understanding", "support", "invitation"];
+
+    return (
+      <div className="flex flex-wrap gap-2">
+        {order.map((phase) => {
+          const done = phases.includes(phase);
+          return (
+            <div
+              key={phase}
+              className={[
+                "rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
+                done
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                  : "border-slate-700 bg-slate-900/60 text-slate-400",
+              ].join(" ")}
+            >
+              {done ? "✓ " : ""}
+              {phase}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-6">
@@ -535,7 +666,7 @@ export default function SequencesPage() {
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold">Campaign Studio</h1>
             <p className="mt-1 text-sm text-slate-300">
-              Create a campaign shell, generate starter ideas, then develop them in Brainstorm.
+              Create a campaign shell, generate guided assets, then develop them in Brainstorm.
             </p>
           </div>
 
@@ -627,15 +758,21 @@ export default function SequencesPage() {
               const allIdeas = normaliseIdeas(s.generated_content?.starterIdeas);
               const activeAndUsedIdeas = allIdeas.filter((v) => (v.state || "active") !== "archived");
               const archivedIdeas = allIdeas.filter((v) => (v.state || "active") === "archived");
-              const campaignPath = normaliseCampaignPath(s.generated_content?.campaignPath);
+              const campaignPath = normaliseCampaignPath(s.generated_content?.campaignPath).sort(
+                (a, b) => getPhaseOrder(a.phase) - getPhaseOrder(b.phase)
+              );
+              const webinarOutline = normaliseWebinarOutline(s.generated_content?.webinarOutline);
 
               const generating = !!generatingMap[s.id];
               const generateError = generateErrors[s.id];
               const pathGenerating = !!pathGeneratingMap[s.id];
               const pathError = pathErrors[s.id];
+              const webinarGenerating = !!webinarGeneratingMap[s.id];
+              const webinarError = webinarErrors[s.id];
               const handoffCount = Array.isArray(s.generated_content?.brainstormSends)
                 ? s.generated_content?.brainstormSends?.length || 0
                 : 0;
+              const currentChoice = generatorChoice[s.id] || "starter_ideas";
 
               return (
                 <div key={s.id} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 space-y-4">
@@ -655,25 +792,52 @@ export default function SequencesPage() {
 
                   {s.notes && <div className="text-[11px] text-slate-400">{s.notes}</div>}
 
+                  {/* Progress */}
+                  {campaignPath.length > 0 ? (
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-2">
+                      <div className="text-[11px] font-semibold text-slate-300">Campaign progress</div>
+                      {progressPills(campaignPath)}
+                    </div>
+                  ) : null}
+
+                  {/* Generator selector */}
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-3">
+                    <div className="text-[11px] font-semibold text-slate-300">Generator</div>
+
+                    <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                      <select
+                        value={currentChoice}
+                        onChange={(e) =>
+                          setGeneratorChoice((prev) => ({
+                            ...prev,
+                            [s.id]: e.target.value as GeneratorKind,
+                          }))
+                        }
+                        className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                      >
+                        <option value="starter_ideas">Starter ideas</option>
+                        <option value="campaign_path">Campaign path</option>
+                        <option value="webinar_outline">Webinar / presentation outline</option>
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={() => runSelectedGenerator(s)}
+                        disabled={generating || pathGenerating || webinarGenerating}
+                        className="rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-slate-50 hover:bg-violet-400 disabled:opacity-60"
+                      >
+                        {generating || pathGenerating || webinarGenerating
+                          ? "Generating…"
+                          : "Generate"}
+                      </button>
+                    </div>
+
+                    <div className="text-[11px] text-slate-500">
+                      Next up later: email ideas, Pinterest ideas, course outline.
+                    </div>
+                  </div>
+
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => generateIdeasForSequence(s)}
-                      disabled={generating}
-                      className="rounded-full bg-blue-500 px-3 py-2 text-xs font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60"
-                    >
-                      {generating ? "Generating…" : "Generate starter ideas"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => generateCampaignPath(s)}
-                      disabled={pathGenerating}
-                      className="rounded-full bg-violet-500 px-3 py-2 text-xs font-semibold text-slate-50 hover:bg-violet-400 disabled:opacity-60"
-                    >
-                      {pathGenerating ? "Generating path…" : "Generate Campaign Path"}
-                    </button>
-
                     <button
                       type="button"
                       onClick={() => sendCampaignToBrainstorm(s)}
@@ -685,9 +849,11 @@ export default function SequencesPage() {
 
                   {generateError ? <div className="text-[11px] text-red-400">{generateError}</div> : null}
                   {pathError ? <div className="text-[11px] text-red-400">{pathError}</div> : null}
+                  {webinarError ? <div className="text-[11px] text-red-400">{webinarError}</div> : null}
 
                   {(s.generated_content?.lastGeneratedAt ||
                     s.generated_content?.campaignPathGeneratedAt ||
+                    s.generated_content?.webinarOutlineGeneratedAt ||
                     handoffCount > 0) && (
                     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 text-[11px] text-slate-300 space-y-1">
                       {s.generated_content?.lastGeneratedAt && (
@@ -696,10 +862,16 @@ export default function SequencesPage() {
                       {s.generated_content?.campaignPathGeneratedAt && (
                         <div>Campaign path: {new Date(s.generated_content.campaignPathGeneratedAt).toLocaleString()}</div>
                       )}
+                      {s.generated_content?.webinarOutlineGeneratedAt && (
+                        <div>
+                          Webinar outline: {new Date(s.generated_content.webinarOutlineGeneratedAt).toLocaleString()}
+                        </div>
+                      )}
                       {handoffCount > 0 && <div>Sent to Brainstorm: {handoffCount} time(s)</div>}
                     </div>
                   )}
 
+                  {/* Campaign path */}
                   {campaignPath.length > 0 ? (
                     <div className="space-y-3 rounded-2xl border border-violet-900/40 bg-violet-950/10 p-3">
                       <div className="text-xs font-semibold text-violet-200">Root Coach Campaign Path</div>
@@ -773,6 +945,70 @@ export default function SequencesPage() {
                     </div>
                   ) : null}
 
+                  {/* Webinar outline */}
+                  {webinarOutline ? (
+                    <div className="space-y-3 rounded-2xl border border-amber-900/40 bg-amber-950/10 p-3">
+                      <div className="text-xs font-semibold text-amber-200">
+                        Webinar / Presentation Outline
+                      </div>
+
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-3">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-100">
+                            {webinarOutline.title}
+                          </div>
+                          {webinarOutline.promise ? (
+                            <div className="mt-1 text-[12px] text-slate-300">
+                              {webinarOutline.promise}
+                            </div>
+                          ) : null}
+                        </div>
+
+                        {webinarOutline.audience_takeaway ? (
+                          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-[12px] text-slate-200">
+                            <div className="font-semibold text-emerald-200">Audience takeaway</div>
+                            <div className="mt-1 text-slate-300">
+                              {webinarOutline.audience_takeaway}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {webinarOutline.sections.length > 0 ? (
+                          <div className="space-y-3">
+                            {webinarOutline.sections.map((section, idx) => (
+                              <div
+                                key={`${s.id}-webinar-section-${idx}`}
+                                className="rounded-lg border border-slate-800 bg-slate-900/50 p-3"
+                              >
+                                <div className="text-[12px] font-semibold text-slate-200">
+                                  {idx + 1}. {section.title}
+                                </div>
+                                <div className="mt-2 space-y-1">
+                                  {section.bullets.map((bullet, bulletIdx) => (
+                                    <div
+                                      key={`${s.id}-webinar-section-${idx}-bullet-${bulletIdx}`}
+                                      className="text-[12px] text-slate-300"
+                                    >
+                                      • {bullet}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {webinarOutline.closing_invitation ? (
+                          <div className="text-[12px] text-slate-300">
+                            <span className="text-slate-400">Closing invitation:</span>{" "}
+                            {webinarOutline.closing_invitation}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Starter ideas */}
                   {activeAndUsedIdeas.length > 0 ? (
                     <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
                       <div className="text-xs font-semibold text-slate-200">Starter ideas</div>
