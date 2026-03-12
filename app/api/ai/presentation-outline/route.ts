@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
     const duration = String(body?.duration || "30 mins").trim();
     const tone = String(body?.tone || "calm and professional").trim();
     const fillLevel = String(body?.fillLevel || "draft").trim(); // skeleton | draft | ready
+    const deliveryMode = String(body?.deliveryMode || "online").trim(); // online | in_person | hybrid
 
     if (!topic) {
       return NextResponse.json(
@@ -62,11 +63,15 @@ export async function POST(req: NextRequest) {
 
     const system = [
       "You are Root Coach, a gentle educator and marketing strategist for therapists, coaches, and wellbeing brands.",
-      "Create a calm, ethical presentation outline that feels supportive, useful, and non-salesy.",
+      "Create a calm, ethical teaching-ready presentation that feels supportive, useful, and non-salesy.",
       "Do not make diagnosis, treatment, cure, or recovery claims.",
       explicitConditionTopic
         ? "The user has explicitly chosen a condition/topic. You may refer to that topic carefully, respectfully, and in broad educational language without sounding diagnostic or reductive."
         : "Do not assume any diagnosis, condition, neurotype, disorder, or label unless the user explicitly asked for that topic. Default to broad, non-diagnostic language such as stress, overwhelm, focus, confidence, emotional wellbeing, work pressure, resilience, or support.",
+      "Make the content genuinely educational, not just headings.",
+      "Each slide must include practical teaching content that a speaker could actually use.",
+      "Speaker notes should be fuller than the on-slide bullets, but still concise and usable.",
+      "Audience prompts should be gentle and optional, never intrusive.",
       "Use UK spelling.",
       "Return only valid JSON matching the schema.",
     ].join(" ");
@@ -79,18 +84,31 @@ export async function POST(req: NextRequest) {
       `Duration: ${duration}`,
       `Tone: ${tone}`,
       `Fill level: ${fillLevel}`,
+      `Delivery mode: ${deliveryMode}`,
       "",
-      "Create a presentation outline that includes:",
+      "Create a teaching-ready presentation that includes:",
       "- title",
       "- objective",
       "- audience_takeaway",
       "- 8 slides",
-      "- each slide should have a slide_title and 2-4 bullet points",
+      "- each slide must include:",
+      "  - slide_title",
+      "  - slide_goal",
+      "  - 2-4 on-slide bullets",
+      "  - speaker_notes",
+      "  - audience_prompt",
       "- a closing invitation",
       "",
-      "If fill level is skeleton, keep bullets shorter and more structural.",
-      "If fill level is draft, provide useful speaker-ready bullets.",
-      "If fill level is ready, provide polished, delivery-ready bullets.",
+      "The content should contain actual educational substance, not just thin labels.",
+      "For example, if the topic is anxiety, include useful broad education such as what it can look like, common pressures, supportive responses, practical next steps, and how to talk about it sensitively.",
+      "",
+      "If fill level is skeleton, keep speaker_notes shorter and structural.",
+      "If fill level is draft, provide useful teaching content and speaker notes.",
+      "If fill level is ready, provide polished, delivery-ready teaching content.",
+      "",
+      "If delivery mode is online, make the slides slightly lighter and include audience prompts suitable for chat or reflection.",
+      "If delivery mode is in_person, allow slightly richer facilitation and discussion prompts.",
+      "If delivery mode is hybrid, balance both.",
     ].join("\n");
 
     const schema = {
@@ -99,7 +117,13 @@ export async function POST(req: NextRequest) {
       schema: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "objective", "audience_takeaway", "slides", "closing_invitation"],
+        required: [
+          "title",
+          "objective",
+          "audience_takeaway",
+          "slides",
+          "closing_invitation",
+        ],
         properties: {
           title: { type: "string" },
           objective: { type: "string" },
@@ -111,15 +135,24 @@ export async function POST(req: NextRequest) {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["slide_title", "bullets"],
+              required: [
+                "slide_title",
+                "slide_goal",
+                "bullets",
+                "speaker_notes",
+                "audience_prompt",
+              ],
               properties: {
                 slide_title: { type: "string" },
+                slide_goal: { type: "string" },
                 bullets: {
                   type: "array",
                   minItems: 2,
                   maxItems: 4,
                   items: { type: "string" },
                 },
+                speaker_notes: { type: "string" },
+                audience_prompt: { type: "string" },
               },
             },
           },
