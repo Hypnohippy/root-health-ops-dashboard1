@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 type AiVariant = {
   title: string;
@@ -71,6 +71,9 @@ type WebinarErrorsBySequence = Record<string, string | null>;
 type WebinarSavingBySequence = Record<string, boolean>;
 type WebinarSaveErrorsBySequence = Record<string, string | null>;
 type GeneratorKind = "starter_ideas" | "campaign_path" | "webinar_outline";
+
+type SectionKey = "generate" | "strategy" | "assets" | "ideas";
+type SectionOpenState = Record<string, Record<SectionKey, boolean>>;
 
 const GROWTH_SEED_KEYS = [
   "rootops_growth_seed_brainstorm_v1",
@@ -157,6 +160,36 @@ function getPhaseOrder(phase: string) {
   return 99;
 }
 
+function statusTone(status: string) {
+  const s = String(status || "").toLowerCase().trim();
+  if (s === "in_progress") {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
+  }
+  if (s === "draft") {
+    return "border-slate-700 bg-slate-900/60 text-slate-300";
+  }
+  return "border-slate-700 bg-slate-900/60 text-slate-300";
+}
+
+function makeDefaultSections(
+  hasStrategy: boolean,
+  hasAssets: boolean,
+  hasIdeas: boolean
+): Record<SectionKey, boolean> {
+  return {
+    generate: !hasStrategy && !hasAssets && !hasIdeas,
+    strategy: hasStrategy,
+    assets: hasAssets,
+    ideas: hasIdeas,
+  };
+}
+
+function countCompletedPhases(campaignPath: CampaignPathPhase[]) {
+  const phases = campaignPath.map((p) => String(p.phase || "").trim().toLowerCase());
+  const order = ["awareness", "understanding", "support", "invitation"];
+  return order.filter((p) => phases.includes(p)).length;
+}
+
 export default function SequencesPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [sequences, setSequences] = useState<Sequence[]>([]);
@@ -178,6 +211,7 @@ export default function SequencesPage() {
   const [webinarSavingMap, setWebinarSavingMap] = useState<WebinarSavingBySequence>({});
   const [webinarSaveErrors, setWebinarSaveErrors] = useState<WebinarSaveErrorsBySequence>({});
   const [generatorChoice, setGeneratorChoice] = useState<Record<string, GeneratorKind>>({});
+  const [sectionOpen, setSectionOpen] = useState<SectionOpenState>({});
   const [toast, setToast] = useState<string | null>(null);
 
   async function loadOrganisation() {
@@ -232,6 +266,41 @@ export default function SequencesPage() {
     }
     init();
   }, []);
+
+  useEffect(() => {
+    setSectionOpen((prev) => {
+      const next = { ...prev };
+
+      for (const s of sequences) {
+        if (next[s.id]) continue;
+
+        const campaignPath = normaliseCampaignPath(s.generated_content?.campaignPath);
+        const webinarOutline = normaliseWebinarOutline(s.generated_content?.webinarOutline);
+        const ideas = normaliseIdeas(s.generated_content?.starterIdeas);
+
+        next[s.id] = makeDefaultSections(
+          campaignPath.length > 0,
+          !!webinarOutline,
+          ideas.length > 0
+        );
+      }
+
+      return next;
+    });
+  }, [sequences]);
+
+  function toggleSection(sequenceId: string, section: SectionKey) {
+    setSectionOpen((prev) => ({
+      ...prev,
+      [sequenceId]: {
+        generate: prev[sequenceId]?.generate ?? false,
+        strategy: prev[sequenceId]?.strategy ?? false,
+        assets: prev[sequenceId]?.assets ?? false,
+        ideas: prev[sequenceId]?.ideas ?? false,
+        [section]: !(prev[sequenceId]?.[section] ?? false),
+      },
+    }));
+  }
 
   async function create() {
     if (!organisationId) return;
@@ -359,6 +428,14 @@ export default function SequencesPage() {
       await saveGeneratedContent(s.id, nextGeneratedContent, "draft");
       await loadSequences();
 
+      setSectionOpen((prev) => ({
+        ...prev,
+        [s.id]: {
+          ...(prev[s.id] || makeDefaultSections(false, false, false)),
+          ideas: true,
+        },
+      }));
+
       setToast("Starter ideas saved ✅");
       setTimeout(() => setToast(null), 1800);
     } catch (e: any) {
@@ -406,6 +483,14 @@ export default function SequencesPage() {
       await saveGeneratedContent(s.id, nextGeneratedContent, "draft");
       await loadSequences();
 
+      setSectionOpen((prev) => ({
+        ...prev,
+        [s.id]: {
+          ...(prev[s.id] || makeDefaultSections(false, false, false)),
+          strategy: true,
+        },
+      }));
+
       setToast("Campaign path saved ✅");
       setTimeout(() => setToast(null), 1800);
     } catch (e: any) {
@@ -450,6 +535,14 @@ export default function SequencesPage() {
 
       await saveGeneratedContent(s.id, nextGeneratedContent, "draft");
       await loadSequences();
+
+      setSectionOpen((prev) => ({
+        ...prev,
+        [s.id]: {
+          ...(prev[s.id] || makeDefaultSections(false, false, false)),
+          assets: true,
+        },
+      }));
 
       setToast("Webinar outline saved ✅");
       setTimeout(() => setToast(null), 1800);
@@ -701,6 +794,54 @@ export default function SequencesPage() {
     );
   };
 
+  const campaignSummary = useMemo(() => {
+    return sequences.map((s) => {
+      const campaignPath = normaliseCampaignPath(s.generated_content?.campaignPath).sort(
+        (a, b) => getPhaseOrder(a.phase) - getPhaseOrder(b.phase)
+      );
+      const ideas = normaliseIdeas(s.generated_content?.starterIdeas);
+      const webinar = normaliseWebinarOutline(s.generated_content?.webinarOutline);
+
+      return {
+        id: s.id,
+        phaseCount: countCompletedPhases(campaignPath),
+        activeIdeaCount: ideas.filter((i) => (i.state || "active") !== "archived").length,
+        hasWebinar: !!webinar,
+      };
+    });
+  }, [sequences]);
+
+  function SectionCard(props: {
+    sequenceId: string;
+    section: SectionKey;
+    title: string;
+    subtitle?: string;
+    children: React.ReactNode;
+  }) {
+    const isOpen = sectionOpen[props.sequenceId]?.[props.section] ?? false;
+
+    return (
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/40">
+        <button
+          type="button"
+          onClick={() => toggleSection(props.sequenceId, props.section)}
+          className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
+        >
+          <div>
+            <div className="text-sm font-semibold text-slate-100">{props.title}</div>
+            {props.subtitle ? (
+              <div className="mt-1 text-[11px] text-slate-400">{props.subtitle}</div>
+            ) : null}
+          </div>
+
+          <div className="text-slate-400 text-sm">{isOpen ? "−" : "+"}</div>
+        </button>
+
+        {isOpen ? <div className="border-t border-slate-800 p-4">{props.children}</div> : null}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-6">
@@ -708,7 +849,7 @@ export default function SequencesPage() {
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold">Campaign Studio</h1>
             <p className="mt-1 text-sm text-slate-300">
-              Create a campaign shell, generate guided assets, then develop them in Brainstorm.
+              Build calm campaigns, generate guided assets, then develop them in Brainstorm.
             </p>
           </div>
 
@@ -779,7 +920,7 @@ export default function SequencesPage() {
           {err && <div className="text-[11px] text-red-400">{err}</div>}
         </section>
 
-        <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-3">
+        <section className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold">Your campaigns</h2>
             <button onClick={() => loadSequences()} className="text-xs text-slate-300 hover:text-slate-100">
@@ -795,7 +936,7 @@ export default function SequencesPage() {
             </div>
           )}
 
-          <div className="grid md:grid-cols-2 gap-3">
+          <div className="grid md:grid-cols-2 gap-4">
             {sequences.map((s) => {
               const allIdeas = normaliseIdeas(s.generated_content?.starterIdeas);
               const activeAndUsedIdeas = allIdeas.filter((v) => (v.state || "active") !== "archived");
@@ -818,405 +959,490 @@ export default function SequencesPage() {
                 : 0;
               const currentChoice = generatorChoice[s.id] || "starter_ideas";
 
+              const summary = campaignSummary.find((x) => x.id === s.id);
+
               return (
-                <div key={s.id} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 space-y-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-semibold">{s.name}</div>
-                    <span className="text-[10px] uppercase tracking-wide text-slate-400">
-                      {s.status}
-                    </span>
-                  </div>
-
-                  {(s.goal || s.audience) && (
-                    <div className="text-[11px] text-slate-300 space-y-1">
-                      {s.goal && <div>Goal: {s.goal}</div>}
-                      {s.audience && <div>Audience: {s.audience}</div>}
-                    </div>
-                  )}
-
-                  {s.notes && <div className="text-[11px] text-slate-400">{s.notes}</div>}
-
-                  {campaignPath.length > 0 ? (
-                    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-2">
-                      <div className="text-[11px] font-semibold text-slate-300">Campaign progress</div>
-                      {progressPills(campaignPath)}
-                    </div>
-                  ) : null}
-
-                  <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-3">
-                    <div className="text-[11px] font-semibold text-slate-300">Generator</div>
-
-                    <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                      <select
-                        value={currentChoice}
-                        onChange={(e) =>
-                          setGeneratorChoice((prev) => ({
-                            ...prev,
-                            [s.id]: e.target.value as GeneratorKind,
-                          }))
-                        }
-                        className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-                      >
-                        <option value="starter_ideas">Starter ideas</option>
-                        <option value="campaign_path">Campaign path</option>
-                        <option value="webinar_outline">Webinar / presentation outline</option>
-                      </select>
-
-                      <button
-                        type="button"
-                        onClick={() => runSelectedGenerator(s)}
-                        disabled={generating || pathGenerating || webinarGenerating}
-                        className="rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-slate-50 hover:bg-violet-400 disabled:opacity-60"
-                      >
-                        {generating || pathGenerating || webinarGenerating
-                          ? "Generating…"
-                          : "Generate"}
-                      </button>
-                    </div>
-
-                    <div className="text-[11px] text-slate-500">
-                      Next up later: email ideas, Pinterest ideas, course outline.
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => sendCampaignToBrainstorm(s)}
-                      className="rounded-full border border-slate-600 bg-slate-900 px-3 py-2 text-xs text-slate-100 hover:bg-white/10"
-                    >
-                      Develop in Brainstorm
-                    </button>
-                  </div>
-
-                  {generateError ? <div className="text-[11px] text-red-400">{generateError}</div> : null}
-                  {pathError ? <div className="text-[11px] text-red-400">{pathError}</div> : null}
-                  {webinarError ? <div className="text-[11px] text-red-400">{webinarError}</div> : null}
-                  {webinarSaveError ? <div className="text-[11px] text-red-400">{webinarSaveError}</div> : null}
-
-                  {(s.generated_content?.lastGeneratedAt ||
-                    s.generated_content?.campaignPathGeneratedAt ||
-                    s.generated_content?.webinarOutlineGeneratedAt ||
-                    handoffCount > 0) && (
-                    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 text-[11px] text-slate-300 space-y-1">
-                      {s.generated_content?.lastGeneratedAt && (
-                        <div>Starter ideas: {new Date(s.generated_content.lastGeneratedAt).toLocaleString()}</div>
-                      )}
-                      {s.generated_content?.campaignPathGeneratedAt && (
-                        <div>Campaign path: {new Date(s.generated_content.campaignPathGeneratedAt).toLocaleString()}</div>
-                      )}
-                      {s.generated_content?.webinarOutlineGeneratedAt && (
-                        <div>
-                          Webinar outline: {new Date(s.generated_content.webinarOutlineGeneratedAt).toLocaleString()}
+                <div key={s.id} className="rounded-3xl border border-slate-700 bg-slate-950/60 p-5 space-y-4">
+                  {/* Overview */}
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-lg font-semibold text-slate-100 break-words">
+                          {s.name}
                         </div>
-                      )}
-                      {handoffCount > 0 && <div>Sent to Brainstorm: {handoffCount} time(s)</div>}
-                    </div>
-                  )}
 
-                  {campaignPath.length > 0 ? (
-                    <div className="space-y-3 rounded-2xl border border-violet-900/40 bg-violet-950/10 p-3">
-                      <div className="text-xs font-semibold text-violet-200">Root Coach Campaign Path</div>
-
-                      {campaignPath.map((phase, phaseIdx) => (
-                        <div
-                          key={`${s.id}-phase-${phaseIdx}`}
-                          className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-3"
-                        >
-                          <div>
-                            <div className="text-sm font-semibold text-slate-100">{phase.phase}</div>
-                            <div className="mt-1 text-[12px] text-slate-300">{phase.goal}</div>
+                        {(s.goal || s.audience) && (
+                          <div className="mt-2 text-[11px] text-slate-300 space-y-1">
+                            {s.goal && <div>Goal: {s.goal}</div>}
+                            {s.audience && <div>Audience: {s.audience}</div>}
                           </div>
+                        )}
 
-                          {phase.why_this_works ? (
-                            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-[12px] text-slate-200">
-                              <div className="font-semibold text-emerald-200">Why this works</div>
-                              <div className="mt-1 text-slate-300">{phase.why_this_works}</div>
-                            </div>
-                          ) : null}
+                        {s.notes ? (
+                          <div className="mt-2 text-[11px] text-slate-400">{s.notes}</div>
+                        ) : null}
+                      </div>
 
-                          {phase.hook_style ? (
-                            <div className="text-[12px] text-slate-300">
-                              <span className="text-slate-400">Suggested hook style:</span>{" "}
-                              <span className="font-semibold text-violet-200">{phase.hook_style}</span>
-                            </div>
-                          ) : null}
-
-                          {phase.hooks.length > 0 ? (
-                            <div>
-                              <div className="text-[11px] font-semibold text-slate-300">Example hooks</div>
-                              <div className="mt-2 space-y-1">
-                                {phase.hooks.map((hook, hookIdx) => (
-                                  <div
-                                    key={`${s.id}-phase-${phaseIdx}-hook-${hookIdx}`}
-                                    className="text-[12px] text-slate-300"
-                                  >
-                                    • {hook}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {phase.post_ideas.length > 0 ? (
-                            <div>
-                              <div className="text-[11px] font-semibold text-slate-300">Suggested post ideas</div>
-                              <div className="mt-2 space-y-2">
-                                {phase.post_ideas.map((postIdea, postIdx) => (
-                                  <div
-                                    key={`${s.id}-phase-${phaseIdx}-post-${postIdx}`}
-                                    className="rounded-lg border border-slate-800 bg-slate-900/50 p-3"
-                                  >
-                                    <div className="text-[12px] text-slate-300">{postIdea}</div>
-                                    <div className="mt-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => sendPhaseToBrainstorm(s, phase, postIdea)}
-                                        className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                                      >
-                                        Develop in Brainstorm
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      ))}
+                      <span
+                        className={[
+                          "shrink-0 rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
+                          statusTone(s.status),
+                        ].join(" ")}
+                      >
+                        {s.status}
+                      </span>
                     </div>
-                  ) : null}
 
-                  {webinarOutline ? (
-                    <div className="space-y-3 rounded-2xl border border-amber-900/40 bg-amber-950/10 p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-xs font-semibold text-amber-200">
-                          Webinar / Presentation Outline
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => saveWebinarToLibrary(s)}
-                            disabled={webinarSaving}
-                            className="rounded-full bg-amber-400 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
-                          >
-                            {webinarSaving ? "Saving…" : "Save to Library"}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              window.location.href = "/dashboard/resources";
-                            }}
-                            className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
-                          >
-                            Open Library
-                          </button>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 px-3 py-3">
+                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Phases</div>
+                        <div className="mt-1 text-lg font-semibold text-slate-100">
+                          {summary?.phaseCount ?? 0}/4
                         </div>
                       </div>
 
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-3">
-                        <div>
-                          <div className="text-sm font-semibold text-slate-100">
-                            {webinarOutline.title}
-                          </div>
-                          {webinarOutline.promise ? (
-                            <div className="mt-1 text-[12px] text-slate-300">
-                              {webinarOutline.promise}
-                            </div>
-                          ) : null}
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 px-3 py-3">
+                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Ideas</div>
+                        <div className="mt-1 text-lg font-semibold text-slate-100">
+                          {summary?.activeIdeaCount ?? 0}
                         </div>
+                      </div>
 
-                        {webinarOutline.audience_takeaway ? (
-                          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-[12px] text-slate-200">
-                            <div className="font-semibold text-emerald-200">Audience takeaway</div>
-                            <div className="mt-1 text-slate-300">
-                              {webinarOutline.audience_takeaway}
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 px-3 py-3">
+                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Assets</div>
+                        <div className="mt-1 text-lg font-semibold text-slate-100">
+                          {summary?.hasWebinar ? "1" : "0"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {campaignPath.length > 0 ? (
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                        <div className="text-[11px] font-semibold text-slate-300 mb-2">
+                          Campaign progress
+                        </div>
+                        {progressPills(campaignPath)}
+                      </div>
+                    ) : null}
+
+                    {(s.generated_content?.lastGeneratedAt ||
+                      s.generated_content?.campaignPathGeneratedAt ||
+                      s.generated_content?.webinarOutlineGeneratedAt ||
+                      handoffCount > 0) && (
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-3 text-[11px] text-slate-300 space-y-1">
+                        {s.generated_content?.lastGeneratedAt && (
+                          <div>Starter ideas: {new Date(s.generated_content.lastGeneratedAt).toLocaleString()}</div>
+                        )}
+                        {s.generated_content?.campaignPathGeneratedAt && (
+                          <div>Campaign path: {new Date(s.generated_content.campaignPathGeneratedAt).toLocaleString()}</div>
+                        )}
+                        {s.generated_content?.webinarOutlineGeneratedAt && (
+                          <div>Webinar outline: {new Date(s.generated_content.webinarOutlineGeneratedAt).toLocaleString()}</div>
+                        )}
+                        {handoffCount > 0 && <div>Sent to Brainstorm: {handoffCount} time(s)</div>}
+                        <div>Created: {new Date(s.created_at).toLocaleString()}</div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => sendCampaignToBrainstorm(s)}
+                        className="rounded-full border border-slate-600 bg-slate-900 px-3 py-2 text-xs text-slate-100 hover:bg-white/10"
+                      >
+                        Develop in Brainstorm
+                      </button>
+                    </div>
+
+                    {generateError ? <div className="text-[11px] text-red-400">{generateError}</div> : null}
+                    {pathError ? <div className="text-[11px] text-red-400">{pathError}</div> : null}
+                    {webinarError ? <div className="text-[11px] text-red-400">{webinarError}</div> : null}
+                    {webinarSaveError ? <div className="text-[11px] text-red-400">{webinarSaveError}</div> : null}
+                  </div>
+
+                  {/* Generate */}
+                  <SectionCard
+                    sequenceId={s.id}
+                    section="generate"
+                    title="Generate"
+                    subtitle="Pick what to create next"
+                  >
+                    <div className="space-y-3">
+                      <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                        <select
+                          value={currentChoice}
+                          onChange={(e) =>
+                            setGeneratorChoice((prev) => ({
+                              ...prev,
+                              [s.id]: e.target.value as GeneratorKind,
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                        >
+                          <option value="starter_ideas">Starter ideas</option>
+                          <option value="campaign_path">Campaign path</option>
+                          <option value="webinar_outline">Webinar / presentation outline</option>
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() => runSelectedGenerator(s)}
+                          disabled={generating || pathGenerating || webinarGenerating}
+                          className="rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-slate-50 hover:bg-violet-400 disabled:opacity-60"
+                        >
+                          {generating || pathGenerating || webinarGenerating ? "Generating…" : "Generate"}
+                        </button>
+                      </div>
+
+                      <div className="text-[11px] text-slate-500">
+                        Later we can add email ideas, Pinterest ideas, templates, and course outlines here.
+                      </div>
+                    </div>
+                  </SectionCard>
+
+                  {/* Strategy */}
+                  <SectionCard
+                    sequenceId={s.id}
+                    section="strategy"
+                    title="Strategy"
+                    subtitle={
+                      campaignPath.length > 0
+                        ? `${campaignPath.length} campaign phase${campaignPath.length === 1 ? "" : "s"} ready`
+                        : "Campaign path, hooks, and phase-by-phase ideas"
+                    }
+                  >
+                    {campaignPath.length === 0 ? (
+                      <div className="text-sm text-slate-400">
+                        No strategy generated yet. Use Generate → Campaign path.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {campaignPath.map((phase, phaseIdx) => (
+                          <div
+                            key={`${s.id}-phase-${phaseIdx}`}
+                            className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-3"
+                          >
+                            <div>
+                              <div className="text-sm font-semibold text-slate-100">{phase.phase}</div>
+                              <div className="mt-1 text-[12px] text-slate-300">{phase.goal}</div>
                             </div>
-                          </div>
-                        ) : null}
 
-                        {webinarOutline.sections.length > 0 ? (
-                          <div className="space-y-3">
-                            {webinarOutline.sections.map((section, idx) => (
-                              <div
-                                key={`${s.id}-webinar-section-${idx}`}
-                                className="rounded-lg border border-slate-800 bg-slate-900/50 p-3"
-                              >
-                                <div className="text-[12px] font-semibold text-slate-200">
-                                  {idx + 1}. {section.title}
-                                </div>
+                            {phase.why_this_works ? (
+                              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-[12px] text-slate-200">
+                                <div className="font-semibold text-emerald-200">Why this works</div>
+                                <div className="mt-1 text-slate-300">{phase.why_this_works}</div>
+                              </div>
+                            ) : null}
+
+                            {phase.hook_style ? (
+                              <div className="text-[12px] text-slate-300">
+                                <span className="text-slate-400">Suggested hook style:</span>{" "}
+                                <span className="font-semibold text-violet-200">{phase.hook_style}</span>
+                              </div>
+                            ) : null}
+
+                            {phase.hooks.length > 0 ? (
+                              <div>
+                                <div className="text-[11px] font-semibold text-slate-300">Example hooks</div>
                                 <div className="mt-2 space-y-1">
-                                  {section.bullets.map((bullet, bulletIdx) => (
+                                  {phase.hooks.map((hook, hookIdx) => (
                                     <div
-                                      key={`${s.id}-webinar-section-${idx}-bullet-${bulletIdx}`}
+                                      key={`${s.id}-phase-${phaseIdx}-hook-${hookIdx}`}
                                       className="text-[12px] text-slate-300"
                                     >
-                                      • {bullet}
+                                      • {hook}
                                     </div>
                                   ))}
                                 </div>
                               </div>
-                            ))}
-                          </div>
-                        ) : null}
+                            ) : null}
 
-                        {webinarOutline.closing_invitation ? (
-                          <div className="text-[12px] text-slate-300">
-                            <span className="text-slate-400">Closing invitation:</span>{" "}
-                            {webinarOutline.closing_invitation}
+                            {phase.post_ideas.length > 0 ? (
+                              <div>
+                                <div className="text-[11px] font-semibold text-slate-300">Suggested post ideas</div>
+                                <div className="mt-2 space-y-2">
+                                  {phase.post_ideas.map((postIdea, postIdx) => (
+                                    <div
+                                      key={`${s.id}-phase-${phaseIdx}-post-${postIdx}`}
+                                      className="rounded-lg border border-slate-800 bg-slate-900/50 p-3"
+                                    >
+                                      <div className="text-[12px] text-slate-300">{postIdea}</div>
+                                      <div className="mt-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => sendPhaseToBrainstorm(s, phase, postIdea)}
+                                          className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                                        >
+                                          Develop in Brainstorm
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
-                        ) : null}
+                        ))}
                       </div>
-                    </div>
-                  ) : null}
+                    )}
+                  </SectionCard>
 
-                  {activeAndUsedIdeas.length > 0 ? (
-                    <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
-                      <div className="text-xs font-semibold text-slate-200">Starter ideas</div>
+                  {/* Assets */}
+                  <SectionCard
+                    sequenceId={s.id}
+                    section="assets"
+                    title="Assets"
+                    subtitle={
+                      webinarOutline
+                        ? "Webinar / presentation outline ready"
+                        : "Long-form resources like webinar outlines"
+                    }
+                  >
+                    {!webinarOutline ? (
+                      <div className="text-sm text-slate-400">
+                        No assets generated yet. Use Generate → Webinar / presentation outline.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-xs font-semibold text-amber-200">
+                            Webinar / Presentation Outline
+                          </div>
 
-                      {allIdeas.map((v, idx) => {
-                        const state = v.state || "active";
-                        if (state === "archived") return null;
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => saveWebinarToLibrary(s)}
+                              disabled={webinarSaving}
+                              className="rounded-full bg-amber-400 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
+                            >
+                              {webinarSaving ? "Saving…" : "Save to Library"}
+                            </button>
 
-                        return (
-                          <div
-                            key={`${s.id}-${idx}`}
-                            className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-2"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="text-sm font-semibold text-slate-100">
-                                {v.title || `Idea ${idx + 1}`}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                window.location.href = "/dashboard/resources";
+                              }}
+                              className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                            >
+                              Open Library
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-3">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-100">
+                              {webinarOutline.title}
+                            </div>
+                            {webinarOutline.promise ? (
+                              <div className="mt-1 text-[12px] text-slate-300">
+                                {webinarOutline.promise}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {webinarOutline.audience_takeaway ? (
+                            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-[12px] text-slate-200">
+                              <div className="font-semibold text-emerald-200">Audience takeaway</div>
+                              <div className="mt-1 text-slate-300">
+                                {webinarOutline.audience_takeaway}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {webinarOutline.sections.length > 0 ? (
+                            <div className="space-y-3">
+                              {webinarOutline.sections.map((section, idx) => (
+                                <div
+                                  key={`${s.id}-webinar-section-${idx}`}
+                                  className="rounded-lg border border-slate-800 bg-slate-900/50 p-3"
+                                >
+                                  <div className="text-[12px] font-semibold text-slate-200">
+                                    {idx + 1}. {section.title}
+                                  </div>
+                                  <div className="mt-2 space-y-1">
+                                    {section.bullets.map((bullet, bulletIdx) => (
+                                      <div
+                                        key={`${s.id}-webinar-section-${idx}-bullet-${bulletIdx}`}
+                                        className="text-[12px] text-slate-300"
+                                      >
+                                        • {bullet}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {webinarOutline.closing_invitation ? (
+                            <div className="text-[12px] text-slate-300">
+                              <span className="text-slate-400">Closing invitation:</span>{" "}
+                              {webinarOutline.closing_invitation}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    )}
+                  </SectionCard>
+
+                  {/* Ideas */}
+                  <SectionCard
+                    sequenceId={s.id}
+                    section="ideas"
+                    title="Ideas"
+                    subtitle={
+                      activeAndUsedIdeas.length > 0
+                        ? `${activeAndUsedIdeas.length} starter idea${activeAndUsedIdeas.length === 1 ? "" : "s"}`
+                        : "Generated starter ideas"
+                    }
+                  >
+                    {activeAndUsedIdeas.length === 0 ? (
+                      <div className="text-sm text-slate-400">
+                        No ideas generated yet. Use Generate → Starter ideas.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {allIdeas.map((v, idx) => {
+                          const state = v.state || "active";
+                          if (state === "archived") return null;
+
+                          return (
+                            <div
+                              key={`${s.id}-${idx}`}
+                              className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-2"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-sm font-semibold text-slate-100">
+                                  {v.title || `Idea ${idx + 1}`}
+                                </div>
+
+                                <span
+                                  className={[
+                                    "text-[10px] uppercase tracking-wide px-2 py-1 rounded-full border",
+                                    state === "used"
+                                      ? "border-emerald-500/40 text-emerald-200 bg-emerald-500/10"
+                                      : "border-slate-700 text-slate-300 bg-slate-900/60",
+                                  ].join(" ")}
+                                >
+                                  {state}
+                                </span>
                               </div>
 
-                              <span
-                                className={[
-                                  "text-[10px] uppercase tracking-wide px-2 py-1 rounded-full border",
-                                  state === "used"
-                                    ? "border-emerald-500/40 text-emerald-200 bg-emerald-500/10"
-                                    : "border-slate-700 text-slate-300 bg-slate-900/60",
-                                ].join(" ")}
-                              >
-                                {state}
-                              </span>
-                            </div>
+                              <div className="text-[12px] text-slate-300 whitespace-pre-wrap">
+                                {joinVariant(v)}
+                              </div>
 
-                            <div className="text-[12px] text-slate-300 whitespace-pre-wrap">
-                              {joinVariant(v)}
-                            </div>
-
-                            <div className="flex flex-wrap gap-2 pt-1">
-                              <button
-                                type="button"
-                                onClick={() => sendCampaignToBrainstorm(s, v, idx)}
-                                className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                              >
-                                Develop this in Brainstorm
-                              </button>
-
-                              {state !== "used" && (
+                              <div className="flex flex-wrap gap-2 pt-1">
                                 <button
                                   type="button"
-                                  onClick={() => updateIdeaState(s, idx, "used")}
-                                  className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                                  onClick={() => sendCampaignToBrainstorm(s, v, idx)}
+                                  className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
                                 >
-                                  Mark as used
+                                  Develop this in Brainstorm
                                 </button>
-                              )}
 
-                              <button
-                                type="button"
-                                onClick={() => updateIdeaState(s, idx, "archived")}
-                                className="rounded-full border border-slate-600 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
-                              >
-                                Archive
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => deleteIdea(s, idx)}
-                                className="rounded-full border border-red-500/40 bg-red-950/20 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/35"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {archivedIdeas.length > 0 && (
-                        <div className="pt-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setArchivedOpen((prev) => ({
-                                ...prev,
-                                [s.id]: !prev[s.id],
-                              }))
-                            }
-                            className="text-xs text-slate-300 hover:text-slate-100"
-                          >
-                            {archivedOpen[s.id]
-                              ? `Hide archived ideas (${archivedIdeas.length})`
-                              : `Show archived ideas (${archivedIdeas.length})`}
-                          </button>
-
-                          {archivedOpen[s.id] && (
-                            <div className="mt-3 space-y-3">
-                              {allIdeas.map((v, idx) => {
-                                const state = v.state || "active";
-                                if (state !== "archived") return null;
-
-                                return (
-                                  <div
-                                    key={`${s.id}-archived-${idx}`}
-                                    className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2"
+                                {state !== "used" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => updateIdeaState(s, idx, "used")}
+                                    className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
                                   >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="text-sm font-semibold text-slate-200">
-                                        {v.title || `Idea ${idx + 1}`}
+                                    Mark as used
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => updateIdeaState(s, idx, "archived")}
+                                  className="rounded-full border border-slate-600 bg-slate-950 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                                >
+                                  Archive
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => deleteIdea(s, idx)}
+                                  className="rounded-full border border-red-500/40 bg-red-950/20 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/35"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {archivedIdeas.length > 0 && (
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setArchivedOpen((prev) => ({
+                                  ...prev,
+                                  [s.id]: !prev[s.id],
+                                }))
+                              }
+                              className="text-xs text-slate-300 hover:text-slate-100"
+                            >
+                              {archivedOpen[s.id]
+                                ? `Hide archived ideas (${archivedIdeas.length})`
+                                : `Show archived ideas (${archivedIdeas.length})`}
+                            </button>
+
+                            {archivedOpen[s.id] && (
+                              <div className="mt-3 space-y-3">
+                                {allIdeas.map((v, idx) => {
+                                  const state = v.state || "active";
+                                  if (state !== "archived") return null;
+
+                                  return (
+                                    <div
+                                      key={`${s.id}-archived-${idx}`}
+                                      className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2"
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="text-sm font-semibold text-slate-200">
+                                          {v.title || `Idea ${idx + 1}`}
+                                        </div>
+
+                                        <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded-full border border-slate-700 text-slate-300 bg-slate-900/60">
+                                          archived
+                                        </span>
                                       </div>
 
-                                      <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded-full border border-slate-700 text-slate-300 bg-slate-900/60">
-                                        archived
-                                      </span>
+                                      <div className="text-[12px] text-slate-400 whitespace-pre-wrap">
+                                        {joinVariant(v)}
+                                      </div>
+
+                                      <div className="flex flex-wrap gap-2 pt-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => updateIdeaState(s, idx, "active")}
+                                          className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                                        >
+                                          Restore
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => deleteIdea(s, idx)}
+                                          className="rounded-full border border-red-500/40 bg-red-950/20 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/35"
+                                        >
+                                          Delete
+                                        </button>
+                                      </div>
                                     </div>
-
-                                    <div className="text-[12px] text-slate-400 whitespace-pre-wrap">
-                                      {joinVariant(v)}
-                                    </div>
-
-                                    <div className="flex flex-wrap gap-2 pt-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => updateIdeaState(s, idx, "active")}
-                                        className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
-                                      >
-                                        Restore
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => deleteIdea(s, idx)}
-                                        className="rounded-full border border-red-500/40 bg-red-950/20 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/35"
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-
-                  <div className="text-[10px] text-slate-500">
-                    Created: {new Date(s.created_at).toLocaleString()}
-                  </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </SectionCard>
                 </div>
               );
             })}
