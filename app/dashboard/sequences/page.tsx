@@ -70,10 +70,32 @@ type WebinarGeneratingBySequence = Record<string, boolean>;
 type WebinarErrorsBySequence = Record<string, string | null>;
 type WebinarSavingBySequence = Record<string, boolean>;
 type WebinarSaveErrorsBySequence = Record<string, string | null>;
-type GeneratorKind = "starter_ideas" | "campaign_path" | "webinar_outline";
+
+type GeneratorKind =
+  | "starter_ideas"
+  | "campaign_path"
+  | "webinar_outline"
+  | "template_webinar_funnel"
+  | "template_awareness_campaign"
+  | "template_lead_magnet"
+  | "template_7_day_nurture"
+  | "template_workshop_follow_up";
 
 type SectionKey = "generate" | "strategy" | "assets" | "ideas";
 type SectionOpenState = Record<string, Record<SectionKey, boolean>>;
+
+type CoachSuggestion = {
+  title: string;
+  body: string;
+  cta: string;
+  action:
+    | "generate_campaign_path"
+    | "generate_starter_ideas"
+    | "develop_brainstorm"
+    | "save_webinar"
+    | "open_library"
+    | "generate_webinar_outline";
+};
 
 const GROWTH_SEED_KEYS = [
   "rootops_growth_seed_brainstorm_v1",
@@ -190,19 +212,6 @@ function countCompletedPhases(campaignPath: CampaignPathPhase[]) {
   return order.filter((p) => phases.includes(p)).length;
 }
 
-type CoachSuggestion = {
-  title: string;
-  body: string;
-  cta: string;
-  action:
-    | "generate_campaign_path"
-    | "generate_starter_ideas"
-    | "develop_brainstorm"
-    | "save_webinar"
-    | "open_library"
-    | "generate_webinar_outline";
-};
-
 function getCoachSuggestion(args: {
   campaignPath: CampaignPathPhase[];
   ideas: StoredStarterIdea[];
@@ -256,6 +265,358 @@ function getCoachSuggestion(args: {
     cta: "Save Webinar to Library",
     action: "save_webinar",
   };
+}
+
+function buildTemplateCampaignPath(
+  template: GeneratorKind,
+  sequence: Sequence
+): CampaignPathPhase[] {
+  const name = String(sequence.name || "").trim() || "This campaign";
+  const goal = String(sequence.goal || "").trim() || "build trust and momentum";
+  const audience = String(sequence.audience || "").trim() || "your audience";
+
+  if (template === "template_webinar_funnel") {
+    return [
+      {
+        phase: "Awareness",
+        goal: `Help ${audience} notice the problem this webinar solves.`,
+        why_this_works:
+          "People engage first when they feel seen, not sold to. Awareness content opens the emotional door.",
+        hook_style: "gentle problem recognition",
+        hooks: [
+          `A lot of ${audience} are carrying more than anyone realises.`,
+          `Sometimes the hardest part is not knowing where to start.`,
+          `If ${name.toLowerCase()} feels important, this may be why.`,
+        ],
+        post_ideas: [
+          `A short awareness post naming the hidden struggle behind ${goal}.`,
+          `A myth-busting post about why people delay getting support or guidance.`,
+        ],
+      },
+      {
+        phase: "Understanding",
+        goal: "Teach the audience what is happening and why it matters.",
+        why_this_works:
+          "Education lowers resistance. When people understand the problem, they trust the guide more.",
+        hook_style: "clear educational authority",
+        hooks: [
+          `Here’s what most people misunderstand about this problem.`,
+          `This is usually not about lack of effort.`,
+          `A clearer way to understand what is really going on.`,
+        ],
+        post_ideas: [
+          "An educational explainer post with 3 key insights.",
+          "A post breaking the issue into simple, human language.",
+        ],
+      },
+      {
+        phase: "Support",
+        goal: "Offer practical help and show the webinar as a safe next step.",
+        why_this_works:
+          "Support content proves usefulness before the invitation arrives.",
+        hook_style: "practical reassurance",
+        hooks: [
+          `A calmer approach often works better than pushing harder.`,
+          `Here are a few gentle shifts that can help.`,
+          `You do not need a perfect plan to begin making progress.`,
+        ],
+        post_ideas: [
+          "A practical steps post showing what people can try now.",
+          "A reassuring post connecting common struggles to simple next steps.",
+        ],
+      },
+      {
+        phase: "Invitation",
+        goal: "Invite the audience into the webinar with clarity and warmth.",
+        why_this_works:
+          "By this point the invitation feels earned because trust and relevance have already been built.",
+        hook_style: "warm confident invitation",
+        hooks: [
+          `If you want help with this in a clearer way, I’m hosting something for you.`,
+          `This webinar is designed to make the next step feel simpler.`,
+          `Join me for a practical session built for real life, not perfection.`,
+        ],
+        post_ideas: [
+          `A direct webinar invitation post linked to ${goal}.`,
+          "A last-call invitation post with a calm reminder of the value.",
+        ],
+      },
+    ];
+  }
+
+  if (template === "template_awareness_campaign") {
+    return [
+      {
+        phase: "Awareness",
+        goal: `Help ${audience} recognise the real issue behind ${name}.`,
+        why_this_works:
+          "Recognition comes before action. People need to feel understood first.",
+        hook_style: "reflective recognition",
+        hooks: [
+          `Not every struggle looks dramatic from the outside.`,
+          `A lot of people are coping more quietly than we think.`,
+          `Sometimes what looks “fine” is actually someone getting through the day.`,
+        ],
+        post_ideas: [
+          "A reflective post that names the hidden cost of the problem.",
+          "A short post about why this topic deserves more open conversation.",
+        ],
+      },
+      {
+        phase: "Understanding",
+        goal: "Add context, language, and clarity.",
+        why_this_works:
+          "When people understand the pattern, they are more open to solutions.",
+        hook_style: "gentle explanation",
+        hooks: [
+          `Here is a simpler way to understand what is happening.`,
+          `This is why the issue often gets missed.`,
+          `What looks small on the surface can be bigger underneath.`,
+        ],
+        post_ideas: [
+          "An explainer post with 3 misunderstandings and 3 truths.",
+          "A post that reframes the issue in a more compassionate way.",
+        ],
+      },
+      {
+        phase: "Support",
+        goal: "Offer emotionally safe next steps.",
+        why_this_works:
+          "Support makes the message useful, not just interesting.",
+        hook_style: "kind practical support",
+        hooks: [
+          `A better next step is usually smaller than people expect.`,
+          `Support can start with one honest shift.`,
+          `You do not have to fix everything at once.`,
+        ],
+        post_ideas: [
+          "A practical support post with small steps.",
+          "A reassuring post on what progress can realistically look like.",
+        ],
+      },
+      {
+        phase: "Invitation",
+        goal: `Invite the audience to learn more or take the next step toward ${goal}.`,
+        why_this_works:
+          "The invitation lands better after awareness, understanding, and support have been earned.",
+        hook_style: "gentle call forward",
+        hooks: [
+          `If this resonates, there is a next step available.`,
+          `If you want to explore this with more structure, here is where to begin.`,
+          `When you are ready, support can look like this.`,
+        ],
+        post_ideas: [
+          "A soft invitation post to a webinar, lead magnet, or consultation.",
+          "A reminder post that turns trust into a clear next action.",
+        ],
+      },
+    ];
+  }
+
+  if (template === "template_lead_magnet") {
+    return [
+      {
+        phase: "Awareness",
+        goal: `Help ${audience} feel the relevance of the lead magnet topic.`,
+        why_this_works:
+          "Lead magnets convert better when the audience sees the problem clearly first.",
+        hook_style: "problem awareness",
+        hooks: [
+          `Most people wait too long before looking for clarity.`,
+          `This issue tends to build quietly over time.`,
+          `A lot of people are asking the wrong question first.`,
+        ],
+        post_ideas: [
+          "A post naming the most common struggle that leads to the resource.",
+          "A post showing why the issue keeps repeating for people.",
+        ],
+      },
+      {
+        phase: "Understanding",
+        goal: "Make the topic easier to understand and more urgent.",
+        why_this_works:
+          "Clarity increases action because people can finally name what they are experiencing.",
+        hook_style: "simple teaching",
+        hooks: [
+          `A clearer lens changes the next step.`,
+          `This is often more common than people think.`,
+          `The pattern makes more sense when you see it like this.`,
+        ],
+        post_ideas: [
+          "A simple educational post with one strong framework.",
+          "A post comparing common myths with a better truth.",
+        ],
+      },
+      {
+        phase: "Support",
+        goal: "Show how the resource helps practically.",
+        why_this_works:
+          "Supportive framing turns the lead magnet into something useful rather than promotional.",
+        hook_style: "useful practical value",
+        hooks: [
+          `A simple resource can take some pressure off.`,
+          `Sometimes the right guide saves a lot of second-guessing.`,
+          `You do not need more noise — you need something useful.`,
+        ],
+        post_ideas: [
+          "A post explaining what the resource contains and who it helps.",
+          "A post showing how the resource supports better decisions.",
+        ],
+      },
+      {
+        phase: "Invitation",
+        goal: `Invite people to download the resource and move closer to ${goal}.`,
+        why_this_works:
+          "The invitation feels natural once need and usefulness are already established.",
+        hook_style: "clear value invitation",
+        hooks: [
+          `If this would help, I made something for you.`,
+          `Here is a practical next step you can keep.`,
+          `If you want a clearer starting point, start here.`,
+        ],
+        post_ideas: [
+          "A lead magnet invitation post with clear value.",
+          "A reminder post encouraging download with less pressure.",
+        ],
+      },
+    ];
+  }
+
+  if (template === "template_7_day_nurture") {
+    return [
+      {
+        phase: "Awareness",
+        goal: `Warm up ${audience} with emotional relevance around ${name}.`,
+        why_this_works:
+          "A nurture sequence works best when the early posts create familiarity and trust.",
+        hook_style: "gentle emotional connection",
+        hooks: [
+          `You are not the only one navigating this.`,
+          `A lot of people are carrying this quietly.`,
+          `There is often more going on beneath the surface.`,
+        ],
+        post_ideas: [
+          "Day 1 awareness post naming the problem.",
+          "Day 2 post creating emotional recognition and trust.",
+        ],
+      },
+      {
+        phase: "Understanding",
+        goal: "Build understanding over several posts.",
+        why_this_works:
+          "Repeated, simple education helps people feel safer and more ready to act.",
+        hook_style: "teaching with warmth",
+        hooks: [
+          `Here is one part people often miss.`,
+          `A simpler way to look at this.`,
+          `This tends to make more sense when you see the pattern.`,
+        ],
+        post_ideas: [
+          "Day 3 educational framework post.",
+          "Day 4 myth versus truth post.",
+        ],
+      },
+      {
+        phase: "Support",
+        goal: "Add practical support and confidence.",
+        why_this_works:
+          "Support content proves care and usefulness before any ask is made.",
+        hook_style: "calm supportive action",
+        hooks: [
+          `Here is something small that can help.`,
+          `Support does not have to be dramatic to matter.`,
+          `Small shifts can change the whole feel of a week.`,
+        ],
+        post_ideas: [
+          "Day 5 practical support post.",
+          "Day 6 reassurance plus simple action post.",
+        ],
+      },
+      {
+        phase: "Invitation",
+        goal: "Invite the audience into the main offer after trust is built.",
+        why_this_works:
+          "By the final stage the audience has context, trust, and momentum.",
+        hook_style: "low-pressure invitation",
+        hooks: [
+          `If you want to take this further, here is the next step.`,
+          `If this has been helpful, there is more support available.`,
+          `When you are ready, here is where to go next.`,
+        ],
+        post_ideas: [
+          "Day 7 invitation post to webinar, programme, or consultation.",
+          "A follow-up invitation post with a gentle reminder.",
+        ],
+      },
+    ];
+  }
+
+  return [
+    {
+      phase: "Awareness",
+      goal: `Build attention around ${name} for ${audience}.`,
+      why_this_works:
+        "People engage first when the message reflects their real experience.",
+      hook_style: "warm re-engagement",
+      hooks: [
+        `If you joined the workshop, this may sound familiar.`,
+        `A useful conversation should not end when the session ends.`,
+        `Sometimes the real progress starts after the event.`,
+      ],
+      post_ideas: [
+        "A recap post of the workshop insight that landed best.",
+        "A post naming the next question people often have after the session.",
+      ],
+    },
+    {
+      phase: "Understanding",
+      goal: "Deepen clarity after the event.",
+      why_this_works:
+        "Follow-up content helps people retain what mattered and understand how to apply it.",
+      hook_style: "post-event clarity",
+      hooks: [
+        `Here is the part worth revisiting.`,
+        `This idea gets stronger when applied in real life.`,
+        `A quick return to the key point from the workshop.`,
+      ],
+      post_ideas: [
+        "A post revisiting the workshop's core framework.",
+        "A post answering one likely follow-up question.",
+      ],
+    },
+    {
+      phase: "Support",
+      goal: "Help the audience use what they learned.",
+      why_this_works:
+        "Support turns inspiration into practical momentum.",
+      hook_style: "practical follow-up",
+      hooks: [
+        `Here is how to make the idea usable this week.`,
+        `A simple next step matters more than a perfect plan.`,
+        `Support works best when it is easy to apply.`,
+      ],
+      post_ideas: [
+        "A practical implementation post for the days after the workshop.",
+        "A post with one concrete action and one reflection question.",
+      ],
+    },
+    {
+      phase: "Invitation",
+      goal: `Invite the audience toward ${goal}.`,
+      why_this_works:
+        "The invitation feels helpful rather than pushy because it follows clarity and support.",
+      hook_style: "warm continuation",
+      hooks: [
+        `If you want to continue from here, there is a next step.`,
+        `If this opened something useful, let’s keep going.`,
+        `Here is where the conversation can continue.`,
+      ],
+      post_ideas: [
+        "A follow-up invitation to a consultation, programme, or resource.",
+        "A workshop continuation post with a clear next action.",
+      ],
+    },
+  ];
 }
 
 export default function SequencesPage() {
@@ -571,6 +932,45 @@ export default function SequencesPage() {
     }
   }
 
+  async function generateTemplateCampaignPath(
+    s: Sequence,
+    template: GeneratorKind
+  ) {
+    setPathGeneratingMap((prev) => ({ ...prev, [s.id]: true }));
+    setPathErrors((prev) => ({ ...prev, [s.id]: null }));
+
+    try {
+      const phases = buildTemplateCampaignPath(template, s);
+
+      const nextGeneratedContent = {
+        ...(s.generated_content || {}),
+        campaignPath: phases,
+        campaignPathGeneratedAt: new Date().toISOString(),
+      };
+
+      await saveGeneratedContent(s.id, nextGeneratedContent, "draft");
+      await loadSequences();
+
+      setSectionOpen((prev) => ({
+        ...prev,
+        [s.id]: {
+          ...(prev[s.id] || makeDefaultSections(false, false, false)),
+          strategy: true,
+        },
+      }));
+
+      setToast("Template campaign path loaded ✅");
+      setTimeout(() => setToast(null), 1800);
+    } catch (e: any) {
+      setPathErrors((prev) => ({
+        ...prev,
+        [s.id]: e?.message || "Failed to apply template",
+      }));
+    } finally {
+      setPathGeneratingMap((prev) => ({ ...prev, [s.id]: false }));
+    }
+  }
+
   async function generateWebinarOutline(s: Sequence) {
     setWebinarGeneratingMap((prev) => ({ ...prev, [s.id]: true }));
     setWebinarErrors((prev) => ({ ...prev, [s.id]: null }));
@@ -668,6 +1068,16 @@ export default function SequencesPage() {
     if (choice === "starter_ideas") return generateIdeasForSequence(s);
     if (choice === "campaign_path") return generateCampaignPath(s);
     if (choice === "webinar_outline") return generateWebinarOutline(s);
+
+    if (
+      choice === "template_webinar_funnel" ||
+      choice === "template_awareness_campaign" ||
+      choice === "template_lead_magnet" ||
+      choice === "template_7_day_nurture" ||
+      choice === "template_workshop_follow_up"
+    ) {
+      return generateTemplateCampaignPath(s, choice);
+    }
   }
 
   async function updateIdeaState(
@@ -1058,7 +1468,6 @@ export default function SequencesPage() {
 
               return (
                 <div key={s.id} className="rounded-3xl border border-slate-700 bg-slate-950/60 p-5 space-y-4">
-                  {/* Overview */}
                   <div className="space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1111,7 +1520,6 @@ export default function SequencesPage() {
                       </div>
                     </div>
 
-                    {/* Root Coach */}
                     <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
                       <div className="text-xs font-semibold uppercase tracking-wide text-emerald-200">
                         {coach.title}
@@ -1173,7 +1581,6 @@ export default function SequencesPage() {
                     {webinarSaveError ? <div className="text-[11px] text-red-400">{webinarSaveError}</div> : null}
                   </div>
 
-                  {/* Generate */}
                   <SectionCard
                     sequenceId={s.id}
                     section="generate"
@@ -1192,9 +1599,14 @@ export default function SequencesPage() {
                           }
                           className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                         >
-                          <option value="starter_ideas">Starter ideas</option>
-                          <option value="campaign_path">Campaign path</option>
-                          <option value="webinar_outline">Webinar / presentation outline</option>
+                          <option value="starter_ideas">AI: Starter ideas</option>
+                          <option value="campaign_path">AI: Campaign path</option>
+                          <option value="webinar_outline">AI: Webinar / presentation outline</option>
+                          <option value="template_webinar_funnel">Template: Webinar Funnel</option>
+                          <option value="template_awareness_campaign">Template: Awareness Campaign</option>
+                          <option value="template_lead_magnet">Template: Lead Magnet Campaign</option>
+                          <option value="template_7_day_nurture">Template: 7-Day Nurture Sequence</option>
+                          <option value="template_workshop_follow_up">Template: Workshop Follow-up</option>
                         </select>
 
                         <button
@@ -1208,12 +1620,11 @@ export default function SequencesPage() {
                       </div>
 
                       <div className="text-[11px] text-slate-500">
-                        Later we can add email ideas, Pinterest ideas, templates, and course outlines here.
+                        Templates give non-marketers a safe starting point. AI options stay available when they want something custom.
                       </div>
                     </div>
                   </SectionCard>
 
-                  {/* Strategy */}
                   <SectionCard
                     sequenceId={s.id}
                     section="strategy"
@@ -1226,7 +1637,7 @@ export default function SequencesPage() {
                   >
                     {campaignPath.length === 0 ? (
                       <div className="text-sm text-slate-400">
-                        No strategy generated yet. Use Generate → Campaign path.
+                        No strategy generated yet. Use Generate above to create an AI path or apply a template.
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -1300,7 +1711,6 @@ export default function SequencesPage() {
                     )}
                   </SectionCard>
 
-                  {/* Assets */}
                   <SectionCard
                     sequenceId={s.id}
                     section="assets"
@@ -1313,7 +1723,7 @@ export default function SequencesPage() {
                   >
                     {!webinarOutline ? (
                       <div className="text-sm text-slate-400">
-                        No assets generated yet. Use Generate → Webinar / presentation outline.
+                        No assets generated yet. Use Generate → AI: Webinar / presentation outline.
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -1401,7 +1811,6 @@ export default function SequencesPage() {
                     )}
                   </SectionCard>
 
-                  {/* Ideas */}
                   <SectionCard
                     sequenceId={s.id}
                     section="ideas"
@@ -1414,7 +1823,7 @@ export default function SequencesPage() {
                   >
                     {activeAndUsedIdeas.length === 0 ? (
                       <div className="text-sm text-slate-400">
-                        No ideas generated yet. Use Generate → Starter ideas.
+                        No ideas generated yet. Use Generate → AI: Starter ideas.
                       </div>
                     ) : (
                       <div className="space-y-3">
