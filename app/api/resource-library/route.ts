@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     const sequenceId = norm(body?.sequenceId) || null;
     const title = norm(body?.title);
     const resourceType = norm(body?.resource_type);
-    const content = body?.content || null;
+    const content = body?.content ?? null;
 
     if (!organisationId) {
       return NextResponse.json(
@@ -188,6 +188,8 @@ export async function PATCH(req: NextRequest) {
     const organisationId = norm(body?.organisationId);
     const resourceId = norm(body?.resourceId);
     const title = norm(body?.title);
+    const hasContent = Object.prototype.hasOwnProperty.call(body, "content");
+    const content = hasContent ? body?.content ?? null : undefined;
 
     if (!organisationId) {
       return NextResponse.json(
@@ -203,19 +205,28 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (!title) {
+    const updatePayload: Record<string, any> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (title) {
+      updatePayload.title = title;
+    }
+
+    if (hasContent) {
+      updatePayload.content = content;
+    }
+
+    if (!title && !hasContent) {
       return NextResponse.json(
-        { error: "title required" },
+        { error: "Nothing to update" },
         { status: 400 }
       );
     }
 
     const { data, error } = await supabaseAdmin
       .from("resource_library")
-      .update({
-        title,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq("organisation_id", organisationId)
       .eq("id", resourceId)
       .select()
