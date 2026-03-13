@@ -87,6 +87,10 @@ function typeLabel(type: CreateResourceType) {
   return "Worksheet";
 }
 
+function deepClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
 const STARTER_TEMPLATES: StarterTemplate[] = [
   {
     id: "tpl-workplace-anxiety-presentation",
@@ -331,6 +335,10 @@ export default function ResourcesPage() {
   const [creatorDuration, setCreatorDuration] = useState("30 mins");
   const [creatorFillLevel, setCreatorFillLevel] = useState<FillLevel>("draft");
 
+  const [editMode, setEditMode] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftContent, setDraftContent] = useState<any>(null);
+
   async function loadOrganisation() {
     try {
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
@@ -439,6 +447,19 @@ export default function ResourcesPage() {
       }
     }
   }, [filteredResources, filteredTemplates, selected, libraryTab]);
+
+  useEffect(() => {
+    if (!selected || isTemplate(selected)) {
+      setEditMode(false);
+      setDraftTitle("");
+      setDraftContent(null);
+      return;
+    }
+
+    setEditMode(false);
+    setDraftTitle(selected.title || "");
+    setDraftContent(deepClone(selected.content || {}));
+  }, [selected]);
 
   function isTemplate(item: any): item is StarterTemplate {
     return item?.resource_type === "template";
@@ -678,6 +699,7 @@ export default function ResourcesPage() {
       } else if (creatorType === "presentation") {
         route = "/api/ai/presentation-outline";
         body.duration = creatorDuration.trim() || "30 mins";
+        body.deliveryMode = "online";
       } else if (creatorType === "guide") {
         route = "/api/ai/guide";
       } else if (creatorType === "worksheet") {
@@ -741,9 +763,151 @@ export default function ResourcesPage() {
     }
   }
 
+  function startEditingSelected() {
+    if (!selected || isTemplate(selected)) return;
+    setDraftTitle(selected.title || "");
+    setDraftContent(deepClone(selected.content || {}));
+    setEditMode(true);
+  }
+
+  function cancelEditingSelected() {
+    if (!selected || isTemplate(selected)) return;
+    setDraftTitle(selected.title || "");
+    setDraftContent(deepClone(selected.content || {}));
+    setEditMode(false);
+  }
+
+  async function saveEditedResource(resource: Resource) {
+    if (!organisationId) return;
+
+    setBusyAction(`save:${resource.id}`);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/resource-library", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId,
+          resourceId: resource.id,
+          title: draftTitle.trim() || resource.title,
+          content: draftContent,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to save resource");
+      }
+
+      const updated = data?.resource || null;
+
+      if (updated) {
+        setResources((prev) =>
+          prev.map((r) => (r.id === updated.id ? updated : r))
+        );
+        setSelected(updated);
+        setDraftTitle(updated.title || "");
+        setDraftContent(deepClone(updated.content || {}));
+      } else {
+        await loadResources();
+      }
+
+      setEditMode(false);
+      setToast("Resource updated ✅");
+    } catch (e: any) {
+      setError(e?.message || "Failed to save resource");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  function setDraftField(key: string, value: string) {
+    setDraftContent((prev: any) => ({
+      ...(prev || {}),
+      [key]: value,
+    }));
+  }
+
+  function updateSectionTitle(index: number, value: string) {
+    setDraftContent((prev: any) => {
+      const next = deepClone(prev || {});
+      next.sections = Array.isArray(next.sections) ? next.sections : [];
+      if (!next.sections[index]) next.sections[index] = { title: "", bullets: [] };
+      next.sections[index].title = value;
+      return next;
+    });
+  }
+
+  function updateSectionBullet(sectionIndex: number, bulletIndex: number, value: string) {
+    setDraftContent((prev: any) => {
+      const next = deepClone(prev || {});
+      next.sections = Array.isArray(next.sections) ? next.sections : [];
+      if (!next.sections[sectionIndex]) {
+        next.sections[sectionIndex] = { title: "", bullets: [] };
+      }
+      next.sections[sectionIndex].bullets = Array.isArray(next.sections[sectionIndex].bullets)
+        ? next.sections[sectionIndex].bullets
+        : [];
+      next.sections[sectionIndex].bullets[bulletIndex] = value;
+      return next;
+    });
+  }
+
+  function updateSlideField(index: number, key: string, value: string) {
+    setDraftContent((prev: any) => {
+      const next = deepClone(prev || {});
+      next.slides = Array.isArray(next.slides) ? next.slides : [];
+      if (!next.slides[index]) {
+        next.slides[index] = {
+          slide_title: "",
+          slide_goal: "",
+          bullets: [],
+          speaker_notes: "",
+          audience_prompt: "",
+        };
+      }
+      next.slides[index][key] = value;
+      return next;
+    });
+  }
+
+  function updateSlideBullet(slideIndex: number, bulletIndex: number, value: string) {
+    setDraftContent((prev: any) => {
+      const next = deepClone(prev || {});
+      next.slides = Array.isArray(next.slides) ? next.slides : [];
+      if (!next.slides[slideIndex]) {
+        next.slides[slideIndex] = {
+          slide_title: "",
+          slide_goal: "",
+          bullets: [],
+          speaker_notes: "",
+          audience_prompt: "",
+        };
+      }
+      next.slides[slideIndex].bullets = Array.isArray(next.slides[slideIndex].bullets)
+        ? next.slides[slideIndex].bullets
+        : [];
+      next.slides[slideIndex].bullets[bulletIndex] = value;
+      return next;
+    });
+  }
+
+  function updateStringArrayField(field: string, index: number, value: string) {
+    setDraftContent((prev: any) => {
+      const next = deepClone(prev || {});
+      next[field] = Array.isArray(next[field]) ? next[field] : [];
+      next[field][index] = value;
+      return next;
+    });
+  }
+
   const selectedType = String((selected as any)?.resource_type || "").trim();
   const selectedContent = isTemplate(selected)
     ? selected.outline
+    : editMode
+    ? draftContent || null
     : (selected as any)?.content || null;
 
   return (
@@ -931,9 +1095,17 @@ export default function ResourcesPage() {
                     {prettyType(selectedType)}
                   </div>
 
-                  <h2 className="mt-1 text-xl font-semibold text-slate-100">
-                    {(selected as any).title}
-                  </h2>
+                  {editMode && !isTemplate(selected) ? (
+                    <input
+                      value={draftTitle}
+                      onChange={(e) => setDraftTitle(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xl font-semibold text-slate-100"
+                    />
+                  ) : (
+                    <h2 className="mt-1 text-xl font-semibold text-slate-100">
+                      {(selected as any).title}
+                    </h2>
+                  )}
 
                   {isTemplate(selected) ? (
                     <div className="mt-2 space-y-1 text-xs text-slate-400">
@@ -973,111 +1145,206 @@ export default function ResourcesPage() {
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => sendSavedResourceToBrainstorm(selected as Resource)}
-                      className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                    >
-                      Send to Brainstorm
-                    </button>
+                    {!editMode ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => sendSavedResourceToBrainstorm(selected as Resource)}
+                          className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                        >
+                          Send to Brainstorm
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={() => renameResource(selected as Resource)}
-                      disabled={busyAction === `rename:${(selected as Resource).id}`}
-                      className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
-                    >
-                      {busyAction === `rename:${(selected as Resource).id}` ? "Renaming…" : "Rename"}
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => startEditingSelected()}
+                          className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10"
+                        >
+                          Edit
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={() => duplicateResource(selected as Resource)}
-                      disabled={busyAction === `duplicate:${(selected as Resource).id}`}
-                      className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
-                    >
-                      {busyAction === `duplicate:${(selected as Resource).id}` ? "Duplicating…" : "Duplicate"}
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => renameResource(selected as Resource)}
+                          disabled={busyAction === `rename:${(selected as Resource).id}`}
+                          className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
+                        >
+                          {busyAction === `rename:${(selected as Resource).id}` ? "Renaming…" : "Rename"}
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={() => deleteResource(selected as Resource)}
-                      disabled={busyAction === `delete:${(selected as Resource).id}`}
-                      className="rounded-full border border-red-500/40 bg-red-950/20 px-4 py-2 text-xs text-red-200 hover:bg-red-950/35 disabled:opacity-60"
-                    >
-                      {busyAction === `delete:${(selected as Resource).id}` ? "Deleting…" : "Delete"}
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => duplicateResource(selected as Resource)}
+                          disabled={busyAction === `duplicate:${(selected as Resource).id}`}
+                          className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
+                        >
+                          {busyAction === `duplicate:${(selected as Resource).id}` ? "Duplicating…" : "Duplicate"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => deleteResource(selected as Resource)}
+                          disabled={busyAction === `delete:${(selected as Resource).id}`}
+                          className="rounded-full border border-red-500/40 bg-red-950/20 px-4 py-2 text-xs text-red-200 hover:bg-red-950/35 disabled:opacity-60"
+                        >
+                          {busyAction === `delete:${(selected as Resource).id}` ? "Deleting…" : "Delete"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => saveEditedResource(selected as Resource)}
+                          disabled={busyAction === `save:${(selected as Resource).id}`}
+                          className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                        >
+                          {busyAction === `save:${(selected as Resource).id}` ? "Saving…" : "Save changes"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={cancelEditingSelected}
+                          disabled={busyAction === `save:${(selected as Resource).id}`}
+                          className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 
                 {selectedContent ? (
                   <div className="space-y-4">
-                    {selectedContent?.promise ? (
+                    {selectedContent?.promise !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">Promise</div>
-                        <div className="mt-2 text-sm text-slate-300">
-                          {selectedContent.promise}
-                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.promise || "")}
+                            onChange={(e) => setDraftField("promise", e.target.value)}
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.promise}
+                          </div>
+                        )}
                       </div>
                     ) : null}
 
-                    {selectedContent?.objective ? (
+                    {selectedContent?.objective !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">Objective</div>
-                        <div className="mt-2 text-sm text-slate-300">
-                          {selectedContent.objective}
-                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.objective || "")}
+                            onChange={(e) => setDraftField("objective", e.target.value)}
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.objective}
+                          </div>
+                        )}
                       </div>
                     ) : null}
 
-                    {selectedContent?.summary ? (
+                    {selectedContent?.summary !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">Summary</div>
-                        <div className="mt-2 text-sm text-slate-300">
-                          {selectedContent.summary}
-                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.summary || "")}
+                            onChange={(e) => setDraftField("summary", e.target.value)}
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.summary}
+                          </div>
+                        )}
                       </div>
                     ) : null}
 
-                    {selectedContent?.purpose ? (
+                    {selectedContent?.purpose !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">Purpose</div>
-                        <div className="mt-2 text-sm text-slate-300">
-                          {selectedContent.purpose}
-                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.purpose || "")}
+                            onChange={(e) => setDraftField("purpose", e.target.value)}
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.purpose}
+                          </div>
+                        )}
                       </div>
                     ) : null}
 
-                    {selectedContent?.audience_takeaway ? (
+                    {selectedContent?.audience_takeaway !== undefined ? (
                       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
                         <div className="text-sm font-semibold text-emerald-200">
                           Audience takeaway
                         </div>
-                        <div className="mt-2 text-sm text-slate-300">
-                          {selectedContent.audience_takeaway}
-                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.audience_takeaway || "")}
+                            onChange={(e) => setDraftField("audience_takeaway", e.target.value)}
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.audience_takeaway}
+                          </div>
+                        )}
                       </div>
                     ) : null}
 
-                    {selectedContent?.intended_reader ? (
+                    {selectedContent?.intended_reader !== undefined ? (
                       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
                         <div className="text-sm font-semibold text-emerald-200">
                           Intended reader
                         </div>
-                        <div className="mt-2 text-sm text-slate-300">
-                          {selectedContent.intended_reader}
-                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.intended_reader || "")}
+                            onChange={(e) => setDraftField("intended_reader", e.target.value)}
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.intended_reader}
+                          </div>
+                        )}
                       </div>
                     ) : null}
 
-                    {selectedContent?.instructions ? (
+                    {selectedContent?.instructions !== undefined ? (
                       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
                         <div className="text-sm font-semibold text-emerald-200">
                           Instructions
                         </div>
-                        <div className="mt-2 text-sm text-slate-300">
-                          {selectedContent.instructions}
-                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.instructions || "")}
+                            onChange={(e) => setDraftField("instructions", e.target.value)}
+                            rows={4}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.instructions}
+                          </div>
+                        )}
                       </div>
                     ) : null}
 
@@ -1089,20 +1356,40 @@ export default function ResourcesPage() {
                             key={`${(selected as any).id}-section-${idx}`}
                             className="rounded-xl border border-slate-800 bg-slate-950/60 p-4"
                           >
-                            <div className="text-sm font-semibold text-slate-200">
-                              {idx + 1}. {String(section?.title || "").trim()}
-                            </div>
+                            {editMode && !isTemplate(selected) ? (
+                              <input
+                                value={String(section?.title || "")}
+                                onChange={(e) => updateSectionTitle(idx, e.target.value)}
+                                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200"
+                              />
+                            ) : (
+                              <div className="text-sm font-semibold text-slate-200">
+                                {idx + 1}. {String(section?.title || "").trim()}
+                              </div>
+                            )}
 
-                            <div className="mt-2 space-y-1">
+                            <div className="mt-2 space-y-2">
                               {Array.isArray(section?.bullets) &&
-                                section.bullets.map((bullet: any, bulletIdx: number) => (
-                                  <div
-                                    key={`${(selected as any).id}-section-${idx}-bullet-${bulletIdx}`}
-                                    className="text-sm text-slate-300"
-                                  >
-                                    • {String(bullet || "").trim()}
-                                  </div>
-                                ))}
+                                section.bullets.map((bullet: any, bulletIdx: number) =>
+                                  editMode && !isTemplate(selected) ? (
+                                    <textarea
+                                      key={`${(selected as any).id}-section-${idx}-bullet-${bulletIdx}`}
+                                      value={String(bullet || "")}
+                                      onChange={(e) =>
+                                        updateSectionBullet(idx, bulletIdx, e.target.value)
+                                      }
+                                      rows={2}
+                                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                    />
+                                  ) : (
+                                    <div
+                                      key={`${(selected as any).id}-section-${idx}-bullet-${bulletIdx}`}
+                                      className="text-sm text-slate-300"
+                                    >
+                                      • {String(bullet || "").trim()}
+                                    </div>
+                                  )
+                                )}
                             </div>
                           </div>
                         ))}
@@ -1115,23 +1402,114 @@ export default function ResourcesPage() {
                         {selectedContent.slides.map((slide: any, idx: number) => (
                           <div
                             key={`${(selected as any).id}-slide-${idx}`}
-                            className="rounded-xl border border-slate-800 bg-slate-950/60 p-4"
+                            className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3"
                           >
-                            <div className="text-sm font-semibold text-slate-200">
-                              Slide {idx + 1}. {String(slide?.slide_title || "").trim()}
+                            {editMode && !isTemplate(selected) ? (
+                              <input
+                                value={String(slide?.slide_title || "")}
+                                onChange={(e) =>
+                                  updateSlideField(idx, "slide_title", e.target.value)
+                                }
+                                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200"
+                              />
+                            ) : (
+                              <div className="text-sm font-semibold text-slate-200">
+                                Slide {idx + 1}. {String(slide?.slide_title || "").trim()}
+                              </div>
+                            )}
+
+                            {slide?.slide_goal !== undefined ? (
+                              <div>
+                                <div className="text-[11px] font-semibold text-slate-400">
+                                  Slide goal
+                                </div>
+                                {editMode && !isTemplate(selected) ? (
+                                  <textarea
+                                    value={String(slide?.slide_goal || "")}
+                                    onChange={(e) =>
+                                      updateSlideField(idx, "slide_goal", e.target.value)
+                                    }
+                                    rows={2}
+                                    className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                  />
+                                ) : (
+                                  <div className="mt-1 text-sm text-slate-300">
+                                    {String(slide?.slide_goal || "").trim()}
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
+
+                            <div className="space-y-2">
+                              <div className="text-[11px] font-semibold text-slate-400">
+                                On-slide bullets
+                              </div>
+                              {Array.isArray(slide?.bullets) &&
+                                slide.bullets.map((bullet: any, bulletIdx: number) =>
+                                  editMode && !isTemplate(selected) ? (
+                                    <textarea
+                                      key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
+                                      value={String(bullet || "")}
+                                      onChange={(e) =>
+                                        updateSlideBullet(idx, bulletIdx, e.target.value)
+                                      }
+                                      rows={2}
+                                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                    />
+                                  ) : (
+                                    <div
+                                      key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
+                                      className="text-sm text-slate-300"
+                                    >
+                                      • {String(bullet || "").trim()}
+                                    </div>
+                                  )
+                                )}
                             </div>
 
-                            <div className="mt-2 space-y-1">
-                              {Array.isArray(slide?.bullets) &&
-                                slide.bullets.map((bullet: any, bulletIdx: number) => (
-                                  <div
-                                    key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
-                                    className="text-sm text-slate-300"
-                                  >
-                                    • {String(bullet || "").trim()}
+                            {slide?.speaker_notes !== undefined ? (
+                              <div>
+                                <div className="text-[11px] font-semibold text-slate-400">
+                                  Speaker notes
+                                </div>
+                                {editMode && !isTemplate(selected) ? (
+                                  <textarea
+                                    value={String(slide?.speaker_notes || "")}
+                                    onChange={(e) =>
+                                      updateSlideField(idx, "speaker_notes", e.target.value)
+                                    }
+                                    rows={5}
+                                    className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                                  />
+                                ) : (
+                                  <div className="mt-1 text-sm text-slate-300 whitespace-pre-wrap">
+                                    {String(slide?.speaker_notes || "").trim()}
                                   </div>
-                                ))}
-                            </div>
+                                )}
+                              </div>
+                            ) : null}
+
+                            {slide?.audience_prompt !== undefined ? (
+                              <div>
+                                <div className="text-[11px] font-semibold text-slate-400">
+                                  Audience prompt
+                                </div>
+                                {editMode && !isTemplate(selected) ? (
+                                  <textarea
+                                    value={String(slide?.audience_prompt || "")}
+                                    onChange={(e) =>
+                                      updateSlideField(idx, "audience_prompt", e.target.value)
+                                    }
+                                    rows={3}
+                                    className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                                  />
+                                ) : (
+                                  <div className="mt-1 text-sm text-slate-300">
+                                    {String(slide?.audience_prompt || "").trim()}
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -1141,15 +1519,27 @@ export default function ResourcesPage() {
                     selectedContent.reflection_prompts.length > 0 ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">Reflection prompts</div>
-                        <div className="mt-2 space-y-1">
-                          {selectedContent.reflection_prompts.map((prompt: any, idx: number) => (
-                            <div
-                              key={`${(selected as any).id}-reflection-${idx}`}
-                              className="text-sm text-slate-300"
-                            >
-                              • {String(prompt || "").trim()}
-                            </div>
-                          ))}
+                        <div className="mt-2 space-y-2">
+                          {selectedContent.reflection_prompts.map((prompt: any, idx: number) =>
+                            editMode && !isTemplate(selected) ? (
+                              <textarea
+                                key={`${(selected as any).id}-reflection-${idx}`}
+                                value={String(prompt || "")}
+                                onChange={(e) =>
+                                  updateStringArrayField("reflection_prompts", idx, e.target.value)
+                                }
+                                rows={2}
+                                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                              />
+                            ) : (
+                              <div
+                                key={`${(selected as any).id}-reflection-${idx}`}
+                                className="text-sm text-slate-300"
+                              >
+                                • {String(prompt || "").trim()}
+                              </div>
+                            )
+                          )}
                         </div>
                       </div>
                     ) : null}
@@ -1158,49 +1548,88 @@ export default function ResourcesPage() {
                     selectedContent.action_prompts.length > 0 ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">Action prompts</div>
-                        <div className="mt-2 space-y-1">
-                          {selectedContent.action_prompts.map((prompt: any, idx: number) => (
-                            <div
-                              key={`${(selected as any).id}-action-${idx}`}
-                              className="text-sm text-slate-300"
-                            >
-                              • {String(prompt || "").trim()}
-                            </div>
-                          ))}
+                        <div className="mt-2 space-y-2">
+                          {selectedContent.action_prompts.map((prompt: any, idx: number) =>
+                            editMode && !isTemplate(selected) ? (
+                              <textarea
+                                key={`${(selected as any).id}-action-${idx}`}
+                                value={String(prompt || "")}
+                                onChange={(e) =>
+                                  updateStringArrayField("action_prompts", idx, e.target.value)
+                                }
+                                rows={2}
+                                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                              />
+                            ) : (
+                              <div
+                                key={`${(selected as any).id}-action-${idx}`}
+                                className="text-sm text-slate-300"
+                              >
+                                • {String(prompt || "").trim()}
+                              </div>
+                            )
+                          )}
                         </div>
                       </div>
                     ) : null}
 
-                    {selectedContent?.closing_invitation ? (
+                    {selectedContent?.closing_invitation !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">
                           Closing invitation
                         </div>
-                        <div className="mt-2 text-sm text-slate-300">
-                          {selectedContent.closing_invitation}
-                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.closing_invitation || "")}
+                            onChange={(e) => setDraftField("closing_invitation", e.target.value)}
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.closing_invitation}
+                          </div>
+                        )}
                       </div>
                     ) : null}
 
-                    {selectedContent?.closing_encouragement ? (
+                    {selectedContent?.closing_encouragement !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">
                           Closing encouragement
                         </div>
-                        <div className="mt-2 text-sm text-slate-300">
-                          {selectedContent.closing_encouragement}
-                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.closing_encouragement || "")}
+                            onChange={(e) => setDraftField("closing_encouragement", e.target.value)}
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.closing_encouragement}
+                          </div>
+                        )}
                       </div>
                     ) : null}
 
-                    {selectedContent?.closing_note ? (
+                    {selectedContent?.closing_note !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">
                           Closing note
                         </div>
-                        <div className="mt-2 text-sm text-slate-300">
-                          {selectedContent.closing_note}
-                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.closing_note || "")}
+                            onChange={(e) => setDraftField("closing_note", e.target.value)}
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.closing_note}
+                          </div>
+                        )}
                       </div>
                     ) : null}
 
