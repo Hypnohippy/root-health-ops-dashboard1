@@ -716,6 +716,129 @@ export default function ResourcesPage() {
     return item?.resource_type === "template";
   }
 
+  async function persistResourceContent(
+    resource: Resource,
+    nextContent: any,
+    successMessage: string
+  ) {
+    if (!organisationId) return;
+
+    setBusyAction(`save:${resource.id}`);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/resource-library", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId,
+          resourceId: resource.id,
+          title: resource.title,
+          content: nextContent,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to save resource");
+      }
+
+      const updated = data?.resource || null;
+
+      if (updated) {
+        setResources((prev) =>
+          prev.map((r) => (r.id === updated.id ? updated : r))
+        );
+        setSelected(updated);
+        if (!isTemplate(updated)) {
+          setDraftTitle(updated.title || "");
+          setDraftContent(deepClone(updated.content || {}));
+        }
+      } else {
+        await loadResources();
+      }
+
+      setToast(successMessage);
+    } catch (e: any) {
+      setError(e?.message || "Failed to save resource");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function generateSlideArtwork(resource: Resource, slideIndex: number) {
+    const content = deepClone(resource.content || {});
+    const slides = Array.isArray(content?.slides) ? content.slides : [];
+    const slide = slides[slideIndex];
+
+    if (!slide) return;
+
+    setBusyAction(`art:${resource.id}:${slideIndex}`);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/ai/slide-art", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          presentationTitle: resource.title,
+          presentationObjective: String(content?.objective || "").trim(),
+          presentationPromise: String(content?.promise || "").trim(),
+          slideTitle: String(slide?.slide_title || "").trim(),
+          slideGoal: String(slide?.slide_goal || "").trim(),
+          bullets: Array.isArray(slide?.bullets) ? slide.bullets : [],
+          audience: String(content?.audience_takeaway || "").trim(),
+          tone: "calm and professional",
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success || !data?.artwork) {
+        throw new Error(data?.error || "Failed to generate artwork");
+      }
+
+      slides[slideIndex] = {
+        ...slide,
+        artwork_label: String(data.artwork.artwork_label || "").trim(),
+        artwork_chip: String(data.artwork.artwork_chip || "").trim(),
+        visual_direction: String(data.artwork.visual_direction || "").trim(),
+        image_prompt: String(data.artwork.image_prompt || "").trim(),
+        artwork_generated_at: new Date().toISOString(),
+      };
+
+      content.slides = slides;
+
+      await persistResourceContent(resource, content, "Slide artwork generated ✅");
+    } catch (e: any) {
+      setError(e?.message || "Failed to generate artwork");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function clearSlideArtwork(resource: Resource, slideIndex: number) {
+    const content = deepClone(resource.content || {});
+    const slides = Array.isArray(content?.slides) ? content.slides : [];
+    const slide = slides[slideIndex];
+
+    if (!slide) return;
+
+    slides[slideIndex] = {
+      ...slide,
+      artwork_label: "",
+      artwork_chip: "",
+      visual_direction: "",
+      image_prompt: "",
+      artwork_generated_at: null,
+    };
+
+    content.slides = slides;
+
+    await persistResourceContent(resource, content, "Slide artwork removed ✅");
+  }
+
   function sendTemplateToBrainstorm(template: StarterTemplate) {
     const payload = {
       v: 1,
@@ -1119,6 +1242,8 @@ export default function ResourcesPage() {
           audience_prompt: "",
           visual_direction: "",
           image_prompt: "",
+          artwork_label: "",
+          artwork_chip: "",
         };
       }
       next.slides[index][key] = value;
@@ -1139,6 +1264,8 @@ export default function ResourcesPage() {
           audience_prompt: "",
           visual_direction: "",
           image_prompt: "",
+          artwork_label: "",
+          artwork_chip: "",
         };
       }
       next.slides[slideIndex].bullets = Array.isArray(next.slides[slideIndex].bullets)
@@ -1738,10 +1865,14 @@ export default function ResourcesPage() {
                         {selectedContent.slides.map((slide: any, idx: number) => {
                           const visualDirection = String(slide?.visual_direction || "").trim();
                           const imagePrompt = String(slide?.image_prompt || "").trim();
+                          const artworkLabel = String(slide?.artwork_label || "").trim();
+                          const artworkChip = String(slide?.artwork_chip || "").trim();
 
                           const art = getArtFromVisualDirection(
                             [
                               visualDirection,
+                              artworkLabel,
+                              artworkChip,
                               (selected as any)?.title || "",
                               slide?.slide_title || "",
                               slide?.slide_goal || "",
@@ -1749,6 +1880,9 @@ export default function ResourcesPage() {
                               selectedContent?.promise || "",
                             ].join(" ")
                           );
+
+                          const isGeneratingArt =
+                            busyAction === `art:${(selected as Resource).id}:${idx}`;
 
                           return (
                             <div
@@ -1815,6 +1949,38 @@ export default function ResourcesPage() {
                                   </div>
                                 )}
 
+                                {!editMode ? (
+                                  <div className="mt-4 flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        generateSlideArtwork(selected as Resource, idx)
+                                      }
+                                      disabled={isGeneratingArt}
+                                      className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                                    >
+                                      {isGeneratingArt
+                                        ? "Generating…"
+                                        : visualDirection || imagePrompt
+                                        ? "Regenerate artwork"
+                                        : "Generate artwork"}
+                                    </button>
+
+                                    {(visualDirection || imagePrompt) && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          clearSlideArtwork(selected as Resource, idx)
+                                        }
+                                        disabled={busyAction === `save:${(selected as Resource).id}`}
+                                        className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
+                                      >
+                                        Remove artwork
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : null}
+
                                 {!editMode && showArtwork ? (
                                   <div className="mt-4 max-w-md">
                                     <div
@@ -1832,10 +1998,10 @@ export default function ResourcesPage() {
                                             Artwork
                                           </div>
                                           <div className="text-sm font-semibold leading-tight break-words">
-                                            {art.label}
+                                            {artworkLabel || art.label}
                                           </div>
                                           <div className="mt-1 text-[11px] opacity-70 leading-snug break-words">
-                                            {art.chip}
+                                            {artworkChip || art.chip}
                                           </div>
                                         </div>
                                       </div>
@@ -1867,49 +2033,45 @@ export default function ResourcesPage() {
 
                                 {visualDirection || imagePrompt ? (
                                   <div className="mt-4 grid gap-3 md:grid-cols-2 max-w-4xl">
-                                    {visualDirection ? (
-                                      <div className={["rounded-2xl border p-3", theme.note].join(" ")}>
-                                        <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
-                                          Visual direction
-                                        </div>
-                                        {editMode && !isTemplate(selected) ? (
-                                          <textarea
-                                            value={visualDirection}
-                                            onChange={(e) =>
-                                              updateSlideField(idx, "visual_direction", e.target.value)
-                                            }
-                                            rows={3}
-                                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                                          />
-                                        ) : (
-                                          <div className="mt-2 text-sm leading-relaxed break-words">
-                                            {visualDirection}
-                                          </div>
-                                        )}
+                                    <div className={["rounded-2xl border p-3", theme.note].join(" ")}>
+                                      <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                                        Visual direction
                                       </div>
-                                    ) : null}
+                                      {editMode && !isTemplate(selected) ? (
+                                        <textarea
+                                          value={visualDirection}
+                                          onChange={(e) =>
+                                            updateSlideField(idx, "visual_direction", e.target.value)
+                                          }
+                                          rows={3}
+                                          className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                        />
+                                      ) : (
+                                        <div className="mt-2 text-sm leading-relaxed break-words">
+                                          {visualDirection || "No artwork guidance yet."}
+                                        </div>
+                                      )}
+                                    </div>
 
-                                    {imagePrompt ? (
-                                      <div className={["rounded-2xl border p-3", theme.note].join(" ")}>
-                                        <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
-                                          Image prompt
-                                        </div>
-                                        {editMode && !isTemplate(selected) ? (
-                                          <textarea
-                                            value={imagePrompt}
-                                            onChange={(e) =>
-                                              updateSlideField(idx, "image_prompt", e.target.value)
-                                            }
-                                            rows={3}
-                                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                                          />
-                                        ) : (
-                                          <div className="mt-2 text-sm leading-relaxed break-words">
-                                            {imagePrompt}
-                                          </div>
-                                        )}
+                                    <div className={["rounded-2xl border p-3", theme.note].join(" ")}>
+                                      <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                                        Image prompt
                                       </div>
-                                    ) : null}
+                                      {editMode && !isTemplate(selected) ? (
+                                        <textarea
+                                          value={imagePrompt}
+                                          onChange={(e) =>
+                                            updateSlideField(idx, "image_prompt", e.target.value)
+                                          }
+                                          rows={3}
+                                          className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                        />
+                                      ) : (
+                                        <div className="mt-2 text-sm leading-relaxed break-words">
+                                          {imagePrompt || "No image prompt yet."}
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                 ) : null}
 
