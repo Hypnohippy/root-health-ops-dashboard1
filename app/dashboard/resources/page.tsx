@@ -117,7 +117,7 @@ function slideThemeClasses(theme: PresentationTheme) {
       badge: "border-slate-300 bg-slate-100 text-slate-700",
       subtle: "text-slate-500",
       styleCard: "border-slate-200 bg-slate-50 text-slate-700",
-      overlay: "bg-gradient-to-br from-white/94 via-white/90 to-slate-100/90",
+      overlay: "bg-gradient-to-br from-white/92 via-white/88 to-slate-100/86",
       imageTint: "bg-white/35",
     };
   }
@@ -130,8 +130,8 @@ function slideThemeClasses(theme: PresentationTheme) {
       badge: "border-amber-300 bg-amber-100 text-amber-800",
       subtle: "text-amber-900/60",
       styleCard: "border-amber-200 bg-white/60 text-amber-900",
-      overlay: "bg-gradient-to-br from-amber-50/90 via-orange-50/84 to-white/78",
-      imageTint: "bg-amber-50/20",
+      overlay: "bg-gradient-to-br from-amber-50/88 via-orange-50/82 to-white/74",
+      imageTint: "bg-amber-50/18",
     };
   }
 
@@ -143,8 +143,8 @@ function slideThemeClasses(theme: PresentationTheme) {
       badge: "border-slate-600 bg-slate-800 text-slate-300",
       subtle: "text-slate-400",
       styleCard: "border-slate-700 bg-slate-900/60 text-slate-300",
-      overlay: "bg-gradient-to-br from-slate-950/82 via-slate-900/74 to-slate-950/82",
-      imageTint: "bg-slate-950/18",
+      overlay: "bg-gradient-to-br from-slate-950/84 via-slate-900/76 to-slate-950/84",
+      imageTint: "bg-slate-950/20",
     };
   }
 
@@ -155,7 +155,7 @@ function slideThemeClasses(theme: PresentationTheme) {
     badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
     subtle: "text-emerald-100/50",
     styleCard: "border-emerald-500/20 bg-emerald-500/5 text-emerald-100",
-    overlay: "bg-gradient-to-br from-slate-950/82 via-slate-900/76 to-emerald-950/68",
+    overlay: "bg-gradient-to-br from-slate-950/82 via-slate-900/74 to-emerald-950/66",
     imageTint: "bg-emerald-950/12",
   };
 }
@@ -570,7 +570,9 @@ const STARTER_TEMPLATES: StarterTemplate[] = [
 export default function ResourcesPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
-  const [selected, setSelected] = useState<Resource | StarterTemplate | null>(null);
+  const [selected, setSelected] = useState<Resource | StarterTemplate | null>(
+    null
+  );
   const [filter, setFilter] = useState<FilterType>("all");
   const [libraryTab, setLibraryTab] = useState<"saved" | "templates">("saved");
   const [loading, setLoading] = useState(false);
@@ -579,14 +581,16 @@ export default function ResourcesPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   const [creatorOpen, setCreatorOpen] = useState(false);
-  const [creatorType, setCreatorType] = useState<CreateResourceType>("webinar_outline");
+  const [creatorType, setCreatorType] =
+    useState<CreateResourceType>("webinar_outline");
   const [creatorTitle, setCreatorTitle] = useState("New Webinar");
   const [creatorGoal, setCreatorGoal] = useState("");
   const [creatorAudience, setCreatorAudience] = useState("");
   const [creatorNotes, setCreatorNotes] = useState("");
   const [creatorTone, setCreatorTone] = useState("calm and professional");
   const [creatorDuration, setCreatorDuration] = useState("30 mins");
-  const [creatorFillLevel, setCreatorFillLevel] = useState<FillLevel>("draft");
+  const [creatorFillLevel, setCreatorFillLevel] =
+    useState<FillLevel>("draft");
 
   const [editMode, setEditMode] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
@@ -665,6 +669,7 @@ export default function ResourcesPage() {
 
   useEffect(() => {
     setCreatorTitle(defaultTitleForType(creatorType));
+
     if (creatorType === "webinar_outline") {
       setCreatorDuration("30 mins");
       setCreatorTone("calm and professional");
@@ -695,15 +700,15 @@ export default function ResourcesPage() {
     if (!selected) return;
 
     if (libraryTab === "saved") {
-      const stillExists = filteredResources.some((r) => r.id === (selected as any).id);
-      if (!stillExists) {
-        setSelected(filteredResources[0] || null);
-      }
+      const stillExists = filteredResources.some(
+        (r) => r.id === (selected as any).id
+      );
+      if (!stillExists) setSelected(filteredResources[0] || null);
     } else {
-      const stillExists = filteredTemplates.some((t) => t.id === (selected as any).id);
-      if (!stillExists) {
-        setSelected(filteredTemplates[0] || null);
-      }
+      const stillExists = filteredTemplates.some(
+        (t) => t.id === (selected as any).id
+      );
+      if (!stillExists) setSelected(filteredTemplates[0] || null);
     }
   }, [filteredResources, filteredTemplates, selected, libraryTab]);
 
@@ -759,6 +764,7 @@ export default function ResourcesPage() {
           prev.map((r) => (r.id === updated.id ? updated : r))
         );
         setSelected(updated);
+
         if (!isTemplate(updated)) {
           setDraftTitle(updated.title || "");
           setDraftContent(deepClone(updated.content || {}));
@@ -793,7 +799,9 @@ export default function ResourcesPage() {
           presentationTitle: resource.title,
           presentationObjective: String(content?.objective || "").trim(),
           presentationPromise: String(content?.promise || "").trim(),
-          presentationAudienceTakeaway: String(content?.audience_takeaway || "").trim(),
+          presentationAudienceTakeaway: String(
+            content?.audience_takeaway || ""
+          ).trim(),
           slideTitle: String(slide?.slide_title || "").trim(),
           slideGoal: String(slide?.slide_goal || "").trim(),
           bullets: Array.isArray(slide?.bullets) ? slide.bullets : [],
@@ -811,21 +819,38 @@ export default function ResourcesPage() {
         throw new Error(data?.error || "Failed to generate image");
       }
 
+      const nextImageUrl = String(data?.imageUrl || "").trim();
+      if (!nextImageUrl) {
+        throw new Error("No image URL was returned.");
+      }
+
       slides[slideIndex] = {
         ...slide,
-        generated_image_url: String(data?.imageUrl || "").trim(),
+        generated_image_url: nextImageUrl,
         generated_image_prompt: String(data?.imagePrompt || "").trim(),
         generated_image_status: "ready",
-        artwork_label: String(data?.artworkLabel || slide?.artwork_label || "").trim(),
-        artwork_chip: String(data?.artworkChip || slide?.artwork_chip || "").trim(),
-        visual_direction: String(data?.visualDirection || slide?.visual_direction || "").trim(),
-        image_prompt: String(data?.imagePrompt || slide?.image_prompt || "").trim(),
+        artwork_label: String(
+          data?.artworkLabel || slide?.artwork_label || ""
+        ).trim(),
+        artwork_chip: String(
+          data?.artworkChip || slide?.artwork_chip || ""
+        ).trim(),
+        visual_direction: String(
+          data?.visualDirection || slide?.visual_direction || ""
+        ).trim(),
+        image_prompt: String(
+          data?.imagePrompt || slide?.image_prompt || ""
+        ).trim(),
         artwork_generated_at: new Date().toISOString(),
       };
 
       content.slides = slides;
 
-      await persistResourceContent(resource, content, "Slide image generated ✅");
+      await persistResourceContent(
+        resource,
+        content,
+        "Slide image generated ✅"
+      );
     } catch (e: any) {
       setError(e?.message || "Failed to generate image");
     } finally {
@@ -1009,9 +1034,7 @@ export default function ResourcesPage() {
       }
 
       await loadResources();
-      if (data?.resource) {
-        setSelected(data.resource);
-      }
+      if (data?.resource) setSelected(data.resource);
 
       setToast("Resource duplicated ✅");
     } catch (e: any) {
@@ -1137,9 +1160,7 @@ export default function ResourcesPage() {
       }
 
       await loadResources();
-      if (saveData?.resource) {
-        setSelected(saveData.resource);
-      }
+      if (saveData?.resource) setSelected(saveData.resource);
 
       setLibraryTab("saved");
       setCreatorOpen(false);
@@ -1228,14 +1249,20 @@ export default function ResourcesPage() {
     });
   }
 
-  function updateSectionBullet(sectionIndex: number, bulletIndex: number, value: string) {
+  function updateSectionBullet(
+    sectionIndex: number,
+    bulletIndex: number,
+    value: string
+  ) {
     setDraftContent((prev: any) => {
       const next = deepClone(prev || {});
       next.sections = Array.isArray(next.sections) ? next.sections : [];
       if (!next.sections[sectionIndex]) {
         next.sections[sectionIndex] = { title: "", bullets: [] };
       }
-      next.sections[sectionIndex].bullets = Array.isArray(next.sections[sectionIndex].bullets)
+      next.sections[sectionIndex].bullets = Array.isArray(
+        next.sections[sectionIndex].bullets
+      )
         ? next.sections[sectionIndex].bullets
         : [];
       next.sections[sectionIndex].bullets[bulletIndex] = value;
@@ -1268,7 +1295,11 @@ export default function ResourcesPage() {
     });
   }
 
-  function updateSlideBullet(slideIndex: number, bulletIndex: number, value: string) {
+  function updateSlideBullet(
+    slideIndex: number,
+    bulletIndex: number,
+    value: string
+  ) {
     setDraftContent((prev: any) => {
       const next = deepClone(prev || {});
       next.slides = Array.isArray(next.slides) ? next.slides : [];
@@ -1288,7 +1319,9 @@ export default function ResourcesPage() {
           generated_image_status: "",
         };
       }
-      next.slides[slideIndex].bullets = Array.isArray(next.slides[slideIndex].bullets)
+      next.slides[slideIndex].bullets = Array.isArray(
+        next.slides[slideIndex].bullets
+      )
         ? next.slides[slideIndex].bullets
         : [];
       next.slides[slideIndex].bullets[bulletIndex] = value;
@@ -1326,7 +1359,8 @@ export default function ResourcesPage() {
           <div>
             <h1 className="text-2xl font-semibold">Resource Library</h1>
             <p className="text-sm text-slate-400 mt-1">
-              Saved resources plus starter teaching templates for webinars, presentations, guides and worksheets.
+              Saved resources plus starter teaching templates for webinars,
+              presentations, guides and worksheets.
             </p>
           </div>
 
@@ -1416,16 +1450,22 @@ export default function ResourcesPage() {
           ))}
         </div>
 
-        {loading && <div className="text-sm text-slate-400">Loading resources...</div>}
+        {loading && (
+          <div className="text-sm text-slate-400">Loading resources...</div>
+        )}
         {error && <div className="text-sm text-red-400">{error}</div>}
 
         {!loading && libraryTab === "saved" && filteredResources.length === 0 && (
           <div className="text-sm text-slate-400">No saved resources yet.</div>
         )}
 
-        {!loading && libraryTab === "templates" && filteredTemplates.length === 0 && (
-          <div className="text-sm text-slate-400">No templates match that filter yet.</div>
-        )}
+        {!loading &&
+          libraryTab === "templates" &&
+          filteredTemplates.length === 0 && (
+            <div className="text-sm text-slate-400">
+              No templates match that filter yet.
+            </div>
+          )}
 
         <div className="grid lg:grid-cols-[360px_1fr] gap-6">
           <div className="space-y-3">
@@ -1446,7 +1486,9 @@ export default function ResourcesPage() {
                     ].join(" ")}
                   >
                     <div className="flex justify-between gap-3">
-                      <div className="font-semibold text-slate-100">{r.title}</div>
+                      <div className="font-semibold text-slate-100">
+                        {r.title}
+                      </div>
                       <div className="text-xs text-slate-400 shrink-0">
                         {prettyType(r.resource_type)}
                       </div>
@@ -1476,13 +1518,17 @@ export default function ResourcesPage() {
                     ].join(" ")}
                   >
                     <div className="flex justify-between gap-3">
-                      <div className="font-semibold text-slate-100">{t.title}</div>
+                      <div className="font-semibold text-slate-100">
+                        {t.title}
+                      </div>
                       <div className="text-xs text-slate-400 shrink-0">
                         {t.category}
                       </div>
                     </div>
 
-                    <div className="text-xs text-slate-400">{t.description}</div>
+                    <div className="text-xs text-slate-400">
+                      {t.description}
+                    </div>
 
                     <div className="flex flex-wrap gap-2 text-[10px] text-slate-500">
                       <span>{t.duration}</span>
@@ -1496,7 +1542,9 @@ export default function ResourcesPage() {
 
           <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-5 min-h-[420px]">
             {!selected ? (
-              <div className="text-sm text-slate-400">Select a resource or template to view it.</div>
+              <div className="text-sm text-slate-400">
+                Select a resource or template to view it.
+              </div>
             ) : (
               <div className="space-y-4">
                 <div>
@@ -1526,7 +1574,8 @@ export default function ResourcesPage() {
                     </div>
                   ) : (
                     <div className="mt-1 text-xs text-slate-500">
-                      Saved {new Date((selected as Resource).created_at).toLocaleString()}
+                      Saved{" "}
+                      {new Date((selected as Resource).created_at).toLocaleString()}
                     </div>
                   )}
                 </div>
@@ -1614,7 +1663,9 @@ export default function ResourcesPage() {
                       <>
                         <button
                           type="button"
-                          onClick={() => sendSavedResourceToBrainstorm(selected as Resource)}
+                          onClick={() =>
+                            sendSavedResourceToBrainstorm(selected as Resource)
+                          }
                           className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
                         >
                           Send to Brainstorm
@@ -1631,28 +1682,44 @@ export default function ResourcesPage() {
                         <button
                           type="button"
                           onClick={() => renameResource(selected as Resource)}
-                          disabled={busyAction === `rename:${(selected as Resource).id}`}
+                          disabled={
+                            busyAction === `rename:${(selected as Resource).id}`
+                          }
                           className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
                         >
-                          {busyAction === `rename:${(selected as Resource).id}` ? "Renaming…" : "Rename"}
+                          {busyAction === `rename:${(selected as Resource).id}`
+                            ? "Renaming…"
+                            : "Rename"}
                         </button>
 
                         <button
                           type="button"
-                          onClick={() => duplicateResource(selected as Resource)}
-                          disabled={busyAction === `duplicate:${(selected as Resource).id}`}
+                          onClick={() =>
+                            duplicateResource(selected as Resource)
+                          }
+                          disabled={
+                            busyAction ===
+                            `duplicate:${(selected as Resource).id}`
+                          }
                           className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
                         >
-                          {busyAction === `duplicate:${(selected as Resource).id}` ? "Duplicating…" : "Duplicate"}
+                          {busyAction ===
+                          `duplicate:${(selected as Resource).id}`
+                            ? "Duplicating…"
+                            : "Duplicate"}
                         </button>
 
                         <button
                           type="button"
                           onClick={() => deleteResource(selected as Resource)}
-                          disabled={busyAction === `delete:${(selected as Resource).id}`}
+                          disabled={
+                            busyAction === `delete:${(selected as Resource).id}`
+                          }
                           className="rounded-full border border-red-500/40 bg-red-950/20 px-4 py-2 text-xs text-red-200 hover:bg-red-950/35 disabled:opacity-60"
                         >
-                          {busyAction === `delete:${(selected as Resource).id}` ? "Deleting…" : "Delete"}
+                          {busyAction === `delete:${(selected as Resource).id}`
+                            ? "Deleting…"
+                            : "Delete"}
                         </button>
                       </>
                     ) : (
@@ -1660,16 +1727,22 @@ export default function ResourcesPage() {
                         <button
                           type="button"
                           onClick={() => saveEditedResource(selected as Resource)}
-                          disabled={busyAction === `save:${(selected as Resource).id}`}
+                          disabled={
+                            busyAction === `save:${(selected as Resource).id}`
+                          }
                           className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                         >
-                          {busyAction === `save:${(selected as Resource).id}` ? "Saving…" : "Save changes"}
+                          {busyAction === `save:${(selected as Resource).id}`
+                            ? "Saving…"
+                            : "Save changes"}
                         </button>
 
                         <button
                           type="button"
                           onClick={cancelEditingSelected}
-                          disabled={busyAction === `save:${(selected as Resource).id}`}
+                          disabled={
+                            busyAction === `save:${(selected as Resource).id}`
+                          }
                           className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10"
                         >
                           Cancel
@@ -1682,12 +1755,25 @@ export default function ResourcesPage() {
                 {selectedContent ? (
                   <div className="space-y-4">
                     {selectedContent?.presentation_style !== undefined ? (
-                      <div className={["rounded-xl border p-4", theme.styleCard].join(" ")}>
-                        <div className="text-sm font-semibold">Presentation style</div>
+                      <div
+                        className={["rounded-xl border p-4", theme.styleCard].join(
+                          " "
+                        )}
+                      >
+                        <div className="text-sm font-semibold">
+                          Presentation style
+                        </div>
                         {editMode && !isTemplate(selected) ? (
                           <textarea
-                            value={String(selectedContent.presentation_style || "")}
-                            onChange={(e) => setDraftField("presentation_style", e.target.value)}
+                            value={String(
+                              selectedContent.presentation_style || ""
+                            )}
+                            onChange={(e) =>
+                              setDraftField(
+                                "presentation_style",
+                                e.target.value
+                              )
+                            }
                             rows={2}
                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                           />
@@ -1701,11 +1787,15 @@ export default function ResourcesPage() {
 
                     {selectedContent?.promise !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                        <div className="text-sm font-semibold text-slate-200">Promise</div>
+                        <div className="text-sm font-semibold text-slate-200">
+                          Promise
+                        </div>
                         {editMode && !isTemplate(selected) ? (
                           <textarea
                             value={String(selectedContent.promise || "")}
-                            onChange={(e) => setDraftField("promise", e.target.value)}
+                            onChange={(e) =>
+                              setDraftField("promise", e.target.value)
+                            }
                             rows={3}
                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                           />
@@ -1719,11 +1809,15 @@ export default function ResourcesPage() {
 
                     {selectedContent?.objective !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                        <div className="text-sm font-semibold text-slate-200">Objective</div>
+                        <div className="text-sm font-semibold text-slate-200">
+                          Objective
+                        </div>
                         {editMode && !isTemplate(selected) ? (
                           <textarea
                             value={String(selectedContent.objective || "")}
-                            onChange={(e) => setDraftField("objective", e.target.value)}
+                            onChange={(e) =>
+                              setDraftField("objective", e.target.value)
+                            }
                             rows={3}
                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                           />
@@ -1737,11 +1831,15 @@ export default function ResourcesPage() {
 
                     {selectedContent?.summary !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                        <div className="text-sm font-semibold text-slate-200">Summary</div>
+                        <div className="text-sm font-semibold text-slate-200">
+                          Summary
+                        </div>
                         {editMode && !isTemplate(selected) ? (
                           <textarea
                             value={String(selectedContent.summary || "")}
-                            onChange={(e) => setDraftField("summary", e.target.value)}
+                            onChange={(e) =>
+                              setDraftField("summary", e.target.value)
+                            }
                             rows={3}
                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                           />
@@ -1755,11 +1853,15 @@ export default function ResourcesPage() {
 
                     {selectedContent?.purpose !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                        <div className="text-sm font-semibold text-slate-200">Purpose</div>
+                        <div className="text-sm font-semibold text-slate-200">
+                          Purpose
+                        </div>
                         {editMode && !isTemplate(selected) ? (
                           <textarea
                             value={String(selectedContent.purpose || "")}
-                            onChange={(e) => setDraftField("purpose", e.target.value)}
+                            onChange={(e) =>
+                              setDraftField("purpose", e.target.value)
+                            }
                             rows={3}
                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                           />
@@ -1778,8 +1880,15 @@ export default function ResourcesPage() {
                         </div>
                         {editMode && !isTemplate(selected) ? (
                           <textarea
-                            value={String(selectedContent.audience_takeaway || "")}
-                            onChange={(e) => setDraftField("audience_takeaway", e.target.value)}
+                            value={String(
+                              selectedContent.audience_takeaway || ""
+                            )}
+                            onChange={(e) =>
+                              setDraftField(
+                                "audience_takeaway",
+                                e.target.value
+                              )
+                            }
                             rows={3}
                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                           />
@@ -1798,8 +1907,15 @@ export default function ResourcesPage() {
                         </div>
                         {editMode && !isTemplate(selected) ? (
                           <textarea
-                            value={String(selectedContent.intended_reader || "")}
-                            onChange={(e) => setDraftField("intended_reader", e.target.value)}
+                            value={String(
+                              selectedContent.intended_reader || ""
+                            )}
+                            onChange={(e) =>
+                              setDraftField(
+                                "intended_reader",
+                                e.target.value
+                              )
+                            }
                             rows={3}
                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                           />
@@ -1819,7 +1935,9 @@ export default function ResourcesPage() {
                         {editMode && !isTemplate(selected) ? (
                           <textarea
                             value={String(selectedContent.instructions || "")}
-                            onChange={(e) => setDraftField("instructions", e.target.value)}
+                            onChange={(e) =>
+                              setDraftField("instructions", e.target.value)
+                            }
                             rows={4}
                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                           />
@@ -1842,7 +1960,9 @@ export default function ResourcesPage() {
                             {editMode && !isTemplate(selected) ? (
                               <input
                                 value={String(section?.title || "")}
-                                onChange={(e) => updateSectionTitle(idx, e.target.value)}
+                                onChange={(e) =>
+                                  updateSectionTitle(idx, e.target.value)
+                                }
                                 className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200"
                               />
                             ) : (
@@ -1853,25 +1973,30 @@ export default function ResourcesPage() {
 
                             <div className="mt-2 space-y-2">
                               {Array.isArray(section?.bullets) &&
-                                section.bullets.map((bullet: any, bulletIdx: number) =>
-                                  editMode && !isTemplate(selected) ? (
-                                    <textarea
-                                      key={`${(selected as any).id}-section-${idx}-bullet-${bulletIdx}`}
-                                      value={String(bullet || "")}
-                                      onChange={(e) =>
-                                        updateSectionBullet(idx, bulletIdx, e.target.value)
-                                      }
-                                      rows={2}
-                                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                                    />
-                                  ) : (
-                                    <div
-                                      key={`${(selected as any).id}-section-${idx}-bullet-${bulletIdx}`}
-                                      className="text-sm text-slate-300"
-                                    >
-                                      • {String(bullet || "").trim()}
-                                    </div>
-                                  )
+                                section.bullets.map(
+                                  (bullet: any, bulletIdx: number) =>
+                                    editMode && !isTemplate(selected) ? (
+                                      <textarea
+                                        key={`${(selected as any).id}-section-${idx}-bullet-${bulletIdx}`}
+                                        value={String(bullet || "")}
+                                        onChange={(e) =>
+                                          updateSectionBullet(
+                                            idx,
+                                            bulletIdx,
+                                            e.target.value
+                                          )
+                                        }
+                                        rows={2}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                      />
+                                    ) : (
+                                      <div
+                                        key={`${(selected as any).id}-section-${idx}-bullet-${bulletIdx}`}
+                                        className="text-sm text-slate-300"
+                                      >
+                                        • {String(bullet || "").trim()}
+                                      </div>
+                                    )
                                 )}
                             </div>
                           </div>
@@ -1883,11 +2008,21 @@ export default function ResourcesPage() {
                     selectedContent.slides.length > 0 ? (
                       <div className="space-y-6">
                         {selectedContent.slides.map((slide: any, idx: number) => {
-                          const visualDirection = String(slide?.visual_direction || "").trim();
-                          const imagePrompt = String(slide?.image_prompt || "").trim();
-                          const artworkLabel = String(slide?.artwork_label || "").trim();
-                          const artworkChip = String(slide?.artwork_chip || "").trim();
-                          const generatedImageUrl = String(slide?.generated_image_url || "").trim();
+                          const visualDirection = String(
+                            slide?.visual_direction || ""
+                          ).trim();
+                          const imagePrompt = String(
+                            slide?.image_prompt || ""
+                          ).trim();
+                          const artworkLabel = String(
+                            slide?.artwork_label || ""
+                          ).trim();
+                          const artworkChip = String(
+                            slide?.artwork_chip || ""
+                          ).trim();
+                          const generatedImageUrl = String(
+                            slide?.generated_image_url || ""
+                          ).trim();
 
                           const art = getArtFromVisualDirection(
                             [
@@ -1903,14 +2038,17 @@ export default function ResourcesPage() {
                           );
 
                           const isGeneratingImage =
-                            busyAction === `image:${(selected as Resource).id}:${idx}`;
+                            busyAction ===
+                            `image:${(selected as Resource).id}:${idx}`;
 
                           return (
                             <div
                               key={`${(selected as any).id}-slide-${idx}`}
                               className={[
                                 "relative overflow-hidden rounded-[28px] border p-6 md:p-8 transition",
-                                editMode ? "border-slate-800 bg-slate-950/60" : theme.card,
+                                editMode
+                                  ? "border-slate-800 bg-slate-950/60"
+                                  : theme.card,
                               ].join(" ")}
                             >
                               {!editMode && showArtwork ? (
@@ -1922,8 +2060,12 @@ export default function ResourcesPage() {
                                         alt={slide?.slide_title || `Slide ${idx + 1}`}
                                         className="absolute inset-0 h-full w-full object-cover"
                                       />
-                                      <div className={`absolute inset-0 ${theme.imageTint}`} />
-                                      <div className={`absolute inset-0 ${theme.overlay}`} />
+                                      <div
+                                        className={`absolute inset-0 ${theme.imageTint}`}
+                                      />
+                                      <div
+                                        className={`absolute inset-0 ${theme.overlay}`}
+                                      />
                                     </>
                                   ) : (
                                     <>
@@ -1952,7 +2094,12 @@ export default function ResourcesPage() {
 
                               <div className="relative z-10">
                                 <div className="flex flex-wrap items-start justify-between gap-3">
-                                  <div className={["text-[11px] uppercase tracking-[0.18em]", theme.subtle].join(" ")}>
+                                  <div
+                                    className={[
+                                      "text-[11px] uppercase tracking-[0.18em]",
+                                      theme.subtle,
+                                    ].join(" ")}
+                                  >
                                     Slide {idx + 1}
                                   </div>
 
@@ -1976,7 +2123,11 @@ export default function ResourcesPage() {
                                   <input
                                     value={String(slide?.slide_title || "")}
                                     onChange={(e) =>
-                                      updateSlideField(idx, "slide_title", e.target.value)
+                                      updateSlideField(
+                                        idx,
+                                        "slide_title",
+                                        e.target.value
+                                      )
                                     }
                                     className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xl font-semibold text-slate-100"
                                   />
@@ -1991,7 +2142,10 @@ export default function ResourcesPage() {
                                     <button
                                       type="button"
                                       onClick={() =>
-                                        generateSlideImage(selected as Resource, idx)
+                                        generateSlideImage(
+                                          selected as Resource,
+                                          idx
+                                        )
                                       }
                                       disabled={isGeneratingImage}
                                       className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
@@ -2003,18 +2157,24 @@ export default function ResourcesPage() {
                                         : "Generate image"}
                                     </button>
 
-                                    {generatedImageUrl && (
+                                    {generatedImageUrl ? (
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          clearSlideImage(selected as Resource, idx)
+                                          clearSlideImage(
+                                            selected as Resource,
+                                            idx
+                                          )
                                         }
-                                        disabled={busyAction === `save:${(selected as Resource).id}`}
+                                        disabled={
+                                          busyAction ===
+                                          `save:${(selected as Resource).id}`
+                                        }
                                         className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
                                       >
                                         Remove image
                                       </button>
-                                    )}
+                                    ) : null}
                                   </div>
                                 ) : null}
 
@@ -2032,7 +2192,9 @@ export default function ResourcesPage() {
                                         </div>
                                         <div className="min-w-0">
                                           <div className="text-[10px] uppercase tracking-[0.18em] opacity-60">
-                                            {generatedImageUrl ? "Generated image" : "Artwork"}
+                                            {generatedImageUrl
+                                              ? "Generated image"
+                                              : "Artwork"}
                                           </div>
                                           <div className="text-sm font-semibold leading-tight break-words">
                                             {artworkLabel || art.label}
@@ -2055,7 +2217,11 @@ export default function ResourcesPage() {
                                       <textarea
                                         value={String(slide?.slide_goal || "")}
                                         onChange={(e) =>
-                                          updateSlideField(idx, "slide_goal", e.target.value)
+                                          updateSlideField(
+                                            idx,
+                                            "slide_goal",
+                                            e.target.value
+                                          )
                                         }
                                         rows={2}
                                         className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
@@ -2068,9 +2234,17 @@ export default function ResourcesPage() {
                                   </div>
                                 ) : null}
 
-                                {presentationMode === "presenter" && (visualDirection || imagePrompt || generatedImageUrl) ? (
+                                {(editMode || presentationMode === "presenter") &&
+                                (visualDirection ||
+                                  imagePrompt ||
+                                  generatedImageUrl) ? (
                                   <div className="mt-4 grid gap-3 md:grid-cols-2 max-w-4xl">
-                                    <div className={["rounded-2xl border p-3", theme.note].join(" ")}>
+                                    <div
+                                      className={[
+                                        "rounded-2xl border p-3",
+                                        theme.note,
+                                      ].join(" ")}
+                                    >
                                       <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
                                         Visual direction
                                       </div>
@@ -2078,19 +2252,29 @@ export default function ResourcesPage() {
                                         <textarea
                                           value={visualDirection}
                                           onChange={(e) =>
-                                            updateSlideField(idx, "visual_direction", e.target.value)
+                                            updateSlideField(
+                                              idx,
+                                              "visual_direction",
+                                              e.target.value
+                                            )
                                           }
                                           rows={3}
                                           className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
                                         />
                                       ) : (
                                         <div className="mt-2 text-sm leading-relaxed break-words">
-                                          {visualDirection || "No artwork guidance yet."}
+                                          {visualDirection ||
+                                            "No artwork guidance yet."}
                                         </div>
                                       )}
                                     </div>
 
-                                    <div className={["rounded-2xl border p-3", theme.note].join(" ")}>
+                                    <div
+                                      className={[
+                                        "rounded-2xl border p-3",
+                                        theme.note,
+                                      ].join(" ")}
+                                    >
                                       <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
                                         Image prompt
                                       </div>
@@ -2098,7 +2282,11 @@ export default function ResourcesPage() {
                                         <textarea
                                           value={imagePrompt}
                                           onChange={(e) =>
-                                            updateSlideField(idx, "image_prompt", e.target.value)
+                                            updateSlideField(
+                                              idx,
+                                              "image_prompt",
+                                              e.target.value
+                                            )
                                           }
                                           rows={3}
                                           className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
@@ -2114,26 +2302,35 @@ export default function ResourcesPage() {
 
                                 <div className="mt-6 space-y-3 max-w-3xl">
                                   {Array.isArray(slide?.bullets) &&
-                                    slide.bullets.map((bullet: any, bulletIdx: number) =>
-                                      editMode && !isTemplate(selected) ? (
-                                        <textarea
-                                          key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
-                                          value={String(bullet || "")}
-                                          onChange={(e) =>
-                                            updateSlideBullet(idx, bulletIdx, e.target.value)
-                                          }
-                                          rows={2}
-                                          className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                                        />
-                                      ) : (
-                                        <div
-                                          key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
-                                          className="flex items-start gap-3 text-base md:text-lg leading-relaxed"
-                                        >
-                                          <span className="mt-1 opacity-70">•</span>
-                                          <span>{String(bullet || "").trim()}</span>
-                                        </div>
-                                      )
+                                    slide.bullets.map(
+                                      (bullet: any, bulletIdx: number) =>
+                                        editMode && !isTemplate(selected) ? (
+                                          <textarea
+                                            key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
+                                            value={String(bullet || "")}
+                                            onChange={(e) =>
+                                              updateSlideBullet(
+                                                idx,
+                                                bulletIdx,
+                                                e.target.value
+                                              )
+                                            }
+                                            rows={2}
+                                            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                          />
+                                        ) : (
+                                          <div
+                                            key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
+                                            className="flex items-start gap-3 text-base md:text-lg leading-relaxed"
+                                          >
+                                            <span className="mt-1 opacity-70">
+                                              •
+                                            </span>
+                                            <span>
+                                              {String(bullet || "").trim()}
+                                            </span>
+                                          </div>
+                                        )
                                     )}
                                 </div>
 
@@ -2145,21 +2342,34 @@ export default function ResourcesPage() {
                                           Speaker notes
                                         </div>
                                         <textarea
-                                          value={String(slide?.speaker_notes || "")}
+                                          value={String(
+                                            slide?.speaker_notes || ""
+                                          )}
                                           onChange={(e) =>
-                                            updateSlideField(idx, "speaker_notes", e.target.value)
+                                            updateSlideField(
+                                              idx,
+                                              "speaker_notes",
+                                              e.target.value
+                                            )
                                           }
                                           rows={5}
                                           className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                                         />
                                       </>
                                     ) : presentationMode === "presenter" ? (
-                                      <div className={["rounded-2xl border p-4 max-w-4xl", theme.note].join(" ")}>
+                                      <div
+                                        className={[
+                                          "rounded-2xl border p-4 max-w-4xl mt-2",
+                                          theme.note,
+                                        ].join(" ")}
+                                      >
                                         <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
                                           Speaker notes
                                         </div>
                                         <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
-                                          {String(slide?.speaker_notes || "").trim()}
+                                          {String(
+                                            slide?.speaker_notes || ""
+                                          ).trim()}
                                         </div>
                                       </div>
                                     ) : null}
@@ -2174,17 +2384,31 @@ export default function ResourcesPage() {
                                           Audience prompt
                                         </div>
                                         <textarea
-                                          value={String(slide?.audience_prompt || "")}
+                                          value={String(
+                                            slide?.audience_prompt || ""
+                                          )}
                                           onChange={(e) =>
-                                            updateSlideField(idx, "audience_prompt", e.target.value)
+                                            updateSlideField(
+                                              idx,
+                                              "audience_prompt",
+                                              e.target.value
+                                            )
                                           }
                                           rows={3}
                                           className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                                         />
                                       </>
                                     ) : presentationMode === "presenter" ? (
-                                      <div className={["text-sm italic max-w-4xl", theme.prompt].join(" ")}>
-                                        Audience prompt: {String(slide?.audience_prompt || "").trim()}
+                                      <div
+                                        className={[
+                                          "text-sm italic max-w-4xl mt-2",
+                                          theme.prompt,
+                                        ].join(" ")}
+                                      >
+                                        Audience prompt:{" "}
+                                        {String(
+                                          slide?.audience_prompt || ""
+                                        ).trim()}
                                       </div>
                                     ) : null}
                                   </div>
@@ -2199,27 +2423,34 @@ export default function ResourcesPage() {
                     {Array.isArray(selectedContent?.reflection_prompts) &&
                     selectedContent.reflection_prompts.length > 0 ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                        <div className="text-sm font-semibold text-slate-200">Reflection prompts</div>
+                        <div className="text-sm font-semibold text-slate-200">
+                          Reflection prompts
+                        </div>
                         <div className="mt-2 space-y-2">
-                          {selectedContent.reflection_prompts.map((prompt: any, idx: number) =>
-                            editMode && !isTemplate(selected) ? (
-                              <textarea
-                                key={`${(selected as any).id}-reflection-${idx}`}
-                                value={String(prompt || "")}
-                                onChange={(e) =>
-                                  updateStringArrayField("reflection_prompts", idx, e.target.value)
-                                }
-                                rows={2}
-                                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                              />
-                            ) : (
-                              <div
-                                key={`${(selected as any).id}-reflection-${idx}`}
-                                className="text-sm text-slate-300"
-                              >
-                                • {String(prompt || "").trim()}
-                              </div>
-                            )
+                          {selectedContent.reflection_prompts.map(
+                            (prompt: any, idx: number) =>
+                              editMode && !isTemplate(selected) ? (
+                                <textarea
+                                  key={`${(selected as any).id}-reflection-${idx}`}
+                                  value={String(prompt || "")}
+                                  onChange={(e) =>
+                                    updateStringArrayField(
+                                      "reflection_prompts",
+                                      idx,
+                                      e.target.value
+                                    )
+                                  }
+                                  rows={2}
+                                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                />
+                              ) : (
+                                <div
+                                  key={`${(selected as any).id}-reflection-${idx}`}
+                                  className="text-sm text-slate-300"
+                                >
+                                  • {String(prompt || "").trim()}
+                                </div>
+                              )
                           )}
                         </div>
                       </div>
@@ -2228,27 +2459,34 @@ export default function ResourcesPage() {
                     {Array.isArray(selectedContent?.action_prompts) &&
                     selectedContent.action_prompts.length > 0 ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                        <div className="text-sm font-semibold text-slate-200">Action prompts</div>
+                        <div className="text-sm font-semibold text-slate-200">
+                          Action prompts
+                        </div>
                         <div className="mt-2 space-y-2">
-                          {selectedContent.action_prompts.map((prompt: any, idx: number) =>
-                            editMode && !isTemplate(selected) ? (
-                              <textarea
-                                key={`${(selected as any).id}-action-${idx}`}
-                                value={String(prompt || "")}
-                                onChange={(e) =>
-                                  updateStringArrayField("action_prompts", idx, e.target.value)
-                                }
-                                rows={2}
-                                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                              />
-                            ) : (
-                              <div
-                                key={`${(selected as any).id}-action-${idx}`}
-                                className="text-sm text-slate-300"
-                              >
-                                • {String(prompt || "").trim()}
-                              </div>
-                            )
+                          {selectedContent.action_prompts.map(
+                            (prompt: any, idx: number) =>
+                              editMode && !isTemplate(selected) ? (
+                                <textarea
+                                  key={`${(selected as any).id}-action-${idx}`}
+                                  value={String(prompt || "")}
+                                  onChange={(e) =>
+                                    updateStringArrayField(
+                                      "action_prompts",
+                                      idx,
+                                      e.target.value
+                                    )
+                                  }
+                                  rows={2}
+                                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                />
+                              ) : (
+                                <div
+                                  key={`${(selected as any).id}-action-${idx}`}
+                                  className="text-sm text-slate-300"
+                                >
+                                  • {String(prompt || "").trim()}
+                                </div>
+                              )
                           )}
                         </div>
                       </div>
@@ -2261,8 +2499,15 @@ export default function ResourcesPage() {
                         </div>
                         {editMode && !isTemplate(selected) ? (
                           <textarea
-                            value={String(selectedContent.closing_invitation || "")}
-                            onChange={(e) => setDraftField("closing_invitation", e.target.value)}
+                            value={String(
+                              selectedContent.closing_invitation || ""
+                            )}
+                            onChange={(e) =>
+                              setDraftField(
+                                "closing_invitation",
+                                e.target.value
+                              )
+                            }
                             rows={3}
                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                           />
@@ -2281,8 +2526,15 @@ export default function ResourcesPage() {
                         </div>
                         {editMode && !isTemplate(selected) ? (
                           <textarea
-                            value={String(selectedContent.closing_encouragement || "")}
-                            onChange={(e) => setDraftField("closing_encouragement", e.target.value)}
+                            value={String(
+                              selectedContent.closing_encouragement || ""
+                            )}
+                            onChange={(e) =>
+                              setDraftField(
+                                "closing_encouragement",
+                                e.target.value
+                              )
+                            }
                             rows={3}
                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                           />
@@ -2302,7 +2554,9 @@ export default function ResourcesPage() {
                         {editMode && !isTemplate(selected) ? (
                           <textarea
                             value={String(selectedContent.closing_note || "")}
-                            onChange={(e) => setDraftField("closing_note", e.target.value)}
+                            onChange={(e) =>
+                              setDraftField("closing_note", e.target.value)
+                            }
                             rows={3}
                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                           />
@@ -2357,7 +2611,8 @@ export default function ResourcesPage() {
                   Create Resource
                 </div>
                 <div className="mt-1 text-[12px] text-slate-400">
-                  Generate a calm, useful long-form resource and save it straight to the library.
+                  Generate a calm, useful long-form resource and save it straight
+                  to the library.
                 </div>
               </div>
 
@@ -2377,7 +2632,9 @@ export default function ResourcesPage() {
                   </label>
                   <select
                     value={creatorType}
-                    onChange={(e) => setCreatorType(e.target.value as CreateResourceType)}
+                    onChange={(e) =>
+                      setCreatorType(e.target.value as CreateResourceType)
+                    }
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                   >
                     <option value="webinar_outline">Webinar</option>
@@ -2393,7 +2650,9 @@ export default function ResourcesPage() {
                   </label>
                   <select
                     value={creatorFillLevel}
-                    onChange={(e) => setCreatorFillLevel(e.target.value as FillLevel)}
+                    onChange={(e) =>
+                      setCreatorFillLevel(e.target.value as FillLevel)
+                    }
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                   >
                     <option value="skeleton">Skeleton</option>
@@ -2463,7 +2722,9 @@ export default function ResourcesPage() {
                     onChange={(e) => setCreatorDuration(e.target.value)}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                     placeholder="e.g. 30 mins"
-                    disabled={creatorType === "guide" || creatorType === "worksheet"}
+                    disabled={
+                      creatorType === "guide" || creatorType === "worksheet"
+                    }
                   />
                 </div>
               </div>
@@ -2482,7 +2743,9 @@ export default function ResourcesPage() {
               </div>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 text-[12px] text-slate-300">
-                <div className="font-semibold text-slate-200">What gets created</div>
+                <div className="font-semibold text-slate-200">
+                  What gets created
+                </div>
                 <div className="mt-2">
                   {creatorType === "webinar_outline" &&
                     "A webinar structure with title, promise, takeaway, sections, and a closing invitation."}
@@ -2502,7 +2765,9 @@ export default function ResourcesPage() {
                   disabled={busyAction === "create-resource"}
                   className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                 >
-                  {busyAction === "create-resource" ? "Creating…" : "Create Resource"}
+                  {busyAction === "create-resource"
+                    ? "Creating…"
+                    : "Create Resource"}
                 </button>
 
                 <button
