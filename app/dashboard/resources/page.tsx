@@ -50,6 +50,7 @@ type CreateResourceType =
   | "worksheet";
 
 type FillLevel = "skeleton" | "draft" | "ready";
+type PresentationMode = "audience" | "presenter";
 
 const GROWTH_SEED_KEYS = [
   "rootops_growth_seed_brainstorm_v1",
@@ -89,6 +90,42 @@ function typeLabel(type: CreateResourceType) {
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
+}
+
+function slideThemeClasses(theme: string) {
+  if (theme === "corporate") {
+    return {
+      card: "border-slate-200 bg-white text-slate-900 shadow-[0_12px_40px_rgba(15,23,42,0.08)]",
+      note: "border-slate-200 bg-slate-50 text-slate-700",
+      prompt: "text-slate-600",
+      badge: "border-slate-300 bg-slate-100 text-slate-700",
+    };
+  }
+
+  if (theme === "warm") {
+    return {
+      card: "border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 text-slate-900 shadow-[0_12px_40px_rgba(120,53,15,0.12)]",
+      note: "border-amber-200 bg-white/70 text-slate-700",
+      prompt: "text-amber-900/80",
+      badge: "border-amber-300 bg-amber-100 text-amber-800",
+    };
+  }
+
+  if (theme === "dark") {
+    return {
+      card: "border-slate-700 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 text-slate-100 shadow-[0_12px_40px_rgba(0,0,0,0.35)]",
+      note: "border-slate-700 bg-black/20 text-slate-300",
+      prompt: "text-slate-400",
+      badge: "border-slate-600 bg-slate-800 text-slate-300",
+    };
+  }
+
+  return {
+    card: "border-emerald-500/20 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950/30 text-slate-100 shadow-[0_12px_40px_rgba(16,185,129,0.10)]",
+    note: "border-emerald-500/20 bg-emerald-500/5 text-slate-300",
+    prompt: "text-emerald-100/80",
+    badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+  };
 }
 
 const STARTER_TEMPLATES: StarterTemplate[] = [
@@ -338,6 +375,12 @@ export default function ResourcesPage() {
   const [editMode, setEditMode] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftContent, setDraftContent] = useState<any>(null);
+
+  const [presentationMode, setPresentationMode] =
+    useState<PresentationMode>("audience");
+  const [presentationTheme, setPresentationTheme] = useState<
+    "calm" | "corporate" | "warm" | "dark"
+  >("calm");
 
   async function loadOrganisation() {
     try {
@@ -910,6 +953,13 @@ export default function ResourcesPage() {
     ? draftContent || null
     : (selected as any)?.content || null;
 
+  const isPresentation =
+    !isTemplate(selected) &&
+    Array.isArray(selectedContent?.slides) &&
+    selectedContent.slides.length > 0;
+
+  const theme = slideThemeClasses(presentationTheme);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-7xl space-y-6">
@@ -1121,6 +1171,51 @@ export default function ResourcesPage() {
                     </div>
                   )}
                 </div>
+
+                {isPresentation && !editMode ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPresentationMode("audience")}
+                      className={[
+                        "rounded-full border px-3 py-1.5 text-xs",
+                        presentationMode === "audience"
+                          ? "border-emerald-500 bg-emerald-500 text-slate-950"
+                          : "border-slate-600 bg-slate-900 text-slate-200",
+                      ].join(" ")}
+                    >
+                      Audience View
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPresentationMode("presenter")}
+                      className={[
+                        "rounded-full border px-3 py-1.5 text-xs",
+                        presentationMode === "presenter"
+                          ? "border-emerald-500 bg-emerald-500 text-slate-950"
+                          : "border-slate-600 bg-slate-900 text-slate-200",
+                      ].join(" ")}
+                    >
+                      Presenter View
+                    </button>
+
+                    <select
+                      value={presentationTheme}
+                      onChange={(e) =>
+                        setPresentationTheme(
+                          e.target.value as "calm" | "corporate" | "warm" | "dark"
+                        )
+                      }
+                      className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100"
+                    >
+                      <option value="calm">Calm</option>
+                      <option value="corporate">Corporate</option>
+                      <option value="warm">Warm</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </div>
+                ) : null}
 
                 {isTemplate(selected) ? (
                   <div className="flex flex-wrap gap-2">
@@ -1398,29 +1493,51 @@ export default function ResourcesPage() {
 
                     {Array.isArray(selectedContent?.slides) &&
                     selectedContent.slides.length > 0 ? (
-                      <div className="space-y-3">
+                      <div className="space-y-6">
                         {selectedContent.slides.map((slide: any, idx: number) => (
                           <div
                             key={`${(selected as any).id}-slide-${idx}`}
-                            className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3"
+                            className={[
+                              "rounded-[28px] border p-6 md:p-8 transition",
+                              editMode ? "border-slate-800 bg-slate-950/60" : theme.card,
+                            ].join(" ")}
                           >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="text-[11px] uppercase tracking-[0.18em] opacity-60">
+                                Slide {idx + 1}
+                              </div>
+
+                              {!editMode ? (
+                                <div
+                                  className={[
+                                    "rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
+                                    theme.badge,
+                                  ].join(" ")}
+                                >
+                                  {presentationMode === "presenter"
+                                    ? "Presenter view"
+                                    : "Audience view"}
+                                </div>
+                              ) : null}
+                            </div>
+
                             {editMode && !isTemplate(selected) ? (
                               <input
                                 value={String(slide?.slide_title || "")}
                                 onChange={(e) =>
                                   updateSlideField(idx, "slide_title", e.target.value)
                                 }
-                                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200"
+                                className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xl font-semibold text-slate-100"
                               />
                             ) : (
-                              <div className="text-sm font-semibold text-slate-200">
-                                Slide {idx + 1}. {String(slide?.slide_title || "").trim()}
+                              <div className="mt-3 text-2xl md:text-3xl font-semibold leading-tight">
+                                {slide?.slide_title || `Slide ${idx + 1}`}
                               </div>
                             )}
 
                             {slide?.slide_goal !== undefined ? (
-                              <div>
-                                <div className="text-[11px] font-semibold text-slate-400">
+                              <div className="mt-4">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide opacity-60">
                                   Slide goal
                                 </div>
                                 {editMode && !isTemplate(selected) ? (
@@ -1430,20 +1547,17 @@ export default function ResourcesPage() {
                                       updateSlideField(idx, "slide_goal", e.target.value)
                                     }
                                     rows={2}
-                                    className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
                                   />
-                                ) : (
-                                  <div className="mt-1 text-sm text-slate-300">
+                                ) : presentationMode === "presenter" ? (
+                                  <div className="mt-2 text-sm opacity-80">
                                     {String(slide?.slide_goal || "").trim()}
                                   </div>
-                                )}
+                                ) : null}
                               </div>
                             ) : null}
 
-                            <div className="space-y-2">
-                              <div className="text-[11px] font-semibold text-slate-400">
-                                On-slide bullets
-                              </div>
+                            <div className="mt-6 space-y-3">
                               {Array.isArray(slide?.bullets) &&
                                 slide.bullets.map((bullet: any, bulletIdx: number) =>
                                   editMode && !isTemplate(selected) ? (
@@ -1459,55 +1573,65 @@ export default function ResourcesPage() {
                                   ) : (
                                     <div
                                       key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
-                                      className="text-sm text-slate-300"
+                                      className="flex items-start gap-3 text-base md:text-lg leading-relaxed"
                                     >
-                                      • {String(bullet || "").trim()}
+                                      <span className="mt-1 opacity-70">•</span>
+                                      <span>{String(bullet || "").trim()}</span>
                                     </div>
                                   )
                                 )}
                             </div>
 
                             {slide?.speaker_notes !== undefined ? (
-                              <div>
-                                <div className="text-[11px] font-semibold text-slate-400">
-                                  Speaker notes
-                                </div>
+                              <div className="mt-6">
                                 {editMode && !isTemplate(selected) ? (
-                                  <textarea
-                                    value={String(slide?.speaker_notes || "")}
-                                    onChange={(e) =>
-                                      updateSlideField(idx, "speaker_notes", e.target.value)
-                                    }
-                                    rows={5}
-                                    className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
-                                  />
-                                ) : (
-                                  <div className="mt-1 text-sm text-slate-300 whitespace-pre-wrap">
-                                    {String(slide?.speaker_notes || "").trim()}
+                                  <>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                      Speaker notes
+                                    </div>
+                                    <textarea
+                                      value={String(slide?.speaker_notes || "")}
+                                      onChange={(e) =>
+                                        updateSlideField(idx, "speaker_notes", e.target.value)
+                                      }
+                                      rows={5}
+                                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                                    />
+                                  </>
+                                ) : presentationMode === "presenter" ? (
+                                  <div className={["rounded-2xl border p-4", theme.note].join(" ")}>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                                      Speaker notes
+                                    </div>
+                                    <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
+                                      {String(slide?.speaker_notes || "").trim()}
+                                    </div>
                                   </div>
-                                )}
+                                ) : null}
                               </div>
                             ) : null}
 
                             {slide?.audience_prompt !== undefined ? (
-                              <div>
-                                <div className="text-[11px] font-semibold text-slate-400">
-                                  Audience prompt
-                                </div>
+                              <div className="mt-4">
                                 {editMode && !isTemplate(selected) ? (
-                                  <textarea
-                                    value={String(slide?.audience_prompt || "")}
-                                    onChange={(e) =>
-                                      updateSlideField(idx, "audience_prompt", e.target.value)
-                                    }
-                                    rows={3}
-                                    className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
-                                  />
-                                ) : (
-                                  <div className="mt-1 text-sm text-slate-300">
-                                    {String(slide?.audience_prompt || "").trim()}
+                                  <>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                      Audience prompt
+                                    </div>
+                                    <textarea
+                                      value={String(slide?.audience_prompt || "")}
+                                      onChange={(e) =>
+                                        updateSlideField(idx, "audience_prompt", e.target.value)
+                                      }
+                                      rows={3}
+                                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                                    />
+                                  </>
+                                ) : presentationMode === "presenter" ? (
+                                  <div className={["text-sm italic", theme.prompt].join(" ")}>
+                                    Audience prompt: {String(slide?.audience_prompt || "").trim()}
                                   </div>
-                                )}
+                                ) : null}
                               </div>
                             ) : null}
                           </div>
