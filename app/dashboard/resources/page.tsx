@@ -117,6 +117,8 @@ function slideThemeClasses(theme: PresentationTheme) {
       badge: "border-slate-300 bg-slate-100 text-slate-700",
       subtle: "text-slate-500",
       styleCard: "border-slate-200 bg-slate-50 text-slate-700",
+      overlay: "bg-gradient-to-br from-white/94 via-white/90 to-slate-100/90",
+      imageTint: "bg-white/35",
     };
   }
 
@@ -128,6 +130,8 @@ function slideThemeClasses(theme: PresentationTheme) {
       badge: "border-amber-300 bg-amber-100 text-amber-800",
       subtle: "text-amber-900/60",
       styleCard: "border-amber-200 bg-white/60 text-amber-900",
+      overlay: "bg-gradient-to-br from-amber-50/90 via-orange-50/84 to-white/78",
+      imageTint: "bg-amber-50/20",
     };
   }
 
@@ -139,6 +143,8 @@ function slideThemeClasses(theme: PresentationTheme) {
       badge: "border-slate-600 bg-slate-800 text-slate-300",
       subtle: "text-slate-400",
       styleCard: "border-slate-700 bg-slate-900/60 text-slate-300",
+      overlay: "bg-gradient-to-br from-slate-950/82 via-slate-900/74 to-slate-950/82",
+      imageTint: "bg-slate-950/18",
     };
   }
 
@@ -149,6 +155,8 @@ function slideThemeClasses(theme: PresentationTheme) {
     badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
     subtle: "text-emerald-100/50",
     styleCard: "border-emerald-500/20 bg-emerald-500/5 text-emerald-100",
+    overlay: "bg-gradient-to-br from-slate-950/82 via-slate-900/76 to-emerald-950/68",
+    imageTint: "bg-emerald-950/12",
   };
 }
 
@@ -767,58 +775,65 @@ export default function ResourcesPage() {
     }
   }
 
-  async function generateSlideArtwork(resource: Resource, slideIndex: number) {
+  async function generateSlideImage(resource: Resource, slideIndex: number) {
     const content = deepClone(resource.content || {});
     const slides = Array.isArray(content?.slides) ? content.slides : [];
     const slide = slides[slideIndex];
 
     if (!slide) return;
 
-    setBusyAction(`art:${resource.id}:${slideIndex}`);
+    setBusyAction(`image:${resource.id}:${slideIndex}`);
     setError(null);
 
     try {
-      const res = await fetch("/api/ai/slide-art", {
+      const res = await fetch("/api/ai/slide-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           presentationTitle: resource.title,
           presentationObjective: String(content?.objective || "").trim(),
           presentationPromise: String(content?.promise || "").trim(),
+          presentationAudienceTakeaway: String(content?.audience_takeaway || "").trim(),
           slideTitle: String(slide?.slide_title || "").trim(),
           slideGoal: String(slide?.slide_goal || "").trim(),
           bullets: Array.isArray(slide?.bullets) ? slide.bullets : [],
-          audience: String(content?.audience_takeaway || "").trim(),
-          tone: "calm and professional",
+          speakerNotes: String(slide?.speaker_notes || "").trim(),
+          audiencePrompt: String(slide?.audience_prompt || "").trim(),
+          visualDirection: String(slide?.visual_direction || "").trim(),
+          imagePrompt: String(slide?.image_prompt || "").trim(),
+          theme: presentationTheme,
         }),
       });
 
       const data = await res.json().catch(() => null);
 
-      if (!res.ok || !data?.success || !data?.artwork) {
-        throw new Error(data?.error || "Failed to generate artwork");
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to generate image");
       }
 
       slides[slideIndex] = {
         ...slide,
-        artwork_label: String(data.artwork.artwork_label || "").trim(),
-        artwork_chip: String(data.artwork.artwork_chip || "").trim(),
-        visual_direction: String(data.artwork.visual_direction || "").trim(),
-        image_prompt: String(data.artwork.image_prompt || "").trim(),
+        generated_image_url: String(data?.imageUrl || "").trim(),
+        generated_image_prompt: String(data?.imagePrompt || "").trim(),
+        generated_image_status: "ready",
+        artwork_label: String(data?.artworkLabel || slide?.artwork_label || "").trim(),
+        artwork_chip: String(data?.artworkChip || slide?.artwork_chip || "").trim(),
+        visual_direction: String(data?.visualDirection || slide?.visual_direction || "").trim(),
+        image_prompt: String(data?.imagePrompt || slide?.image_prompt || "").trim(),
         artwork_generated_at: new Date().toISOString(),
       };
 
       content.slides = slides;
 
-      await persistResourceContent(resource, content, "Slide artwork generated ✅");
+      await persistResourceContent(resource, content, "Slide image generated ✅");
     } catch (e: any) {
-      setError(e?.message || "Failed to generate artwork");
+      setError(e?.message || "Failed to generate image");
     } finally {
       setBusyAction(null);
     }
   }
 
-  async function clearSlideArtwork(resource: Resource, slideIndex: number) {
+  async function clearSlideImage(resource: Resource, slideIndex: number) {
     const content = deepClone(resource.content || {});
     const slides = Array.isArray(content?.slides) ? content.slides : [];
     const slide = slides[slideIndex];
@@ -827,16 +842,15 @@ export default function ResourcesPage() {
 
     slides[slideIndex] = {
       ...slide,
-      artwork_label: "",
-      artwork_chip: "",
-      visual_direction: "",
-      image_prompt: "",
+      generated_image_url: "",
+      generated_image_prompt: "",
+      generated_image_status: "",
       artwork_generated_at: null,
     };
 
     content.slides = slides;
 
-    await persistResourceContent(resource, content, "Slide artwork removed ✅");
+    await persistResourceContent(resource, content, "Slide image removed ✅");
   }
 
   function sendTemplateToBrainstorm(template: StarterTemplate) {
@@ -1244,6 +1258,9 @@ export default function ResourcesPage() {
           image_prompt: "",
           artwork_label: "",
           artwork_chip: "",
+          generated_image_url: "",
+          generated_image_prompt: "",
+          generated_image_status: "",
         };
       }
       next.slides[index][key] = value;
@@ -1266,6 +1283,9 @@ export default function ResourcesPage() {
           image_prompt: "",
           artwork_label: "",
           artwork_chip: "",
+          generated_image_url: "",
+          generated_image_prompt: "",
+          generated_image_status: "",
         };
       }
       next.slides[slideIndex].bullets = Array.isArray(next.slides[slideIndex].bullets)
@@ -1867,6 +1887,7 @@ export default function ResourcesPage() {
                           const imagePrompt = String(slide?.image_prompt || "").trim();
                           const artworkLabel = String(slide?.artwork_label || "").trim();
                           const artworkChip = String(slide?.artwork_chip || "").trim();
+                          const generatedImageUrl = String(slide?.generated_image_url || "").trim();
 
                           const art = getArtFromVisualDirection(
                             [
@@ -1881,8 +1902,8 @@ export default function ResourcesPage() {
                             ].join(" ")
                           );
 
-                          const isGeneratingArt =
-                            busyAction === `art:${(selected as Resource).id}:${idx}`;
+                          const isGeneratingImage =
+                            busyAction === `image:${(selected as Resource).id}:${idx}`;
 
                           return (
                             <div
@@ -1894,29 +1915,43 @@ export default function ResourcesPage() {
                             >
                               {!editMode && showArtwork ? (
                                 <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                                  <div
-                                    className={[
-                                      "absolute -right-12 -top-12 h-40 w-40 rounded-full blur-3xl",
-                                      art.orbA,
-                                    ].join(" ")}
-                                  />
-                                  <div
-                                    className={[
-                                      "absolute -left-10 bottom-0 h-32 w-32 rounded-full blur-3xl",
-                                      art.orbB,
-                                    ].join(" ")}
-                                  />
-                                  <div
-                                    className={[
-                                      "absolute inset-x-0 top-16 border-t",
-                                      art.line,
-                                    ].join(" ")}
-                                  />
+                                  {generatedImageUrl ? (
+                                    <>
+                                      <img
+                                        src={generatedImageUrl}
+                                        alt={slide?.slide_title || `Slide ${idx + 1}`}
+                                        className="absolute inset-0 h-full w-full object-cover"
+                                      />
+                                      <div className={`absolute inset-0 ${theme.imageTint}`} />
+                                      <div className={`absolute inset-0 ${theme.overlay}`} />
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div
+                                        className={[
+                                          "absolute -right-12 -top-12 h-40 w-40 rounded-full blur-3xl",
+                                          art.orbA,
+                                        ].join(" ")}
+                                      />
+                                      <div
+                                        className={[
+                                          "absolute -left-10 bottom-0 h-32 w-32 rounded-full blur-3xl",
+                                          art.orbB,
+                                        ].join(" ")}
+                                      />
+                                      <div
+                                        className={[
+                                          "absolute inset-x-0 top-16 border-t",
+                                          art.line,
+                                        ].join(" ")}
+                                      />
+                                    </>
+                                  )}
                                 </div>
                               ) : null}
 
                               <div className="relative z-10">
-                                <div className="flex items-start justify-between gap-3">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
                                   <div className={["text-[11px] uppercase tracking-[0.18em]", theme.subtle].join(" ")}>
                                     Slide {idx + 1}
                                   </div>
@@ -1924,13 +1959,15 @@ export default function ResourcesPage() {
                                   {!editMode ? (
                                     <div
                                       className={[
-                                        "shrink-0 rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide whitespace-nowrap",
+                                        "inline-flex max-w-full items-center rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
                                         theme.badge,
                                       ].join(" ")}
                                     >
-                                      {presentationMode === "presenter"
-                                        ? "Presenter view"
-                                        : "Audience view"}
+                                      <span className="whitespace-nowrap">
+                                        {presentationMode === "presenter"
+                                          ? "Presenter view"
+                                          : "Audience view"}
+                                      </span>
                                     </div>
                                   ) : null}
                                 </div>
@@ -1954,28 +1991,28 @@ export default function ResourcesPage() {
                                     <button
                                       type="button"
                                       onClick={() =>
-                                        generateSlideArtwork(selected as Resource, idx)
+                                        generateSlideImage(selected as Resource, idx)
                                       }
-                                      disabled={isGeneratingArt}
+                                      disabled={isGeneratingImage}
                                       className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                                     >
-                                      {isGeneratingArt
+                                      {isGeneratingImage
                                         ? "Generating…"
-                                        : visualDirection || imagePrompt
-                                        ? "Regenerate artwork"
-                                        : "Generate artwork"}
+                                        : generatedImageUrl
+                                        ? "Regenerate image"
+                                        : "Generate image"}
                                     </button>
 
-                                    {(visualDirection || imagePrompt) && (
+                                    {generatedImageUrl && (
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          clearSlideArtwork(selected as Resource, idx)
+                                          clearSlideImage(selected as Resource, idx)
                                         }
                                         disabled={busyAction === `save:${(selected as Resource).id}`}
                                         className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
                                       >
-                                        Remove artwork
+                                        Remove image
                                       </button>
                                     )}
                                   </div>
@@ -1995,7 +2032,7 @@ export default function ResourcesPage() {
                                         </div>
                                         <div className="min-w-0">
                                           <div className="text-[10px] uppercase tracking-[0.18em] opacity-60">
-                                            Artwork
+                                            {generatedImageUrl ? "Generated image" : "Artwork"}
                                           </div>
                                           <div className="text-sm font-semibold leading-tight break-words">
                                             {artworkLabel || art.label}
@@ -2031,7 +2068,7 @@ export default function ResourcesPage() {
                                   </div>
                                 ) : null}
 
-                                {visualDirection || imagePrompt ? (
+                                {presentationMode === "presenter" && (visualDirection || imagePrompt || generatedImageUrl) ? (
                                   <div className="mt-4 grid gap-3 md:grid-cols-2 max-w-4xl">
                                     <div className={["rounded-2xl border p-3", theme.note].join(" ")}>
                                       <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
