@@ -42,7 +42,10 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (loadErr) {
-        return NextResponse.json({ error: loadErr.message }, { status: 500 });
+        return NextResponse.json(
+          { error: loadErr.message },
+          { status: 500 }
+        );
       }
 
       if (!existing) {
@@ -67,7 +70,10 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (dupErr) {
-        return NextResponse.json({ error: dupErr.message }, { status: 500 });
+        return NextResponse.json(
+          { error: dupErr.message },
+          { status: 500 }
+        );
       }
 
       return NextResponse.json({
@@ -94,7 +100,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!title) {
-      return NextResponse.json({ error: "title required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "title required" },
+        { status: 400 }
+      );
     }
 
     if (!resourceType) {
@@ -117,7 +126,10 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
@@ -151,7 +163,10 @@ export async function GET(req: NextRequest) {
       .order("created_at", { ascending: false });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
@@ -174,7 +189,7 @@ export async function PATCH(req: NextRequest) {
     const resourceId = norm(body?.resourceId);
     const title = norm(body?.title);
     const hasContent = Object.prototype.hasOwnProperty.call(body, "content");
-    const content = hasContent ? body?.content ?? null : undefined;
+    const content = hasContent ? body.content : undefined;
 
     if (!organisationId) {
       return NextResponse.json(
@@ -192,7 +207,7 @@ export async function PATCH(req: NextRequest) {
 
     if (!title && !hasContent) {
       return NextResponse.json(
-        { error: "Nothing to update" },
+        { error: "Nothing to update. Provide title and/or content." },
         { status: 400 }
       );
     }
@@ -201,8 +216,13 @@ export async function PATCH(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    if (title) updatePayload.title = title;
-    if (hasContent) updatePayload.content = content;
+    if (title) {
+      updatePayload.title = title;
+    }
+
+    if (hasContent) {
+      updatePayload.content = content;
+    }
 
     const { data, error } = await supabaseAdmin
       .from("resource_library")
@@ -213,7 +233,10 @@ export async function PATCH(req: NextRequest) {
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      );
     }
 
     if (!data) {
@@ -263,7 +286,10 @@ export async function DELETE(req: NextRequest) {
       .eq("id", resourceId);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
