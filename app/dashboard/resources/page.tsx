@@ -1778,29 +1778,6 @@ export default function ResourcesPage() {
                                       art.line,
                                     ].join(" ")}
                                   />
-                                  <div
-                                    className={[
-                                      "absolute right-5 top-5 hidden md:block rounded-2xl border px-4 py-3 backdrop-blur-sm",
-                                      art.panel,
-                                    ].join(" ")}
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      <div className="text-2xl leading-none opacity-90">
-                                        {art.icon}
-                                      </div>
-                                      <div>
-                                        <div className="text-[10px] uppercase tracking-[0.18em] opacity-60">
-                                          Artwork
-                                        </div>
-                                        <div className="text-sm font-semibold">
-                                          {art.label}
-                                        </div>
-                                        <div className="mt-1 text-[11px] opacity-70">
-                                          {art.chip}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
                                 </div>
                               ) : null}
 
@@ -1813,7 +1790,7 @@ export default function ResourcesPage() {
                                   {!editMode ? (
                                     <div
                                       className={[
-                                        "rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
+                                        "shrink-0 rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide whitespace-nowrap",
                                         theme.badge,
                                       ].join(" ")}
                                     >
@@ -1837,6 +1814,34 @@ export default function ResourcesPage() {
                                     {slide?.slide_title || `Slide ${idx + 1}`}
                                   </div>
                                 )}
+
+                                {!editMode && showArtwork ? (
+                                  <div className="mt-4 max-w-md">
+                                    <div
+                                      className={[
+                                        "rounded-2xl border px-4 py-3 backdrop-blur-sm",
+                                        art.panel,
+                                      ].join(" ")}
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <div className="text-2xl leading-none opacity-90 shrink-0">
+                                          {art.icon}
+                                        </div>
+                                        <div className="min-w-0">
+                                          <div className="text-[10px] uppercase tracking-[0.18em] opacity-60">
+                                            Artwork
+                                          </div>
+                                          <div className="text-sm font-semibold leading-tight break-words">
+                                            {art.label}
+                                          </div>
+                                          <div className="mt-1 text-[11px] opacity-70 leading-snug break-words">
+                                            {art.chip}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null}
 
                                 {slide?.slide_goal !== undefined ? (
                                   <div className="mt-4">
@@ -1877,7 +1882,7 @@ export default function ResourcesPage() {
                                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
                                           />
                                         ) : (
-                                          <div className="mt-2 text-sm leading-relaxed">
+                                          <div className="mt-2 text-sm leading-relaxed break-words">
                                             {visualDirection}
                                           </div>
                                         )}
@@ -1899,7 +1904,7 @@ export default function ResourcesPage() {
                                             className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
                                           />
                                         ) : (
-                                          <div className="mt-2 text-sm leading-relaxed">
+                                          <div className="mt-2 text-sm leading-relaxed break-words">
                                             {imagePrompt}
                                           </div>
                                         )}
