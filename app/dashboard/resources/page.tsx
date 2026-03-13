@@ -51,6 +51,18 @@ type CreateResourceType =
 
 type FillLevel = "skeleton" | "draft" | "ready";
 type PresentationMode = "audience" | "presenter";
+type PresentationTheme = "calm" | "corporate" | "warm" | "dark";
+
+type ArtPreset = {
+  key: string;
+  label: string;
+  icon: string;
+  chip: string;
+  orbA: string;
+  orbB: string;
+  line: string;
+  panel: string;
+};
 
 const GROWTH_SEED_KEYS = [
   "rootops_growth_seed_brainstorm_v1",
@@ -92,13 +104,19 @@ function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
-function slideThemeClasses(theme: string) {
+function normaliseText(v: any) {
+  return String(v || "").toLowerCase().trim();
+}
+
+function slideThemeClasses(theme: PresentationTheme) {
   if (theme === "corporate") {
     return {
       card: "border-slate-200 bg-white text-slate-900 shadow-[0_12px_40px_rgba(15,23,42,0.08)]",
       note: "border-slate-200 bg-slate-50 text-slate-700",
       prompt: "text-slate-600",
       badge: "border-slate-300 bg-slate-100 text-slate-700",
+      subtle: "text-slate-500",
+      styleCard: "border-slate-200 bg-slate-50 text-slate-700",
     };
   }
 
@@ -108,6 +126,8 @@ function slideThemeClasses(theme: string) {
       note: "border-amber-200 bg-white/70 text-slate-700",
       prompt: "text-amber-900/80",
       badge: "border-amber-300 bg-amber-100 text-amber-800",
+      subtle: "text-amber-900/60",
+      styleCard: "border-amber-200 bg-white/60 text-amber-900",
     };
   }
 
@@ -117,6 +137,8 @@ function slideThemeClasses(theme: string) {
       note: "border-slate-700 bg-black/20 text-slate-300",
       prompt: "text-slate-400",
       badge: "border-slate-600 bg-slate-800 text-slate-300",
+      subtle: "text-slate-400",
+      styleCard: "border-slate-700 bg-slate-900/60 text-slate-300",
     };
   }
 
@@ -125,7 +147,193 @@ function slideThemeClasses(theme: string) {
     note: "border-emerald-500/20 bg-emerald-500/5 text-slate-300",
     prompt: "text-emerald-100/80",
     badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+    subtle: "text-emerald-100/50",
+    styleCard: "border-emerald-500/20 bg-emerald-500/5 text-emerald-100",
   };
+}
+
+function getArtPreset(input: string): ArtPreset {
+  const s = normaliseText(input);
+
+  if (
+    s.includes("anxiety") ||
+    s.includes("stress") ||
+    s.includes("overwhelm") ||
+    s.includes("panic")
+  ) {
+    return {
+      key: "calm-mind",
+      label: "Calm focus",
+      icon: "◔",
+      chip: "Breathing space",
+      orbA: "bg-sky-400/20",
+      orbB: "bg-indigo-400/15",
+      line: "border-sky-300/20",
+      panel: "bg-white/5 border-white/10",
+    };
+  }
+
+  if (
+    s.includes("burnout") ||
+    s.includes("recovery") ||
+    s.includes("exhaustion") ||
+    s.includes("fatigue")
+  ) {
+    return {
+      key: "recovery",
+      label: "Recovery path",
+      icon: "◡",
+      chip: "Restore pace",
+      orbA: "bg-amber-400/20",
+      orbB: "bg-rose-400/10",
+      line: "border-amber-200/20",
+      panel: "bg-white/5 border-white/10",
+    };
+  }
+
+  if (
+    s.includes("manager") ||
+    s.includes("leader") ||
+    s.includes("leadership") ||
+    s.includes("team")
+  ) {
+    return {
+      key: "leadership",
+      label: "Leadership clarity",
+      icon: "◇",
+      chip: "Guide with care",
+      orbA: "bg-violet-400/20",
+      orbB: "bg-fuchsia-400/10",
+      line: "border-violet-200/20",
+      panel: "bg-white/5 border-white/10",
+    };
+  }
+
+  if (
+    s.includes("workplace") ||
+    s.includes("hr") ||
+    s.includes("staff") ||
+    s.includes("organisation") ||
+    s.includes("corporate")
+  ) {
+    return {
+      key: "workplace",
+      label: "Workplace wellbeing",
+      icon: "▣",
+      chip: "Practical culture",
+      orbA: "bg-cyan-400/20",
+      orbB: "bg-emerald-400/10",
+      line: "border-cyan-200/20",
+      panel: "bg-white/5 border-white/10",
+    };
+  }
+
+  if (
+    s.includes("wellbeing") ||
+    s.includes("wellness") ||
+    s.includes("mental health") ||
+    s.includes("support")
+  ) {
+    return {
+      key: "wellbeing",
+      label: "Supportive wellbeing",
+      icon: "✦",
+      chip: "Gentle guidance",
+      orbA: "bg-emerald-400/20",
+      orbB: "bg-teal-400/10",
+      line: "border-emerald-200/20",
+      panel: "bg-white/5 border-white/10",
+    };
+  }
+
+  return {
+    key: "root",
+    label: "Root Health",
+    icon: "✳",
+    chip: "Calm teaching",
+    orbA: "bg-emerald-400/15",
+    orbB: "bg-sky-400/10",
+    line: "border-white/10",
+    panel: "bg-white/5 border-white/10",
+  };
+}
+
+function getArtFromVisualDirection(input: string): ArtPreset {
+  const s = normaliseText(input);
+
+  if (
+    s.includes("blue") ||
+    s.includes("green") ||
+    s.includes("calm") ||
+    s.includes("soft layered circles")
+  ) {
+    return {
+      key: "blue-calm",
+      label: "Calm visual",
+      icon: "◔",
+      chip: "Soft layers",
+      orbA: "bg-sky-400/20",
+      orbB: "bg-emerald-400/10",
+      line: "border-sky-200/20",
+      panel: "bg-white/5 border-white/10",
+    };
+  }
+
+  if (
+    s.includes("warm") ||
+    s.includes("recovery") ||
+    s.includes("sunrise") ||
+    s.includes("amber")
+  ) {
+    return {
+      key: "warm-recovery",
+      label: "Warm recovery",
+      icon: "◡",
+      chip: "Gentle warmth",
+      orbA: "bg-amber-400/20",
+      orbB: "bg-orange-400/10",
+      line: "border-amber-200/20",
+      panel: "bg-white/5 border-white/10",
+    };
+  }
+
+  if (
+    s.includes("corporate") ||
+    s.includes("structured") ||
+    s.includes("workplace") ||
+    s.includes("panels")
+  ) {
+    return {
+      key: "work-structure",
+      label: "Structured clarity",
+      icon: "▣",
+      chip: "Clean layout",
+      orbA: "bg-cyan-400/20",
+      orbB: "bg-slate-300/10",
+      line: "border-cyan-200/20",
+      panel: "bg-white/5 border-white/10",
+    };
+  }
+
+  if (
+    s.includes("reflective") ||
+    s.includes("wellbeing") ||
+    s.includes("gentle") ||
+    s.includes("supportive")
+  ) {
+    return {
+      key: "reflective",
+      label: "Reflective wellbeing",
+      icon: "✦",
+      chip: "Supportive tone",
+      orbA: "bg-emerald-400/20",
+      orbB: "bg-teal-400/10",
+      line: "border-emerald-200/20",
+      panel: "bg-white/5 border-white/10",
+    };
+  }
+
+  return getArtPreset(input);
 }
 
 const STARTER_TEMPLATES: StarterTemplate[] = [
@@ -378,9 +586,9 @@ export default function ResourcesPage() {
 
   const [presentationMode, setPresentationMode] =
     useState<PresentationMode>("audience");
-  const [presentationTheme, setPresentationTheme] = useState<
-    "calm" | "corporate" | "warm" | "dark"
-  >("calm");
+  const [presentationTheme, setPresentationTheme] =
+    useState<PresentationTheme>("calm");
+  const [showArtwork, setShowArtwork] = useState(true);
 
   async function loadOrganisation() {
     try {
@@ -909,6 +1117,8 @@ export default function ResourcesPage() {
           bullets: [],
           speaker_notes: "",
           audience_prompt: "",
+          visual_direction: "",
+          image_prompt: "",
         };
       }
       next.slides[index][key] = value;
@@ -927,6 +1137,8 @@ export default function ResourcesPage() {
           bullets: [],
           speaker_notes: "",
           audience_prompt: "",
+          visual_direction: "",
+          image_prompt: "",
         };
       }
       next.slides[slideIndex].bullets = Array.isArray(next.slides[slideIndex].bullets)
@@ -1203,9 +1415,7 @@ export default function ResourcesPage() {
                     <select
                       value={presentationTheme}
                       onChange={(e) =>
-                        setPresentationTheme(
-                          e.target.value as "calm" | "corporate" | "warm" | "dark"
-                        )
+                        setPresentationTheme(e.target.value as PresentationTheme)
                       }
                       className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100"
                     >
@@ -1214,6 +1424,19 @@ export default function ResourcesPage() {
                       <option value="warm">Warm</option>
                       <option value="dark">Dark</option>
                     </select>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowArtwork((prev) => !prev)}
+                      className={[
+                        "rounded-full border px-3 py-1.5 text-xs",
+                        showArtwork
+                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                          : "border-slate-600 bg-slate-900 text-slate-200",
+                      ].join(" ")}
+                    >
+                      {showArtwork ? "Artwork on" : "Artwork off"}
+                    </button>
                   </div>
                 ) : null}
 
@@ -1311,6 +1534,24 @@ export default function ResourcesPage() {
 
                 {selectedContent ? (
                   <div className="space-y-4">
+                    {selectedContent?.presentation_style !== undefined ? (
+                      <div className={["rounded-xl border p-4", theme.styleCard].join(" ")}>
+                        <div className="text-sm font-semibold">Presentation style</div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.presentation_style || "")}
+                            onChange={(e) => setDraftField("presentation_style", e.target.value)}
+                            rows={2}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm">
+                            {selectedContent.presentation_style}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+
                     {selectedContent?.promise !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">Promise</div>
@@ -1494,148 +1735,260 @@ export default function ResourcesPage() {
                     {Array.isArray(selectedContent?.slides) &&
                     selectedContent.slides.length > 0 ? (
                       <div className="space-y-6">
-                        {selectedContent.slides.map((slide: any, idx: number) => (
-                          <div
-                            key={`${(selected as any).id}-slide-${idx}`}
-                            className={[
-                              "rounded-[28px] border p-6 md:p-8 transition",
-                              editMode ? "border-slate-800 bg-slate-950/60" : theme.card,
-                            ].join(" ")}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="text-[11px] uppercase tracking-[0.18em] opacity-60">
-                                Slide {idx + 1}
-                              </div>
+                        {selectedContent.slides.map((slide: any, idx: number) => {
+                          const visualDirection = String(slide?.visual_direction || "").trim();
+                          const imagePrompt = String(slide?.image_prompt || "").trim();
 
-                              {!editMode ? (
-                                <div
-                                  className={[
-                                    "rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
-                                    theme.badge,
-                                  ].join(" ")}
-                                >
-                                  {presentationMode === "presenter"
-                                    ? "Presenter view"
-                                    : "Audience view"}
+                          const art = getArtFromVisualDirection(
+                            [
+                              visualDirection,
+                              (selected as any)?.title || "",
+                              slide?.slide_title || "",
+                              slide?.slide_goal || "",
+                              selectedContent?.objective || "",
+                              selectedContent?.promise || "",
+                            ].join(" ")
+                          );
+
+                          return (
+                            <div
+                              key={`${(selected as any).id}-slide-${idx}`}
+                              className={[
+                                "relative overflow-hidden rounded-[28px] border p-6 md:p-8 transition",
+                                editMode ? "border-slate-800 bg-slate-950/60" : theme.card,
+                              ].join(" ")}
+                            >
+                              {!editMode && showArtwork ? (
+                                <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                                  <div
+                                    className={[
+                                      "absolute -right-12 -top-12 h-40 w-40 rounded-full blur-3xl",
+                                      art.orbA,
+                                    ].join(" ")}
+                                  />
+                                  <div
+                                    className={[
+                                      "absolute -left-10 bottom-0 h-32 w-32 rounded-full blur-3xl",
+                                      art.orbB,
+                                    ].join(" ")}
+                                  />
+                                  <div
+                                    className={[
+                                      "absolute inset-x-0 top-16 border-t",
+                                      art.line,
+                                    ].join(" ")}
+                                  />
+                                  <div
+                                    className={[
+                                      "absolute right-5 top-5 hidden md:block rounded-2xl border px-4 py-3 backdrop-blur-sm",
+                                      art.panel,
+                                    ].join(" ")}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <div className="text-2xl leading-none opacity-90">
+                                        {art.icon}
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] uppercase tracking-[0.18em] opacity-60">
+                                          Artwork
+                                        </div>
+                                        <div className="text-sm font-semibold">
+                                          {art.label}
+                                        </div>
+                                        <div className="mt-1 text-[11px] opacity-70">
+                                          {art.chip}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
                                 </div>
                               ) : null}
-                            </div>
 
-                            {editMode && !isTemplate(selected) ? (
-                              <input
-                                value={String(slide?.slide_title || "")}
-                                onChange={(e) =>
-                                  updateSlideField(idx, "slide_title", e.target.value)
-                                }
-                                className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xl font-semibold text-slate-100"
-                              />
-                            ) : (
-                              <div className="mt-3 text-2xl md:text-3xl font-semibold leading-tight">
-                                {slide?.slide_title || `Slide ${idx + 1}`}
-                              </div>
-                            )}
-
-                            {slide?.slide_goal !== undefined ? (
-                              <div className="mt-4">
-                                <div className="text-[11px] font-semibold uppercase tracking-wide opacity-60">
-                                  Slide goal
-                                </div>
-                                {editMode && !isTemplate(selected) ? (
-                                  <textarea
-                                    value={String(slide?.slide_goal || "")}
-                                    onChange={(e) =>
-                                      updateSlideField(idx, "slide_goal", e.target.value)
-                                    }
-                                    rows={2}
-                                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                                  />
-                                ) : presentationMode === "presenter" ? (
-                                  <div className="mt-2 text-sm opacity-80">
-                                    {String(slide?.slide_goal || "").trim()}
+                              <div className="relative z-10">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className={["text-[11px] uppercase tracking-[0.18em]", theme.subtle].join(" ")}>
+                                    Slide {idx + 1}
                                   </div>
-                                ) : null}
-                              </div>
-                            ) : null}
 
-                            <div className="mt-6 space-y-3">
-                              {Array.isArray(slide?.bullets) &&
-                                slide.bullets.map((bullet: any, bulletIdx: number) =>
-                                  editMode && !isTemplate(selected) ? (
-                                    <textarea
-                                      key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
-                                      value={String(bullet || "")}
-                                      onChange={(e) =>
-                                        updateSlideBullet(idx, bulletIdx, e.target.value)
-                                      }
-                                      rows={2}
-                                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                                    />
-                                  ) : (
+                                  {!editMode ? (
                                     <div
-                                      key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
-                                      className="flex items-start gap-3 text-base md:text-lg leading-relaxed"
+                                      className={[
+                                        "rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
+                                        theme.badge,
+                                      ].join(" ")}
                                     >
-                                      <span className="mt-1 opacity-70">•</span>
-                                      <span>{String(bullet || "").trim()}</span>
+                                      {presentationMode === "presenter"
+                                        ? "Presenter view"
+                                        : "Audience view"}
                                     </div>
-                                  )
+                                  ) : null}
+                                </div>
+
+                                {editMode && !isTemplate(selected) ? (
+                                  <input
+                                    value={String(slide?.slide_title || "")}
+                                    onChange={(e) =>
+                                      updateSlideField(idx, "slide_title", e.target.value)
+                                    }
+                                    className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xl font-semibold text-slate-100"
+                                  />
+                                ) : (
+                                  <div className="mt-3 text-2xl md:text-3xl font-semibold leading-tight max-w-3xl">
+                                    {slide?.slide_title || `Slide ${idx + 1}`}
+                                  </div>
                                 )}
+
+                                {slide?.slide_goal !== undefined ? (
+                                  <div className="mt-4">
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide opacity-60">
+                                      Slide goal
+                                    </div>
+                                    {editMode && !isTemplate(selected) ? (
+                                      <textarea
+                                        value={String(slide?.slide_goal || "")}
+                                        onChange={(e) =>
+                                          updateSlideField(idx, "slide_goal", e.target.value)
+                                        }
+                                        rows={2}
+                                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                      />
+                                    ) : presentationMode === "presenter" ? (
+                                      <div className="mt-2 text-sm opacity-80 max-w-3xl">
+                                        {String(slide?.slide_goal || "").trim()}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+
+                                {visualDirection || imagePrompt ? (
+                                  <div className="mt-4 grid gap-3 md:grid-cols-2 max-w-4xl">
+                                    {visualDirection ? (
+                                      <div className={["rounded-2xl border p-3", theme.note].join(" ")}>
+                                        <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                                          Visual direction
+                                        </div>
+                                        {editMode && !isTemplate(selected) ? (
+                                          <textarea
+                                            value={visualDirection}
+                                            onChange={(e) =>
+                                              updateSlideField(idx, "visual_direction", e.target.value)
+                                            }
+                                            rows={3}
+                                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                          />
+                                        ) : (
+                                          <div className="mt-2 text-sm leading-relaxed">
+                                            {visualDirection}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : null}
+
+                                    {imagePrompt ? (
+                                      <div className={["rounded-2xl border p-3", theme.note].join(" ")}>
+                                        <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                                          Image prompt
+                                        </div>
+                                        {editMode && !isTemplate(selected) ? (
+                                          <textarea
+                                            value={imagePrompt}
+                                            onChange={(e) =>
+                                              updateSlideField(idx, "image_prompt", e.target.value)
+                                            }
+                                            rows={3}
+                                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                          />
+                                        ) : (
+                                          <div className="mt-2 text-sm leading-relaxed">
+                                            {imagePrompt}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+
+                                <div className="mt-6 space-y-3 max-w-3xl">
+                                  {Array.isArray(slide?.bullets) &&
+                                    slide.bullets.map((bullet: any, bulletIdx: number) =>
+                                      editMode && !isTemplate(selected) ? (
+                                        <textarea
+                                          key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
+                                          value={String(bullet || "")}
+                                          onChange={(e) =>
+                                            updateSlideBullet(idx, bulletIdx, e.target.value)
+                                          }
+                                          rows={2}
+                                          className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                        />
+                                      ) : (
+                                        <div
+                                          key={`${(selected as any).id}-slide-${idx}-bullet-${bulletIdx}`}
+                                          className="flex items-start gap-3 text-base md:text-lg leading-relaxed"
+                                        >
+                                          <span className="mt-1 opacity-70">•</span>
+                                          <span>{String(bullet || "").trim()}</span>
+                                        </div>
+                                      )
+                                    )}
+                                </div>
+
+                                {slide?.speaker_notes !== undefined ? (
+                                  <div className="mt-6">
+                                    {editMode && !isTemplate(selected) ? (
+                                      <>
+                                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                          Speaker notes
+                                        </div>
+                                        <textarea
+                                          value={String(slide?.speaker_notes || "")}
+                                          onChange={(e) =>
+                                            updateSlideField(idx, "speaker_notes", e.target.value)
+                                          }
+                                          rows={5}
+                                          className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                                        />
+                                      </>
+                                    ) : presentationMode === "presenter" ? (
+                                      <div className={["rounded-2xl border p-4 max-w-4xl", theme.note].join(" ")}>
+                                        <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                                          Speaker notes
+                                        </div>
+                                        <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
+                                          {String(slide?.speaker_notes || "").trim()}
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+
+                                {slide?.audience_prompt !== undefined ? (
+                                  <div className="mt-4">
+                                    {editMode && !isTemplate(selected) ? (
+                                      <>
+                                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                          Audience prompt
+                                        </div>
+                                        <textarea
+                                          value={String(slide?.audience_prompt || "")}
+                                          onChange={(e) =>
+                                            updateSlideField(idx, "audience_prompt", e.target.value)
+                                          }
+                                          rows={3}
+                                          className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                                        />
+                                      </>
+                                    ) : presentationMode === "presenter" ? (
+                                      <div className={["text-sm italic max-w-4xl", theme.prompt].join(" ")}>
+                                        Audience prompt: {String(slide?.audience_prompt || "").trim()}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+                              </div>
                             </div>
-
-                            {slide?.speaker_notes !== undefined ? (
-                              <div className="mt-6">
-                                {editMode && !isTemplate(selected) ? (
-                                  <>
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                      Speaker notes
-                                    </div>
-                                    <textarea
-                                      value={String(slide?.speaker_notes || "")}
-                                      onChange={(e) =>
-                                        updateSlideField(idx, "speaker_notes", e.target.value)
-                                      }
-                                      rows={5}
-                                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
-                                    />
-                                  </>
-                                ) : presentationMode === "presenter" ? (
-                                  <div className={["rounded-2xl border p-4", theme.note].join(" ")}>
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
-                                      Speaker notes
-                                    </div>
-                                    <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
-                                      {String(slide?.speaker_notes || "").trim()}
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
-
-                            {slide?.audience_prompt !== undefined ? (
-                              <div className="mt-4">
-                                {editMode && !isTemplate(selected) ? (
-                                  <>
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                      Audience prompt
-                                    </div>
-                                    <textarea
-                                      value={String(slide?.audience_prompt || "")}
-                                      onChange={(e) =>
-                                        updateSlideField(idx, "audience_prompt", e.target.value)
-                                      }
-                                      rows={3}
-                                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
-                                    />
-                                  </>
-                                ) : presentationMode === "presenter" ? (
-                                  <div className={["text-sm italic", theme.prompt].join(" ")}>
-                                    Audience prompt: {String(slide?.audience_prompt || "").trim()}
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : null}
 
