@@ -14,56 +14,6 @@ function joinBullets(input: any) {
   return input.map((x) => safe(x)).filter(Boolean).join(" | ");
 }
 
-function buildImagePrompt(body: any) {
-  const presentationTitle = safe(body?.presentationTitle);
-  const presentationObjective = safe(body?.presentationObjective);
-  const presentationPromise = safe(body?.presentationPromise);
-  const presentationAudienceTakeaway = safe(body?.presentationAudienceTakeaway);
-  const slideTitle = safe(body?.slideTitle);
-  const slideGoal = safe(body?.slideGoal);
-  const bullets = joinBullets(body?.bullets);
-  const speakerNotes = safe(body?.speakerNotes);
-  const audiencePrompt = safe(body?.audiencePrompt);
-  const visualDirection = safe(body?.visualDirection);
-  const existingImagePrompt = safe(body?.imagePrompt);
-  const theme = safe(body?.theme || "calm").toLowerCase();
-
-  const themeStyle =
-    theme === "corporate"
-      ? "clean professional presentation artwork, minimal corporate design, polished, modern, subtle shapes, high clarity"
-      : theme === "warm"
-      ? "warm educational presentation artwork, soft gradients, welcoming, human, calm, elegant"
-      : theme === "dark"
-      ? "dark premium presentation artwork, elegant lighting, refined contrast, modern wellbeing visual"
-      : "calm wellbeing presentation artwork, soft layered gradients, modern, clean, supportive, polished";
-
-  return [
-    "Create a landscape presentation image for a professional wellbeing slide.",
-    "The image should feel polished, calm, modern, and suitable for a presentation or webinar.",
-    "Do not include any readable text, letters, words, captions, UI, logos, or watermarks.",
-    "Do not make it look like a poster with text on it.",
-    "Use an editorial presentation background style that supports slide content.",
-    themeStyle,
-    presentationTitle ? `Presentation title: ${presentationTitle}` : "",
-    presentationObjective ? `Presentation objective: ${presentationObjective}` : "",
-    presentationPromise ? `Presentation promise: ${presentationPromise}` : "",
-    presentationAudienceTakeaway
-      ? `Audience takeaway: ${presentationAudienceTakeaway}`
-      : "",
-    slideTitle ? `Slide title: ${slideTitle}` : "",
-    slideGoal ? `Slide goal: ${slideGoal}` : "",
-    bullets ? `Slide bullet themes: ${bullets}` : "",
-    speakerNotes ? `Speaker note themes: ${speakerNotes}` : "",
-    audiencePrompt ? `Audience prompt theme: ${audiencePrompt}` : "",
-    visualDirection ? `Preferred visual direction: ${visualDirection}` : "",
-    existingImagePrompt ? `Extra image guidance: ${existingImagePrompt}` : "",
-    "The final image must be visually useful as a slide background or side-panel illustration.",
-    "Prefer subtle abstract or conceptual visuals over literal or cheesy stock-photo style scenes.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 function inferArtworkLabel(body: any) {
   const text = [
     safe(body?.presentationTitle),
@@ -86,7 +36,7 @@ function inferArtworkLabel(body: any) {
       artworkChip: "Breathing space",
       visualDirection:
         safe(body?.visualDirection) ||
-        "Soft blue-green layered abstract forms, calm atmosphere, supportive wellbeing tone",
+        "A calm supportive wellbeing illustration with soft blue and green tones, gentle depth, clean composition, and space for slide text",
     };
   }
 
@@ -101,7 +51,7 @@ function inferArtworkLabel(body: any) {
       artworkChip: "Restore pace",
       visualDirection:
         safe(body?.visualDirection) ||
-        "Warm restorative abstract visual, soft sunrise tones, gentle shapes, calm energy",
+        "A warm restorative illustration with sunrise tones, gentle layered forms, recovery symbolism, and space for presentation content",
     };
   }
 
@@ -116,7 +66,7 @@ function inferArtworkLabel(body: any) {
       artworkChip: "Guide with care",
       visualDirection:
         safe(body?.visualDirection) ||
-        "Structured modern workplace visual, subtle geometric forms, calm leadership tone",
+        "A professional people-centred workplace illustration with structured calm composition, modern leadership tone, and clean negative space",
     };
   }
 
@@ -131,7 +81,7 @@ function inferArtworkLabel(body: any) {
       artworkChip: "Practical culture",
       visualDirection:
         safe(body?.visualDirection) ||
-        "Clean workplace wellbeing visual, modern abstract panels, teal and cyan palette",
+        "A clean modern workplace wellbeing illustration with subtle human presence, cyan and teal palette, and a polished presentation look",
     };
   }
 
@@ -140,8 +90,66 @@ function inferArtworkLabel(body: any) {
     artworkChip: "Calm teaching",
     visualDirection:
       safe(body?.visualDirection) ||
-      "Modern calm presentation artwork, soft gradients, subtle abstract shapes, professional wellbeing tone",
+      "A polished modern educational illustration with calm colour, soft depth, and a clear focal visual that supports slide content",
   };
+}
+
+function buildImagePrompt(body: any, inferred: { visualDirection: string }) {
+  const presentationTitle = safe(body?.presentationTitle);
+  const presentationObjective = safe(body?.presentationObjective);
+  const presentationPromise = safe(body?.presentationPromise);
+  const presentationAudienceTakeaway = safe(body?.presentationAudienceTakeaway);
+  const slideTitle = safe(body?.slideTitle);
+  const slideGoal = safe(body?.slideGoal);
+  const bullets = joinBullets(body?.bullets);
+  const speakerNotes = safe(body?.speakerNotes);
+  const audiencePrompt = safe(body?.audiencePrompt);
+  const visualDirection =
+    safe(body?.visualDirection) || inferred.visualDirection;
+  const existingImagePrompt = safe(body?.imagePrompt);
+  const theme = safe(body?.theme || "calm").toLowerCase();
+
+  const themeStyle =
+    theme === "corporate"
+      ? "clean professional editorial illustration, polished corporate presentation style, modern, structured, minimal but visible"
+      : theme === "warm"
+      ? "warm educational editorial illustration, welcoming, soft gradients, human, elegant, clearly visible"
+      : theme === "dark"
+      ? "dark premium editorial illustration, refined contrast, modern wellbeing aesthetic, cinematic but clean"
+      : "calm wellbeing editorial illustration, modern, clean, supportive, polished, clearly visible";
+
+  return [
+    "Create a LANDSCAPE 16:9 slide illustration for a professional wellbeing presentation.",
+    "This must be a REAL VISIBLE IMAGE, not just a texture wash or faint background tint.",
+    "The image should contain a clear focal visual or conceptual scene.",
+    "Leave generous negative space for slide text.",
+    "Best layout: focal illustration weighted to the right side or lower-right area, with cleaner reading space elsewhere.",
+    "The image should feel polished, calm, modern, and presentation-ready.",
+    "Do not include any readable text, letters, captions, UI, logos, or watermarks.",
+    "Do not make it look like a poster with words on it.",
+    "Avoid cheesy stock-photo style visuals.",
+    "Avoid flat abstract fog with no subject.",
+    "Prefer a clear conceptual illustration, soft human-centred symbolism, or elegant editorial scene.",
+    themeStyle,
+    presentationTitle ? `Presentation title: ${presentationTitle}` : "",
+    presentationObjective ? `Presentation objective: ${presentationObjective}` : "",
+    presentationPromise ? `Presentation promise: ${presentationPromise}` : "",
+    presentationAudienceTakeaway
+      ? `Audience takeaway: ${presentationAudienceTakeaway}`
+      : "",
+    slideTitle ? `Slide title: ${slideTitle}` : "",
+    slideGoal ? `Slide goal: ${slideGoal}` : "",
+    bullets ? `Slide bullet themes: ${bullets}` : "",
+    speakerNotes ? `Speaker note themes: ${speakerNotes}` : "",
+    audiencePrompt ? `Audience prompt theme: ${audiencePrompt}` : "",
+    visualDirection ? `Preferred visual direction: ${visualDirection}` : "",
+    existingImagePrompt ? `Extra image guidance: ${existingImagePrompt}` : "",
+    "Make the image visually distinct enough that a user immediately recognises it as an illustration, not merely a colour or texture change.",
+    "Use calm professional colours and depth.",
+    "The final result must work as a presentation slide background or side illustration while still being clearly noticeable.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export async function POST(req: NextRequest) {
@@ -163,8 +171,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const prompt = buildImagePrompt(body);
     const inferred = inferArtworkLabel(body);
+    const prompt = buildImagePrompt(body, inferred);
 
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
@@ -178,13 +186,7 @@ export async function POST(req: NextRequest) {
 
     if (!imageBase64) {
       return NextResponse.json(
-        {
-          error: "Image generation returned no image data.",
-          debug: {
-            hasDataArray: Array.isArray(result?.data),
-            firstItemKeys: result?.data?.[0] ? Object.keys(result.data[0]) : [],
-          },
-        },
+        { error: "Image generation returned no image data." },
         { status: 500 }
       );
     }
@@ -201,9 +203,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: any) {
     return NextResponse.json(
-      {
-        error: e?.message || "Slide image generation failed",
-      },
+      { error: e?.message || "Slide image generation failed" },
       { status: 500 }
     );
   }
