@@ -658,7 +658,6 @@ export default function ResourcesPage() {
       }
     }
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -781,6 +780,60 @@ export default function ResourcesPage() {
     }
   }
 
+  async function persistSlidePatch(
+    resource: Resource,
+    slideIndex: number,
+    slidePatch: Record<string, any>,
+    successMessage: string
+  ) {
+    if (!organisationId) return;
+
+    setBusyAction(`save:${resource.id}:${slideIndex}`);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/resource-library", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId,
+          resourceId: resource.id,
+          title: resource.title,
+          slideIndex,
+          slidePatch,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to save slide");
+      }
+
+      const updated = data?.resource || null;
+
+      if (updated) {
+        setResources((prev) =>
+          prev.map((r) => (r.id === updated.id ? updated : r))
+        );
+        setSelected(updated);
+
+        if (!isTemplate(updated)) {
+          setDraftTitle(updated.title || "");
+          setDraftContent(deepClone(updated.content || {}));
+        }
+      } else {
+        await loadResources();
+      }
+
+      setToast(successMessage);
+    } catch (e: any) {
+      setError(e?.message || "Failed to save slide");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function generateSlideImage(resource: Resource, slideIndex: number) {
     const content = deepClone(resource.content || {});
     const slides = Array.isArray(content?.slides) ? content.slides : [];
@@ -824,31 +877,27 @@ export default function ResourcesPage() {
         throw new Error("No image URL was returned.");
       }
 
-      slides[slideIndex] = {
-        ...slide,
-        generated_image_url: nextImageUrl,
-        generated_image_prompt: String(data?.imagePrompt || "").trim(),
-        generated_image_status: "ready",
-        artwork_label: String(
-          data?.artworkLabel || slide?.artwork_label || ""
-        ).trim(),
-        artwork_chip: String(
-          data?.artworkChip || slide?.artwork_chip || ""
-        ).trim(),
-        visual_direction: String(
-          data?.visualDirection || slide?.visual_direction || ""
-        ).trim(),
-        image_prompt: String(
-          data?.imagePrompt || slide?.image_prompt || ""
-        ).trim(),
-        artwork_generated_at: new Date().toISOString(),
-      };
-
-      content.slides = slides;
-
-      await persistResourceContent(
+      await persistSlidePatch(
         resource,
-        content,
+        slideIndex,
+        {
+          generated_image_url: nextImageUrl,
+          generated_image_prompt: String(data?.imagePrompt || "").trim(),
+          generated_image_status: "ready",
+          artwork_label: String(
+            data?.artworkLabel || slide?.artwork_label || ""
+          ).trim(),
+          artwork_chip: String(
+            data?.artworkChip || slide?.artwork_chip || ""
+          ).trim(),
+          visual_direction: String(
+            data?.visualDirection || slide?.visual_direction || ""
+          ).trim(),
+          image_prompt: String(
+            data?.imagePrompt || slide?.image_prompt || ""
+          ).trim(),
+          artwork_generated_at: new Date().toISOString(),
+        },
         "Slide image generated ✅"
       );
     } catch (e: any) {
@@ -859,23 +908,17 @@ export default function ResourcesPage() {
   }
 
   async function clearSlideImage(resource: Resource, slideIndex: number) {
-    const content = deepClone(resource.content || {});
-    const slides = Array.isArray(content?.slides) ? content.slides : [];
-    const slide = slides[slideIndex];
-
-    if (!slide) return;
-
-    slides[slideIndex] = {
-      ...slide,
-      generated_image_url: "",
-      generated_image_prompt: "",
-      generated_image_status: "",
-      artwork_generated_at: null,
-    };
-
-    content.slides = slides;
-
-    await persistResourceContent(resource, content, "Slide image removed ✅");
+    await persistSlidePatch(
+      resource,
+      slideIndex,
+      {
+        generated_image_url: "",
+        generated_image_prompt: "",
+        generated_image_status: "",
+        artwork_generated_at: null,
+      },
+      "Slide image removed ✅"
+    );
   }
 
   function sendTemplateToBrainstorm(template: StarterTemplate) {
@@ -2168,43 +2211,15 @@ export default function ResourcesPage() {
                                         }
                                         disabled={
                                           busyAction ===
-                                          `save:${(selected as Resource).id}`
+                                            `save:${(selected as Resource).id}:${idx}` ||
+                                          busyAction ===
+                                            `image:${(selected as Resource).id}:${idx}`
                                         }
                                         className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
                                       >
                                         Remove image
                                       </button>
                                     ) : null}
-                                  </div>
-                                ) : null}
-
-                                {!editMode && showArtwork ? (
-                                  <div className="mt-4 max-w-md">
-                                    <div
-                                      className={[
-                                        "rounded-2xl border px-4 py-3 backdrop-blur-sm",
-                                        art.panel,
-                                      ].join(" ")}
-                                    >
-                                      <div className="flex items-center gap-3">
-                                        <div className="text-2xl leading-none opacity-90 shrink-0">
-                                          {art.icon}
-                                        </div>
-                                        <div className="min-w-0">
-                                          <div className="text-[10px] uppercase tracking-[0.18em] opacity-60">
-                                            {generatedImageUrl
-                                              ? "Generated image"
-                                              : "Artwork"}
-                                          </div>
-                                          <div className="text-sm font-semibold leading-tight break-words">
-                                            {artworkLabel || art.label}
-                                          </div>
-                                          <div className="mt-1 text-[11px] opacity-70 leading-snug break-words">
-                                            {artworkChip || art.chip}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
                                   </div>
                                 ) : null}
 
