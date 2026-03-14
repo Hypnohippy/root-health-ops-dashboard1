@@ -7,15 +7,16 @@ function norm(v: any) {
   return String(v ?? "").trim();
 }
 
+function isObject(v: any) {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
     const mode = norm(body?.mode || "create").toLowerCase();
 
-    // -----------------------------
-    // DUPLICATE
-    // -----------------------------
     if (mode === "duplicate") {
       const organisationId = norm(body?.organisationId);
       const resourceId = norm(body?.resourceId);
@@ -83,9 +84,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // -----------------------------
-    // CREATE
-    // -----------------------------
     const organisationId = norm(body?.organisationId);
     const sequenceId = norm(body?.sequenceId) || null;
     const title = norm(body?.title);
@@ -188,8 +186,16 @@ export async function PATCH(req: NextRequest) {
     const organisationId = norm(body?.organisationId);
     const resourceId = norm(body?.resourceId);
     const title = norm(body?.title);
+
     const hasContentField = Object.prototype.hasOwnProperty.call(body, "content");
     const content = hasContentField ? body?.content ?? null : undefined;
+
+    const hasSlidePatch =
+      Object.prototype.hasOwnProperty.call(body, "slideIndex") &&
+      Object.prototype.hasOwnProperty.call(body, "slidePatch");
+
+    const slideIndexRaw = body?.slideIndex;
+    const slidePatch = body?.slidePatch;
 
     if (!organisationId) {
       return NextResponse.json(
@@ -205,6 +211,103 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
+    if (!title && !hasContentField && !hasSlidePatch) {
+      return NextResponse.json(
+        { error: "Nothing to update" },
+        { status: 400 }
+      );
+    }
+
+    if (hasSlidePatch) {
+      const slideIndex = Number(slideIndexRaw);
+
+      if (!Number.isInteger(slideIndex) || slideIndex < 0) {
+        return NextResponse.json(
+          { error: "slideIndex must be a valid non-negative integer" },
+          { status: 400 }
+        );
+      }
+
+      if (!isObject(slidePatch)) {
+        return NextResponse.json(
+          { error: "slidePatch must be an object" },
+          { status: 400 }
+        );
+      }
+
+      const { data: existing, error: loadErr } = await supabaseAdmin
+        .from("resource_library")
+        .select("id, title, content")
+        .eq("organisation_id", organisationId)
+        .eq("id", resourceId)
+        .maybeSingle();
+
+      if (loadErr) {
+        return NextResponse.json(
+          { error: loadErr.message },
+          { status: 500 }
+        );
+      }
+
+      if (!existing) {
+        return NextResponse.json(
+          { error: "Resource not found" },
+          { status: 404 }
+        );
+      }
+
+      const nextContent = isObject(existing.content) ? { ...existing.content } : {};
+      const slides = Array.isArray(nextContent.slides) ? [...nextContent.slides] : [];
+
+      while (slides.length <= slideIndex) {
+        slides.push({});
+      }
+
+      const currentSlide = isObject(slides[slideIndex]) ? slides[slideIndex] : {};
+      slides[slideIndex] = {
+        ...currentSlide,
+        ...slidePatch,
+      };
+
+      nextContent.slides = slides;
+
+      const updatePayload: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+        content: nextContent,
+      };
+
+      if (title) {
+        updatePayload.title = title;
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from("resource_library")
+        .update(updatePayload)
+        .eq("organisation_id", organisationId)
+        .eq("id", resourceId)
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 500 }
+        );
+      }
+
+      if (!data) {
+        return NextResponse.json(
+          { error: "Resource not found" },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        resource: data,
+      });
+    }
+
     const updatePayload: Record<string, any> = {
       updated_at: new Date().toISOString(),
     };
@@ -215,13 +318,6 @@ export async function PATCH(req: NextRequest) {
 
     if (hasContentField) {
       updatePayload.content = content;
-    }
-
-    if (Object.keys(updatePayload).length === 1 && !title && !hasContentField) {
-      return NextResponse.json(
-        { error: "Nothing to update" },
-        { status: 400 }
-      );
     }
 
     const { data, error } = await supabaseAdmin
