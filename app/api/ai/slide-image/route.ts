@@ -174,10 +174,7 @@ export async function POST(req: NextRequest) {
       size: "1536x1024",
     });
 
-    const imageBase64 =
-      result?.data?.[0]?.b64_json ||
-      result?.data?.[0]?.b64Json ||
-      "";
+    const imageBase64 = result?.data?.[0]?.b64_json || "";
 
     if (!imageBase64) {
       return NextResponse.json(
