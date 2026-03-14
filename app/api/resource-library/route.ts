@@ -188,8 +188,8 @@ export async function PATCH(req: NextRequest) {
     const organisationId = norm(body?.organisationId);
     const resourceId = norm(body?.resourceId);
     const title = norm(body?.title);
-    const hasContent = Object.prototype.hasOwnProperty.call(body, "content");
-    const content = hasContent ? body.content : undefined;
+    const hasContentField = Object.prototype.hasOwnProperty.call(body, "content");
+    const content = hasContentField ? body?.content ?? null : undefined;
 
     if (!organisationId) {
       return NextResponse.json(
@@ -205,13 +205,6 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (!title && !hasContent) {
-      return NextResponse.json(
-        { error: "Nothing to update. Provide title and/or content." },
-        { status: 400 }
-      );
-    }
-
     const updatePayload: Record<string, any> = {
       updated_at: new Date().toISOString(),
     };
@@ -220,8 +213,15 @@ export async function PATCH(req: NextRequest) {
       updatePayload.title = title;
     }
 
-    if (hasContent) {
+    if (hasContentField) {
       updatePayload.content = content;
+    }
+
+    if (Object.keys(updatePayload).length === 1 && !title && !hasContentField) {
+      return NextResponse.json(
+        { error: "Nothing to update" },
+        { status: 400 }
+      );
     }
 
     const { data, error } = await supabaseAdmin
