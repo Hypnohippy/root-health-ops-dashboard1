@@ -174,11 +174,20 @@ export async function POST(req: NextRequest) {
       size: "1536x1024",
     });
 
-    const imageBase64 = result?.data?.[0]?.b64_json || "";
+    const imageBase64 =
+      result?.data?.[0]?.b64_json ||
+      result?.data?.[0]?.b64Json ||
+      "";
 
     if (!imageBase64) {
       return NextResponse.json(
-        { error: "Image generation returned no image data." },
+        {
+          error: "Image generation returned no image data.",
+          debug: {
+            hasDataArray: Array.isArray(result?.data),
+            firstItemKeys: result?.data?.[0] ? Object.keys(result.data[0]) : [],
+          },
+        },
         { status: 500 }
       );
     }
@@ -195,7 +204,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: any) {
     return NextResponse.json(
-      { error: e?.message || "Slide image generation failed" },
+      {
+        error: e?.message || "Slide image generation failed",
+      },
       { status: 500 }
     );
   }
