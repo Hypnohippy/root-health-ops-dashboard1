@@ -8,38 +8,15 @@ export const runtime = "nodejs";
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
 
-// Public plan price IDs from Vercel env
 const PRICE_SOLO = process.env.price_rootops_basic_monthly || "";
 const PRICE_GROWTH = process.env.price_rootops_pro_monthly || "";
 const PRICE_TEAM = process.env.price_rootops_enterprise_monthly || "";
 
 type PlanKey = "solo" | "growth" | "team";
 
-type CollegeCohortRow = {
-  id: string;
-  college_name: string;
-  cohort_name: string;
-  cohort_code: string;
-  slug: string | null;
-  discount_percent: number | null;
-  discount_months: number | null;
-  max_redemptions: number | null;
-  redemptions_used: number | null;
-  starts_at: string | null;
-  expires_at: string | null;
-  is_active: boolean | null;
-  stripe_coupon_id: string | null;
-  stripe_promotion_code_id: string | null;
-  stripe_price_id: string | null;
-};
-
 function safeBaseUrl(req: NextRequest) {
   const env = (APP_URL || "").replace(/\/$/, "");
   return env || req.nextUrl.origin;
-}
-
-function norm(v: any) {
-  return String(v || "").trim();
 }
 
 function resolvePriceId(plan: PlanKey) {
@@ -49,70 +26,24 @@ function resolvePriceId(plan: PlanKey) {
 }
 
 async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin
+  const { data } = await supabaseAdmin
     .from("organisations")
     .select("id")
     .limit(1);
 
-  if (error) {
-    console.error("[stripe/checkout] organisations error", error);
-    return null;
-  }
   if (!data || data.length === 0) return null;
   return data[0].id as string;
 }
 
-async function loadValidCollegeCohort(
-  cohortCode: string
-): Promise<CollegeCohortRow | null> {
-  const code = norm(cohortCode).toUpperCase();
-  if (!code) return null;
-
-  const { data, error } = await supabaseAdmin
+async function loadCohort(code: string) {
+  const { data } = await supabaseAdmin
     .from("college_cohorts")
-    .select(
-      `
-      id,
-      college_name,
-      cohort_name,
-      cohort_code,
-      slug,
-      discount_percent,
-      discount_months,
-      max_redemptions,
-      redemptions_used,
-      starts_at,
-      expires_at,
-      is_active,
-      stripe_coupon_id,
-      stripe_promotion_code_id,
-      stripe_price_id
-    `
-    )
-    .eq("cohort_code", code)
+    .select("*")
+    .eq("cohort_code", code.toUpperCase())
     .eq("is_active", true)
     .maybeSingle();
 
-  if (error) {
-    console.error("[stripe/checkout] college_cohorts load error", error);
-    return null;
-  }
-
-  if (!data) return null;
-
-  const now = new Date();
-  const startsAt = data.starts_at ? new Date(data.starts_at) : null;
-  const expiresAt = data.expires_at ? new Date(data.expires_at) : null;
-  const maxRedemptions =
-    typeof data.max_redemptions === "number" ? data.max_redemptions : null;
-  const redemptionsUsed =
-    typeof data.redemptions_used === "number" ? data.redemptions_used : 0;
-
-  if (startsAt && startsAt > now) return null;
-  if (expiresAt && expiresAt < now) return null;
-  if (maxRedemptions !== null && redemptionsUsed >= maxRedemptions) return null;
-
-  return data as CollegeCohortRow;
+  return data;
 }
 
 export async function POST(req: NextRequest) {
@@ -129,17 +60,17 @@ export async function POST(req: NextRequest) {
     });
 
     const body = await req.json().catch(() => ({}));
-    const plan = norm(body?.plan).toLowerCase() as PlanKey;
-    const cohortCode = norm(body?.cohortCode).toUpperCase();
+    const plan = String(body?.plan || "").toLowerCase().trim() as PlanKey;
+    const cohortCode = String(body?.cohortCode || "").trim().toUpperCase();
 
     if (!["solo", "growth", "team"].includes(plan)) {
       return NextResponse.json(
-        { ok: false, error: "Invalid plan. Use solo|growth|team." },
+        { ok: false, error: "Invalid plan." },
         { status: 200 }
       );
     }
 
-    let organisationId = norm(body?.organisationId);
+    let organisationId = String(body?.organisationId || "").trim();
     if (!organisationId) {
       const fallback = await getSingleTenantOrganisationId();
       if (fallback) organisationId = fallback;
@@ -147,127 +78,72 @@ export async function POST(req: NextRequest) {
 
     if (!organisationId) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "No organisationId available. Create/select an organisation first.",
-        },
+        { ok: false, error: "No organisation found." },
         { status: 200 }
       );
     }
 
-    let priceId = resolvePriceId(plan);
-    let cohort: CollegeCohortRow | null = null;
-    let usingCollegeOffer = false;
+    const priceId = resolvePriceId(plan);
+    if (!priceId) {
+      return NextResponse.json(
+        { ok: false, error: "Missing Stripe price configuration." },
+        { status: 200 }
+      );
+    }
+
+    let discounts: any[] = [];
+    let cohort: any = null;
 
     if (cohortCode) {
-      cohort = await loadValidCollegeCohort(cohortCode);
+      cohort = await loadCohort(cohortCode);
 
       if (!cohort) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: "That cohort code is invalid, inactive, expired, or fully used.",
-          },
+          { ok: false, error: "Invalid or inactive cohort code." },
           { status: 200 }
         );
       }
 
-      if (!cohort.stripe_price_id) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error:
-              "This cohort exists, but no hidden Stripe price is attached yet.",
-          },
-          { status: 200 }
-        );
+      if (cohort.stripe_coupon_id) {
+        discounts = [{ coupon: cohort.stripe_coupon_id }];
       }
-
-      priceId = cohort.stripe_price_id;
-      usingCollegeOffer = true;
-    }
-
-    if (!priceId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Missing Stripe price configuration. Check your public plan price env vars or cohort stripe_price_id.",
-        },
-        { status: 200 }
-      );
     }
 
     const base = safeBaseUrl(req);
 
-    const successUrl = usingCollegeOffer
-      ? `${base}/dashboard/connect?checkout=success&plan=${encodeURIComponent(
-          plan
-        )}&college=1`
-      : `${base}/dashboard/connect?checkout=success&plan=${encodeURIComponent(
-          plan
-        )}`;
-
-    const cancelUrl = usingCollegeOffer
-      ? `${base}/pricing?checkout=cancelled&college=1`
-      : `${base}/pricing?checkout=cancelled`;
-
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
-      success_url: successUrl,
-      cancel_url: cancelUrl,
+      success_url: `${base}/dashboard/connect?checkout=success`,
+      cancel_url: `${base}/pricing?checkout=cancelled`,
       line_items: [{ price: priceId, quantity: 1 }],
-
-      // College pricing is controlled by your app now, not public promo codes.
+      discounts,
       allow_promotion_codes: false,
 
       client_reference_id: organisationId,
 
       metadata: {
         organisationId,
-        plan_key: plan,
+        plan,
         cohort_code: cohort?.cohort_code || "",
-        cohort_id: cohort?.id || "",
-        college_name: cohort?.college_name || "",
-        cohort_name: cohort?.cohort_name || "",
-        pricing_mode: usingCollegeOffer ? "college_cohort" : "public",
       },
 
       subscription_data: {
         metadata: {
           organisationId,
-          plan_key: plan,
+          plan,
           cohort_code: cohort?.cohort_code || "",
-          cohort_id: cohort?.id || "",
-          college_name: cohort?.college_name || "",
-          cohort_name: cohort?.cohort_name || "",
-          pricing_mode: usingCollegeOffer ? "college_cohort" : "public",
         },
       },
     });
 
     return NextResponse.json(
-      {
-        ok: true,
-        url: session.url,
-        pricingMode: usingCollegeOffer ? "college_cohort" : "public",
-        cohort: usingCollegeOffer
-          ? {
-              id: cohort?.id,
-              collegeName: cohort?.college_name,
-              cohortName: cohort?.cohort_name,
-              cohortCode: cohort?.cohort_code,
-              discountPercent: cohort?.discount_percent,
-              discountMonths: cohort?.discount_months,
-            }
-          : null,
-      },
+      { ok: true, url: session.url },
       { status: 200 }
     );
-  } catch (e: any) {
-    console.error("[stripe/checkout] error", e);
+  } catch (err: any) {
+    console.error("[stripe checkout]", err);
     return NextResponse.json(
-      { ok: false, error: e?.message || "Stripe error" },
+      { ok: false, error: err?.message || "Stripe error" },
       { status: 200 }
     );
   }
