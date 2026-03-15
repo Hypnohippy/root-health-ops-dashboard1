@@ -22,17 +22,31 @@ type SyncState = {
 };
 
 const SYNC_PREFIX = "root-health-presentation-sync:";
+const RESOURCE_CACHE_PREFIX = "root-health-presentation-resource:";
 
 function syncKey(resourceId: string) {
   return `${SYNC_PREFIX}${resourceId}`;
+}
+
+function resourceCacheKey(resourceId: string) {
+  return `${RESOURCE_CACHE_PREFIX}${resourceId}`;
 }
 
 function norm(v: any) {
   return String(v || "").trim();
 }
 
-function isPresentationResource(resource: Resource | null) {
-  return !!resource && Array.isArray(resource?.content?.slides);
+function readCachedResource(resourceId: string): Resource | null {
+  try {
+    const raw = localStorage.getItem(resourceCacheKey(resourceId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.id || String(parsed.id) !== resourceId) return null;
+    if (!Array.isArray(parsed?.content?.slides)) return null;
+    return parsed as Resource;
+  } catch {
+    return null;
+  }
 }
 
 function readSyncState(resourceId: string): SyncState {
@@ -142,6 +156,14 @@ export default function AudiencePresentationPage() {
       setError(null);
 
       try {
+        const cached = readCachedResource(resourceId);
+        if (cached) {
+          setResource(cached);
+          setSync(readSyncState(resourceId));
+          setLoading(false);
+          return;
+        }
+
         const orgRes = await fetch("/api/social-accounts", {
           cache: "no-store",
         });
@@ -173,6 +195,10 @@ export default function AudiencePresentationPage() {
           throw new Error("This resource does not contain presentation slides.");
         }
 
+        try {
+          localStorage.setItem(resourceCacheKey(resourceId), JSON.stringify(found));
+        } catch {}
+
         setResource(found);
         setSync(readSyncState(resourceId));
       } catch (e: any) {
@@ -203,10 +229,20 @@ export default function AudiencePresentationPage() {
     }
 
     function onStorage(e: StorageEvent) {
-      if (e.key !== syncKey(resourceId) || !e.newValue) return;
-      try {
-        applySync(JSON.parse(e.newValue));
-      } catch {}
+      if (e.key === syncKey(resourceId) && e.newValue) {
+        try {
+          applySync(JSON.parse(e.newValue));
+        } catch {}
+      }
+
+      if (e.key === resourceCacheKey(resourceId) && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed?.content?.slides)) {
+            setResource(parsed as Resource);
+          }
+        } catch {}
+      }
     }
 
     function onMessage(event: MessageEvent) {
