@@ -11,6 +11,55 @@ function isObject(v: any) {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
+function isDataImageUrl(value: any) {
+  const s = String(value ?? "").trim().toLowerCase();
+  return s.startsWith("data:image/");
+}
+
+function sanitizeSlideForStorage(slide: any) {
+  const next = isObject(slide) ? { ...slide } : {};
+
+  if (isDataImageUrl(next.generated_image_url)) {
+    next.generated_image_url = "";
+    next.generated_image_status = "generated_not_persisted";
+  }
+
+  return next;
+}
+
+function sanitizeContentForStorage(content: any) {
+  if (Array.isArray(content)) {
+    return content.map((item) => sanitizeContentForStorage(item));
+  }
+
+  if (!isObject(content)) {
+    return content ?? null;
+  }
+
+  const next: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(content)) {
+    if (key === "slides" && Array.isArray(value)) {
+      next[key] = value.map((slide) => sanitizeSlideForStorage(slide));
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      next[key] = value.map((item) => sanitizeContentForStorage(item));
+      continue;
+    }
+
+    if (isObject(value)) {
+      next[key] = sanitizeContentForStorage(value);
+      continue;
+    }
+
+    next[key] = value;
+  }
+
+  return next;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -57,6 +106,7 @@ export async function POST(req: NextRequest) {
       }
 
       const duplicateTitle = `${String(existing.title || "Untitled")} (Copy)`;
+      const safeContent = sanitizeContentForStorage(existing.content ?? null);
 
       const { data: duplicated, error: dupErr } = await supabaseAdmin
         .from("resource_library")
@@ -65,7 +115,7 @@ export async function POST(req: NextRequest) {
           sequence_id: existing.sequence_id ?? null,
           title: duplicateTitle,
           resource_type: existing.resource_type,
-          content: existing.content ?? null,
+          content: safeContent,
         })
         .select()
         .single();
@@ -88,7 +138,7 @@ export async function POST(req: NextRequest) {
     const sequenceId = norm(body?.sequenceId) || null;
     const title = norm(body?.title);
     const resourceType = norm(body?.resource_type);
-    const content = body?.content ?? null;
+    const content = sanitizeContentForStorage(body?.content ?? null);
 
     if (!organisationId) {
       return NextResponse.json(
@@ -188,7 +238,9 @@ export async function PATCH(req: NextRequest) {
     const title = norm(body?.title);
 
     const hasContentField = Object.prototype.hasOwnProperty.call(body, "content");
-    const content = hasContentField ? body?.content ?? null : undefined;
+    const content = hasContentField
+      ? sanitizeContentForStorage(body?.content ?? null)
+      : undefined;
 
     const hasSlidePatch =
       Object.prototype.hasOwnProperty.call(body, "slideIndex") &&
@@ -264,16 +316,16 @@ export async function PATCH(req: NextRequest) {
       }
 
       const currentSlide = isObject(slides[slideIndex]) ? slides[slideIndex] : {};
-      slides[slideIndex] = {
+      slides[slideIndex] = sanitizeSlideForStorage({
         ...currentSlide,
         ...slidePatch,
-      };
+      });
 
       nextContent.slides = slides;
 
       const updatePayload: Record<string, any> = {
         updated_at: new Date().toISOString(),
-        content: nextContent,
+        content: sanitizeContentForStorage(nextContent),
       };
 
       if (title) {
