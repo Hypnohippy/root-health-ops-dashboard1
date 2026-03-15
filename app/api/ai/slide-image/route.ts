@@ -1,17 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { randomUUID } from "crypto";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const STORAGE_BUCKET = "resource-library-images";
 
-function safe(value: any) {
+function safe(value: unknown): string {
   return String(value || "").trim();
 }
 
-function joinBullets(input: any) {
+function joinBullets(input: unknown): string {
   if (!Array.isArray(input)) return "";
   return input.map((x) => safe(x)).filter(Boolean).join(" | ");
+}
+
+function slugify(input: unknown): string {
+  return safe(input)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
 }
 
 function inferArtworkLabel(body: any) {
@@ -152,6 +163,15 @@ function buildImagePrompt(body: any, inferred: { visualDirection: string }) {
     .join("\n");
 }
 
+function buildStoragePath(body: any) {
+  const presentationSlug = slugify(body?.presentationTitle || "presentation");
+  const slideSlug = slugify(body?.slideTitle || "slide");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const id = randomUUID();
+
+  return `presentations/${presentationSlug}/${slideSlug}-${stamp}-${id}.png`;
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!OPENAI_API_KEY) {
@@ -191,11 +211,41 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const imageUrl = `data:image/png;base64,${imageBase64}`;
+    const imageBuffer = Buffer.from(imageBase64, "base64");
+    const storagePath = buildStoragePath(body);
+
+    const uploadResult = await supabaseAdmin.storage
+      .from(STORAGE_BUCKET)
+      .upload(storagePath, imageBuffer, {
+        contentType: "image/png",
+        upsert: false,
+        cacheControl: "3600",
+      });
+
+    if (uploadResult.error) {
+      return NextResponse.json(
+        { error: uploadResult.error.message || "Failed to upload image to storage." },
+        { status: 500 }
+      );
+    }
+
+    const publicUrlResult = supabaseAdmin.storage
+      .from(STORAGE_BUCKET)
+      .getPublicUrl(storagePath);
+
+    const imageUrl = String(publicUrlResult?.data?.publicUrl || "").trim();
+
+    if (!imageUrl) {
+      return NextResponse.json(
+        { error: "Image uploaded but no public URL was returned." },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
       imageUrl,
+      storagePath,
       imagePrompt: prompt,
       artworkLabel: inferred.artworkLabel,
       artworkChip: inferred.artworkChip,
