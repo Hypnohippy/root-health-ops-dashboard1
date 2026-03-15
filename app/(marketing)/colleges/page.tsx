@@ -44,7 +44,9 @@ function Card({
 
       <div className="mt-2 text-xl font-semibold text-slate-50">{title}</div>
 
-      <div className="mt-4 text-sm text-slate-300 leading-relaxed">{children}</div>
+      <div className="mt-4 text-sm text-slate-300 leading-relaxed">
+        {children}
+      </div>
 
       <div className="mt-7">
         <Link
@@ -69,6 +71,23 @@ function Bullet({ children }: { children: React.ReactNode }) {
       <span className="mt-[7px] inline-block h-1.5 w-1.5 rounded-full bg-emerald-300/90" />
       <span className="leading-relaxed">{children}</span>
     </li>
+  );
+}
+
+function BenefitBlock({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+      <div className="text-sm font-semibold text-slate-50">{title}</div>
+      <div className="mt-2 text-sm text-slate-300 leading-relaxed">
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -112,60 +131,126 @@ export default function CollegesPage() {
         </div>
       </section>
 
-      {/* The “subsidy” model explained (your idea, done cleanly) */}
-      <section className="rounded-[40px] border border-white/10 bg-black/20 p-7 md:p-10 space-y-6">
-        <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
-          The simple cohort offer (no awkward money talk)
-        </h2>
+      {/* Cohort offer */}
+      <section className="rounded-[40px] border border-white/10 bg-black/20 p-7 md:p-10 space-y-8">
+        <div className="space-y-4">
+          <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
+            The simple cohort offer
+          </h2>
 
-        <p className="text-sm md:text-base text-slate-300 leading-relaxed max-w-3xl">
-          Colleges often want to support students for the first few months — but
-          students don’t need to feel like they’re on a “special deal”.
-          We can run a cohort plan where students simply see a reduced price for
-          a fixed period, while the institution can frame it as support.
-        </p>
+          <p className="text-sm md:text-base text-slate-300 leading-relaxed max-w-3xl">
+            Colleges often want to support students for the first few months —
+            but students do not need to feel like they are on a “special deal”.
+            We keep this simple: students just see a reduced price for a fixed
+            period, while the institution can frame it as a supported start.
+          </p>
+        </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="text-sm font-semibold text-slate-50">Option A</div>
-            <div className="mt-1 text-[12px] text-slate-400">
+        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-[32px] border border-emerald-400/30 bg-gradient-to-br from-emerald-400/12 via-white/5 to-white/5 p-6 md:p-7">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-200/90">
+              Option A
+            </div>
+
+            <div className="mt-2 text-2xl md:text-3xl font-semibold text-slate-50">
               Cohort half-price for 6 months
             </div>
-            <ul className="mt-4 space-y-2">
+
+            <div className="mt-4 text-sm text-slate-300 leading-relaxed">
+              A clean, supportive offer for students starting to build their
+              professional presence. No awkward money structure, no bulky admin,
+              and no confusing plans to explain.
+            </div>
+
+            <ul className="mt-6 space-y-3">
               <Bullet>Students pay 50% for 6 months</Bullet>
-              <Bullet>College can frame as “supported start”</Bullet>
-              <Bullet>Simple, no invoicing complexity</Bullet>
+              <Bullet>College can frame it as a “supported start”</Bullet>
+              <Bullet>Simple to communicate to each intake</Bullet>
+              <Bullet>No complex invoicing structure to manage</Bullet>
+              <Bullet>Helps reduce the panic of “I’m qualified but invisible”</Bullet>
             </ul>
+
+            <div className="mt-7 flex flex-wrap gap-3">
+              <Link
+                href="/dashboard/connect"
+                className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300"
+              >
+                Request a cohort pack
+              </Link>
+
+              <Link
+                href="/pricing"
+                className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
+              >
+                See pricing
+              </Link>
+            </div>
           </div>
 
-          <div className="rounded-3xl border border-emerald-400/30 bg-emerald-400/10 p-5">
-            <div className="text-sm font-semibold text-slate-50">Option B</div>
-            <div className="mt-1 text-[12px] text-slate-400">
-              Free “onramp” month + reduced months
-            </div>
-            <ul className="mt-4 space-y-2">
-              <Bullet>Month 1 free to remove friction</Bullet>
-              <Bullet>Then reduced price for 3–6 months</Bullet>
-              <Bullet>Best for anxious / overwhelmed cohorts</Bullet>
-            </ul>
-          </div>
+          <div className="space-y-4">
+            <BenefitBlock title="Why this helps new therapists">
+              Newly qualified clinicians often know how to practise — but not
+              how to become visible in a calm, ethical way. Root Health Ops
+              helps them begin with structure, not pressure.
+            </BenefitBlock>
 
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="text-sm font-semibold text-slate-50">Option C</div>
-            <div className="mt-1 text-[12px] text-slate-400">
-              Bulk seats (simple cap)
-            </div>
-            <ul className="mt-4 space-y-2">
-              <Bullet>Fixed number of seats per intake</Bullet>
-              <Bullet>Predictable budgeting</Bullet>
-              <Bullet>Easy to renew per term</Bullet>
-            </ul>
+            <BenefitBlock title="Why colleges like it">
+              It gives students practical support after training, without asking
+              faculty to become marketers, tech support, or account managers.
+              The message stays simple and human.
+            </BenefitBlock>
+
+            <BenefitBlock title="Why students actually use it">
+              It removes the blank-page problem. Students can generate ideas,
+              turn them into posts, schedule them, and keep showing up
+              consistently while they focus on study, placement, and client
+              work.
+            </BenefitBlock>
           </div>
         </div>
 
         <div className="text-[12px] text-slate-400">
-          We’ll keep this human: no “sales-y” language, no pressure, and no
-          extra admin for your faculty.
+          We keep this human: no “sales-y” framing, no pressure on students, and
+          no unnecessary admin for your faculty team.
+        </div>
+      </section>
+
+      {/* Expanded benefits */}
+      <section className="space-y-6">
+        <div className="max-w-3xl space-y-3">
+          <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
+            Why this matters for student confidence and early career readiness
+          </h2>
+          <p className="text-sm md:text-base text-slate-300 leading-relaxed">
+            The biggest problem for many students is not capability — it is
+            visibility. They may be thoughtful, ethical, and well-trained, but
+            still feel stuck when it comes to showing who they are, what they
+            care about, and how they help. Root Health Ops gives them a calmer
+            bridge between training and real-world visibility.
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <BenefitBlock title="Less overwhelm">
+            Students are not left staring at an empty screen wondering what to
+            say. Prompts, templates, and simple routines reduce decision fatigue.
+          </BenefitBlock>
+
+          <BenefitBlock title="Ethical visibility">
+            This is not about hype or self-promotion. It is about helping future
+            therapists present themselves clearly, professionally, and with good
+            boundaries.
+          </BenefitBlock>
+
+          <BenefitBlock title="Placement readiness">
+            A steadier public presence can help students feel more prepared for
+            placement, first roles, referrals, and professional opportunities.
+          </BenefitBlock>
+
+          <BenefitBlock title="Confidence through rhythm">
+            Instead of relying on motivation, students build a simple repeatable
+            habit: one idea, one post, one small step at a time.
+          </BenefitBlock>
         </div>
       </section>
 
@@ -179,8 +264,9 @@ export default function CollegesPage() {
           highlight
         >
           Students build a professional presence steadily — without spam, hype,
-          or burnout. The goal isn’t “marketing”, it’s readiness: confidence,
-          clarity, and ethical visibility.
+          or burnout. The goal is not “marketing”, it is readiness: confidence,
+          clarity, ethical visibility, and a stronger bridge into early
+          practice.
         </Card>
 
         <Card
@@ -189,19 +275,21 @@ export default function CollegesPage() {
           ctaLabel="See the workflow"
           ctaHref="/how-it-works"
         >
-          Templates, story prompts, and scheduling so students aren’t staring at
-          a blank page. They can generate, edit, and post in a guided way.
+          Templates, story prompts, and scheduling support mean students are not
+          left guessing. They can generate, edit, and post in a guided way that
+          feels manageable rather than performative.
         </Card>
 
         <Card
           eyebrow="For placement readiness"
-          title="A consistent public footprint"
+          title="A more visible starting point"
           ctaLabel="View pricing"
           ctaHref="/pricing"
         >
-          The most painful gap for students is “I’m qualified but invisible.”
-          Root Health Ops helps them show up consistently while they focus on
-          learning and client work.
+          One of the hardest early-career problems is: “I’m qualified, but no
+          one knows I exist.” Root Health Ops helps students begin building a
+          consistent professional footprint while they are still learning and
+          growing.
         </Card>
       </section>
 
@@ -215,24 +303,26 @@ export default function CollegesPage() {
           <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
             <div className="text-sm font-semibold text-slate-50">1) Intake</div>
             <div className="mt-2 text-sm text-slate-300 leading-relaxed">
-              You share your cohort size and start date. We give you a simple
-              pack: explanation, links, and a suggested “first week” workflow.
+              You share your cohort size and start date. We provide a simple
+              pack with the explanation, the links, and a suggested first-week
+              workflow.
             </div>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
             <div className="text-sm font-semibold text-slate-50">2) Connect</div>
             <div className="mt-2 text-sm text-slate-300 leading-relaxed">
-              Students connect their social channels once. After that, they can
-              write, schedule, and publish without tech headaches.
+              Students connect their channels once. After that, they can write,
+              schedule, and publish without battling unnecessary tech friction.
             </div>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
             <div className="text-sm font-semibold text-slate-50">3) Routine</div>
             <div className="mt-2 text-sm text-slate-300 leading-relaxed">
-              A simple rhythm: one idea → a post (or series) → scheduled. The
-              system keeps visibility going while they study and practice.
+              A simple rhythm: one idea → one post (or short series) →
+              scheduled. The system helps visibility continue steadily alongside
+              learning, placement, and practice.
             </div>
           </div>
         </div>
