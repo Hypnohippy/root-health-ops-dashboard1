@@ -1,4 +1,3 @@
-// app/colleges/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -94,7 +93,6 @@ function BenefitBlock({
 export default function CollegesPage() {
   return (
     <main className="mx-auto max-w-6xl px-4 py-12 md:py-16 space-y-14">
-      {/* Hero */}
       <section className="space-y-6">
         <div className="flex flex-wrap items-center gap-2">
           <Pill>Training providers</Pill>
@@ -116,23 +114,32 @@ export default function CollegesPage() {
 
         <div className="flex flex-wrap items-center gap-3">
           <Link
-            href="/dashboard/connect"
+            href="/how-it-works"
             className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300"
           >
             Explore the platform
           </Link>
 
           <Link
-            href="/how-it-works"
+            href="/pricing"
             className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
           >
-            See how it works
+            See pricing
+          </Link>
+
+          <Link
+            href="/cohort"
+            className="inline-flex items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-6 py-3 text-sm font-semibold text-emerald-200 hover:bg-emerald-400/15"
+          >
+            Student with a cohort code?
           </Link>
         </div>
       </section>
 
-      {/* Cohort offer */}
-      <section className="rounded-[40px] border border-white/10 bg-black/20 p-7 md:p-10 space-y-8">
+      <section
+        id="cohort-offer"
+        className="rounded-[40px] border border-white/10 bg-black/20 p-7 md:p-10 space-y-8"
+      >
         <div className="space-y-4">
           <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
             The simple cohort offer
@@ -172,17 +179,17 @@ export default function CollegesPage() {
 
             <div className="mt-7 flex flex-wrap gap-3">
               <Link
-                href="/dashboard/connect"
+                href="/pricing"
                 className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300"
               >
-                Request a cohort pack
+                See public pricing
               </Link>
 
               <Link
-                href="/pricing"
+                href="/cohort"
                 className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
               >
-                See pricing
+                Student cohort route
               </Link>
             </div>
           </div>
@@ -215,7 +222,6 @@ export default function CollegesPage() {
         </div>
       </section>
 
-      {/* Expanded benefits */}
       <section className="space-y-6">
         <div className="max-w-3xl space-y-3">
           <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
@@ -254,13 +260,12 @@ export default function CollegesPage() {
         </div>
       </section>
 
-      {/* What colleges get */}
       <section className="grid gap-6 lg:grid-cols-3">
         <Card
           eyebrow="For the institution"
           title="A calmer student outcome"
-          ctaLabel="Request a cohort pack"
-          ctaHref="/dashboard/connect"
+          ctaLabel="See public pricing"
+          ctaHref="/pricing"
           highlight
         >
           Students build a professional presence steadily — without spam, hype,
@@ -281,19 +286,17 @@ export default function CollegesPage() {
         </Card>
 
         <Card
-          eyebrow="For placement readiness"
-          title="A more visible starting point"
-          ctaLabel="View pricing"
-          ctaHref="/pricing"
+          eyebrow="For approved cohorts"
+          title="Private enrolment route"
+          ctaLabel="Open cohort enrolment"
+          ctaHref="/cohort"
         >
-          One of the hardest early-career problems is: “I’m qualified, but no
-          one knows I exist.” Root Health Ops helps students begin building a
-          consistent professional footprint while they are still learning and
-          growing.
+          Approved student groups use a separate cohort route with a private
+          code. That keeps public pricing clean while still giving colleges a
+          clear supported-start path.
         </Card>
       </section>
 
-      {/* Implementation steps */}
       <section className="rounded-[40px] border border-white/10 bg-white/5 p-7 md:p-10 space-y-6">
         <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
           How a cohort rolls out
@@ -329,16 +332,16 @@ export default function CollegesPage() {
 
         <div className="flex flex-wrap items-center gap-3">
           <Link
-            href="/dashboard/connect"
+            href="/pricing"
             className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300"
           >
-            Get the cohort pack
+            See public pricing
           </Link>
           <Link
-            href="/pricing"
+            href="/cohort"
             className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
           >
-            See pricing
+            Student cohort route
           </Link>
         </div>
       </section>
