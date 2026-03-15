@@ -658,6 +658,7 @@ export default function ResourcesPage() {
       }
     }
     init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -780,60 +781,6 @@ export default function ResourcesPage() {
     }
   }
 
-  async function persistSlidePatch(
-    resource: Resource,
-    slideIndex: number,
-    slidePatch: Record<string, any>,
-    successMessage: string
-  ) {
-    if (!organisationId) return;
-
-    setBusyAction(`save:${resource.id}:${slideIndex}`);
-    setError(null);
-
-    try {
-      const res = await fetch("/api/resource-library", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          organisationId,
-          resourceId: resource.id,
-          title: resource.title,
-          slideIndex,
-          slidePatch,
-        }),
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok || !data?.success) {
-        throw new Error(data?.error || "Failed to save slide");
-      }
-
-      const updated = data?.resource || null;
-
-      if (updated) {
-        setResources((prev) =>
-          prev.map((r) => (r.id === updated.id ? updated : r))
-        );
-        setSelected(updated);
-
-        if (!isTemplate(updated)) {
-          setDraftTitle(updated.title || "");
-          setDraftContent(deepClone(updated.content || {}));
-        }
-      } else {
-        await loadResources();
-      }
-
-      setToast(successMessage);
-    } catch (e: any) {
-      setError(e?.message || "Failed to save slide");
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
   async function generateSlideImage(resource: Resource, slideIndex: number) {
     const content = deepClone(resource.content || {});
     const slides = Array.isArray(content?.slides) ? content.slides : [];
@@ -877,10 +824,91 @@ export default function ResourcesPage() {
         throw new Error("No image URL was returned.");
       }
 
-      await persistSlidePatch(
+      slides[slideIndex] = {
+        ...slide,
+        generated_image_url: nextImageUrl,
+        generated_image_prompt: String(data?.imagePrompt || "").trim(),
+        generated_image_status: "ready",
+        artwork_label: String(
+          data?.artworkLabel || slide?.artwork_label || ""
+        ).trim(),
+        artwork_chip: String(
+          data?.artworkChip || slide?.artwork_chip || ""
+        ).trim(),
+        visual_direction: String(
+          data?.visualDirection || slide?.visual_direction || ""
+        ).trim(),
+        image_prompt: String(
+          data?.imagePrompt || slide?.image_prompt || ""
+        ).trim(),
+        artwork_generated_at: new Date().toISOString(),
+      };
+
+      content.slides = slides;
+
+      await persistResourceContent(
         resource,
-        slideIndex,
-        {
+        content,
+        `Slide ${slideIndex + 1} image generated ✅`
+      );
+    } catch (e: any) {
+      setError(e?.message || "Failed to generate image");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function generateAllSlideImages(resource: Resource) {
+    const content = deepClone(resource.content || {});
+    const slides = Array.isArray(content?.slides) ? content.slides : [];
+
+    if (!slides.length) return;
+
+    setBusyAction(`image-all:${resource.id}`);
+    setError(null);
+
+    try {
+      const updatedSlides = [...slides];
+
+      for (let i = 0; i < updatedSlides.length; i++) {
+        const slide = updatedSlides[i];
+
+        const res = await fetch("/api/ai/slide-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            presentationTitle: resource.title,
+            presentationObjective: String(content?.objective || "").trim(),
+            presentationPromise: String(content?.promise || "").trim(),
+            presentationAudienceTakeaway: String(
+              content?.audience_takeaway || ""
+            ).trim(),
+            slideTitle: String(slide?.slide_title || "").trim(),
+            slideGoal: String(slide?.slide_goal || "").trim(),
+            bullets: Array.isArray(slide?.bullets) ? slide.bullets : [],
+            speakerNotes: String(slide?.speaker_notes || "").trim(),
+            audiencePrompt: String(slide?.audience_prompt || "").trim(),
+            visualDirection: String(slide?.visual_direction || "").trim(),
+            imagePrompt: String(slide?.image_prompt || "").trim(),
+            theme: presentationTheme,
+          }),
+        });
+
+        const data = await res.json().catch(() => null);
+
+        if (!res.ok || !data?.success) {
+          throw new Error(
+            data?.error || `Failed to generate image for slide ${i + 1}`
+          );
+        }
+
+        const nextImageUrl = String(data?.imageUrl || "").trim();
+        if (!nextImageUrl) {
+          throw new Error(`No image URL returned for slide ${i + 1}`);
+        }
+
+        updatedSlides[i] = {
+          ...slide,
           generated_image_url: nextImageUrl,
           generated_image_prompt: String(data?.imagePrompt || "").trim(),
           generated_image_status: "ready",
@@ -897,28 +925,41 @@ export default function ResourcesPage() {
             data?.imagePrompt || slide?.image_prompt || ""
           ).trim(),
           artwork_generated_at: new Date().toISOString(),
-        },
-        "Slide image generated ✅"
+        };
+      }
+
+      content.slides = updatedSlides;
+
+      await persistResourceContent(
+        resource,
+        content,
+        "All slide images generated ✅"
       );
     } catch (e: any) {
-      setError(e?.message || "Failed to generate image");
+      setError(e?.message || "Failed to generate all slide images");
     } finally {
       setBusyAction(null);
     }
   }
 
   async function clearSlideImage(resource: Resource, slideIndex: number) {
-    await persistSlidePatch(
-      resource,
-      slideIndex,
-      {
-        generated_image_url: "",
-        generated_image_prompt: "",
-        generated_image_status: "",
-        artwork_generated_at: null,
-      },
-      "Slide image removed ✅"
-    );
+    const content = deepClone(resource.content || {});
+    const slides = Array.isArray(content?.slides) ? content.slides : [];
+    const slide = slides[slideIndex];
+
+    if (!slide) return;
+
+    slides[slideIndex] = {
+      ...slide,
+      generated_image_url: "",
+      generated_image_prompt: "",
+      generated_image_status: "",
+      artwork_generated_at: null,
+    };
+
+    content.slides = slides;
+
+    await persistResourceContent(resource, content, "Slide image removed ✅");
   }
 
   function sendTemplateToBrainstorm(template: StarterTemplate) {
@@ -1676,6 +1717,17 @@ export default function ResourcesPage() {
                     >
                       {showArtwork ? "Artwork on" : "Artwork off"}
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => generateAllSlideImages(selected as Resource)}
+                      disabled={busyAction === `image-all:${(selected as Resource).id}`}
+                      className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                    >
+                      {busyAction === `image-all:${(selected as Resource).id}`
+                        ? "Generating all…"
+                        : "Generate all images"}
+                    </button>
                   </div>
                 ) : null}
 
@@ -2211,9 +2263,7 @@ export default function ResourcesPage() {
                                         }
                                         disabled={
                                           busyAction ===
-                                            `save:${(selected as Resource).id}:${idx}` ||
-                                          busyAction ===
-                                            `image:${(selected as Resource).id}:${idx}`
+                                          `save:${(selected as Resource).id}`
                                         }
                                         className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
                                       >
@@ -2249,10 +2299,7 @@ export default function ResourcesPage() {
                                   </div>
                                 ) : null}
 
-                                {(editMode || presentationMode === "presenter") &&
-                                (visualDirection ||
-                                  imagePrompt ||
-                                  generatedImageUrl) ? (
+                                {editMode ? (
                                   <div className="mt-4 grid gap-3 md:grid-cols-2 max-w-4xl">
                                     <div
                                       className={[
@@ -2263,25 +2310,18 @@ export default function ResourcesPage() {
                                       <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
                                         Visual direction
                                       </div>
-                                      {editMode && !isTemplate(selected) ? (
-                                        <textarea
-                                          value={visualDirection}
-                                          onChange={(e) =>
-                                            updateSlideField(
-                                              idx,
-                                              "visual_direction",
-                                              e.target.value
-                                            )
-                                          }
-                                          rows={3}
-                                          className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                                        />
-                                      ) : (
-                                        <div className="mt-2 text-sm leading-relaxed break-words">
-                                          {visualDirection ||
-                                            "No artwork guidance yet."}
-                                        </div>
-                                      )}
+                                      <textarea
+                                        value={visualDirection}
+                                        onChange={(e) =>
+                                          updateSlideField(
+                                            idx,
+                                            "visual_direction",
+                                            e.target.value
+                                          )
+                                        }
+                                        rows={3}
+                                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                      />
                                     </div>
 
                                     <div
@@ -2293,24 +2333,18 @@ export default function ResourcesPage() {
                                       <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
                                         Image prompt
                                       </div>
-                                      {editMode && !isTemplate(selected) ? (
-                                        <textarea
-                                          value={imagePrompt}
-                                          onChange={(e) =>
-                                            updateSlideField(
-                                              idx,
-                                              "image_prompt",
-                                              e.target.value
-                                            )
-                                          }
-                                          rows={3}
-                                          className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                                        />
-                                      ) : (
-                                        <div className="mt-2 text-sm leading-relaxed break-words">
-                                          {imagePrompt || "No image prompt yet."}
-                                        </div>
-                                      )}
+                                      <textarea
+                                        value={imagePrompt}
+                                        onChange={(e) =>
+                                          updateSlideField(
+                                            idx,
+                                            "image_prompt",
+                                            e.target.value
+                                          )
+                                        }
+                                        rows={3}
+                                        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                      />
                                     </div>
                                   </div>
                                 ) : null}
