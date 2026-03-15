@@ -69,7 +69,8 @@ const GROWTH_SEED_KEYS = [
   "rh_growth_seed_brainstorm_v1",
 ];
 
-const PRESENTATION_RESOURCE_CACHE_PREFIX = "root-health-presentation-resource:";
+const PRESENTATION_RESOURCE_CACHE_PREFIX =
+  "root-health-presentation-resource:";
 
 function setLocalStorageMulti(keys: string[], payload: any) {
   try {
@@ -792,6 +793,58 @@ export default function ResourcesPage() {
     }
   }
 
+  async function persistSlidePatch(
+    resource: Resource,
+    slideIndex: number,
+    slidePatch: any,
+    successMessage?: string
+  ) {
+    if (!organisationId) return null;
+
+    setError(null);
+
+    const res = await fetch("/api/resource-library", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        organisationId,
+        resourceId: resource.id,
+        title: resource.title,
+        slideIndex,
+        slidePatch,
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || "Failed to save resource");
+    }
+
+    const updated = data?.resource || null;
+
+    if (updated) {
+      setResources((prev) =>
+        prev.map((r) => (r.id === updated.id ? updated : r))
+      );
+      setSelected(updated);
+      cachePresentationResource(updated);
+
+      if (!isTemplate(updated)) {
+        setDraftTitle(updated.title || "");
+        setDraftContent(deepClone(updated.content || {}));
+      }
+    } else {
+      await loadResources();
+    }
+
+    if (successMessage) {
+      setToast(successMessage);
+    }
+
+    return updated;
+  }
+
   async function generateSlideImage(resource: Resource, slideIndex: number) {
     const content = deepClone(resource.content || {});
     const slides = Array.isArray(content?.slides) ? content.slides : [];
@@ -835,31 +888,27 @@ export default function ResourcesPage() {
         throw new Error("No image URL was returned.");
       }
 
-      slides[slideIndex] = {
-        ...slide,
-        generated_image_url: nextImageUrl,
-        generated_image_prompt: String(data?.imagePrompt || "").trim(),
-        generated_image_status: "ready",
-        artwork_label: String(
-          data?.artworkLabel || slide?.artwork_label || ""
-        ).trim(),
-        artwork_chip: String(
-          data?.artworkChip || slide?.artwork_chip || ""
-        ).trim(),
-        visual_direction: String(
-          data?.visualDirection || slide?.visual_direction || ""
-        ).trim(),
-        image_prompt: String(
-          data?.imagePrompt || slide?.image_prompt || ""
-        ).trim(),
-        artwork_generated_at: new Date().toISOString(),
-      };
-
-      content.slides = slides;
-
-      await persistResourceContent(
+      await persistSlidePatch(
         resource,
-        content,
+        slideIndex,
+        {
+          generated_image_url: nextImageUrl,
+          generated_image_prompt: String(data?.imagePrompt || "").trim(),
+          generated_image_status: "ready",
+          artwork_label: String(
+            data?.artworkLabel || slide?.artwork_label || ""
+          ).trim(),
+          artwork_chip: String(
+            data?.artworkChip || slide?.artwork_chip || ""
+          ).trim(),
+          visual_direction: String(
+            data?.visualDirection || slide?.visual_direction || ""
+          ).trim(),
+          image_prompt: String(
+            data?.imagePrompt || slide?.image_prompt || ""
+          ).trim(),
+          artwork_generated_at: new Date().toISOString(),
+        },
         `Slide ${slideIndex + 1} image generated ✅`
       );
     } catch (e: any) {
@@ -879,20 +928,29 @@ export default function ResourcesPage() {
     setError(null);
 
     try {
-      const updatedSlides = [...slides];
+      let latestResource: Resource = resource;
 
-      for (let i = 0; i < updatedSlides.length; i++) {
-        const slide = updatedSlides[i];
+      for (let i = 0; i < slides.length; i++) {
+        const currentSlides = Array.isArray(latestResource?.content?.slides)
+          ? latestResource.content.slides
+          : slides;
+
+        const slide = currentSlides[i];
+        if (!slide) continue;
 
         const res = await fetch("/api/ai/slide-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            presentationTitle: resource.title,
-            presentationObjective: String(content?.objective || "").trim(),
-            presentationPromise: String(content?.promise || "").trim(),
+            presentationTitle: latestResource.title,
+            presentationObjective: String(
+              latestResource?.content?.objective || ""
+            ).trim(),
+            presentationPromise: String(
+              latestResource?.content?.promise || ""
+            ).trim(),
             presentationAudienceTakeaway: String(
-              content?.audience_takeaway || ""
+              latestResource?.content?.audience_takeaway || ""
             ).trim(),
             slideTitle: String(slide?.slide_title || "").trim(),
             slideGoal: String(slide?.slide_goal || "").trim(),
@@ -918,8 +976,7 @@ export default function ResourcesPage() {
           throw new Error(`No image URL returned for slide ${i + 1}`);
         }
 
-        updatedSlides[i] = {
-          ...slide,
+        const updated = await persistSlidePatch(latestResource, i, {
           generated_image_url: nextImageUrl,
           generated_image_prompt: String(data?.imagePrompt || "").trim(),
           generated_image_status: "ready",
@@ -936,16 +993,14 @@ export default function ResourcesPage() {
             data?.imagePrompt || slide?.image_prompt || ""
           ).trim(),
           artwork_generated_at: new Date().toISOString(),
-        };
+        });
+
+        if (updated) {
+          latestResource = updated;
+        }
       }
 
-      content.slides = updatedSlides;
-
-      await persistResourceContent(
-        resource,
-        content,
-        "All slide images generated ✅"
-      );
+      setToast("All slide images generated ✅");
     } catch (e: any) {
       setError(e?.message || "Failed to generate all slide images");
     } finally {
@@ -960,17 +1015,26 @@ export default function ResourcesPage() {
 
     if (!slide) return;
 
-    slides[slideIndex] = {
-      ...slide,
-      generated_image_url: "",
-      generated_image_prompt: "",
-      generated_image_status: "",
-      artwork_generated_at: null,
-    };
+    setBusyAction(`save:${resource.id}`);
+    setError(null);
 
-    content.slides = slides;
-
-    await persistResourceContent(resource, content, "Slide image removed ✅");
+    try {
+      await persistSlidePatch(
+        resource,
+        slideIndex,
+        {
+          generated_image_url: "",
+          generated_image_prompt: "",
+          generated_image_status: "",
+          artwork_generated_at: null,
+        },
+        "Slide image removed ✅"
+      );
+    } catch (e: any) {
+      setError(e?.message || "Failed to save resource");
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   function sendTemplateToBrainstorm(template: StarterTemplate) {
@@ -1017,9 +1081,13 @@ export default function ResourcesPage() {
             .map((s: any) => {
               const title = String(s?.title || "").trim();
               const bullets = Array.isArray(s?.bullets)
-                ? s.bullets.map((b: any) => String(b || "").trim()).filter(Boolean)
+                ? s.bullets
+                    .map((b: any) => String(b || "").trim())
+                    .filter(Boolean)
                 : [];
-              return `${title}${bullets.length ? ` (${bullets.join(" | ")})` : ""}`;
+              return `${title}${
+                bullets.length ? ` (${bullets.join(" | ")})` : ""
+              }`;
             })
             .join(" || ")
         : "";
@@ -1312,6 +1380,7 @@ export default function ResourcesPage() {
           prev.map((r) => (r.id === updated.id ? updated : r))
         );
         setSelected(updated);
+        cachePresentationResource(updated);
         setDraftTitle(updated.title || "");
         setDraftContent(deepClone(updated.content || {}));
       } else {
@@ -1732,7 +1801,9 @@ export default function ResourcesPage() {
                     <button
                       type="button"
                       onClick={() => generateAllSlideImages(selected as Resource)}
-                      disabled={busyAction === `image-all:${(selected as Resource).id}`}
+                      disabled={
+                        busyAction === `image-all:${(selected as Resource).id}`
+                      }
                       className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                     >
                       {busyAction === `image-all:${(selected as Resource).id}`
@@ -1745,7 +1816,10 @@ export default function ResourcesPage() {
                       onClick={() => {
                         const resource = selected as Resource;
                         cachePresentationResource(resource);
-                        window.open(`/dashboard/resources/present/${resource.id}`, "_blank");
+                        window.open(
+                          `/dashboard/resources/present/${resource.id}`,
+                          "_blank"
+                        );
                       }}
                       className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
                     >
@@ -1757,7 +1831,10 @@ export default function ResourcesPage() {
                       onClick={() => {
                         const resource = selected as Resource;
                         cachePresentationResource(resource);
-                        window.open(`/dashboard/resources/presenter/${resource.id}`, "_blank");
+                        window.open(
+                          `/dashboard/resources/presenter/${resource.id}`,
+                          "_blank"
+                        );
                       }}
                       className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
                     >
@@ -2187,7 +2264,9 @@ export default function ResourcesPage() {
                                     <>
                                       <img
                                         src={generatedImageUrl}
-                                        alt={slide?.slide_title || `Slide ${idx + 1}`}
+                                        alt={
+                                          slide?.slide_title || `Slide ${idx + 1}`
+                                        }
                                         className="absolute inset-0 h-full w-full object-cover"
                                       />
                                       <div
