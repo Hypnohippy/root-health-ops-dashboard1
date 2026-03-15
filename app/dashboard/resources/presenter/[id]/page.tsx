@@ -111,7 +111,8 @@ function slideThemeClasses(theme: PresentationTheme) {
         "border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 text-slate-900",
       panel: "border-amber-200 bg-white/80 text-amber-950",
       chip: "border-amber-300 bg-white/90 text-amber-900",
-      overlay: "bg-gradient-to-br from-amber-50/78 via-orange-50/66 to-white/58",
+      overlay:
+        "bg-gradient-to-br from-amber-50/78 via-orange-50/66 to-white/58",
       tint: "bg-amber-50/14",
       subtle: "text-amber-900/60",
     };
@@ -123,7 +124,8 @@ function slideThemeClasses(theme: PresentationTheme) {
         "border-slate-700 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 text-slate-100",
       panel: "border-slate-700 bg-slate-900/80 text-slate-200",
       chip: "border-slate-700 bg-slate-900/70 text-slate-300",
-      overlay: "bg-gradient-to-br from-slate-950/66 via-slate-900/60 to-slate-950/62",
+      overlay:
+        "bg-gradient-to-br from-slate-950/66 via-slate-900/60 to-slate-950/62",
       tint: "bg-slate-950/18",
       subtle: "text-slate-400",
     };
@@ -227,9 +229,51 @@ export default function PresenterConsolePage() {
     load();
   }, [resourceId]);
 
+  const slides = useMemo(() => {
+    return Array.isArray(resource?.content?.slides) ? resource!.content.slides : [];
+  }, [resource]);
+
+  const safeIndex = useMemo(() => {
+    if (!slides.length) return 0;
+    return Math.min(Math.max(0, sync.slideIndex), slides.length - 1);
+  }, [slides, sync.slideIndex]);
+
+  function updateSync(partial: Partial<SyncState>) {
+    if (!resourceId) return;
+
+    const next: SyncState = {
+      slideIndex:
+        partial.slideIndex !== undefined ? partial.slideIndex : safeIndex,
+      theme: (partial.theme || sync.theme) as PresentationTheme,
+      showArtwork:
+        partial.showArtwork !== undefined ? partial.showArtwork : sync.showArtwork,
+      updatedAt: Date.now(),
+    };
+
+    setSync(next);
+    pushSyncState(resourceId, next);
+  }
+
+  function goPrev() {
+    updateSync({ slideIndex: Math.max(0, safeIndex - 1) });
+  }
+
+  function goNext() {
+    updateSync({ slideIndex: Math.min(slides.length - 1, safeIndex + 1) });
+  }
+
+  function goToSlide(index: number) {
+    updateSync({
+      slideIndex: Math.min(Math.max(0, index), Math.max(0, slides.length - 1)),
+    });
+  }
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (!resource) return;
+      if (!slides.length) return;
+
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
 
       if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
         e.preventDefault();
@@ -239,6 +283,16 @@ export default function PresenterConsolePage() {
       if (e.key === "ArrowLeft" || e.key === "PageUp") {
         e.preventDefault();
         goPrev();
+      }
+
+      if (e.key === "Home") {
+        e.preventDefault();
+        goToSlide(0);
+      }
+
+      if (e.key === "End") {
+        e.preventDefault();
+        goToSlide(slides.length - 1);
       }
     }
 
@@ -260,43 +314,10 @@ export default function PresenterConsolePage() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("storage", onStorage);
     };
-  });
-
-  const slides = useMemo(() => {
-    return Array.isArray(resource?.content?.slides) ? resource!.content.slides : [];
-  }, [resource]);
-
-  const safeIndex = useMemo(() => {
-    if (!slides.length) return 0;
-    return Math.min(Math.max(0, sync.slideIndex), slides.length - 1);
-  }, [slides, sync.slideIndex]);
+  }, [slides.length, safeIndex, resourceId]);
 
   const slide = slides[safeIndex] || null;
   const theme = slideThemeClasses(sync.theme);
-
-  function updateSync(partial: Partial<SyncState>) {
-    if (!resourceId) return;
-
-    const next: SyncState = {
-      slideIndex:
-        partial.slideIndex !== undefined ? partial.slideIndex : sync.slideIndex,
-      theme: (partial.theme || sync.theme) as PresentationTheme,
-      showArtwork:
-        partial.showArtwork !== undefined ? partial.showArtwork : sync.showArtwork,
-      updatedAt: Date.now(),
-    };
-
-    setSync(next);
-    pushSyncState(resourceId, next);
-  }
-
-  function goPrev() {
-    updateSync({ slideIndex: Math.max(0, safeIndex - 1) });
-  }
-
-  function goNext() {
-    updateSync({ slideIndex: Math.min(slides.length - 1, safeIndex + 1) });
-  }
 
   function openAudienceScreen() {
     if (!resource) return;
@@ -445,7 +466,7 @@ export default function PresenterConsolePage() {
               </button>
 
               <div className="text-xs text-slate-400">
-                Use arrow keys to move through slides
+                Arrow keys, space, Home, End
               </div>
 
               <button
@@ -456,6 +477,24 @@ export default function PresenterConsolePage() {
               >
                 Next
               </button>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {slides.map((_: any, idx: number) => (
+                <button
+                  key={`slide-jump-${idx}`}
+                  type="button"
+                  onClick={() => goToSlide(idx)}
+                  className={[
+                    "rounded-full border px-3 py-1.5 text-xs",
+                    idx === safeIndex
+                      ? "border-emerald-500 bg-emerald-500 text-slate-950"
+                      : "border-slate-700 bg-slate-950 text-slate-200 hover:bg-white/10",
+                  ].join(" ")}
+                >
+                  {idx + 1}
+                </button>
+              ))}
             </div>
           </div>
 
