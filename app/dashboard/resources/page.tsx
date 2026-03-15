@@ -69,6 +69,8 @@ const GROWTH_SEED_KEYS = [
   "rh_growth_seed_brainstorm_v1",
 ];
 
+const PRESENTATION_RESOURCE_CACHE_PREFIX = "root-health-presentation-resource:";
+
 function setLocalStorageMulti(keys: string[], payload: any) {
   try {
     const raw = JSON.stringify(payload);
@@ -102,6 +104,15 @@ function typeLabel(type: CreateResourceType) {
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
+}
+
+function cachePresentationResource(resource: Resource) {
+  try {
+    localStorage.setItem(
+      `${PRESENTATION_RESOURCE_CACHE_PREFIX}${resource.id}`,
+      JSON.stringify(resource)
+    );
+  } catch {}
 }
 
 function normaliseText(v: any) {
@@ -1728,6 +1739,30 @@ export default function ResourcesPage() {
                         ? "Generating all…"
                         : "Generate all images"}
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const resource = selected as Resource;
+                        cachePresentationResource(resource);
+                        window.open(`/dashboard/resources/present/${resource.id}`, "_blank");
+                      }}
+                      className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                    >
+                      Open audience screen
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const resource = selected as Resource;
+                        cachePresentationResource(resource);
+                        window.open(`/dashboard/resources/presenter/${resource.id}`, "_blank");
+                      }}
+                      className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+                    >
+                      Open presenter console
+                    </button>
                   </div>
                 ) : null}
 
@@ -2034,7 +2069,7 @@ export default function ResourcesPage() {
                               setDraftField("instructions", e.target.value)
                             }
                             rows={4}
-                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm"
                           />
                         ) : (
                           <div className="mt-2 text-sm text-slate-300">
