@@ -22,13 +22,31 @@ type SyncState = {
 };
 
 const SYNC_PREFIX = "root-health-presentation-sync:";
+const RESOURCE_CACHE_PREFIX = "root-health-presentation-resource:";
 
 function syncKey(resourceId: string) {
   return `${SYNC_PREFIX}${resourceId}`;
 }
 
+function resourceCacheKey(resourceId: string) {
+  return `${RESOURCE_CACHE_PREFIX}${resourceId}`;
+}
+
 function norm(v: any) {
   return String(v || "").trim();
+}
+
+function readCachedResource(resourceId: string): Resource | null {
+  try {
+    const raw = localStorage.getItem(resourceCacheKey(resourceId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.id || String(parsed.id) !== resourceId) return null;
+    if (!Array.isArray(parsed?.content?.slides)) return null;
+    return parsed as Resource;
+  } catch {
+    return null;
+  }
 }
 
 function readSyncState(resourceId: string): SyncState {
@@ -149,6 +167,16 @@ export default function PresenterConsolePage() {
       setError(null);
 
       try {
+        const cached = readCachedResource(resourceId);
+        if (cached) {
+          setResource(cached);
+          const initial = readSyncState(resourceId);
+          setSync(initial);
+          pushSyncState(resourceId, initial);
+          setLoading(false);
+          return;
+        }
+
         const orgRes = await fetch("/api/social-accounts", {
           cache: "no-store",
         });
@@ -180,6 +208,10 @@ export default function PresenterConsolePage() {
           throw new Error("This resource does not contain presentation slides.");
         }
 
+        try {
+          localStorage.setItem(resourceCacheKey(resourceId), JSON.stringify(found));
+        } catch {}
+
         setResource(found);
 
         const initial = readSyncState(resourceId);
@@ -210,8 +242,24 @@ export default function PresenterConsolePage() {
       }
     }
 
+    function onStorage(e: StorageEvent) {
+      if (e.key === resourceCacheKey(resourceId) && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed?.content?.slides)) {
+            setResource(parsed as Resource);
+          }
+        } catch {}
+      }
+    }
+
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("storage", onStorage);
+    };
   });
 
   const slides = useMemo(() => {
@@ -252,6 +300,11 @@ export default function PresenterConsolePage() {
 
   function openAudienceScreen() {
     if (!resource) return;
+
+    try {
+      localStorage.setItem(resourceCacheKey(resource.id), JSON.stringify(resource));
+    } catch {}
+
     window.open(`/dashboard/resources/present/${resource.id}`, "_blank");
   }
 
