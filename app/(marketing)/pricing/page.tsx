@@ -94,6 +94,23 @@ function PriceCard({
   );
 }
 
+function InfoBlock({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/20 p-6">
+      <div className="text-sm font-semibold text-slate-50">{title}</div>
+      <div className="mt-2 text-sm text-slate-300 leading-relaxed">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function PricingPage() {
   return (
     <main className="mx-auto max-w-6xl px-4 py-12 md:py-16 space-y-14">
@@ -109,8 +126,8 @@ export default function PricingPage() {
         </h1>
 
         <p className="text-base md:text-lg text-slate-300 leading-relaxed max-w-3xl">
-          Root Health Ops is designed to reduce overwhelm and keep you visible
-          consistently — without turning your week into “content work”.
+          Root Health Ops is designed to reduce overwhelm and help you stay
+          visible consistently — without turning your week into content admin.
         </p>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -125,12 +142,8 @@ export default function PricingPage() {
             href="/colleges"
             className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
           >
-            Colleges →
+            Training providers / colleges
           </Link>
-        </div>
-
-        <div className="text-[11px] text-slate-500">
-          Tip: colleges can distribute a promo code for 6-month subsidy.
         </div>
       </section>
 
@@ -144,13 +157,13 @@ export default function PricingPage() {
             <>Connect your channels once</>,
             <>Create Stories and edit before publishing</>,
             <>Schedule posts so visibility stays steady</>,
-            <>Queue view with clear “sent / scheduled / failed” status</>,
-            <>🧠 Brainstorm (a calm thinking space when energy is low)</>,
+            <>Queue view with clear sent / scheduled / failed status</>,
+            <>🧠 Brainstorm for low-energy content planning</>,
           ]}
           footerNote={
             <>
               Built for steady consistency — not hustle. <br />
-              If you grow into a clinic later, Team adds a gentle approvals step.
+              When your practice grows later, Team adds a gentle approvals step.
             </>
           }
         />
@@ -164,15 +177,15 @@ export default function PricingPage() {
           highlight
           features={[
             <>Everything in Solo</>,
-            <>More structure for content themes and series</>,
-            <>Deeper scheduling workflows (steady drumbeat)</>,
+            <>More structure for themes and post series</>,
+            <>Deeper scheduling workflows</>,
             <>Priority help getting set up</>,
             <>🧠 Brainstorm included</>,
           ]}
           footerNote={
             <>
               Many clinicians use Growth as the bridge into clinic-level systems. <br />
-              When the time feels right, Team unlocks approvals + shared workflows.
+              When the time feels right, Team unlocks approvals and shared workflows.
             </>
           }
         />
@@ -186,51 +199,71 @@ export default function PricingPage() {
             <>Everything in Growth</>,
             <>Organisation-first setup</>,
             <>Shared visibility workflows</>,
-            <>✅ Approvals: a gentle review step before posts go live</>,
+            <>✅ Approvals before posts go live</>,
             <>Priority support</>,
           ]}
           footerNote={
             <>
-              As practices grow, it can help to slow things down just enough to stay aligned.
-              Approvals add a gentle review step — useful when multiple practitioners contribute,
-              or when you want a second set of eyes before posts go live.
+              As practices grow, it can help to slow things down just enough to
+              stay aligned. Approvals add a gentle review step when more than one
+              person contributes.
             </>
           }
         />
       </section>
 
       <section className="rounded-[32px] border border-white/10 bg-white/5 p-8 md:p-10">
-        <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
-          <div>
-            <div className="text-2xl md:text-3xl font-semibold tracking-tight">
-              The 6-month subsidy (college route)
+        <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+          <div className="space-y-4">
+            <div className="text-2xl md:text-3xl font-semibold tracking-tight text-slate-50">
+              For colleges and training providers
             </div>
-            <p className="mt-3 text-sm text-slate-300 leading-relaxed">
-              Colleges can provide a promo code to students (e.g.{" "}
-              <span className="text-slate-50 font-semibold">COLLEGE50</span>).
-              Students enter it during checkout — the discount applies
-              automatically for 6 months.
-            </p>
-          </div>
 
-          <div className="rounded-3xl border border-white/10 bg-black/20 p-6">
-            <div className="text-sm font-semibold text-slate-50">
-              What you do in Stripe
-            </div>
-            <ol className="mt-2 space-y-2 text-sm text-slate-300 leading-relaxed list-decimal list-inside">
-              <li>Create a coupon: 50% off</li>
-              <li>Set duration: repeating</li>
-              <li>Set months: 6</li>
-              <li>Create a promotion code for that coupon</li>
-            </ol>
-            <div className="mt-4">
+            <p className="text-sm md:text-base text-slate-300 leading-relaxed">
+              We offer a simple supported-start route for approved student
+              cohorts and newly qualified clinicians. This is arranged directly
+              with each college or training provider, so the student experience
+              stays clear, calm, and easy to understand.
+            </p>
+
+            <p className="text-sm text-slate-400 leading-relaxed">
+              Public pricing stays simple. Approved cohorts receive their own
+              private enrolment route after setup.
+            </p>
+
+            <div className="flex flex-wrap gap-3">
               <Link
                 href="/colleges"
+                className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300"
+              >
+                Visit colleges page
+              </Link>
+
+              <Link
+                href="/dashboard/connect"
                 className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
               >
-                See colleges options →
+                Request cohort info
               </Link>
             </div>
+          </div>
+
+          <div className="grid gap-4">
+            <InfoBlock title="Simple for faculty">
+              No public discount confusion, no awkward money framing, and no
+              need to explain multiple special cases to each intake.
+            </InfoBlock>
+
+            <InfoBlock title="Clear for students">
+              Approved cohorts get their own private enrolment route, so the
+              offer feels intentional and supportive rather than like a public
+              sale or coupon hunt.
+            </InfoBlock>
+
+            <InfoBlock title="Better control">
+              You can approve cohorts, cap usage, set dates, and keep the
+              supported-start offer separate from normal public pricing.
+            </InfoBlock>
           </div>
         </div>
       </section>
