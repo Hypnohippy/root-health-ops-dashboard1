@@ -3,21 +3,23 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function norm(v: any) {
+type JsonMap = Record<string, any>;
+
+function norm(v: unknown): string {
   return String(v ?? "").trim();
 }
 
-function isObject(v: any) {
+function isObject(v: unknown): v is JsonMap {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
-function isDataImageUrl(value: any) {
+function isDataImageUrl(value: unknown): boolean {
   const s = String(value ?? "").trim().toLowerCase();
   return s.startsWith("data:image/");
 }
 
-function sanitizeSlideForStorage(slide: any) {
-  const next = isObject(slide) ? { ...slide } : {};
+function sanitizeSlideForStorage(slide: unknown): JsonMap {
+  const next: JsonMap = isObject(slide) ? { ...slide } : {};
 
   if (isDataImageUrl(next.generated_image_url)) {
     next.generated_image_url = "";
@@ -27,25 +29,27 @@ function sanitizeSlideForStorage(slide: any) {
   return next;
 }
 
-function sanitizeContentForStorage(content: any) {
+function sanitizeContentForStorage(content: unknown): unknown {
   if (Array.isArray(content)) {
-    return content.map((item) => sanitizeContentForStorage(item));
+    return content.map((item): unknown => sanitizeContentForStorage(item));
   }
 
   if (!isObject(content)) {
     return content ?? null;
   }
 
-  const next: Record<string, any> = {};
+  const next: JsonMap = {};
 
-  for (const [key, value] of Object.entries(content)) {
+  for (const key in content) {
+    const value = content[key];
+
     if (key === "slides" && Array.isArray(value)) {
-      next[key] = value.map((slide) => sanitizeSlideForStorage(slide));
+      next[key] = value.map((slide): JsonMap => sanitizeSlideForStorage(slide));
       continue;
     }
 
     if (Array.isArray(value)) {
-      next[key] = value.map((item) => sanitizeContentForStorage(item));
+      next[key] = value.map((item): unknown => sanitizeContentForStorage(item));
       continue;
     }
 
@@ -63,12 +67,13 @@ function sanitizeContentForStorage(content: any) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
+    const bodyObj = body as JsonMap;
 
-    const mode = norm(body?.mode || "create").toLowerCase();
+    const mode = norm(bodyObj?.mode || "create").toLowerCase();
 
     if (mode === "duplicate") {
-      const organisationId = norm(body?.organisationId);
-      const resourceId = norm(body?.resourceId);
+      const organisationId = norm(bodyObj?.organisationId);
+      const resourceId = norm(bodyObj?.resourceId);
 
       if (!organisationId) {
         return NextResponse.json(
@@ -92,10 +97,7 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (loadErr) {
-        return NextResponse.json(
-          { error: loadErr.message },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: loadErr.message }, { status: 500 });
       }
 
       if (!existing) {
@@ -121,10 +123,7 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (dupErr) {
-        return NextResponse.json(
-          { error: dupErr.message },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: dupErr.message }, { status: 500 });
       }
 
       return NextResponse.json({
@@ -134,11 +133,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const organisationId = norm(body?.organisationId);
-    const sequenceId = norm(body?.sequenceId) || null;
-    const title = norm(body?.title);
-    const resourceType = norm(body?.resource_type);
-    const content = sanitizeContentForStorage(body?.content ?? null);
+    const organisationId = norm(bodyObj?.organisationId);
+    const sequenceId = norm(bodyObj?.sequenceId) || null;
+    const title = norm(bodyObj?.title);
+    const resourceType = norm(bodyObj?.resource_type);
+    const content = sanitizeContentForStorage(bodyObj?.content ?? null);
 
     if (!organisationId) {
       return NextResponse.json(
@@ -148,10 +147,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!title) {
-      return NextResponse.json(
-        { error: "title required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "title required" }, { status: 400 });
     }
 
     if (!resourceType) {
@@ -174,10 +170,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -211,10 +204,7 @@ export async function GET(req: NextRequest) {
       .order("created_at", { ascending: false });
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -232,22 +222,23 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
+    const bodyObj = body as JsonMap;
 
-    const organisationId = norm(body?.organisationId);
-    const resourceId = norm(body?.resourceId);
-    const title = norm(body?.title);
+    const organisationId = norm(bodyObj?.organisationId);
+    const resourceId = norm(bodyObj?.resourceId);
+    const title = norm(bodyObj?.title);
 
-    const hasContentField = Object.prototype.hasOwnProperty.call(body, "content");
+    const hasContentField = Object.prototype.hasOwnProperty.call(bodyObj, "content");
     const content = hasContentField
-      ? sanitizeContentForStorage(body?.content ?? null)
+      ? sanitizeContentForStorage(bodyObj?.content ?? null)
       : undefined;
 
     const hasSlidePatch =
-      Object.prototype.hasOwnProperty.call(body, "slideIndex") &&
-      Object.prototype.hasOwnProperty.call(body, "slidePatch");
+      Object.prototype.hasOwnProperty.call(bodyObj, "slideIndex") &&
+      Object.prototype.hasOwnProperty.call(bodyObj, "slidePatch");
 
-    const slideIndexRaw = body?.slideIndex;
-    const slidePatch = body?.slidePatch;
+    const slideIndexRaw = bodyObj?.slideIndex;
+    const slidePatch = bodyObj?.slidePatch;
 
     if (!organisationId) {
       return NextResponse.json(
@@ -295,10 +286,7 @@ export async function PATCH(req: NextRequest) {
         .maybeSingle();
 
       if (loadErr) {
-        return NextResponse.json(
-          { error: loadErr.message },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: loadErr.message }, { status: 500 });
       }
 
       if (!existing) {
@@ -308,14 +296,22 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      const nextContent = isObject(existing.content) ? { ...existing.content } : {};
-      const slides = Array.isArray(nextContent.slides) ? [...nextContent.slides] : [];
+      const nextContent: JsonMap = isObject(existing.content)
+        ? { ...existing.content }
+        : {};
+
+      const slides: any[] = Array.isArray(nextContent.slides)
+        ? [...nextContent.slides]
+        : [];
 
       while (slides.length <= slideIndex) {
         slides.push({});
       }
 
-      const currentSlide = isObject(slides[slideIndex]) ? slides[slideIndex] : {};
+      const currentSlide: JsonMap = isObject(slides[slideIndex])
+        ? slides[slideIndex]
+        : {};
+
       slides[slideIndex] = sanitizeSlideForStorage({
         ...currentSlide,
         ...slidePatch,
@@ -323,7 +319,7 @@ export async function PATCH(req: NextRequest) {
 
       nextContent.slides = slides;
 
-      const updatePayload: Record<string, any> = {
+      const updatePayload: JsonMap = {
         updated_at: new Date().toISOString(),
         content: sanitizeContentForStorage(nextContent),
       };
@@ -341,10 +337,7 @@ export async function PATCH(req: NextRequest) {
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json(
-          { error: error.message },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: error.message }, { status: 500 });
       }
 
       if (!data) {
@@ -360,7 +353,7 @@ export async function PATCH(req: NextRequest) {
       });
     }
 
-    const updatePayload: Record<string, any> = {
+    const updatePayload: JsonMap = {
       updated_at: new Date().toISOString(),
     };
 
@@ -381,10 +374,7 @@ export async function PATCH(req: NextRequest) {
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     if (!data) {
@@ -409,9 +399,10 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
+    const bodyObj = body as JsonMap;
 
-    const organisationId = norm(body?.organisationId);
-    const resourceId = norm(body?.resourceId);
+    const organisationId = norm(bodyObj?.organisationId);
+    const resourceId = norm(bodyObj?.resourceId);
 
     if (!organisationId) {
       return NextResponse.json(
@@ -434,10 +425,7 @@ export async function DELETE(req: NextRequest) {
       .eq("id", resourceId);
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({
