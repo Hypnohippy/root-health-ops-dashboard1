@@ -79,6 +79,20 @@ function readSyncState(resourceId: string): SyncState {
   }
 }
 
+function pushSyncState(resourceId: string, next: SyncState) {
+  try {
+    localStorage.setItem(syncKey(resourceId), JSON.stringify(next));
+  } catch {}
+
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      const channel = new BroadcastChannel(`presentation:${resourceId}`);
+      channel.postMessage(next);
+      channel.close();
+    }
+  } catch {}
+}
+
 function slideThemeClasses(theme: PresentationTheme) {
   if (theme === "corporate") {
     return {
@@ -211,6 +225,45 @@ export default function AudiencePresentationPage() {
     load();
   }, [resourceId]);
 
+  const slides = useMemo(() => {
+    return Array.isArray(resource?.content?.slides) ? resource!.content.slides : [];
+  }, [resource]);
+
+  const safeIndex = useMemo(() => {
+    if (!slides.length) return 0;
+    return Math.min(Math.max(0, sync.slideIndex), slides.length - 1);
+  }, [slides, sync.slideIndex]);
+
+  function updateSync(partial: Partial<SyncState>) {
+    if (!resourceId) return;
+
+    const next: SyncState = {
+      slideIndex:
+        partial.slideIndex !== undefined ? partial.slideIndex : safeIndex,
+      theme: (partial.theme || sync.theme) as PresentationTheme,
+      showArtwork:
+        partial.showArtwork !== undefined ? partial.showArtwork : sync.showArtwork,
+      updatedAt: Date.now(),
+    };
+
+    setSync(next);
+    pushSyncState(resourceId, next);
+  }
+
+  function goPrev() {
+    updateSync({ slideIndex: Math.max(0, safeIndex - 1) });
+  }
+
+  function goNext() {
+    updateSync({ slideIndex: Math.min(slides.length - 1, safeIndex + 1) });
+  }
+
+  function goToSlide(index: number) {
+    updateSync({
+      slideIndex: Math.min(Math.max(0, index), Math.max(0, slides.length - 1)),
+    });
+  }
+
   useEffect(() => {
     if (!resourceId) return;
 
@@ -262,12 +315,37 @@ export default function AudiencePresentationPage() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      if (!slides.length) return;
+
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+
       if (e.key.toLowerCase() === "f") {
         if (!document.fullscreenElement) {
           document.documentElement.requestFullscreen().catch(() => {});
         } else {
           document.exitFullscreen().catch(() => {});
         }
+      }
+
+      if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
+        e.preventDefault();
+        goNext();
+      }
+
+      if (e.key === "ArrowLeft" || e.key === "PageUp") {
+        e.preventDefault();
+        goPrev();
+      }
+
+      if (e.key === "Home") {
+        e.preventDefault();
+        goToSlide(0);
+      }
+
+      if (e.key === "End") {
+        e.preventDefault();
+        goToSlide(slides.length - 1);
       }
     }
 
@@ -282,16 +360,7 @@ export default function AudiencePresentationPage() {
       window.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("fullscreenchange", onFullscreenChange);
     };
-  }, []);
-
-  const slides = useMemo(() => {
-    return Array.isArray(resource?.content?.slides) ? resource!.content.slides : [];
-  }, [resource]);
-
-  const safeIndex = useMemo(() => {
-    if (!slides.length) return 0;
-    return Math.min(Math.max(0, sync.slideIndex), slides.length - 1);
-  }, [slides, sync.slideIndex]);
+  }, [slides.length, safeIndex]);
 
   const slide = slides[safeIndex] || null;
   const theme = slideThemeClasses(sync.theme);
@@ -326,18 +395,62 @@ export default function AudiencePresentationPage() {
         theme.shell,
       ].join(" ")}
     >
-      {!isFullscreen ? (
+      <div className="fixed left-4 top-4 z-30 flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => document.documentElement.requestFullscreen().catch(() => {})}
+          onClick={goPrev}
+          disabled={safeIndex <= 0}
           className={[
-            "fixed right-4 top-4 z-30 rounded-full border px-4 py-2 text-xs font-semibold backdrop-blur",
+            "rounded-full border px-4 py-2 text-xs font-semibold backdrop-blur disabled:opacity-50",
             theme.pill,
           ].join(" ")}
         >
-          Enter full screen
+          Previous
         </button>
-      ) : null}
+
+        <button
+          type="button"
+          onClick={goNext}
+          disabled={safeIndex >= slides.length - 1}
+          className={[
+            "rounded-full border px-4 py-2 text-xs font-semibold backdrop-blur disabled:opacity-50",
+            theme.pill,
+          ].join(" ")}
+        >
+          Next
+        </button>
+
+        {!isFullscreen ? (
+          <button
+            type="button"
+            onClick={() => document.documentElement.requestFullscreen().catch(() => {})}
+            className={[
+              "rounded-full border px-4 py-2 text-xs font-semibold backdrop-blur",
+              theme.pill,
+            ].join(" ")}
+          >
+            Enter full screen
+          </button>
+        ) : null}
+      </div>
+
+      <div className="fixed bottom-4 left-1/2 z-30 flex -translate-x-1/2 flex-wrap justify-center gap-2 px-4">
+        {slides.map((_: any, idx: number) => (
+          <button
+            key={`audience-slide-jump-${idx}`}
+            type="button"
+            onClick={() => goToSlide(idx)}
+            className={[
+              "rounded-full border px-3 py-1.5 text-xs font-semibold backdrop-blur",
+              idx === safeIndex
+                ? "border-emerald-500 bg-emerald-500 text-slate-950"
+                : theme.pill,
+            ].join(" ")}
+          >
+            {idx + 1}
+          </button>
+        ))}
+      </div>
 
       <div className="w-full max-w-[1800px]">
         <div
