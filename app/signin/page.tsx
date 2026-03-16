@@ -7,6 +7,14 @@ import { supabaseBrowser } from "../../lib/supabaseBrowser";
 
 const RESET_REDIRECT_URL = "https://roothealthops.com/reset-password";
 
+function Pill({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
+      {children}
+    </span>
+  );
+}
+
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -32,7 +40,7 @@ export default function SignInPage() {
     const userPassword = password;
 
     if (!userEmail || !userPassword) {
-      setStatus("Please enter email and password.");
+      setStatus("Please enter your email and password.");
       return;
     }
 
@@ -45,7 +53,7 @@ export default function SignInPage() {
       });
 
       if (error) {
-        setStatus(error.message || "Login failed.");
+        setStatus(error.message || "Sign-in failed.");
         setBusy(false);
         return;
       }
@@ -53,7 +61,7 @@ export default function SignInPage() {
       setStatus("Signed in. Redirecting…");
       window.location.href = nextUrl;
     } catch (err: any) {
-      setStatus(err?.message || "Login failed.");
+      setStatus(err?.message || "Sign-in failed.");
       setBusy(false);
     }
   }
@@ -94,10 +102,22 @@ export default function SignInPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 px-4 py-12">
       <div className="mx-auto w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900/80 p-6 md:p-8 shadow-xl">
-        <div className="text-xs text-slate-400">Root Health Ops</div>
-        <h1 className="mt-1 text-2xl font-semibold">Sign in</h1>
-        <p className="mt-2 text-sm text-slate-300">
-          Sign in to your dashboard.
+        <div className="flex flex-wrap gap-2">
+          <Pill>Root Health Ops</Pill>
+          <Pill>Calm professional visibility</Pill>
+        </div>
+
+        <h1 className="mt-4 text-2xl font-semibold">Sign in</h1>
+
+        <p className="mt-2 text-sm text-slate-300 leading-relaxed">
+          Sign in to continue to your dashboard, your professional visibility
+          workflow, and your connected tools.
+        </p>
+
+        <p className="mt-2 text-sm text-slate-400 leading-relaxed">
+          Whether you are a practitioner, student, alumnus, or part of a wider
+          training-provider community, this is where your Root Health Ops
+          workspace begins.
         </p>
 
         <form onSubmit={handleLogin} className="mt-6 grid gap-4">
@@ -152,7 +172,10 @@ export default function SignInPage() {
           ) : null}
 
           <div className="flex items-center justify-between text-sm pt-1">
-            <Link href="/get-started" className="text-slate-300 hover:text-slate-100">
+            <Link
+              href="/get-started"
+              className="text-slate-300 hover:text-slate-100"
+            >
               Create account
             </Link>
             <Link href="/" className="text-slate-300 hover:text-slate-100">
