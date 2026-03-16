@@ -96,20 +96,26 @@ export default function CollegesPage() {
       <section className="space-y-6">
         <div className="flex flex-wrap items-center gap-2">
           <Pill>Training providers</Pill>
-          <Pill>Cohorts</Pill>
-          <Pill>Student support</Pill>
-          <Pill>Placement-ready visibility</Pill>
+          <Pill>Students + alumni</Pill>
+          <Pill>Professional visibility</Pill>
+          <Pill>Shared ecosystem</Pill>
         </div>
 
         <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-[1.05]">
-          Help students become visible — without turning them into marketers
+          Support students and alumni as they step into visible practice
         </h1>
 
         <p className="text-base md:text-lg text-slate-300 leading-relaxed max-w-3xl">
-          Many students and newly qualified clinicians freeze at outreach.
-          Root Health Ops gives them a calm, guided way to build a professional
-          presence and publish consistently — with safeguards, templates, and a
-          simple “done-for-you” rhythm.
+          Training providers shape thoughtful, skilled practitioners. Root
+          Health Ops helps them develop a calm, ethical professional presence
+          without feeling like they have to become marketers.
+        </p>
+
+        <p className="text-sm md:text-base text-slate-400 leading-relaxed max-w-3xl">
+          Students and alumni gain structure for sharing ideas, expressing their
+          values, and becoming visible in ways that reflect the profession they
+          represent — while training providers remain connected to the
+          communities they help create.
         </p>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -131,8 +137,46 @@ export default function CollegesPage() {
             href="/cohort"
             className="inline-flex items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-6 py-3 text-sm font-semibold text-emerald-200 hover:bg-emerald-400/15"
           >
-            Student with a cohort code?
+            Student with a community code?
           </Link>
+        </div>
+      </section>
+
+      <section className="rounded-[40px] border border-white/10 bg-black/20 p-7 md:p-10 space-y-8">
+        <div className="space-y-4">
+          <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
+            A shared professional infrastructure
+          </h2>
+
+          <p className="text-sm md:text-base text-slate-300 leading-relaxed max-w-3xl">
+            Root Health Ops acts as a shared operational layer for professional
+            visibility. Practitioners can write, schedule, and publish ideas
+            thoughtfully across platforms while maintaining the tone, values,
+            and ethics of their profession.
+          </p>
+
+          <p className="text-sm md:text-base text-slate-400 leading-relaxed max-w-3xl">
+            Training providers remain connected to the communities they help
+            create, supporting students, graduates, and alumni as they move into
+            visible practice.
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <BenefitBlock title="For training providers">
+            Support students and alumni beyond qualification, without asking
+            faculty to become marketers, tech support, or account managers.
+          </BenefitBlock>
+
+          <BenefitBlock title="For practitioners">
+            Build a professional presence calmly and ethically, with structure
+            that reduces overwhelm and turns visibility into a steady rhythm.
+          </BenefitBlock>
+
+          <BenefitBlock title="For the wider community">
+            Strengthen the connection between thoughtful practitioners and the
+            communities they serve by making professional voices easier to find.
+          </BenefitBlock>
         </div>
       </section>
 
@@ -142,40 +186,47 @@ export default function CollegesPage() {
       >
         <div className="space-y-4">
           <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
-            The simple cohort offer
+            A supported start for students and alumni
           </h2>
 
           <p className="text-sm md:text-base text-slate-300 leading-relaxed max-w-3xl">
-            Colleges often want to support students for the first few months —
-            but students do not need to feel like they are on a “special deal”.
-            We keep this simple: students just see a reduced price for a fixed
-            period, while the institution can frame it as a supported start.
+            Training providers can offer Root Health Ops to students and alumni
+            through a private enrolment route. Each institution receives a
+            community code that can be shared with graduating cohorts, current
+            students, or alumni networks.
+          </p>
+
+          <p className="text-sm md:text-base text-slate-400 leading-relaxed max-w-3xl">
+            The goal is simple: help practitioners move from qualified but
+            invisible to professionally visible and more confident — without
+            adding pressure or complexity.
           </p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="rounded-[32px] border border-emerald-400/30 bg-gradient-to-br from-emerald-400/12 via-white/5 to-white/5 p-6 md:p-7">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-200/90">
-              Option A
+              Supported start
             </div>
 
             <div className="mt-2 text-2xl md:text-3xl font-semibold text-slate-50">
-              Cohort half-price for 6 months
+              50% access for the first 6 months
             </div>
 
             <div className="mt-4 text-sm text-slate-300 leading-relaxed">
-              A clean, supportive offer for students starting to build their
-              professional presence. No awkward money structure, no bulky admin,
-              and no confusing plans to explain.
+              A calm, practical way to support students and alumni as they begin
+              developing a professional presence. The offer is private,
+              intentional, and simple to communicate.
             </div>
 
             <ul className="mt-6 space-y-3">
-              <Bullet>Students pay 50% for 6 months</Bullet>
-              <Bullet>College can frame it as a “supported start”</Bullet>
-              <Bullet>Simple to communicate to each intake</Bullet>
-              <Bullet>No complex invoicing structure to manage</Bullet>
+              <Bullet>50% access for the first 6 months</Bullet>
+              <Bullet>Private enrolment route for approved communities</Bullet>
+              <Bullet>Simple distribution through cohort or alumni channels</Bullet>
+              <Bullet>No complex invoicing or extra admin overhead</Bullet>
               <Bullet>
-                Helps reduce the panic of “I’m qualified but invisible”
+                A clearer bridge between training and early professional
+                visibility
               </Bullet>
             </ul>
 
@@ -191,29 +242,28 @@ export default function CollegesPage() {
                 href="/cohort"
                 className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
               >
-                Student cohort route
+                Student community route
               </Link>
             </div>
           </div>
 
           <div className="space-y-4">
-            <BenefitBlock title="Why this helps new therapists">
-              Newly qualified clinicians often know how to practise — but not
-              how to become visible in a calm, ethical way. Root Health Ops
-              helps them begin with structure, not pressure.
+            <BenefitBlock title="Support the transition into practice">
+              Many graduates leave training highly skilled but professionally
+              invisible. Root Health Ops gives them a structured bridge between
+              training and practice.
             </BenefitBlock>
 
-            <BenefitBlock title="Why colleges like it">
-              It gives students practical support after training, without asking
-              faculty to become marketers, tech support, or account managers.
-              The message stays simple and human.
+            <BenefitBlock title="Strengthen alumni connection">
+              Training providers remain part of the professional journey.
+              Offering Root Health Ops to alumni helps maintain community beyond
+              qualification.
             </BenefitBlock>
 
-            <BenefitBlock title="Why students actually use it">
-              It removes the blank-page problem. Students can generate ideas,
-              turn them into posts, schedule them, and keep showing up
-              consistently while they focus on study, placement, and client
-              work.
+            <BenefitBlock title="Encourage thoughtful visibility">
+              This is not about hype or sales pressure. It is about helping
+              practitioners express ideas, values, and professional insight in a
+              way that feels aligned and ethical.
             </BenefitBlock>
           </div>
         </div>
@@ -227,37 +277,41 @@ export default function CollegesPage() {
       <section className="space-y-6">
         <div className="max-w-3xl space-y-3">
           <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
-            Why this matters for student confidence and early career readiness
+            Why this matters for the wider professional ecosystem
           </h2>
           <p className="text-sm md:text-base text-slate-300 leading-relaxed">
-            The biggest problem for many students is not capability — it is
-            visibility. They may be thoughtful, ethical, and well-trained, but
-            still feel stuck when it comes to showing who they are, what they
-            care about, and how they help. Root Health Ops gives them a calmer
-            bridge between training and real-world visibility.
+            Root Health Ops is designed to bring the therapeutic ecosystem
+            closer together. Training providers, practitioners, communities, and
+            partners all play a role in how health is understood publicly.
+          </p>
+          <p className="text-sm md:text-base text-slate-400 leading-relaxed">
+            By helping practitioners become visible in thoughtful ways, Root
+            Health Ops strengthens the connection between the profession and the
+            people it serves.
           </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <BenefitBlock title="Less overwhelm">
-            Students are not left staring at an empty screen wondering what to
-            say. Prompts, templates, and simple routines reduce decision fatigue.
+            Practitioners are not left staring at an empty screen wondering what
+            to say. Prompts, templates, and structured workflows reduce decision
+            fatigue.
           </BenefitBlock>
 
           <BenefitBlock title="Ethical visibility">
-            This is not about hype or self-promotion. It is about helping future
-            therapists present themselves clearly, professionally, and with good
+            This is not about performance or self-promotion. It is about helping
+            practitioners show up clearly, professionally, and with good
             boundaries.
           </BenefitBlock>
 
-          <BenefitBlock title="Placement readiness">
-            A steadier public presence can help students feel more prepared for
-            placement, first roles, referrals, and professional opportunities.
+          <BenefitBlock title="Stronger alumni networks">
+            Colleges and training providers can remain part of the professional
+            journey by supporting the communities they have already helped form.
           </BenefitBlock>
 
           <BenefitBlock title="Confidence through rhythm">
-            Instead of relying on motivation, students build a simple repeatable
-            habit: one idea, one post, one small step at a time.
+            Instead of relying on motivation, people build a simple repeatable
+            habit: one idea, one post, one conversation at a time.
           </BenefitBlock>
         </div>
       </section>
@@ -265,69 +319,71 @@ export default function CollegesPage() {
       <section className="grid gap-6 lg:grid-cols-3">
         <Card
           eyebrow="For the institution"
-          title="A calmer student outcome"
+          title="A stronger community outcome"
           ctaLabel="See public pricing"
           ctaHref="/pricing"
           highlight
         >
-          Students build a professional presence steadily — without spam, hype,
-          or burnout. The goal is not “marketing”, it is readiness: confidence,
-          clarity, ethical visibility, and a stronger bridge into early
-          practice.
+          Support does not need to stop at qualification. Root Health Ops helps
+          training providers stay connected to students and alumni while
+          strengthening their transition into visible, confident practice.
         </Card>
 
         <Card
-          eyebrow="For students"
-          title="Guardrails + structure"
-          ctaLabel="See the workflow"
+          eyebrow="For students and alumni"
+          title="A calmer way to become visible"
+          ctaLabel="See how it works"
           ctaHref="/how-it-works"
         >
-          Templates, story prompts, and scheduling support mean students are not
-          left guessing. They can generate, edit, and post in a guided way that
-          feels manageable rather than performative.
+          Practitioners can develop a professional presence without feeling like
+          they have to become marketers. The process stays structured, calm, and
+          aligned with the profession they represent.
         </Card>
 
         <Card
-          eyebrow="For approved cohorts"
+          eyebrow="For approved communities"
           title="Private enrolment route"
-          ctaLabel="Open cohort enrolment"
+          ctaLabel="Open community enrolment"
           ctaHref="/cohort"
         >
-          Approved student groups use a separate cohort route with a private
-          code. That keeps public pricing clean while still giving colleges a
-          clear supported-start path.
+          Approved groups use a separate enrolment route with a private code.
+          That keeps public pricing clean while still giving training providers
+          a clear supported-start path for students and alumni.
         </Card>
       </section>
 
       <section className="rounded-[40px] border border-white/10 bg-white/5 p-7 md:p-10 space-y-6">
         <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
-          How a cohort rolls out
+          How a community rollout works
         </h2>
 
         <div className="grid gap-4 md:grid-cols-3">
           <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-            <div className="text-sm font-semibold text-slate-50">1) Intake</div>
+            <div className="text-sm font-semibold text-slate-50">1) Setup</div>
             <div className="mt-2 text-sm text-slate-300 leading-relaxed">
-              You share your cohort size and start date. We provide a simple
-              pack with the explanation, the links, and a suggested first-week
-              workflow.
+              You share your intake or community size and the start window. We
+              provide a simple pack with the explanation, links, and a suggested
+              first-step workflow.
             </div>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-            <div className="text-sm font-semibold text-slate-50">2) Connect</div>
+            <div className="text-sm font-semibold text-slate-50">
+              2) Enrolment
+            </div>
             <div className="mt-2 text-sm text-slate-300 leading-relaxed">
-              Students connect their channels once. After that, they can write,
-              schedule, and publish without battling unnecessary tech friction.
+              Students or alumni use their private community route and code to
+              begin. The process stays simple and does not rely on public offers
+              or coupon hunting.
             </div>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-            <div className="text-sm font-semibold text-slate-50">3) Routine</div>
+            <div className="text-sm font-semibold text-slate-50">3) Rhythm</div>
             <div className="mt-2 text-sm text-slate-300 leading-relaxed">
-              A simple rhythm: one idea → one post (or short series) →
-              scheduled. The system helps visibility continue steadily alongside
-              learning, placement, and practice.
+              The system helps practitioners build a steadier professional
+              presence over time — one idea, one post, one conversation at a
+              time.
             </div>
           </div>
         </div>
@@ -343,7 +399,7 @@ export default function CollegesPage() {
             href="/cohort"
             className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
           >
-            Student cohort route
+            Student community route
           </Link>
         </div>
       </section>
