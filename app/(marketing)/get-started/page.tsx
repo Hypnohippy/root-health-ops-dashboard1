@@ -5,6 +5,14 @@ import { useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "../../../lib/supabaseBrowser";
 
+function Pill({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
+      {children}
+    </span>
+  );
+}
+
 export default function GetStartedPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -19,7 +27,7 @@ export default function GetStartedPage() {
     const userPassword = password;
 
     if (!userEmail || !userPassword) {
-      setStatus("Please enter email and password.");
+      setStatus("Please enter your email and password.");
       return;
     }
 
@@ -62,10 +70,21 @@ export default function GetStartedPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 px-4 py-12">
       <div className="mx-auto w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900/80 p-6 md:p-8 shadow-xl">
-        <div className="text-xs text-slate-400">Root Health Ops</div>
-        <h1 className="mt-1 text-2xl font-semibold">Create account</h1>
-        <p className="mt-2 text-sm text-slate-300">
-          Start your account, then choose your plan.
+        <div className="flex flex-wrap gap-2">
+          <Pill>Root Health Ops</Pill>
+          <Pill>Calm professional visibility</Pill>
+        </div>
+
+        <h1 className="mt-4 text-2xl font-semibold">Create account</h1>
+
+        <p className="mt-2 text-sm text-slate-300 leading-relaxed">
+          Start your account and choose the route that fits you best.
+        </p>
+
+        <p className="mt-2 text-sm text-slate-400 leading-relaxed">
+          Root Health Ops supports practitioners, students, alumni, and wider
+          professional communities who want a calmer, more ethical way to build
+          professional visibility.
         </p>
 
         <form onSubmit={handleSignUp} className="mt-6 grid gap-4">
@@ -110,9 +129,16 @@ export default function GetStartedPage() {
             </div>
           ) : null}
 
-          <div className="text-sm pt-1">
-            <Link href="/signin" className="text-slate-300 hover:text-slate-100">
+          <div className="flex items-center justify-between text-sm pt-1">
+            <Link
+              href="/signin"
+              className="text-slate-300 hover:text-slate-100"
+            >
               Already have an account? Sign in
+            </Link>
+
+            <Link href="/" className="text-slate-300 hover:text-slate-100">
+              Back to home
             </Link>
           </div>
         </form>
