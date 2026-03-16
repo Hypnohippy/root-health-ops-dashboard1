@@ -174,7 +174,9 @@ export default function CollegesPage() {
               <Bullet>College can frame it as a “supported start”</Bullet>
               <Bullet>Simple to communicate to each intake</Bullet>
               <Bullet>No complex invoicing structure to manage</Bullet>
-              <Bullet>Helps reduce the panic of “I’m qualified but invisible”</Bullet>
+              <Bullet>
+                Helps reduce the panic of “I’m qualified but invisible”
+              </Bullet>
             </ul>
 
             <div className="mt-7 flex flex-wrap gap-3">
@@ -345,29 +347,6 @@ export default function CollegesPage() {
           </Link>
         </div>
       </section>
-
-      <footer className="border-t border-white/10 pt-8 pb-10 text-[12px] text-slate-400">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div>© {new Date().getFullYear()} Root Health Ops</div>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/" className="hover:text-slate-200">
-              Home
-            </Link>
-            <Link href="/how-it-works" className="hover:text-slate-200">
-              How it works
-            </Link>
-            <Link href="/pricing" className="hover:text-slate-200">
-              Pricing
-            </Link>
-            <Link href="/colleges" className="hover:text-slate-200">
-              Colleges
-            </Link>
-            <Link href="/dashboard" className="hover:text-slate-200">
-              Dashboard
-            </Link>
-          </div>
-        </div>
-      </footer>
     </main>
   );
 }
