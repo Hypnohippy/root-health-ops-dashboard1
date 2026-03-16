@@ -116,9 +116,10 @@ export default function PricingPage() {
     <main className="mx-auto max-w-6xl px-4 py-12 md:py-16 space-y-14">
       <section className="space-y-6">
         <div className="flex flex-wrap gap-2">
-          <Pill>Clinician-first</Pill>
+          <Pill>Calm professional visibility</Pill>
           <Pill>Cancel anytime</Pill>
           <Pill>No hype</Pill>
+          <Pill>For practitioners and communities</Pill>
         </div>
 
         <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-[1.05]">
@@ -126,8 +127,15 @@ export default function PricingPage() {
         </h1>
 
         <p className="text-base md:text-lg text-slate-300 leading-relaxed max-w-3xl">
-          Root Health Ops is designed to reduce overwhelm and help you stay
-          visible consistently — without turning your week into content admin.
+          Root Health Ops is designed to reduce friction and help people stay
+          professionally visible in a way that still feels thoughtful, ethical,
+          and human.
+        </p>
+
+        <p className="text-sm md:text-base text-slate-400 leading-relaxed max-w-3xl">
+          Whether you are building your own practice, rebuilding confidence, or
+          supporting a wider professional team, the platform is built to create
+          steadier presence without turning the week into a performance.
         </p>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -149,7 +157,7 @@ export default function PricingPage() {
             href="/cohort"
             className="inline-flex items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-6 py-3 text-sm font-semibold text-emerald-200 hover:bg-emerald-400/15"
           >
-            Have a cohort code?
+            Have a community code?
           </Link>
         </div>
       </section>
@@ -157,20 +165,20 @@ export default function PricingPage() {
       <section className="grid gap-6 lg:grid-cols-3">
         <PriceCard
           title="Solo"
-          subtitle="For a single clinician who wants calm momentum."
+          subtitle="For a single practitioner who wants calm momentum."
           price="£49"
           plan="solo"
           features={[
             <>Connect your channels once</>,
-            <>Create Stories and edit before publishing</>,
-            <>Schedule posts so visibility stays steady</>,
-            <>Queue view with clear sent / scheduled / failed status</>,
-            <>🧠 Brainstorm for low-energy content planning</>,
+            <>Develop ideas into posts and stories</>,
+            <>Schedule content so presence stays steady</>,
+            <>Track sent / scheduled / failed status clearly</>,
+            <>🧠 Brainstorm for low-energy planning and drafting</>,
           ]}
           footerNote={
             <>
-              Built for steady consistency — not hustle. <br />
-              When your practice grows later, Team adds a gentle approvals step.
+              Built for thoughtful consistency rather than hustle. <br />
+              A good fit for individual practitioners who want a calmer rhythm.
             </>
           }
         />
@@ -178,28 +186,28 @@ export default function PricingPage() {
         <PriceCard
           badge="Most popular"
           title="Growth"
-          subtitle="For clinicians rebuilding confidence and consistency."
+          subtitle="For practitioners building confidence and steadier visibility."
           price="£99"
           plan="growth"
           highlight
           features={[
             <>Everything in Solo</>,
-            <>More structure for themes and post series</>,
+            <>More structure for themes, series, and visibility rhythm</>,
             <>Deeper scheduling workflows</>,
             <>Priority help getting set up</>,
             <>🧠 Brainstorm included</>,
           ]}
           footerNote={
             <>
-              Many clinicians use Growth as the bridge into clinic-level systems. <br />
-              When the time feels right, Team unlocks approvals and shared workflows.
+              Often the best fit for people moving from qualified but invisible
+              to more visible, connected, and confident in practice.
             </>
           }
         />
 
         <PriceCard
           title="Team"
-          subtitle="For multi-practitioner practices and collectives."
+          subtitle="For multi-practitioner practices, collectives, and shared communities."
           price="£199"
           plan="team"
           features={[
@@ -211,9 +219,8 @@ export default function PricingPage() {
           ]}
           footerNote={
             <>
-              As practices grow, it can help to slow things down just enough to
-              stay aligned. Approvals add a gentle review step when more than one
-              person contributes.
+              Useful where multiple practitioners contribute and a gentler
+              review step helps keep the whole community aligned.
             </>
           }
         />
@@ -223,19 +230,18 @@ export default function PricingPage() {
         <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
           <div className="space-y-4">
             <div className="text-2xl md:text-3xl font-semibold tracking-tight text-slate-50">
-              For colleges and training providers
+              For training providers, students, and alumni
             </div>
 
             <p className="text-sm md:text-base text-slate-300 leading-relaxed">
-              We offer a simple supported-start route for approved student
-              cohorts and newly qualified clinicians. This is arranged directly
-              with each college or training provider, so the student experience
-              stays clear, calm, and easy to understand.
+              Training providers can offer Root Health Ops through a supported
+              start route for approved communities. This can include students,
+              graduating cohorts, and alumni networks.
             </p>
 
             <p className="text-sm text-slate-400 leading-relaxed">
-              Public pricing stays simple. Approved cohorts receive their own
-              private enrolment route after setup.
+              Public pricing stays simple. Approved communities receive their
+              own private enrolment route and community code after setup.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -250,27 +256,58 @@ export default function PricingPage() {
                 href="/colleges#cohort-offer"
                 className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
               >
-                Request cohort info
+                Request community info
               </Link>
             </div>
           </div>
 
           <div className="grid gap-4">
-            <InfoBlock title="Simple for faculty">
+            <InfoBlock title="Simple for training providers">
               No public discount confusion, no awkward money framing, and no
-              need to explain multiple special cases to each intake.
+              need to explain multiple special cases to each intake or alumni
+              group.
             </InfoBlock>
 
-            <InfoBlock title="Clear for students">
-              Approved cohorts get their own private enrolment route, so the
-              offer feels intentional and supportive rather than like a public
-              sale or coupon hunt.
+            <InfoBlock title="Clear for students and alumni">
+              Approved communities use a private route, so the offer feels
+              intentional and supportive rather than like a public sale or
+              coupon hunt.
             </InfoBlock>
 
             <InfoBlock title="Better control">
-              You can approve cohorts, cap usage, set dates, and keep the
-              supported-start offer separate from normal public pricing.
+              You can approve communities, cap usage, set dates, and keep the
+              supported-start route separate from normal public pricing.
             </InfoBlock>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[32px] border border-white/10 bg-gradient-to-br from-emerald-400/15 via-white/5 to-white/5 p-8 md:p-10">
+        <div className="grid gap-6 lg:grid-cols-2 lg:items-center">
+          <div>
+            <div className="text-2xl md:text-3xl font-semibold tracking-tight">
+              A calmer investment in professional visibility
+            </div>
+            <p className="mt-2 text-sm text-slate-300 leading-relaxed">
+              Root Health Ops is designed for people who want steadier presence,
+              clearer structure, and less friction — without drifting into
+              hype, pressure, or constant self-promotion.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3 lg:justify-end">
+            <Link
+              href="/how-it-works"
+              className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
+            >
+              How it works
+            </Link>
+            <Link
+              href="/colleges"
+              className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
+            >
+              Colleges
+            </Link>
           </div>
         </div>
       </section>
