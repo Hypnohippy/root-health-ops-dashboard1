@@ -45,8 +45,6 @@ function PublicNav() {
           >
             Colleges
           </Link>
-
-          {/* ✅ FIX: sign in should go to /signin */}
           <Link
             href="/signin"
             className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10"
@@ -86,12 +84,6 @@ function PublicFooter() {
             <Link href="/colleges" className="hover:text-slate-200">
               Colleges
             </Link>
-
-            {/* Optional: keep dashboard link, but it will now be gated */}
-            <Link href="/dashboard" className="hover:text-slate-200">
-              Dashboard
-            </Link>
-
             <Link href="/terms" className="hover:text-slate-200">
               Terms of Service
             </Link>
