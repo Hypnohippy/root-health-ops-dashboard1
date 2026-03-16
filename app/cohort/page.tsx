@@ -98,7 +98,7 @@ export default function CohortPage() {
     setErr(null);
 
     if (!cleanedCode) {
-      setErr("Please enter your cohort code.");
+      setErr("Please enter your community code.");
       return;
     }
 
@@ -121,17 +121,14 @@ export default function CohortPage() {
         throw new Error(
           data?.error ||
             data?.message ||
-            `Could not start cohort checkout (HTTP ${res.status}).`
+            `Could not start supported-start checkout (HTTP ${res.status}).`
         );
       }
 
       try {
         localStorage.setItem("root_cohort_code", cleanedCode);
         if (data?.cohort) {
-          localStorage.setItem(
-            "root_cohort_info",
-            JSON.stringify(data.cohort)
-          );
+          localStorage.setItem("root_cohort_info", JSON.stringify(data.cohort));
         }
       } catch {}
 
@@ -142,7 +139,7 @@ export default function CohortPage() {
 
       window.location.href = url;
     } catch (e: any) {
-      setErr(e?.message || "Could not start cohort checkout.");
+      setErr(e?.message || "Could not start supported-start checkout.");
       setLoading(false);
     }
   };
@@ -151,23 +148,28 @@ export default function CohortPage() {
     <main className="mx-auto max-w-5xl px-4 py-12 md:py-16 space-y-12">
       <section className="space-y-6">
         <div className="flex flex-wrap gap-2">
-          <Pill>College cohorts</Pill>
-          <Pill>Training providers</Pill>
+          <Pill>Approved communities</Pill>
+          <Pill>Students + alumni</Pill>
           <Pill>Supported start</Pill>
         </div>
 
         <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-[1.05]">
-          Supported cohort enrolment
+          Supported community enrolment
         </h1>
 
         <p className="max-w-3xl text-base md:text-lg text-slate-300 leading-relaxed">
-          If your college or training provider has arranged a supported-start
-          offer, enter your cohort code below and choose your plan. If the code
-          is valid, we will take you to your private checkout route.
+          If your training provider, college, or approved community has arranged
+          a supported-start route, enter your community code below and choose
+          your plan.
+        </p>
+
+        <p className="max-w-3xl text-sm md:text-base text-slate-400 leading-relaxed">
+          If the code is valid, we will take you to your private checkout route
+          with the supported offer applied behind the scenes.
         </p>
 
         <div className="rounded-3xl border border-white/10 bg-white/5 p-5 text-sm text-slate-300 leading-relaxed">
-          This route is for approved cohorts only. Public pricing is still
+          This route is for approved communities only. Public pricing remains
           available on the standard pricing page.
         </div>
       </section>
@@ -176,16 +178,17 @@ export default function CohortPage() {
         <section className="rounded-[32px] border border-white/10 bg-white/5 p-6 md:p-8 space-y-5">
           <div>
             <div className="text-sm font-semibold text-slate-50">
-              1) Enter your cohort code
+              1) Enter your community code
             </div>
             <div className="mt-2 text-sm text-slate-400">
-              Your provider should have shared a code with you.
+              Your college, training provider, or alumni community should have
+              shared a code with you.
             </div>
           </div>
 
           <div className="max-w-xl">
             <label className="block text-[12px] font-semibold uppercase tracking-wide text-slate-400">
-              Cohort code
+              Community code
             </label>
             <input
               value={cohortCode}
@@ -206,14 +209,14 @@ export default function CohortPage() {
             </div>
             <div className="mt-2 text-sm text-slate-400">
               Your supported-start offer is applied privately during checkout if
-              your cohort code is valid.
+              your community code is valid.
             </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
             <PlanCard
               title="Solo"
-              subtitle="For a single clinician who wants calm momentum."
+              subtitle="For a single practitioner who wants calm momentum."
               price="£49"
               selected={plan === "solo"}
               onClick={() => setPlan("solo")}
@@ -221,7 +224,7 @@ export default function CohortPage() {
 
             <PlanCard
               title="Growth"
-              subtitle="For clinicians rebuilding confidence and consistency."
+              subtitle="For people building confidence and steadier visibility."
               price="£99"
               selected={plan === "growth"}
               onClick={() => setPlan("growth")}
@@ -230,7 +233,7 @@ export default function CohortPage() {
 
             <PlanCard
               title="Team"
-              subtitle="For multi-practitioner practices and collectives."
+              subtitle="For practices, collectives, and shared communities."
               price="£199"
               selected={plan === "team"}
               onClick={() => setPlan("team")}
@@ -244,7 +247,7 @@ export default function CohortPage() {
           </div>
 
           <div className="text-sm text-slate-300 leading-relaxed">
-            We will check your cohort code and, if approved, send you to the
+            We will check your community code and, if approved, send you to the
             correct Stripe checkout for your supported-start route.
           </div>
 
@@ -259,7 +262,7 @@ export default function CohortPage() {
                   : "bg-emerald-400 text-slate-950 hover:bg-emerald-300",
               ].join(" ")}
             >
-              {loading ? "Opening Stripe…" : "Continue to cohort checkout"}
+              {loading ? "Opening Stripe…" : "Continue to supported checkout"}
             </button>
 
             <Link
