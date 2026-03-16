@@ -144,6 +144,13 @@ export default function PricingPage() {
           >
             Training providers / colleges
           </Link>
+
+          <Link
+            href="/cohort"
+            className="inline-flex items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-6 py-3 text-sm font-semibold text-emerald-200 hover:bg-emerald-400/15"
+          >
+            Have a cohort code?
+          </Link>
         </div>
       </section>
 
@@ -233,14 +240,14 @@ export default function PricingPage() {
 
             <div className="flex flex-wrap gap-3">
               <Link
-                href="/colleges"
+                href="/colleges#cohort-offer"
                 className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300"
               >
                 Visit colleges page
               </Link>
 
               <Link
-                href="/dashboard/connect"
+                href="/colleges#cohort-offer"
                 className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
               >
                 Request cohort info
