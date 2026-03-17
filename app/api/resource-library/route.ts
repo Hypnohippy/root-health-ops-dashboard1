@@ -227,8 +227,15 @@ export async function PATCH(req: NextRequest) {
     const organisationId = norm(bodyObj?.organisationId);
     const resourceId = norm(bodyObj?.resourceId);
     const title = norm(bodyObj?.title);
+    const resourceType = norm(bodyObj?.resource_type);
 
+    const hasTitleField = Object.prototype.hasOwnProperty.call(bodyObj, "title");
+    const hasResourceTypeField = Object.prototype.hasOwnProperty.call(
+      bodyObj,
+      "resource_type"
+    );
     const hasContentField = Object.prototype.hasOwnProperty.call(bodyObj, "content");
+
     const content = hasContentField
       ? sanitizeContentForStorage(bodyObj?.content ?? null)
       : undefined;
@@ -254,7 +261,12 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (!title && !hasContentField && !hasSlidePatch) {
+    if (
+      !hasTitleField &&
+      !hasResourceTypeField &&
+      !hasContentField &&
+      !hasSlidePatch
+    ) {
       return NextResponse.json(
         { error: "Nothing to update" },
         { status: 400 }
@@ -280,7 +292,7 @@ export async function PATCH(req: NextRequest) {
 
       const { data: existing, error: loadErr } = await supabaseAdmin
         .from("resource_library")
-        .select("id, title, content")
+        .select("id, title, resource_type, content")
         .eq("organisation_id", organisationId)
         .eq("id", resourceId)
         .maybeSingle();
@@ -324,8 +336,18 @@ export async function PATCH(req: NextRequest) {
         content: sanitizeContentForStorage(nextContent),
       };
 
-      if (title) {
-        updatePayload.title = title;
+      if (hasTitleField) {
+        updatePayload.title = title || existing.title || "Untitled";
+      }
+
+      if (hasResourceTypeField) {
+        if (!resourceType) {
+          return NextResponse.json(
+            { error: "resource_type cannot be empty" },
+            { status: 400 }
+          );
+        }
+        updatePayload.resource_type = resourceType;
       }
 
       const { data, error } = await supabaseAdmin
@@ -357,8 +379,18 @@ export async function PATCH(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    if (title) {
-      updatePayload.title = title;
+    if (hasTitleField) {
+      updatePayload.title = title || "Untitled";
+    }
+
+    if (hasResourceTypeField) {
+      if (!resourceType) {
+        return NextResponse.json(
+          { error: "resource_type cannot be empty" },
+          { status: 400 }
+        );
+      }
+      updatePayload.resource_type = resourceType;
     }
 
     if (hasContentField) {
