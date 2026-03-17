@@ -229,12 +229,11 @@ export async function PATCH(req: NextRequest) {
     const title = norm(bodyObj?.title);
     const resourceType = norm(bodyObj?.resource_type);
 
-    const hasTitleField = Object.prototype.hasOwnProperty.call(bodyObj, "title");
+    const hasContentField = Object.prototype.hasOwnProperty.call(bodyObj, "content");
     const hasResourceTypeField = Object.prototype.hasOwnProperty.call(
       bodyObj,
       "resource_type"
     );
-    const hasContentField = Object.prototype.hasOwnProperty.call(bodyObj, "content");
 
     const content = hasContentField
       ? sanitizeContentForStorage(bodyObj?.content ?? null)
@@ -261,12 +260,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (
-      !hasTitleField &&
-      !hasResourceTypeField &&
-      !hasContentField &&
-      !hasSlidePatch
-    ) {
+    if (!title && !hasContentField && !hasSlidePatch && !hasResourceTypeField) {
       return NextResponse.json(
         { error: "Nothing to update" },
         { status: 400 }
@@ -292,7 +286,7 @@ export async function PATCH(req: NextRequest) {
 
       const { data: existing, error: loadErr } = await supabaseAdmin
         .from("resource_library")
-        .select("id, title, resource_type, content")
+        .select("id, title, content, resource_type")
         .eq("organisation_id", organisationId)
         .eq("id", resourceId)
         .maybeSingle();
@@ -336,17 +330,11 @@ export async function PATCH(req: NextRequest) {
         content: sanitizeContentForStorage(nextContent),
       };
 
-      if (hasTitleField) {
-        updatePayload.title = title || existing.title || "Untitled";
+      if (title) {
+        updatePayload.title = title;
       }
 
-      if (hasResourceTypeField) {
-        if (!resourceType) {
-          return NextResponse.json(
-            { error: "resource_type cannot be empty" },
-            { status: 400 }
-          );
-        }
+      if (hasResourceTypeField && resourceType) {
         updatePayload.resource_type = resourceType;
       }
 
@@ -379,8 +367,12 @@ export async function PATCH(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    if (hasTitleField) {
-      updatePayload.title = title || "Untitled";
+    if (title) {
+      updatePayload.title = title;
+    }
+
+    if (hasContentField) {
+      updatePayload.content = content;
     }
 
     if (hasResourceTypeField) {
@@ -391,10 +383,6 @@ export async function PATCH(req: NextRequest) {
         );
       }
       updatePayload.resource_type = resourceType;
-    }
-
-    if (hasContentField) {
-      updatePayload.content = content;
     }
 
     const { data, error } = await supabaseAdmin
