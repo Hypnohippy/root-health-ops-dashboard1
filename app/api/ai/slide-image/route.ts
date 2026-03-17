@@ -196,12 +196,14 @@ export async function POST(req: NextRequest) {
 
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-    const result = await client.images.generate({
-      model: "gpt-image-1",
-      prompt,
-      size: "1536x1024",
-    });
-
+   const result = await client.images.generate({
+  model: "gpt-image-1",
+  prompt,
+  size: "1536x1024",
+  quality: "high",
+  background: "opaque",
+  output_format: "png",
+});
     const imageBase64 = result?.data?.[0]?.b64_json || "";
 
     if (!imageBase64) {
