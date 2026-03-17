@@ -129,11 +129,48 @@ function slideThemeClasses(theme: PresentationTheme) {
       badge: "border-slate-300 bg-slate-100 text-slate-700",
       subtle: "text-slate-500",
       styleCard: "border-slate-200 bg-slate-50 text-slate-700",
-      overlay: "bg-gradient-to-br from-white/92 via-white/88 to-slate-100/86",
-      imageTint: "bg-white/35",
+      overlay: "bg-gradient-to-br from-white/58 via-white/40 to-slate-100/28",
+      imageTint: "bg-white/10",
     };
   }
 
+  if (theme === "warm") {
+    return {
+      card: "border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 text-slate-900 shadow-[0_12px_40px_rgba(120,53,15,0.12)]",
+      note: "border-amber-200 bg-white/70 text-slate-700",
+      prompt: "text-amber-900/80",
+      badge: "border-amber-300 bg-amber-100 text-amber-800",
+      subtle: "text-amber-900/60",
+      styleCard: "border-amber-200 bg-white/60 text-amber-900",
+      overlay: "bg-gradient-to-br from-amber-50/52 via-orange-50/34 to-white/24",
+      imageTint: "bg-amber-50/8",
+    };
+  }
+
+  if (theme === "dark") {
+    return {
+      card: "border-slate-700 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 text-slate-100 shadow-[0_12px_40px_rgba(0,0,0,0.35)]",
+      note: "border-slate-700 bg-black/20 text-slate-300",
+      prompt: "text-slate-400",
+      badge: "border-slate-600 bg-slate-800 text-slate-300",
+      subtle: "text-slate-400",
+      styleCard: "border-slate-700 bg-slate-900/60 text-slate-300",
+      overlay: "bg-gradient-to-br from-slate-950/58 via-slate-900/42 to-slate-950/56",
+      imageTint: "bg-slate-950/8",
+    };
+  }
+
+  return {
+    card: "border-emerald-500/20 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950/30 text-slate-100 shadow-[0_12px_40px_rgba(16,185,129,0.10)]",
+    note: "border-emerald-500/20 bg-emerald-500/5 text-slate-300",
+    prompt: "text-emerald-100/80",
+    badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+    subtle: "text-emerald-100/50",
+    styleCard: "border-emerald-500/20 bg-emerald-500/5 text-emerald-100",
+    overlay: "bg-gradient-to-br from-slate-950/52 via-slate-900/38 to-emerald-950/32",
+    imageTint: "bg-emerald-950/6",
+  };
+}
   if (theme === "warm") {
     return {
       card: "border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 text-slate-900 shadow-[0_12px_40px_rgba(120,53,15,0.12)]",
