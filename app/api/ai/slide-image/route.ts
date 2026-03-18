@@ -47,7 +47,7 @@ function inferArtworkLabel(body: any) {
       artworkChip: "Breathing space",
       visualDirection:
         safe(body?.visualDirection) ||
-        "A calm supportive wellbeing illustration with soft blue and green tones, gentle depth, clear focal subject, polished composition, and enough clean space for slide text",
+        "A premium calm wellbeing illustration with layered blue and green tones, soft lighting, elegant depth, refined abstract human-centred symbolism, and generous negative space for presentation text",
     };
   }
 
@@ -62,7 +62,7 @@ function inferArtworkLabel(body: any) {
       artworkChip: "Restore pace",
       visualDirection:
         safe(body?.visualDirection) ||
-        "A warm restorative illustration with sunrise tones, layered depth, a clear central concept, elegant detail, and enough clean space for presentation content",
+        "A premium restorative illustration with warm sunrise tones, elegant layered forms, emotional softness, subtle human symbolism, and clean negative space for presentation content",
     };
   }
 
@@ -77,7 +77,7 @@ function inferArtworkLabel(body: any) {
       artworkChip: "Guide with care",
       visualDirection:
         safe(body?.visualDirection) ||
-        "A professional people-centred workplace illustration with structured calm composition, visible focal elements, premium presentation style, and room for slide text",
+        "A premium workplace leadership illustration with modern editorial style, refined composition, subtle people-centred symbolism, clean structure, and negative space for slide text",
     };
   }
 
@@ -92,7 +92,7 @@ function inferArtworkLabel(body: any) {
       artworkChip: "Practical culture",
       visualDirection:
         safe(body?.visualDirection) ||
-        "A clean modern workplace wellbeing illustration with subtle human presence, confident focal scene, cyan and teal palette, and a polished presentation look",
+        "A premium workplace wellbeing illustration with polished editorial styling, modern teal and cyan palette, subtle human presence, elegant depth, and clear presentation-friendly space",
     };
   }
 
@@ -101,7 +101,7 @@ function inferArtworkLabel(body: any) {
     artworkChip: "Calm teaching",
     visualDirection:
       safe(body?.visualDirection) ||
-      "A polished modern educational illustration with calm colour, layered depth, a clear focal visual, and enough open space for readable slide text",
+      "A premium modern educational illustration with elegant composition, calm colour grading, soft depth, editorial quality, and generous negative space for slide content",
   };
 }
 
@@ -122,27 +122,56 @@ function buildImagePrompt(body: any, inferred: { visualDirection: string }) {
 
   const themeStyle =
     theme === "corporate"
-      ? "clean professional editorial illustration, premium corporate presentation style, structured, modern, visible, polished, layered"
+      ? [
+          "premium corporate editorial illustration",
+          "boardroom-quality presentation aesthetic",
+          "refined modern composition",
+          "clean professional lighting",
+          "high-end consulting deck feel",
+          "minimal, elegant, structured, polished",
+        ].join(", ")
       : theme === "warm"
-      ? "warm educational editorial illustration, welcoming, elegant, soft gradients, clearly visible, layered and refined"
+      ? [
+          "premium warm editorial illustration",
+          "soft but luxurious colour grading",
+          "elegant human-centred composition",
+          "welcoming, polished, modern",
+          "presentation-ready visual depth",
+        ].join(", ")
       : theme === "dark"
-      ? "dark premium editorial illustration, refined contrast, modern wellbeing aesthetic, cinematic but clean, clearly visible"
-      : "calm wellbeing editorial illustration, modern, premium, supportive, polished, clearly visible, layered and refined";
+      ? [
+          "premium dark editorial illustration",
+          "cinematic but clean",
+          "rich contrast",
+          "high-end presentation aesthetic",
+          "modern, refined, sophisticated",
+        ].join(", ")
+      : [
+          "premium calm editorial illustration",
+          "high-end wellbeing presentation aesthetic",
+          "soft cinematic lighting",
+          "elegant modern depth",
+          "polished, refined, human-centred",
+        ].join(", ");
 
   return [
-    "Create a LANDSCAPE 16:9 slide illustration for a professional wellbeing presentation.",
-    "This must be a REAL VISIBLE IMAGE, not just a texture wash or faint background tint.",
-    "The image should contain a clear, noticeable focal visual or conceptual editorial scene.",
-    "Leave enough clean space for slide text, but do not make the image feel empty or washed out.",
-    "Best layout: a strong focal illustration weighted to the right side or lower-right area, with readable space elsewhere.",
-    "The image should feel polished, premium, calm, modern, and visually confident.",
-    "Use layered composition, depth, contrast, and distinct forms so the image is clearly visible in a presentation.",
-    "Do not include any readable text, letters, captions, UI, logos, or watermarks.",
-    "Do not make it look like a poster with words on it.",
-    "Avoid cheesy stock-photo style visuals.",
-    "Avoid flat abstract fog, weak texture-only backgrounds, or visuals that look too faint to notice on a slide.",
-    "Prefer elegant editorial-style illustration over vague abstract mist.",
-    themeStyle,
+    "Create a premium LANDSCAPE 16:9 slide illustration for a professional presentation.",
+    "This must look expensive, polished, and deliberately designed.",
+    "The image must be clearly visible and visually substantial, not faint, washed out, or just a weak texture.",
+    "It should feel like a premium keynote / conference / consultancy presentation visual.",
+    "Use a strong focal concept or elegant editorial scene.",
+    "Prefer subtle conceptual storytelling, refined symbolism, premium composition, and visual depth.",
+    "Leave generous negative space for slide text.",
+    "Best layout: focal visual weighted to the right side, lower-right area, or edge-framed composition so text can sit clearly on the left or centre-left.",
+    "Do not include readable text, captions, UI, logos, letters, charts, or watermarks.",
+    "Do not make it look like clip art, a stock photo, or a generic app illustration.",
+    "Do not make it childish, cartoonish, cheesy, or cluttered.",
+    "Do not return a barely visible faded background wash.",
+    "The final image should feel rich enough that the user immediately notices it.",
+    "Use layered lighting, tonal contrast, clean negative space, and tasteful premium depth.",
+    "Avoid muddy fog, flat gradients, and weak abstraction with no subject.",
+    "If using abstraction, make it elegant, deliberate, and clearly presentation-grade.",
+    `Style direction: ${themeStyle}`,
     presentationTitle ? `Presentation title: ${presentationTitle}` : "",
     presentationObjective
       ? `Presentation objective: ${presentationObjective}`
@@ -158,9 +187,8 @@ function buildImagePrompt(body: any, inferred: { visualDirection: string }) {
     audiencePrompt ? `Audience prompt theme: ${audiencePrompt}` : "",
     visualDirection ? `Preferred visual direction: ${visualDirection}` : "",
     existingImagePrompt ? `Extra image guidance: ${existingImagePrompt}` : "",
-    "Make the image visually distinct enough that a user immediately recognises it as an illustration, not merely a colour or texture change.",
-    "Use calm professional colours, stronger contrast, richer detail, and visible depth.",
-    "The final result must work as a presentation slide background or side illustration while still being clearly noticeable.",
+    "Important: increase visual richness, clarity, contrast, and composition quality while keeping the slide text area usable.",
+    "Important: this should look like premium presentation artwork, not a placeholder image.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -204,8 +232,6 @@ export async function POST(req: NextRequest) {
       prompt,
       size: "1536x1024",
       quality: "high",
-      background: "opaque",
-      output_format: "png",
     });
 
     const imageBase64 = result?.data?.[0]?.b64_json || "";
@@ -232,8 +258,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            uploadResult.error.message ||
-            "Failed to upload image to storage.",
+            uploadResult.error.message || "Failed to upload image to storage.",
         },
         { status: 500 }
       );
