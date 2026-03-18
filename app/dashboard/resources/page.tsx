@@ -1269,11 +1269,15 @@ export default function ResourcesPage() {
       };
 
       if (creatorType === "webinar_outline") {
-        route = "/api/ai/webinar-outline";
+        route = "/api/ai/presentation-outline";
+        body.duration = creatorDuration.trim() || "30 mins";
+        body.deliveryMode = "online";
+        body.resourceKind = "webinar";
       } else if (creatorType === "presentation") {
         route = "/api/ai/presentation-outline";
         body.duration = creatorDuration.trim() || "30 mins";
         body.deliveryMode = "online";
+        body.resourceKind = "presentation";
       } else if (creatorType === "guide") {
         route = "/api/ai/guide";
       } else if (creatorType === "worksheet") {
@@ -1296,7 +1300,7 @@ export default function ResourcesPage() {
       let content: any = null;
 
       if (creatorType === "webinar_outline") {
-        content = aiData?.outline || null;
+        content = aiData?.presentation || aiData?.outline || null;
       } else if (creatorType === "presentation") {
         content = aiData?.presentation || null;
       } else if (creatorType === "guide") {
@@ -2911,9 +2915,9 @@ export default function ResourcesPage() {
                 </div>
                 <div className="mt-2">
                   {creatorType === "webinar_outline" &&
-                    "A webinar structure with title, promise, takeaway, sections, and a closing invitation."}
+                    "A full webinar deck using the same slide system as presentation: objective, takeaway, slide-by-slide structure, presenter notes, audience prompts, and closing invitation."}
                   {creatorType === "presentation" &&
-                    "A slide-by-slide presentation structure with objective, takeaway, 8 slides, and a closing invitation."}
+                    "A slide-by-slide presentation structure with objective, takeaway, presenter notes, audience prompts, slide images, and a closing invitation."}
                   {creatorType === "guide" &&
                     "A readable guide with summary, intended reader, 5 sections, and a closing encouragement."}
                   {creatorType === "worksheet" &&
