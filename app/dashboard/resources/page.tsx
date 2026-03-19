@@ -2736,7 +2736,7 @@ export default function ResourcesPage() {
                       </div>
                     ) : null}
 
-                    {Array.isArray(selectedContent?.reflection_prompts) &&
+                                       {Array.isArray(selectedContent?.reflection_prompts) &&
                     selectedContent.reflection_prompts.length > 0 ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">
@@ -2750,4 +2750,355 @@ export default function ResourcesPage() {
                                   key={`${(selected as any).id}-reflection-${idx}`}
                                   value={String(prompt || "")}
                                   onChange={(e) =>
-                                    update
+                                    updateStringArrayField(
+                                      "reflection_prompts",
+                                      idx,
+                                      e.target.value
+                                    )
+                                  }
+                                  rows={2}
+                                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                />
+                              ) : (
+                                <div
+                                  key={`${(selected as any).id}-reflection-${idx}`}
+                                  className="text-sm text-slate-300"
+                                >
+                                  • {String(prompt || "").trim()}
+                                </div>
+                              )
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {Array.isArray(selectedContent?.action_prompts) &&
+                    selectedContent.action_prompts.length > 0 ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">
+                          Action prompts
+                        </div>
+                        <div className="mt-2 space-y-2">
+                          {selectedContent.action_prompts.map(
+                            (prompt: any, idx: number) =>
+                              editMode && !isTemplate(selected) ? (
+                                <textarea
+                                  key={`${(selected as any).id}-action-${idx}`}
+                                  value={String(prompt || "")}
+                                  onChange={(e) =>
+                                    updateStringArrayField(
+                                      "action_prompts",
+                                      idx,
+                                      e.target.value
+                                    )
+                                  }
+                                  rows={2}
+                                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                />
+                              ) : (
+                                <div
+                                  key={`${(selected as any).id}-action-${idx}`}
+                                  className="text-sm text-slate-300"
+                                >
+                                  • {String(prompt || "").trim()}
+                                </div>
+                              )
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {selectedContent?.closing_invitation !== undefined ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">
+                          Closing invitation
+                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(
+                              selectedContent.closing_invitation || ""
+                            )}
+                            onChange={(e) =>
+                              setDraftField(
+                                "closing_invitation",
+                                e.target.value
+                              )
+                            }
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.closing_invitation}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+
+                    {selectedContent?.closing_encouragement !== undefined ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">
+                          Closing encouragement
+                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(
+                              selectedContent.closing_encouragement || ""
+                            )}
+                            onChange={(e) =>
+                              setDraftField(
+                                "closing_encouragement",
+                                e.target.value
+                              )
+                            }
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.closing_encouragement}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+
+                    {selectedContent?.closing_note !== undefined ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">
+                          Closing note
+                        </div>
+                        {editMode && !isTemplate(selected) ? (
+                          <textarea
+                            value={String(selectedContent.closing_note || "")}
+                            onChange={(e) =>
+                              setDraftField("closing_note", e.target.value)
+                            }
+                            rows={3}
+                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          />
+                        ) : (
+                          <div className="mt-2 text-sm text-slate-300">
+                            {selectedContent.closing_note}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+
+                    {isTemplate(selected) && selected.tags?.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {selected.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-[11px] text-slate-300"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                    <div className="text-sm text-slate-300 whitespace-pre-wrap break-words">
+                      {(selected as any)?.content
+                        ? JSON.stringify((selected as any).content, null, 2)
+                        : "No content saved."}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {creatorOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div
+            className="absolute inset-0 bg-black/70"
+            onClick={() => setCreatorOpen(false)}
+          />
+
+          <div className="relative w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl flex flex-col">
+            <div className="flex items-start justify-between gap-4 px-6 pt-6 shrink-0">
+              <div>
+                <div className="text-xs text-slate-400">Content Creator</div>
+                <div className="mt-1 text-lg font-semibold text-slate-100">
+                  Create Resource
+                </div>
+                <div className="mt-1 text-[12px] text-slate-400">
+                  Generate a calm, useful long-form resource and save it straight
+                  to the library.
+                </div>
+              </div>
+
+              <button
+                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+                onClick={() => setCreatorOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-4 overflow-y-auto px-6 pb-6">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Resource type
+                  </label>
+                  <select
+                    value={creatorType}
+                    onChange={(e) =>
+                      setCreatorType(e.target.value as CreateResourceType)
+                    }
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  >
+                    <option value="webinar_outline">Webinar</option>
+                    <option value="presentation">Presentation</option>
+                    <option value="guide">Guide</option>
+                    <option value="worksheet">Worksheet</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Fill level
+                  </label>
+                  <select
+                    value={creatorFillLevel}
+                    onChange={(e) =>
+                      setCreatorFillLevel(e.target.value as FillLevel)
+                    }
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  >
+                    <option value="skeleton">Skeleton</option>
+                    <option value="draft">Draft</option>
+                    <option value="ready">Ready</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">
+                  Title / topic
+                </label>
+                <input
+                  value={creatorTitle}
+                  onChange={(e) => setCreatorTitle(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  placeholder="e.g. Workplace Stress Webinar"
+                />
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Goal
+                  </label>
+                  <input
+                    value={creatorGoal}
+                    onChange={(e) => setCreatorGoal(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    placeholder="e.g. Webinar signups or workplace education"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Audience
+                  </label>
+                  <input
+                    value={creatorAudience}
+                    onChange={(e) => setCreatorAudience(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    placeholder="e.g. HR leaders, managers, staff"
+                  />
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Tone
+                  </label>
+                  <input
+                    value={creatorTone}
+                    onChange={(e) => setCreatorTone(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    placeholder="e.g. calm and professional"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Duration
+                  </label>
+                  <input
+                    value={creatorDuration}
+                    onChange={(e) => setCreatorDuration(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    placeholder="e.g. 30 mins"
+                    disabled={
+                      creatorType === "guide" || creatorType === "worksheet"
+                    }
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300">
+                  Notes
+                </label>
+                <textarea
+                  value={creatorNotes}
+                  onChange={(e) => setCreatorNotes(e.target.value)}
+                  rows={5}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm"
+                  placeholder="Add extra context, delivery angle, key teaching points, or desired emphasis..."
+                />
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 text-[12px] text-slate-300">
+                <div className="font-semibold text-slate-200">
+                  What gets created
+                </div>
+                <div className="mt-2">
+                  {creatorType === "webinar_outline" &&
+                    "A full webinar deck using the same slide system as presentation: objective, takeaway, slide-by-slide structure, presenter notes, audience prompts, and closing invitation."}
+                  {creatorType === "presentation" &&
+                    "A slide-by-slide presentation structure with objective, takeaway, presenter notes, audience prompts, slide images, and a closing invitation."}
+                  {creatorType === "guide" &&
+                    "A readable guide with summary, intended reader, 5 sections, and a closing encouragement."}
+                  {creatorType === "worksheet" &&
+                    "A practical worksheet with instructions, reflection prompts, action prompts, and a closing note."}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={createResource}
+                  disabled={busyAction === "create-resource"}
+                  className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                >
+                  {busyAction === "create-resource"
+                    ? "Creating…"
+                    : "Create Resource"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCreatorOpen(false)}
+                  disabled={busyAction === "create-resource"}
+                  className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
