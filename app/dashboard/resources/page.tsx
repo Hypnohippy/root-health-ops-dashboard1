@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type Resource = {
   id: string;
@@ -118,6 +118,33 @@ function cachePresentationResource(resource: Resource) {
 
 function normaliseText(v: any) {
   return String(v || "").toLowerCase().trim();
+}
+
+function getSafeSlide(slide: any) {
+  const next = slide && typeof slide === "object" ? { ...slide } : {};
+
+  next.slide_title = String(next.slide_title || "").trim();
+  next.slide_goal = String(next.slide_goal || "").trim();
+  next.bullets = Array.isArray(next.bullets) ? next.bullets : [];
+  next.speaker_notes = String(next.speaker_notes || "").trim();
+  next.audience_prompt = String(next.audience_prompt || "").trim();
+  next.visual_direction = String(next.visual_direction || "").trim();
+  next.image_prompt = String(next.image_prompt || "").trim();
+  next.artwork_label = String(next.artwork_label || "").trim();
+  next.artwork_chip = String(next.artwork_chip || "").trim();
+  next.generated_image_url = String(next.generated_image_url || "").trim();
+  next.generated_image_prompt = String(
+    next.generated_image_prompt || ""
+  ).trim();
+  next.generated_image_status = String(
+    next.generated_image_status || ""
+  ).trim();
+  next.artwork_generated_at = next.artwork_generated_at || null;
+  next.generated_image_source = String(
+    next.generated_image_source || ""
+  ).trim();
+
+  return next;
 }
 
 function slideThemeClasses(theme: PresentationTheme) {
@@ -614,6 +641,8 @@ export default function ResourcesPage() {
     useState<PresentationTheme>("calm");
   const [showArtwork, setShowArtwork] = useState(true);
 
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
   async function loadOrganisation() {
     try {
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
@@ -848,7 +877,7 @@ export default function ResourcesPage() {
   async function generateSlideImage(resource: Resource, slideIndex: number) {
     const content = deepClone(resource.content || {});
     const slides = Array.isArray(content?.slides) ? content.slides : [];
-    const slide = slides[slideIndex];
+    const slide = getSafeSlide(slides[slideIndex]);
 
     if (!slide) return;
 
@@ -895,6 +924,7 @@ export default function ResourcesPage() {
           generated_image_url: nextImageUrl,
           generated_image_prompt: String(data?.imagePrompt || "").trim(),
           generated_image_status: "ready",
+          generated_image_source: "ai",
           artwork_label: String(
             data?.artworkLabel || slide?.artwork_label || ""
           ).trim(),
@@ -935,7 +965,7 @@ export default function ResourcesPage() {
           ? latestResource.content.slides
           : slides;
 
-        const slide = currentSlides[i];
+        const slide = getSafeSlide(currentSlides[i]);
         if (!slide) continue;
 
         const res = await fetch("/api/ai/slide-image", {
@@ -980,6 +1010,7 @@ export default function ResourcesPage() {
           generated_image_url: nextImageUrl,
           generated_image_prompt: String(data?.imagePrompt || "").trim(),
           generated_image_status: "ready",
+          generated_image_source: "ai",
           artwork_label: String(
             data?.artworkLabel || slide?.artwork_label || ""
           ).trim(),
@@ -1008,6 +1039,62 @@ export default function ResourcesPage() {
     }
   }
 
+  async function uploadSlideArtwork(
+    resource: Resource,
+    slideIndex: number,
+    file: File
+  ) {
+    const content = deepClone(resource.content || {});
+    const slides = Array.isArray(content?.slides) ? content.slides : [];
+    const slide = getSafeSlide(slides[slideIndex]);
+
+    if (!slide || !file) return;
+
+    setBusyAction(`upload:${resource.id}:${slideIndex}`);
+    setError(null);
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("resourceTitle", resource.title || "Resource");
+      form.append("slideTitle", slide.slide_title || `Slide ${slideIndex + 1}`);
+
+      const res = await fetch("/api/resource-artwork", {
+        method: "POST",
+        body: form,
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to upload artwork");
+      }
+
+      const nextImageUrl = String(data?.imageUrl || "").trim();
+
+      if (!nextImageUrl) {
+        throw new Error("No image URL was returned.");
+      }
+
+      await persistSlidePatch(
+        resource,
+        slideIndex,
+        {
+          generated_image_url: nextImageUrl,
+          generated_image_prompt: "",
+          generated_image_status: "uploaded",
+          generated_image_source: "upload",
+          artwork_generated_at: new Date().toISOString(),
+        },
+        `Slide ${slideIndex + 1} artwork uploaded ✅`
+      );
+    } catch (e: any) {
+      setError(e?.message || "Failed to upload artwork");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function clearSlideImage(resource: Resource, slideIndex: number) {
     const content = deepClone(resource.content || {});
     const slides = Array.isArray(content?.slides) ? content.slides : [];
@@ -1026,6 +1113,7 @@ export default function ResourcesPage() {
           generated_image_url: "",
           generated_image_prompt: "",
           generated_image_status: "",
+          generated_image_source: "",
           artwork_generated_at: null,
         },
         "Slide image removed ✅"
@@ -1456,6 +1544,7 @@ export default function ResourcesPage() {
           generated_image_url: "",
           generated_image_prompt: "",
           generated_image_status: "",
+          generated_image_source: "",
         };
       }
       next.slides[index][key] = value;
@@ -1485,6 +1574,7 @@ export default function ResourcesPage() {
           generated_image_url: "",
           generated_image_prompt: "",
           generated_image_status: "",
+          generated_image_source: "",
         };
       }
       next.slides[slideIndex].bullets = Array.isArray(
@@ -2218,7 +2308,8 @@ export default function ResourcesPage() {
                     {Array.isArray(selectedContent?.slides) &&
                     selectedContent.slides.length > 0 ? (
                       <div className="space-y-6">
-                        {selectedContent.slides.map((slide: any, idx: number) => {
+                        {selectedContent.slides.map((rawSlide: any, idx: number) => {
+                          const slide = getSafeSlide(rawSlide);
                           const visualDirection = String(
                             slide?.visual_direction || ""
                           ).trim();
@@ -2233,6 +2324,9 @@ export default function ResourcesPage() {
                           ).trim();
                           const generatedImageUrl = String(
                             slide?.generated_image_url || ""
+                          ).trim();
+                          const imageSource = String(
+                            slide?.generated_image_source || ""
                           ).trim();
 
                           const art = getArtFromVisualDirection(
@@ -2251,6 +2345,12 @@ export default function ResourcesPage() {
                           const isGeneratingImage =
                             busyAction ===
                             `image:${(selected as Resource).id}:${idx}`;
+
+                          const isUploadingImage =
+                            busyAction ===
+                            `upload:${(selected as Resource).id}:${idx}`;
+
+                          const inputKey = `${(selected as Resource).id}:${idx}`;
 
                           return (
                             <div
@@ -2316,20 +2416,35 @@ export default function ResourcesPage() {
                                     Slide {idx + 1}
                                   </div>
 
-                                  {!editMode ? (
-                                    <div
-                                      className={[
-                                        "inline-flex max-w-full items-center rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
-                                        theme.badge,
-                                      ].join(" ")}
-                                    >
-                                      <span className="whitespace-nowrap">
-                                        {presentationMode === "presenter"
-                                          ? "Presenter view"
-                                          : "Audience view"}
-                                      </span>
-                                    </div>
-                                  ) : null}
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {!editMode && imageSource ? (
+                                      <div
+                                        className={[
+                                          "inline-flex max-w-full items-center rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
+                                          theme.badge,
+                                        ].join(" ")}
+                                      >
+                                        {imageSource === "upload"
+                                          ? "Custom artwork"
+                                          : "AI artwork"}
+                                      </div>
+                                    ) : null}
+
+                                    {!editMode ? (
+                                      <div
+                                        className={[
+                                          "inline-flex max-w-full items-center rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
+                                          theme.badge,
+                                        ].join(" ")}
+                                      >
+                                        <span className="whitespace-nowrap">
+                                          {presentationMode === "presenter"
+                                            ? "Presenter view"
+                                            : "Audience view"}
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                  </div>
                                 </div>
 
                                 {editMode && !isTemplate(selected) ? (
@@ -2360,15 +2475,47 @@ export default function ResourcesPage() {
                                           idx
                                         )
                                       }
-                                      disabled={isGeneratingImage}
+                                      disabled={isGeneratingImage || isUploadingImage}
                                       className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                                     >
                                       {isGeneratingImage
                                         ? "Generating…"
-                                        : generatedImageUrl
+                                        : generatedImageUrl && imageSource === "ai"
                                         ? "Regenerate image"
                                         : "Generate image"}
                                     </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        fileInputRefs.current[inputKey]?.click()
+                                      }
+                                      disabled={isGeneratingImage || isUploadingImage}
+                                      className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
+                                    >
+                                      {isUploadingImage
+                                        ? "Uploading…"
+                                        : "Upload artwork"}
+                                    </button>
+
+                                    <input
+                                      ref={(el) => {
+                                        fileInputRefs.current[inputKey] = el;
+                                      }}
+                                      type="file"
+                                      accept="image/png,image/jpeg,image/jpg,image/webp"
+                                      className="hidden"
+                                      onChange={async (e) => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+                                        await uploadSlideArtwork(
+                                          selected as Resource,
+                                          idx,
+                                          file
+                                        );
+                                        e.currentTarget.value = "";
+                                      }}
+                                    />
 
                                     {generatedImageUrl ? (
                                       <button
@@ -2381,7 +2528,9 @@ export default function ResourcesPage() {
                                         }
                                         disabled={
                                           busyAction ===
-                                          `save:${(selected as Resource).id}`
+                                            `save:${(selected as Resource).id}` ||
+                                          isUploadingImage ||
+                                          isGeneratingImage
                                         }
                                         className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
                                       >
@@ -2601,355 +2750,4 @@ export default function ResourcesPage() {
                                   key={`${(selected as any).id}-reflection-${idx}`}
                                   value={String(prompt || "")}
                                   onChange={(e) =>
-                                    updateStringArrayField(
-                                      "reflection_prompts",
-                                      idx,
-                                      e.target.value
-                                    )
-                                  }
-                                  rows={2}
-                                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                                />
-                              ) : (
-                                <div
-                                  key={`${(selected as any).id}-reflection-${idx}`}
-                                  className="text-sm text-slate-300"
-                                >
-                                  • {String(prompt || "").trim()}
-                                </div>
-                              )
-                          )}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {Array.isArray(selectedContent?.action_prompts) &&
-                    selectedContent.action_prompts.length > 0 ? (
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                        <div className="text-sm font-semibold text-slate-200">
-                          Action prompts
-                        </div>
-                        <div className="mt-2 space-y-2">
-                          {selectedContent.action_prompts.map(
-                            (prompt: any, idx: number) =>
-                              editMode && !isTemplate(selected) ? (
-                                <textarea
-                                  key={`${(selected as any).id}-action-${idx}`}
-                                  value={String(prompt || "")}
-                                  onChange={(e) =>
-                                    updateStringArrayField(
-                                      "action_prompts",
-                                      idx,
-                                      e.target.value
-                                    )
-                                  }
-                                  rows={2}
-                                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                                />
-                              ) : (
-                                <div
-                                  key={`${(selected as any).id}-action-${idx}`}
-                                  className="text-sm text-slate-300"
-                                >
-                                  • {String(prompt || "").trim()}
-                                </div>
-                              )
-                          )}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {selectedContent?.closing_invitation !== undefined ? (
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                        <div className="text-sm font-semibold text-slate-200">
-                          Closing invitation
-                        </div>
-                        {editMode && !isTemplate(selected) ? (
-                          <textarea
-                            value={String(
-                              selectedContent.closing_invitation || ""
-                            )}
-                            onChange={(e) =>
-                              setDraftField(
-                                "closing_invitation",
-                                e.target.value
-                              )
-                            }
-                            rows={3}
-                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
-                          />
-                        ) : (
-                          <div className="mt-2 text-sm text-slate-300">
-                            {selectedContent.closing_invitation}
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-
-                    {selectedContent?.closing_encouragement !== undefined ? (
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                        <div className="text-sm font-semibold text-slate-200">
-                          Closing encouragement
-                        </div>
-                        {editMode && !isTemplate(selected) ? (
-                          <textarea
-                            value={String(
-                              selectedContent.closing_encouragement || ""
-                            )}
-                            onChange={(e) =>
-                              setDraftField(
-                                "closing_encouragement",
-                                e.target.value
-                              )
-                            }
-                            rows={3}
-                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
-                          />
-                        ) : (
-                          <div className="mt-2 text-sm text-slate-300">
-                            {selectedContent.closing_encouragement}
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-
-                    {selectedContent?.closing_note !== undefined ? (
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                        <div className="text-sm font-semibold text-slate-200">
-                          Closing note
-                        </div>
-                        {editMode && !isTemplate(selected) ? (
-                          <textarea
-                            value={String(selectedContent.closing_note || "")}
-                            onChange={(e) =>
-                              setDraftField("closing_note", e.target.value)
-                            }
-                            rows={3}
-                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
-                          />
-                        ) : (
-                          <div className="mt-2 text-sm text-slate-300">
-                            {selectedContent.closing_note}
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-
-                    {isTemplate(selected) && selected.tags?.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {selected.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-[11px] text-slate-300"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                    <div className="text-sm text-slate-300 whitespace-pre-wrap break-words">
-                      {(selected as any)?.content
-                        ? JSON.stringify((selected as any).content, null, 2)
-                        : "No content saved."}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {creatorOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div
-            className="absolute inset-0 bg-black/70"
-            onClick={() => setCreatorOpen(false)}
-          />
-
-          <div className="relative w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl flex flex-col">
-            <div className="flex items-start justify-between gap-4 px-6 pt-6 shrink-0">
-              <div>
-                <div className="text-xs text-slate-400">Content Creator</div>
-                <div className="mt-1 text-lg font-semibold text-slate-100">
-                  Create Resource
-                </div>
-                <div className="mt-1 text-[12px] text-slate-400">
-                  Generate a calm, useful long-form resource and save it straight
-                  to the library.
-                </div>
-              </div>
-
-              <button
-                className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
-                onClick={() => setCreatorOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-5 grid gap-4 overflow-y-auto px-6 pb-6">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Resource type
-                  </label>
-                  <select
-                    value={creatorType}
-                    onChange={(e) =>
-                      setCreatorType(e.target.value as CreateResourceType)
-                    }
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-                  >
-                    <option value="webinar_outline">Webinar</option>
-                    <option value="presentation">Presentation</option>
-                    <option value="guide">Guide</option>
-                    <option value="worksheet">Worksheet</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Fill level
-                  </label>
-                  <select
-                    value={creatorFillLevel}
-                    onChange={(e) =>
-                      setCreatorFillLevel(e.target.value as FillLevel)
-                    }
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-                  >
-                    <option value="skeleton">Skeleton</option>
-                    <option value="draft">Draft</option>
-                    <option value="ready">Ready</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300">
-                  Title / topic
-                </label>
-                <input
-                  value={creatorTitle}
-                  onChange={(e) => setCreatorTitle(e.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-                  placeholder="e.g. Workplace Stress Webinar"
-                />
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Goal
-                  </label>
-                  <input
-                    value={creatorGoal}
-                    onChange={(e) => setCreatorGoal(e.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-                    placeholder="e.g. Webinar signups or workplace education"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Audience
-                  </label>
-                  <input
-                    value={creatorAudience}
-                    onChange={(e) => setCreatorAudience(e.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-                    placeholder="e.g. HR leaders, managers, staff"
-                  />
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Tone
-                  </label>
-                  <input
-                    value={creatorTone}
-                    onChange={(e) => setCreatorTone(e.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-                    placeholder="e.g. calm and professional"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Duration
-                  </label>
-                  <input
-                    value={creatorDuration}
-                    onChange={(e) => setCreatorDuration(e.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-                    placeholder="e.g. 30 mins"
-                    disabled={
-                      creatorType === "guide" || creatorType === "worksheet"
-                    }
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300">
-                  Notes
-                </label>
-                <textarea
-                  value={creatorNotes}
-                  onChange={(e) => setCreatorNotes(e.target.value)}
-                  rows={5}
-                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm"
-                  placeholder="Add extra context, delivery angle, key teaching points, or desired emphasis..."
-                />
-              </div>
-
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 text-[12px] text-slate-300">
-                <div className="font-semibold text-slate-200">
-                  What gets created
-                </div>
-                <div className="mt-2">
-                  {creatorType === "webinar_outline" &&
-                    "A full webinar deck using the same slide system as presentation: objective, takeaway, slide-by-slide structure, presenter notes, audience prompts, and closing invitation."}
-                  {creatorType === "presentation" &&
-                    "A slide-by-slide presentation structure with objective, takeaway, presenter notes, audience prompts, slide images, and a closing invitation."}
-                  {creatorType === "guide" &&
-                    "A readable guide with summary, intended reader, 5 sections, and a closing encouragement."}
-                  {creatorType === "worksheet" &&
-                    "A practical worksheet with instructions, reflection prompts, action prompts, and a closing note."}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={createResource}
-                  disabled={busyAction === "create-resource"}
-                  className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-                >
-                  {busyAction === "create-resource"
-                    ? "Creating…"
-                    : "Create Resource"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setCreatorOpen(false)}
-                  disabled={busyAction === "create-resource"}
-                  className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
+                                    update
