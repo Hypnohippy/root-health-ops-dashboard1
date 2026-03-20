@@ -1997,6 +1997,70 @@ async function clearUploadedSlideImage(
     setBusyAction(null);
   }
 }
+  function downloadResourceAsPdf(resource: Resource) {
+  const content = resource?.content || {};
+  const slides = Array.isArray(content?.slides) ? content.slides : [];
+
+  let html = `
+    <html>
+      <head>
+        <title>${resource.title}</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            padding: 40px;
+            line-height: 1.6;
+          }
+          h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+          }
+          h2 {
+            margin-top: 30px;
+            font-size: 20px;
+          }
+          .slide {
+            page-break-after: always;
+            margin-bottom: 40px;
+          }
+          ul {
+            padding-left: 20px;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>${resource.title}</h1>
+        <p>${content?.objective || ""}</p>
+  `;
+
+  slides.forEach((slide: any, i: number) => {
+    html += `
+      <div class="slide">
+        <h2>Slide ${i + 1}: ${slide?.slide_title || ""}</h2>
+        <p>${slide?.slide_goal || ""}</p>
+        <ul>
+          ${(slide?.bullets || [])
+            .map((b: string) => `<li>${b}</li>`)
+            .join("")}
+        </ul>
+      </div>
+    `;
+  });
+
+  html += `
+      </body>
+    </html>
+  `;
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  win.document.write(html);
+  win.document.close();
+
+  win.focus();
+  win.print();
+}
   const selectedType = String((selected as any)?.resource_type || "").trim();
   const selectedContent = isTemplate(selected)
     ? selected.outline
@@ -2427,7 +2491,13 @@ async function clearUploadedSlideImage(
                             ? "Duplicating…"
                             : "Duplicate"}
                         </button>
-
+                         <button
+  type="button"
+  onClick={() => downloadResourceAsPdf(selected as Resource)}
+  className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10"
+>
+  Download PDF
+</button>
                         <button
                           type="button"
                           onClick={() => deleteResource(selected as Resource)}
