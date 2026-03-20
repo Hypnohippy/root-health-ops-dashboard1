@@ -2982,9 +2982,7 @@ async function clearUploadedSlideImage(
                               )
                                                    )}
                         </div>
-                      </div>
-                    </>
-                  ) : null}
+                    ) : null}
 
                     {Array.isArray(selectedContent?.action_prompts) &&
                     selectedContent.action_prompts.length > 0 ? (
