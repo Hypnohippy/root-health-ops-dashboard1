@@ -2670,183 +2670,49 @@ const slideImproveValue = String(slideImproveInputs[inputKey] || "");
                                     ) : null}
 
                                     {!editMode ? (
-  <>
-    <div className="mt-4 flex flex-wrap gap-2">
-      <button
-        type="button"
-        onClick={() =>
-          generateSlideImage(
-            selected as Resource,
-            idx
-          )
-        }
-        disabled={isGeneratingImage || isUploadingImage || isImprovingSlide}
-        className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-      >
-        {isGeneratingImage
-          ? "Generating…"
-          : aiImageUrl
-          ? "Regenerate AI image"
-          : "Generate AI image"}
-      </button>
-
-      <button
-        type="button"
-        onClick={() =>
-          fileInputRefs.current[inputKey]?.click()
-        }
-        disabled={isGeneratingImage || isUploadingImage || isImprovingSlide}
-        className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
-      >
-        {isUploadingImage
-          ? "Uploading…"
-          : uploadedImageUrl
-          ? "Replace custom artwork"
-          : "Upload artwork"}
-      </button>
-
-      <input
-        ref={(el) => {
-          fileInputRefs.current[inputKey] = el;
-        }}
-        type="file"
-        accept="image/png,image/jpeg,image/jpg,image/webp"
-        className="hidden"
-        onChange={async (e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          await uploadSlideArtwork(
-            selected as Resource,
-            idx,
-            file
-          );
-          e.currentTarget.value = "";
-        }}
-      />
-    </div>
-
-    {(aiImageUrl || uploadedImageUrl) ? (
-      <div className="mt-3 flex flex-wrap gap-2">
-        {aiImageUrl ? (
-          <button
-            type="button"
-            onClick={() =>
-              setActiveSlideImageSource(
-                selected as Resource,
-                idx,
-                "ai"
-              )
-            }
-            disabled={activeImageSource === "ai" || isImprovingSlide}
-            className={[
-              "rounded-full border px-3 py-1.5 text-xs disabled:opacity-60",
-              activeImageSource === "ai"
-                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                : "border-slate-600 bg-slate-900 text-slate-100 hover:bg-white/10",
-            ].join(" ")}
-          >
-            Use AI artwork
-          </button>
-        ) : null}
-
-        {uploadedImageUrl ? (
-          <button
-            type="button"
-            onClick={() =>
-              setActiveSlideImageSource(
-                selected as Resource,
-                idx,
-                "upload"
-              )
-            }
-            disabled={activeImageSource === "upload" || isImprovingSlide}
-            className={[
-              "rounded-full border px-3 py-1.5 text-xs disabled:opacity-60",
-              activeImageSource === "upload"
-                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                : "border-slate-600 bg-slate-900 text-slate-100 hover:bg-white/10",
-            ].join(" ")}
-          >
-            Use custom artwork
-          </button>
-        ) : null}
-
-        {aiImageUrl ? (
-          <button
-            type="button"
-            onClick={() =>
-              clearAiSlideImage(
-                selected as Resource,
-                idx
-              )
-            }
-            disabled={isImprovingSlide}
-            className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
-          >
-            Remove AI artwork
-          </button>
-        ) : null}
-
-        {uploadedImageUrl ? (
-          <button
-            type="button"
-            onClick={() =>
-              clearUploadedSlideImage(
-                selected as Resource,
-                idx
-              )
-            }
-            disabled={isImprovingSlide}
-            className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
-          >
-            Remove custom artwork
-          </button>
-        ) : null}
-      </div>
-    ) : null}
-
-    <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-950/80 p-3">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-        AI improve this slide
-      </div>
-
-      <textarea
-        value={slideImproveValue}
-        onChange={(e) =>
-          setSlideImproveInputs((prev) => ({
-            ...prev,
-            [inputKey]: e.target.value,
-          }))
-        }
-        rows={2}
-        placeholder="e.g. make this calmer, rewrite for HR leaders, simplify the bullets, make this less clinical"
-        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-      />
-
-      <div className="mt-2 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() =>
-            improveSlide(
-              selected as Resource,
-              idx
-            )
-          }
-          disabled={
-            isImprovingSlide ||
-            isGeneratingImage ||
-            isUploadingImage ||
-            !slideImproveValue.trim()
-          }
-          className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-        >
-          {isImprovingSlide ? "Improving…" : "Improve slide"}
-        </button>
-      </div>
-    </div>
-  </>
+  <div
+    className={[
+      "inline-flex max-w-full items-center rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
+      theme.badge,
+    ].join(" ")}
+  >
+    <span className="whitespace-nowrap">
+      {presentationMode === "presenter"
+        ? "Presenter view"
+        : "Audience view"}
+    </span>
+  </div>
 ) : null}
-                                {slide?.slide_goal !== undefined ? (
+                             {!editMode && (
+  <div className="mt-4">
+    <div className="text-xs text-slate-400 mb-1">
+      AI improve this slide
+    </div>
+
+    <textarea
+      value={slideImproveValue}
+      onChange={(e) =>
+        setSlideImproveInputs((prev) => ({
+          ...prev,
+          [inputKey]: e.target.value,
+        }))
+      }
+      rows={2}
+      className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+      placeholder="e.g. make this calmer"
+    />
+
+    <button
+      type="button"
+      onClick={() => improveSlide(selected as Resource, idx)}
+      disabled={!slideImproveValue.trim() || isImprovingSlide}
+      className="mt-2 rounded bg-emerald-500 px-3 py-1 text-xs text-black disabled:opacity-60"
+    >
+      {isImprovingSlide ? "Improving…" : "Improve slide"}
+    </button>
+  </div>
+)}
+                                    {slide?.slide_goal !== undefined ? (
                                   <div className="mt-4">
                                     <div className="text-[11px] font-semibold uppercase tracking-wide opacity-60">
                                       Slide goal
