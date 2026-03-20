@@ -1130,6 +1130,78 @@ async function improveSlide(resource: Resource, slideIndex: number) {
     setError("Please enter an instruction for the slide improvement.");
     return;
   }
+  async function improvePresentation(resource: Resource) {
+  const content = deepClone(resource.content || {});
+  const instruction = String(presentationImproveInput || "").trim();
+
+  if (!instruction) {
+    setError("Please enter an instruction for the presentation improvement.");
+    return;
+  }
+
+  if (!Array.isArray(content?.slides) || !content.slides.length) {
+    setError("This resource does not contain presentation slides.");
+    return;
+  }
+
+  setImprovingPresentation(true);
+  setError(null);
+  setToast(null);
+
+  try {
+    const res = await fetch("/api/ai/improve-presentation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: resource.title,
+        objective: String(content?.objective || "").trim(),
+        promise: String(content?.promise || "").trim(),
+        audience_takeaway: String(content?.audience_takeaway || "").trim(),
+        presentation_style: String(content?.presentation_style || "").trim(),
+        closing_invitation: String(content?.closing_invitation || "").trim(),
+        slides: Array.isArray(content?.slides) ? content.slides : [],
+        instruction,
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.success || !data?.presentation) {
+      throw new Error(data?.error || "Failed to improve presentation");
+    }
+
+    const nextContent = {
+      ...content,
+      objective: String(data.presentation.objective || "").trim(),
+      audience_takeaway: String(
+        data.presentation.audience_takeaway || ""
+      ).trim(),
+      presentation_style: String(
+        data.presentation.presentation_style || ""
+      ).trim(),
+      closing_invitation: String(
+        data.presentation.closing_invitation || ""
+      ).trim(),
+      slides: Array.isArray(data.presentation.slides)
+        ? data.presentation.slides
+        : Array.isArray(content?.slides)
+        ? content.slides
+        : [],
+    };
+
+    await persistResourceContent(
+      resource,
+      nextContent,
+      "Presentation improved ✅"
+    );
+
+    setPresentationImproveInput("");
+  } catch (e: any) {
+    setError(e?.message || "Failed to improve presentation");
+  } finally {
+    setImprovingPresentation(false);
+  }
+}
 
   setBusyAction(`improve:${resource.id}:${slideIndex}`);
   setError(null);
