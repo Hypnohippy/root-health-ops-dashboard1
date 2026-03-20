@@ -703,14 +703,15 @@ export default function ResourcesPage() {
   const [draftTitle, setDraftTitle] = useState("");
   const [draftContent, setDraftContent] = useState<any>(null);
 
-  const [presentationMode, setPresentationMode] =
-    useState<PresentationMode>("audience");
-  const [presentationTheme, setPresentationTheme] =
-    useState<PresentationTheme>("calm");
-  const [showArtwork, setShowArtwork] = useState(true);
+ const [presentationMode, setPresentationMode] =
+  useState<PresentationMode>("audience");
+const [presentationTheme, setPresentationTheme] =
+  useState<PresentationTheme>("calm");
+const [showArtwork, setShowArtwork] = useState(true);
+const [slideImproveInputs, setSlideImproveInputs] = useState<
+  Record<string, string>>({});
 
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-
+const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   async function loadOrganisation() {
     try {
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
@@ -1021,96 +1022,167 @@ export default function ResourcesPage() {
   }
 
   async function generateAllSlideImages(resource: Resource) {
-    const content = deepClone(resource.content || {});
-    const slides = Array.isArray(content?.slides) ? content.slides : [];
+  const content = deepClone(resource.content || {});
+  const slides = Array.isArray(content?.slides) ? content.slides : [];
 
-    if (!slides.length) return;
+  if (!slides.length) return;
 
-    setBusyAction(`image-all:${resource.id}`);
-    setError(null);
+  setBusyAction(`image-all:${resource.id}`);
+  setError(null);
 
-    try {
-      let latestResource: Resource = resource;
+  try {
+    let latestResource: Resource = resource;
 
-      for (let i = 0; i < slides.length; i++) {
-        const currentSlides = Array.isArray(latestResource?.content?.slides)
-          ? latestResource.content.slides
-          : slides;
+    for (let i = 0; i < slides.length; i++) {
+      const currentSlides = Array.isArray(latestResource?.content?.slides)
+        ? latestResource.content.slides
+        : slides;
 
-        const slide = getSafeSlide(currentSlides[i]);
-        if (!slide) continue;
+      const slide = getSafeSlide(currentSlides[i]);
+      if (!slide) continue;
 
-        const res = await fetch("/api/ai/slide-image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            presentationTitle: latestResource.title,
-            presentationObjective: String(
-              latestResource?.content?.objective || ""
-            ).trim(),
-            presentationPromise: String(
-              latestResource?.content?.promise || ""
-            ).trim(),
-            presentationAudienceTakeaway: String(
-              latestResource?.content?.audience_takeaway || ""
-            ).trim(),
-            slideTitle: String(slide?.slide_title || "").trim(),
-            slideGoal: String(slide?.slide_goal || "").trim(),
-            bullets: Array.isArray(slide?.bullets) ? slide.bullets : [],
-            speakerNotes: String(slide?.speaker_notes || "").trim(),
-            audiencePrompt: String(slide?.audience_prompt || "").trim(),
-            visualDirection: String(slide?.visual_direction || "").trim(),
-            imagePrompt: String(slide?.image_prompt || "").trim(),
-            theme: presentationTheme,
-          }),
-        });
-
-        const data = await res.json().catch(() => null);
-
-        if (!res.ok || !data?.success) {
-          throw new Error(
-            data?.error || `Failed to generate image for slide ${i + 1}`
-          );
-        }
-
-        const nextImageUrl = String(data?.imageUrl || "").trim();
-        if (!nextImageUrl) {
-          throw new Error(`No image URL returned for slide ${i + 1}`);
-        }
-
-        const updated = await persistSlidePatch(latestResource, i, {
-          generated_image_url: nextImageUrl,
-          generated_image_prompt: String(data?.imagePrompt || "").trim(),
-          generated_image_status: "ready",
-          generated_image_source: "ai",
-          artwork_label: String(
-            data?.artworkLabel || slide?.artwork_label || ""
+      const res = await fetch("/api/ai/slide-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          presentationTitle: latestResource.title,
+          presentationObjective: String(
+            latestResource?.content?.objective || ""
           ).trim(),
-          artwork_chip: String(
-            data?.artworkChip || slide?.artwork_chip || ""
+          presentationPromise: String(
+            latestResource?.content?.promise || ""
           ).trim(),
-          visual_direction: String(
-            data?.visualDirection || slide?.visual_direction || ""
+          presentationAudienceTakeaway: String(
+            latestResource?.content?.audience_takeaway || ""
           ).trim(),
-          image_prompt: String(
-            data?.imagePrompt || slide?.image_prompt || ""
-          ).trim(),
-          artwork_generated_at: new Date().toISOString(),
-        });
+          slideTitle: String(slide?.slide_title || "").trim(),
+          slideGoal: String(slide?.slide_goal || "").trim(),
+          bullets: Array.isArray(slide?.bullets) ? slide.bullets : [],
+          speakerNotes: String(slide?.speaker_notes || "").trim(),
+          audiencePrompt: String(slide?.audience_prompt || "").trim(),
+          visualDirection: String(slide?.visual_direction || "").trim(),
+          imagePrompt: String(slide?.image_prompt || "").trim(),
+          theme: presentationTheme,
+        }),
+      });
 
-        if (updated) {
-          latestResource = updated;
-        }
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        throw new Error(
+          data?.error || `Failed to generate image for slide ${i + 1}`
+        );
       }
 
-      setToast("All slide images generated ✅");
-    } catch (e: any) {
-      setError(e?.message || "Failed to generate all slide images");
-    } finally {
-      setBusyAction(null);
+      const nextImageUrl = String(data?.imageUrl || "").trim();
+      if (!nextImageUrl) {
+        throw new Error(`No image URL returned for slide ${i + 1}`);
+      }
+
+      const updated = await persistSlidePatch(latestResource, i, {
+        generated_image_url: nextImageUrl,
+        generated_image_prompt: String(data?.imagePrompt || "").trim(),
+        generated_image_status: "ready",
+        generated_image_source: "ai",
+        active_image_source:
+          slide.uploaded_image_url && slide.active_image_source === "upload"
+            ? "upload"
+            : "ai",
+        artwork_label: String(
+          data?.artworkLabel || slide?.artwork_label || ""
+        ).trim(),
+        artwork_chip: String(
+          data?.artworkChip || slide?.artwork_chip || ""
+        ).trim(),
+        visual_direction: String(
+          data?.visualDirection || slide?.visual_direction || ""
+        ).trim(),
+        image_prompt: String(
+          data?.imagePrompt || slide?.image_prompt || ""
+        ).trim(),
+        artwork_generated_at: new Date().toISOString(),
+      });
+
+      if (updated) {
+        latestResource = updated;
+      }
     }
+
+    setToast("All slide images generated ✅");
+  } catch (e: any) {
+    setError(e?.message || "Failed to generate all slide images");
+  } finally {
+    setBusyAction(null);
+  }
+}
+
+async function improveSlide(resource: Resource, slideIndex: number) {
+  const content = deepClone(resource.content || {});
+  const slides = Array.isArray(content?.slides) ? content.slides : [];
+  const slide = getSafeSlide(slides[slideIndex]);
+  const inputKey = `${resource.id}:${slideIndex}`;
+  const instruction = String(slideImproveInputs[inputKey] || "").trim();
+
+  if (!slide) return;
+  if (!instruction) {
+    setError("Please enter an instruction for the slide improvement.");
+    return;
   }
 
+  setBusyAction(`improve:${resource.id}:${slideIndex}`);
+  setError(null);
+
+  try {
+    const res = await fetch("/api/ai/improve-slide", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        presentationTitle: resource.title,
+        presentationObjective: String(content?.objective || "").trim(),
+        presentationPromise: String(content?.promise || "").trim(),
+        presentationAudienceTakeaway: String(
+          content?.audience_takeaway || ""
+        ).trim(),
+        presentationStyle: String(content?.presentation_style || "").trim(),
+        slideIndex,
+        slide,
+        instruction,
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.success || !data?.slide) {
+      throw new Error(data?.error || "Failed to improve slide");
+    }
+
+    await persistSlidePatch(
+      resource,
+      slideIndex,
+      {
+        slide_title: String(data.slide.slide_title || "").trim(),
+        slide_goal: String(data.slide.slide_goal || "").trim(),
+        bullets: Array.isArray(data.slide.bullets) ? data.slide.bullets : [],
+        speaker_notes: String(data.slide.speaker_notes || "").trim(),
+        audience_prompt: String(data.slide.audience_prompt || "").trim(),
+        visual_direction: String(data.slide.visual_direction || "").trim(),
+        image_prompt: String(data.slide.image_prompt || "").trim(),
+        artwork_label: String(data.slide.artwork_label || "").trim(),
+        artwork_chip: String(data.slide.artwork_chip || "").trim(),
+      },
+      `Slide ${slideIndex + 1} improved ✅`
+    );
+
+    setSlideImproveInputs((prev) => ({
+      ...prev,
+      [inputKey]: "",
+    }));
+  } catch (e: any) {
+    setError(e?.message || "Failed to improve slide");
+  } finally {
+    setBusyAction(null);
+  }
+}
   async function uploadSlideArtwork(
   resource: Resource,
   slideIndex: number,
@@ -2507,15 +2579,19 @@ const displayImageSource = displayImage.source;
                           );
 
                           const isGeneratingImage =
-                            busyAction ===
-                            `image:${(selected as Resource).id}:${idx}`;
+  busyAction ===
+  `image:${(selected as Resource).id}:${idx}`;
 
-                          const isUploadingImage =
-                            busyAction ===
-                            `upload:${(selected as Resource).id}:${idx}`;
+const isUploadingImage =
+  busyAction ===
+  `upload:${(selected as Resource).id}:${idx}`;
 
-                          const inputKey = `${(selected as Resource).id}:${idx}`;
+const isImprovingSlide =
+  busyAction ===
+  `improve:${(selected as Resource).id}:${idx}`;
 
+const inputKey = `${(selected as Resource).id}:${idx}`;
+const slideImproveValue = String(slideImproveInputs[inputKey] || "");
                           return (
                             <div
                               key={`${(selected as any).id}-slide-${idx}`}
@@ -2630,6 +2706,7 @@ const displayImageSource = displayImage.source;
 
                                 {!editMode ? (
                                 <>
+  <>
   <div className="mt-4 flex flex-wrap gap-2">
     <button
       type="button"
@@ -2639,7 +2716,7 @@ const displayImageSource = displayImage.source;
           idx
         )
       }
-      disabled={isGeneratingImage || isUploadingImage}
+      disabled={isGeneratingImage || isUploadingImage || isImprovingSlide}
       className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
     >
       {isGeneratingImage
@@ -2654,7 +2731,7 @@ const displayImageSource = displayImage.source;
       onClick={() =>
         fileInputRefs.current[inputKey]?.click()
       }
-      disabled={isGeneratingImage || isUploadingImage}
+      disabled={isGeneratingImage || isUploadingImage || isImprovingSlide}
       className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
     >
       {isUploadingImage
@@ -2696,7 +2773,7 @@ const displayImageSource = displayImage.source;
               "ai"
             )
           }
-          disabled={activeImageSource === "ai"}
+          disabled={activeImageSource === "ai" || isImprovingSlide}
           className={[
             "rounded-full border px-3 py-1.5 text-xs disabled:opacity-60",
             activeImageSource === "ai"
@@ -2718,7 +2795,7 @@ const displayImageSource = displayImage.source;
               "upload"
             )
           }
-          disabled={activeImageSource === "upload"}
+          disabled={activeImageSource === "upload" || isImprovingSlide}
           className={[
             "rounded-full border px-3 py-1.5 text-xs disabled:opacity-60",
             activeImageSource === "upload"
@@ -2739,7 +2816,8 @@ const displayImageSource = displayImage.source;
               idx
             )
           }
-          className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+          disabled={isImprovingSlide}
+          className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
         >
           Remove AI artwork
         </button>
@@ -2754,13 +2832,54 @@ const displayImageSource = displayImage.source;
               idx
             )
           }
-          className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+          disabled={isImprovingSlide}
+          className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
         >
           Remove custom artwork
         </button>
       ) : null}
     </div>
   ) : null}
+
+  <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-950/80 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+      AI improve this slide
+    </div>
+
+    <textarea
+      value={slideImproveValue}
+      onChange={(e) =>
+        setSlideImproveInputs((prev) => ({
+          ...prev,
+          [inputKey]: e.target.value,
+        }))
+      }
+      rows={2}
+      placeholder="e.g. make this calmer, rewrite for HR leaders, simplify the bullets, make this less clinical"
+      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+    />
+
+    <div className="mt-2 flex flex-wrap gap-2">
+      <button
+        type="button"
+        onClick={() =>
+          improveSlide(
+            selected as Resource,
+            idx
+          )
+        }
+        disabled={
+          isImprovingSlide ||
+          isGeneratingImage ||
+          isUploadingImage ||
+          !slideImproveValue.trim()
+        }
+        className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+      >
+        {isImprovingSlide ? "Improving…" : "Improve slide"}
+      </button>
+    </div>
+  </div>
 </>
                                 ) : null}
 
