@@ -3040,9 +3040,9 @@ const slideImproveValue = String(slideImproveInputs[inputKey] || "");
                           );
                         })}
                       </div>
-                    ) : null}
+                                       ) : null}
 
-                                       {Array.isArray(selectedContent?.reflection_prompts) &&
+                    {Array.isArray(selectedContent?.reflection_prompts) &&
                     selectedContent.reflection_prompts.length > 0 ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">
