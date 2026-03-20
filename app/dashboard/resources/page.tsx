@@ -52,6 +52,7 @@ type CreateResourceType =
 type FillLevel = "skeleton" | "draft" | "ready";
 type PresentationMode = "audience" | "presenter";
 type PresentationTheme = "calm" | "corporate" | "warm" | "dark";
+type ActiveImageSource = "" | "ai" | "upload";
 
 type ArtPreset = {
   key: string;
@@ -132,6 +133,7 @@ function getSafeSlide(slide: any) {
   next.image_prompt = String(next.image_prompt || "").trim();
   next.artwork_label = String(next.artwork_label || "").trim();
   next.artwork_chip = String(next.artwork_chip || "").trim();
+
   next.generated_image_url = String(next.generated_image_url || "").trim();
   next.generated_image_prompt = String(
     next.generated_image_prompt || ""
@@ -139,14 +141,80 @@ function getSafeSlide(slide: any) {
   next.generated_image_status = String(
     next.generated_image_status || ""
   ).trim();
-  next.artwork_generated_at = next.artwork_generated_at || null;
   next.generated_image_source = String(
     next.generated_image_source || ""
   ).trim();
 
+  next.uploaded_image_url = String(next.uploaded_image_url || "").trim();
+  next.uploaded_image_status = String(next.uploaded_image_status || "").trim();
+  next.uploaded_image_source = String(next.uploaded_image_source || "").trim();
+  next.uploaded_image_name = String(next.uploaded_image_name || "").trim();
+
+  next.active_image_source = String(
+    next.active_image_source || ""
+  ).trim() as ActiveImageSource;
+
+  if (
+    !next.active_image_source ||
+    (next.active_image_source !== "ai" &&
+      next.active_image_source !== "upload")
+  ) {
+    if (next.uploaded_image_url) {
+      next.active_image_source = "upload";
+    } else if (next.generated_image_url) {
+      next.active_image_source = "ai";
+    } else {
+      next.active_image_source = "";
+    }
+  }
+
+  next.artwork_generated_at = next.artwork_generated_at || null;
+
   return next;
 }
 
+function getDisplayImageForSlide(slide: any) {
+  const safe = getSafeSlide(slide);
+
+  if (
+    safe.active_image_source === "upload" &&
+    String(safe.uploaded_image_url || "").trim()
+  ) {
+    return {
+      url: String(safe.uploaded_image_url || "").trim(),
+      source: "upload" as ActiveImageSource,
+    };
+  }
+
+  if (
+    safe.active_image_source === "ai" &&
+    String(safe.generated_image_url || "").trim()
+  ) {
+    return {
+      url: String(safe.generated_image_url || "").trim(),
+      source: "ai" as ActiveImageSource,
+    };
+  }
+
+  if (String(safe.uploaded_image_url || "").trim()) {
+    return {
+      url: String(safe.uploaded_image_url || "").trim(),
+      source: "upload" as ActiveImageSource,
+    };
+  }
+
+  if (String(safe.generated_image_url || "").trim()) {
+    return {
+      url: String(safe.generated_image_url || "").trim(),
+      source: "ai" as ActiveImageSource,
+    };
+  }
+
+  return {
+    url: "",
+    source: "" as ActiveImageSource,
+  };
+}
 function slideThemeClasses(theme: PresentationTheme) {
   if (theme === "corporate") {
     return {
@@ -920,14 +988,18 @@ export default function ResourcesPage() {
       await persistSlidePatch(
         resource,
         slideIndex,
-        {
-          generated_image_url: nextImageUrl,
-          generated_image_prompt: String(data?.imagePrompt || "").trim(),
-          generated_image_status: "ready",
-          generated_image_source: "ai",
-          artwork_label: String(
-            data?.artworkLabel || slide?.artwork_label || ""
-          ).trim(),
+       {
+  generated_image_url: nextImageUrl,
+  generated_image_prompt: String(data?.imagePrompt || "").trim(),
+  generated_image_status: "ready",
+  generated_image_source: "ai",
+  active_image_source:
+    slide.uploaded_image_url && slide.active_image_source === "upload"
+      ? "upload"
+      : "ai",
+  artwork_label: String(
+    data?.artworkLabel || slide?.artwork_label || ""
+  ).trim(),
           artwork_chip: String(
             data?.artworkChip || slide?.artwork_chip || ""
           ).trim(),
@@ -1040,91 +1112,160 @@ export default function ResourcesPage() {
   }
 
   async function uploadSlideArtwork(
-    resource: Resource,
-    slideIndex: number,
-    file: File
-  ) {
-    const content = deepClone(resource.content || {});
-    const slides = Array.isArray(content?.slides) ? content.slides : [];
-    const slide = getSafeSlide(slides[slideIndex]);
-
-    if (!slide || !file) return;
-
-    setBusyAction(`upload:${resource.id}:${slideIndex}`);
-    setError(null);
-
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("resourceTitle", resource.title || "Resource");
-      form.append("slideTitle", slide.slide_title || `Slide ${slideIndex + 1}`);
-
-      const res = await fetch("/api/resource-artwork", {
-        method: "POST",
-        body: form,
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok || !data?.success) {
-        throw new Error(data?.error || "Failed to upload artwork");
-      }
-
-      const nextImageUrl = String(data?.imageUrl || "").trim();
-
-      if (!nextImageUrl) {
-        throw new Error("No image URL was returned.");
-      }
-
-      await persistSlidePatch(
-        resource,
-        slideIndex,
-        {
-          generated_image_url: nextImageUrl,
-          generated_image_prompt: "",
-          generated_image_status: "uploaded",
-          generated_image_source: "upload",
-          artwork_generated_at: new Date().toISOString(),
-        },
-        `Slide ${slideIndex + 1} artwork uploaded ✅`
-      );
-    } catch (e: any) {
-      setError(e?.message || "Failed to upload artwork");
-    } finally {
-      setBusyAction(null);
-    }
+  resource: Resource,
+  slideIndex: number,
+  file: File
+) {
+  if (!organisationId) {
+    setError("Organisation not loaded yet.");
+    return;
   }
 
-  async function clearSlideImage(resource: Resource, slideIndex: number) {
-    const content = deepClone(resource.content || {});
-    const slides = Array.isArray(content?.slides) ? content.slides : [];
-    const slide = slides[slideIndex];
+  const content = deepClone(resource.content || {});
+  const slides = Array.isArray(content?.slides) ? content.slides : [];
+  const slide = getSafeSlide(slides[slideIndex]);
 
-    if (!slide) return;
+  if (!slide || !file) return;
 
-    setBusyAction(`save:${resource.id}`);
-    setError(null);
+  setBusyAction(`upload:${resource.id}:${slideIndex}`);
+  setError(null);
 
-    try {
-      await persistSlidePatch(
-        resource,
-        slideIndex,
-        {
-          generated_image_url: "",
-          generated_image_prompt: "",
-          generated_image_status: "",
-          generated_image_source: "",
-          artwork_generated_at: null,
-        },
-        "Slide image removed ✅"
-      );
-    } catch (e: any) {
-      setError(e?.message || "Failed to save resource");
-    } finally {
-      setBusyAction(null);
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("organisationId", organisationId);
+    form.append("resourceId", resource.id);
+    form.append("slideIndex", String(slideIndex));
+    form.append("resourceTitle", resource.title || "Resource");
+    form.append("slideTitle", slide.slide_title || `Slide ${slideIndex + 1}`);
+
+    const res = await fetch("/api/resource-artwork", {
+      method: "POST",
+      body: form,
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || "Failed to upload artwork");
     }
-  }
 
+    const nextImageUrl = String(data?.imageUrl || "").trim();
+
+    if (!nextImageUrl) {
+      throw new Error("No image URL was returned.");
+    }
+
+    await persistSlidePatch(
+      resource,
+      slideIndex,
+      {
+        uploaded_image_url: nextImageUrl,
+        uploaded_image_status: "uploaded",
+        uploaded_image_source: "upload",
+        uploaded_image_name: String(data?.fileName || file.name || "").trim(),
+        active_image_source: "upload",
+        artwork_generated_at: new Date().toISOString(),
+      },
+      `Slide ${slideIndex + 1} artwork uploaded ✅`
+    );
+  } catch (e: any) {
+    setError(e?.message || "Failed to upload artwork");
+  } finally {
+    setBusyAction(null);
+  }
+}
+  async function setActiveSlideImageSource(
+  resource: Resource,
+  slideIndex: number,
+  source: ActiveImageSource
+) {
+  setBusyAction(`source:${resource.id}:${slideIndex}`);
+  setError(null);
+
+  try {
+    await persistSlidePatch(
+      resource,
+      slideIndex,
+      {
+        active_image_source: source,
+      },
+      source === "upload"
+        ? `Slide ${slideIndex + 1} set to custom artwork ✅`
+        : source === "ai"
+        ? `Slide ${slideIndex + 1} set to AI artwork ✅`
+        : `Slide ${slideIndex + 1} artwork cleared ✅`
+    );
+  } catch (e: any) {
+    setError(e?.message || "Failed to update slide artwork source");
+  } finally {
+    setBusyAction(null);
+  }
+}
+
+async function clearAiSlideImage(resource: Resource, slideIndex: number) {
+  const content = deepClone(resource.content || {});
+  const slides = Array.isArray(content?.slides) ? content.slides : [];
+  const slide = getSafeSlide(slides[slideIndex]);
+
+  if (!slide) return;
+
+  setBusyAction(`clear-ai:${resource.id}:${slideIndex}`);
+  setError(null);
+
+  try {
+    await persistSlidePatch(
+      resource,
+      slideIndex,
+      {
+  generated_image_url: nextImageUrl,
+  generated_image_prompt: String(data?.imagePrompt || "").trim(),
+  generated_image_status: "ready",
+  generated_image_source: "ai",
+  active_image_source:
+    slide.uploaded_image_url && slide.active_image_source === "upload"
+      ? "upload"
+      : "ai",
+  artwork_label: String(
+    data?.artworkLabel || slide?.artwork_label || ""
+  ).trim(),
+}
+
+async function clearUploadedSlideImage(resource: Resource, slideIndex: number) {
+  const content = deepClone(resource.content || {});
+  const slides = Array.isArray(content?.slides) ? content.slides : [];
+  const slide = getSafeSlide(slides[slideIndex]);
+
+  if (!slide) return;
+
+  setBusyAction(`clear-upload:${resource.id}:${slideIndex}`);
+  setError(null);
+
+  try {
+    await persistSlidePatch(
+      resource,
+      slideIndex,
+      {
+        uploaded_image_url: "",
+        uploaded_image_status: "",
+        uploaded_image_source: "",
+        uploaded_image_name: "",
+        active_image_source:
+          slide.active_image_source === "upload" && slide.generated_image_url
+            ? "ai"
+            : slide.active_image_source === "upload"
+            ? ""
+            : slide.active_image_source,
+        artwork_generated_at: new Date().toISOString(),
+      },
+      "Custom artwork removed ✅"
+    );
+  } catch (e: any) {
+    setError(e?.message || "Failed to remove custom artwork");
+  } finally {
+    setBusyAction(null);
+  }
+}
   function sendTemplateToBrainstorm(template: StarterTemplate) {
     const payload = {
       v: 1,
@@ -1532,20 +1673,25 @@ export default function ResourcesPage() {
       next.slides = Array.isArray(next.slides) ? next.slides : [];
       if (!next.slides[index]) {
         next.slides[index] = {
-          slide_title: "",
-          slide_goal: "",
-          bullets: [],
-          speaker_notes: "",
-          audience_prompt: "",
-          visual_direction: "",
-          image_prompt: "",
-          artwork_label: "",
-          artwork_chip: "",
-          generated_image_url: "",
-          generated_image_prompt: "",
-          generated_image_status: "",
-          generated_image_source: "",
-        };
+  slide_title: "",
+  slide_goal: "",
+  bullets: [],
+  speaker_notes: "",
+  audience_prompt: "",
+  visual_direction: "",
+  image_prompt: "",
+  artwork_label: "",
+  artwork_chip: "",
+  generated_image_url: "",
+  generated_image_prompt: "",
+  generated_image_status: "",
+  generated_image_source: "",
+  uploaded_image_url: "",
+  uploaded_image_status: "",
+  uploaded_image_source: "",
+  uploaded_image_name: "",
+  active_image_source: "",
+}
       }
       next.slides[index][key] = value;
       return next;
@@ -1562,20 +1708,26 @@ export default function ResourcesPage() {
       next.slides = Array.isArray(next.slides) ? next.slides : [];
       if (!next.slides[slideIndex]) {
         next.slides[slideIndex] = {
-          slide_title: "",
-          slide_goal: "",
-          bullets: [],
-          speaker_notes: "",
-          audience_prompt: "",
-          visual_direction: "",
-          image_prompt: "",
-          artwork_label: "",
-          artwork_chip: "",
-          generated_image_url: "",
-          generated_image_prompt: "",
-          generated_image_status: "",
-          generated_image_source: "",
-        };
+          {
+  slide_title: "",
+  slide_goal: "",
+  bullets: [],
+  speaker_notes: "",
+  audience_prompt: "",
+  visual_direction: "",
+  image_prompt: "",
+  artwork_label: "",
+  artwork_chip: "",
+  generated_image_url: "",
+  generated_image_prompt: "",
+  generated_image_status: "",
+  generated_image_source: "",
+  uploaded_image_url: "",
+  uploaded_image_status: "",
+  uploaded_image_source: "",
+  uploaded_image_name: "",
+  active_image_source: "",
+}
       }
       next.slides[slideIndex].bullets = Array.isArray(
         next.slides[slideIndex].bullets
@@ -2322,13 +2474,15 @@ export default function ResourcesPage() {
                           const artworkChip = String(
                             slide?.artwork_chip || ""
                           ).trim();
-                          const generatedImageUrl = String(
-                            slide?.generated_image_url || ""
-                          ).trim();
-                          const imageSource = String(
-                            slide?.generated_image_source || ""
-                          ).trim();
+                         const aiImageUrl = String(slide?.generated_image_url || "").trim();
+const uploadedImageUrl = String(slide?.uploaded_image_url || "").trim();
+const activeImageSource = String(
+  slide?.active_image_source || ""
+).trim() as ActiveImageSource;
 
+const displayImage = getDisplayImageForSlide(slide);
+const displayImageUrl = displayImage.url;
+const displayImageSource = displayImage.source;
                           const art = getArtFromVisualDirection(
                             [
                               visualDirection,
@@ -2364,10 +2518,10 @@ export default function ResourcesPage() {
                             >
                               {!editMode && showArtwork ? (
                                 <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                                  {generatedImageUrl ? (
-                                    <>
-                                      <img
-                                        src={generatedImageUrl}
+                                 {displayImageUrl ? (
+  <>
+    <img
+      src={displayImageUrl}
                                         alt={
                                           slide?.slide_title || `Slide ${idx + 1}`
                                         }
@@ -2417,17 +2571,16 @@ export default function ResourcesPage() {
                                   </div>
 
                                   <div className="flex flex-wrap items-center gap-2">
-                                    {!editMode && imageSource ? (
+                                    {!editMode && displayImageSource ? (
                                       <div
                                         className={[
                                           "inline-flex max-w-full items-center rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
                                           theme.badge,
                                         ].join(" ")}
                                       >
-                                        {imageSource === "upload"
-                                          ? "Custom artwork"
-                                          : "AI artwork"}
-                                      </div>
+                                        {displayImageSource === "upload"
+  ? "Custom artwork active"
+  : "AI artwork active"}                                      </div>
                                     ) : null}
 
                                     {!editMode ? (
@@ -2466,78 +2619,139 @@ export default function ResourcesPage() {
                                 )}
 
                                 {!editMode ? (
-                                  <div className="mt-4 flex flex-wrap gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        generateSlideImage(
-                                          selected as Resource,
-                                          idx
-                                        )
-                                      }
-                                      disabled={isGeneratingImage || isUploadingImage}
-                                      className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-                                    >
-                                      {isGeneratingImage
-                                        ? "Generating…"
-                                        : generatedImageUrl && imageSource === "ai"
-                                        ? "Regenerate image"
-                                        : "Generate image"}
-                                    </button>
+                                <>
+  <div className="mt-4 flex flex-wrap gap-2">
+    <button
+      type="button"
+      onClick={() =>
+        generateSlideImage(
+          selected as Resource,
+          idx
+        )
+      }
+      disabled={isGeneratingImage || isUploadingImage}
+      className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+    >
+      {isGeneratingImage
+        ? "Generating…"
+        : aiImageUrl
+        ? "Regenerate AI image"
+        : "Generate AI image"}
+    </button>
 
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        fileInputRefs.current[inputKey]?.click()
-                                      }
-                                      disabled={isGeneratingImage || isUploadingImage}
-                                      className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
-                                    >
-                                      {isUploadingImage
-                                        ? "Uploading…"
-                                        : "Upload artwork"}
-                                    </button>
+    <button
+      type="button"
+      onClick={() =>
+        fileInputRefs.current[inputKey]?.click()
+      }
+      disabled={isGeneratingImage || isUploadingImage}
+      className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
+    >
+      {isUploadingImage
+        ? "Uploading…"
+        : uploadedImageUrl
+        ? "Replace custom artwork"
+        : "Upload artwork"}
+    </button>
 
-                                    <input
-                                      ref={(el) => {
-                                        fileInputRefs.current[inputKey] = el;
-                                      }}
-                                      type="file"
-                                      accept="image/png,image/jpeg,image/jpg,image/webp"
-                                      className="hidden"
-                                      onChange={async (e) => {
-                                        const file = e.target.files?.[0];
-                                        if (!file) return;
-                                        await uploadSlideArtwork(
-                                          selected as Resource,
-                                          idx,
-                                          file
-                                        );
-                                        e.currentTarget.value = "";
-                                      }}
-                                    />
+    <input
+      ref={(el) => {
+        fileInputRefs.current[inputKey] = el;
+      }}
+      type="file"
+      accept="image/png,image/jpeg,image/jpg,image/webp"
+      className="hidden"
+      onChange={async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        await uploadSlideArtwork(
+          selected as Resource,
+          idx,
+          file
+        );
+        e.currentTarget.value = "";
+      }}
+    />
+  </div>
 
-                                    {generatedImageUrl ? (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          clearSlideImage(
-                                            selected as Resource,
-                                            idx
-                                          )
-                                        }
-                                        disabled={
-                                          busyAction ===
-                                            `save:${(selected as Resource).id}` ||
-                                          isUploadingImage ||
-                                          isGeneratingImage
-                                        }
-                                        className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-60"
-                                      >
-                                        Remove image
-                                      </button>
-                                    ) : null}
-                                  </div>
+  {(aiImageUrl || uploadedImageUrl) ? (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {aiImageUrl ? (
+        <button
+          type="button"
+          onClick={() =>
+            setActiveSlideImageSource(
+              selected as Resource,
+              idx,
+              "ai"
+            )
+          }
+          disabled={activeImageSource === "ai"}
+          className={[
+            "rounded-full border px-3 py-1.5 text-xs disabled:opacity-60",
+            activeImageSource === "ai"
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+              : "border-slate-600 bg-slate-900 text-slate-100 hover:bg-white/10",
+          ].join(" ")}
+        >
+          Use AI artwork
+        </button>
+      ) : null}
+
+      {uploadedImageUrl ? (
+        <button
+          type="button"
+          onClick={() =>
+            setActiveSlideImageSource(
+              selected as Resource,
+              idx,
+              "upload"
+            )
+          }
+          disabled={activeImageSource === "upload"}
+          className={[
+            "rounded-full border px-3 py-1.5 text-xs disabled:opacity-60",
+            activeImageSource === "upload"
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+              : "border-slate-600 bg-slate-900 text-slate-100 hover:bg-white/10",
+          ].join(" ")}
+        >
+          Use custom artwork
+        </button>
+      ) : null}
+
+      {aiImageUrl ? (
+        <button
+          type="button"
+          onClick={() =>
+            clearAiSlideImage(
+              selected as Resource,
+              idx
+            )
+          }
+          className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+        >
+          Remove AI artwork
+        </button>
+      ) : null}
+
+      {uploadedImageUrl ? (
+        <button
+          type="button"
+          onClick={() =>
+            clearUploadedSlideImage(
+              selected as Resource,
+              idx
+            )
+          }
+          className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10"
+        >
+          Remove custom artwork
+        </button>
+      ) : null}
+    </div>
+  ) : null}
+</>
                                 ) : null}
 
                                 {slide?.slide_goal !== undefined ? (
