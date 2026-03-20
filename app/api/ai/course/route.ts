@@ -72,6 +72,8 @@ export async function POST(req: NextRequest) {
       "Bullets should be practical and specific.",
       "Lesson summaries should read like short teaching paragraphs, not labels.",
       "Exercises and reflection prompts should feel helpful and realistic.",
+      "Instructor notes should help the therapist deliver the module confidently.",
+      "Delivery steps should give a simple step-by-step flow.",
       "Return only valid JSON matching the schema.",
     ].join(" ");
 
@@ -89,14 +91,14 @@ export async function POST(req: NextRequest) {
       "- intended_reader",
       "- 4 learning outcomes",
       "- 4 modules",
-     "each module must include:",
-"  - title",
-"  - summary (clear teaching explanation, written so a therapist can understand it quickly)",
-"  - 3 to 5 teaching bullets (practical, usable)",
-"  - instructor_notes (how to explain this to a client, tone, key cautions)",
-"  - delivery_steps (step-by-step flow for delivering this module in a session)",
-"  - 1 practical exercise (clear and usable)",
-"  - 1 reflection prompt",
+      "- each module must include:",
+      "  - title",
+      "  - summary",
+      "  - 3 to 5 teaching bullets",
+      "  - instructor_notes",
+      "  - delivery_steps",
+      "  - 1 practical exercise",
+      "  - 1 reflection prompt",
       "- closing encouragement",
       "",
       "The structure should be suitable for turning into a downloadable or teachable course pack.",
@@ -124,21 +126,16 @@ export async function POST(req: NextRequest) {
           "closing_encouragement",
         ],
         properties: {
-         properties: {
-  title: { type: "string" },
-  summary: { type: "string" },
-  bullets: {
-    type: "array",
-    minItems: 3,
-    maxItems: 5,
-    items: { type: "string" },
-  },
-  instructor_notes: { type: "string" },
-  delivery_steps: { type: "string" },
-  exercise: { type: "string" },
-  reflection_prompt: { type: "string" },
-},
-                   modules: {
+          title: { type: "string" },
+          summary: { type: "string" },
+          intended_reader: { type: "string" },
+          learning_outcomes: {
+            type: "array",
+            minItems: 4,
+            maxItems: 4,
+            items: { type: "string" },
+          },
+          modules: {
             type: "array",
             minItems: 4,
             maxItems: 4,
@@ -212,7 +209,7 @@ export async function POST(req: NextRequest) {
       learning_outcomes: Array.isArray(parsed?.learning_outcomes)
         ? parsed.learning_outcomes
         : [],
-            sections: Array.isArray(parsed?.modules)
+      sections: Array.isArray(parsed?.modules)
         ? parsed.modules.map((m: any) => ({
             title: String(m?.title || "").trim(),
             bullets: Array.isArray(m?.bullets) ? m.bullets : [],
