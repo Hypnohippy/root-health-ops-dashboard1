@@ -1717,29 +1717,28 @@ async function clearUploadedSlideImage(
     setDraftContent((prev: any) => {
       const next = deepClone(prev || {});
       next.slides = Array.isArray(next.slides) ? next.slides : [];
-      if (!next.slides[slideIndex]) {
-        next.slides[slideIndex] = {
-          {
-  slide_title: "",
-  slide_goal: "",
-  bullets: [],
-  speaker_notes: "",
-  audience_prompt: "",
-  visual_direction: "",
-  image_prompt: "",
-  artwork_label: "",
-  artwork_chip: "",
-  generated_image_url: "",
-  generated_image_prompt: "",
-  generated_image_status: "",
-  generated_image_source: "",
-  uploaded_image_url: "",
-  uploaded_image_status: "",
-  uploaded_image_source: "",
-  uploaded_image_name: "",
-  active_image_source: "",
+     if (!next.slides[slideIndex]) {
+  next.slides[slideIndex] = {
+    slide_title: "",
+    slide_goal: "",
+    bullets: [],
+    speaker_notes: "",
+    audience_prompt: "",
+    visual_direction: "",
+    image_prompt: "",
+    artwork_label: "",
+    artwork_chip: "",
+    generated_image_url: "",
+    generated_image_prompt: "",
+    generated_image_status: "",
+    generated_image_source: "",
+    uploaded_image_url: "",
+    uploaded_image_status: "",
+    uploaded_image_source: "",
+    uploaded_image_name: "",
+    active_image_source: "",
+  };
 }
-      }
       next.slides[slideIndex].bullets = Array.isArray(
         next.slides[slideIndex].bullets
       )
