@@ -3073,10 +3073,11 @@ const slideImproveValue = String(slideImproveInputs[inputKey] || "");
                                   • {String(prompt || "").trim()}
                                 </div>
                               )
-                          )}
+                                                   )}
                         </div>
                       </div>
-                    ) : null}
+                    </>
+                  ) : null}
 
                     {Array.isArray(selectedContent?.action_prompts) &&
                     selectedContent.action_prompts.length > 0 ? (
