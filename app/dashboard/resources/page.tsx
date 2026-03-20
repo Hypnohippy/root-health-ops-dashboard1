@@ -47,8 +47,8 @@ type CreateResourceType =
   | "webinar_outline"
   | "presentation"
   | "guide"
-  | "worksheet";
-
+  | "worksheet"
+  | "course";
 type FillLevel = "skeleton" | "draft" | "ready";
 type PresentationMode = "audience" | "presenter";
 type PresentationTheme = "calm" | "corporate" | "warm" | "dark";
@@ -94,16 +94,16 @@ function defaultTitleForType(type: CreateResourceType) {
   if (type === "webinar_outline") return "New Webinar";
   if (type === "presentation") return "New Presentation";
   if (type === "guide") return "New Guide";
+  if (type === "course") return "New Course";
   return "New Worksheet";
 }
-
 function typeLabel(type: CreateResourceType) {
   if (type === "webinar_outline") return "Webinar";
   if (type === "presentation") return "Presentation";
   if (type === "guide") return "Guide";
+  if (type === "course") return "Course";
   return "Worksheet";
 }
-
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
@@ -853,7 +853,7 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
     return () => clearTimeout(t);
   }, [toast]);
 
-  useEffect(() => {
+    useEffect(() => {
     setCreatorTitle(defaultTitleForType(creatorType));
 
     if (creatorType === "webinar_outline") {
@@ -868,6 +868,9 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
     } else if (creatorType === "worksheet") {
       setCreatorDuration("n/a");
       setCreatorTone("gentle and practical");
+    } else if (creatorType === "course") {
+      setCreatorDuration("n/a");
+      setCreatorTone("supportive and practical");
     }
   }, [creatorType]);
 
@@ -1730,7 +1733,7 @@ async function clearUploadedSlideImage(
         fillLevel: creatorFillLevel,
       };
 
-      if (creatorType === "webinar_outline") {
+            if (creatorType === "webinar_outline") {
         route = "/api/ai/presentation-outline";
         body.duration = creatorDuration.trim() || "30 mins";
         body.deliveryMode = "online";
@@ -1744,6 +1747,8 @@ async function clearUploadedSlideImage(
         route = "/api/ai/guide";
       } else if (creatorType === "worksheet") {
         route = "/api/ai/worksheet";
+      } else if (creatorType === "course") {
+        route = "/api/ai/course";
       }
 
       const aiRes = await fetch(route, {
@@ -1761,7 +1766,7 @@ async function clearUploadedSlideImage(
       let resourceType = creatorType;
       let content: any = null;
 
-      if (creatorType === "webinar_outline") {
+            if (creatorType === "webinar_outline") {
         content = aiData?.presentation || aiData?.outline || null;
       } else if (creatorType === "presentation") {
         content = aiData?.presentation || null;
@@ -1769,8 +1774,9 @@ async function clearUploadedSlideImage(
         content = aiData?.guide || null;
       } else if (creatorType === "worksheet") {
         content = aiData?.worksheet || null;
+      } else if (creatorType === "course") {
+        content = aiData?.course || null;
       }
-
       const saveRes = await fetch("/api/resource-library", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2852,6 +2858,41 @@ async function clearUploadedSlideImage(
                         )}
                       </div>
                     ) : null}
+                                        {Array.isArray(selectedContent?.learning_outcomes) &&
+                    selectedContent.learning_outcomes.length > 0 ? (
+                      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                        <div className="text-sm font-semibold text-emerald-200">
+                          Learning outcomes
+                        </div>
+                        <div className="mt-2 space-y-2">
+                          {selectedContent.learning_outcomes.map(
+                            (item: any, idx: number) =>
+                              editMode && !isTemplate(selected) ? (
+                                <textarea
+                                  key={`${(selected as any).id}-learning-${idx}`}
+                                  value={String(item || "")}
+                                  onChange={(e) =>
+                                    updateStringArrayField(
+                                      "learning_outcomes",
+                                      idx,
+                                      e.target.value
+                                    )
+                                  }
+                                  rows={2}
+                                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                />
+                              ) : (
+                                <div
+                                  key={`${(selected as any).id}-learning-${idx}`}
+                                  className="text-sm text-slate-300"
+                                >
+                                  • {String(item || "").trim()}
+                                </div>
+                              )
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
 
                     {selectedContent?.instructions !== undefined ? (
                       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
@@ -3550,7 +3591,7 @@ async function clearUploadedSlideImage(
                   <label className="block text-xs font-medium text-slate-300">
                     Resource type
                   </label>
-                  <select
+                                   <select
                     value={creatorType}
                     onChange={(e) =>
                       setCreatorType(e.target.value as CreateResourceType)
@@ -3561,7 +3602,8 @@ async function clearUploadedSlideImage(
                     <option value="presentation">Presentation</option>
                     <option value="guide">Guide</option>
                     <option value="worksheet">Worksheet</option>
-                  </select>
+                    <option value="course">Course</option>
+                  </select>               
                 </div>
 
                 <div>
@@ -3642,10 +3684,11 @@ async function clearUploadedSlideImage(
                     onChange={(e) => setCreatorDuration(e.target.value)}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                     placeholder="e.g. 30 mins"
-                    disabled={
-                      creatorType === "guide" || creatorType === "worksheet"
-                    }
-                  />
+                                       disabled={
+                      creatorType === "guide" ||
+                      creatorType === "worksheet" ||
+                      creatorType === "course"
+                    }                  />
                 </div>
               </div>
 
@@ -3667,7 +3710,7 @@ async function clearUploadedSlideImage(
                   What gets created
                 </div>
                 <div className="mt-2">
-                  {creatorType === "webinar_outline" &&
+                                    {creatorType === "webinar_outline" &&
                     "A full webinar deck using the same slide system as presentation: objective, takeaway, slide-by-slide structure, presenter notes, audience prompts, and closing invitation."}
                   {creatorType === "presentation" &&
                     "A slide-by-slide presentation structure with objective, takeaway, presenter notes, audience prompts, slide images, and a closing invitation."}
@@ -3675,6 +3718,8 @@ async function clearUploadedSlideImage(
                     "A readable guide with summary, intended reader, 5 sections, and a closing encouragement."}
                   {creatorType === "worksheet" &&
                     "A practical worksheet with instructions, reflection prompts, action prompts, and a closing note."}
+                  {creatorType === "course" &&
+                    "A structured short course with summary, intended reader, learning outcomes, 4 course modules, and a closing encouragement."}
                 </div>
               </div>
 
