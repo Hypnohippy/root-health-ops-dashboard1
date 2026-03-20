@@ -709,8 +709,10 @@ const [presentationTheme, setPresentationTheme] =
   useState<PresentationTheme>("calm");
 const [showArtwork, setShowArtwork] = useState(true);
 const [slideImproveInputs, setSlideImproveInputs] = useState<
-  Record<string, string>>({});
-
+  Record<string, string>
+>({});
+const [presentationImproveInput, setPresentationImproveInput] = useState("");
+const [improvingPresentation, setImprovingPresentation] = useState(false);
 const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   async function loadOrganisation() {
     try {
@@ -1131,6 +1133,79 @@ async function improveSlide(resource: Resource, slideIndex: number) {
 
   setBusyAction(`improve:${resource.id}:${slideIndex}`);
   setError(null);
+  async function improvePresentation(resource: Resource) {
+  const content = deepClone(resource.content || {});
+  const instruction = String(presentationImproveInput || "").trim();
+
+  if (!instruction) {
+    setError("Please enter an instruction for the presentation improvement.");
+    return;
+  }
+
+  if (!Array.isArray(content?.slides) || !content.slides.length) {
+    setError("This resource does not contain presentation slides.");
+    return;
+  }
+
+  setImprovingPresentation(true);
+  setError(null);
+  setToast(null);
+
+  try {
+    const res = await fetch("/api/ai/improve-presentation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: resource.title,
+        objective: String(content?.objective || "").trim(),
+        promise: String(content?.promise || "").trim(),
+        audience_takeaway: String(content?.audience_takeaway || "").trim(),
+        presentation_style: String(content?.presentation_style || "").trim(),
+        closing_invitation: String(content?.closing_invitation || "").trim(),
+        slides: Array.isArray(content?.slides) ? content.slides : [],
+        instruction,
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.success || !data?.presentation) {
+      throw new Error(data?.error || "Failed to improve presentation");
+    }
+
+    const nextContent = {
+      ...content,
+      title: String(data.presentation.title || resource.title || "").trim(),
+      objective: String(data.presentation.objective || "").trim(),
+      audience_takeaway: String(
+        data.presentation.audience_takeaway || ""
+      ).trim(),
+      presentation_style: String(
+        data.presentation.presentation_style || ""
+      ).trim(),
+      closing_invitation: String(
+        data.presentation.closing_invitation || ""
+      ).trim(),
+      slides: Array.isArray(data.presentation.slides)
+        ? data.presentation.slides
+        : Array.isArray(content?.slides)
+        ? content.slides
+        : [],
+    };
+
+    await persistResourceContent(
+      resource,
+      nextContent,
+      "Presentation improved ✅"
+    );
+
+    setPresentationImproveInput("");
+  } catch (e: any) {
+    setError(e?.message || "Failed to improve presentation");
+  } finally {
+    setImprovingPresentation(false);
+  }
+}
 
   try {
     const res = await fetch("/api/ai/improve-slide", {
@@ -2287,39 +2362,46 @@ async function clearUploadedSlideImage(
                   </div>
                 )}
 
-                {selectedContent ? (
+                               {selectedContent ? (
                   <div className="space-y-4">
-                    {selectedContent?.presentation_style !== undefined ? (
-                      <div
-                        className={["rounded-xl border p-4", theme.styleCard].join(
-                          " "
-                        )}
-                      >
-                        <div className="text-sm font-semibold">
-                          Presentation style
+                    {!editMode && isPresentation && !isTemplate(selected) ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div className="text-sm font-semibold text-slate-200">
+                          Improve entire presentation
                         </div>
-                        {editMode && !isTemplate(selected) ? (
-                          <textarea
-                            value={String(
-                              selectedContent.presentation_style || ""
-                            )}
-                            onChange={(e) =>
-                              setDraftField(
-                                "presentation_style",
-                                e.target.value
-                              )
+                        <div className="mt-1 text-xs text-slate-400">
+                          Example: make the whole thing warmer, shorten it to 20 mins, rewrite for HR leaders, make it more practical
+                        </div>
+
+                        <textarea
+                          value={presentationImproveInput}
+                          onChange={(e) =>
+                            setPresentationImproveInput(e.target.value)
+                          }
+                          rows={3}
+                          className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+                          placeholder="e.g. make the whole presentation warmer and more practical"
+                        />
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              improvePresentation(selected as Resource)
                             }
-                            rows={2}
-                            className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
-                          />
-                        ) : (
-                          <div className="mt-2 text-sm">
-                            {selectedContent.presentation_style}
-                          </div>
-                        )}
+                            disabled={
+                              improvingPresentation ||
+                              !presentationImproveInput.trim()
+                            }
+                            className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                          >
+                            {improvingPresentation
+                              ? "Improving presentation…"
+                              : "Improve presentation"}
+                          </button>
+                        </div>
                       </div>
                     ) : null}
-
                     {selectedContent?.promise !== undefined ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">
