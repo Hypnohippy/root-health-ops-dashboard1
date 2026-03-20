@@ -1218,20 +1218,31 @@ async function clearAiSlideImage(resource: Resource, slideIndex: number) {
       resource,
       slideIndex,
       {
-  generated_image_url: nextImageUrl,
-  generated_image_prompt: String(data?.imagePrompt || "").trim(),
-  generated_image_status: "ready",
-  generated_image_source: "ai",
-  active_image_source:
-    slide.uploaded_image_url && slide.active_image_source === "upload"
-      ? "upload"
-      : "ai",
-  artwork_label: String(
-    data?.artworkLabel || slide?.artwork_label || ""
-  ).trim(),
+        generated_image_url: "",
+        generated_image_prompt: "",
+        generated_image_status: "",
+        generated_image_source: "",
+        active_image_source:
+          slide.active_image_source === "ai" && slide.uploaded_image_url
+            ? "upload"
+            : slide.active_image_source === "ai"
+            ? ""
+            : slide.active_image_source,
+        artwork_generated_at: new Date().toISOString(),
+      },
+      "AI artwork removed ✅"
+    );
+  } catch (e: any) {
+    setError(e?.message || "Failed to remove AI artwork");
+  } finally {
+    setBusyAction(null);
+  }
 }
 
-async function clearUploadedSlideImage(resource: Resource, slideIndex: number) {
+async function clearUploadedSlideImage(
+  resource: Resource,
+  slideIndex: number
+) {
   const content = deepClone(resource.content || {});
   const slides = Array.isArray(content?.slides) ? content.slides : [];
   const slide = getSafeSlide(slides[slideIndex]);
