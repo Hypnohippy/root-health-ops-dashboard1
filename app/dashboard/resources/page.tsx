@@ -172,7 +172,81 @@ function getSafeSlide(slide: any) {
 
   return next;
 }
+function upgradeLegacyResourceContent(content: any) {
+  const next = isObjectLike(content) ? deepClone(content) : {};
 
+  next.presentation_style = String(next.presentation_style || "").trim();
+  next.promise = String(next.promise || "").trim();
+  next.objective = String(next.objective || "").trim();
+  next.summary = String(next.summary || "").trim();
+  next.purpose = String(next.purpose || "").trim();
+  next.audience_takeaway = String(next.audience_takeaway || "").trim();
+  next.intended_reader = String(next.intended_reader || "").trim();
+  next.instructions = String(next.instructions || "").trim();
+  next.closing_invitation = String(next.closing_invitation || "").trim();
+  next.closing_encouragement = String(
+    next.closing_encouragement || ""
+  ).trim();
+  next.closing_note = String(next.closing_note || "").trim();
+
+  if (Array.isArray(next.slides)) {
+    next.slides = next.slides.map((slide: any) => getSafeSlide(slide));
+  }
+
+  if (Array.isArray(next.sections)) {
+    next.sections = next.sections.map((section: any) => ({
+      title: String(section?.title || "").trim(),
+      bullets: Array.isArray(section?.bullets)
+        ? section.bullets.map((b: any) => String(b || "").trim())
+        : [],
+    }));
+  }
+
+  if (Array.isArray(next.reflection_prompts)) {
+    next.reflection_prompts = next.reflection_prompts.map((p: any) =>
+      String(p || "").trim()
+    );
+  }
+
+  if (Array.isArray(next.action_prompts)) {
+    next.action_prompts = next.action_prompts.map((p: any) =>
+      String(p || "").trim()
+    );
+  }
+
+  return next;
+}
+
+function isObjectLike(value: any) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function resourceNeedsLegacyUpgrade(content: any) {
+  if (!isObjectLike(content)) return false;
+
+  const slides = Array.isArray(content?.slides) ? content.slides : [];
+  if (!slides.length) return false;
+
+  return slides.some((slide: any) => {
+    const s = slide && typeof slide === "object" ? slide : {};
+    return (
+      s.uploaded_image_url === undefined ||
+      s.uploaded_image_status === undefined ||
+      s.uploaded_image_source === undefined ||
+      s.uploaded_image_name === undefined ||
+      s.active_image_source === undefined ||
+      s.generated_image_prompt === undefined ||
+      s.generated_image_status === undefined ||
+      s.generated_image_source === undefined ||
+      s.artwork_label === undefined ||
+      s.artwork_chip === undefined ||
+      s.image_prompt === undefined ||
+      s.visual_direction === undefined ||
+      s.audience_prompt === undefined ||
+      s.speaker_notes === undefined
+    );
+  });
+}
 function getDisplayImageForSlide(slide: any) {
   const safe = getSafeSlide(slide);
 
@@ -824,7 +898,7 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
     }
   }, [filteredResources, filteredTemplates, selected, libraryTab]);
 
-  useEffect(() => {
+    useEffect(() => {
     if (!selected || isTemplate(selected)) {
       setEditMode(false);
       setDraftTitle("");
@@ -834,9 +908,10 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
     setEditMode(false);
     setDraftTitle(selected.title || "");
-    setDraftContent(deepClone(selected.content || {}));
+    setDraftContent(
+      deepClone(upgradeLegacyResourceContent(selected.content || {}))
+    );
   }, [selected]);
-
   function isTemplate(item: any): item is StarterTemplate {
     return item?.resource_type === "template";
   }
@@ -1904,6 +1979,24 @@ async function clearUploadedSlideImage(
       return next;
     });
   }
+  async function upgradeLegacyResource(resource: Resource) {
+  const nextContent = upgradeLegacyResourceContent(resource.content || {});
+
+  setBusyAction(`upgrade:${resource.id}`);
+  setError(null);
+
+  try {
+    await persistResourceContent(
+      resource,
+      nextContent,
+      "Older draft upgraded ✅"
+    );
+  } catch (e: any) {
+    setError(e?.message || "Failed to upgrade old draft");
+  } finally {
+    setBusyAction(null);
+  }
+}
   const selectedType = String((selected as any)?.resource_type || "").trim();
   const selectedContent = isTemplate(selected)
     ? selected.outline
@@ -1911,13 +2004,16 @@ async function clearUploadedSlideImage(
     ? draftContent || null
     : (selected as any)?.content || null;
 
-  const isPresentation =
+    const isPresentation =
     !isTemplate(selected) &&
     Array.isArray(selectedContent?.slides) &&
     selectedContent.slides.length > 0;
 
-  const theme = slideThemeClasses(presentationTheme);
+  const needsLegacyUpgrade =
+    !isTemplate(selected) &&
+    resourceNeedsLegacyUpgrade((selected as any)?.content || null);
 
+  const theme = slideThemeClasses(presentationTheme);
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-7xl space-y-6">
@@ -2212,6 +2308,20 @@ async function clearUploadedSlideImage(
                         ? "Generating all…"
                         : "Generate all images"}
                     </button>
+                                        {needsLegacyUpgrade ? (
+                      <button
+                        type="button"
+                        onClick={() => upgradeLegacyResource(selected as Resource)}
+                        disabled={
+                          busyAction === `upgrade:${(selected as Resource).id}`
+                        }
+                        className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/20 disabled:opacity-60"
+                      >
+                        {busyAction === `upgrade:${(selected as Resource).id}`
+                          ? "Upgrading…"
+                          : "Upgrade old draft"}
+                      </button>
+                    ) : null}
 
                     <button
                       type="button"
