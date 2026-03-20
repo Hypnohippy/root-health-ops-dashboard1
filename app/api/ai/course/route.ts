@@ -138,22 +138,22 @@ export async function POST(req: NextRequest) {
   exercise: { type: "string" },
   reflection_prompt: { type: "string" },
 },
-          modules: {
+                   modules: {
             type: "array",
             minItems: 4,
             maxItems: 4,
             items: {
               type: "object",
               additionalProperties: false,
-             required: [
-  "title",
-  "summary",
-  "bullets",
-  "instructor_notes",
-  "delivery_steps",
-  "exercise",
-  "reflection_prompt",
-],
+              required: [
+                "title",
+                "summary",
+                "bullets",
+                "instructor_notes",
+                "delivery_steps",
+                "exercise",
+                "reflection_prompt",
+              ],
               properties: {
                 title: { type: "string" },
                 summary: { type: "string" },
@@ -163,6 +163,8 @@ export async function POST(req: NextRequest) {
                   maxItems: 5,
                   items: { type: "string" },
                 },
+                instructor_notes: { type: "string" },
+                delivery_steps: { type: "string" },
                 exercise: { type: "string" },
                 reflection_prompt: { type: "string" },
               },
@@ -210,11 +212,13 @@ export async function POST(req: NextRequest) {
       learning_outcomes: Array.isArray(parsed?.learning_outcomes)
         ? parsed.learning_outcomes
         : [],
-      sections: Array.isArray(parsed?.modules)
+            sections: Array.isArray(parsed?.modules)
         ? parsed.modules.map((m: any) => ({
             title: String(m?.title || "").trim(),
             bullets: Array.isArray(m?.bullets) ? m.bullets : [],
             summary: String(m?.summary || "").trim(),
+            instructor_notes: String(m?.instructor_notes || "").trim(),
+            delivery_steps: String(m?.delivery_steps || "").trim(),
             exercise: String(m?.exercise || "").trim(),
             reflection_prompt: String(m?.reflection_prompt || "").trim(),
           }))
