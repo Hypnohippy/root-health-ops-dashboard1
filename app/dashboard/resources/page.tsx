@@ -2539,7 +2539,7 @@ async function clearUploadedSlideImage(
                       </div>
                     ) : null}
 
-                    {Array.isArray(selectedContent?.slides) &&
+                                        {Array.isArray(selectedContent?.slides) &&
                     selectedContent.slides.length > 0 ? (
                       <div className="space-y-6">
                         {selectedContent.slides.map((rawSlide: any, idx: number) => {
@@ -2556,15 +2556,20 @@ async function clearUploadedSlideImage(
                           const artworkChip = String(
                             slide?.artwork_chip || ""
                           ).trim();
-                         const aiImageUrl = String(slide?.generated_image_url || "").trim();
-const uploadedImageUrl = String(slide?.uploaded_image_url || "").trim();
-const activeImageSource = String(
-  slide?.active_image_source || ""
-).trim() as ActiveImageSource;
+                          const aiImageUrl = String(
+                            slide?.generated_image_url || ""
+                          ).trim();
+                          const uploadedImageUrl = String(
+                            slide?.uploaded_image_url || ""
+                          ).trim();
+                          const activeImageSource = String(
+                            slide?.active_image_source || ""
+                          ).trim() as ActiveImageSource;
 
-const displayImage = getDisplayImageForSlide(slide);
-const displayImageUrl = displayImage.url;
-const displayImageSource = displayImage.source;
+                          const displayImage = getDisplayImageForSlide(slide);
+                          const displayImageUrl = displayImage.url;
+                          const displayImageSource = displayImage.source;
+
                           const art = getArtFromVisualDirection(
                             [
                               visualDirection,
@@ -2579,19 +2584,22 @@ const displayImageSource = displayImage.source;
                           );
 
                           const isGeneratingImage =
-  busyAction ===
-  `image:${(selected as Resource).id}:${idx}`;
+                            busyAction ===
+                            `image:${(selected as Resource).id}:${idx}`;
 
-const isUploadingImage =
-  busyAction ===
-  `upload:${(selected as Resource).id}:${idx}`;
+                          const isUploadingImage =
+                            busyAction ===
+                            `upload:${(selected as Resource).id}:${idx}`;
 
-const isImprovingSlide =
-  busyAction ===
-  `improve:${(selected as Resource).id}:${idx}`;
+                          const isImprovingSlide =
+                            busyAction ===
+                            `improve:${(selected as Resource).id}:${idx}`;
 
-const inputKey = `${(selected as Resource).id}:${idx}`;
-const slideImproveValue = String(slideImproveInputs[inputKey] || "");
+                          const inputKey = `${(selected as Resource).id}:${idx}`;
+                          const slideImproveValue = String(
+                            slideImproveInputs[inputKey] || ""
+                          );
+
                           return (
                             <div
                               key={`${(selected as any).id}-slide-${idx}`}
@@ -2604,10 +2612,10 @@ const slideImproveValue = String(slideImproveInputs[inputKey] || "");
                             >
                               {!editMode && showArtwork ? (
                                 <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                                 {displayImageUrl ? (
-  <>
-    <img
-      src={displayImageUrl}
+                                  {displayImageUrl ? (
+                                    <>
+                                      <img
+                                        src={displayImageUrl}
                                         alt={
                                           slide?.slide_title || `Slide ${idx + 1}`
                                         }
@@ -2665,54 +2673,87 @@ const slideImproveValue = String(slideImproveInputs[inputKey] || "");
                                         ].join(" ")}
                                       >
                                         {displayImageSource === "upload"
-  ? "Custom artwork active"
-  : "AI artwork active"}                                      </div>
+                                          ? "Custom artwork active"
+                                          : "AI artwork active"}
+                                      </div>
                                     ) : null}
 
                                     {!editMode ? (
-  <div
-    className={[
-      "inline-flex max-w-full items-center rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
-      theme.badge,
-    ].join(" ")}
-  >
-    <span className="whitespace-nowrap">
-      {presentationMode === "presenter"
-        ? "Presenter view"
-        : "Audience view"}
-    </span>
-  </div>
-) : null}
-                             {!editMode && (
-  <div className="mt-4">
-    <div className="text-xs text-slate-400 mb-1">
-      AI improve this slide
-    </div>
+                                      <div
+                                        className={[
+                                          "inline-flex max-w-full items-center rounded-full border px-3 py-1 text-[10px] uppercase tracking-wide",
+                                          theme.badge,
+                                        ].join(" ")}
+                                      >
+                                        <span className="whitespace-nowrap">
+                                          {presentationMode === "presenter"
+                                            ? "Presenter view"
+                                            : "Audience view"}
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </div>
 
-    <textarea
-      value={slideImproveValue}
-      onChange={(e) =>
-        setSlideImproveInputs((prev) => ({
-          ...prev,
-          [inputKey]: e.target.value,
-        }))
-      }
-      rows={2}
-      className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-      placeholder="e.g. make this calmer"
-    />
+                                {editMode && !isTemplate(selected) ? (
+                                  <input
+                                    value={String(slide?.slide_title || "")}
+                                    onChange={(e) =>
+                                      updateSlideField(
+                                        idx,
+                                        "slide_title",
+                                        e.target.value
+                                      )
+                                    }
+                                    className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xl font-semibold text-slate-100"
+                                  />
+                                ) : (
+                                  <div className="mt-3 text-2xl md:text-3xl font-semibold leading-tight max-w-3xl">
+                                    {slide?.slide_title || `Slide ${idx + 1}`}
+                                  </div>
+                                )}
 
-    <button
-      type="button"
-      onClick={() => improveSlide(selected as Resource, idx)}
-      disabled={!slideImproveValue.trim() || isImprovingSlide}
-      className="mt-2 rounded bg-emerald-500 px-3 py-1 text-xs text-black disabled:opacity-60"
-    >
-      {isImprovingSlide ? "Improving…" : "Improve slide"}
-    </button>
-  </div>
-)}
-                                    {slide?.slide_goal !== undefined ? (
+                                {!editMode && (
+                                  <div className="mt-4">
+                                    <div className="text-xs text-slate-400 mb-1">
+                                      AI improve this slide
+                                    </div>
+
+                                    <textarea
+                                      value={slideImproveValue}
+                                      onChange={(e) =>
+                                        setSlideImproveInputs((prev) => ({
+                                          ...prev,
+                                          [inputKey]: e.target.value,
+                                        }))
+                                      }
+                                      rows={2}
+                                      className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                                      placeholder="e.g. make this calmer"
+                                    />
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        improveSlide(
+                                          selected as Resource,
+                                          idx
+                                        )
+                                      }
+                                      disabled={
+                                        !slideImproveValue.trim() ||
+                                        isImprovingSlide
+                                      }
+                                      className="mt-2 rounded bg-emerald-500 px-3 py-1 text-xs text-black disabled:opacity-60"
+                                    >
+                                      {isImprovingSlide
+                                        ? "Improving…"
+                                        : "Improve slide"}
+                                    </button>
+                                  </div>
+                                )}
+
+                                {slide?.slide_goal !== undefined ? (
                                   <div className="mt-4">
                                     <div className="text-[11px] font-semibold uppercase tracking-wide opacity-60">
                                       Slide goal
@@ -2906,7 +2947,7 @@ const slideImproveValue = String(slideImproveInputs[inputKey] || "");
                           );
                         })}
                       </div>
-                                       ) : null}
+                    ) : null}
 
                     {Array.isArray(selectedContent?.reflection_prompts) &&
                     selectedContent.reflection_prompts.length > 0 ? (
