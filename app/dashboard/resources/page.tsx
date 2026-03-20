@@ -1997,52 +1997,110 @@ async function clearUploadedSlideImage(
     setBusyAction(null);
   }
 }
-  function downloadResourceAsPdf(resource: Resource) {
+ function downloadResourceAsPdf(resource: Resource) {
   const content = resource?.content || {};
   const slides = Array.isArray(content?.slides) ? content.slides : [];
+
+  const escapeHtml = (value: unknown) =>
+    String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const printDate = new Date().toLocaleDateString("en-GB");
 
   let html = `
     <html>
       <head>
-        <title>${resource.title}</title>
+        <title>${escapeHtml(resource.title)}</title>
         <style>
           body {
             font-family: Arial, sans-serif;
             padding: 40px;
-            line-height: 1.6;
+            background: #f5f7fb;
+            color: #0f172a;
           }
+
+          .page {
+            background: white;
+            padding: 40px;
+            margin-bottom: 20px;
+            page-break-after: always;
+          }
+
+          .cover {
+            background: linear-gradient(135deg, #ecfdf5, #eff6ff);
+          }
+
           h1 {
             font-size: 28px;
             margin-bottom: 10px;
           }
+
           h2 {
-            margin-top: 30px;
+            margin-top: 20px;
             font-size: 20px;
           }
-          .slide {
-            page-break-after: always;
-            margin-bottom: 40px;
+
+          .meta {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
           }
+
           ul {
             padding-left: 20px;
           }
         </style>
       </head>
       <body>
-        <h1>${resource.title}</h1>
-        <p>${content?.objective || ""}</p>
+  `;
+
+  html += `
+    <div class="page cover">
+      <h1>${escapeHtml(resource.title)}</h1>
+      <p>${escapeHtml(content?.objective || "")}</p>
+
+      <div class="meta">
+        <strong>Audience takeaway:</strong><br/>
+        ${escapeHtml(content?.audience_takeaway || "")}
+      </div>
+
+      <div class="meta">
+        <strong>Generated:</strong> ${printDate}
+      </div>
+    </div>
   `;
 
   slides.forEach((slide: any, i: number) => {
     html += `
-      <div class="slide">
-        <h2>Slide ${i + 1}: ${slide?.slide_title || ""}</h2>
-        <p>${slide?.slide_goal || ""}</p>
+      <div class="page">
+        <h2>Slide ${i + 1}: ${escapeHtml(slide?.slide_title || "")}</h2>
+        <p>${escapeHtml(slide?.slide_goal || "")}</p>
+
         <ul>
           ${(slide?.bullets || [])
-            .map((b: string) => `<li>${b}</li>`)
+            .map((b: string) => `<li>${escapeHtml(b)}</li>`)
             .join("")}
         </ul>
+
+        ${
+          slide?.speaker_notes
+            ? `<div class="meta"><strong>Speaker notes:</strong><br/>${escapeHtml(
+                slide.speaker_notes
+              )}</div>`
+            : ""
+        }
+
+        ${
+          slide?.audience_prompt
+            ? `<div class="meta"><strong>Audience prompt:</strong><br/>${escapeHtml(
+                slide.audience_prompt
+              )}</div>`
+            : ""
+        }
       </div>
     `;
   });
@@ -2058,8 +2116,10 @@ async function clearUploadedSlideImage(
   win.document.write(html);
   win.document.close();
 
-  win.focus();
-  win.print();
+  setTimeout(() => {
+    win.focus();
+    win.print();
+  }, 300);
 }
   const selectedType = String((selected as any)?.resource_type || "").trim();
   const selectedContent = isTemplate(selected)
