@@ -1904,7 +1904,6 @@ async function clearUploadedSlideImage(
       return next;
     });
   }
-
   const selectedType = String((selected as any)?.resource_type || "").trim();
   const selectedContent = isTemplate(selected)
     ? selected.outline
