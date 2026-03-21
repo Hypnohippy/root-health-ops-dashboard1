@@ -2916,7 +2916,7 @@ async function clearUploadedSlideImage(
                       </div>
                     ) : null}
 
-                    {Array.isArray(selectedContent?.sections) &&
+                                        {Array.isArray(selectedContent?.sections) &&
                     selectedContent.sections.length > 0 ? (
                       <div className="space-y-3">
                         {selectedContent.sections.map((section: any, idx: number) => (
@@ -2938,7 +2938,43 @@ async function clearUploadedSlideImage(
                               </div>
                             )}
 
-                            <div className="mt-2 space-y-2">
+                            {section?.summary !== undefined ? (
+                              <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/50 p-3">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                  Module summary
+                                </div>
+                                {editMode && !isTemplate(selected) ? (
+                                  <textarea
+                                    value={String(section?.summary || "")}
+                                    onChange={(e) =>
+                                      setDraftContent((prev: any) => {
+                                        const next = deepClone(prev || {});
+                                        next.sections = Array.isArray(next.sections)
+                                          ? next.sections
+                                          : [];
+                                        if (!next.sections[idx]) {
+                                          next.sections[idx] = {
+                                            title: "",
+                                            bullets: [],
+                                          };
+                                        }
+                                        next.sections[idx].summary =
+                                          e.target.value;
+                                        return next;
+                                      })
+                                    }
+                                    rows={4}
+                                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                  />
+                                ) : (
+                                  <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+                                    {String(section?.summary || "").trim()}
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
+
+                            <div className="mt-3 space-y-2">
                               {Array.isArray(section?.bullets) &&
                                 section.bullets.map(
                                   (bullet: any, bulletIdx: number) =>
@@ -2966,6 +3002,162 @@ async function clearUploadedSlideImage(
                                     )
                                 )}
                             </div>
+
+                            {section?.instructor_notes !== undefined ? (
+                              <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
+                                  Instructor notes
+                                </div>
+                                {editMode && !isTemplate(selected) ? (
+                                  <textarea
+                                    value={String(
+                                      section?.instructor_notes || ""
+                                    )}
+                                    onChange={(e) =>
+                                      setDraftContent((prev: any) => {
+                                        const next = deepClone(prev || {});
+                                        next.sections = Array.isArray(next.sections)
+                                          ? next.sections
+                                          : [];
+                                        if (!next.sections[idx]) {
+                                          next.sections[idx] = {
+                                            title: "",
+                                            bullets: [],
+                                          };
+                                        }
+                                        next.sections[idx].instructor_notes =
+                                          e.target.value;
+                                        return next;
+                                      })
+                                    }
+                                    rows={5}
+                                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                  />
+                                ) : (
+                                  <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+                                    {String(
+                                      section?.instructor_notes || ""
+                                    ).trim()}
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
+
+                            {section?.delivery_steps !== undefined ? (
+                              <div className="mt-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-cyan-300">
+                                  Delivery steps
+                                </div>
+                                {editMode && !isTemplate(selected) ? (
+                                  <textarea
+                                    value={String(
+                                      section?.delivery_steps || ""
+                                    )}
+                                    onChange={(e) =>
+                                      setDraftContent((prev: any) => {
+                                        const next = deepClone(prev || {});
+                                        next.sections = Array.isArray(next.sections)
+                                          ? next.sections
+                                          : [];
+                                        if (!next.sections[idx]) {
+                                          next.sections[idx] = {
+                                            title: "",
+                                            bullets: [],
+                                          };
+                                        }
+                                        next.sections[idx].delivery_steps =
+                                          e.target.value;
+                                        return next;
+                                      })
+                                    }
+                                    rows={5}
+                                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                  />
+                                ) : (
+                                  <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+                                    {String(
+                                      section?.delivery_steps || ""
+                                    ).trim()}
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
+
+                            {section?.exercise !== undefined ? (
+                              <div className="mt-3 rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-violet-300">
+                                  Practical exercise
+                                </div>
+                                {editMode && !isTemplate(selected) ? (
+                                  <textarea
+                                    value={String(section?.exercise || "")}
+                                    onChange={(e) =>
+                                      setDraftContent((prev: any) => {
+                                        const next = deepClone(prev || {});
+                                        next.sections = Array.isArray(next.sections)
+                                          ? next.sections
+                                          : [];
+                                        if (!next.sections[idx]) {
+                                          next.sections[idx] = {
+                                            title: "",
+                                            bullets: [],
+                                          };
+                                        }
+                                        next.sections[idx].exercise =
+                                          e.target.value;
+                                        return next;
+                                      })
+                                    }
+                                    rows={4}
+                                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                  />
+                                ) : (
+                                  <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+                                    {String(section?.exercise || "").trim()}
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
+
+                            {section?.reflection_prompt !== undefined ? (
+                              <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-300">
+                                  Reflection prompt
+                                </div>
+                                {editMode && !isTemplate(selected) ? (
+                                  <textarea
+                                    value={String(
+                                      section?.reflection_prompt || ""
+                                    )}
+                                    onChange={(e) =>
+                                      setDraftContent((prev: any) => {
+                                        const next = deepClone(prev || {});
+                                        next.sections = Array.isArray(next.sections)
+                                          ? next.sections
+                                          : [];
+                                        if (!next.sections[idx]) {
+                                          next.sections[idx] = {
+                                            title: "",
+                                            bullets: [],
+                                          };
+                                        }
+                                        next.sections[idx].reflection_prompt =
+                                          e.target.value;
+                                        return next;
+                                      })
+                                    }
+                                    rows={3}
+                                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                                  />
+                                ) : (
+                                  <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+                                    {String(
+                                      section?.reflection_prompt || ""
+                                    ).trim()}
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>
