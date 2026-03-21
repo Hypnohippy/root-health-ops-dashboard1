@@ -2006,6 +2006,13 @@ async function clearUploadedSlideImage(
  function downloadResourceAsPdf(resource: Resource) {
   const content = resource?.content || {};
   const slides = Array.isArray(content?.slides) ? content.slides : [];
+  const sections = Array.isArray(content?.sections) ? content.sections : [];
+  const reflectionPrompts = Array.isArray(content?.reflection_prompts)
+    ? content.reflection_prompts
+    : [];
+  const actionPrompts = Array.isArray(content?.action_prompts)
+    ? content.action_prompts
+    : [];
 
   const escapeHtml = (value: unknown) =>
     String(value || "")
@@ -2015,49 +2022,299 @@ async function clearUploadedSlideImage(
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
 
-  const printDate = new Date().toLocaleDateString("en-GB");
+  const printDate = new Date().toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
 
   let html = `
     <html>
       <head>
-        <title>${escapeHtml(resource.title)}</title>
+        <title>${escapeHtml(resource.title || "Resource")}</title>
         <style>
-          body {
-            font-family: Arial, sans-serif;
-            padding: 40px;
+          @page {
+            size: A4;
+            margin: 18mm;
+          }
+
+          * {
+            box-sizing: border-box;
+          }
+
+          html, body {
+            margin: 0;
+            padding: 0;
             background: #f5f7fb;
             color: #0f172a;
+            font-family: Arial, Helvetica, sans-serif;
+            line-height: 1.5;
+          }
+
+          body {
+            padding: 0;
           }
 
           .page {
             background: white;
-            padding: 40px;
-            margin-bottom: 20px;
-            page-break-after: always;
+            width: 100%;
+            max-width: 210mm;
+            margin: 0 auto 12mm auto;
+            padding: 0;
           }
 
           .cover {
-            background: linear-gradient(135deg, #ecfdf5, #eff6ff);
+            min-height: 250mm;
+            padding: 28mm 22mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            background:
+              linear-gradient(135deg, #ecfdf5 0%, #f8fafc 45%, #eff6ff 100%);
+            border: 1px solid #dbeafe;
           }
 
-          h1 {
-            font-size: 28px;
+          .cover-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+          }
+
+          .brand {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #059669;
+          }
+
+          .resource-type {
+            font-size: 12px;
+            color: #475569;
+            text-transform: capitalize;
+          }
+
+          .cover-title {
+            margin: 18mm 0 8mm 0;
+            font-size: 30px;
+            line-height: 1.2;
+            font-weight: 700;
+            color: #0f172a;
+          }
+
+          .cover-subtitle {
+            font-size: 15px;
+            color: #334155;
+            max-width: 140mm;
+          }
+
+          .cover-meta {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 14mm;
+          }
+
+          .meta-card {
+            border: 1px solid #dbeafe;
+            background: rgba(255,255,255,0.85);
+            border-radius: 12px;
+            padding: 12px;
+          }
+
+          .meta-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #64748b;
+            margin-bottom: 6px;
+          }
+
+          .meta-value {
+            font-size: 14px;
+            color: #0f172a;
+          }
+
+          .cover-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20mm;
+            font-size: 12px;
+            color: #64748b;
+          }
+
+          .content-page {
+            padding: 18mm 18mm 16mm 18mm;
+            border: 1px solid #e2e8f0;
+            page-break-after: always;
+          }
+
+          .content-page:last-child {
+            page-break-after: auto;
+          }
+
+          .page-title {
+            font-size: 22px;
+            font-weight: 700;
+            margin: 0 0 6px 0;
+            color: #0f172a;
+          }
+
+          .page-kicker {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #059669;
             margin-bottom: 10px;
           }
 
-          h2 {
-            margin-top: 20px;
-            font-size: 20px;
+          .muted {
+            color: #475569;
+            font-size: 14px;
           }
 
-          .meta {
-            margin-top: 20px;
-            padding: 10px;
-            border: 1px solid #ddd;
+          .block {
+            margin-top: 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 12px 14px;
+            background: #ffffff;
+          }
+
+          .block.soft {
+            background: #f8fafc;
+          }
+
+          .block.green {
+            background: #f0fdf4;
+            border-color: #bbf7d0;
+          }
+
+          .block.emerald {
+            background: #ecfdf5;
+            border-color: #a7f3d0;
+          }
+
+          .block.cyan {
+            background: #ecfeff;
+            border-color: #a5f3fc;
+          }
+
+          .block.violet {
+            background: #f5f3ff;
+            border-color: #c4b5fd;
+          }
+
+          .block.amber {
+            background: #fffbeb;
+            border-color: #fcd34d;
+          }
+
+          .block-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #64748b;
+            margin-bottom: 8px;
+          }
+
+          .block-text {
+            font-size: 14px;
+            color: #0f172a;
+            white-space: pre-wrap;
+          }
+
+          .slide-card {
+            border: 1px solid #dbeafe;
+            border-radius: 16px;
+            padding: 14px 16px;
+            margin-top: 14px;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            page-break-inside: avoid;
+          }
+
+          .slide-number {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #059669;
+            margin-bottom: 6px;
+          }
+
+          .slide-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #0f172a;
+            margin: 0 0 8px 0;
+          }
+
+          .slide-goal {
+            font-size: 14px;
+            color: #334155;
+            margin-bottom: 10px;
           }
 
           ul {
-            padding-left: 20px;
+            margin: 8px 0 0 18px;
+            padding: 0;
+          }
+
+          li {
+            margin-bottom: 6px;
+            font-size: 14px;
+            color: #0f172a;
+          }
+
+          .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 12px;
+          }
+
+          .small {
+            font-size: 13px;
+          }
+
+          .footer-note {
+            margin-top: 14px;
+            font-size: 11px;
+            color: #64748b;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 8px;
+          }
+
+          .section-card {
+            margin-top: 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 12px 14px;
+            background: #fff;
+            page-break-inside: avoid;
+          }
+
+          .section-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: #0f172a;
+          }
+
+          @media print {
+            html, body {
+              background: white;
+            }
+
+            .page {
+              margin: 0;
+              max-width: none;
+            }
           }
         </style>
       </head>
@@ -2066,50 +2323,395 @@ async function clearUploadedSlideImage(
 
   html += `
     <div class="page cover">
-      <h1>${escapeHtml(resource.title)}</h1>
-      <p>${escapeHtml(content?.objective || "")}</p>
+      <div>
+        <div class="cover-top">
+          <div class="brand">Root Health Ops</div>
+          <div class="resource-type">${escapeHtml(
+            String(resource.resource_type || "resource").replace(/_/g, " ")
+          )}</div>
+        </div>
 
-      <div class="meta">
-        <strong>Audience takeaway:</strong><br/>
-        ${escapeHtml(content?.audience_takeaway || "")}
+        <div class="cover-title">${escapeHtml(resource.title || "Untitled Resource")}</div>
+
+        <div class="cover-subtitle">
+          ${escapeHtml(
+            content?.objective ||
+              content?.promise ||
+              content?.summary ||
+              "Professional export prepared for review, storage, printing, or presentation."
+          )}
+        </div>
+
+        <div class="cover-meta">
+          <div class="meta-card">
+            <div class="meta-label">Audience takeaway</div>
+            <div class="meta-value">${escapeHtml(
+              content?.audience_takeaway || "Not specified"
+            )}</div>
+          </div>
+
+          <div class="meta-card">
+            <div class="meta-label">Presentation style</div>
+            <div class="meta-value">${escapeHtml(
+              content?.presentation_style ||
+                content?.purpose ||
+                "Professional"
+            )}</div>
+          </div>
+        </div>
       </div>
 
-      <div class="meta">
-        <strong>Generated:</strong> ${printDate}
+      <div class="cover-footer">
+        <div>Prepared from Root Health Ops</div>
+        <div>${escapeHtml(printDate)}</div>
       </div>
     </div>
   `;
 
-  slides.forEach((slide: any, i: number) => {
+  if (slides.length > 0) {
     html += `
-      <div class="page">
-        <h2>Slide ${i + 1}: ${escapeHtml(slide?.slide_title || "")}</h2>
-        <p>${escapeHtml(slide?.slide_goal || "")}</p>
-
-        <ul>
-          ${(slide?.bullets || [])
-            .map((b: string) => `<li>${escapeHtml(b)}</li>`)
-            .join("")}
-        </ul>
-
+      <div class="page content-page">
+        <div class="page-kicker">Presentation</div>
+        <div class="page-title">${escapeHtml(resource.title || "")}</div>
         ${
-          slide?.speaker_notes
-            ? `<div class="meta"><strong>Speaker notes:</strong><br/>${escapeHtml(
-                slide.speaker_notes
-              )}</div>`
+          content?.objective
+            ? `<div class="muted">${escapeHtml(content.objective)}</div>`
             : ""
         }
 
         ${
-          slide?.audience_prompt
-            ? `<div class="meta"><strong>Audience prompt:</strong><br/>${escapeHtml(
-                slide.audience_prompt
-              )}</div>`
+          content?.audience_takeaway
+            ? `
+              <div class="block green">
+                <div class="block-title">Audience takeaway</div>
+                <div class="block-text">${escapeHtml(
+                  content.audience_takeaway
+                )}</div>
+              </div>
+            `
+            : ""
+        }
+
+        ${slides
+          .map((slide: any, i: number) => {
+            const bullets = Array.isArray(slide?.bullets) ? slide.bullets : [];
+
+            return `
+              <div class="slide-card">
+                <div class="slide-number">Slide ${i + 1}</div>
+                <div class="slide-title">${escapeHtml(
+                  slide?.slide_title || `Slide ${i + 1}`
+                )}</div>
+
+                ${
+                  slide?.slide_goal
+                    ? `<div class="slide-goal">${escapeHtml(
+                        slide.slide_goal
+                      )}</div>`
+                    : ""
+                }
+
+                ${
+                  bullets.length
+                    ? `<ul>${bullets
+                        .map((b: string) => `<li>${escapeHtml(b)}</li>`)
+                        .join("")}</ul>`
+                    : ""
+                }
+
+                <div class="two-col">
+                  ${
+                    slide?.speaker_notes
+                      ? `
+                        <div class="block soft">
+                          <div class="block-title">Speaker notes</div>
+                          <div class="block-text small">${escapeHtml(
+                            slide.speaker_notes
+                          )}</div>
+                        </div>
+                      `
+                      : `<div></div>`
+                  }
+
+                  ${
+                    slide?.audience_prompt
+                      ? `
+                        <div class="block soft">
+                          <div class="block-title">Audience prompt</div>
+                          <div class="block-text small">${escapeHtml(
+                            slide.audience_prompt
+                          )}</div>
+                        </div>
+                      `
+                      : `<div></div>`
+                  }
+                </div>
+
+                ${
+                  slide?.visual_direction || slide?.image_prompt
+                    ? `
+                      <div class="footer-note">
+                        ${
+                          slide?.visual_direction
+                            ? `Visual direction: ${escapeHtml(
+                                slide.visual_direction
+                              )}`
+                            : ""
+                        }
+                        ${
+                          slide?.visual_direction && slide?.image_prompt
+                            ? " • "
+                            : ""
+                        }
+                        ${
+                          slide?.image_prompt
+                            ? `Image prompt: ${escapeHtml(slide.image_prompt)}`
+                            : ""
+                        }
+                      </div>
+                    `
+                    : ""
+                }
+              </div>
+            `;
+          })
+          .join("")}
+
+        ${
+          content?.closing_invitation
+            ? `
+              <div class="block green">
+                <div class="block-title">Closing invitation</div>
+                <div class="block-text">${escapeHtml(
+                  content.closing_invitation
+                )}</div>
+              </div>
+            `
             : ""
         }
       </div>
     `;
-  });
+  }
+
+  if (sections.length > 0) {
+    html += `
+      <div class="page content-page">
+        <div class="page-kicker">${
+          String(resource.resource_type || "") === "course"
+            ? "Course"
+            : "Structured content"
+        }</div>
+        <div class="page-title">${escapeHtml(resource.title || "")}</div>
+
+        ${
+          content?.summary
+            ? `
+              <div class="block">
+                <div class="block-title">Summary</div>
+                <div class="block-text">${escapeHtml(content.summary)}</div>
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          content?.intended_reader
+            ? `
+              <div class="block soft">
+                <div class="block-title">Intended reader</div>
+                <div class="block-text">${escapeHtml(
+                  content.intended_reader
+                )}</div>
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          Array.isArray(content?.learning_outcomes) &&
+          content.learning_outcomes.length > 0
+            ? `
+              <div class="block green">
+                <div class="block-title">Learning outcomes</div>
+                <ul>
+                  ${content.learning_outcomes
+                    .map((item: string) => `<li>${escapeHtml(item)}</li>`)
+                    .join("")}
+                </ul>
+              </div>
+            `
+            : ""
+        }
+
+        ${sections
+          .map((section: any, i: number) => {
+            const bullets = Array.isArray(section?.bullets)
+              ? section.bullets
+              : [];
+
+            return `
+              <div class="section-card">
+                <div class="section-title">${i + 1}. ${escapeHtml(
+                  section?.title || "Untitled section"
+                )}</div>
+
+                ${
+                  section?.summary
+                    ? `
+                      <div class="block soft">
+                        <div class="block-title">Module summary</div>
+                        <div class="block-text">${escapeHtml(
+                          section.summary
+                        )}</div>
+                      </div>
+                    `
+                    : ""
+                }
+
+                ${
+                  bullets.length
+                    ? `<ul>${bullets
+                        .map((b: string) => `<li>${escapeHtml(b)}</li>`)
+                        .join("")}</ul>`
+                    : ""
+                }
+
+                ${
+                  section?.instructor_notes
+                    ? `
+                      <div class="block emerald">
+                        <div class="block-title">Instructor notes</div>
+                        <div class="block-text">${escapeHtml(
+                          section.instructor_notes
+                        )}</div>
+                      </div>
+                    `
+                    : ""
+                }
+
+                ${
+                  section?.delivery_steps
+                    ? `
+                      <div class="block cyan">
+                        <div class="block-title">Delivery steps</div>
+                        <div class="block-text">${escapeHtml(
+                          section.delivery_steps
+                        )}</div>
+                      </div>
+                    `
+                    : ""
+                }
+
+                ${
+                  section?.exercise
+                    ? `
+                      <div class="block violet">
+                        <div class="block-title">Practical exercise</div>
+                        <div class="block-text">${escapeHtml(
+                          section.exercise
+                        )}</div>
+                      </div>
+                    `
+                    : ""
+                }
+
+                ${
+                  section?.reflection_prompt
+                    ? `
+                      <div class="block amber">
+                        <div class="block-title">Reflection prompt</div>
+                        <div class="block-text">${escapeHtml(
+                          section.reflection_prompt
+                        )}</div>
+                      </div>
+                    `
+                    : ""
+                }
+              </div>
+            `;
+          })
+          .join("")}
+
+        ${
+          content?.closing_encouragement
+            ? `
+              <div class="block green">
+                <div class="block-title">Closing encouragement</div>
+                <div class="block-text">${escapeHtml(
+                  content.closing_encouragement
+                )}</div>
+              </div>
+            `
+            : ""
+        }
+      </div>
+    `;
+  }
+
+  if (reflectionPrompts.length > 0 || actionPrompts.length > 0) {
+    html += `
+      <div class="page content-page">
+        <div class="page-kicker">Worksheet</div>
+        <div class="page-title">${escapeHtml(resource.title || "")}</div>
+
+        ${
+          content?.instructions
+            ? `
+              <div class="block">
+                <div class="block-title">Instructions</div>
+                <div class="block-text">${escapeHtml(
+                  content.instructions
+                )}</div>
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          reflectionPrompts.length
+            ? `
+              <div class="block soft">
+                <div class="block-title">Reflection prompts</div>
+                <ul>
+                  ${reflectionPrompts
+                    .map((p: string) => `<li>${escapeHtml(p)}</li>`)
+                    .join("")}
+                </ul>
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          actionPrompts.length
+            ? `
+              <div class="block soft">
+                <div class="block-title">Action prompts</div>
+                <ul>
+                  ${actionPrompts
+                    .map((p: string) => `<li>${escapeHtml(p)}</li>`)
+                    .join("")}
+                </ul>
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          content?.closing_note
+            ? `
+              <div class="block green">
+                <div class="block-title">Closing note</div>
+                <div class="block-text">${escapeHtml(
+                  content.closing_note
+                )}</div>
+              </div>
+            `
+            : ""
+        }
+      </div>
+    `;
+  }
 
   html += `
       </body>
@@ -2119,6 +2721,7 @@ async function clearUploadedSlideImage(
   const win = window.open("", "_blank");
   if (!win) return;
 
+  win.document.open();
   win.document.write(html);
   win.document.close();
 
