@@ -3148,7 +3148,7 @@ async function clearUploadedSlideImage(
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = "course-pack.txt";
+    a.download = "course-pack.doc";
     a.click();
   }}
   className="rounded-full bg-blue-500 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-400"
