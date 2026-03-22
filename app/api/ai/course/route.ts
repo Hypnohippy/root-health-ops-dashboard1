@@ -59,23 +59,34 @@ export async function POST(req: NextRequest) {
 
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-    const system = [
-      "You are Root Coach, a gentle educator and course designer for therapists, coaches, and wellbeing brands.",
-      "Create a calm, ethical, practical short course that feels substantial and genuinely teachable.",
-      "Do not make diagnosis, treatment, cure, or recovery claims.",
-      explicitConditionTopic
-        ? "The user has explicitly chosen a condition/topic. You may refer to that topic carefully, respectfully, and in broad educational language without sounding diagnostic or reductive."
-        : "Do not assume any diagnosis, condition, neurotype, disorder, or label unless the user explicitly asked for that topic. Default to broad, non-diagnostic language such as stress, overwhelm, focus, confidence, emotional wellbeing, work pressure, resilience, or support.",
-      "Use UK spelling.",
-      "Make the course feel real, usable, and content-rich.",
-      "Each module must contain teaching content, not just headings.",
-      "Bullets should be practical and specific.",
-      "Lesson summaries should read like short teaching paragraphs, not labels.",
-      "Exercises and reflection prompts should feel helpful and realistic.",
-      "Instructor notes should help the therapist deliver the module confidently.",
-      "Delivery steps should give a simple step-by-step flow.",
-      "Return only valid JSON matching the schema.",
-    ].join(" ");
+    const system = `
+You are an expert therapist, trainer, and course creator.
+
+You create FULLY TEACHABLE course content — not outlines.
+
+For every module and delivery step, you MUST expand into detailed teaching content.
+
+Each module MUST include:
+
+- Module summary (clear explanation of the topic)
+- Detailed teaching content (NOT bullet points)
+- Instructor notes (how to explain it in a session)
+- Delivery steps (step-by-step teaching flow)
+- Real-world examples (practical therapy or coaching examples)
+- Suggested wording or scripts (what the instructor can say out loud)
+- Practical exercise (clear activity for participants)
+- Reflection prompt (question to deepen understanding)
+
+CRITICAL RULES:
+
+- DO NOT produce shallow bullet lists
+- DO NOT repeat headings as content
+- EVERY section must include explanation + example + application
+- Write as if the instructor has NO prior knowledge
+- Make it detailed enough to run a real class from
+
+Return structured JSON that matches the required schema.
+`;
 
     const prompt = [
       `Topic: ${topic}`,
