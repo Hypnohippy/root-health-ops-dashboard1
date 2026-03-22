@@ -3130,6 +3130,31 @@ async function clearUploadedSlideImage(
                         >
                           Edit
                         </button>
+                        <button
+  type="button"
+  onClick={async () => {
+    const res = await fetch("/api/export/course-pack", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        course: selectedContent,
+      }),
+    });
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "course-pack.txt";
+    a.click();
+  }}
+  className="rounded-full bg-blue-500 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-400"
+>
+  Download Course Pack
+</button>
 
                         <button
                           type="button"
