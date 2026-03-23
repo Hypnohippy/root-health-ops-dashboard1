@@ -3139,9 +3139,13 @@ async function clearUploadedSlideImage(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        course: selectedContent,
-      }),
-    });
+  course: selectedContent,
+  branding: {
+    name: selectedOrganisation?.name,
+    logo_url: selectedOrganisation?.logo_url,
+    primary_color: selectedOrganisation?.primary_color,
+  },
+}),
 
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
