@@ -3141,10 +3141,10 @@ async function clearUploadedSlideImage(
       body: JSON.stringify({
   course: selectedContent,
   branding: {
-    name: selectedOrganisation?.name,
-    logo_url: selectedOrganisation?.logo_url,
-    primary_color: selectedOrganisation?.primary_color,
-  },
+  name: (selected as any)?.organisation_name || "Root Health Ops",
+  logo_url: (selected as any)?.organisation_logo || "",
+  primary_color: (selected as any)?.organisation_color || "#10b981",
+},
 }),
 
     const blob = await res.blob();
