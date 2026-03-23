@@ -22,6 +22,8 @@ function containsExplicitConditionLanguage(text: string) {
     "diagnosis",
     "diagnosed",
     "mental health condition",
+    "hypnosis",
+    "hypnotherapy",
   ];
   return keywords.some((k) => s.includes(k));
 }
@@ -59,89 +61,44 @@ export async function POST(req: NextRequest) {
 
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-    const system = `
-You are a senior therapist, clinical educator, and professional training course author.
+    const system = [
+      "You are Root Coach, an expert course creator, facilitator trainer, and CPD-style learning designer.",
+      "Write in UK English only.",
+      "Never use American spelling.",
+      "Use a professional CPD tone.",
+      "Be facilitator-ready.",
+      "Include practical examples.",
+      "Include reflective learning.",
+      "Use clear professional language.",
+      "Be assessment-ready.",
+      "Include estimated learning time.",
+      "State practitioner level clearly.",
+      "Include review questions.",
+      "Include follow-up practice tasks.",
+      "You create FULLY TEACHABLE, IN-DEPTH course content for instructors who may have limited prior knowledge.",
+      "You do NOT create outlines.",
+      "You create COMPLETE LESSON MATERIAL.",
+      "Use UK spelling throughout.",
+      "Do not make diagnosis, treatment, cure, or recovery claims.",
+      explicitConditionTopic
+        ? "The user has explicitly chosen a condition/topic. You may refer to that topic carefully, respectfully, and in broad educational language without sounding reductive."
+        : "Do not assume any diagnosis, condition, neurotype, disorder, or label unless the user explicitly asked for that topic.",
+      "Each module must include real teaching detail.",
+      "Explain techniques in plain language.",
+      "Explain why the technique or concept works.",
+      "Provide concrete examples.",
+      "Provide wording the instructor can actually say where useful.",
+      "Include mini scripts where appropriate.",
+      "Include step-by-step delivery guidance.",
+      "Include structured practice guidance.",
+      "Instructor notes must help the therapist deliver confidently.",
+      "Delivery steps must be specific, practical, and teachable.",
+      "Exercises must clearly describe what the instructor does and what the learner/client does.",
+      "Do not be vague, generic, or blog-like.",
+      "Return only valid JSON matching the schema.",
+    ].join(" ");
 
-You create FULLY TEACHABLE, IN-DEPTH course content for instructors who may have little prior knowledge.
-
-You do NOT create outlines.
-
-You create COMPLETE LESSON MATERIAL.
-
----
-
-FOR EVERY MODULE:
-
-You MUST include ALL of the following with HIGH DETAIL:
-
-1. Module summary  
-- Explain the concept clearly in plain English  
-- Include what it is, why it matters, and where it is used  
-
-2. Teaching content (MANDATORY – most important)  
-- Explain the topic in depth  
-- Break down key concepts step-by-step  
-- Define all important terms  
-- Include practical understanding, not theory only  
-
-3. Instructor notes  
-- Explain how to teach the concept  
-- Include tone, pacing, and what to emphasise  
-- Include common mistakes learners make  
-
-4. Delivery steps (EXPANDED – NOT SHORT LISTS)  
-For EACH step you MUST include:
-- What the concept is  
-- Why it matters  
-- A real-world example  
-- What the instructor should say (script-style)  
-
-5. Real-world examples  
-- At least 2 per module  
-- Must be realistic therapy/coaching scenarios  
-
-6. Practical exercise  
-- Clear step-by-step activity  
-- Include instructions the instructor reads out  
-- Include expected outcomes  
-
-7. Reflection prompt  
-- A meaningful question that deepens understanding  
-
----
-
-CRITICAL RULES (VERY IMPORTANT):
-
-- NEVER write short bullet points without explanation  
-- NEVER say “discuss X” without explaining what X is  
-- ALWAYS define concepts (e.g. “self-care”, “active listening”)  
-- ALWAYS include examples and scripts  
-- ALWAYS assume the instructor is NOT an expert  
-- Write enough detail that someone could run a full session from this alone  
-
----
-
-EXAMPLE OF REQUIRED DEPTH:
-
-Instead of:
-“Discuss self-care techniques”
-
-You MUST produce:
-
-- Definition of self-care  
-- Types of self-care (physical, emotional, cognitive, social)  
-- Specific examples (sleep routines, boundary setting, journaling, etc.)  
-- Script: what the instructor says  
-- Example scenario  
-- Guided exercise  
-
----
-
-OUTPUT FORMAT:
-
-Return structured JSON matching the required schema.
-`;
-    const prompt = [
+    const userPrompt = [
       `Topic: ${topic}`,
       `Goal: ${goal || "Not specified"}`,
       `Audience: ${audience || "Not specified"}`,
@@ -149,26 +106,40 @@ Return structured JSON matching the required schema.
       `Tone: ${tone}`,
       `Fill level: ${fillLevel}`,
       "",
-      "Create a short professional course that includes:",
+      "Create a professional short course with substantial teaching content.",
+      "",
+      "Return:",
       "- title",
       "- summary",
       "- intended_reader",
-      "- 4 learning outcomes",
+      "- estimated_learning_time",
+      "- practitioner_level",
+      "- 4 learning_outcomes",
       "- 4 modules",
-      "- each module must include:",
-      "  - title",
-      "  - summary",
-      "  - 3 to 5 teaching bullets",
-      "  - instructor_notes",
-      "  - delivery_steps",
-      "  - 1 practical exercise",
-      "  - 1 reflection prompt",
-      "- closing encouragement",
+      "- closing_encouragement",
       "",
-      "The structure should be suitable for turning into a downloadable or teachable course pack.",
-      "Each module should feel like a real lesson/module, not just a heading.",
-      "The bullets should include actual teaching points.",
-      "The summary inside each module should explain what the learner will understand or practise.",
+      "Each module must include:",
+      "- title",
+      "- summary",
+      "- 3 to 5 teaching bullets",
+      "- instructor_notes",
+      "- delivery_steps",
+      "- exercise",
+      "- reflection_prompt",
+      "- review_questions",
+      "- follow_up_practice",
+      "",
+      "Quality requirements:",
+      "- The summary for each module must explain the concept in a way the instructor can quickly understand.",
+      "- instructor_notes must include guidance, cautions, emphasis, and delivery advice.",
+      "- delivery_steps must include a step-by-step teaching flow.",
+      "- exercise must feel like a real practice activity, not a placeholder.",
+      "- reflection_prompt must help consolidate learning.",
+      "- review_questions must be useful for recap, assessment, or discussion.",
+      "- follow_up_practice must describe what the learner should do after the session to apply the learning.",
+      "- The whole course should feel like material a professional could actually deliver.",
+      "",
+      "If the topic involves a specific technique, method, or process, include explanation of how it works, why it works, and examples of how to teach it.",
       "",
       "If fill level is skeleton, keep it lighter but still useful.",
       "If fill level is draft, provide meaningful substance.",
@@ -185,6 +156,8 @@ Return structured JSON matching the required schema.
           "title",
           "summary",
           "intended_reader",
+          "estimated_learning_time",
+          "practitioner_level",
           "learning_outcomes",
           "modules",
           "closing_encouragement",
@@ -193,6 +166,8 @@ Return structured JSON matching the required schema.
           title: { type: "string" },
           summary: { type: "string" },
           intended_reader: { type: "string" },
+          estimated_learning_time: { type: "string" },
+          practitioner_level: { type: "string" },
           learning_outcomes: {
             type: "array",
             minItems: 4,
@@ -214,6 +189,8 @@ Return structured JSON matching the required schema.
                 "delivery_steps",
                 "exercise",
                 "reflection_prompt",
+                "review_questions",
+                "follow_up_practice",
               ],
               properties: {
                 title: { type: "string" },
@@ -228,6 +205,13 @@ Return structured JSON matching the required schema.
                 delivery_steps: { type: "string" },
                 exercise: { type: "string" },
                 reflection_prompt: { type: "string" },
+                review_questions: {
+                  type: "array",
+                  minItems: 2,
+                  maxItems: 5,
+                  items: { type: "string" },
+                },
+                follow_up_practice: { type: "string" },
               },
             },
           },
@@ -239,20 +223,14 @@ Return structured JSON matching the required schema.
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
       input: [
-      { role: "system", content:
-"Write in UK English only. " +
-"Use professional CPD tone. " +
-"Be facilitator-ready. " +
-"Include practical examples. " +
-"Include reflective learning. " +
-"Use clear professional language. " +
-"Be assessment-ready. " +
-"Include estimated learning time. " +
-"State practitioner level clearly. " +
-"Include review questions. " +
-"Include follow-up practice tasks. " +
-system },
-        { role: "user", content: prompt },
+        {
+          role: "system",
+          content: system,
+        },
+        {
+          role: "user",
+          content: userPrompt,
+        },
       ],
       text: {
         format: {
@@ -279,24 +257,34 @@ system },
     }
 
     const normalised = {
-      title: parsed?.title || topic,
-      summary: parsed?.summary || "",
-      intended_reader: parsed?.intended_reader || "",
+      title: String(parsed?.title || topic).trim(),
+      summary: String(parsed?.summary || "").trim(),
+      intended_reader: String(parsed?.intended_reader || "").trim(),
+      estimated_learning_time: String(
+        parsed?.estimated_learning_time || ""
+      ).trim(),
+      practitioner_level: String(parsed?.practitioner_level || "").trim(),
       learning_outcomes: Array.isArray(parsed?.learning_outcomes)
-        ? parsed.learning_outcomes
+        ? parsed.learning_outcomes.map((x: any) => String(x || "").trim())
         : [],
       sections: Array.isArray(parsed?.modules)
         ? parsed.modules.map((m: any) => ({
             title: String(m?.title || "").trim(),
-            bullets: Array.isArray(m?.bullets) ? m.bullets : [],
             summary: String(m?.summary || "").trim(),
+            bullets: Array.isArray(m?.bullets)
+              ? m.bullets.map((x: any) => String(x || "").trim())
+              : [],
             instructor_notes: String(m?.instructor_notes || "").trim(),
             delivery_steps: String(m?.delivery_steps || "").trim(),
             exercise: String(m?.exercise || "").trim(),
             reflection_prompt: String(m?.reflection_prompt || "").trim(),
+            review_questions: Array.isArray(m?.review_questions)
+              ? m.review_questions.map((x: any) => String(x || "").trim())
+              : [],
+            follow_up_practice: String(m?.follow_up_practice || "").trim(),
           }))
         : [],
-      closing_encouragement: parsed?.closing_encouragement || "",
+      closing_encouragement: String(parsed?.closing_encouragement || "").trim(),
     };
 
     return NextResponse.json({
