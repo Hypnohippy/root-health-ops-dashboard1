@@ -798,6 +798,7 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
       }
 
       setOrganisationId(data.organisationId);
+      console.log("RESOURCES PAGE organisationId:", data.organisationId);
       return data.organisationId as string;
     } catch (e: any) {
       setError(e?.message || "Failed to load organisation");
