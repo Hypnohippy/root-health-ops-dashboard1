@@ -934,11 +934,10 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          organisationId,
-          resourceId: resource.id,
-          title: resource.title,
-          content: nextContent,
-        }),
+  course: selectedContent,
+  title: (selected as any)?.title || "Course Pack",
+  organisationId,
+}),
       });
 
       const data = await res.json().catch(() => null);
