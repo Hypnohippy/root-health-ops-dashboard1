@@ -17,6 +17,7 @@ function nl2br(value: unknown) {
 export async function POST(req: Request) {
   try {
     const { course, title, organisationId } = await req.json();
+    console.log("COURSE PACK organisationId:", organisationId);
 
     if (!course) {
       return NextResponse.json(
@@ -30,22 +31,24 @@ export async function POST(req: Request) {
     let logoUrl = "";
 
     if (organisationId) {
-      const { data: org } = await supabaseAdmin
-        .from("organisations")
-        .select("name, brand_name, brand_primary_color, brand_logo_url")
-        .eq("id", organisationId)
-        .maybeSingle();
+  const { data: org } = await supabaseAdmin
+    .from("organisations")
+    .select("name, brand_name, brand_primary_color, brand_logo_url")
+    .eq("id", organisationId)
+    .maybeSingle();
 
-      if (org) {
-        brandName = String(
-          org.brand_name || org.name || "Course Pack"
-        ).trim();
-        brandColor = String(
-          org.brand_primary_color || "#10b981"
-        ).trim();
-        logoUrl = String(org.brand_logo_url || "").trim();
-      }
-    }
+  console.log("COURSE PACK org row:", org);
+
+  if (org) {
+    brandName = String(
+      org.brand_name || org.name || "Course Pack"
+    ).trim();
+    brandColor = String(
+      org.brand_primary_color || "#10b981"
+    ).trim();
+    logoUrl = String(org.brand_logo_url || "").trim();
+  }
+}
 
     const courseTitle = String(
       title || course?.title || "Course Pack"
