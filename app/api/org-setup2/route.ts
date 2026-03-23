@@ -6,7 +6,6 @@ import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 
-// 🔹 Replace this with your real Supabase user ID if needed
 const FALLBACK_OWNER_ID = "e83aeab8-69bf-4405-b34f-c13c6fa4bfd5";
 
 function slugify(input: string): string {
@@ -20,6 +19,10 @@ function safeString(value: FormDataEntryValue | null, fallback = ""): string {
   return String(value || fallback).trim();
 }
 
+function safeFileName(input: string): string {
+  return input.replace(/[^a-zA-Z0-9._-]+/g, "-");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
@@ -29,6 +32,8 @@ export async function POST(req: NextRequest) {
 
     const primaryColor = safeString(form.get("primaryColor"), "#00A676");
     const secondaryColor = safeString(form.get("secondaryColor"), "#004E64");
+
+    const logoFile = form.get("logo") as File | null;
 
     if (!orgName) {
       return NextResponse.json(
@@ -49,9 +54,7 @@ export async function POST(req: NextRequest) {
     let ownerId = FALLBACK_OWNER_ID;
     try {
       const userId = await getCurrentUserId();
-      if (userId) {
-        ownerId = userId;
-      }
+      if (userId) ownerId = userId;
     } catch {
       // fallback is fine
     }
@@ -66,6 +69,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let logoUrl = "";
+
+    if (logoFile && logoFile.size > 0) {
+      const bytes = await logoFile.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+
+      const fileExt =
+        logoFile.name.split(".").pop()?.toLowerCase() || "png";
+      const fileName = safeFileName(
+        `${baseSlug}-${randomUUID().slice(0, 8)}.${fileExt}`
+      );
+      const storagePath = `organisation-branding/${fileName}`;
+
+      const upload = await supabaseAdmin.storage
+        .from("resource-library-images")
+        .upload(storagePath, buffer, {
+          contentType: logoFile.type || "image/png",
+          upsert: true,
+        });
+
+      if (upload.error) {
+        return NextResponse.json(
+          { error: `Failed to upload logo: ${upload.error.message}` },
+          { status: 500 }
+        );
+      }
+
+      const publicUrlResult = supabaseAdmin.storage
+        .from("resource-library-images")
+        .getPublicUrl(storagePath);
+
+      logoUrl = String(publicUrlResult?.data?.publicUrl || "").trim();
+    }
+
     const insertWithSlug = async (slug: string) => {
       return supabaseAdmin
         .from("organisations")
@@ -76,6 +113,7 @@ export async function POST(req: NextRequest) {
           brand_name: orgName,
           brand_primary_color: primaryColor,
           brand_secondary_color: secondaryColor,
+          brand_logo_url: logoUrl || null,
         })
         .select("*")
         .single();
@@ -128,6 +166,7 @@ export async function POST(req: NextRequest) {
           brand_name: (org as any).brand_name,
           brand_primary_color: (org as any).brand_primary_color,
           brand_secondary_color: (org as any).brand_secondary_color,
+          brand_logo_url: (org as any).brand_logo_url,
         },
       },
       { status: 200 }
