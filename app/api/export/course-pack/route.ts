@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     if (organisationId) {
       const { data: org } = await supabaseAdmin
         .from("organisations")
-        .select("name, brand_name, brand_primary_color")
+        .select("name, brand_name, brand_primary_color, brand_logo_url")
         .eq("id", organisationId)
         .maybeSingle();
 
@@ -43,6 +43,7 @@ export async function POST(req: Request) {
         brandColor = String(
           org.brand_primary_color || "#10b981"
         ).trim();
+        logoUrl = String(org.brand_logo_url || "").trim();
       }
     }
 
@@ -74,15 +75,6 @@ export async function POST(req: Request) {
   <head>
     <meta charset="utf-8" />
     <title>${escapeHtml(courseTitle)}</title>
-    <!--[if gte mso 9]>
-    <xml>
-      <w:WordDocument>
-        <w:View>Print</w:View>
-        <w:Zoom>100</w:Zoom>
-        <w:DoNotOptimizeForBrowser/>
-      </w:WordDocument>
-    </xml>
-    <![endif]-->
     <style>
       body {
         font-family: Arial, Helvetica, sans-serif;
@@ -116,21 +108,11 @@ export async function POST(req: Request) {
         margin: 10px 0;
         border-radius: 8px;
       }
-      .soft {
-        background: #f8fafc;
-      }
-      .green {
-        background: #f0fdf4;
-      }
-      .blue {
-        background: #eff6ff;
-      }
-      .purple {
-        background: #f5f3ff;
-      }
-      .amber {
-        background: #fffbeb;
-      }
+      .soft { background: #f8fafc; }
+      .green { background: #f0fdf4; }
+      .blue { background: #eff6ff; }
+      .purple { background: #f5f3ff; }
+      .amber { background: #fffbeb; }
       ul {
         margin: 8px 0 8px 20px;
       }
@@ -155,7 +137,7 @@ export async function POST(req: Request) {
     <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
       ${
         logoUrl
-          ? `<img src="${escapeHtml(logoUrl)}" style="height:48px;" />`
+          ? `<img src="${escapeHtml(logoUrl)}" style="height:48px; width:auto;" />`
           : ""
       }
       <div>
