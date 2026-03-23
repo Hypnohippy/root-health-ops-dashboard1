@@ -13,7 +13,22 @@ function escapeHtml(value: unknown) {
 function nl2br(value: unknown) {
   return escapeHtml(value).replace(/\n/g, "<br />");
 }
+async function imageUrlToDataUri(url: string): Promise<string> {
+  try {
+    if (!url) return "";
 
+    const res = await fetch(url);
+    if (!res.ok) return "";
+
+    const contentType = res.headers.get("content-type") || "image/png";
+    const arrayBuffer = await res.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
+
+    return `data:${contentType};base64,${base64}`;
+  } catch {
+    return "";
+  }
+}
 export async function POST(req: Request) {
   try {
     const { course, title, organisationId } = await req.json();
@@ -27,8 +42,9 @@ export async function POST(req: Request) {
     }
 
     let brandName = "Course Pack";
-    let brandColor = "#10b981";
-    let logoUrl = "";
+let brandColor = "#10b981";
+let logoUrl = "";
+let logoDataUri = "";
 
     if (organisationId) {
   const { data: org } = await supabaseAdmin
@@ -40,14 +56,16 @@ export async function POST(req: Request) {
   console.log("COURSE PACK org row:", org);
 
   if (org) {
-    brandName = String(
-      org.brand_name || org.name || "Course Pack"
-    ).trim();
-    brandColor = String(
-      org.brand_primary_color || "#10b981"
-    ).trim();
-    logoUrl = String(org.brand_logo_url || "").trim();
-  }
+  brandName = String(
+    org.brand_name || org.name || "Course Pack"
+  ).trim();
+  brandColor = String(
+    org.brand_primary_color || "#10b981"
+  ).trim();
+  logoUrl = String(org.brand_logo_url || "").trim();
+
+  logoDataUri = await imageUrlToDataUri(logoUrl);
+}
 }
 
     const courseTitle = String(
@@ -137,19 +155,30 @@ export async function POST(req: Request) {
     </style>
   </head>
   <body>
-   <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; page-break-inside:avoid;">
-  ${
-    logoUrl
-      ? `<img src="${escapeHtml(logoUrl)}" style="max-height:60px; max-width:160px; width:auto; height:auto; object-fit:contain; display:block;" />`
-      : ""
-  }
-  <div>
-    <h1>${escapeHtml(courseTitle)}</h1>
-    <div style="color:${brandColor}; font-weight:600;">
-      ${escapeHtml(brandName)}
-    </div>
-  </div>
-</div>
+   <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
+  <tr>
+    ${
+      logoDataUri
+        ? `
+        <td style="width:180px; vertical-align:middle; padding-right:12px;">
+          <img
+            src="${logoDataUri}"
+            alt="Logo"
+            style="max-height:60px; max-width:160px; width:auto; height:auto; display:block;"
+            width="160"
+          />
+        </td>
+      `
+        : ""
+    }
+    <td style="vertical-align:middle;">
+      <h1>${escapeHtml(courseTitle)}</h1>
+      <div style="color:${brandColor}; font-weight:600;">
+        ${escapeHtml(brandName)}
+      </div>
+    </td>
+  </tr>
+</table>
 
 <div class="muted">Course Pack</div>
     ${
