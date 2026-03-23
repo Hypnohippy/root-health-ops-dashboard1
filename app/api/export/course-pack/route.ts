@@ -15,8 +15,16 @@ function nl2br(value: unknown) {
 
 export async function POST(req: Request) {
   try {
-    const { course, title } = await req.json();
-
+    const { course, title, branding } = await req.json();
+    
+body: JSON.stringify({
+  course: selectedContent,
+  branding: {
+    name: selectedOrganisation?.name,
+    logo_url: selectedOrganisation?.logo_url,
+    primary_color: selectedOrganisation?.primary_color,
+  },
+}),
     if (!course) {
       return NextResponse.json(
         { error: "Missing course" },
@@ -75,7 +83,7 @@ export async function POST(req: Request) {
       h2 {
         font-size: 18px;
         margin: 26px 0 8px 0;
-        color: #0f172a;
+        color: ${brandColor};
         border-bottom: 1px solid #dbe5f1;
         padding-bottom: 4px;
       }
@@ -134,7 +142,19 @@ export async function POST(req: Request) {
     </style>
   </head>
   <body>
-    <h1>${escapeHtml(courseTitle)}</h1>
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+  ${
+    logoUrl
+      ? `<img src="${logoUrl}" style="height:48px;" />`
+      : ""
+  }
+  <div>
+    <h1 style="margin:0;">${escapeHtml(courseTitle)}</h1>
+    <div style="color:${brandColor}; font-weight:600;">
+      ${escapeHtml(brandName)}
+    </div>
+  </div>
+</div>
     <div class="muted">Root Health Ops Course Pack</div>
 
     ${
