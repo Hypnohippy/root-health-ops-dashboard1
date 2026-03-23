@@ -3130,7 +3130,7 @@ async function clearUploadedSlideImage(
                         >
                           Edit
                         </button>
-                        <button
+                       <button
   type="button"
   onClick={async () => {
     const res = await fetch("/api/export/course-pack", {
@@ -3141,11 +3141,7 @@ async function clearUploadedSlideImage(
       body: JSON.stringify({
         course: selectedContent,
         title: (selected as any)?.title || "Course Pack",
-        branding: {
-          name: (selected as any)?.organisation_name || "Course Pack",
-          logo_url: (selected as any)?.organisation_logo || "",
-          primary_color: (selected as any)?.organisation_color || "#10b981",
-        },
+        organisationId,
       }),
     });
 
