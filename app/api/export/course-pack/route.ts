@@ -137,22 +137,21 @@ export async function POST(req: Request) {
     </style>
   </head>
   <body>
-    <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
-      ${
-        logoUrl
-          ? `<img src="${escapeHtml(logoUrl)}" style="height:48px; width:auto;" />`
-          : ""
-      }
-      <div>
-        <h1>${escapeHtml(courseTitle)}</h1>
-        <div style="color:${brandColor}; font-weight:600;">
-          ${escapeHtml(brandName)}
-        </div>
-      </div>
+   <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+  ${
+    logoUrl
+      ? `<img src="${escapeHtml(logoUrl)}" style="height:48px; width:auto;" />`
+      : ""
+  }
+  <div>
+    <h1>${escapeHtml(courseTitle)}</h1>
+    <div style="color:${brandColor}; font-weight:600;">
+      ${escapeHtml(brandName)}
     </div>
+  </div>
+</div>
 
-    <div class="muted">Course Pack</div>
-
+<div class="muted">Course Pack</div>
     ${
       summary
         ? `
@@ -292,7 +291,7 @@ export async function POST(req: Request) {
     }
 
     <div class="footer">
-      Generated for ${escapeHtml(brandName)}
+  Generated for ${escapeHtml(brandName)}
     </div>
   </body>
 </html>
