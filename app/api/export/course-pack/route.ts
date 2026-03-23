@@ -13,6 +13,22 @@ function escapeHtml(value: unknown) {
 function nl2br(value: unknown) {
   return escapeHtml(value).replace(/\n/g, "<br />");
 }
+
+function toUkEnglish(text: string): string {
+  return text
+    .replace(/\bcolor\b/gi, "colour")
+    .replace(/\bcolors\b/gi, "colours")
+    .replace(/\borganize\b/gi, "organise")
+    .replace(/\borganized\b/gi, "organised")
+    .replace(/\borganizing\b/gi, "organising")
+    .replace(/\borganization\b/gi, "organisation")
+    .replace(/\banalyze\b/gi, "analyse")
+    .replace(/\bbehavior\b/gi, "behaviour")
+    .replace(/\bcenter\b/gi, "centre")
+    .replace(/\bmodeling\b/gi, "modelling")
+    .replace(/\btraveler\b/gi, "traveller");
+}
+
 async function imageUrlToDataUri(url: string): Promise<string> {
   try {
     if (!url) return "";
@@ -29,10 +45,10 @@ async function imageUrlToDataUri(url: string): Promise<string> {
     return "";
   }
 }
+
 export async function POST(req: Request) {
   try {
     const { course, title, organisationId } = await req.json();
-    console.log("COURSE PACK organisationId:", organisationId);
 
     if (!course) {
       return NextResponse.json(
@@ -42,31 +58,28 @@ export async function POST(req: Request) {
     }
 
     let brandName = "Course Pack";
-let brandColor = "#10b981";
-let logoUrl = "";
-let logoDataUri = "";
+    let brandColor = "#10b981";
+    let logoUrl = "";
+    let logoDataUri = "";
 
     if (organisationId) {
-  const { data: org } = await supabaseAdmin
-    .from("organisations")
-    .select("name, brand_name, brand_primary_color, brand_logo_url")
-    .eq("id", organisationId)
-    .maybeSingle();
+      const { data: org } = await supabaseAdmin
+        .from("organisations")
+        .select("name, brand_name, brand_primary_color, brand_logo_url")
+        .eq("id", organisationId)
+        .maybeSingle();
 
-  console.log("COURSE PACK org row:", org);
-
-  if (org) {
-  brandName = String(
-    org.brand_name || org.name || "Course Pack"
-  ).trim();
-  brandColor = String(
-    org.brand_primary_color || "#10b981"
-  ).trim();
-  logoUrl = String(org.brand_logo_url || "").trim();
-
-  logoDataUri = await imageUrlToDataUri(logoUrl);
-}
-}
+      if (org) {
+        brandName = String(
+          org.brand_name || org.name || "Course Pack"
+        ).trim();
+        brandColor = String(
+          org.brand_primary_color || "#10b981"
+        ).trim();
+        logoUrl = String(org.brand_logo_url || "").trim();
+        logoDataUri = await imageUrlToDataUri(logoUrl);
+      }
+    }
 
     const courseTitle = String(
       title || course?.title || "Course Pack"
@@ -155,38 +168,39 @@ let logoDataUri = "";
     </style>
   </head>
   <body>
-   <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
-  <tr>
-    ${
-      logoDataUri
-        ? `
-        <td style="width:180px; vertical-align:middle; padding-right:12px;">
-          <img
-            src="${logoDataUri}"
-            alt="Logo"
-            style="max-height:60px; max-width:160px; width:auto; height:auto; display:block;"
-            width="160"
-          />
+    <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
+      <tr>
+        ${
+          logoDataUri
+            ? `
+            <td style="width:180px; vertical-align:middle; padding-right:12px;">
+              <img
+                src="${logoDataUri}"
+                alt="Logo"
+                style="max-height:60px; max-width:160px; width:auto; height:auto; display:block;"
+                width="160"
+              />
+            </td>
+          `
+            : ""
+        }
+        <td style="vertical-align:middle;">
+          <h1>${escapeHtml(courseTitle)}</h1>
+          <div style="color:${brandColor}; font-weight:600;">
+            ${escapeHtml(brandName)}
+          </div>
         </td>
-      `
-        : ""
-    }
-    <td style="vertical-align:middle;">
-      <h1>${escapeHtml(courseTitle)}</h1>
-      <div style="color:${brandColor}; font-weight:600;">
-        ${escapeHtml(brandName)}
-      </div>
-    </td>
-  </tr>
-</table>
+      </tr>
+    </table>
 
-<div class="muted">Course Pack</div>
+    <div class="muted">Course Pack</div>
+
     ${
       summary
         ? `
       <div class="card soft">
         <div class="label">Summary</div>
-        <div>${nl2br(summary)}</div>
+        <div>${nl2br(toUkEnglish(summary))}</div>
       </div>
     `
         : ""
@@ -197,7 +211,7 @@ let logoDataUri = "";
         ? `
       <div class="card soft">
         <div class="label">Intended reader</div>
-        <div>${nl2br(intendedReader)}</div>
+        <div>${nl2br(toUkEnglish(intendedReader))}</div>
       </div>
     `
         : ""
@@ -209,7 +223,10 @@ let logoDataUri = "";
       <h2>Learning outcomes</h2>
       <ul>
         ${learningOutcomes
-          .map((item: unknown) => `<li>${escapeHtml(item)}</li>`)
+          .map(
+            (item: unknown) =>
+              `<li>${escapeHtml(toUkEnglish(String(item || "")))}</li>`
+          )
           .join("")}
       </ul>
     `
@@ -232,14 +249,14 @@ let logoDataUri = "";
 
         return `
         <div class="section">
-          <h2>Module ${index + 1}: ${escapeHtml(sectionTitle)}</h2>
+          <h2>Module ${index + 1}: ${escapeHtml(toUkEnglish(sectionTitle))}</h2>
 
           ${
             sectionSummary
               ? `
             <div class="card soft">
               <div class="label">Module summary</div>
-              <div>${nl2br(sectionSummary)}</div>
+              <div>${nl2br(toUkEnglish(sectionSummary))}</div>
             </div>
           `
               : ""
@@ -252,7 +269,10 @@ let logoDataUri = "";
               <div class="label">Teaching points</div>
               <ul>
                 ${bullets
-                  .map((item: unknown) => `<li>${escapeHtml(item)}</li>`)
+                  .map(
+                    (item: unknown) =>
+                      `<li>${escapeHtml(toUkEnglish(String(item || "")))}</li>`
+                  )
                   .join("")}
               </ul>
             </div>
@@ -265,7 +285,7 @@ let logoDataUri = "";
               ? `
             <div class="card green">
               <div class="label">Instructor notes</div>
-              <div>${nl2br(instructorNotes)}</div>
+              <div>${nl2br(toUkEnglish(instructorNotes))}</div>
             </div>
           `
               : ""
@@ -276,7 +296,7 @@ let logoDataUri = "";
               ? `
             <div class="card blue">
               <div class="label">Delivery steps</div>
-              <div>${nl2br(deliverySteps)}</div>
+              <div>${nl2br(toUkEnglish(deliverySteps))}</div>
             </div>
           `
               : ""
@@ -287,7 +307,7 @@ let logoDataUri = "";
               ? `
             <div class="card purple">
               <div class="label">Practical exercise</div>
-              <div>${nl2br(exercise)}</div>
+              <div>${nl2br(toUkEnglish(exercise))}</div>
             </div>
           `
               : ""
@@ -298,7 +318,7 @@ let logoDataUri = "";
               ? `
             <div class="card amber">
               <div class="label">Reflection prompt</div>
-              <div>${nl2br(reflectionPrompt)}</div>
+              <div>${nl2br(toUkEnglish(reflectionPrompt))}</div>
             </div>
           `
               : ""
@@ -313,14 +333,14 @@ let logoDataUri = "";
         ? `
       <h2>Closing encouragement</h2>
       <div class="card green">
-        ${nl2br(closingEncouragement)}
+        ${nl2br(toUkEnglish(closingEncouragement))}
       </div>
     `
         : ""
     }
 
     <div class="footer">
-  Generated for ${escapeHtml(brandName)}
+      Generated for ${escapeHtml(brandName)}
     </div>
   </body>
 </html>
