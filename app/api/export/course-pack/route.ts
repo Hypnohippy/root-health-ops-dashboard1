@@ -18,17 +18,57 @@ function toUkEnglish(text: string): string {
   return text
     .replace(/\bcolor\b/gi, "colour")
     .replace(/\bcolors\b/gi, "colours")
+    .replace(/\bcolored\b/gi, "coloured")
+    .replace(/\bcoloring\b/gi, "colouring")
+
     .replace(/\borganize\b/gi, "organise")
+    .replace(/\borganizes\b/gi, "organises")
     .replace(/\borganized\b/gi, "organised")
     .replace(/\borganizing\b/gi, "organising")
     .replace(/\borganization\b/gi, "organisation")
-    .replace(/\banalyze\b/gi, "analyse")
-    .replace(/\bbehavior\b/gi, "behaviour")
-    .replace(/\bcenter\b/gi, "centre")
-    .replace(/\bmodeling\b/gi, "modelling")
-    .replace(/\btraveler\b/gi, "traveller");
-}
+    .replace(/\borganizations\b/gi, "organisations")
+    .replace(/\borganizational\b/gi, "organisational")
 
+    .replace(/\bpersonalize\b/gi, "personalise")
+    .replace(/\bpersonalized\b/gi, "personalised")
+    .replace(/\bpersonalizing\b/gi, "personalising")
+
+    .replace(/\bemphasize\b/gi, "emphasise")
+    .replace(/\bemphasized\b/gi, "emphasised")
+    .replace(/\bemphasizing\b/gi, "emphasising")
+
+    .replace(/\banalyze\b/gi, "analyse")
+    .replace(/\banalyzed\b/gi, "analysed")
+    .replace(/\banalyzing\b/gi, "analysing")
+
+    .replace(/\bbehavior\b/gi, "behaviour")
+    .replace(/\bbehaviors\b/gi, "behaviours")
+    .replace(/\bbehavioral\b/gi, "behavioural")
+
+    .replace(/\bcenter\b/gi, "centre")
+    .replace(/\bcenters\b/gi, "centres")
+    .replace(/\bcentered\b/gi, "centred")
+    .replace(/\bcentering\b/gi, "centring")
+
+    .replace(/\bmodeling\b/gi, "modelling")
+    .replace(/\bmodeled\b/gi, "modelled")
+
+    .replace(/\btraveler\b/gi, "traveller")
+    .replace(/\btravelers\b/gi, "travellers")
+
+    .replace(/\bcounseling\b/gi, "counselling")
+    .replace(/\bcounselor\b/gi, "counsellor")
+    .replace(/\bcounselors\b/gi, "counsellors")
+
+    .replace(/\blicense\b/gi, "licence")
+    .replace(/\blicensed\b/gi, "licensed")
+
+    .replace(/\bdefense\b/gi, "defence")
+    .replace(/\boffense\b/gi, "offence")
+
+    .replace(/\bpractice session\b/gi, "practise session")
+    .replace(/\bpracticing\b/gi, "practising");
+}
 async function imageUrlToDataUri(url: string): Promise<string> {
   try {
     if (!url) return "";
