@@ -3139,13 +3139,15 @@ async function clearUploadedSlideImage(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-  course: selectedContent,
-  branding: {
-  name: (selected as any)?.organisation_name || "Root Health Ops",
-  logo_url: (selected as any)?.organisation_logo || "",
-  primary_color: (selected as any)?.organisation_color || "#10b981",
-},
-}),
+        course: selectedContent,
+        title: (selected as any)?.title || "Course Pack",
+        branding: {
+          name: (selected as any)?.organisation_name || "Course Pack",
+          logo_url: (selected as any)?.organisation_logo || "",
+          primary_color: (selected as any)?.organisation_color || "#10b981",
+        },
+      }),
+    });
 
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
@@ -3154,12 +3156,12 @@ async function clearUploadedSlideImage(
     a.href = url;
     a.download = "course-pack.doc";
     a.click();
+    window.URL.revokeObjectURL(url);
   }}
-  className="rounded-full bg-blue-500 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-400"
+  className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10"
 >
   Download Course Pack
 </button>
-
                         <button
                           type="button"
                           onClick={() => renameResource(selected as Resource)}
