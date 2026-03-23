@@ -137,10 +137,10 @@ export async function POST(req: Request) {
     </style>
   </head>
   <body>
-   <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+   <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; page-break-inside:avoid;">
   ${
     logoUrl
-      ? `<img src="${escapeHtml(logoUrl)}" style="height:48px; width:auto;" />`
+      ? `<img src="${escapeHtml(logoUrl)}" style="max-height:60px; max-width:160px; width:auto; height:auto; object-fit:contain; display:block;" />`
       : ""
   }
   <div>
