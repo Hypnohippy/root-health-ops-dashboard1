@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 function escapeHtml(value: unknown) {
   return String(value || "")
@@ -15,25 +16,34 @@ function nl2br(value: unknown) {
 
 export async function POST(req: Request) {
   try {
-    const { course, title, branding } = await req.json();
-
-    const brandName = String(
-      branding?.name || course?.organisation_name || "Course Pack"
-    ).trim();
-
-    const brandColor = String(
-      branding?.primary_color || "#0f172a"
-    ).trim();
-
-    const logoUrl = String(
-      branding?.logo_url || ""
-    ).trim();
+    const { course, title, organisationId } = await req.json();
 
     if (!course) {
       return NextResponse.json(
         { error: "Missing course" },
         { status: 400 }
       );
+    }
+
+    let brandName = "Course Pack";
+    let brandColor = "#10b981";
+    let logoUrl = "";
+
+    if (organisationId) {
+      const { data: org } = await supabaseAdmin
+        .from("organisations")
+        .select("name, brand_name, brand_primary_color")
+        .eq("id", organisationId)
+        .maybeSingle();
+
+      if (org) {
+        brandName = String(
+          org.brand_name || org.name || "Course Pack"
+        ).trim();
+        brandColor = String(
+          org.brand_primary_color || "#10b981"
+        ).trim();
+      }
     }
 
     const courseTitle = String(
@@ -309,9 +319,9 @@ export async function POST(req: Request) {
         "Content-Disposition": `attachment; filename="${safeFileName}.doc"`,
       },
     });
-  } catch {
+  } catch (e: any) {
     return NextResponse.json(
-      { error: "Failed to generate course pack" },
+      { error: e?.message || "Failed to generate course pack" },
       { status: 500 }
     );
   }
