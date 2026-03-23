@@ -239,7 +239,9 @@ Return structured JSON matching the required schema.
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
       input: [
-        { role: "system", content: system },
+        { role: "system", content:
+        "Write in UK English only. " +
+         system }, 
         { role: "user", content: prompt },
       ],
       text: {
