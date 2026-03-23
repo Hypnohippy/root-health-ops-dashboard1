@@ -246,6 +246,11 @@ Return structured JSON matching the required schema.
 "Include practical examples. " +
 "Include reflective learning. " +
 "Use clear professional language. " +
+"Be assessment-ready. " +
+"Include estimated learning time. " +
+"State practitioner level clearly. " +
+"Include review questions. " +
+"Include follow-up practice tasks. " +
 system },
         { role: "user", content: prompt },
       ],
