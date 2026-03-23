@@ -6,10 +6,9 @@ import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 
-// 🔹 Replace this with your real Supabase user ID (same one you used before)
+// 🔹 Replace this with your real Supabase user ID if needed
 const FALLBACK_OWNER_ID = "e83aeab8-69bf-4405-b34f-c13c6fa4bfd5";
 
-// Simple slugify helper
 function slugify(input: string): string {
   return input
     .toLowerCase()
@@ -17,12 +16,19 @@ function slugify(input: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+function safeString(value: FormDataEntryValue | null, fallback = ""): string {
+  return String(value || fallback).trim();
+}
+
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
 
-    const orgName = (form.get("orgName") as string | null)?.trim();
-    const providedSlug = (form.get("orgSlug") as string | null)?.trim();
+    const orgName = safeString(form.get("orgName"));
+    const providedSlug = safeString(form.get("orgSlug"));
+
+    const primaryColor = safeString(form.get("primaryColor"), "#00A676");
+    const secondaryColor = safeString(form.get("secondaryColor"), "#004E64");
 
     if (!orgName) {
       return NextResponse.json(
@@ -31,7 +37,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1) Base slug: use provided, or derive from name, or random
     let baseSlug =
       providedSlug && providedSlug.length > 0
         ? slugify(providedSlug)
@@ -41,7 +46,6 @@ export async function POST(req: NextRequest) {
       baseSlug = randomUUID().slice(0, 8);
     }
 
-    // 2) Resolve owner_id (current user if possible, else fallback)
     let ownerId = FALLBACK_OWNER_ID;
     try {
       const userId = await getCurrentUserId();
@@ -49,7 +53,7 @@ export async function POST(req: NextRequest) {
         ownerId = userId;
       }
     } catch {
-      // ignore, fallback is fine
+      // fallback is fine
     }
 
     if (!ownerId || ownerId === "REPLACE_WITH_YOUR_SUPABASE_USER_ID") {
@@ -62,7 +66,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Helper to insert with a given slug
     const insertWithSlug = async (slug: string) => {
       return supabaseAdmin
         .from("organisations")
@@ -70,12 +73,14 @@ export async function POST(req: NextRequest) {
           name: orgName,
           slug,
           owner_id: ownerId,
+          brand_name: orgName,
+          brand_primary_color: primaryColor,
+          brand_secondary_color: secondaryColor,
         })
         .select("*")
         .single();
     };
 
-    // 3) Try inserting with baseSlug; if duplicate, try once with a suffix
     let currentSlug = baseSlug;
     let { data: org, error: orgError } = await insertWithSlug(currentSlug);
 
@@ -84,7 +89,6 @@ export async function POST(req: NextRequest) {
       (orgError as any).message &&
       String((orgError as any).message).includes("organisations_slug_key")
     ) {
-      // Slug already exists → try again with a short random suffix
       const suffix = randomUUID().slice(0, 4);
       currentSlug = `${baseSlug}-${suffix}`;
       ({ data: org, error: orgError } = await insertWithSlug(currentSlug));
@@ -121,6 +125,9 @@ export async function POST(req: NextRequest) {
           name: orgName,
           slug: currentSlug,
           owner_id: ownerId,
+          brand_name: (org as any).brand_name,
+          brand_primary_color: (org as any).brand_primary_color,
+          brand_secondary_color: (org as any).brand_secondary_color,
         },
       },
       { status: 200 }
