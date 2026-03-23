@@ -242,6 +242,10 @@ Return structured JSON matching the required schema.
       { role: "system", content:
 "Write in UK English only. " +
 "Use professional CPD tone. " +
+"Be facilitator-ready. " +
+"Include practical examples. " +
+"Include reflective learning. " +
+"Use clear professional language. " +
 system },
         { role: "user", content: prompt },
       ],
