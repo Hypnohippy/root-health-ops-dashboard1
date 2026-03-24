@@ -20,7 +20,6 @@ function toUkEnglish(text: string): string {
     .replace(/\bcolors\b/gi, "colours")
     .replace(/\bcolored\b/gi, "coloured")
     .replace(/\bcoloring\b/gi, "colouring")
-
     .replace(/\borganize\b/gi, "organise")
     .replace(/\borganizes\b/gi, "organises")
     .replace(/\borganized\b/gi, "organised")
@@ -28,47 +27,34 @@ function toUkEnglish(text: string): string {
     .replace(/\borganization\b/gi, "organisation")
     .replace(/\borganizations\b/gi, "organisations")
     .replace(/\borganizational\b/gi, "organisational")
-
     .replace(/\bpersonalize\b/gi, "personalise")
     .replace(/\bpersonalized\b/gi, "personalised")
     .replace(/\bpersonalizing\b/gi, "personalising")
-
     .replace(/\bemphasize\b/gi, "emphasise")
     .replace(/\bemphasized\b/gi, "emphasised")
     .replace(/\bemphasizing\b/gi, "emphasising")
-
     .replace(/\banalyze\b/gi, "analyse")
     .replace(/\banalyzed\b/gi, "analysed")
     .replace(/\banalyzing\b/gi, "analysing")
-
     .replace(/\bbehavior\b/gi, "behaviour")
     .replace(/\bbehaviors\b/gi, "behaviours")
     .replace(/\bbehavioral\b/gi, "behavioural")
-
     .replace(/\bcenter\b/gi, "centre")
     .replace(/\bcenters\b/gi, "centres")
     .replace(/\bcentered\b/gi, "centred")
     .replace(/\bcentering\b/gi, "centring")
-
     .replace(/\bmodeling\b/gi, "modelling")
     .replace(/\bmodeled\b/gi, "modelled")
-
     .replace(/\btraveler\b/gi, "traveller")
     .replace(/\btravelers\b/gi, "travellers")
-
     .replace(/\bcounseling\b/gi, "counselling")
     .replace(/\bcounselor\b/gi, "counsellor")
     .replace(/\bcounselors\b/gi, "counsellors")
-
-    .replace(/\blicense\b/gi, "licence")
-    .replace(/\blicensed\b/gi, "licensed")
-
     .replace(/\bdefense\b/gi, "defence")
     .replace(/\boffense\b/gi, "offence")
-
-    .replace(/\bpractice session\b/gi, "practise session")
     .replace(/\bpracticing\b/gi, "practising");
 }
+
 async function imageUrlToDataUri(url: string): Promise<string> {
   try {
     if (!url) return "";
@@ -127,6 +113,12 @@ export async function POST(req: Request) {
 
     const summary = String(course?.summary || "").trim();
     const intendedReader = String(course?.intended_reader || "").trim();
+    const estimatedLearningTime = String(
+      course?.estimated_learning_time || ""
+    ).trim();
+    const practitionerLevel = String(
+      course?.practitioner_level || ""
+    ).trim();
     const learningOutcomes = Array.isArray(course?.learning_outcomes)
       ? course.learning_outcomes
       : [];
@@ -187,6 +179,8 @@ export async function POST(req: Request) {
       .blue { background: #eff6ff; }
       .purple { background: #f5f3ff; }
       .amber { background: #fffbeb; }
+      .sky { background: #f0f9ff; }
+      .fuchsia { background: #fdf4ff; }
       ul {
         margin: 8px 0 8px 20px;
       }
@@ -204,6 +198,17 @@ export async function POST(req: Request) {
       .footer {
         margin-top: 28px;
         color: #475569;
+      }
+      .meta-grid {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+        margin-bottom: 10px;
+      }
+      .meta-grid td {
+        width: 50%;
+        vertical-align: top;
+        padding-right: 8px;
       }
     </style>
   </head>
@@ -247,12 +252,46 @@ export async function POST(req: Request) {
     }
 
     ${
-      intendedReader
+      intendedReader || estimatedLearningTime || practitionerLevel
         ? `
-      <div class="card soft">
-        <div class="label">Intended reader</div>
-        <div>${nl2br(toUkEnglish(intendedReader))}</div>
-      </div>
+      <table class="meta-grid">
+        <tr>
+          <td>
+            ${
+              intendedReader
+                ? `
+              <div class="card soft">
+                <div class="label">Intended reader</div>
+                <div>${nl2br(toUkEnglish(intendedReader))}</div>
+              </div>
+            `
+                : ""
+            }
+          </td>
+          <td>
+            ${
+              estimatedLearningTime
+                ? `
+              <div class="card soft">
+                <div class="label">Estimated learning time</div>
+                <div>${nl2br(toUkEnglish(estimatedLearningTime))}</div>
+              </div>
+            `
+                : ""
+            }
+            ${
+              practitionerLevel
+                ? `
+              <div class="card soft">
+                <div class="label">Practitioner level</div>
+                <div>${nl2br(toUkEnglish(practitionerLevel))}</div>
+              </div>
+            `
+                : ""
+            }
+          </td>
+        </tr>
+      </table>
     `
         : ""
     }
@@ -286,10 +325,18 @@ export async function POST(req: Request) {
         const reflectionPrompt = String(
           section?.reflection_prompt || ""
         ).trim();
+        const reviewQuestions = Array.isArray(section?.review_questions)
+          ? section.review_questions
+          : [];
+        const followUpPractice = String(
+          section?.follow_up_practice || ""
+        ).trim();
 
         return `
         <div class="section">
-          <h2>Module ${index + 1}: ${escapeHtml(toUkEnglish(sectionTitle))}</h2>
+          <h2>Module ${index + 1}: ${escapeHtml(
+            toUkEnglish(sectionTitle)
+          )}</h2>
 
           ${
             sectionSummary
@@ -359,6 +406,35 @@ export async function POST(req: Request) {
             <div class="card amber">
               <div class="label">Reflection prompt</div>
               <div>${nl2br(toUkEnglish(reflectionPrompt))}</div>
+            </div>
+          `
+              : ""
+          }
+
+          ${
+            reviewQuestions.length
+              ? `
+            <div class="card sky">
+              <div class="label">Review questions</div>
+              <ul>
+                ${reviewQuestions
+                  .map(
+                    (item: unknown) =>
+                      `<li>${escapeHtml(toUkEnglish(String(item || "")))}</li>`
+                  )
+                  .join("")}
+              </ul>
+            </div>
+          `
+              : ""
+          }
+
+          ${
+            followUpPractice
+              ? `
+            <div class="card fuchsia">
+              <div class="label">Follow-up practice</div>
+              <div>${nl2br(toUkEnglish(followUpPractice))}</div>
             </div>
           `
               : ""
