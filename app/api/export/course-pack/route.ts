@@ -72,6 +72,31 @@ async function imageUrlToDataUri(url: string): Promise<string> {
   }
 }
 
+function formatNumberedLines(text: string) {
+  const safe = toUkEnglish(String(text || "").trim());
+  if (!safe) return "";
+
+  const parts = safe
+    .split(/\s(?=\d+\.\s)/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length <= 1) {
+    return `<div>${nl2br(safe)}</div>`;
+  }
+
+  return `
+    <ol style="margin:8px 0 0 20px; padding:0;">
+      ${parts
+        .map((item) => {
+          const cleaned = item.replace(/^\d+\.\s*/, "").trim();
+          return `<li style="margin:6px 0;">${nl2br(cleaned)}</li>`;
+        })
+        .join("")}
+    </ol>
+  `;
+}
+
 export async function POST(req: Request) {
   try {
     const { course, title, organisationId } = await req.json();
@@ -145,8 +170,8 @@ export async function POST(req: Request) {
       body {
         font-family: Arial, Helvetica, sans-serif;
         color: #0f172a;
-        line-height: 1.5;
-        margin: 32px;
+        line-height: 1.55;
+        margin: 28px;
       }
       h1 {
         font-size: 26px;
@@ -155,23 +180,28 @@ export async function POST(req: Request) {
       }
       h2 {
         font-size: 18px;
-        margin: 26px 0 8px 0;
+        margin: 30px 0 10px 0;
         color: ${brandColor};
         border-bottom: 1px solid #dbe5f1;
-        padding-bottom: 4px;
+        padding-bottom: 5px;
+      }
+      h3 {
+        font-size: 14px;
+        margin: 0 0 8px 0;
+        color: #0f172a;
       }
       .muted {
         color: #475569;
-        margin-bottom: 20px;
+        margin-bottom: 18px;
       }
       .section {
-        margin-top: 28px;
+        margin-top: 30px;
         page-break-inside: avoid;
       }
       .card {
         border: 1px solid #dbe5f1;
-        padding: 12px 14px;
-        margin: 10px 0;
+        padding: 14px 16px;
+        margin: 12px 0;
         border-radius: 8px;
       }
       .soft { background: #f8fafc; }
@@ -181,39 +211,45 @@ export async function POST(req: Request) {
       .amber { background: #fffbeb; }
       .sky { background: #f0f9ff; }
       .fuchsia { background: #fdf4ff; }
+      .indigo { background: #eef2ff; }
+      .teal { background: #f0fdfa; }
       ul {
-        margin: 8px 0 8px 20px;
+        margin: 8px 0 0 20px;
+        padding: 0;
       }
       li {
-        margin: 4px 0;
+        margin: 5px 0;
       }
       .label {
         font-size: 11px;
         font-weight: 700;
         text-transform: uppercase;
         color: #64748b;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
         letter-spacing: 0.04em;
       }
       .footer {
-        margin-top: 28px;
+        margin-top: 30px;
         color: #475569;
       }
       .meta-grid {
         width: 100%;
         border-collapse: collapse;
-        margin-top: 10px;
-        margin-bottom: 10px;
+        margin-top: 12px;
+        margin-bottom: 12px;
       }
       .meta-grid td {
         width: 50%;
         vertical-align: top;
-        padding-right: 8px;
+        padding-right: 10px;
+      }
+      .spaced-text {
+        white-space: pre-wrap;
       }
     </style>
   </head>
   <body>
-    <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
+    <table style="width:100%; border-collapse:collapse; margin-bottom:18px;">
       <tr>
         ${
           logoDataUri
@@ -245,7 +281,7 @@ export async function POST(req: Request) {
         ? `
       <div class="card soft">
         <div class="label">Summary</div>
-        <div>${nl2br(toUkEnglish(summary))}</div>
+        <div class="spaced-text">${nl2br(toUkEnglish(summary))}</div>
       </div>
     `
         : ""
@@ -262,7 +298,7 @@ export async function POST(req: Request) {
                 ? `
               <div class="card soft">
                 <div class="label">Intended reader</div>
-                <div>${nl2br(toUkEnglish(intendedReader))}</div>
+                <div class="spaced-text">${nl2br(toUkEnglish(intendedReader))}</div>
               </div>
             `
                 : ""
@@ -274,7 +310,7 @@ export async function POST(req: Request) {
                 ? `
               <div class="card soft">
                 <div class="label">Estimated learning time</div>
-                <div>${nl2br(toUkEnglish(estimatedLearningTime))}</div>
+                <div class="spaced-text">${nl2br(toUkEnglish(estimatedLearningTime))}</div>
               </div>
             `
                 : ""
@@ -284,7 +320,7 @@ export async function POST(req: Request) {
                 ? `
               <div class="card soft">
                 <div class="label">Practitioner level</div>
-                <div>${nl2br(toUkEnglish(practitionerLevel))}</div>
+                <div class="spaced-text">${nl2br(toUkEnglish(practitionerLevel))}</div>
               </div>
             `
                 : ""
@@ -319,9 +355,16 @@ export async function POST(req: Request) {
           section?.title || `Module ${index + 1}`
         ).trim();
         const sectionSummary = String(section?.summary || "").trim();
+        const mainPoints = String(section?.main_points || "").trim();
         const instructorNotes = String(section?.instructor_notes || "").trim();
+        const facilitatorScript = String(
+          section?.facilitator_script || ""
+        ).trim();
         const deliverySteps = String(section?.delivery_steps || "").trim();
         const exercise = String(section?.exercise || "").trim();
+        const exerciseFacilitatorGuidance = String(
+          section?.exercise_facilitator_guidance || ""
+        ).trim();
         const reflectionPrompt = String(
           section?.reflection_prompt || ""
         ).trim();
@@ -343,7 +386,7 @@ export async function POST(req: Request) {
               ? `
             <div class="card soft">
               <div class="label">Module summary</div>
-              <div>${nl2br(toUkEnglish(sectionSummary))}</div>
+              <div class="spaced-text">${nl2br(toUkEnglish(sectionSummary))}</div>
             </div>
           `
               : ""
@@ -368,11 +411,33 @@ export async function POST(req: Request) {
           }
 
           ${
+            mainPoints
+              ? `
+            <div class="card blue">
+              <div class="label">Main points for the teacher</div>
+              <div class="spaced-text">${nl2br(toUkEnglish(mainPoints))}</div>
+            </div>
+          `
+              : ""
+          }
+
+          ${
             instructorNotes
               ? `
             <div class="card green">
               <div class="label">Instructor notes</div>
-              <div>${nl2br(toUkEnglish(instructorNotes))}</div>
+              <div class="spaced-text">${nl2br(toUkEnglish(instructorNotes))}</div>
+            </div>
+          `
+              : ""
+          }
+
+          ${
+            facilitatorScript
+              ? `
+            <div class="card indigo">
+              <div class="label">Facilitator script</div>
+              <div class="spaced-text">${nl2br(toUkEnglish(facilitatorScript))}</div>
             </div>
           `
               : ""
@@ -383,7 +448,7 @@ export async function POST(req: Request) {
               ? `
             <div class="card blue">
               <div class="label">Delivery steps</div>
-              <div>${nl2br(toUkEnglish(deliverySteps))}</div>
+              ${formatNumberedLines(deliverySteps)}
             </div>
           `
               : ""
@@ -394,7 +459,20 @@ export async function POST(req: Request) {
               ? `
             <div class="card purple">
               <div class="label">Practical exercise</div>
-              <div>${nl2br(toUkEnglish(exercise))}</div>
+              <div class="spaced-text">${nl2br(toUkEnglish(exercise))}</div>
+            </div>
+          `
+              : ""
+          }
+
+          ${
+            exerciseFacilitatorGuidance
+              ? `
+            <div class="card teal">
+              <div class="label">Exercise facilitator guidance</div>
+              <div class="spaced-text">${nl2br(
+                toUkEnglish(exerciseFacilitatorGuidance)
+              )}</div>
             </div>
           `
               : ""
@@ -405,7 +483,7 @@ export async function POST(req: Request) {
               ? `
             <div class="card amber">
               <div class="label">Reflection prompt</div>
-              <div>${nl2br(toUkEnglish(reflectionPrompt))}</div>
+              <div class="spaced-text">${nl2br(toUkEnglish(reflectionPrompt))}</div>
             </div>
           `
               : ""
@@ -434,7 +512,7 @@ export async function POST(req: Request) {
               ? `
             <div class="card fuchsia">
               <div class="label">Follow-up practice</div>
-              <div>${nl2br(toUkEnglish(followUpPractice))}</div>
+              <div class="spaced-text">${nl2br(toUkEnglish(followUpPractice))}</div>
             </div>
           `
               : ""
@@ -449,7 +527,7 @@ export async function POST(req: Request) {
         ? `
       <h2>Closing encouragement</h2>
       <div class="card green">
-        ${nl2br(toUkEnglish(closingEncouragement))}
+        <div class="spaced-text">${nl2br(toUkEnglish(closingEncouragement))}</div>
       </div>
     `
         : ""
