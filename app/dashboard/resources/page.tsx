@@ -3924,8 +3924,7 @@ async function clearUploadedSlideImage(
   </div>
 ) : null}
 
-                            {section?.reflection_prompt !== undefined ? (
-  {section?.debrief_notes !== undefined ? (
+                           {section?.debrief_notes !== undefined ? (
   <div className="mt-3 rounded-xl border border-rose-500/20 bg-rose-500/5 p-3">
     <div className="text-[11px] font-semibold uppercase tracking-wide text-rose-300">
       Debrief notes
@@ -3959,7 +3958,8 @@ async function clearUploadedSlideImage(
     )}
   </div>
 ) : null}
-                              <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+ {section?.reflection_prompt !== undefined ? (
+                                <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
                                 <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-300">
                                   Reflection prompt
                                 </div>
