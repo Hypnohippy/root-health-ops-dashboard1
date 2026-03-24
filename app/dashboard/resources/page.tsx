@@ -1985,6 +1985,74 @@ async function clearUploadedSlideImage(
       return next;
     });
   }
+  async function deepTeachSection(resource: Resource, sectionIndex: number) {
+  const content = deepClone(resource.content || {});
+  const sections = Array.isArray(content?.sections) ? content.sections : [];
+  const section = sections[sectionIndex];
+
+  if (!section) {
+    setError("Section not found.");
+    return;
+  }
+
+  setBusyAction(`deep-teach:${resource.id}:${sectionIndex}`);
+  setError(null);
+
+  try {
+    const res = await fetch("/api/ai/deep-teach-section", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        courseTitle: resource.title,
+        courseAudience: String(content?.intended_reader || "").trim(),
+        courseSummary: String(content?.summary || "").trim(),
+        sectionTitle: String(section?.title || "").trim(),
+        sectionSummary: String(section?.summary || "").trim(),
+        sectionBullets: Array.isArray(section?.bullets) ? section.bullets : [],
+        mainPoints: String(section?.main_points || "").trim(),
+        instructorNotes: String(section?.instructor_notes || "").trim(),
+        facilitatorScript: String(section?.facilitator_script || "").trim(),
+        deliverySteps: String(section?.delivery_steps || "").trim(),
+        exercise: String(section?.exercise || "").trim(),
+        exerciseFacilitatorGuidance: String(
+          section?.exercise_facilitator_guidance || ""
+        ).trim(),
+        reflectionPrompt: String(section?.reflection_prompt || "").trim(),
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || "Failed to deep teach section");
+    }
+
+    const nextContent = deepClone(resource.content || {});
+    nextContent.sections = Array.isArray(nextContent.sections)
+      ? nextContent.sections
+      : [];
+
+    if (!nextContent.sections[sectionIndex]) {
+      throw new Error("Section not found while saving deep teach notes.");
+    }
+
+    nextContent.sections[sectionIndex].facilitator_deep_teach = String(
+      data?.deepTeachNotes || ""
+    ).trim();
+
+    await persistResourceContent(
+      resource,
+      nextContent,
+      `Module ${sectionIndex + 1} deep teach notes added ✅`
+    );
+  } catch (e: any) {
+    setError(e?.message || "Failed to deep teach section");
+  } finally {
+    setBusyAction(null);
+  }
+}
   async function upgradeLegacyResource(resource: Resource) {
   const nextContent = upgradeLegacyResourceContent(resource.content || {});
 
@@ -3537,7 +3605,57 @@ async function clearUploadedSlideImage(
                                 {idx + 1}. {String(section?.title || "").trim()}
                               </div>
                             )}
+<div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+  <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
+      Facilitator deep teach
+    </div>
 
+    {!editMode && !isTemplate(selected) ? (
+      <button
+        type="button"
+        onClick={() => deepTeachSection(selected as Resource, idx)}
+        disabled={
+          busyAction === `deep-teach:${(selected as Resource).id}:${idx}`
+        }
+        className="rounded-full bg-emerald-500 px-3 py-1 text-[11px] font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+      >
+        {busyAction === `deep-teach:${(selected as Resource).id}:${idx}`
+          ? "Deep teaching…"
+          : "Deep Teach This Module"}
+      </button>
+    ) : null}
+  </div>
+
+  {editMode && !isTemplate(selected) ? (
+    <textarea
+      value={String(section?.facilitator_deep_teach || "")}
+      onChange={(e) =>
+        setDraftContent((prev: any) => {
+          const next = deepClone(prev || {});
+          next.sections = Array.isArray(next.sections)
+            ? next.sections
+            : [];
+          if (!next.sections[idx]) {
+            next.sections[idx] = {
+              title: "",
+              bullets: [],
+            };
+          }
+          next.sections[idx].facilitator_deep_teach = e.target.value;
+          return next;
+        })
+      }
+      rows={10}
+      className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+    />
+  ) : (
+    <div className="mt-3 text-sm text-slate-300 whitespace-pre-wrap">
+      {String(section?.facilitator_deep_teach || "").trim() ||
+        "No deep teach notes yet. Click 'Deep Teach This Module' to generate step-by-step facilitator notes, wording, examples, and debrief guidance."}
+    </div>
+  )}
+</div>
                             {section?.summary !== undefined ? (
                               <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/50 p-3">
                                 <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
