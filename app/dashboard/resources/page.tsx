@@ -1986,6 +1986,16 @@ async function clearUploadedSlideImage(
     });
   }
   async function deepTeachSection(resource: Resource, sectionIndex: number) {
+  if (!organisationId) {
+    setError("organisationId required");
+    return;
+  }
+
+  if (!resource?.id) {
+    setError("resourceId required");
+    return;
+  }
+
   const content = deepClone(resource.content || {});
   const sections = Array.isArray(content?.sections) ? content.sections : [];
   const section = sections[sectionIndex];
@@ -1999,7 +2009,7 @@ async function clearUploadedSlideImage(
   setError(null);
 
   try {
-    const res = await fetch("/api/ai/deep-teach-section", {
+    const aiRes = await fetch("/api/ai/deep-teach-section", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -2023,10 +2033,10 @@ async function clearUploadedSlideImage(
       }),
     });
 
-    const data = await res.json().catch(() => null);
+    const aiData = await aiRes.json().catch(() => null);
 
-    if (!res.ok || !data?.success) {
-      throw new Error(data?.error || "Failed to deep teach section");
+    if (!aiRes.ok || !aiData?.success) {
+      throw new Error(aiData?.error || "Failed to deep teach section");
     }
 
     const nextContent = deepClone(resource.content || {});
@@ -2039,14 +2049,42 @@ async function clearUploadedSlideImage(
     }
 
     nextContent.sections[sectionIndex].facilitator_deep_teach = String(
-      data?.deepTeachNotes || ""
+      aiData?.deepTeachNotes || ""
     ).trim();
 
-    await persistResourceContent(
-      resource,
-      nextContent,
-      `Module ${sectionIndex + 1} deep teach notes added ✅`
-    );
+    const saveRes = await fetch("/api/resource-library", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        organisationId,
+        resourceId: resource.id,
+        title: resource.title,
+        content: nextContent,
+      }),
+    });
+
+    const saveData = await saveRes.json().catch(() => null);
+
+    if (!saveRes.ok || !saveData?.success) {
+      throw new Error(saveData?.error || "Failed to save deep teach notes");
+    }
+
+    const updated = saveData?.resource || null;
+
+    if (updated) {
+      setResources((prev) =>
+        prev.map((r) => (r.id === updated.id ? updated : r))
+      );
+      setSelected(updated);
+      setDraftTitle(updated.title || "");
+      setDraftContent(deepClone(updated.content || {}));
+    } else {
+      await loadResources();
+    }
+
+    setToast(`Module ${sectionIndex + 1} deep teach notes added ✅`);
   } catch (e: any) {
     setError(e?.message || "Failed to deep teach section");
   } finally {
