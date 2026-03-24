@@ -3416,6 +3416,48 @@ async function clearUploadedSlideImage(
                         )}
                       </div>
                     ) : null}
+                    {selectedContent?.estimated_learning_time !== undefined ? (
+  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+    <div className="text-sm font-semibold text-emerald-200">
+      Estimated learning time
+    </div>
+    {editMode && !isTemplate(selected) ? (
+      <textarea
+        value={String(selectedContent.estimated_learning_time || "")}
+        onChange={(e) =>
+          setDraftField("estimated_learning_time", e.target.value)
+        }
+        rows={2}
+        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+      />
+    ) : (
+      <div className="mt-2 text-sm text-slate-300">
+        {selectedContent.estimated_learning_time}
+      </div>
+    )}
+  </div>
+) : null}
+                    {selectedContent?.practitioner_level !== undefined ? (
+  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+    <div className="text-sm font-semibold text-emerald-200">
+      Practitioner level
+    </div>
+    {editMode && !isTemplate(selected) ? (
+      <textarea
+        value={String(selectedContent.practitioner_level || "")}
+        onChange={(e) =>
+          setDraftField("practitioner_level", e.target.value)
+        }
+        rows={2}
+        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+      />
+    ) : (
+      <div className="mt-2 text-sm text-slate-300">
+        {selectedContent.practitioner_level}
+      </div>
+    )}
+  </div>
+) : null}
                                         {Array.isArray(selectedContent?.learning_outcomes) &&
                     selectedContent.learning_outcomes.length > 0 ? (
                       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
@@ -3720,6 +3762,89 @@ async function clearUploadedSlideImage(
                         ))}
                       </div>
                     ) : null}
+                    {Array.isArray(section?.review_questions) &&
+section.review_questions.length > 0 ? (
+  <div className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-sky-300">
+      Review questions
+    </div>
+    <div className="mt-2 space-y-2">
+      {section.review_questions.map((question: any, qIdx: number) =>
+        editMode && !isTemplate(selected) ? (
+          <textarea
+            key={`${(selected as any).id}-section-${idx}-review-${qIdx}`}
+            value={String(question || "")}
+            onChange={(e) =>
+              setDraftContent((prev: any) => {
+                const next = deepClone(prev || {});
+                next.sections = Array.isArray(next.sections)
+                  ? next.sections
+                  : [];
+                if (!next.sections[idx]) {
+                  next.sections[idx] = {
+                    title: "",
+                    bullets: [],
+                  };
+                }
+                next.sections[idx].review_questions = Array.isArray(
+                  next.sections[idx].review_questions
+                )
+                  ? next.sections[idx].review_questions
+                  : [];
+                next.sections[idx].review_questions[qIdx] = e.target.value;
+                return next;
+              })
+            }
+            rows={2}
+            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+          />
+        ) : (
+          <div
+            key={`${(selected as any).id}-section-${idx}-review-${qIdx}`}
+            className="text-sm text-slate-300"
+          >
+            • {String(question || "").trim()}
+          </div>
+        )
+      )}
+    </div>
+  </div>
+) : null}
+
+{section?.follow_up_practice !== undefined ? (
+  <div className="mt-3 rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-fuchsia-300">
+      Follow-up practice
+    </div>
+    {editMode && !isTemplate(selected) ? (
+      <textarea
+        value={String(section?.follow_up_practice || "")}
+        onChange={(e) =>
+          setDraftContent((prev: any) => {
+            const next = deepClone(prev || {});
+            next.sections = Array.isArray(next.sections)
+              ? next.sections
+              : [];
+            if (!next.sections[idx]) {
+              next.sections[idx] = {
+                title: "",
+                bullets: [],
+              };
+            }
+            next.sections[idx].follow_up_practice = e.target.value;
+            return next;
+          })
+        }
+        rows={4}
+        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+      />
+    ) : (
+      <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+        {String(section?.follow_up_practice || "").trim()}
+      </div>
+    )}
+  </div>
+) : null}
 
                                         {Array.isArray(selectedContent?.slides) &&
                     selectedContent.slides.length > 0 ? (
