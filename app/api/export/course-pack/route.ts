@@ -195,15 +195,15 @@ export async function POST(req: Request) {
         margin-bottom: 18px;
       }
       .section {
-        margin-top: 30px;
-        page-break-inside: avoid;
-      }
-      .card {
-        border: 1px solid #dbe5f1;
-        padding: 14px 16px;
-        margin: 12px 0;
-        border-radius: 8px;
-      }
+  margin-top: 36px;
+  page-break-inside: avoid;
+}
+     .card {
+  border: 1px solid #dbe5f1;
+  padding: 16px 18px;
+  margin: 18px 0;
+  border-radius: 10px;
+}
       .soft { background: #f8fafc; }
       .green { background: #f0fdf4; }
       .blue { background: #eff6ff; }
@@ -380,6 +380,9 @@ export async function POST(req: Request) {
 
         return `
         <div class="section">
+  <div style="background:${brandColor}; color:white; padding:10px 14px; border-radius:6px; margin-bottom:12px;">
+    <strong>Module ${index + 1}</strong>
+  </div>
           <h2>Module ${index + 1}: ${escapeHtml(
             toUkEnglish(sectionTitle)
           )}</h2>
@@ -449,9 +452,20 @@ export async function POST(req: Request) {
   facilitatorDeepTeach
     ? `
   <div class="card green">
-    <div class="label">Facilitator deep teach</div>
-    <div class="spaced-text">${nl2br(toUkEnglish(facilitatorDeepTeach))}</div>
-  </div>
+   <div class="label">Facilitator deep teach</div>
+<div class="spaced-text">
+  ${nl2br(
+    toUkEnglish(
+      facilitatorDeepTeach
+        .replace(/Concept teaching notes/gi, "\n\n— CONCEPT TEACHING NOTES —\n")
+        .replace(/Step-by-step delivery/gi, "\n\n— STEP-BY-STEP DELIVERY —\n")
+        .replace(/Exact wording examples/gi, "\n\n— EXACT WORDING —\n")
+        .replace(/Worked example/gi, "\n\n— WORKED EXAMPLE —\n")
+        .replace(/Common pitfalls/gi, "\n\n— COMMON PITFALLS —\n")
+        .replace(/Debrief guide/gi, "\n\n— DEBRIEF GUIDE —\n")
+    )
+  )}
+</div>
 `
     : ""
 }
@@ -460,7 +474,8 @@ export async function POST(req: Request) {
             deliverySteps
               ? `
             <div class="card blue">
-              <div class="label">Delivery steps</div>
+              <div class="label">Teaching flow (step-by-step)</div>
+      
               ${formatNumberedLines(deliverySteps)}
             </div>
           `
