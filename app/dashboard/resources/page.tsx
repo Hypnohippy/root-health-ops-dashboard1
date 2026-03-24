@@ -3762,7 +3762,7 @@ async function clearUploadedSlideImage(
                         ))}
                       </div>
                     ) : null}
-                  {Array.isArray(section?.review_questions) &&
+                    {Array.isArray(section?.review_questions) &&
 section.review_questions.length > 0 ? (
   <div className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
     <div className="text-[11px] font-semibold uppercase tracking-wide text-sky-300">
@@ -3788,6 +3788,7 @@ section.review_questions.length > 0 ? (
     </div>
   </div>
 ) : null}
+                 
                                         {Array.isArray(selectedContent?.slides) &&
                     selectedContent.slides.length > 0 ? (
                       <div className="space-y-6">
