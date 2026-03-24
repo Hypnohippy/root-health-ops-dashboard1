@@ -3602,6 +3602,40 @@ async function clearUploadedSlideImage(
                                     )
                                 )}
                             </div>
+                            {section?.key_concepts_explained !== undefined ? (
+  <div className="mt-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-cyan-300">
+      Key concepts explained
+    </div>
+    {editMode && !isTemplate(selected) ? (
+      <textarea
+        value={String(section?.key_concepts_explained || "")}
+        onChange={(e) =>
+          setDraftContent((prev: any) => {
+            const next = deepClone(prev || {});
+            next.sections = Array.isArray(next.sections)
+              ? next.sections
+              : [];
+            if (!next.sections[idx]) {
+              next.sections[idx] = {
+                title: "",
+                bullets: [],
+              };
+            }
+            next.sections[idx].key_concepts_explained = e.target.value;
+            return next;
+          })
+        }
+        rows={6}
+        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+      />
+    ) : (
+      <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+        {String(section?.key_concepts_explained || "").trim()}
+      </div>
+    )}
+  </div>
+) : null}
 {section?.main_points !== undefined ? (
   <div className="mt-3 rounded-xl border border-blue-500/20 bg-blue-500/5 p-3">
     <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-300">
@@ -3667,6 +3701,40 @@ async function clearUploadedSlideImage(
     ) : (
       <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
         {String(section?.facilitator_script || "").trim()}
+      </div>
+    )}
+  </div>
+) : null}
+                            {section?.worked_examples !== undefined ? (
+  <div className="mt-3 rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-violet-300">
+      Worked examples
+    </div>
+    {editMode && !isTemplate(selected) ? (
+      <textarea
+        value={String(section?.worked_examples || "")}
+        onChange={(e) =>
+          setDraftContent((prev: any) => {
+            const next = deepClone(prev || {});
+            next.sections = Array.isArray(next.sections)
+              ? next.sections
+              : [];
+            if (!next.sections[idx]) {
+              next.sections[idx] = {
+                title: "",
+                bullets: [],
+              };
+            }
+            next.sections[idx].worked_examples = e.target.value;
+            return next;
+          })
+        }
+        rows={6}
+        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+      />
+    ) : (
+      <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+        {String(section?.worked_examples || "").trim()}
       </div>
     )}
   </div>
@@ -3786,6 +3854,40 @@ async function clearUploadedSlideImage(
                                 )}
                               </div>
                             ) : null}
+                            {section?.self_assessment_activity !== undefined ? (
+  <div className="mt-3 rounded-xl border border-lime-500/20 bg-lime-500/5 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-lime-300">
+      Self-assessment activity
+    </div>
+    {editMode && !isTemplate(selected) ? (
+      <textarea
+        value={String(section?.self_assessment_activity || "")}
+        onChange={(e) =>
+          setDraftContent((prev: any) => {
+            const next = deepClone(prev || {});
+            next.sections = Array.isArray(next.sections)
+              ? next.sections
+              : [];
+            if (!next.sections[idx]) {
+              next.sections[idx] = {
+                title: "",
+                bullets: [],
+              };
+            }
+            next.sections[idx].self_assessment_activity = e.target.value;
+            return next;
+          })
+        }
+        rows={5}
+        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+      />
+    ) : (
+      <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+        {String(section?.self_assessment_activity || "").trim()}
+      </div>
+    )}
+  </div>
+) : null}
                             {section?.exercise_facilitator_guidance !== undefined ? (
   <div className="mt-3 rounded-xl border border-teal-500/20 bg-teal-500/5 p-3">
     <div className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">
@@ -3823,6 +3925,40 @@ async function clearUploadedSlideImage(
 ) : null}
 
                             {section?.reflection_prompt !== undefined ? (
+  {section?.debrief_notes !== undefined ? (
+  <div className="mt-3 rounded-xl border border-rose-500/20 bg-rose-500/5 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-rose-300">
+      Debrief notes
+    </div>
+    {editMode && !isTemplate(selected) ? (
+      <textarea
+        value={String(section?.debrief_notes || "")}
+        onChange={(e) =>
+          setDraftContent((prev: any) => {
+            const next = deepClone(prev || {});
+            next.sections = Array.isArray(next.sections)
+              ? next.sections
+              : [];
+            if (!next.sections[idx]) {
+              next.sections[idx] = {
+                title: "",
+                bullets: [],
+              };
+            }
+            next.sections[idx].debrief_notes = e.target.value;
+            return next;
+          })
+        }
+        rows={5}
+        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+      />
+    ) : (
+      <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+        {String(section?.debrief_notes || "").trim()}
+      </div>
+    )}
+  </div>
+) : null}
                               <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
                                 <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-300">
                                   Reflection prompt
