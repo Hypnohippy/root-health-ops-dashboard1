@@ -3602,7 +3602,75 @@ async function clearUploadedSlideImage(
                                     )
                                 )}
                             </div>
+{section?.main_points !== undefined ? (
+  <div className="mt-3 rounded-xl border border-blue-500/20 bg-blue-500/5 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-300">
+      Main points for the teacher
+    </div>
+    {editMode && !isTemplate(selected) ? (
+      <textarea
+        value={String(section?.main_points || "")}
+        onChange={(e) =>
+          setDraftContent((prev: any) => {
+            const next = deepClone(prev || {});
+            next.sections = Array.isArray(next.sections)
+              ? next.sections
+              : [];
+            if (!next.sections[idx]) {
+              next.sections[idx] = {
+                title: "",
+                bullets: [],
+              };
+            }
+            next.sections[idx].main_points = e.target.value;
+            return next;
+          })
+        }
+        rows={6}
+        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+      />
+    ) : (
+      <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+        {String(section?.main_points || "").trim()}
+      </div>
+    )}
+  </div>
+) : null}
 
+{section?.facilitator_script !== undefined ? (
+  <div className="mt-3 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-300">
+      Facilitator script
+    </div>
+    {editMode && !isTemplate(selected) ? (
+      <textarea
+        value={String(section?.facilitator_script || "")}
+        onChange={(e) =>
+          setDraftContent((prev: any) => {
+            const next = deepClone(prev || {});
+            next.sections = Array.isArray(next.sections)
+              ? next.sections
+              : [];
+            if (!next.sections[idx]) {
+              next.sections[idx] = {
+                title: "",
+                bullets: [],
+              };
+            }
+            next.sections[idx].facilitator_script = e.target.value;
+            return next;
+          })
+        }
+        rows={6}
+        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+      />
+    ) : (
+      <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+        {String(section?.facilitator_script || "").trim()}
+      </div>
+    )}
+  </div>
+) : null}
                             {section?.instructor_notes !== undefined ? (
                               <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
                                 <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
@@ -3718,6 +3786,41 @@ async function clearUploadedSlideImage(
                                 )}
                               </div>
                             ) : null}
+                            {section?.exercise_facilitator_guidance !== undefined ? (
+  <div className="mt-3 rounded-xl border border-teal-500/20 bg-teal-500/5 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">
+      Exercise facilitator guidance
+    </div>
+    {editMode && !isTemplate(selected) ? (
+      <textarea
+        value={String(section?.exercise_facilitator_guidance || "")}
+        onChange={(e) =>
+          setDraftContent((prev: any) => {
+            const next = deepClone(prev || {});
+            next.sections = Array.isArray(next.sections)
+              ? next.sections
+              : [];
+            if (!next.sections[idx]) {
+              next.sections[idx] = {
+                title: "",
+                bullets: [],
+              };
+            }
+            next.sections[idx].exercise_facilitator_guidance =
+              e.target.value;
+            return next;
+          })
+        }
+        rows={5}
+        className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+      />
+    ) : (
+      <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+        {String(section?.exercise_facilitator_guidance || "").trim()}
+      </div>
+    )}
+  </div>
+) : null}
 
                             {section?.reflection_prompt !== undefined ? (
                               <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
