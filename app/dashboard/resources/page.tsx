@@ -3762,7 +3762,32 @@ async function clearUploadedSlideImage(
                         ))}
                       </div>
                     ) : null}
-                  
+                  {Array.isArray(section?.review_questions) &&
+section.review_questions.length > 0 ? (
+  <div className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-sky-300">
+      Review questions
+    </div>
+    <div className="mt-2 space-y-1">
+      {section.review_questions.map((q: string, i: number) => (
+        <div key={i} className="text-sm text-slate-300">
+          • {q}
+        </div>
+      ))}
+    </div>
+  </div>
+) : null}
+
+{section?.follow_up_practice ? (
+  <div className="mt-3 rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-fuchsia-300">
+      Follow-up practice
+    </div>
+    <div className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">
+      {section.follow_up_practice}
+    </div>
+  </div>
+) : null}
                                         {Array.isArray(selectedContent?.slides) &&
                     selectedContent.slides.length > 0 ? (
                       <div className="space-y-6">
