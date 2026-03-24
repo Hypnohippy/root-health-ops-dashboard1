@@ -360,6 +360,9 @@ export async function POST(req: Request) {
         const facilitatorScript = String(
           section?.facilitator_script || ""
         ).trim();
+        const facilitatorDeepTeach = String(
+  section?.facilitator_deep_teach || ""
+).trim();
         const deliverySteps = String(section?.delivery_steps || "").trim();
         const exercise = String(section?.exercise || "").trim();
         const exerciseFacilitatorGuidance = String(
@@ -442,6 +445,16 @@ export async function POST(req: Request) {
           `
               : ""
           }
+          ${
+  facilitatorDeepTeach
+    ? `
+  <div class="card green">
+    <div class="label">Facilitator deep teach</div>
+    <div class="spaced-text">${nl2br(toUkEnglish(facilitatorDeepTeach))}</div>
+  </div>
+`
+    : ""
+}
 
           ${
             deliverySteps
