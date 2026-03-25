@@ -28,6 +28,39 @@ function containsExplicitConditionLanguage(text: string) {
   return keywords.some((k) => s.includes(k));
 }
 
+function extractJsonObject(raw: string) {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    // continue
+  }
+
+  const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i);
+  if (fenced?.[1]) {
+    try {
+      return JSON.parse(fenced[1]);
+    } catch {
+      // continue
+    }
+  }
+
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const candidate = text.slice(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // continue
+    }
+  }
+
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!OPENAI_API_KEY) {
@@ -62,30 +95,24 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
-      "You are Root Coach, an expert course creator, facilitator trainer, and CPD-style learning designer.",
+      "You are Root Coach, an expert course creator for therapists, coaches, and lifestyle practitioners, including CBT therapists, integrative therapists, counsellors, coaches, and lifestyle coaches.",
       "Write in UK English only.",
       "Never use American spelling.",
       "Use a professional UK CPD tone.",
       "Create fully teachable lesson material for therapists, coaches, and lifestyle practitioners who may not already know the topic well.",
       "Do not create vague outlines.",
-      "Do not say 'discuss', 'explain', 'cover', or 'facilitate' unless you also provide the actual content the teacher needs.",
-      "If you mention a concept, define it clearly.",
-      "If you mention an activity, describe exactly how to run it.",
-      "If you mention examples, include the examples in full.",
-      "If you mention context, explain how context changes decisions in practice.",
-      "If you mention a self-assessment, provide the questions or prompts used in that self-assessment.",
-      "Each module must help the teacher teach confidently without inventing missing content.",
-      "Main points must contain real teaching content, not summaries of what could be taught.",
-      "Facilitator script must contain natural wording the teacher can say aloud.",
-      "Exercise facilitator guidance must explain setup, delivery, observation, and debrief.",
-      "Key concepts explained must clearly define important ideas in plain English.",
-      "Worked examples must show realistic practice scenarios.",
-      "Debrief notes must explain what the teacher should listen for and how to pull out learning.",
+      "Do not say 'introduce', 'discuss', 'cover', or 'explore' unless you also provide the actual teaching content.",
+      "If a concept is mentioned, define it clearly.",
+      "If a technique is mentioned, explain what it is, why it works, and how to teach it.",
+      "If an activity is mentioned, explain exactly how to run it.",
+      "If scripting is relevant, include wording the teacher can actually say.",
+      "If context or variation is mentioned, explain how it changes practice.",
+      "Assume the teacher is not already an expert.",
       "Do not make diagnosis, treatment, cure, or recovery claims.",
       explicitConditionTopic
-        ? "The user has explicitly chosen a condition or topic. You may refer to that topic carefully, respectfully, and in broad educational language."
+        ? "The user has explicitly chosen a condition or topic. You may refer to that topic carefully and respectfully."
         : "Do not assume any diagnosis, condition, neurotype, disorder, or label unless the user explicitly asked for that topic.",
-      "Return only valid JSON matching the schema.",
+      "Return JSON only. No markdown fences. No commentary.",
     ].join(" ");
 
     const userPrompt = [
@@ -98,175 +125,63 @@ export async function POST(req: NextRequest) {
       "",
       "Create a professional short course with substantial teaching content.",
       "",
-      "Return:",
-      "- title",
-      "- summary",
-      "- intended_reader",
-      "- estimated_learning_time",
-      "- practitioner_level",
-      "- 4 learning_outcomes",
-      "- 4 modules",
-      "- closing_encouragement",
+      "Return exactly this JSON shape:",
+      "{",
+      '  "title": "string",',
+      '  "summary": "string",',
+      '  "intended_reader": "string",',
+      '  "estimated_learning_time": "string",',
+      '  "practitioner_level": "string",',
+      '  "learning_outcomes": ["string", "string", "string", "string"],',
+      '  "modules": [',
+      "    {",
+      '      "title": "string",',
+      '      "summary": "string",',
+      '      "bullets": ["string", "string", "string"],',
+      '      "key_concepts_explained": "string",',
+      '      "main_points": "string",',
+      '      "worked_examples": "string",',
+      '      "instructor_notes": "string",',
+      '      "facilitator_script": "string",',
+      '      "delivery_steps": "string",',
+      '      "exercise": "string",',
+      '      "self_assessment_activity": "string",',
+      '      "exercise_facilitator_guidance": "string",',
+      '      "debrief_notes": "string",',
+      '      "reflection_prompt": "string",',
+      '      "review_questions": ["string", "string"],',
+      '      "follow_up_practice": "string"',
+      "    }",
+      "  ],",
+      '  "closing_encouragement": "string"',
+      "}",
       "",
-      "Each module must include:",
-      "- title",
-      "- summary",
-      "- 3 to 5 teaching bullets",
-      "- key_concepts_explained",
-      "- main_points",
-      "- worked_examples",
-      "- instructor_notes",
-      "- facilitator_script",
-      "- delivery_steps",
-      "- exercise",
-      "- self_assessment_activity",
-      "- exercise_facilitator_guidance",
-      "- debrief_notes",
-      "- reflection_prompt",
-      "- review_questions",
-      "- follow_up_practice",
-      "",
-      "Quality requirements:",
-      "- key_concepts_explained must spell out the actual ideas the teacher needs to teach.",
-      "- main_points must contain the real teaching content, not placeholders.",
-      "- worked_examples must include concrete examples, mini case examples, or scenarios.",
-      "- self_assessment_activity must include actual prompts, questions, or scoring guidance where relevant.",
-      "- instructor_notes must include timing, cautions, emphasis, and delivery advice.",
-      "- facilitator_script must give wording the teacher can actually use in class.",
-      "- delivery_steps must be practical and sequenced.",
-      "- exercise must describe the participant task clearly.",
-      "- exercise_facilitator_guidance must explain how the teacher runs the activity.",
-      "- debrief_notes must explain what to ask afterwards and what learning to draw out.",
-      "- review_questions must be useful for recap, assessment, or discussion.",
-      "- follow_up_practice must describe what the learner should do after the session.",
-      "- The whole course should feel like material a professional could actually deliver.",
-      "",
-      "If the topic involves a technique, model, framework, or process, explain how it works, when to use it, and what mistakes to avoid.",
-      "",
-      "If fill level is skeleton, keep it lighter but still useful.",
-      "If fill level is draft, provide meaningful substance.",
-      "If fill level is ready, make it polished and delivery-ready.",
+      "Requirements:",
+      "- Provide exactly 4 modules.",
+      "- Provide exactly 4 learning outcomes.",
+      "- review_questions must be an array of 2 to 5 strings.",
+      "- bullets must be an array of 3 to 5 strings.",
+      "- Use UK English throughout.",
+      "- Make the course practical and teachable.",
+      "- Return JSON only.",
     ].join("\n");
 
-    const schema = {
-      name: "root_coach_course_outline",
-      strict: true,
-      schema: {
-        type: "object",
-        additionalProperties: false,
-        required: [
-          "title",
-          "summary",
-          "intended_reader",
-          "estimated_learning_time",
-          "practitioner_level",
-          "learning_outcomes",
-          "modules",
-          "closing_encouragement",
-        ],
-        properties: {
-          title: { type: "string" },
-          summary: { type: "string" },
-          intended_reader: { type: "string" },
-          estimated_learning_time: { type: "string" },
-          practitioner_level: { type: "string" },
-          learning_outcomes: {
-            type: "array",
-            minItems: 4,
-            maxItems: 4,
-            items: { type: "string" },
-          },
-          modules: {
-            type: "array",
-            minItems: 4,
-            maxItems: 4,
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: [
-                "title",
-                "summary",
-                "bullets",
-                "key_concepts_explained",
-                "main_points",
-                "worked_examples",
-                "instructor_notes",
-                "facilitator_script",
-                "delivery_steps",
-                "exercise",
-                "self_assessment_activity",
-                "exercise_facilitator_guidance",
-                "debrief_notes",
-                "reflection_prompt",
-                "review_questions",
-                "follow_up_practice",
-              ],
-              properties: {
-                title: { type: "string" },
-                summary: { type: "string" },
-                bullets: {
-                  type: "array",
-                  minItems: 3,
-                  maxItems: 5,
-                  items: { type: "string" },
-                },
-                key_concepts_explained: { type: "string" },
-                main_points: { type: "string" },
-                worked_examples: { type: "string" },
-                instructor_notes: { type: "string" },
-                facilitator_script: { type: "string" },
-                delivery_steps: { type: "string" },
-                exercise: { type: "string" },
-                self_assessment_activity: { type: "string" },
-                exercise_facilitator_guidance: { type: "string" },
-                debrief_notes: { type: "string" },
-                reflection_prompt: { type: "string" },
-                review_questions: {
-                  type: "array",
-                  minItems: 2,
-                  maxItems: 5,
-                  items: { type: "string" },
-                },
-                follow_up_practice: { type: "string" },
-              },
-            },
-          },
-          closing_encouragement: { type: "string" },
-        },
-      },
-    } as const;
-
-    const resp = await client.responses.create({
+    const response = await client.responses.create({
       model: "gpt-4o-mini",
       input: [
-        {
-          role: "system",
-          content: system,
-        },
-        {
-          role: "user",
-          content: userPrompt,
-        },
+        { role: "system", content: system },
+        { role: "user", content: userPrompt },
       ],
-      text: {
-        format: {
-          type: "json_schema",
-          ...schema,
-        },
-      },
     });
 
-    const raw = resp.output_text || "";
+    const raw = response.output_text || "";
+    const parsed = extractJsonObject(raw);
 
-    let parsed: any = null;
-
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
+    if (!parsed) {
       return NextResponse.json(
         {
           error: "AI did not return valid JSON",
-          raw: raw.slice(0, 2000),
+          raw: raw.slice(0, 3000),
         },
         { status: 500 }
       );
@@ -281,14 +196,20 @@ export async function POST(req: NextRequest) {
       ).trim(),
       practitioner_level: String(parsed?.practitioner_level || "").trim(),
       learning_outcomes: Array.isArray(parsed?.learning_outcomes)
-        ? parsed.learning_outcomes.map((x: any) => String(x || "").trim())
+        ? parsed.learning_outcomes
+            .map((x: any) => String(x || "").trim())
+            .filter(Boolean)
+            .slice(0, 4)
         : [],
       sections: Array.isArray(parsed?.modules)
-        ? parsed.modules.map((m: any) => ({
+        ? parsed.modules.slice(0, 4).map((m: any) => ({
             title: String(m?.title || "").trim(),
             summary: String(m?.summary || "").trim(),
             bullets: Array.isArray(m?.bullets)
-              ? m.bullets.map((x: any) => String(x || "").trim())
+              ? m.bullets
+                  .map((x: any) => String(x || "").trim())
+                  .filter(Boolean)
+                  .slice(0, 5)
               : [],
             key_concepts_explained: String(
               m?.key_concepts_explained || ""
@@ -308,13 +229,30 @@ export async function POST(req: NextRequest) {
             debrief_notes: String(m?.debrief_notes || "").trim(),
             reflection_prompt: String(m?.reflection_prompt || "").trim(),
             review_questions: Array.isArray(m?.review_questions)
-              ? m.review_questions.map((x: any) => String(x || "").trim())
+              ? m.review_questions
+                  .map((x: any) => String(x || "").trim())
+                  .filter(Boolean)
+                  .slice(0, 5)
               : [],
             follow_up_practice: String(m?.follow_up_practice || "").trim(),
           }))
         : [],
       closing_encouragement: String(parsed?.closing_encouragement || "").trim(),
     };
+
+    if (
+      !normalised.title ||
+      normalised.learning_outcomes.length === 0 ||
+      normalised.sections.length === 0
+    ) {
+      return NextResponse.json(
+        {
+          error: "AI returned incomplete course JSON",
+          raw: raw.slice(0, 3000),
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
