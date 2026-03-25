@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       "Write in UK English only.",
       "Never use American spelling.",
       "Use a professional UK CPD tone.",
-      "Create fully teachable lesson material for instructors who may not already know the topic well.",
+      "Create fully teachable lesson material for therapists, coaches, and lifestyle practitioners who may not already know the topic well.",
       "Do not create vague outlines.",
       "Do not say 'discuss', 'explain', 'cover', or 'facilitate' unless you also provide the actual content the teacher needs.",
       "If you mention a concept, define it clearly.",
