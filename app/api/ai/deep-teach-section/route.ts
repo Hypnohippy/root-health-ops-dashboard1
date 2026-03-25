@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
    const system = [
-  "You are an expert UK CPD facilitator and subject-matter expert.",
+  "You are an expert UK CPD facilitator and subject-matter expert working across therapy, coaching, and lifestyle practice.",
   "Write in UK English only.",
   "Never use American spelling.",
 
