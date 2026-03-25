@@ -73,12 +73,16 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
 
     const topic = String(body?.topic || body?.name || "").trim();
-    const goal = String(body?.goal || "").trim();
-    const audience = String(body?.audience || "").trim();
-    const notes = String(body?.notes || "").trim();
-    const tone = String(body?.tone || "supportive and practical").trim();
-    const fillLevel = String(body?.fillLevel || "draft").trim();
-
+const goal = String(body?.goal || "").trim();
+const audience = String(body?.audience || "").trim();
+const instructorType = String(body?.instructorType || "therapist").trim();
+const learnerAudience = String(
+  body?.learnerAudience || "members of the public"
+).trim();
+const deliveryContext = String(body?.deliveryContext || "workshop").trim();
+const notes = String(body?.notes || "").trim();
+const tone = String(body?.tone || "supportive and practical").trim();
+const fillLevel = String(body?.fillLevel || "draft").trim();
     if (!topic) {
       return NextResponse.json(
         { error: "topic or name is required." },
@@ -100,6 +104,7 @@ export async function POST(req: NextRequest) {
       "Never use American spelling.",
       "Use a professional UK CPD tone.",
       "Create fully teachable lesson material for therapists, coaches, and lifestyle practitioners who may not already know the topic well.",
+      "Tailor the material to the specified instructor type, learner audience, and delivery context. Do not assume therapist-to-therapist teaching unless explicitly requested.",
       "Do not create vague outlines.",
       "Do not say 'introduce', 'discuss', 'cover', or 'explore' unless you also provide the actual teaching content.",
       "If a concept is mentioned, define it clearly.",
@@ -117,13 +122,21 @@ export async function POST(req: NextRequest) {
 
     const userPrompt = [
       `Topic: ${topic}`,
-      `Goal: ${goal || "Not specified"}`,
-      `Audience: ${audience || "Not specified"}`,
-      `Notes: ${notes || "None"}`,
-      `Tone: ${tone}`,
-      `Fill level: ${fillLevel}`,
+`Goal: ${goal || "Not specified"}`,
+`Audience: ${audience || "Not specified"}`,
+`Instructor type: ${instructorType}`,
+`Learner audience: ${learnerAudience}`,
+`Delivery context: ${deliveryContext}`,
+`Notes: ${notes || "None"}`,
+`Tone: ${tone}`,
+`Fill level: ${fillLevel}`,
       "",
-      "Create a professional short course with substantial teaching content.",
+      "Create a professional short course with substantial teaching content tailored to the specified instructor type, learner audience, and delivery context.",
+      "The content must match the learner audience appropriately.",
+"If the learner audience is public, use accessible and non-jargon language.",
+"If the learner audience is companies or workplace teams, use practical workplace language and examples.",
+"If the learner audience is therapists or practitioners, use CPD-style practitioner language.",
+"If the learner audience is clients or sufferers or peer groups, use supportive, respectful, empowering language.",
       "",
       "Return exactly this JSON shape:",
       "{",
