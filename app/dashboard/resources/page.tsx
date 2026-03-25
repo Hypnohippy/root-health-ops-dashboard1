@@ -4878,20 +4878,26 @@ async function clearUploadedSlideImage(
 
   <div>
     <label className="block text-xs font-medium text-slate-300">
-      How will it be delivered?
-    </label>
-    <select
-      value={creatorDeliveryContext}
-      onChange={(e) => setCreatorDeliveryContext(e.target.value)}
-      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-    >
-      <option value="one-to-one">One-to-one</option>
-      <option value="group session">Group session</option>
-      <option value="workshop">Workshop</option>
-      <option value="cpd training">CPD training</option>
-      <option value="workplace session">Workplace session</option>
-      <option value="community session">Community session</option>
-    </select>
+  How will this be used or delivered?
+</label>
+
+<select
+  value={creatorDeliveryContext}
+  onChange={(e) => setCreatorDeliveryContext(e.target.value)}
+  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+>
+  <option value="one-to-one">One-to-one</option>
+  <option value="group session">Group session</option>
+  <option value="workshop">Workshop</option>
+  <option value="course">Course</option>
+  <option value="cpd training">CPD training</option>
+  <option value="workplace session">Workplace session</option>
+  <option value="community session">Community session</option>
+</select>
+
+<p className="mt-1 text-[11px] text-slate-400">
+  This shapes the tone and examples. The actual format is chosen above in Resource type.
+</p>
   </div>
 </div>
 
