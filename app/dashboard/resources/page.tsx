@@ -4987,29 +4987,29 @@ async function clearUploadedSlideImage(
   {creatorType === "course" &&
     "A structured course with summary, intended reader, estimated learning time, practitioner level, learning outcomes, detailed modules, and closing encouragement."}
 </div>
+          
               </div>
-
               <div className="flex flex-wrap gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={createResource}
-                  disabled={busyAction === "create-resource"}
-                  className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-                >
-                  {busyAction === "create-resource"
-                    ? "Creating…"
-                    : "Create Resource"}
-                </button>
+  <button
+    type="button"
+    onClick={createResource}
+    disabled={busyAction === "create-resource"}
+    className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+  >
+    {busyAction === "create-resource"
+      ? "Creating…"
+      : "Create Resource"}
+  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setCreatorOpen(false)}
-                  disabled={busyAction === "create-resource"}
-                  className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-              </div>
+  <button
+    type="button"
+    onClick={() => setCreatorOpen(false)}
+    disabled={busyAction === "create-resource"}
+    className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+  >
+    Cancel
+  </button>
+</div>
             </div>
           </div>
         </div>
