@@ -2187,13 +2187,9 @@ async function createProgramme() {
 }
  function downloadResourceAsPdf(resource: Resource) {
   const content = resource?.content || {};
-  const slides = Array.isArray(content?.slides) ? content.slides : [];
   const sections = Array.isArray(content?.sections) ? content.sections : [];
-  const reflectionPrompts = Array.isArray(content?.reflection_prompts)
-    ? content.reflection_prompts
-    : [];
-  const actionPrompts = Array.isArray(content?.action_prompts)
-    ? content.action_prompts
+  const learningOutcomes = Array.isArray(content?.learning_outcomes)
+    ? content.learning_outcomes
     : [];
 
   const escapeHtml = (value: unknown) =>
@@ -2210,14 +2206,57 @@ async function createProgramme() {
     year: "numeric",
   });
 
-  let html = `
+  const title = String(resource?.title || "Programme Summary").trim();
+  const summary = String(content?.summary || "").trim();
+  const intendedReader = String(content?.intended_reader || "").trim();
+  const estimatedLearningTime = String(
+    content?.estimated_learning_time || ""
+  ).trim();
+  const practitionerLevel = String(
+    content?.practitioner_level || ""
+  ).trim();
+
+  const sessionCards = sections
+    .slice(0, 4)
+    .map((section: any, index: number) => {
+      const sectionTitle = String(section?.title || `Session ${index + 1}`).trim();
+      const sectionSummary = String(section?.summary || "").trim();
+      const bullets = Array.isArray(section?.bullets) ? section.bullets : [];
+
+      return `
+        <div class="session-card">
+          <div class="session-number">Session ${index + 1}</div>
+          <div class="session-title">${escapeHtml(sectionTitle)}</div>
+          ${
+            sectionSummary
+              ? `<div class="session-summary">${escapeHtml(sectionSummary)}</div>`
+              : ""
+          }
+          ${
+            bullets.length
+              ? `
+                <ul class="session-bullets">
+                  ${bullets
+                    .slice(0, 4)
+                    .map((b: string) => `<li>${escapeHtml(b)}</li>`)
+                    .join("")}
+                </ul>
+              `
+              : ""
+          }
+        </div>
+      `;
+    })
+    .join("");
+
+  const html = `
     <html>
       <head>
-        <title>${escapeHtml(resource.title || "Resource")}</title>
+        <title>${escapeHtml(title)} - PDF Summary</title>
         <style>
           @page {
             size: A4;
-            margin: 18mm;
+            margin: 16mm;
           }
 
           * {
@@ -2227,9 +2266,9 @@ async function createProgramme() {
           html, body {
             margin: 0;
             padding: 0;
-            background: #f5f7fb;
-            color: #0f172a;
             font-family: Arial, Helvetica, sans-serif;
+            background: #f8fafc;
+            color: #0f172a;
             line-height: 1.5;
           }
 
@@ -2238,254 +2277,165 @@ async function createProgramme() {
           }
 
           .page {
-            background: white;
-            width: 100%;
             max-width: 210mm;
-            margin: 0 auto 12mm auto;
-            padding: 0;
+            margin: 0 auto;
+            background: white;
+            border: 1px solid #e2e8f0;
           }
 
-          .cover {
-            min-height: 250mm;
-            padding: 28mm 22mm;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            background:
-              linear-gradient(135deg, #ecfdf5 0%, #f8fafc 45%, #eff6ff 100%);
-            border: 1px solid #dbeafe;
+          .hero {
+            padding: 24mm 18mm 14mm 18mm;
+            background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 45%, #ecfeff 100%);
+            border-bottom: 1px solid #dbeafe;
           }
 
-          .cover-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 12px;
-          }
-
-          .brand {
-            font-size: 12px;
+          .eyebrow {
+            font-size: 11px;
             font-weight: 700;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
-            color: #059669;
+            color: #2563eb;
+            margin-bottom: 10px;
           }
 
-          .resource-type {
-            font-size: 12px;
-            color: #475569;
-            text-transform: capitalize;
-          }
-
-          .cover-title {
-            margin: 18mm 0 8mm 0;
-            font-size: 30px;
+          .hero-title {
+            font-size: 28px;
             line-height: 1.2;
             font-weight: 700;
             color: #0f172a;
+            margin: 0 0 10px 0;
           }
 
-          .cover-subtitle {
+          .hero-summary {
             font-size: 15px;
             color: #334155;
-            max-width: 140mm;
+            max-width: 150mm;
           }
 
-          .cover-meta {
+          .meta-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-top: 14mm;
+            gap: 12px;
+            margin-top: 18px;
           }
 
           .meta-card {
             border: 1px solid #dbeafe;
-            background: rgba(255,255,255,0.85);
+            background: rgba(255,255,255,0.82);
             border-radius: 12px;
             padding: 12px;
           }
 
           .meta-label {
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 700;
-            text-transform: uppercase;
             letter-spacing: 0.08em;
+            text-transform: uppercase;
             color: #64748b;
             margin-bottom: 6px;
           }
 
           .meta-value {
-            font-size: 14px;
+            font-size: 13px;
             color: #0f172a;
           }
 
-          .cover-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 20mm;
-            font-size: 12px;
-            color: #64748b;
+          .body-wrap {
+            padding: 16mm 18mm 18mm 18mm;
           }
 
-          .content-page {
-            padding: 18mm 18mm 16mm 18mm;
-            border: 1px solid #e2e8f0;
-            page-break-after: always;
-          }
-
-          .content-page:last-child {
-            page-break-after: auto;
-          }
-
-          .page-title {
-            font-size: 22px;
+          .section-title {
+            font-size: 18px;
             font-weight: 700;
-            margin: 0 0 6px 0;
             color: #0f172a;
+            margin: 0 0 10px 0;
           }
 
-          .page-kicker {
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: #059669;
-            margin-bottom: 10px;
-          }
-
-          .muted {
-            color: #475569;
-            font-size: 14px;
-          }
-
-          .block {
-            margin-top: 16px;
+          .soft-card {
             border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 12px 14px;
-            background: #ffffff;
-          }
-
-          .block.soft {
             background: #f8fafc;
+            border-radius: 14px;
+            padding: 14px;
+            margin-top: 12px;
           }
 
-          .block.green {
-            background: #f0fdf4;
-            border-color: #bbf7d0;
+          .session-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-top: 12px;
           }
 
-          .block.emerald {
-            background: #ecfdf5;
-            border-color: #a7f3d0;
-          }
-
-          .block.cyan {
-            background: #ecfeff;
-            border-color: #a5f3fc;
-          }
-
-          .block.violet {
-            background: #f5f3ff;
-            border-color: #c4b5fd;
-          }
-
-          .block.amber {
-            background: #fffbeb;
-            border-color: #fcd34d;
-          }
-
-          .block-title {
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: #64748b;
-            margin-bottom: 8px;
-          }
-
-          .block-text {
-            font-size: 14px;
-            color: #0f172a;
-            white-space: pre-wrap;
-          }
-
-          .slide-card {
+          .session-card {
             border: 1px solid #dbeafe;
-            border-radius: 16px;
-            padding: 14px 16px;
-            margin-top: 14px;
-            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 14px;
+            padding: 14px;
+            background: #ffffff;
             page-break-inside: avoid;
           }
 
-          .slide-number {
-            font-size: 11px;
+          .session-number {
+            font-size: 10px;
             font-weight: 700;
-            letter-spacing: 0.08em;
             text-transform: uppercase;
-            color: #059669;
+            letter-spacing: 0.08em;
+            color: #2563eb;
             margin-bottom: 6px;
           }
 
-          .slide-title {
-            font-size: 20px;
+          .session-title {
+            font-size: 16px;
             font-weight: 700;
             color: #0f172a;
-            margin: 0 0 8px 0;
+            margin-bottom: 8px;
           }
 
-          .slide-goal {
-            font-size: 14px;
+          .session-summary {
+            font-size: 13px;
             color: #334155;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
           }
 
-          ul {
+          .session-bullets {
             margin: 8px 0 0 18px;
             padding: 0;
           }
 
-          li {
-            margin-bottom: 6px;
-            font-size: 14px;
+          .session-bullets li {
+            margin-bottom: 5px;
+            font-size: 13px;
             color: #0f172a;
           }
 
-          .two-col {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-top: 12px;
+          .cta {
+            margin-top: 18px;
+            border: 1px solid #bfdbfe;
+            background: #eff6ff;
+            border-radius: 14px;
+            padding: 14px 16px;
           }
 
-          .small {
+          .cta-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #1d4ed8;
+            margin-bottom: 6px;
+          }
+
+          .cta-text {
             font-size: 13px;
+            color: #1e293b;
           }
 
-          .footer-note {
-            margin-top: 14px;
+          .footer {
+            margin-top: 20px;
             font-size: 11px;
             color: #64748b;
             border-top: 1px solid #e2e8f0;
-            padding-top: 8px;
-          }
-
-          .section-card {
-            margin-top: 14px;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 12px 14px;
-            background: #fff;
-            page-break-inside: avoid;
-          }
-
-          .section-title {
-            font-size: 16px;
-            font-weight: 700;
-            margin-bottom: 8px;
-            color: #0f172a;
+            padding-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
           }
 
           @media print {
@@ -2494,408 +2444,97 @@ async function createProgramme() {
             }
 
             .page {
-              margin: 0;
-              max-width: none;
+              border: none;
             }
           }
         </style>
       </head>
       <body>
-  `;
+        <div class="page">
+          <div class="hero">
+            <div class="eyebrow">Programme summary</div>
+            <h1 class="hero-title">${escapeHtml(title)}</h1>
+            <div class="hero-summary">
+              ${escapeHtml(
+                summary ||
+                  "A structured, practical learning programme that can be delivered in-house or online."
+              )}
+            </div>
 
-  html += `
-    <div class="page cover">
-      <div>
-        <div class="cover-top">
-          <div class="brand">Root Health Ops</div>
-          <div class="resource-type">${escapeHtml(
-            String(resource.resource_type || "resource").replace(/_/g, " ")
-          )}</div>
-        </div>
-
-        <div class="cover-title">${escapeHtml(resource.title || "Untitled Resource")}</div>
-
-        <div class="cover-subtitle">
-          ${escapeHtml(
-            content?.objective ||
-              content?.promise ||
-              content?.summary ||
-              "Professional export prepared for review, storage, printing, or presentation."
-          )}
-        </div>
-
-        <div class="cover-meta">
-          <div class="meta-card">
-            <div class="meta-label">Audience takeaway</div>
-            <div class="meta-value">${escapeHtml(
-              content?.audience_takeaway || "Not specified"
-            )}</div>
-          </div>
-
-          <div class="meta-card">
-            <div class="meta-label">Presentation style</div>
-            <div class="meta-value">${escapeHtml(
-              content?.presentation_style ||
-                content?.purpose ||
-                "Professional"
-            )}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="cover-footer">
-        <div>Prepared from Root Health Ops</div>
-        <div>${escapeHtml(printDate)}</div>
-      </div>
-    </div>
-  `;
-
-  if (slides.length > 0) {
-    html += `
-      <div class="page content-page">
-        <div class="page-kicker">Presentation</div>
-        <div class="page-title">${escapeHtml(resource.title || "")}</div>
-        ${
-          content?.objective
-            ? `<div class="muted">${escapeHtml(content.objective)}</div>`
-            : ""
-        }
-
-        ${
-          content?.audience_takeaway
-            ? `
-              <div class="block green">
-                <div class="block-title">Audience takeaway</div>
-                <div class="block-text">${escapeHtml(
-                  content.audience_takeaway
+            <div class="meta-grid">
+              <div class="meta-card">
+                <div class="meta-label">Designed for</div>
+                <div class="meta-value">${escapeHtml(
+                  intendedReader || "Public, workplace, or practitioner audiences"
                 )}</div>
               </div>
-            `
-            : ""
-        }
 
-        ${slides
-          .map((slide: any, i: number) => {
-            const bullets = Array.isArray(slide?.bullets) ? slide.bullets : [];
-
-            return `
-              <div class="slide-card">
-                <div class="slide-number">Slide ${i + 1}</div>
-                <div class="slide-title">${escapeHtml(
-                  slide?.slide_title || `Slide ${i + 1}`
+              <div class="meta-card">
+                <div class="meta-label">Estimated learning time</div>
+                <div class="meta-value">${escapeHtml(
+                  estimatedLearningTime || "To be agreed"
                 )}</div>
+              </div>
 
-                ${
-                  slide?.slide_goal
-                    ? `<div class="slide-goal">${escapeHtml(
-                        slide.slide_goal
-                      )}</div>`
-                    : ""
-                }
+              <div class="meta-card">
+                <div class="meta-label">Level</div>
+                <div class="meta-value">${escapeHtml(
+                  practitionerLevel || "Suitable for mixed audiences where tailored"
+                )}</div>
+              </div>
 
-                ${
-                  bullets.length
-                    ? `<ul>${bullets
-                        .map((b: string) => `<li>${escapeHtml(b)}</li>`)
-                        .join("")}</ul>`
-                    : ""
-                }
+              <div class="meta-card">
+                <div class="meta-label">Format</div>
+                <div class="meta-value">Can be delivered in-house or online</div>
+              </div>
+            </div>
+          </div>
 
-                <div class="two-col">
-                  ${
-                    slide?.speaker_notes
-                      ? `
-                        <div class="block soft">
-                          <div class="block-title">Speaker notes</div>
-                          <div class="block-text small">${escapeHtml(
-                            slide.speaker_notes
-                          )}</div>
-                        </div>
-                      `
-                      : `<div></div>`
-                  }
-
-                  ${
-                    slide?.audience_prompt
-                      ? `
-                        <div class="block soft">
-                          <div class="block-title">Audience prompt</div>
-                          <div class="block-text small">${escapeHtml(
-                            slide.audience_prompt
-                          )}</div>
-                        </div>
-                      `
-                      : `<div></div>`
-                  }
+          <div class="body-wrap">
+            ${
+              learningOutcomes.length
+                ? `
+              <div>
+                <div class="section-title">What participants will gain</div>
+                <div class="soft-card">
+                  <ul style="margin:0 0 0 18px; padding:0;">
+                    ${learningOutcomes
+                      .slice(0, 4)
+                      .map((item: string) => `<li>${escapeHtml(item)}</li>`)
+                      .join("")}
+                  </ul>
                 </div>
-
-                ${
-                  slide?.visual_direction || slide?.image_prompt
-                    ? `
-                      <div class="footer-note">
-                        ${
-                          slide?.visual_direction
-                            ? `Visual direction: ${escapeHtml(
-                                slide.visual_direction
-                              )}`
-                            : ""
-                        }
-                        ${
-                          slide?.visual_direction && slide?.image_prompt
-                            ? " • "
-                            : ""
-                        }
-                        ${
-                          slide?.image_prompt
-                            ? `Image prompt: ${escapeHtml(slide.image_prompt)}`
-                            : ""
-                        }
-                      </div>
-                    `
-                    : ""
-                }
-              </div>
-            `;
-          })
-          .join("")}
-
-        ${
-          content?.closing_invitation
-            ? `
-              <div class="block green">
-                <div class="block-title">Closing invitation</div>
-                <div class="block-text">${escapeHtml(
-                  content.closing_invitation
-                )}</div>
               </div>
             `
-            : ""
-        }
-      </div>
-    `;
-  }
+                : ""
+            }
 
-  if (sections.length > 0) {
-    html += `
-      <div class="page content-page">
-        <div class="page-kicker">${
-          String(resource.resource_type || "") === "course"
-            ? "Course"
-            : "Structured content"
-        }</div>
-        <div class="page-title">${escapeHtml(resource.title || "")}</div>
-
-        ${
-          content?.summary
-            ? `
-              <div class="block">
-                <div class="block-title">Summary</div>
-                <div class="block-text">${escapeHtml(content.summary)}</div>
+            ${
+              sessionCards
+                ? `
+              <div style="margin-top: 18px;">
+                <div class="section-title">Programme structure</div>
+                <div class="session-grid">
+                  ${sessionCards}
+                </div>
               </div>
             `
-            : ""
-        }
+                : ""
+            }
 
-        ${
-          content?.intended_reader
-            ? `
-              <div class="block soft">
-                <div class="block-title">Intended reader</div>
-                <div class="block-text">${escapeHtml(
-                  content.intended_reader
-                )}</div>
+            <div class="cta">
+              <div class="cta-title">Tailored delivery available</div>
+              <div class="cta-text">
+                This programme can be adapted for workplace teams, community audiences, peer groups, or practitioner development. A fuller facilitator pack and delivery notes are available separately.
               </div>
-            `
-            : ""
-        }
+            </div>
 
-        ${
-          Array.isArray(content?.learning_outcomes) &&
-          content.learning_outcomes.length > 0
-            ? `
-              <div class="block green">
-                <div class="block-title">Learning outcomes</div>
-                <ul>
-                  ${content.learning_outcomes
-                    .map((item: string) => `<li>${escapeHtml(item)}</li>`)
-                    .join("")}
-                </ul>
-              </div>
-            `
-            : ""
-        }
-
-        ${sections
-          .map((section: any, i: number) => {
-            const bullets = Array.isArray(section?.bullets)
-              ? section.bullets
-              : [];
-
-            return `
-              <div class="section-card">
-                <div class="section-title">${i + 1}. ${escapeHtml(
-                  section?.title || "Untitled section"
-                )}</div>
-
-                ${
-                  section?.summary
-                    ? `
-                      <div class="block soft">
-                        <div class="block-title">Module summary</div>
-                        <div class="block-text">${escapeHtml(
-                          section.summary
-                        )}</div>
-                      </div>
-                    `
-                    : ""
-                }
-
-                ${
-                  bullets.length
-                    ? `<ul>${bullets
-                        .map((b: string) => `<li>${escapeHtml(b)}</li>`)
-                        .join("")}</ul>`
-                    : ""
-                }
-
-                ${
-                  section?.instructor_notes
-                    ? `
-                      <div class="block emerald">
-                        <div class="block-title">Instructor notes</div>
-                        <div class="block-text">${escapeHtml(
-                          section.instructor_notes
-                        )}</div>
-                      </div>
-                    `
-                    : ""
-                }
-
-                ${
-                  section?.delivery_steps
-                    ? `
-                      <div class="block cyan">
-                        <div class="block-title">Delivery steps</div>
-                        <div class="block-text">${escapeHtml(
-                          section.delivery_steps
-                        )}</div>
-                      </div>
-                    `
-                    : ""
-                }
-
-                ${
-                  section?.exercise
-                    ? `
-                      <div class="block violet">
-                        <div class="block-title">Practical exercise</div>
-                        <div class="block-text">${escapeHtml(
-                          section.exercise
-                        )}</div>
-                      </div>
-                    `
-                    : ""
-                }
-
-                ${
-                  section?.reflection_prompt
-                    ? `
-                      <div class="block amber">
-                        <div class="block-title">Reflection prompt</div>
-                        <div class="block-text">${escapeHtml(
-                          section.reflection_prompt
-                        )}</div>
-                      </div>
-                    `
-                    : ""
-                }
-              </div>
-            `;
-          })
-          .join("")}
-
-        ${
-          content?.closing_encouragement
-            ? `
-              <div class="block green">
-                <div class="block-title">Closing encouragement</div>
-                <div class="block-text">${escapeHtml(
-                  content.closing_encouragement
-                )}</div>
-              </div>
-            `
-            : ""
-        }
-      </div>
-    `;
-  }
-
-  if (reflectionPrompts.length > 0 || actionPrompts.length > 0) {
-    html += `
-      <div class="page content-page">
-        <div class="page-kicker">Worksheet</div>
-        <div class="page-title">${escapeHtml(resource.title || "")}</div>
-
-        ${
-          content?.instructions
-            ? `
-              <div class="block">
-                <div class="block-title">Instructions</div>
-                <div class="block-text">${escapeHtml(
-                  content.instructions
-                )}</div>
-              </div>
-            `
-            : ""
-        }
-
-        ${
-          reflectionPrompts.length
-            ? `
-              <div class="block soft">
-                <div class="block-title">Reflection prompts</div>
-                <ul>
-                  ${reflectionPrompts
-                    .map((p: string) => `<li>${escapeHtml(p)}</li>`)
-                    .join("")}
-                </ul>
-              </div>
-            `
-            : ""
-        }
-
-        ${
-          actionPrompts.length
-            ? `
-              <div class="block soft">
-                <div class="block-title">Action prompts</div>
-                <ul>
-                  ${actionPrompts
-                    .map((p: string) => `<li>${escapeHtml(p)}</li>`)
-                    .join("")}
-                </ul>
-              </div>
-            `
-            : ""
-        }
-
-        ${
-          content?.closing_note
-            ? `
-              <div class="block green">
-                <div class="block-title">Closing note</div>
-                <div class="block-text">${escapeHtml(
-                  content.closing_note
-                )}</div>
-              </div>
-            `
-            : ""
-        }
-      </div>
-    `;
-  }
-
-  html += `
+            <div class="footer">
+              <div>Prepared from Root Health Ops</div>
+              <div>${escapeHtml(printDate)}</div>
+            </div>
+          </div>
+        </div>
       </body>
     </html>
   `;
