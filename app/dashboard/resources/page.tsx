@@ -766,10 +766,16 @@ export default function ResourcesPage() {
     useState<CreateResourceType>("webinar_outline");
   const [creatorTitle, setCreatorTitle] = useState("New Webinar");
   const [creatorGoal, setCreatorGoal] = useState("");
-  const [creatorAudience, setCreatorAudience] = useState("");
-  const [creatorNotes, setCreatorNotes] = useState("");
-  const [creatorTone, setCreatorTone] = useState("calm and professional");
-  const [creatorDuration, setCreatorDuration] = useState("30 mins");
+const [creatorAudience, setCreatorAudience] = useState("");
+const [creatorInstructorType, setCreatorInstructorType] =
+  useState("therapist");
+const [creatorLearnerAudience, setCreatorLearnerAudience] =
+  useState("members of the public");
+const [creatorDeliveryContext, setCreatorDeliveryContext] =
+  useState("workshop");
+const [creatorNotes, setCreatorNotes] = useState("");
+const [creatorTone, setCreatorTone] = useState("calm and professional");
+const [creatorDuration, setCreatorDuration] = useState("30 mins");
   const [creatorFillLevel, setCreatorFillLevel] =
     useState<FillLevel>("draft");
 
@@ -1724,14 +1730,17 @@ async function clearUploadedSlideImage(
     try {
       let route = "";
       let body: any = {
-        topic: title,
-        name: title,
-        goal: creatorGoal.trim(),
-        audience: creatorAudience.trim(),
-        notes: creatorNotes.trim(),
-        tone: creatorTone.trim(),
-        fillLevel: creatorFillLevel,
-      };
+  topic: title,
+  name: title,
+  goal: creatorGoal.trim(),
+  audience: creatorAudience.trim(),
+  instructorType: creatorInstructorType,
+  learnerAudience: creatorLearnerAudience,
+  deliveryContext: creatorDeliveryContext,
+  notes: creatorNotes.trim(),
+  tone: creatorTone.trim(),
+  fillLevel: creatorFillLevel,
+};
 
             if (creatorType === "webinar_outline") {
         route = "/api/ai/presentation-outline";
@@ -4806,42 +4815,85 @@ async function clearUploadedSlideImage(
 
             <div className="mt-5 grid gap-4 overflow-y-auto px-6 pb-6">
               <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Resource type
-                  </label>
-                                   <select
-                    value={creatorType}
-                    onChange={(e) =>
-                      setCreatorType(e.target.value as CreateResourceType)
-                    }
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-                  >
-                    <option value="webinar_outline">Webinar</option>
-                    <option value="presentation">Presentation</option>
-                    <option value="guide">Guide</option>
-                    <option value="worksheet">Worksheet</option>
-                    <option value="course">Course</option>
-                  </select>               
-                </div>
+  <div>
+    <label className="block text-xs font-medium text-slate-300">
+      Goal
+    </label>
+    <input
+      value={creatorGoal}
+      onChange={(e) => setCreatorGoal(e.target.value)}
+      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+      placeholder="e.g. Webinar signups or workplace education"
+    />
+  </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-300">
-                    Fill level
-                  </label>
-                  <select
-                    value={creatorFillLevel}
-                    onChange={(e) =>
-                      setCreatorFillLevel(e.target.value as FillLevel)
-                    }
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-                  >
-                    <option value="skeleton">Skeleton</option>
-                    <option value="draft">Draft</option>
-                    <option value="ready">Ready</option>
-                  </select>
-                </div>
-              </div>
+  <div>
+    <label className="block text-xs font-medium text-slate-300">
+      Working title audience
+    </label>
+    <input
+      value={creatorAudience}
+      onChange={(e) => setCreatorAudience(e.target.value)}
+      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+      placeholder="e.g. HR leaders, managers, staff"
+    />
+  </div>
+</div>
+
+<div className="grid md:grid-cols-3 gap-4">
+  <div>
+    <label className="block text-xs font-medium text-slate-300">
+      Who is delivering this?
+    </label>
+    <select
+      value={creatorInstructorType}
+      onChange={(e) => setCreatorInstructorType(e.target.value)}
+      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+    >
+      <option value="therapist">Therapist</option>
+      <option value="coach">Coach</option>
+      <option value="lifestyle coach">Lifestyle coach</option>
+      <option value="workplace trainer">Workplace trainer</option>
+      <option value="peer facilitator">Peer facilitator</option>
+    </select>
+  </div>
+
+  <div>
+    <label className="block text-xs font-medium text-slate-300">
+      Who is this for?
+    </label>
+    <select
+      value={creatorLearnerAudience}
+      onChange={(e) => setCreatorLearnerAudience(e.target.value)}
+      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+    >
+      <option value="members of the public">Members of the public</option>
+      <option value="clients or sufferers">Clients or sufferers</option>
+      <option value="peer group">Peer group</option>
+      <option value="therapists or practitioners">Therapists or practitioners</option>
+      <option value="companies or workplace teams">Companies or workplace teams</option>
+      <option value="mixed audience">Mixed audience</option>
+    </select>
+  </div>
+
+  <div>
+    <label className="block text-xs font-medium text-slate-300">
+      How will it be delivered?
+    </label>
+    <select
+      value={creatorDeliveryContext}
+      onChange={(e) => setCreatorDeliveryContext(e.target.value)}
+      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+    >
+      <option value="one-to-one">One-to-one</option>
+      <option value="group session">Group session</option>
+      <option value="workshop">Workshop</option>
+      <option value="cpd training">CPD training</option>
+      <option value="workplace session">Workplace session</option>
+      <option value="community session">Community session</option>
+    </select>
+  </div>
+</div>
 
               <div>
                 <label className="block text-xs font-medium text-slate-300">
