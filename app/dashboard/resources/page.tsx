@@ -1714,7 +1714,75 @@ async function clearUploadedSlideImage(
       setBusyAction(null);
     }
   }
+async function createProgramme() {
+  if (!organisationId) return;
 
+  const title = creatorTitle.trim();
+  if (!title) {
+    setError("Title is required.");
+    return;
+  }
+
+  setBusyAction("create-programme");
+  setError(null);
+
+  try {
+    const body: any = {
+      topic: title,
+      name: title,
+      goal: creatorGoal.trim(),
+      audience: creatorAudience.trim(),
+      instructorType: creatorInstructorType,
+      learnerAudience: creatorLearnerAudience,
+      deliveryContext: creatorDeliveryContext,
+      notes: creatorNotes.trim(),
+      tone: creatorTone.trim(),
+      fillLevel: creatorFillLevel,
+    };
+
+    const aiRes = await fetch("/api/ai/programme", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const aiData = await aiRes.json().catch(() => null);
+
+    if (!aiRes.ok || !aiData?.success) {
+      throw new Error(aiData?.error || "Failed to generate programme");
+    }
+
+    const content = aiData?.programme || null;
+
+    const saveRes = await fetch("/api/resource-library", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        organisationId,
+        title,
+        resource_type: "course",
+        content,
+      }),
+    });
+
+    const saveData = await saveRes.json().catch(() => null);
+
+    if (!saveRes.ok || !saveData?.success) {
+      throw new Error(saveData?.error || "Failed to save programme");
+    }
+
+    await loadResources();
+    if (saveData?.resource) setSelected(saveData.resource);
+
+    setLibraryTab("saved");
+    setCreatorOpen(false);
+    setToast("Programme created ✅");
+  } catch (e: any) {
+    setError(e?.message || "Failed to create programme");
+  } finally {
+    setBusyAction(null);
+  }
+}
   async function createResource() {
     if (!organisationId) return;
 
@@ -5005,32 +5073,42 @@ async function clearUploadedSlideImage(
                     "A guide with summary, intended reader, structured sections, and a closing encouragement."}
                   {creatorType === "worksheet" &&
                     "A worksheet with instructions, reflection prompts, action prompts, and a closing note."}
-                  {creatorType === "course" &&
-                    "A structured course with summary, intended reader, estimated learning time, practitioner level, learning outcomes, detailed modules, and closing encouragement."}
-                </div>
+                 {creatorType === "course" &&
+  "A structured course with summary, intended reader, estimated learning time, practitioner level, learning outcomes, detailed modules, and closing encouragement. Or use the blue button below to generate a 4-session workplace programme saved into the course system."}                </div>
               </div>
 
-              <div className="flex flex-wrap gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={createResource}
-                  disabled={busyAction === "create-resource"}
-                  className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-                >
-                  {busyAction === "create-resource"
-                    ? "Creating…"
-                    : "Create Resource"}
-                </button>
+             <div className="flex flex-wrap gap-3 pt-1">
+  <button
+    type="button"
+    onClick={createResource}
+    disabled={busyAction === "create-resource" || busyAction === "create-programme"}
+    className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+  >
+    {busyAction === "create-resource"
+      ? "Creating…"
+      : "Create Resource"}
+  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setCreatorOpen(false)}
-                  disabled={busyAction === "create-resource"}
-                  className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-              </div>
+  <button
+    type="button"
+    onClick={createProgramme}
+    disabled={busyAction === "create-resource" || busyAction === "create-programme"}
+    className="rounded-2xl bg-blue-500 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-400 disabled:opacity-60"
+  >
+    {busyAction === "create-programme"
+      ? "Generating Programme…"
+      : "Generate Workplace Programme"}
+  </button>
+
+  <button
+    type="button"
+    onClick={() => setCreatorOpen(false)}
+    disabled={busyAction === "create-resource" || busyAction === "create-programme"}
+    className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+  >
+    Cancel
+  </button>
+</div>
             </div>
           </div>
         </div>
