@@ -1743,23 +1743,22 @@ async function clearUploadedSlideImage(
 };
 
             if (creatorType === "webinar_outline") {
-        route = "/api/ai/presentation-outline";
-        body.duration = creatorDuration.trim() || "30 mins";
-        body.deliveryMode = "online";
-        body.resourceKind = "webinar";
-      } else if (creatorType === "presentation") {
-        route = "/api/ai/presentation-outline";
-        body.duration = creatorDuration.trim() || "30 mins";
-        body.deliveryMode = "online";
-        body.resourceKind = "presentation";
-      } else if (creatorType === "guide") {
-        route = "/api/ai/guide";
-      } else if (creatorType === "worksheet") {
-        route = "/api/ai/worksheet";
-      } else if (creatorType === "course") {
-        route = "/api/ai/course";
-      }
-
+  route = "/api/ai/presentation-outline";
+  body.duration = creatorDuration.trim() || "30 mins";
+  body.deliveryMode = "online";
+  body.resourceKind = "webinar";
+} else if (creatorType === "presentation") {
+  route = "/api/ai/presentation-outline";
+  body.duration = creatorDuration.trim() || "30 mins";
+  body.deliveryMode = "online";
+  body.resourceKind = "presentation";
+} else if (creatorType === "guide") {
+  route = "/api/ai/guide";
+} else if (creatorType === "worksheet") {
+  route = "/api/ai/worksheet";
+} else if (creatorType === "course") {
+  route = "/api/ai/course";
+}
       const aiRes = await fetch(route, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4828,36 +4827,27 @@ async function clearUploadedSlideImage(
   </div>
 
   <div>
-    <label className="block text-xs font-medium text-slate-300">
-      Working title audience
-    </label>
-    <input
-      value={creatorAudience}
-      onChange={(e) => setCreatorAudience(e.target.value)}
-      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-      placeholder="e.g. HR leaders, managers, staff"
-    />
-  </div>
-</div>
 
 <div className="grid md:grid-cols-3 gap-4">
   <div>
-    <label className="block text-xs font-medium text-slate-300">
-      Who is delivering this?
-    </label>
-    <select
-      value={creatorInstructorType}
-      onChange={(e) => setCreatorInstructorType(e.target.value)}
-      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-    >
-      <option value="therapist">Therapist</option>
-      <option value="coach">Coach</option>
-      <option value="lifestyle coach">Lifestyle coach</option>
-      <option value="workplace trainer">Workplace trainer</option>
-      <option value="peer facilitator">Peer facilitator</option>
-    </select>
-  </div>
-
+    <div>
+  <label className="block text-xs font-medium text-slate-300">
+    Resource type
+  </label>
+  <select
+    value={creatorType}
+    onChange={(e) =>
+      setCreatorType(e.target.value as CreateResourceType)
+    }
+    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+  >
+    <option value="webinar_outline">Webinar</option>
+    <option value="presentation">Presentation</option>
+    <option value="guide">Guide</option>
+    <option value="worksheet">Worksheet</option>
+    <option value="course">Course</option>
+  </select>
+</div>
   <div>
     <label className="block text-xs font-medium text-slate-300">
       Who is this for?
@@ -4985,19 +4975,18 @@ async function clearUploadedSlideImage(
               <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 text-[12px] text-slate-300">
                 <div className="font-semibold text-slate-200">
                   What gets created
-                </div>
-                <div className="mt-2">
-                                    {creatorType === "webinar_outline" &&
-                    "A full webinar deck using the same slide system as presentation: objective, takeaway, slide-by-slide structure, presenter notes, audience prompts, and closing invitation."}
-                  {creatorType === "presentation" &&
-                    "A slide-by-slide presentation structure with objective, takeaway, presenter notes, audience prompts, slide images, and a closing invitation."}
-                  {creatorType === "guide" &&
-                    "A readable guide with summary, intended reader, 5 sections, and a closing encouragement."}
-                  {creatorType === "worksheet" &&
-                    "A practical worksheet with instructions, reflection prompts, action prompts, and a closing note."}
-                  {creatorType === "course" &&
-                    "A structured short course with summary, intended reader, learning outcomes, 4 course modules, and a closing encouragement."}
-                </div>
+                </div><div className="mt-2">
+  {creatorType === "webinar_outline" &&
+    "A webinar resource with objective, audience takeaway, slide-by-slide flow, presenter notes, audience prompts, and closing invitation."}
+  {creatorType === "presentation" &&
+    "A slide-by-slide presentation with objective, audience takeaway, presenter notes, audience prompts, and closing invitation."}
+  {creatorType === "guide" &&
+    "A guide with summary, intended reader, structured sections, and a closing encouragement."}
+  {creatorType === "worksheet" &&
+    "A worksheet with instructions, reflection prompts, action prompts, and a closing note."}
+  {creatorType === "course" &&
+    "A structured course with summary, intended reader, estimated learning time, practitioner level, learning outcomes, detailed modules, and closing encouragement."}
+</div>
               </div>
 
               <div className="flex flex-wrap gap-3 pt-1">
