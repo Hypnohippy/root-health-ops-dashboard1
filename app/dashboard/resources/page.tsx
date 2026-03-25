@@ -2523,12 +2523,11 @@ async function createProgramme() {
             }
 
             <div class="cta">
-              <div class="cta-title">Tailored delivery available</div>
-              <div class="cta-text">
-                This programme can be adapted for workplace teams, community audiences, peer groups, or practitioner development. A fuller facilitator pack and delivery notes are available separately.
-              </div>
-            </div>
-
+  <div class="cta-title">Tailored delivery available</div>
+  <div class="cta-text">
+    This programme can be tailored for your organisation, team, or audience. A full facilitator pack, delivery notes, and supporting session materials are available separately.
+  </div>
+</div>
             <div class="footer">
               <div>Prepared from Root Health Ops</div>
               <div>${escapeHtml(printDate)}</div>
