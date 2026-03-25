@@ -4784,7 +4784,7 @@ async function clearUploadedSlideImage(
         </div>
       </div>
 
-      {creatorOpen ? (
+            {creatorOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div
             className="absolute inset-0 bg-black/70"
@@ -4814,82 +4814,42 @@ async function clearUploadedSlideImage(
 
             <div className="mt-5 grid gap-4 overflow-y-auto px-6 pb-6">
               <div className="grid md:grid-cols-2 gap-4">
-  <div>
-    <label className="block text-xs font-medium text-slate-300">
-      Goal
-    </label>
-    <input
-      value={creatorGoal}
-      onChange={(e) => setCreatorGoal(e.target.value)}
-      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-      placeholder="e.g. Webinar signups or workplace education"
-    />
-  </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Resource type
+                  </label>
+                  <select
+                    value={creatorType}
+                    onChange={(e) =>
+                      setCreatorType(e.target.value as CreateResourceType)
+                    }
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  >
+                    <option value="webinar_outline">Webinar</option>
+                    <option value="presentation">Presentation</option>
+                    <option value="guide">Guide</option>
+                    <option value="worksheet">Worksheet</option>
+                    <option value="course">Course</option>
+                  </select>
+                </div>
 
-  <div>
-
-<div className="grid md:grid-cols-3 gap-4">
-  <div>
-    <div>
-  <label className="block text-xs font-medium text-slate-300">
-    Resource type
-  </label>
-  <select
-    value={creatorType}
-    onChange={(e) =>
-      setCreatorType(e.target.value as CreateResourceType)
-    }
-    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-  >
-    <option value="webinar_outline">Webinar</option>
-    <option value="presentation">Presentation</option>
-    <option value="guide">Guide</option>
-    <option value="worksheet">Worksheet</option>
-    <option value="course">Course</option>
-  </select>
-</div>
-  <div>
-    <label className="block text-xs font-medium text-slate-300">
-      Who is this for?
-    </label>
-    <select
-      value={creatorLearnerAudience}
-      onChange={(e) => setCreatorLearnerAudience(e.target.value)}
-      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-    >
-      <option value="members of the public">Members of the public</option>
-      <option value="clients or sufferers">Clients or sufferers</option>
-      <option value="peer group">Peer group</option>
-      <option value="therapists or practitioners">Therapists or practitioners</option>
-      <option value="companies or workplace teams">Companies or workplace teams</option>
-      <option value="mixed audience">Mixed audience</option>
-    </select>
-  </div>
-
-  <div>
-    <label className="block text-xs font-medium text-slate-300">
-  How will this be used or delivered?
-</label>
-
-<select
-  value={creatorDeliveryContext}
-  onChange={(e) => setCreatorDeliveryContext(e.target.value)}
-  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
->
-  <option value="one-to-one">One-to-one</option>
-  <option value="group session">Group session</option>
-  <option value="workshop">Workshop</option>
-  <option value="course">Course</option>
-  <option value="cpd training">CPD training</option>
-  <option value="workplace session">Workplace session</option>
-  <option value="community session">Community session</option>
-</select>
-
-<p className="mt-1 text-[11px] text-slate-400">
-  This shapes the tone and examples. The actual format is chosen above in Resource type.
-</p>
-  </div>
-</div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Fill level
+                  </label>
+                  <select
+                    value={creatorFillLevel}
+                    onChange={(e) =>
+                      setCreatorFillLevel(e.target.value as FillLevel)
+                    }
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  >
+                    <option value="skeleton">Skeleton</option>
+                    <option value="draft">Draft</option>
+                    <option value="ready">Ready</option>
+                  </select>
+                </div>
+              </div>
 
               <div>
                 <label className="block text-xs font-medium text-slate-300">
@@ -4929,6 +4889,65 @@ async function clearUploadedSlideImage(
                 </div>
               </div>
 
+              <div className="grid md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Who is delivering this?
+                  </label>
+                  <select
+                    value={creatorInstructorType}
+                    onChange={(e) => setCreatorInstructorType(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  >
+                    <option value="therapist">Therapist</option>
+                    <option value="coach">Coach</option>
+                    <option value="lifestyle coach">Lifestyle coach</option>
+                    <option value="workplace trainer">Workplace trainer</option>
+                    <option value="peer facilitator">Peer facilitator</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    Who is this for?
+                  </label>
+                  <select
+                    value={creatorLearnerAudience}
+                    onChange={(e) => setCreatorLearnerAudience(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  >
+                    <option value="members of the public">Members of the public</option>
+                    <option value="clients or sufferers">Clients or sufferers</option>
+                    <option value="peer group">Peer group</option>
+                    <option value="therapists or practitioners">Therapists or practitioners</option>
+                    <option value="companies or workplace teams">Companies or workplace teams</option>
+                    <option value="mixed audience">Mixed audience</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300">
+                    How will this be used or delivered?
+                  </label>
+                  <select
+                    value={creatorDeliveryContext}
+                    onChange={(e) => setCreatorDeliveryContext(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  >
+                    <option value="one-to-one">One-to-one</option>
+                    <option value="group session">Group session</option>
+                    <option value="workshop">Workshop</option>
+                    <option value="course">Course</option>
+                    <option value="cpd training">CPD training</option>
+                    <option value="workplace session">Workplace session</option>
+                    <option value="community session">Community session</option>
+                  </select>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    This shapes the tone and examples. The actual format is chosen above in Resource type.
+                  </p>
+                </div>
+              </div>
+
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-300">
@@ -4951,11 +4970,12 @@ async function clearUploadedSlideImage(
                     onChange={(e) => setCreatorDuration(e.target.value)}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                     placeholder="e.g. 30 mins"
-                                       disabled={
+                    disabled={
                       creatorType === "guide" ||
                       creatorType === "worksheet" ||
                       creatorType === "course"
-                    }                  />
+                    }
+                  />
                 </div>
               </div>
 
@@ -4975,41 +4995,42 @@ async function clearUploadedSlideImage(
               <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 text-[12px] text-slate-300">
                 <div className="font-semibold text-slate-200">
                   What gets created
-                </div><div className="mt-2">
-  {creatorType === "webinar_outline" &&
-    "A webinar resource with objective, audience takeaway, slide-by-slide flow, presenter notes, audience prompts, and closing invitation."}
-  {creatorType === "presentation" &&
-    "A slide-by-slide presentation with objective, audience takeaway, presenter notes, audience prompts, and closing invitation."}
-  {creatorType === "guide" &&
-    "A guide with summary, intended reader, structured sections, and a closing encouragement."}
-  {creatorType === "worksheet" &&
-    "A worksheet with instructions, reflection prompts, action prompts, and a closing note."}
-  {creatorType === "course" &&
-    "A structured course with summary, intended reader, estimated learning time, practitioner level, learning outcomes, detailed modules, and closing encouragement."}
-</div>
-          
-              
-              <div className="flex flex-wrap gap-3 pt-1">
-  <button
-    type="button"
-    onClick={createResource}
-    disabled={busyAction === "create-resource"}
-    className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-  >
-    {busyAction === "create-resource"
-      ? "Creating…"
-      : "Create Resource"}
-  </button>
+                </div>
+                <div className="mt-2">
+                  {creatorType === "webinar_outline" &&
+                    "A webinar resource with objective, audience takeaway, slide-by-slide flow, presenter notes, audience prompts, and closing invitation."}
+                  {creatorType === "presentation" &&
+                    "A slide-by-slide presentation with objective, audience takeaway, presenter notes, audience prompts, and closing invitation."}
+                  {creatorType === "guide" &&
+                    "A guide with summary, intended reader, structured sections, and a closing encouragement."}
+                  {creatorType === "worksheet" &&
+                    "A worksheet with instructions, reflection prompts, action prompts, and a closing note."}
+                  {creatorType === "course" &&
+                    "A structured course with summary, intended reader, estimated learning time, practitioner level, learning outcomes, detailed modules, and closing encouragement."}
+                </div>
+              </div>
 
-  <button
-    type="button"
-    onClick={() => setCreatorOpen(false)}
-    disabled={busyAction === "create-resource"}
-    className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
-  >
-    Cancel
-  </button>
-</div>
+              <div className="flex flex-wrap gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={createResource}
+                  disabled={busyAction === "create-resource"}
+                  className="rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                >
+                  {busyAction === "create-resource"
+                    ? "Creating…"
+                    : "Create Resource"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCreatorOpen(false)}
+                  disabled={busyAction === "create-resource"}
+                  className="rounded-2xl border border-slate-600 bg-slate-950 px-5 py-2 text-sm text-slate-200 hover:border-slate-500 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>
