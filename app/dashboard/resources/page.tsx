@@ -4988,7 +4988,7 @@ async function clearUploadedSlideImage(
     "A structured course with summary, intended reader, estimated learning time, practitioner level, learning outcomes, detailed modules, and closing encouragement."}
 </div>
           
-              </div>
+              
               <div className="flex flex-wrap gap-3 pt-1">
   <button
     type="button"
