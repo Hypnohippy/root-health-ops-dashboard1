@@ -472,19 +472,7 @@ ${
 `
     : ""
 }
-      facilitatorDeepTeach
-        .replace(/Concept teaching notes/gi, "\n\n— CONCEPT TEACHING NOTES —\n")
-        .replace(/Step-by-step delivery/gi, "\n\n— STEP-BY-STEP DELIVERY —\n")
-        .replace(/Exact wording examples/gi, "\n\n— EXACT WORDING —\n")
-        .replace(/Worked example/gi, "\n\n— WORKED EXAMPLE —\n")
-        .replace(/Common pitfalls/gi, "\n\n— COMMON PITFALLS —\n")
-        .replace(/Debrief guide/gi, "\n\n— DEBRIEF GUIDE —\n")
-    )
-  )}
-</div>
-`
-    : ""
-}
+     
 
           ${
             deliverySteps
