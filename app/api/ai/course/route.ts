@@ -66,7 +66,7 @@ function extractJsonObject(raw: string) {
 export async function POST(req: NextRequest) {
   try {
     const userId = await getCurrentUserId();
-const usage = await getMonthlyUsage(userId);
+const usage = userId ? await getMonthlyUsage(userId) : 0;
 
 // temporary test limit
 const monthlyLimit = 25;
@@ -280,7 +280,9 @@ const fillLevel = String(body?.fillLevel || "draft").trim();
         { status: 500 }
       );
     }
-await logUsage(userId, "course_generation");
+if (userId) {
+  await logUsage(userId, "course_generation");
+}
     return NextResponse.json({
       success: true,
       explicitConditionTopic,
