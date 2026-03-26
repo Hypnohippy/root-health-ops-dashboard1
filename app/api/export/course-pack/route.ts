@@ -451,15 +451,18 @@ export async function POST(req: Request) {
           `
               : ""
           }
-          ${
+         ${
   facilitatorDeepTeach
     ? `
   <div class="card green">
-   <div class="label">Facilitator deep teach</div>
-<div class="spaced-text">
-  ${nl2br(
-    toUkEnglish(
-      ${
+    <div class="label">Facilitator deep teach</div>
+    <div class="spaced-text">${nl2br(toUkEnglish(facilitatorDeepTeach))}</div>
+  </div>
+`
+    : ""
+}
+
+${
   facilitatorEliteDeepTeach
     ? `
   <div class="card blue">
