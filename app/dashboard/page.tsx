@@ -1,7 +1,7 @@
 // app/dashboard/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { , useMemo, useState } from "react";
 import MediaDropzone, { UploadedMedia } from "./components/MediaDropzone";
 
 type ProviderId =
@@ -449,9 +449,10 @@ export default function DashboardHomePage() {
   const [imgPickerItems, setImgPickerItems] = useState<CommonsImage[]>([]);
   const [imgImportBusyUrl, setImgImportBusyUrl] = useState<string | null>(null);
   const [imgImportError, setImgImportError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<{ usage: number; limit: number } | null>(null);
 
   // ✅ NEW: lock background scroll while modal is open + ESC closes
-  useEffect(() => {
+  (() => {
     if (!imgPickerOpen) return;
 
     const prevOverflow = document.body.style.overflow;
@@ -929,7 +930,7 @@ export default function DashboardHomePage() {
     removeLocalStorageMulti(CURRENT_EXPERIMENT_KEYS);
   }
 
-  useEffect(() => {
+  (() => {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
 
@@ -962,7 +963,7 @@ export default function DashboardHomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
+  (() => {
     if (selected.length > 0) return;
     const defaults = socialAccounts
       .map((r) => r.platform)
@@ -1097,7 +1098,7 @@ export default function DashboardHomePage() {
     return "Auto (recommended).";
   }, [igPublishMode, montageUrls.length]);
 
-  useEffect(() => {
+  (() => {
     if (!isMontageMode) return;
     if (!imageUrl && montageUrls.length > 0) setImageUrl(montageUrls[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1307,6 +1308,16 @@ export default function DashboardHomePage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
+        {usage ? (
+        <div className="mb-4 text-sm text-slate-400">
+          AI usage this month:{" "}
+          <span className="text-emerald-400 font-semibold">
+            {usage.usage} / {usage.limit}
+          </span>
+        </div>
+      ) : null}
+
+      <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
         <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
