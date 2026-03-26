@@ -1,7 +1,7 @@
 // app/dashboard/page.tsx
 "use client";
 
-import React, { , useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import MediaDropzone, { UploadedMedia } from "./components/MediaDropzone";
 
 type ProviderId =
