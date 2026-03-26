@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { logUsage, getMonthlyUsage } from "@/lib/usage";
+import { getCurrentUserId } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
@@ -63,6 +65,18 @@ function extractJsonObject(raw: string) {
 
 export async function POST(req: NextRequest) {
   try {
+    const userId = await getCurrentUserId();
+const usage = await getMonthlyUsage(userId);
+
+// temporary test limit
+const monthlyLimit = 25;
+
+if (usage >= monthlyLimit) {
+  return NextResponse.json(
+    { error: "Monthly AI limit reached. Upgrade to continue." },
+    { status: 403 }
+  );
+}
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
         { error: "Missing OPENAI_API_KEY" },
@@ -266,7 +280,7 @@ const fillLevel = String(body?.fillLevel || "draft").trim();
         { status: 500 }
       );
     }
-
+await logUsage(userId, "course_generation");
     return NextResponse.json({
       success: true,
       explicitConditionTopic,
