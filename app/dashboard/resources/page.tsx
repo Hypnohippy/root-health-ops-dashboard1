@@ -2061,6 +2061,122 @@ async function createProgramme() {
       return next;
     });
   }
+  async function eliteDeepTeachSection(resource: Resource, sectionIndex: number) {
+  if (!organisationId) {
+    setError("organisationId required");
+    return;
+  }
+
+  if (!resource?.id) {
+    setError("resourceId required");
+    return;
+  }
+
+  const content = deepClone(resource.content || {});
+  const sections = Array.isArray(content?.sections) ? content.sections : [];
+  const section = sections[sectionIndex];
+
+  if (!section) {
+    setError("Section not found.");
+    return;
+  }
+
+  setBusyAction(`elite-deep-teach:${resource.id}:${sectionIndex}`);
+  setError(null);
+
+  try {
+    const aiRes = await fetch("/api/ai/elite-deep-teach-section", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        courseTitle: resource.title,
+        courseAudience: String(content?.intended_reader || "").trim(),
+        courseSummary: String(content?.summary || "").trim(),
+        learnerAudience: String(content?.learner_audience || "").trim(),
+        deliveryContext: String(content?.delivery_context || "").trim(),
+        sectionTitle: String(section?.title || "").trim(),
+        sectionSummary: String(section?.summary || "").trim(),
+        sectionBullets: Array.isArray(section?.bullets) ? section.bullets : [],
+        keyConceptsExplained: String(
+          section?.key_concepts_explained || ""
+        ).trim(),
+        mainPoints: String(section?.main_points || "").trim(),
+        workedExamples: String(section?.worked_examples || "").trim(),
+        instructorNotes: String(section?.instructor_notes || "").trim(),
+        facilitatorScript: String(section?.facilitator_script || "").trim(),
+        deliverySteps: String(section?.delivery_steps || "").trim(),
+        exercise: String(section?.exercise || "").trim(),
+        selfAssessmentActivity: String(
+          section?.self_assessment_activity || ""
+        ).trim(),
+        exerciseFacilitatorGuidance: String(
+          section?.exercise_facilitator_guidance || ""
+        ).trim(),
+        debriefNotes: String(section?.debrief_notes || "").trim(),
+        reflectionPrompt: String(section?.reflection_prompt || "").trim(),
+      }),
+    });
+
+    const aiData = await aiRes.json().catch(() => null);
+
+    if (!aiRes.ok || !aiData?.success) {
+      throw new Error(aiData?.error || "Failed to elite deep teach section");
+    }
+
+    const nextContent = deepClone(resource.content || {});
+    nextContent.sections = Array.isArray(nextContent.sections)
+      ? nextContent.sections
+      : [];
+
+    if (!nextContent.sections[sectionIndex]) {
+      throw new Error("Section not found while saving elite deep teach notes.");
+    }
+
+    nextContent.sections[sectionIndex].facilitator_elite_deep_teach = String(
+      aiData?.eliteDeepTeachNotes || ""
+    ).trim();
+
+    const saveRes = await fetch("/api/resource-library", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        organisationId,
+        resourceId: resource.id,
+        title: resource.title,
+        content: nextContent,
+      }),
+    });
+
+    const saveData = await saveRes.json().catch(() => null);
+
+    if (!saveRes.ok || !saveData?.success) {
+      throw new Error(saveData?.error || "Failed to save elite deep teach notes");
+    }
+
+    const updated = saveData?.resource || null;
+
+    if (updated) {
+      setResources((prev) =>
+        prev.map((r) => (r.id === updated.id ? updated : r))
+      );
+      setSelected(updated);
+      setDraftTitle(updated.title || "");
+      setDraftContent(deepClone(updated.content || {}));
+    } else {
+      await loadResources();
+    }
+
+    setToast(`Module ${sectionIndex + 1} elite deep teach added ✅`);
+  } catch (e: any) {
+    setError(e?.message || "Failed to elite deep teach section");
+  } finally {
+    setBusyAction(null);
+  }
+}
   async function deepTeachSection(resource: Resource, sectionIndex: number) {
   if (!organisationId) {
     setError("organisationId required");
@@ -3405,6 +3521,57 @@ async function createProgramme() {
     <div className="mt-3 text-sm text-slate-300 whitespace-pre-wrap">
       {String(section?.facilitator_deep_teach || "").trim() ||
         "No deep teach notes yet. Click 'Deep Teach This Module' to generate step-by-step facilitator notes, wording, examples, and debrief guidance."}
+    </div>
+  )}
+</div>
+                            <div className="mt-3 rounded-xl border border-blue-500/20 bg-blue-500/5 p-3">
+  <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-300">
+      Facilitator elite deep teach
+    </div>
+
+    {!editMode && !isTemplate(selected) ? (
+      <button
+        type="button"
+        onClick={() => eliteDeepTeachSection(selected as Resource, idx)}
+        disabled={
+          busyAction === `elite-deep-teach:${(selected as Resource).id}:${idx}`
+        }
+        className="rounded-full bg-blue-500 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-400 disabled:opacity-60"
+      >
+        {busyAction === `elite-deep-teach:${(selected as Resource).id}:${idx}`
+          ? "Elite deep teaching…"
+          : "Elite Deep Teach"}
+      </button>
+    ) : null}
+  </div>
+
+  {editMode && !isTemplate(selected) ? (
+    <textarea
+      value={String(section?.facilitator_elite_deep_teach || "")}
+      onChange={(e) =>
+        setDraftContent((prev: any) => {
+          const next = deepClone(prev || {});
+          next.sections = Array.isArray(next.sections)
+            ? next.sections
+            : [];
+          if (!next.sections[idx]) {
+            next.sections[idx] = {
+              title: "",
+              bullets: [],
+            };
+          }
+          next.sections[idx].facilitator_elite_deep_teach = e.target.value;
+          return next;
+        })
+      }
+      rows={12}
+      className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+    />
+  ) : (
+    <div className="mt-3 text-sm text-slate-300 whitespace-pre-wrap">
+      {String(section?.facilitator_elite_deep_teach || "").trim() ||
+        "No elite deep teach notes yet. Click 'Elite Deep Teach' for fuller facilitator scripting, adaptation notes, troubleshooting, short/extended delivery versions, and debrief guidance."}
     </div>
   )}
 </div>
