@@ -14,7 +14,7 @@ function nl2br(value: unknown) {
   return escapeHtml(value).replace(/\n/g, "<br />");
 }
 
-function toUkEnglish(text: string): string {
+function toUkEnglish(text: string) {
   return text
     .replace(/\bcolor\b/gi, "colour")
     .replace(/\bcolors\b/gi, "colours")
@@ -97,15 +97,77 @@ function formatNumberedLines(text: string) {
   `;
 }
 
+function formatEliteDeepTeach(text: string) {
+  const safe = toUkEnglish(String(text || "").trim());
+  if (!safe) return "";
+
+  const headings = new Set([
+    "Teaching purpose",
+    "Opening script",
+    "Step-by-step delivery script",
+    "Audience adaptation notes",
+    "If participants struggle",
+    "Common mistakes to avoid",
+    "Short version",
+    "Extended version",
+    "Debrief questions",
+    "Take-home message",
+  ]);
+
+  const lines = safe.split(/\r?\n/);
+
+  const blocks: Array<{ heading: string; content: string[] }> = [];
+  let currentHeading = "";
+  let currentContent: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || "");
+    const trimmed = line.trim();
+
+    if (headings.has(trimmed)) {
+      if (currentHeading) {
+        blocks.push({
+          heading: currentHeading,
+          content: currentContent,
+        });
+      }
+      currentHeading = trimmed;
+      currentContent = [];
+    } else {
+      currentContent.push(line);
+    }
+  }
+
+  if (currentHeading) {
+    blocks.push({
+      heading: currentHeading,
+      content: currentContent,
+    });
+  }
+
+  if (!blocks.length) {
+    return '<div class="spaced-text">' + nl2br(safe) + "</div>";
+  }
+
+  return blocks
+    .map((block) => {
+      const content = block.content.join("\n").trim();
+      return `
+        <div class="elite-block">
+          <div class="elite-heading">${escapeHtml(block.heading)}</div>
+          <div class="spaced-text">${nl2br(content)}</div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
 export async function POST(req: Request) {
   try {
     const { course, title, organisationId } = await req.json();
 
     if (!course) {
-      return NextResponse.json(
-        { error: "Missing course" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing course" }, { status: 400 });
     }
 
     let brandName = "Course Pack";
@@ -129,7 +191,6 @@ export async function POST(req: Request) {
     }
 
     const courseTitle = String(title || course?.title || "Course Pack").trim();
-
     const summary = String(course?.summary || "").trim();
     const intendedReader = String(course?.intended_reader || "").trim();
     const estimatedLearningTime = String(
@@ -238,29 +299,27 @@ export async function POST(req: Request) {
         padding-right: 10px;
       }
       .spaced-text {
-  white-space: pre-wrap;
-}
-
-.elite-block {
-  border-top: 1px solid #cbd5e1;
-  padding-top: 10px;
-  margin-top: 10px;
-}
-
-.elite-block:first-child {
-  border-top: none;
-  padding-top: 0;
-  margin-top: 0;
-}
-
-.elite-heading {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #1d4ed8;
-  margin-bottom: 6px;
-}    </style>
+        white-space: pre-wrap;
+      }
+      .elite-block {
+        border-top: 1px solid #cbd5e1;
+        padding-top: 10px;
+        margin-top: 10px;
+      }
+      .elite-block:first-child {
+        border-top: none;
+        padding-top: 0;
+        margin-top: 0;
+      }
+      .elite-heading {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #1d4ed8;
+        margin-bottom: 6px;
+      }
+    </style>
   </head>
   <body>
     <table style="width:100%; border-collapse:collapse; margin-bottom:18px;">
@@ -300,69 +359,6 @@ export async function POST(req: Request) {
     `
         : ""
     }
-    function formatEliteDeepTeach(text: string) {
-  const safe = toUkEnglish(String(text || "").trim());
-  if (!safe) return "";
-
-  const headings = new Set([
-    "Teaching purpose",
-    "Opening script",
-    "Step-by-step delivery script",
-    "Audience adaptation notes",
-    "If participants struggle",
-    "Common mistakes to avoid",
-    "Short version",
-    "Extended version",
-    "Debrief questions",
-    "Take-home message",
-  ]);
-
-  const lines = safe.split(/\r?\n/);
-
-  const blocks: { heading: string; content: string[] }[] = [];
-  let currentHeading = "";
-  let currentContent: string[] = [];
-
-  for (const rawLine of lines) {
-    const line = String(rawLine || "");
-    const trimmed = line.trim();
-
-    if (headings.has(trimmed)) {
-      if (currentHeading) {
-        blocks.push({
-          heading: currentHeading,
-          content: currentContent,
-        });
-      }
-      currentHeading = trimmed;
-      currentContent = [];
-    } else {
-      currentContent.push(line);
-    }
-  }
-
-  if (currentHeading) {
-    blocks.push({
-      heading: currentHeading,
-      content: currentContent,
-    });
-  }
-
-  if (!blocks.length) {
-    return `<div class="spaced-text">${nl2br(safe)}</div>`;
-  }
-
-  return blocks
-    .map(
-      (block) => `
-        <div class="elite-block">
-          <div class="elite-heading">${escapeHtml(block.heading)}</div>
-          <div class="spaced-text">${nl2br(block.content.join("\n").trim())}</div>
-        </div>
-      `
-    )
-    .join("");
-}
 
     ${
       intendedReader || estimatedLearningTime || practitionerLevel
@@ -542,15 +538,15 @@ export async function POST(req: Request) {
           }
 
           ${
-  facilitatorEliteDeepTeach
-    ? `
-  <div class="card blue">
-    <div class="label">Facilitator elite deep teach</div>
-    ${formatEliteDeepTeach(facilitatorEliteDeepTeach)}
-  </div>
-`
-    : ""
-}
+            facilitatorEliteDeepTeach
+              ? `
+            <div class="card blue">
+              <div class="label">Facilitator elite deep teach</div>
+              ${formatEliteDeepTeach(facilitatorEliteDeepTeach)}
+            </div>
+          `
+              : ""
+          }
 
           ${
             deliverySteps
