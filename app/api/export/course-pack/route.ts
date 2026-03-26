@@ -121,20 +121,14 @@ export async function POST(req: Request) {
         .maybeSingle();
 
       if (org) {
-        brandName = String(
-          org.brand_name || org.name || "Course Pack"
-        ).trim();
-        brandColor = String(
-          org.brand_primary_color || "#10b981"
-        ).trim();
+        brandName = String(org.brand_name || org.name || "Course Pack").trim();
+        brandColor = String(org.brand_primary_color || "#10b981").trim();
         logoUrl = String(org.brand_logo_url || "").trim();
         logoDataUri = await imageUrlToDataUri(logoUrl);
       }
     }
 
-    const courseTitle = String(
-      title || course?.title || "Course Pack"
-    ).trim();
+    const courseTitle = String(title || course?.title || "Course Pack").trim();
 
     const summary = String(course?.summary || "").trim();
     const intendedReader = String(course?.intended_reader || "").trim();
@@ -195,15 +189,15 @@ export async function POST(req: Request) {
         margin-bottom: 18px;
       }
       .section {
-  margin-top: 36px;
-  page-break-inside: avoid;
-}
-     .card {
-  border: 1px solid #dbe5f1;
-  padding: 16px 18px;
-  margin: 18px 0;
-  border-radius: 10px;
-}
+        margin-top: 36px;
+        page-break-inside: avoid;
+      }
+      .card {
+        border: 1px solid #dbe5f1;
+        padding: 16px 18px;
+        margin: 18px 0;
+        border-radius: 10px;
+      }
       .soft { background: #f8fafc; }
       .green { background: #f0fdf4; }
       .blue { background: #eff6ff; }
@@ -361,11 +355,11 @@ export async function POST(req: Request) {
           section?.facilitator_script || ""
         ).trim();
         const facilitatorDeepTeach = String(
-  section?.facilitator_deep_teach || ""
-).trim();
+          section?.facilitator_deep_teach || ""
+        ).trim();
         const facilitatorEliteDeepTeach = String(
-  section?.facilitator_elite_deep_teach || ""
-).trim();
+          section?.facilitator_elite_deep_teach || ""
+        ).trim();
         const deliverySteps = String(section?.delivery_steps || "").trim();
         const exercise = String(section?.exercise || "").trim();
         const exerciseFacilitatorGuidance = String(
@@ -383,9 +377,10 @@ export async function POST(req: Request) {
 
         return `
         <div class="section">
-  <div style="background:${brandColor}; color:white; padding:10px 14px; border-radius:6px; margin-bottom:12px;">
-    <strong>Module ${index + 1}</strong>
-  </div>
+          <div style="background:${brandColor}; color:white; padding:10px 14px; border-radius:6px; margin-bottom:12px;">
+            <strong>Module ${index + 1}</strong>
+          </div>
+
           <h2>Module ${index + 1}: ${escapeHtml(
             toUkEnglish(sectionTitle)
           )}</h2>
@@ -451,35 +446,34 @@ export async function POST(req: Request) {
           `
               : ""
           }
-         ${
-  facilitatorDeepTeach
-    ? `
-  <div class="card green">
-    <div class="label">Facilitator deep teach</div>
-    <div class="spaced-text">${nl2br(toUkEnglish(facilitatorDeepTeach))}</div>
-  </div>
-`
-    : ""
-}
 
-${
-  facilitatorEliteDeepTeach
-    ? `
-  <div class="card blue">
-    <div class="label">Facilitator elite deep teach</div>
-    <div class="spaced-text">${nl2br(toUkEnglish(facilitatorEliteDeepTeach))}</div>
-  </div>
-`
-    : ""
-}
-     
+          ${
+            facilitatorDeepTeach
+              ? `
+            <div class="card green">
+              <div class="label">Facilitator deep teach</div>
+              <div class="spaced-text">${nl2br(toUkEnglish(facilitatorDeepTeach))}</div>
+            </div>
+          `
+              : ""
+          }
+
+          ${
+            facilitatorEliteDeepTeach
+              ? `
+            <div class="card blue">
+              <div class="label">Facilitator elite deep teach</div>
+              <div class="spaced-text">${nl2br(toUkEnglish(facilitatorEliteDeepTeach))}</div>
+            </div>
+          `
+              : ""
+          }
 
           ${
             deliverySteps
               ? `
             <div class="card blue">
               <div class="label">Teaching flow (step-by-step)</div>
-      
               ${formatNumberedLines(deliverySteps)}
             </div>
           `
