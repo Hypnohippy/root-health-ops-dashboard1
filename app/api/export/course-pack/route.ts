@@ -363,6 +363,9 @@ export async function POST(req: Request) {
         const facilitatorDeepTeach = String(
   section?.facilitator_deep_teach || ""
 ).trim();
+        const facilitatorEliteDeepTeach = String(
+  section?.facilitator_elite_deep_teach || ""
+).trim();
         const deliverySteps = String(section?.delivery_steps || "").trim();
         const exercise = String(section?.exercise || "").trim();
         const exerciseFacilitatorGuidance = String(
@@ -456,6 +459,16 @@ export async function POST(req: Request) {
 <div class="spaced-text">
   ${nl2br(
     toUkEnglish(
+      ${
+  facilitatorEliteDeepTeach
+    ? `
+  <div class="card blue">
+    <div class="label">Facilitator elite deep teach</div>
+    <div class="spaced-text">${nl2br(toUkEnglish(facilitatorEliteDeepTeach))}</div>
+  </div>
+`
+    : ""
+}
       facilitatorDeepTeach
         .replace(/Concept teaching notes/gi, "\n\n— CONCEPT TEACHING NOTES —\n")
         .replace(/Step-by-step delivery/gi, "\n\n— STEP-BY-STEP DELIVERY —\n")
