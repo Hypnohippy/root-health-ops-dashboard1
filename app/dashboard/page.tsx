@@ -452,23 +452,25 @@ export default function DashboardHomePage() {
   const [usage, setUsage] = useState<{ usage: number; limit: number } | null>(null);
 
   // ✅ NEW: lock background scroll while modal is open + ESC closes
-  (() => {
-    if (!imgPickerOpen) return;
+  useEffect(() => {
+  if (!imgPickerOpen) return;
 
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+  const prevOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
 
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setImgPickerOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      setImgPickerOpen(false);
+    }
+  };
 
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [imgPickerOpen]);
+  window.addEventListener("keydown", onKeyDown);
 
+  return () => {
+    document.body.style.overflow = prevOverflow;
+    window.removeEventListener("keydown", onKeyDown);
+  };
+}, [imgPickerOpen]);
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
     return new Set(active.map((r) => r.platform));
