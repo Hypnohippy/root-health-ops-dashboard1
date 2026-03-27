@@ -2308,7 +2308,7 @@ async function createProgramme() {
         organisationId,
         resourceId: resource.id,
         title: resource.title,
-        content: upgradedContent,
+        content: nextContent,
       }),
     });
 
