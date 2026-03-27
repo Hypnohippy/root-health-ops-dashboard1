@@ -2137,6 +2137,7 @@ async function createProgramme() {
     nextContent.sections[sectionIndex].facilitator_elite_deep_teach = String(
       aiData?.eliteDeepTeachNotes || ""
     ).trim();
+    const upgradedContent = deepClone(resource.content || {});
 
     const saveRes = await fetch("/api/resource-library", {
       method: "PATCH",
