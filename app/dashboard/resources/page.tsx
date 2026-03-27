@@ -2125,7 +2125,7 @@ async function createProgramme() {
       throw new Error(aiData?.error || "Failed to elite deep teach section");
     }
 
-    const nextContent = deepClone(resource.content || {});
+        const nextContent = deepClone(resource.content || {});
     nextContent.sections = Array.isArray(nextContent.sections)
       ? nextContent.sections
       : [];
@@ -2137,7 +2137,6 @@ async function createProgramme() {
     nextContent.sections[sectionIndex].facilitator_elite_deep_teach = String(
       aiData?.eliteDeepTeachNotes || ""
     ).trim();
-    const upgradedContent = deepClone(resource.content || {});
 
     const saveRes = await fetch("/api/resource-library", {
       method: "PATCH",
@@ -2153,7 +2152,6 @@ async function createProgramme() {
     });
 
     const saveData = await saveRes.json().catch(() => null);
-
     if (!saveRes.ok || !saveData?.success) {
       throw new Error(saveData?.error || "Failed to save elite deep teach notes");
     }
