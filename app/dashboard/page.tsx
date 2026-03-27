@@ -933,38 +933,38 @@ export default function DashboardHomePage() {
   }
 
   (() => {
-    void loadSocialAccounts();
-    setDrafts(loadDrafts());
+   useEffect(() => {
+  void loadSocialAccounts();
+  setDrafts(loadDrafts());
 
-    // 1) Load any persisted experiment context
-    try {
-      const raw = getLocalStorageFirst(CURRENT_EXPERIMENT_KEYS);
-      if (raw) {
-        const parsed = JSON.parse(raw) as CurrentExperimentPayload;
-        if (parsed && parsed.v === 1) {
-          const expId = safeUuidLike(parsed.experimentId);
-          if (expId) {
-            setExperimentId(expId);
-            setExperimentTitle(String(parsed.title || "").trim() || null);
-          }
+  // 1) Load any persisted experiment context
+  try {
+    const raw = getLocalStorageFirst(CURRENT_EXPERIMENT_KEYS);
+    if (raw) {
+      const parsed = JSON.parse(raw) as CurrentExperimentPayload;
+      if (parsed && parsed.v === 1) {
+        const expId = safeUuidLike(parsed.experimentId);
+        if (expId) {
+          setExperimentId(expId);
+          setExperimentTitle(String(parsed.title || "").trim() || null);
         }
       }
-    } catch {}
+    }
+  } catch {}
 
-    // 2) Apply Brainstorm prefill once, then clear it
-    try {
-      const raw = getLocalStorageFirst(PREFILL_QUICKBLAST_KEYS);
-      if (raw) {
-        const parsed = JSON.parse(raw) as PrefillQuickBlastPayload;
-        if (parsed && typeof parsed === "object") {
-          applyQuickBlastPrefill(parsed);
-        }
-        removeLocalStorageMulti(PREFILL_QUICKBLAST_KEYS);
+  // 2) Apply Brainstorm prefill once, then clear it
+  try {
+    const raw = getLocalStorageFirst(PREFILL_QUICKBLAST_KEYS);
+    if (raw) {
+      const parsed = JSON.parse(raw) as PrefillQuickBlastPayload;
+      if (parsed && typeof parsed === "object") {
+        applyQuickBlastPrefill(parsed);
       }
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+      removeLocalStorageMulti(PREFILL_QUICKBLAST_KEYS);
+    }
+  } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
   (() => {
     if (selected.length > 0) return;
     const defaults = socialAccounts
