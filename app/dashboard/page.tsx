@@ -449,28 +449,25 @@ export default function DashboardHomePage() {
   const [imgPickerItems, setImgPickerItems] = useState<CommonsImage[]>([]);
   const [imgImportBusyUrl, setImgImportBusyUrl] = useState<string | null>(null);
   const [imgImportError, setImgImportError] = useState<string | null>(null);
-  const [usage, setUsage] = useState<{ usage: number; limit: number } | null>(null);
 
   // ✅ NEW: lock background scroll while modal is open + ESC closes
   useEffect(() => {
-  if (!imgPickerOpen) return;
+    if (!imgPickerOpen) return;
 
-  const prevOverflow = document.body.style.overflow;
-  document.body.style.overflow = "hidden";
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
 
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      setImgPickerOpen(false);
-    }
-  };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setImgPickerOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
 
-  window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [imgPickerOpen]);
 
-  return () => {
-    document.body.style.overflow = prevOverflow;
-    window.removeEventListener("keydown", onKeyDown);
-  };
-}, [imgPickerOpen]);
   const connectedPlatforms = useMemo(() => {
     const active = (socialAccounts || []).filter((r) => r.is_active !== false);
     return new Set(active.map((r) => r.platform));
@@ -932,40 +929,40 @@ export default function DashboardHomePage() {
     removeLocalStorageMulti(CURRENT_EXPERIMENT_KEYS);
   }
 
-  (() => {
-   useEffect(() => {
-  void loadSocialAccounts();
-  setDrafts(loadDrafts());
+  useEffect(() => {
+    void loadSocialAccounts();
+    setDrafts(loadDrafts());
 
-  // 1) Load any persisted experiment context
-  try {
-    const raw = getLocalStorageFirst(CURRENT_EXPERIMENT_KEYS);
-    if (raw) {
-      const parsed = JSON.parse(raw) as CurrentExperimentPayload;
-      if (parsed && parsed.v === 1) {
-        const expId = safeUuidLike(parsed.experimentId);
-        if (expId) {
-          setExperimentId(expId);
-          setExperimentTitle(String(parsed.title || "").trim() || null);
+    // 1) Load any persisted experiment context
+    try {
+      const raw = getLocalStorageFirst(CURRENT_EXPERIMENT_KEYS);
+      if (raw) {
+        const parsed = JSON.parse(raw) as CurrentExperimentPayload;
+        if (parsed && parsed.v === 1) {
+          const expId = safeUuidLike(parsed.experimentId);
+          if (expId) {
+            setExperimentId(expId);
+            setExperimentTitle(String(parsed.title || "").trim() || null);
+          }
         }
       }
-    }
-  } catch {}
+    } catch {}
 
-  // 2) Apply Brainstorm prefill once, then clear it
-  try {
-    const raw = getLocalStorageFirst(PREFILL_QUICKBLAST_KEYS);
-    if (raw) {
-      const parsed = JSON.parse(raw) as PrefillQuickBlastPayload;
-      if (parsed && typeof parsed === "object") {
-        applyQuickBlastPrefill(parsed);
+    // 2) Apply Brainstorm prefill once, then clear it
+    try {
+      const raw = getLocalStorageFirst(PREFILL_QUICKBLAST_KEYS);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PrefillQuickBlastPayload;
+        if (parsed && typeof parsed === "object") {
+          applyQuickBlastPrefill(parsed);
+        }
+        removeLocalStorageMulti(PREFILL_QUICKBLAST_KEYS);
       }
-      removeLocalStorageMulti(PREFILL_QUICKBLAST_KEYS);
-    }
-  } catch {}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
-  (() => {
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (selected.length > 0) return;
     const defaults = socialAccounts
       .map((r) => r.platform)
@@ -1100,7 +1097,7 @@ export default function DashboardHomePage() {
     return "Auto (recommended).";
   }, [igPublishMode, montageUrls.length]);
 
-  (() => {
+  useEffect(() => {
     if (!isMontageMode) return;
     if (!imageUrl && montageUrls.length > 0) setImageUrl(montageUrls[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1310,17 +1307,8 @@ export default function DashboardHomePage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
-        {usage ? (
-        <div className="mb-4 text-sm text-slate-400">
-          AI usage this month:{" "}
-          <span className="text-emerald-400 font-semibold">
-            {usage.usage} / {usage.limit}
-          </span>
-        </div>
-      ) : null}
-
-      <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
-                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+        <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
 
