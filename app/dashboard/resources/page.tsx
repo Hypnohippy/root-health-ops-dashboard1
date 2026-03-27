@@ -1753,7 +1753,6 @@ async function createProgramme() {
     }
 
     const content = aiData?.programme || null;
-    const upgradedContent = deepClone(resource.content || {});
     
     const saveRes = await fetch("/api/resource-library", {
       method: "POST",
