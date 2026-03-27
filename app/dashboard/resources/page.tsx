@@ -2283,20 +2283,58 @@ async function createProgramme() {
     setBusyAction(null);
   }
 }
-  async function upgradeLegacyResource(resource: Resource) {
-  const nextContent = upgradeLegacyResourceContent(resource.content || {});
+ async function upgradeLegacyResource(resource: Resource) {
+  if (!organisationId) {
+    setError("organisationId required");
+    return;
+  }
+
+  if (!resource?.id) {
+    setError("resourceId required");
+    return;
+  }
 
   setBusyAction(`upgrade:${resource.id}`);
   setError(null);
+   
+ try {
+    const content = deepClone(resource.content || {});
 
-  try {
-    await persistResourceContent(
-      resource,
-      nextContent,
-      "Older draft upgraded ✅"
-    );
+    const saveRes = await fetch("/api/resource-library", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        organisationId,
+        resourceId: resource.id,
+        title: resource.title,
+        content: upgradedContent,
+      }),
+    });
+
+    const saveData = await saveRes.json().catch(() => null);
+
+    if (!saveRes.ok || !saveData?.success) {
+      throw new Error(saveData?.error || "Failed to upgrade draft");
+    }
+
+    const updated = saveData?.resource || null;
+
+    if (updated) {
+      setResources((prev) =>
+        prev.map((r) => (r.id === updated.id ? updated : r))
+      );
+      setSelected(updated);
+      setDraftTitle(updated.title || "");
+      setDraftContent(deepClone(updated.content || {}));
+    } else {
+      await loadResources();
+    }
+
+    setToast("Draft upgraded ✅");
   } catch (e: any) {
-    setError(e?.message || "Failed to upgrade old draft");
+    setError(e?.message || "Failed to upgrade draft");
   } finally {
     setBusyAction(null);
   }
