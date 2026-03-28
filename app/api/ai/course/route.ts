@@ -282,7 +282,7 @@ const fillLevel = String(body?.fillLevel || "draft").trim();
       );
     }
 if (userId) {
-  await logUsage(userId, "course_generation", 2);
+  await logUsage(userId, "course_generation");
 }
     return NextResponse.json({
       success: true,
