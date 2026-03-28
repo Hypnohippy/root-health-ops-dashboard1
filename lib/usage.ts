@@ -18,6 +18,16 @@ export async function logUsage(userId: string, action: string) {
 
   await supabaseAdmin.from("user_ai_usage").insert(rows);
 }
+export function getPlanLimit(plan: string | null) {
+  switch (plan) {
+    case "growth":
+      return 60;
+    case "team":
+      return 150;
+    default:
+      return 20;
+  }
+}
 export async function getMonthlyUsage(userId: string) {
   if (!userId) return 0;
 
