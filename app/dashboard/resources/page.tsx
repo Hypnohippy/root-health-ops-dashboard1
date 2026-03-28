@@ -2823,6 +2823,30 @@ async function createProgramme() {
         )}
         {error && <div className="text-sm text-red-400">{error}</div>}
 
+<button
+  type="button"
+  onClick={async () => {
+    try {
+      const res = await fetch("/api/billing/checkout2", {
+        method: "POST",
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.url) {
+        throw new Error(data?.error || "Unable to start checkout.");
+      }
+
+      window.location.href = data.url;
+    } catch (err: any) {
+      alert(err?.message || "Unable to start checkout.");
+    }
+  }}
+  className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+>
+  Upgrade now
+</button>
+
         {!loading && libraryTab === "saved" && filteredResources.length === 0 && (
           <div className="text-sm text-slate-400">No saved resources yet.</div>
         )}
