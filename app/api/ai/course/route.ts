@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { logUsage, getMonthlyUsage } from "@/lib/usage";
+import { logUsage, getMonthlyUsage, getPlanLimit } from "@/lib/usage";
 import { getCurrentUserId } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
@@ -65,13 +65,14 @@ function extractJsonObject(raw: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const userId = await getCurrentUserId();
+   const userId = await getCurrentUserId();
+const userPlan = "solo";
+
 const usage = userId ? await getMonthlyUsage(userId) : 0;
+const monthlyLimit = getPlanLimit(userPlan);
+const cost = 2;
 
-// temporary test limit
-const monthlyLimit = 25;
-
-if (usage >= monthlyLimit) {
+if (usage + cost > monthlyLimit) {
   return NextResponse.json(
     { error: "Monthly AI limit reached. Upgrade to continue." },
     { status: 403 }
@@ -281,7 +282,7 @@ const fillLevel = String(body?.fillLevel || "draft").trim();
       );
     }
 if (userId) {
-  await logUsage(userId, "course_generation");
+  await logUsage(userId, "course_generation", 2);
 }
     return NextResponse.json({
       success: true,
