@@ -2821,7 +2821,20 @@ async function createProgramme() {
         {loading && (
           <div className="text-sm text-slate-400">Loading resources...</div>
         )}
-        {error && <div className="text-sm text-red-400">{error}</div>}
+        {error && (
+  <div className="space-y-3">
+    <div className="text-sm text-red-400">{error}</div>
+
+    {error.includes("allowance") && (
+      <button
+        onClick={() => (window.location.href = "/pricing")}
+        className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+      >
+        Upgrade now
+      </button>
+    )}
+  </div>
+)}
 
 <button
   type="button"
