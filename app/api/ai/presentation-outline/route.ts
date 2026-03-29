@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { logUsage, getMonthlyUsage, getPlanLimit, getCurrentOrganisationPlan } from "@/lib/usage";
+import { getCurrentUserId } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
@@ -58,7 +60,23 @@ export async function POST(req: NextRequest) {
       containsExplicitConditionLanguage(goal) ||
       containsExplicitConditionLanguage(audience) ||
       containsExplicitConditionLanguage(notes);
+    
+const userId = await getCurrentUserId();
+const userPlan = await getCurrentOrganisationPlan();
 
+const usage = userId ? await getMonthlyUsage(userId) : 0;
+const monthlyLimit = getPlanLimit(userPlan);
+const cost = 2;
+
+if (usage + cost > monthlyLimit) {
+  return NextResponse.json(
+    {
+      error:
+        "You’ve reached your monthly creation allowance. Upgrade to continue now, or wait until your allowance resets next month.",
+    },
+    { status: 403 }
+  );
+}
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
@@ -215,7 +233,10 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
-
+    
+if (userId) {
+  await logUsage(userId, "course_generation");
+}
     return NextResponse.json({
       success: true,
       explicitConditionTopic,
