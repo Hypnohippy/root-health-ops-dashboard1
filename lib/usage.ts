@@ -27,12 +27,7 @@ export function getPlanLimit(plan: string | null) {
     default:
       return 20;
   }
-  export function mapStoredPlanToPublicPlan(raw: string | null | undefined) {
-  const p = String(raw || "").toLowerCase().trim();
 
-  if (p === "enterprise" || p === "team") return "team";
-  if (p === "pro" || p === "growth") return "growth";
-  return "solo";
 }
 
 export async function getCurrentOrganisationPlan() {
