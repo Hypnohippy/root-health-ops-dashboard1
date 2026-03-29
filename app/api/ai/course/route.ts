@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
 const userPlan = "solo";
 
 const usage = userId ? await getMonthlyUsage(userId) : 0;
-const monthlyLimit = getPlanLimit(userPlan);
+const monthlyLimit = 1;
 const cost = 2;
 
 if (usage + cost > monthlyLimit) {
