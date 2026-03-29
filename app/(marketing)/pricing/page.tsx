@@ -169,12 +169,13 @@ export default function PricingPage() {
           price="£49"
           plan="solo"
           features={[
-            <>Connect your channels once</>,
-            <>Develop ideas into posts and stories</>,
-            <>Schedule content so presence stays steady</>,
-            <>Track sent / scheduled / failed status clearly</>,
-            <>🧠 Brainstorm for low-energy planning and drafting</>,
-          ]}
+  <>Connect your channels once</>,
+  <>Develop ideas into posts and stories</>,
+  <>Schedule content so presence stays steady</>,
+  <>Track sent / scheduled / failed status clearly</>,
+  <>🧠 Brainstorm for low-energy planning and drafting</>,
+  <>20 AI-powered resource creations per month</>,
+]}
           footerNote={
             <>
               Built for thoughtful consistency rather than hustle. <br />
@@ -191,13 +192,13 @@ export default function PricingPage() {
           plan="growth"
           highlight
           features={[
-            <>Everything in Solo</>,
-            <>More structure for themes, series, and visibility rhythm</>,
-            <>Deeper scheduling workflows</>,
-            <>Priority help getting set up</>,
-            <>🧠 Brainstorm included</>,
-          ]}
-          footerNote={
+  <>Everything in Solo</>,
+  <>More structure for themes, series, and visibility rhythm</>,
+  <>Deeper scheduling workflows</>,
+  <>Priority help getting set up</>,
+  <>🧠 Brainstorm included</>,
+  <>60 AI-powered resource creations per month</>,
+]}          footerNote={
             <>
               Often the best fit for people moving from qualified but invisible
               to more visible, connected, and confident in practice.
@@ -211,12 +212,13 @@ export default function PricingPage() {
           price="£199"
           plan="team"
           features={[
-            <>Everything in Growth</>,
-            <>Organisation-first setup</>,
-            <>Shared visibility workflows</>,
-            <>✅ Approvals before posts go live</>,
-            <>Priority support</>,
-          ]}
+  <>Everything in Growth</>,
+  <>Organisation-first setup</>,
+  <>Shared visibility workflows</>,
+  <>✅ Approvals before posts go live</>,
+  <>Priority support</>,
+  <>150 AI-powered resource creations per month</>,
+]}
           footerNote={
             <>
               Useful where multiple practitioners contribute and a gentler
@@ -225,6 +227,10 @@ export default function PricingPage() {
           }
         />
       </section>
+
+<div className="rounded-2xl border border-white/10 bg-black/20 px-5 py-4 text-sm text-slate-300 leading-relaxed">
+  AI-powered resource creations include courses, programmes, Deep Teach, and Elite Deep Teach. Allowances reset monthly with your subscription cycle.
+</div>
 
       <section className="rounded-[32px] border border-white/10 bg-white/5 p-8 md:p-10">
         <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
