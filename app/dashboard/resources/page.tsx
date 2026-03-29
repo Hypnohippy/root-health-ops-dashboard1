@@ -2765,10 +2765,9 @@ async function createProgramme() {
             </button>
           </div>
         </header>
-        {limit > 0 && (
-  <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-    {Math.max(limit - usage, 0)} creations remaining this month
-  </div>
+        <div className="text-white">
+  usage: {usage} | limit: {limit}
+</div>
 )}
 
         {toast ? (
