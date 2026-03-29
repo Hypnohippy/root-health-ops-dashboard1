@@ -5,7 +5,7 @@ import { getCurrentUserId } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";plan
 
 function containsExplicitConditionLanguage(text: string) {
   const s = String(text || "").toLowerCase();
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
 const userPlan = "solo";
 
 const usage = userId ? await getMonthlyUsage(userId) : 0;
-const monthlyLimit = 1;
+const monthlyLimit = getPlanLimit(userPlan);
 const cost = 2;
 
 if (usage + cost > monthlyLimit) {
