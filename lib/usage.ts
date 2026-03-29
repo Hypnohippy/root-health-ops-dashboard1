@@ -5,6 +5,7 @@ export async function logUsage(userId: string, action: string) {
 
   const costMap: Record<string, number> = {
     course_generation: 1,
+    programme_generation: 5,
     deep_teach: 1,
     elite_deep_teach: 3,
   };
@@ -18,6 +19,7 @@ export async function logUsage(userId: string, action: string) {
 
   await supabaseAdmin.from("user_ai_usage").insert(rows);
 }
+
 export function getPlanLimit(plan: string | null) {
   switch (plan) {
     case "growth":
@@ -27,7 +29,16 @@ export function getPlanLimit(plan: string | null) {
     default:
       return 20;
   }
+}
 
+export function mapStoredPlanToPublicPlan(
+  raw: string | null | undefined
+) {
+  const p = String(raw || "").toLowerCase().trim();
+
+  if (p === "enterprise" || p === "team") return "team";
+  if (p === "pro" || p === "growth") return "growth";
+  return "solo";
 }
 
 export async function getCurrentOrganisationPlan() {
@@ -44,7 +55,7 @@ export async function getCurrentOrganisationPlan() {
   const rawPlan = data?.[0]?.plan ?? null;
   return mapStoredPlanToPublicPlan(rawPlan);
 }
-}
+
 export async function getMonthlyUsage(userId: string) {
   if (!userId) return 0;
 
