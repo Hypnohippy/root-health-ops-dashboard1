@@ -855,16 +855,14 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
     // ✅ ADD THIS PART
     try {
-      const res = await fetch("/api/usage");
-      const data = await res.json();
+  const res = await fetch("/api/usage");
+  const data = await res.json();
 
-      if (data?.success) {
-        setUsage(data.usage || 0);
-        setLimit(data.limit || 0);
-      }
-    } catch (e) {
-      console.error("Failed to load usage");
-    }
+  setUsage(data?.usage || 0);
+  setLimit(data?.limit || 0);
+} catch (e) {
+  console.error("Failed to load usage");
+}
   }
 
   init();
