@@ -759,6 +759,8 @@ export default function ResourcesPage() {
   const [loading, setLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<number>(0);
+  const [limit, setLimit] = useState<number>(0);
   const [toast, setToast] = useState<string | null>(null);
 
   const [creatorOpen, setCreatorOpen] = useState(false);
@@ -844,15 +846,30 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   }
 
   useEffect(() => {
-    async function init() {
-      const org = await loadOrganisation();
-      if (org) {
-        loadResources(org);
-      }
+  async function init() {
+    const org = await loadOrganisation();
+
+    if (org) {
+      loadResources(org);
     }
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+    // ✅ ADD THIS PART
+    try {
+      const res = await fetch("/api/usage");
+      const data = await res.json();
+
+      if (data?.success) {
+        setUsage(data.usage || 0);
+        setLimit(data.limit || 0);
+      }
+    } catch (e) {
+      console.error("Failed to load usage");
+    }
+  }
+
+  init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -2750,6 +2767,11 @@ async function createProgramme() {
             </button>
           </div>
         </header>
+        {limit > 0 && (
+  <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+    {Math.max(limit - usage, 0)} creations remaining this month
+  </div>
+)}
 
         {toast ? (
           <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
