@@ -5,7 +5,7 @@ import { getCurrentUserId } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";plan
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 
 function containsExplicitConditionLanguage(text: string) {
   const s = String(text || "").toLowerCase();
