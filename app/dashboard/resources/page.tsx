@@ -761,6 +761,17 @@ export default function ResourcesPage() {
   const [error, setError] = useState<string | null>(null);
   const [usage, setUsage] = useState<number>(0);
   const [limit, setLimit] = useState<number>(0);
+  async function loadUsage() {
+  try {
+    const res = await fetch("/api/usage");
+    const data = await res.json();
+
+    setUsage(data?.usage || 0);
+    setLimit(data?.limit || 0);
+  } catch (e) {
+    console.error("Failed to load usage");
+  }
+}
   const [toast, setToast] = useState<string | null>(null);
 
   const [creatorOpen, setCreatorOpen] = useState(false);
@@ -853,16 +864,7 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
       loadResources(org);
     }
 
-    // ✅ ADD THIS PART
-    try {
-  const res = await fetch("/api/usage");
-  const data = await res.json();
-
-  setUsage(data?.usage || 0);
-  setLimit(data?.limit || 0);
-} catch (e) {
-  console.error("Failed to load usage");
-}
+    await loadUsage()
   }
 
   init();
@@ -1790,6 +1792,7 @@ async function createProgramme() {
     if (saveData?.resource) setSelected(saveData.resource);
 
     setLibraryTab("saved");
+    await loadUsage();
     setCreatorOpen(false);
     setToast("Programme created ✅");
   } catch (e: any) {
