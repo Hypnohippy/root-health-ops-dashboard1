@@ -1,19 +1,37 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-export async function logUsage(userId: string, action: string) {
-  if (!userId) return;
+export async function getCurrentOrganisationId() {
+  const { data, error } = await supabaseAdmin
+    .from("organisations")
+    .select("id")
+    .limit(1);
+
+  if (error) {
+    console.error("[usage] organisations error", error);
+    return null;
+  }
+
+  return data?.[0]?.id ?? null;
+}
+
+export async function logUsageForOrganisation(
+  organisationId: string,
+  action: string
+) {
+  if (!organisationId) return;
 
   const costMap: Record<string, number> = {
     course_generation: 1,
     programme_generation: 5,
     deep_teach: 1,
     elite_deep_teach: 3,
+    presentation_generation: 1,
   };
 
   const cost = costMap[action] || 1;
 
   const rows = Array.from({ length: cost }).map(() => ({
-    user_id: userId,
+    organisation_id: organisationId,
     action,
   }));
 
@@ -56,13 +74,13 @@ export async function getCurrentOrganisationPlan() {
   return mapStoredPlanToPublicPlan(rawPlan);
 }
 
-export async function getMonthlyUsage(userId: string) {
-  if (!userId) return 0;
+export async function getMonthlyUsageForOrganisation(organisationId: string) {
+  if (!organisationId) return 0;
 
   const { count } = await supabaseAdmin
     .from("user_ai_usage")
     .select("*", { count: "exact", head: true })
-    .eq("user_id", userId)
+    .eq("organisation_id", organisationId)
     .gte(
       "created_at",
       new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
