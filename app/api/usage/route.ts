@@ -1,18 +1,20 @@
 import { NextResponse } from "next/server";
 import {
-  getMonthlyUsage,
+  getMonthlyUsageForOrganisation,
   getPlanLimit,
   getCurrentOrganisationPlan,
+  getCurrentOrganisationId,
 } from "@/lib/usage";
-import { getCurrentUserId } from "@/lib/supabaseServer";
 
 export async function GET() {
   try {
-    const userId = await getCurrentUserId();
+    const organisationId = await getCurrentOrganisationId();
     const plan = await getCurrentOrganisationPlan();
     const limit = getPlanLimit(plan);
 
-    const usage = userId ? await getMonthlyUsage(userId) : 0;
+    const usage = organisationId
+      ? await getMonthlyUsageForOrganisation(organisationId)
+      : 0;
 
     return NextResponse.json({
       usage,
