@@ -1668,77 +1668,7 @@ async function clearUploadedSlideImage(
     setError(null);
 
     try {
-      const res = await fetch("/api/resource-library", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "duplicate",
-          organisationId,
-          resourceId: resource.id,
-        }),
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok || !data?.success) {
-        throw new Error(data?.error || "Failed to duplicate resource");
-      }
-
-      await loadResources();
-      if (data?.resource) setSelected(data.resource);
-
-      setToast("Resource duplicated ✅");
-    } catch (e: any) {
-      setError(e?.message || "Failed to duplicate resource");
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function deleteResource(resource: Resource) {
-    if (!organisationId) return;
-
-    const ok = window.confirm(`Delete "${resource.title}"?`);
-    if (!ok) return;
-
-    setBusyAction(`delete:${resource.id}`);
-    setError(null);
-
-    try {
-      const res = await fetch("/api/resource-library", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          organisationId,
-          resourceId: resource.id,
-        }),
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok || !data?.success) {
-        throw new Error(data?.error || "Failed to delete resource");
-      }
-
-      const remaining = resources.filter((r) => r.id !== resource.id);
-      setResources(remaining);
-      setSelected(remaining[0] || null);
-
-      setToast("Resource deleted ✅");
-    } catch (e: any) {
-      setError(e?.message || "Failed to delete resource");
-    } finally {
-      setBusyAction(null);
-    }
-  }
-async function createProgramme() {
-  if (!organisationId) return;
-
-  const title = creatorTitle.trim();
-  if (!title) {
-    setError("Title is required.");
-    return;
-  }
+     #
 
   setBusyAction("create-programme");
   setError(null);
@@ -1788,8 +1718,9 @@ async function createProgramme() {
       throw new Error(saveData?.error || "Failed to save programme");
     }
 
-    await loadResources();
-    if (saveData?.resource) setSelected(saveData.resource);
+   await loadResources();
+await loadUsage();
+if (saveData?.resource) setSelected(saveData.resource);
 
     setLibraryTab("saved");
     await loadUsage();
@@ -1889,7 +1820,8 @@ async function createProgramme() {
       }
 
       await loadResources();
-      if (saveData?.resource) setSelected(saveData.resource);
+await loadUsage();
+if (saveData?.resource) setSelected(saveData.resource);
 
       setLibraryTab("saved");
       setCreatorOpen(false);
