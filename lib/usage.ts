@@ -35,7 +35,10 @@ export async function logUsageForOrganisation(
     action,
   }));
 
-  await supabaseAdmin.from("user_ai_usage").insert(rows);
+  const { error } = await supabaseAdmin.from("user_ai_usage").insert(rows);
+
+if (error) {
+  console.error("[usage] insert error", error);
 }
 
 export function getPlanLimit(plan: string | null) {
