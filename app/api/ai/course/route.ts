@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import {
-  logUsage,
-  getMonthlyUsage,
+  logUsageForOrganisation,
+  getMonthlyUsageForOrganisation,
   getPlanLimit,
   getCurrentOrganisationPlan,
+  getCurrentOrganisationId,
 } from "@/lib/usage";
-import { getCurrentUserId } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
@@ -70,10 +70,12 @@ function extractJsonObject(raw: string) {
 
 export async function POST(req: NextRequest) {
   try {
-  const userId = await getCurrentUserId();
+ const organisationId = await getCurrentOrganisationId();
 const userPlan = await getCurrentOrganisationPlan();
 
-const usage = userId ? await getMonthlyUsage(userId) : 0;
+const usage = organisationId
+  ? await getMonthlyUsageForOrganisation(organisationId)
+  : 0;
 const monthlyLimit = getPlanLimit(userPlan);
 const cost = 2;
 
@@ -289,10 +291,9 @@ const fillLevel = String(body?.fillLevel || "draft").trim();
         { status: 500 }
       );
     }
-if (userId) {
-  await logUsage(userId, "course_generation");
-}
-    return NextResponse.json({
+if (organisationId) {
+  await logUsageForOrganisation(organisationId, "course_generation");
+}    return NextResponse.json({
       success: true,
       explicitConditionTopic,
       course: normalised,
