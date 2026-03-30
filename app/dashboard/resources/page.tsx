@@ -1616,72 +1616,46 @@ async function clearUploadedSlideImage(
     window.location.href = "/dashboard/brainstorm";
   }
 
-    async function createProgramme() {
+  async function renameResource(resource: Resource) {
     if (!organisationId) return;
 
-    const title = creatorTitle.trim();
-    if (!title) {
-      setError("Title is required.");
-      return;
-    }
+    const nextTitle = window.prompt("Rename resource", resource.title || "");
+    if (!nextTitle) return;
 
-    setBusyAction("create-programme");
+    const trimmed = nextTitle.trim();
+    if (!trimmed || trimmed === resource.title) return;
+
+    setBusyAction(`rename:${resource.id}`);
     setError(null);
 
     try {
-      const body: any = {
-        topic: title,
-        name: title,
-        goal: creatorGoal.trim(),
-        audience: creatorAudience.trim(),
-        instructorType: creatorInstructorType,
-        learnerAudience: creatorLearnerAudience,
-        deliveryContext: creatorDeliveryContext,
-        notes: creatorNotes.trim(),
-        tone: creatorTone.trim(),
-        fillLevel: creatorFillLevel,
-      };
-
-      const aiRes = await fetch("/api/ai/programme", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      const aiData = await aiRes.json().catch(() => null);
-
-      if (!aiRes.ok || !aiData?.success) {
-        throw new Error(aiData?.error || "Failed to generate programme");
-      }
-
-      const content = aiData?.programme || null;
-
-      const saveRes = await fetch("/api/resource-library", {
-        method: "POST",
+      const res = await fetch("/api/resource-library", {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           organisationId,
-          title,
-          resource_type: "course",
-          content,
+          resourceId: resource.id,
+          title: trimmed,
         }),
       });
 
-      const saveData = await saveRes.json().catch(() => null);
+      const data = await res.json().catch(() => null);
 
-      if (!saveRes.ok || !saveData?.success) {
-        throw new Error(saveData?.error || "Failed to save programme");
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to rename resource");
       }
 
       await loadResources();
-      await loadUsage();
-      if (saveData?.resource) setSelected(saveData.resource);
 
-      setLibraryTab("saved");
-      setCreatorOpen(false);
-      setToast("Programme created ✅");
+      setSelected((prev) => {
+        if (!prev || isTemplate(prev)) return prev;
+        if (prev.id !== resource.id) return prev;
+        return { ...prev, title: trimmed };
+      });
+
+      setToast("Resource renamed ✅");
     } catch (e: any) {
-      setError(e?.message || "Failed to create programme");
+      setError(e?.message || "Failed to rename resource");
     } finally {
       setBusyAction(null);
     }
@@ -1694,6 +1668,77 @@ async function clearUploadedSlideImage(
     setError(null);
 
     try {
+      const res = await fetch("/api/resource-library", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "duplicate",
+          organisationId,
+          resourceId: resource.id,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to duplicate resource");
+      }
+
+      await loadResources();
+      if (data?.resource) setSelected(data.resource);
+
+      setToast("Resource duplicated ✅");
+    } catch (e: any) {
+      setError(e?.message || "Failed to duplicate resource");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function deleteResource(resource: Resource) {
+    if (!organisationId) return;
+
+    const ok = window.confirm(`Delete "${resource.title}"?`);
+    if (!ok) return;
+
+    setBusyAction(`delete:${resource.id}`);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/resource-library", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId,
+          resourceId: resource.id,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to delete resource");
+      }
+
+      const remaining = resources.filter((r) => r.id !== resource.id);
+      setResources(remaining);
+      setSelected(remaining[0] || null);
+
+      setToast("Resource deleted ✅");
+    } catch (e: any) {
+      setError(e?.message || "Failed to delete resource");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+async function createProgramme() {
+  if (!organisationId) return;
+
+  const title = creatorTitle.trim();
+  if (!title) {
+    setError("Title is required.");
+    return;
+  }
 
   setBusyAction("create-programme");
   setError(null);
@@ -1743,9 +1788,8 @@ async function clearUploadedSlideImage(
       throw new Error(saveData?.error || "Failed to save programme");
     }
 
-   await loadResources();
-await loadUsage();
-if (saveData?.resource) setSelected(saveData.resource);
+    await loadResources();
+    if (saveData?.resource) setSelected(saveData.resource);
 
     setLibraryTab("saved");
     await loadUsage();
@@ -1845,8 +1889,7 @@ if (saveData?.resource) setSelected(saveData.resource);
       }
 
       await loadResources();
-await loadUsage();
-if (saveData?.resource) setSelected(saveData.resource);
+      if (saveData?.resource) setSelected(saveData.resource);
 
       setLibraryTab("saved");
       setCreatorOpen(false);
