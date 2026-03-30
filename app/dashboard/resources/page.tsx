@@ -965,9 +965,10 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-  course: selectedContent,
-  title: (selected as any)?.title || "Course Pack",
   organisationId,
+  resourceId: (selected as Resource).id,
+  title: (selected as any)?.title || "Course Pack",
+  content: selectedContent,
 }),
       });
 
