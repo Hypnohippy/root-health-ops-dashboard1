@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import {
+  logUsageForOrganisation,
+  getMonthlyUsageForOrganisation,
+  getPlanLimit,
+  getCurrentOrganisationPlan,
+  getCurrentOrganisationId,
+} from "@/lib/usage";
 
 export const runtime = "nodejs";
 
@@ -69,7 +76,24 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+const organisationId = await getCurrentOrganisationId();
+const userPlan = await getCurrentOrganisationPlan();
 
+const usage = organisationId
+  ? await getMonthlyUsageForOrganisation(organisationId)
+  : 0;
+const monthlyLimit = getPlanLimit(userPlan);
+const cost = 5;
+
+if (usage + cost > monthlyLimit) {
+  return NextResponse.json(
+    {
+      error:
+        "You’ve reached your monthly creation allowance. Upgrade to continue now, or wait until your allowance resets next month.",
+    },
+    { status: 403 }
+  );
+}
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
@@ -252,7 +276,9 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
-
+if (organisationId) {
+  await logUsageForOrganisation(organisationId, "programme_generation");
+}
     return NextResponse.json({
       success: true,
       programme: normalised,
