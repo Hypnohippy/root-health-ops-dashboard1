@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { logUsage, getMonthlyUsage, getPlanLimit, getCurrentOrganisationPlan } from "@/lib/usage";
-import { getCurrentUserId } from "@/lib/supabaseServer";
-
+import {
+  logUsageForOrganisation,
+  getMonthlyUsageForOrganisation,
+  getPlanLimit,
+  getCurrentOrganisationPlan,
+  getCurrentOrganisationId,
+} from "@/lib/usage";
 export const runtime = "nodejs";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
@@ -61,10 +65,12 @@ export async function POST(req: NextRequest) {
       containsExplicitConditionLanguage(audience) ||
       containsExplicitConditionLanguage(notes);
     
-const userId = await getCurrentUserId();
+const organisationId = await getCurrentOrganisationId();
 const userPlan = await getCurrentOrganisationPlan();
 
-const usage = userId ? await getMonthlyUsage(userId) : 0;
+const usage = organisationId
+  ? await getMonthlyUsageForOrganisation(organisationId)
+  : 0;
 const monthlyLimit = getPlanLimit(userPlan);
 const cost = 2;
 
@@ -76,7 +82,7 @@ if (usage + cost > monthlyLimit) {
     },
     { status: 403 }
   );
-}
+}   
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
@@ -234,8 +240,8 @@ if (usage + cost > monthlyLimit) {
       );
     }
     
-if (userId) {
-  await logUsage(userId, "course_generation");
+if (organisationId) {
+  await logUsageForOrganisation(organisationId, "presentation_generation");
 }
     return NextResponse.json({
       success: true,
