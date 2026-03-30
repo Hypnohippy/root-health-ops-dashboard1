@@ -855,17 +855,7 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
       setLoading(false);
     }
   }
-  async function loadUsage() {
-  try {
-    const res = await fetch("/api/usage");
-    const data = await res.json();
-    setUsage(data?.usage || 0);
-    setLimit(data?.limit || 0);
-  } catch (e) {
-    console.error("Failed to load usage");
-  }
-}
-
+ 
   useEffect(() => {
   async function init() {
     const org = await loadOrganisation();
