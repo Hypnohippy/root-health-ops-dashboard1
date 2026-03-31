@@ -2754,7 +2754,7 @@ function bodySafeAudience(content: any) {
             }
 
             ${
-              sessionCards
+              contentCards
                 ? `
               <div style="margin-top: 18px;">
                 <div class="section-title">Programme structure</div>
