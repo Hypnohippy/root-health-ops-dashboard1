@@ -2385,48 +2385,111 @@ async function createProgramme() {
     year: "numeric",
   });
 
-  const title = String(resource?.title || "Programme Summary").trim();
-  const summary = String(content?.summary || "").trim();
-  const intendedReader = String(content?.intended_reader || "").trim();
-  const estimatedLearningTime = String(
-    content?.estimated_learning_time || ""
-  ).trim();
-  const practitionerLevel = String(
-    content?.practitioner_level || ""
-  ).trim();
+ const title = String(resource?.title || "Programme Summary").trim();
+const isPresentationLike =
+  resource?.resource_type === "presentation" ||
+  resource?.resource_type === "webinar_outline";
 
-  const sessionCards = sections
-    .slice(0, 4)
-    .map((section: any, index: number) => {
-      const sectionTitle = String(section?.title || `Session ${index + 1}`).trim();
-      const sectionSummary = String(section?.summary || "").trim();
-      const bullets = Array.isArray(section?.bullets) ? section.bullets : [];
+const summary = String(
+  content?.summary ||
+    content?.objective ||
+    content?.audience_takeaway ||
+    ""
+).trim();
 
-      return `
-        <div class="session-card">
-          <div class="session-number">Session ${index + 1}</div>
-          <div class="session-title">${escapeHtml(sectionTitle)}</div>
-          ${
-            sectionSummary
-              ? `<div class="session-summary">${escapeHtml(sectionSummary)}</div>`
-              : ""
-          }
-          ${
-            bullets.length
-              ? `
-                <ul class="session-bullets">
-                  ${bullets
-                    .slice(0, 4)
-                    .map((b: string) => `<li>${escapeHtml(b)}</li>`)
-                    .join("")}
-                </ul>
-              `
-              : ""
-          }
-        </div>
-      `;
-    })
-    .join("");
+const intendedReader = String(
+  content?.intended_reader ||
+    bodySafeAudience(content) ||
+    "Public, workplace, or practitioner audiences"
+).trim();
+
+const estimatedLearningTime = String(
+  content?.estimated_learning_time ||
+    content?.duration ||
+    "To be agreed"
+).trim();
+
+const practitionerLevel = String(
+  content?.practitioner_level ||
+    "Suitable for mixed audiences where tailored"
+).trim();
+
+function bodySafeAudience(content: any) {
+  return String(
+    content?.audience ||
+      content?.audience_takeaway ||
+      ""
+  ).trim();
+}
+ const contentCards = isPresentationLike
+  ? (Array.isArray(content?.slides) ? content.slides : [])
+      .slice(0, 6)
+      .map((slide: any, index: number) => {
+        const slideTitle = String(
+          slide?.slide_title || `Slide ${index + 1}`
+        ).trim();
+        const slideGoal = String(slide?.slide_goal || "").trim();
+        const bullets = Array.isArray(slide?.bullets) ? slide.bullets : [];
+
+        return `
+          <div class="session-card">
+            <div class="session-number">Slide ${index + 1}</div>
+            <div class="session-title">${escapeHtml(slideTitle)}</div>
+            ${
+              slideGoal
+                ? `<div class="session-summary">${escapeHtml(slideGoal)}</div>`
+                : ""
+            }
+            ${
+              bullets.length
+                ? `
+                  <ul class="session-bullets">
+                    ${bullets
+                      .slice(0, 4)
+                      .map((b: string) => `<li>${escapeHtml(b)}</li>`)
+                      .join("")}
+                  </ul>
+                `
+                : ""
+            }
+          </div>
+        `;
+      })
+      .join("")
+  : sections
+      .slice(0, 4)
+      .map((section: any, index: number) => {
+        const sectionTitle = String(
+          section?.title || `Session ${index + 1}`
+        ).trim();
+        const sectionSummary = String(section?.summary || "").trim();
+        const bullets = Array.isArray(section?.bullets) ? section.bullets : [];
+
+        return `
+          <div class="session-card">
+            <div class="session-number">Session ${index + 1}</div>
+            <div class="session-title">${escapeHtml(sectionTitle)}</div>
+            ${
+              sectionSummary
+                ? `<div class="session-summary">${escapeHtml(sectionSummary)}</div>`
+                : ""
+            }
+            ${
+              bullets.length
+                ? `
+                  <ul class="session-bullets">
+                    ${bullets
+                      .slice(0, 4)
+                      .map((b: string) => `<li>${escapeHtml(b)}</li>`)
+                      .join("")}
+                  </ul>
+                `
+                : ""
+            }
+          </div>
+        `;
+      })
+      .join("");
 
   const html = `
     <html>
@@ -2631,13 +2694,17 @@ async function createProgramme() {
       <body>
         <div class="page">
           <div class="hero">
-            <div class="eyebrow">Programme summary</div>
+            <div class="eyebrow">${isPresentationLike ? "Presentation summary" : "Programme summary"}</div>
             <h1 class="hero-title">${escapeHtml(title)}</h1>
             <div class="hero-summary">
               ${escapeHtml(
                 summary ||
-                  "A structured, practical learning programme that can be delivered in-house or online."
-              )}
+                  ${escapeHtml(
+  summary ||
+    (isPresentationLike
+      ? "A clear, practical presentation that can be shared with decision-makers, organisers, or HR teams."
+      : "A structured, practical learning programme that can be delivered in-house or online.")
+)}
             </div>
 
             <div class="meta-grid">
@@ -2694,7 +2761,7 @@ async function createProgramme() {
               <div style="margin-top: 18px;">
                 <div class="section-title">Programme structure</div>
                 <div class="session-grid">
-                  ${sessionCards}
+                 ${contentCards}
                 </div>
               </div>
             `
