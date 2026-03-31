@@ -1676,25 +1676,26 @@ async function clearUploadedSlideImage(
     setError(null);
 
     try {
-      const res = await fetch("/api/resource-library", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "duplicate",
-          organisationId,
-          resourceId: resource.id,
-        }),
-      });
+     const nextContent = data?.presentation || selectedContent;
 
-      const data = await res.json().catch(() => null);
+const saveRes = await fetch("/api/resource-library", {
+  method: "PATCH",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    organisationId,
+    resourceId: (selected as Resource).id,
+    title: (selected as any)?.title || "Course Pack",
+    content: nextContent,
+  }),
+});
 
-      if (!res.ok || !data?.success) {
-        throw new Error(data?.error || "Failed to duplicate resource");
-      }
+const saveData = await saveRes.json().catch(() => null);
+     if (!saveRes.ok || !saveData?.success) {
+  throw new Error(saveData?.error || "Failed to save resource");
+}
 
-      await loadResources();
-      if (data?.resource) setSelected(data.resource);
-
+await loadResources();
+if (saveData?.resource) setSelected(saveData.resource);
       setToast("Resource duplicated ✅");
     } catch (e: any) {
       setError(e?.message || "Failed to duplicate resource");
