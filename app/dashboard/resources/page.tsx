@@ -968,7 +968,7 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   organisationId,
   resourceId: (selected as Resource).id,
   title: (selected as any)?.title || "Course Pack",
-  content: aiData?.presentation || selectedContent,
+  content: data?.presentation || selectedContent,
 }),
       });
 
