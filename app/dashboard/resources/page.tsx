@@ -2695,8 +2695,13 @@ function bodySafeAudience(content: any) {
         <div class="page">
           <div class="hero">
             <div class="eyebrow">${isPresentationLike ? "Presentation summary" : "Programme summary"}</div>
-            <h1 class="hero-title">${escapeHtml(title)}</h1>
-            <div class="hero-summary">
+           <h1 class="hero-title">${escapeHtml(title)}</h1>
+
+<div style="margin-top:6px;font-size:12px;color:#475569;">
+  Prepared for organisations, HR teams, and decision-makers
+</div>
+
+<div class="hero-summary">
              ${escapeHtml(
   summary ||
     (isPresentationLike
@@ -2712,6 +2717,17 @@ function bodySafeAudience(content: any) {
                   intendedReader || "Public, workplace, or practitioner audiences"
                 )}</div>
               </div>
+              </div>
+
+<div style="margin-top:18px;">
+  <div class="section-title">Delivery options</div>
+  <div style="font-size:13px;color:#334155;margin-top:6px;">
+    • Live webinar (remote)<br/>
+    • In-house workshop delivery<br/>
+    • Hybrid formats available<br/>
+    • Customised versions for your organisation
+  </div>
+</div>
 
               <div class="meta-card">
                 <div class="meta-label">Estimated learning time</div>
@@ -2753,15 +2769,25 @@ function bodySafeAudience(content: any) {
                 : ""
             }
 
-            ${
-              contentCards
-                ? `
-              <div style="margin-top: 18px;">
-                <div class="section-title">Programme structure</div>
-                <div class="session-grid">
-                 ${contentCards}
-                </div>
-              </div>
+           ${
+  contentCards
+    ? `
+      <div style="margin-top:18px;">
+        <div class="section-title">Business outcomes</div>
+        <ul style="margin-top:8px;padding-left:18px;font-size:13px;color:#334155;">
+          <li>Improved wellbeing, engagement, and productivity</li>
+          <li>Practical tools participants can apply immediately</li>
+          <li>Supports organisational health and retention</li>
+          <li>Delivered in a clear, structured, and accessible format</li>
+        </ul>
+      </div>
+
+      <div style="margin-top: 18px;">
+        <div class="section-title">Programme structure</div>
+        <div class="session-grid">
+          ${contentCards}
+        </div>              
+        </div>
             `
                 : ""
             }
