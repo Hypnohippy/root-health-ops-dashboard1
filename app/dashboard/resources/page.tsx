@@ -2697,9 +2697,7 @@ function bodySafeAudience(content: any) {
             <div class="eyebrow">${isPresentationLike ? "Presentation summary" : "Programme summary"}</div>
             <h1 class="hero-title">${escapeHtml(title)}</h1>
             <div class="hero-summary">
-              ${escapeHtml(
-                summary ||
-                  ${escapeHtml(
+             ${escapeHtml(
   summary ||
     (isPresentationLike
       ? "A clear, practical presentation that can be shared with decision-makers, organisers, or HR teams."
