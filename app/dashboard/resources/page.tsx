@@ -964,11 +964,11 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
       const res = await fetch("/api/resource-library", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      body: JSON.stringify({
   organisationId,
-  resourceId: (selected as Resource).id,
-  title: (selected as any)?.title || "Course Pack",
-  content: data?.presentation || selectedContent,
+  resourceId: resource.id,
+  title: resource.title || "Course Pack",
+  content: nextContent,
 }),
       });
 
