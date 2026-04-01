@@ -1027,11 +1027,17 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
     `I’d be happy to discuss delivery options, timing, customisation, and any questions you may have.`
   );
 
-  return lines.join("\n");
+    return lines.join("\n");
 }
   function isTemplate(item: any): item is StarterTemplate {
     return item?.resource_type === "template";
   }
+
+  async function persistResourceContent(
+    resource: Resource,
+    nextContent: any,
+    successMessage: string
+  ) {
 
   async function persistResourceContent(
     resource: Resource,
@@ -3548,6 +3554,14 @@ function bodySafeAudience(content: any) {
       className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-200 hover:bg-emerald-500/20"
     >
       Email proposal
+    </button>
+
+    <button
+      type="button"
+      onClick={() => downloadProposalAsPdf(selected as Resource, proposalPrice)}
+      className="rounded-full border border-violet-500/40 bg-violet-500/10 px-4 py-2 text-xs text-violet-200 hover:bg-violet-500/20"
+    >
+      Proposal PDF
     </button>
   </div>
 
