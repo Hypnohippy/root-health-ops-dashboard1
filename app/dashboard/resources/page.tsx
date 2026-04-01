@@ -3310,6 +3310,43 @@ function bodySafeAudience(content: any) {
   Download PDF
 </button>
                         <button
+  type="button"
+  onClick={() => {
+    const resource = selected as Resource;
+    const content = (resource as any)?.content || {};
+
+    const title = String(resource?.title || "Programme Summary").trim();
+    const summary = String(
+      content?.summary ||
+        content?.objective ||
+        content?.audience_takeaway ||
+        "Please find attached a short summary document."
+    ).trim();
+
+    const audience = String(
+      content?.intended_reader ||
+        content?.audience ||
+        "public, workplace, or practitioner audiences"
+    ).trim();
+
+    const subject = encodeURIComponent(`Programme summary: ${title}`);
+
+    const body = encodeURIComponent(
+      `Hello,\n\nPlease find attached a short summary for "${title}".\n\n` +
+        `Overview:\n${summary}\n\n` +
+        `Audience:\n${audience}\n\n` +
+        `This can be tailored for your organisation, team, or audience.\n\n` +
+        `I’d be happy to discuss delivery options, pricing, and next steps.\n\n` +
+        `Best wishes`
+    );
+
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  }}
+  className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-200 hover:bg-emerald-500/20"
+>
+  Send to HR draft
+</button>
+                        <button
                           type="button"
                           onClick={() => deleteResource(selected as Resource)}
                           disabled={
