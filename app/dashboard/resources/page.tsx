@@ -761,6 +761,8 @@ export default function ResourcesPage() {
   const [error, setError] = useState<string | null>(null);
   const [usage, setUsage] = useState<number>(0);
   const [limit, setLimit] = useState<number>(0);
+  const [proposalPrice, setProposalPrice] = useState("");
+const [proposalText, setProposalText] = useState("");
   async function loadUsage() {
   try {
     const res = await fetch("/api/usage");
@@ -946,6 +948,87 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
       deepClone(upgradeLegacyResourceContent(selected.content || {}))
     );
   }, [selected]);
+  function buildProposalText(resource: Resource, totalPriceInput: string) {
+  const content = resource?.content || {};
+  const totalPrice = Number(String(totalPriceInput || "").replace(/[^0-9.]/g, ""));
+  const safeTotal = Number.isFinite(totalPrice) ? totalPrice : 0;
+
+  const isPresentationLike =
+    resource?.resource_type === "presentation" ||
+    resource?.resource_type === "webinar_outline";
+
+  const sections = Array.isArray((content as any)?.sections) ? (content as any).sections : [];
+  const slides = Array.isArray((content as any)?.slides) ? (content as any).slides : [];
+
+  const itemCount = isPresentationLike
+    ? slides.length || 1
+    : sections.length || 1;
+
+  const perSession = safeTotal > 0 ? (safeTotal / itemCount).toFixed(2) : null;
+
+  const title = String(resource?.title || "Programme").trim();
+
+  const summary = String(
+    (content as any)?.summary ||
+      (content as any)?.objective ||
+      (content as any)?.audience_takeaway ||
+      ""
+  ).trim();
+
+  const audience = String(
+    (content as any)?.intended_reader ||
+      (content as any)?.audience ||
+      "Public, workplace, or practitioner audiences"
+  ).trim();
+
+  const format = isPresentationLike
+    ? "Presentation / webinar delivery"
+    : "Structured programme delivery";
+
+  const lines = [
+    `${title}`,
+    ``,
+    `Overview:`,
+    summary || "Tailored learning experience designed for practical delivery.",
+    ``,
+    `Audience:`,
+    audience,
+    ``,
+    `Format:`,
+    format,
+    ``,
+    `Scope:`,
+    isPresentationLike
+      ? `${itemCount} slides / teaching segments`
+      : `${itemCount} sessions / modules`,
+    ``,
+  ];
+
+  if (safeTotal > 0) {
+    lines.push(`Investment:`);
+    lines.push(`£${safeTotal.toFixed(2)}`);
+    lines.push(``);
+
+    if (perSession) {
+      lines.push(`Equivalent rate:`);
+      lines.push(`£${perSession} per ${isPresentationLike ? "slide segment" : "session"}`);
+      lines.push(``);
+    }
+  }
+
+  lines.push(`Includes:`);
+  lines.push(`- Tailored delivery discussion`);
+  lines.push(`- Structured teaching materials`);
+  lines.push(`- Professional summary document`);
+  lines.push(`- Option to adapt for your organisation or audience`);
+  lines.push(``);
+  lines.push(`Next steps:`);
+  lines.push(
+    `I’d be happy to discuss delivery options, timing, customisation, and any questions you may have.`
+  );
+
+  return lines.join("\n");
+}
   function isTemplate(item: any): item is StarterTemplate {
     return item?.resource_type === "template";
   }
@@ -3401,6 +3484,82 @@ function bodySafeAudience(content: any) {
                             ? "Deleting…"
                             : "Delete"}
                         </button>
+                        <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+  <div className="text-sm font-semibold text-slate-200">
+    Proposal builder
+  </div>
+
+  <div className="mt-1 text-xs text-slate-400">
+    Enter your total price and generate a proposal-ready summary.
+  </div>
+
+  <input
+    value={proposalPrice}
+    onChange={(e) => setProposalPrice(e.target.value)}
+    className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+    placeholder="Enter total price (£)"
+  />
+
+  <div className="mt-3 flex flex-wrap gap-2">
+    <button
+      type="button"
+      onClick={() => {
+        const text = buildProposalText(selected as Resource, proposalPrice);
+        setProposalText(text);
+        setToast("Proposal generated ✅");
+      }}
+      className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+    >
+      Generate proposal
+    </button>
+
+    <button
+      type="button"
+      onClick={() => {
+        const text =
+          proposalText ||
+          buildProposalText(selected as Resource, proposalPrice);
+
+        navigator.clipboard.writeText(text);
+        setProposalText(text);
+        setToast("Proposal copied ✅");
+      }}
+      className="rounded-full border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-xs text-blue-200 hover:bg-blue-500/20"
+    >
+      Copy proposal
+    </button>
+
+    <button
+      type="button"
+      onClick={() => {
+        const resource = selected as Resource;
+        const text =
+          proposalText ||
+          buildProposalText(resource, proposalPrice);
+
+        const subject = encodeURIComponent(
+          `Proposal: ${String(resource?.title || "Programme")}`
+        );
+
+        const body = encodeURIComponent(text);
+
+        window.location.href = `mailto:?subject=${subject}&body=${body}`;
+      }}
+      className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-200 hover:bg-emerald-500/20"
+    >
+      Email proposal
+    </button>
+  </div>
+
+  {proposalText ? (
+    <textarea
+      value={proposalText}
+      readOnly
+      rows={14}
+      className="mt-4 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
+    />
+  ) : null}
+</div>
                       </>
                     ) : (
                       <>
