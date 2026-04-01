@@ -3347,6 +3347,41 @@ function bodySafeAudience(content: any) {
   Send to HR draft
 </button>
                         <button
+  type="button"
+  onClick={() => {
+    const resource = selected as Resource;
+    const content = (resource as any)?.content || {};
+
+    const title = String(resource?.title || "Programme Summary").trim();
+    const summary = String(
+      content?.summary ||
+        content?.objective ||
+        content?.audience_takeaway ||
+        ""
+    ).trim();
+
+    const audience = String(
+      content?.intended_reader ||
+        content?.audience ||
+        "Public, workplace, or practitioner audiences"
+    ).trim();
+
+    const text =
+      `${title}\n\n` +
+      `Overview:\n${summary}\n\n` +
+      `Audience:\n${audience}\n\n` +
+      `This programme can be tailored for your organisation.\n\n` +
+      `Contact us to discuss delivery options and next steps.`;
+
+    navigator.clipboard.writeText(text);
+
+    setToast("Summary copied to clipboard ✅");
+  }}
+  className="rounded-full border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-xs text-blue-200 hover:bg-blue-500/20"
+>
+  Copy summary
+</button>
+                        <button
                           type="button"
                           onClick={() => deleteResource(selected as Resource)}
                           disabled={
