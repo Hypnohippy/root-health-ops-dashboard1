@@ -2695,6 +2695,13 @@ function bodySafeAudience(content: any) {
       <body>
         <div class="page">
           <div class="hero">
+          ${
+  logoUrl
+    ? `<div style="margin-bottom:12px;">
+         <img src="${logoUrl}" alt="Logo" style="height:40px;object-fit:contain;" />
+       </div>`
+    : ""
+}
             <div class="eyebrow">${isPresentationLike ? "Presentation summary" : "Programme summary"}</div>
            <h1 class="hero-title">${escapeHtml(title)}</h1>
 
