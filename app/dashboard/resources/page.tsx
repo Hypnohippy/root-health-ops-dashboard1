@@ -2386,7 +2386,7 @@ async function createProgramme() {
   });
 
  const title = String(resource?.title || "Programme Summary").trim();
-   const logoUrl = String((resource as any)?.organisation_logo_url || "").trim();
+  
 const isPresentationLike =
   resource?.resource_type === "presentation" ||
   resource?.resource_type === "webinar_outline";
