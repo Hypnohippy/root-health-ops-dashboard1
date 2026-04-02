@@ -1027,162 +1027,11 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
     `I’d be happy to discuss delivery options, timing, customisation, and any questions you may have.`
   );
 
-   return lines.join("\n");
+  return lines.join("\n");
 }
-
-function downloadProposalAsPdf(resource: Resource, totalPriceInput: string) {
-  const proposal =
-    proposalText || buildProposalText(resource, totalPriceInput);
-
-  const escapeHtml = (value: unknown) =>
-    String(value || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-
-  const title = String(resource?.title || "Proposal").trim();
-
-  const html = `
-    <html>
-      <head>
-        <title>${escapeHtml(title)} - Proposal</title>
-        <style>
-          @page {
-            size: A4;
-            margin: 16mm;
-          }
-
-          html, body {
-            margin: 0;
-            padding: 0;
-            font-family: Arial, Helvetica, sans-serif;
-            background: #f8fafc;
-            color: #0f172a;
-          }
-
-          body {
-            padding: 0;
-          }
-
-          .page {
-            max-width: 210mm;
-            margin: 0 auto;
-            background: white;
-            border: 1px solid #e2e8f0;
-          }
-
-          .hero {
-            padding: 24mm 18mm 14mm 18mm;
-            background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 45%, #ecfeff 100%);
-            border-bottom: 1px solid #dbeafe;
-          }
-
-          .eyebrow {
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: #2563eb;
-            margin-bottom: 10px;
-          }
-
-          .hero-title {
-            font-size: 28px;
-            line-height: 1.2;
-            font-weight: 700;
-            color: #0f172a;
-            margin: 0 0 10px 0;
-          }
-
-          .hero-subtitle {
-            margin-top: 6px;
-            font-size: 12px;
-            color: #475569;
-          }
-
-          .content {
-            padding: 18mm;
-          }
-
-          .section-title {
-            font-size: 14px;
-            font-weight: 700;
-            color: #0f172a;
-            margin: 0 0 10px 0;
-          }
-
-          .proposal-box {
-            border: 1px solid #dbeafe;
-            border-radius: 14px;
-            padding: 14px;
-            background: #f8fafc;
-            white-space: pre-wrap;
-            font-size: 14px;
-            line-height: 1.65;
-            color: #334155;
-          }
-
-          .footer-note {
-            margin-top: 18px;
-            padding: 14px;
-            border: 1px solid #cbd5e1;
-            border-radius: 12px;
-            background: #f8fafc;
-            font-size: 13px;
-            color: #334155;
-            line-height: 1.6;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="page">
-          <div class="hero">
-            <div class="eyebrow">Proposal</div>
-            <h1 class="hero-title">${escapeHtml(title)}</h1>
-            <div class="hero-subtitle">
-              Prepared for organisations, HR teams, and decision-makers
-            </div>
-          </div>
-
-          <div class="content">
-            <div class="section-title">Proposal summary</div>
-            <div class="proposal-box">${escapeHtml(proposal)}</div>
-
-            <div class="footer-note">
-              This proposal can be tailored to your organisation’s needs, audience, delivery format, and timing.
-              <br /><br />
-              Contact us to discuss delivery options, pricing, and next steps.
-            </div>
-          </div>
-        </div>
-      </body>
-    </html>
-  `;
-
-  const printWindow = window.open("", "_blank", "width=900,height=1200");
-  if (!printWindow) return;
-
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
-  printWindow.focus();
-
-  setTimeout(() => {
-    printWindow.print();
-  }, 250);
-}
-
-function isTemplate(item: any): item is StarterTemplate {
-  return item?.resource_type === "template";
-}
-
-  async function persistResourceContent(
-    resource: Resource,
-    nextContent: any,
-    successMessage: string
-  ) {
+  function isTemplate(item: any): item is StarterTemplate {
+    return item?.resource_type === "template";
+  }
 
   async function persistResourceContent(
     resource: Resource,
@@ -3699,14 +3548,6 @@ function bodySafeAudience(content: any) {
       className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-200 hover:bg-emerald-500/20"
     >
       Email proposal
-    </button>
-
-    <button
-      type="button"
-      onClick={() => downloadProposalAsPdf(selected as Resource, proposalPrice)}
-      className="rounded-full border border-violet-500/40 bg-violet-500/10 px-4 py-2 text-xs text-violet-200 hover:bg-violet-500/20"
-    >
-      Proposal PDF
     </button>
   </div>
 
