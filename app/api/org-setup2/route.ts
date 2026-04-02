@@ -144,18 +144,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const orgId = (org as any).id;
+   const orgId = (org as any).id;
 
-    if (!orgId) {
-      return NextResponse.json(
-        {
-          error:
-            "Organisation created but no id returned from database. Please contact support.",
-        },
-        { status: 500 }
-      );
-    }
+if (!orgId) {
+  return NextResponse.json(
+    {
+      error:
+        "Organisation created but no id returned from database. Please contact support.",
+    },
+    { status: 500 }
+  );
+}
 
+const { error: memberError } = await supabaseAdmin
+  .from("organisation_members")
+  .upsert(
+    {
+      organisation_id: orgId,
+      user_id: ownerId,
+      role: "owner",
+    },
+    { onConflict: "organisation_id,user_id" }
+  );
+
+if (memberError) {
+  console.error("[org-setup2] organisation_members upsert error", memberError);
+  return NextResponse.json(
+    {
+      error: `Organisation created but failed to create membership: ${
+        (memberError as any).message ?? String(memberError)
+      }`,
+    },
+    { status: 500 }
+  );
+}
     return NextResponse.json(
       {
         organisation: {
