@@ -179,11 +179,19 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({
-      success: true,
-      organisationId,
-      socialAccounts: safe,
-    });
+    // 🔹 Get organisation branding
+const { data: org, error: orgError } = await supabaseAdmin
+  .from("organisations")
+  .select("name, brand_name, brand_logo_url, brand_primary_color, brand_secondary_color")
+  .eq("id", organisationId)
+  .maybeSingle();
+
+return NextResponse.json({
+  success: true,
+  organisationId,
+  socialAccounts: safe,
+  organisation: org || null,
+});
   } catch (e: any) {
     return NextResponse.json(
       { success: false, error: e?.message || "Failed to load social accounts" },
