@@ -392,7 +392,8 @@ function pickCommonsThumb(it: CommonsImage): string {
 export default function DashboardHomePage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
-  const [organisationId, setOrganisationId] = useState<string | null>(null);
+   const [organisationId, setOrganisationId] = useState<string | null>(null);
+  const [organisation, setOrganisation] = useState<any>(null);
 
   // ✅ Current experiment context (optional)
   const [experimentId, setExperimentId] = useState<string | null>(null);
@@ -500,7 +501,7 @@ export default function DashboardHomePage() {
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
       const data = await res.json().catch(() => null);
 
-      const org =
+            const org =
         typeof data?.organisationId === "string"
           ? data.organisationId
           : typeof data?.organisation_id === "string"
@@ -508,6 +509,7 @@ export default function DashboardHomePage() {
           : null;
 
       setOrganisationId(org);
+      setOrganisation(data?.organisation || null);
 
       const rows: SocialAccountRow[] = data?.socialAccounts ?? [];
       setSocialAccounts(rows);
@@ -1313,10 +1315,17 @@ export default function DashboardHomePage() {
               <div className="text-xs text-slate-400">Root Health Ops</div>
 
               {/* ✅ Removed "Enterprise Beta" title */}
-              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
-                Dashboard
-              </h1>
+                           {organisation?.brand_logo_url ? (
+                <img
+                  src={organisation.brand_logo_url}
+                  alt="logo"
+                  className="mb-3 h-10 w-auto"
+                />
+              ) : null}
 
+              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
+                {organisation?.brand_name || organisation?.name || "Dashboard"}
+              </h1>
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
