@@ -103,40 +103,73 @@ export async function POST(req: NextRequest) {
       logoUrl = String(publicUrlResult?.data?.publicUrl || "").trim();
     }
 
-    const insertWithSlug = async (slug: string) => {
-      return supabaseAdmin
+       const { data: existingMember } = await supabaseAdmin
+      .from("organisation_members")
+      .select("organisation_id")
+      .eq("user_id", ownerId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const existingOrgId = String(existingMember?.organisation_id || "").trim();
+
+    let currentSlug = baseSlug;
+    let org: any = null;
+    let orgError: any = null;
+
+    if (existingOrgId) {
+      const { data: updatedOrg, error: updateError } = await supabaseAdmin
         .from("organisations")
-        .insert({
+        .update({
           name: orgName,
-          slug,
+          slug: currentSlug,
           owner_id: ownerId,
           brand_name: orgName,
           brand_primary_color: primaryColor,
           brand_secondary_color: secondaryColor,
           brand_logo_url: logoUrl || null,
         })
+        .eq("id", existingOrgId)
         .select("*")
         .single();
-    };
 
-    let currentSlug = baseSlug;
-    let { data: org, error: orgError } = await insertWithSlug(currentSlug);
+      org = updatedOrg;
+      orgError = updateError;
+    } else {
+      const insertWithSlug = async (slug: string) => {
+        return supabaseAdmin
+          .from("organisations")
+          .insert({
+            name: orgName,
+            slug,
+            owner_id: ownerId,
+            brand_name: orgName,
+            brand_primary_color: primaryColor,
+            brand_secondary_color: secondaryColor,
+            brand_logo_url: logoUrl || null,
+          })
+          .select("*")
+          .single();
+      };
 
-    if (
-      orgError &&
-      (orgError as any).message &&
-      String((orgError as any).message).includes("organisations_slug_key")
-    ) {
-      const suffix = randomUUID().slice(0, 4);
-      currentSlug = `${baseSlug}-${suffix}`;
       ({ data: org, error: orgError } = await insertWithSlug(currentSlug));
+
+      if (
+        orgError &&
+        (orgError as any).message &&
+        String((orgError as any).message).includes("organisations_slug_key")
+      ) {
+        const suffix = randomUUID().slice(0, 4);
+        currentSlug = `${baseSlug}-${suffix}`;
+        ({ data: org, error: orgError } = await insertWithSlug(currentSlug));
+      }
     }
 
     if (orgError) {
-      console.error("[org-setup2] organisation insert error", orgError);
+      console.error("[org-setup2] organisation save error", orgError);
       return NextResponse.json(
         {
-          error: `Failed to insert organisation: ${
+          error: `Failed to save organisation: ${
             (orgError as any).message ?? String(orgError)
           }`,
         },
@@ -144,40 +177,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
-   const orgId = (org as any).id;
+    const orgId = (org as any).id;
 
-if (!orgId) {
-  return NextResponse.json(
-    {
-      error:
-        "Organisation created but no id returned from database. Please contact support.",
-    },
-    { status: 500 }
-  );
-}
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error:
+            "Organisation saved but no id returned from database. Please contact support.",
+        },
+        { status: 500 }
+      );
+    }
 
-const { error: memberError } = await supabaseAdmin
-  .from("organisation_members")
-  .upsert(
-    {
-      organisation_id: orgId,
-      user_id: ownerId,
-      role: "owner",
-    },
-    { onConflict: "organisation_id,user_id" }
-  );
+    const { error: memberError } = await supabaseAdmin
+      .from("organisation_members")
+      .upsert(
+        {
+          organisation_id: orgId,
+          user_id: ownerId,
+          role: "owner",
+        },
+        { onConflict: "organisation_id,user_id" }
+      );
 
-if (memberError) {
-  console.error("[org-setup2] organisation_members upsert error", memberError);
-  return NextResponse.json(
-    {
-      error: `Organisation created but failed to create membership: ${
-        (memberError as any).message ?? String(memberError)
-      }`,
-    },
-    { status: 500 }
-  );
-}
+    if (memberError) {
+      console.error("[org-setup2] organisation_members upsert error", memberError);
+      return NextResponse.json(
+        {
+          error: `Organisation saved but failed to create membership: ${
+            (memberError as any).message ?? String(memberError)
+          }`,
+        },
+        { status: 500 }
+      );
+    }
     return NextResponse.json(
       {
         organisation: {
