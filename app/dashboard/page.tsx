@@ -1321,6 +1321,19 @@ export default function DashboardHomePage() {
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
 
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <a
+                  href="/org-setup"
+                  className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/20"
+                >
+                  Organisation Setup
+                </a>
+
+                <div className="text-xs text-slate-400">
+                  Add your company name, logo, and brand details
+                </div>
+              </div>
+
               {/* ✅ Experiment badge */}
               {experimentId ? (
                 <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
