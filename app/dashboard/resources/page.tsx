@@ -1029,9 +1029,57 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   return lines.join("\n");
 }
-  function isTemplate(item: any): item is StarterTemplate {
-    return item?.resource_type === "template";
-  }
+
+function downloadProposalAsPdf(resource: Resource, proposal: string) {
+  const escapeHtml = (value: unknown) =>
+    String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+  const title = String(resource?.title || "Proposal");
+
+  const html = `
+    <html>
+      <head>
+        <title>${escapeHtml(title)}</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            padding: 40px;
+            line-height: 1.6;
+          }
+          h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+          }
+          .box {
+            border: 1px solid #ccc;
+            padding: 20px;
+            white-space: pre-wrap;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>${escapeHtml(title)}</h1>
+        <div class="box">${escapeHtml(proposal)}</div>
+      </body>
+    </html>
+  `;
+
+  const w = window.open("", "_blank");
+  if (!w) return;
+
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+
+  setTimeout(() => w.print(), 300);
+}
+
+function isTemplate(item: any): item is StarterTemplate {
+  return item?.resource_type === "template";
+}
 
   async function persistResourceContent(
     resource: Resource,
@@ -3548,6 +3596,19 @@ function bodySafeAudience(content: any) {
       className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-200 hover:bg-emerald-500/20"
     >
       Email proposal
+    </button>
+
+    <button
+      type="button"
+      onClick={() =>
+        downloadProposalAsPdf(
+          selected as Resource,
+          buildProposalText(selected as Resource, proposalPrice)
+        )
+      }
+      className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10"
+    >
+      Proposal PDF
     </button>
   </div>
 
