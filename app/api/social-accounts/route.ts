@@ -81,10 +81,7 @@ async function getOrgIdFromRequestOrMembership(
 
   if (queryOrg) return queryOrg;
 
-  const forced = getForcedOrgId();
-  if (forced) return forced;
-
-  // Fallback: first org membership for this user
+  // First try: latest org membership for this user
   const { data, error } = await supabaseAdmin
     .from("organisation_members")
     .select("organisation_id, created_at")
@@ -93,10 +90,16 @@ async function getOrgIdFromRequestOrMembership(
     .limit(1)
     .maybeSingle();
 
-  if (error || !data?.organisation_id) return null;
-  return String(data.organisation_id);
-}
+  if (!error && data?.organisation_id) {
+    return String(data.organisation_id);
+  }
 
+  // Fallback only if no membership exists
+  const forced = getForcedOrgId();
+  if (forced) return forced;
+
+  return null;
+}
 async function requireMembership(organisationId: string, userId: string) {
   const { data, error } = await supabaseAdmin
     .from("organisation_members")
