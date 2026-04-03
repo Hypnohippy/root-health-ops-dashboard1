@@ -81,7 +81,10 @@ async function getOrgIdFromRequestOrMembership(
 
   if (queryOrg) return queryOrg;
 
-  // First try: latest org membership for this user
+  const forced = getForcedOrgId();
+  if (forced) return forced;
+
+  // Fallback: first org membership for this user
   const { data, error } = await supabaseAdmin
     .from("organisation_members")
     .select("organisation_id, created_at")
@@ -90,16 +93,10 @@ async function getOrgIdFromRequestOrMembership(
     .limit(1)
     .maybeSingle();
 
-  if (!error && data?.organisation_id) {
-    return String(data.organisation_id);
-  }
-
-  // Fallback only if no membership exists
-  const forced = getForcedOrgId();
-  if (forced) return forced;
-
-  return null;
+  if (error || !data?.organisation_id) return null;
+  return String(data.organisation_id);
 }
+
 async function requireMembership(organisationId: string, userId: string) {
   const { data, error } = await supabaseAdmin
     .from("organisation_members")
@@ -182,19 +179,11 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // 🔹 Get organisation branding
-const { data: org, error: orgError } = await supabaseAdmin
-  .from("organisations")
-  .select("name, brand_name, brand_logo_url, brand_primary_color, brand_secondary_color")
-  .eq("id", organisationId)
-  .maybeSingle();
-
-return NextResponse.json({
-  success: true,
-  organisationId,
-  socialAccounts: safe,
-  organisation: org || null,
-});
+    return NextResponse.json({
+      success: true,
+      organisationId,
+      socialAccounts: safe,
+    });
   } catch (e: any) {
     return NextResponse.json(
       { success: false, error: e?.message || "Failed to load social accounts" },
@@ -426,4 +415,3 @@ export async function DELETE(req: NextRequest) {
       { status: 500 }
     );
   }
-}
