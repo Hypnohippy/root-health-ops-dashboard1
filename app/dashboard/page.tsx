@@ -1426,22 +1426,13 @@ export default function DashboardHomePage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Logo URL
-                    </label>
-                    <input
-                      value={brandProfile.logoUrl}
-                      onChange={(e) =>
-                        setBrandProfile((prev) => ({
-                          ...prev,
-                          logoUrl: e.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="https://..."
-                    />
-                  </div>
-
+  <label className="block text-xs font-medium text-slate-300">
+    Logo
+  </label>
+  <div className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-400">
+    Upload logo support coming next
+  </div>
+</div>
                   <div>
                     <label className="block text-xs font-medium text-slate-300">
                       Contact email
