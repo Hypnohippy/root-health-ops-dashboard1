@@ -1378,11 +1378,9 @@ export default function DashboardHomePage() {
 
                             <div className="mt-4 flex flex-wrap items-center gap-3">
                 <a
-                  href="/org-setup"
-                  className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/20"
-                >
-                  Organisation Setup
-                </a>
+                  <div className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-400 cursor-not-allowed">
+  Organisation Setup (disabled)
+</div>
 
                 <div className="text-xs text-slate-400">
                   Legacy setup page — platform stays Root Health Ops
