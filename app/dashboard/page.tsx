@@ -1376,15 +1376,11 @@ export default function DashboardHomePage() {
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
 
-                           <div className="mt-4 flex flex-wrap items-center gap-3">
-  <div className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-400 cursor-not-allowed">
-    Organisation Setup (disabled)
+                          <div className="mt-4 flex flex-wrap items-center gap-3">
+  <div className="text-xs text-slate-500">
+    Your outputs can be branded below
   </div>
-
-                <div className="text-xs text-slate-400">
-                  Legacy setup page — platform stays Root Health Ops
-                </div>
-              </div>
+</div>
 
               <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950/60 p-4 max-w-3xl">
                 <div className="text-sm font-semibold text-slate-100">
