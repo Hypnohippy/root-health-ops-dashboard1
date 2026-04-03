@@ -1039,6 +1039,12 @@ function downloadProposalAsPdf(resource: Resource, proposal: string) {
 
   const title = String(resource?.title || "Proposal");
 
+  let brand: any = {};
+  try {
+    const raw = localStorage.getItem("rootops_brand_profile_v1");
+    if (raw) brand = JSON.parse(raw);
+  } catch {}
+
   const html = `
     <html>
       <head>
@@ -1048,21 +1054,52 @@ function downloadProposalAsPdf(resource: Resource, proposal: string) {
             font-family: Arial, sans-serif;
             padding: 40px;
             line-height: 1.6;
+            color: #0f172a;
           }
           h1 {
             font-size: 24px;
             margin-bottom: 20px;
+          }
+          .logo {
+            margin-bottom: 16px;
+          }
+          .logo img {
+            height: 40px;
+            width: auto;
+            object-fit: contain;
           }
           .box {
             border: 1px solid #ccc;
             padding: 20px;
             white-space: pre-wrap;
           }
+          .footer {
+            margin-top: 24px;
+            font-size: 13px;
+            color: #475569;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 16px;
+          }
         </style>
       </head>
       <body>
+        ${brand?.logoUrl ? `
+          <div class="logo">
+            <img src="${escapeHtml(brand.logoUrl)}" alt="Logo" />
+          </div>
+        ` : ""}
+
         <h1>${escapeHtml(title)}</h1>
+
         <div class="box">${escapeHtml(proposal)}</div>
+
+        <div class="footer">
+          ${brand?.footerText ? `<div>${escapeHtml(brand.footerText)}</div>` : ""}
+          ${brand?.yourName ? `<div><strong>${escapeHtml(brand.yourName)}</strong></div>` : ""}
+          ${brand?.businessName ? `<div>${escapeHtml(brand.businessName)}</div>` : ""}
+          ${brand?.contactEmail ? `<div>${escapeHtml(brand.contactEmail)}</div>` : ""}
+          ${brand?.website ? `<div>${escapeHtml(brand.website)}</div>` : ""}
+        </div>
       </body>
     </html>
   `;
@@ -1076,7 +1113,6 @@ function downloadProposalAsPdf(resource: Resource, proposal: string) {
 
   setTimeout(() => w.print(), 300);
 }
-
 function isTemplate(item: any): item is StarterTemplate {
   return item?.resource_type === "template";
 }
