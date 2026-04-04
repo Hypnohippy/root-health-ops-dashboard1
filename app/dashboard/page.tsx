@@ -1514,7 +1514,7 @@ export default function DashboardHomePage() {
                     />
                   </div>
                 </div>
-                    <label className="block text-xs font-medium text-slate-300">
+                  </div> <label className="block text-xs font-medium text-slate-300">
                       Business name
                     </label>
                     <input
