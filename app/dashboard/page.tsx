@@ -1390,7 +1390,7 @@ export default function DashboardHomePage() {
                   This brands PDFs, proposals, summaries, and course packs without changing the platform itself.
                 </div>
 
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div>
                     <label className="block text-xs font-medium text-slate-300">
                       Your name
@@ -1409,6 +1409,111 @@ export default function DashboardHomePage() {
                   </div>
 
                   <div>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Business name
+                    </label>
+                    <input
+                      value={brandProfile.businessName}
+                      onChange={(e) =>
+                        setBrandProfile((prev) => ({
+                          ...prev,
+                          businessName: e.target.value,
+                        }))
+                      }
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder="Calm Minds Therapy"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Contact email
+                    </label>
+                    <input
+                      value={brandProfile.contactEmail}
+                      onChange={(e) =>
+                        setBrandProfile((prev) => ({
+                          ...prev,
+                          contactEmail: e.target.value,
+                        }))
+                      }
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder="hello@yourbusiness.com"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300">
+                      Website
+                    </label>
+                    <input
+                      value={brandProfile.website}
+                      onChange={(e) =>
+                        setBrandProfile((prev) => ({
+                          ...prev,
+                          website: e.target.value,
+                        }))
+                      }
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder="https://yourbusiness.com"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-medium text-slate-300">
+                      Logo upload
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg,image/webp"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const result = String(reader.result || "");
+                          setBrandProfile((prev) => ({
+                            ...prev,
+                            logoUrl: result,
+                          }));
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                      className="mt-2 block w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                    />
+
+                    {brandProfile.logoUrl ? (
+                      <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-900/60 p-3">
+                        <div className="text-[11px] text-slate-400 mb-2">
+                          Logo preview
+                        </div>
+                        <img
+                          src={brandProfile.logoUrl}
+                          alt="Logo preview"
+                          className="h-14 w-auto object-contain"
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-medium text-slate-300">
+                      Footer text
+                    </label>
+                    <input
+                      value={brandProfile.footerText}
+                      onChange={(e) =>
+                        setBrandProfile((prev) => ({
+                          ...prev,
+                          footerText: e.target.value,
+                        }))
+                      }
+                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder="Prepared by Calm Minds Therapy"
+                    />
+                  </div>
+                </div>
                     <label className="block text-xs font-medium text-slate-300">
                       Business name
                     </label>
