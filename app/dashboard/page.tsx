@@ -1356,12 +1356,11 @@ export default function DashboardHomePage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
         <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
-          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
 
-              {/* ✅ Removed "Enterprise Beta" title */}
-                           {organisation?.brand_logo_url ? (
+              {organisation?.brand_logo_url ? (
                 <img
                   src={organisation.brand_logo_url}
                   alt="logo"
@@ -1372,15 +1371,16 @@ export default function DashboardHomePage() {
               <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
                 {organisation?.brand_name || organisation?.name || "Dashboard"}
               </h1>
+
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.
               </p>
 
-                          <div className="mt-4 flex flex-wrap items-center gap-3">
-  <div className="text-xs text-slate-500">
-    Your outputs can be branded below
-  </div>
-</div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <div className="text-xs text-slate-500">
+                  Your outputs can be branded below
+                </div>
+              </div>
 
               <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950/60 p-4 max-w-3xl">
                 <div className="text-sm font-semibold text-slate-100">
@@ -1390,7 +1390,7 @@ export default function DashboardHomePage() {
                   This brands PDFs, proposals, summaries, and course packs without changing the platform itself.
                 </div>
 
-                                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div>
                     <label className="block text-xs font-medium text-slate-300">
                       Your name
@@ -1476,89 +1476,6 @@ export default function DashboardHomePage() {
                     />
                   </div>
                 </div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Business name
-                    </label>
-                    <input
-                      value={brandProfile.businessName}
-                      onChange={(e) =>
-                        setBrandProfile((prev) => ({
-                          ...prev,
-                          businessName: e.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="Calm Minds Therapy"
-                    />
-                  </div>
-
-                  <div>
-  <div>
-  <label className="block text-xs font-medium text-slate-300">
-    Footer text
-  </label>
-  <input
-    value={brandProfile.footerText}
-    onChange={(e) =>
-      setBrandProfile((prev) => ({
-        ...prev,
-        footerText: e.target.value,
-      }))
-    }
-    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-    placeholder="Prepared by Calm Minds Therapy"
-  />
-</div>                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Contact email
-                    </label>
-                    <input
-                      value={brandProfile.contactEmail}
-                      onChange={(e) =>
-                        setBrandProfile((prev) => ({
-                          ...prev,
-                          contactEmail: e.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="hello@yourbusiness.com"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Website
-                    </label>
-                    <input
-                      value={brandProfile.website}
-                      onChange={(e) =>
-                        setBrandProfile((prev) => ({
-                          ...prev,
-                          website: e.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="https://yourbusiness.com"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Footer text
-                    </label>
-                    <input
-                      value={brandProfile.footerText}
-                      onChange={(e) =>
-                        setBrandProfile((prev) => ({
-                          ...prev,
-                          footerText: e.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="Prepared by Calm Minds Therapy"
-                    />
-                  </div>
-                </div>
 
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   <button
@@ -1577,7 +1494,6 @@ export default function DashboardHomePage() {
                 </div>
               </div>
 
-              {/* ✅ Experiment badge */}
               {experimentId ? (
                 <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
                   <span className="font-semibold">Linked to experiment</span>
