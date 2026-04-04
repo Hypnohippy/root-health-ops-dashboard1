@@ -1035,9 +1035,11 @@ function downloadProposalAsPdf(resource: Resource, proposal: string) {
     String(value || "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
 
-  const title = String(resource?.title || "Proposal");
+  const title = String(resource?.title || "Proposal").trim();
 
   let brand: any = {};
   try {
@@ -1055,50 +1057,112 @@ function downloadProposalAsPdf(resource: Resource, proposal: string) {
             padding: 40px;
             line-height: 1.6;
             color: #0f172a;
+            background: #ffffff;
           }
-          h1 {
-            font-size: 24px;
-            margin-bottom: 20px;
+
+          .top-logo {
+            margin-bottom: 18px;
           }
-          .logo {
-            margin-bottom: 16px;
-          }
-          .logo img {
-            height: 40px;
+
+          .top-logo img {
+            height: 48px;
             width: auto;
             object-fit: contain;
           }
+
+          h1 {
+            font-size: 24px;
+            margin: 0 0 20px 0;
+          }
+
           .box {
-            border: 1px solid #ccc;
+            border: 1px solid #cbd5e1;
+            border-radius: 14px;
             padding: 20px;
             white-space: pre-wrap;
+            background: #f8fafc;
           }
+
           .footer {
-            margin-top: 24px;
+            margin-top: 28px;
+            padding-top: 16px;
+            border-top: 1px solid #e2e8f0;
             font-size: 13px;
             color: #475569;
-            border-top: 1px solid #e2e8f0;
-            padding-top: 16px;
+          }
+
+          .footer-logo {
+            margin-bottom: 12px;
+          }
+
+          .footer-logo img {
+            height: 32px;
+            width: auto;
+            object-fit: contain;
+          }
+
+          .footer-line {
+            margin-top: 4px;
           }
         </style>
       </head>
       <body>
-        ${brand?.logoUrl ? `
-          <div class="logo">
+        ${
+          brand?.logoUrl
+            ? `
+          <div class="top-logo">
             <img src="${escapeHtml(brand.logoUrl)}" alt="Logo" />
           </div>
-        ` : ""}
+        `
+            : ""
+        }
 
         <h1>${escapeHtml(title)}</h1>
 
         <div class="box">${escapeHtml(proposal)}</div>
 
         <div class="footer">
-          ${brand?.footerText ? `<div>${escapeHtml(brand.footerText)}</div>` : ""}
-          ${brand?.yourName ? `<div><strong>${escapeHtml(brand.yourName)}</strong></div>` : ""}
-          ${brand?.businessName ? `<div>${escapeHtml(brand.businessName)}</div>` : ""}
-          ${brand?.contactEmail ? `<div>${escapeHtml(brand.contactEmail)}</div>` : ""}
-          ${brand?.website ? `<div>${escapeHtml(brand.website)}</div>` : ""}
+          ${
+            brand?.logoUrl
+              ? `
+            <div class="footer-logo">
+              <img src="${escapeHtml(brand.logoUrl)}" alt="Logo" />
+            </div>
+          `
+              : ""
+          }
+
+          ${
+            brand?.footerText
+              ? `<div class="footer-line">${escapeHtml(brand.footerText)}</div>`
+              : ""
+          }
+          ${
+            brand?.yourName
+              ? `<div class="footer-line"><strong>${escapeHtml(
+                  brand.yourName
+                )}</strong></div>`
+              : ""
+          }
+          ${
+            brand?.businessName
+              ? `<div class="footer-line">${escapeHtml(
+                  brand.businessName
+                )}</div>`
+              : ""
+          }
+          ${
+            brand?.contactEmail
+              ? `<div class="footer-line">${escapeHtml(
+                  brand.contactEmail
+                )}</div>`
+              : ""
+          }
+          ${
+            brand?.website
+              ? `<div class="footer-line">${escapeHtml(brand.website)}</div>`
+              : ""
+          }
         </div>
       </body>
     </html>
