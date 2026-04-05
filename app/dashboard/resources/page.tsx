@@ -3818,7 +3818,6 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
 >
   Download client pack
 </button>
-  </div>
 
   {proposalText ? (
     <textarea
