@@ -2616,112 +2616,120 @@ async function createProgramme() {
     year: "numeric",
   });
 
- const title = String(resource?.title || "Programme Summary").trim();
-   const logoUrl = String((resource as any)?.organisation_logo_url || "").trim();
-const isPresentationLike =
-  resource?.resource_type === "presentation" ||
-  resource?.resource_type === "webinar_outline";
+  let brand: any = {};
+  try {
+    const raw = localStorage.getItem("rootops_brand_profile_v1");
+    if (raw) brand = JSON.parse(raw);
+  } catch {}
 
-const summary = String(
-  content?.summary ||
-    content?.objective ||
-    content?.audience_takeaway ||
-    ""
-).trim();
+  const title = String(resource?.title || "Programme Summary").trim();
+  const logoUrl = String(brand?.logoUrl || "").trim();
 
-const intendedReader = String(
-  content?.intended_reader ||
-    bodySafeAudience(content) ||
-    "Public, workplace, or practitioner audiences"
-).trim();
+  const isPresentationLike =
+    resource?.resource_type === "presentation" ||
+    resource?.resource_type === "webinar_outline";
 
-const estimatedLearningTime = String(
-  content?.estimated_learning_time ||
-    content?.duration ||
-    "To be agreed"
-).trim();
-
-const practitionerLevel = String(
-  content?.practitioner_level ||
-    "Suitable for mixed audiences where tailored"
-).trim();
-
-function bodySafeAudience(content: any) {
-  return String(
-    content?.audience ||
+  const summary = String(
+    content?.summary ||
+      content?.objective ||
       content?.audience_takeaway ||
       ""
   ).trim();
-}
- const contentCards = isPresentationLike
-  ? (Array.isArray(content?.slides) ? content.slides : [])
-      .slice(0, 6)
-      .map((slide: any, index: number) => {
-        const slideTitle = String(
-          slide?.slide_title || `Slide ${index + 1}`
-        ).trim();
-        const slideGoal = String(slide?.slide_goal || "").trim();
-        const bullets = Array.isArray(slide?.bullets) ? slide.bullets : [];
 
-        return `
-          <div class="session-card">
-            <div class="session-number">Slide ${index + 1}</div>
-            <div class="session-title">${escapeHtml(slideTitle)}</div>
-            ${
-              slideGoal
-                ? `<div class="session-summary">${escapeHtml(slideGoal)}</div>`
-                : ""
-            }
-            ${
-              bullets.length
-                ? `
-                  <ul class="session-bullets">
-                    ${bullets
-                      .slice(0, 4)
-                      .map((b: string) => `<li>${escapeHtml(b)}</li>`)
-                      .join("")}
-                  </ul>
-                `
-                : ""
-            }
-          </div>
-        `;
-      })
-      .join("")
-  : sections
-      .slice(0, 4)
-      .map((section: any, index: number) => {
-        const sectionTitle = String(
-          section?.title || `Session ${index + 1}`
-        ).trim();
-        const sectionSummary = String(section?.summary || "").trim();
-        const bullets = Array.isArray(section?.bullets) ? section.bullets : [];
+  const intendedReader = String(
+    content?.intended_reader ||
+      bodySafeAudience(content) ||
+      "Public, workplace, or practitioner audiences"
+  ).trim();
 
-        return `
-          <div class="session-card">
-            <div class="session-number">Session ${index + 1}</div>
-            <div class="session-title">${escapeHtml(sectionTitle)}</div>
-            ${
-              sectionSummary
-                ? `<div class="session-summary">${escapeHtml(sectionSummary)}</div>`
-                : ""
-            }
-            ${
-              bullets.length
-                ? `
-                  <ul class="session-bullets">
-                    ${bullets
-                      .slice(0, 4)
-                      .map((b: string) => `<li>${escapeHtml(b)}</li>`)
-                      .join("")}
-                  </ul>
-                `
-                : ""
-            }
-          </div>
-        `;
-      })
-      .join("");
+  const estimatedLearningTime = String(
+    content?.estimated_learning_time ||
+      content?.duration ||
+      "To be agreed"
+  ).trim();
+
+  const practitionerLevel = String(
+    content?.practitioner_level ||
+      "Suitable for mixed audiences where tailored"
+  ).trim();
+
+  function bodySafeAudience(content: any) {
+    return String(
+      content?.audience ||
+        content?.audience_takeaway ||
+        ""
+    ).trim();
+  }
+
+  const contentCards = isPresentationLike
+    ? (Array.isArray(content?.slides) ? content.slides : [])
+        .slice(0, 6)
+        .map((slide: any, index: number) => {
+          const slideTitle = String(
+            slide?.slide_title || `Slide ${index + 1}`
+          ).trim();
+          const slideGoal = String(slide?.slide_goal || "").trim();
+          const bullets = Array.isArray(slide?.bullets) ? slide.bullets : [];
+
+          return `
+            <div class="session-card">
+              <div class="session-number">Slide ${index + 1}</div>
+              <div class="session-title">${escapeHtml(slideTitle)}</div>
+              ${
+                slideGoal
+                  ? `<div class="session-summary">${escapeHtml(slideGoal)}</div>`
+                  : ""
+              }
+              ${
+                bullets.length
+                  ? `
+                    <ul class="session-bullets">
+                      ${bullets
+                        .slice(0, 4)
+                        .map((b: string) => `<li>${escapeHtml(b)}</li>`)
+                        .join("")}
+                    </ul>
+                  `
+                  : ""
+              }
+            </div>
+          `;
+        })
+        .join("")
+    : sections
+        .slice(0, 4)
+        .map((section: any, index: number) => {
+          const sectionTitle = String(
+            section?.title || `Session ${index + 1}`
+          ).trim();
+          const sectionSummary = String(section?.summary || "").trim();
+          const bullets = Array.isArray(section?.bullets) ? section.bullets : [];
+
+          return `
+            <div class="session-card">
+              <div class="session-number">Session ${index + 1}</div>
+              <div class="session-title">${escapeHtml(sectionTitle)}</div>
+              ${
+                sectionSummary
+                  ? `<div class="session-summary">${escapeHtml(sectionSummary)}</div>`
+                  : ""
+              }
+              ${
+                bullets.length
+                  ? `
+                    <ul class="session-bullets">
+                      ${bullets
+                        .slice(0, 4)
+                        .map((b: string) => `<li>${escapeHtml(b)}</li>`)
+                        .join("")}
+                    </ul>
+                  `
+                  : ""
+              }
+            </div>
+          `;
+        })
+        .join("");
 
   const html = `
     <html>
@@ -2912,6 +2920,22 @@ function bodySafeAudience(content: any) {
             gap: 10px;
           }
 
+          .footer-brand {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+          }
+
+          .footer-logo {
+            margin-bottom: 8px;
+          }
+
+          .footer-logo img {
+            height: 28px;
+            width: auto;
+            object-fit: contain;
+          }
+
           @media print {
             html, body {
               background: white;
@@ -2926,27 +2950,28 @@ function bodySafeAudience(content: any) {
       <body>
         <div class="page">
           <div class="hero">
-          ${
-  logoUrl
-    ? `<div style="margin-bottom:12px;">
-         <img src="${logoUrl}" alt="Logo" style="height:40px;object-fit:contain;" />
-       </div>`
-    : ""
-}
+            ${
+              logoUrl
+                ? `<div style="margin-bottom:12px;">
+                     <img src="${logoUrl}" alt="Logo" style="height:40px;object-fit:contain;" />
+                   </div>`
+                : ""
+            }
+
             <div class="eyebrow">${isPresentationLike ? "Presentation summary" : "Programme summary"}</div>
-           <h1 class="hero-title">${escapeHtml(title)}</h1>
+            <h1 class="hero-title">${escapeHtml(title)}</h1>
 
-<div style="margin-top:6px;font-size:12px;color:#475569;">
-  Prepared for organisations, HR teams, and decision-makers
-</div>
+            <div style="margin-top:6px;font-size:12px;color:#475569;">
+              Prepared for organisations, HR teams, and decision-makers
+            </div>
 
-<div class="hero-summary">
-             ${escapeHtml(
-  summary ||
-    (isPresentationLike
-      ? "A clear, practical presentation that can be shared with decision-makers, organisers, or HR teams."
-      : "A structured, practical learning programme that can be delivered in-house or online.")
-)}
+            <div class="hero-summary">
+              ${escapeHtml(
+                summary ||
+                  (isPresentationLike
+                    ? "A clear, practical presentation that can be shared with decision-makers, organisers, or HR teams."
+                    : "A structured, practical learning programme that can be delivered in-house or online.")
+              )}
             </div>
 
             <div class="meta-grid">
@@ -2956,17 +2981,6 @@ function bodySafeAudience(content: any) {
                   intendedReader || "Public, workplace, or practitioner audiences"
                 )}</div>
               </div>
-              </div>
-
-<div style="margin-top:18px;">
-  <div class="section-title">Delivery options</div>
-  <div style="font-size:13px;color:#334155;margin-top:6px;">
-    • Live webinar (remote)<br/>
-    • In-house workshop delivery<br/>
-    • Hybrid formats available<br/>
-    • Customised versions for your organisation
-  </div>
-</div>
 
               <div class="meta-card">
                 <div class="meta-label">Estimated learning time</div>
@@ -2985,6 +2999,16 @@ function bodySafeAudience(content: any) {
               <div class="meta-card">
                 <div class="meta-label">Format</div>
                 <div class="meta-value">Can be delivered in-house or online</div>
+              </div>
+            </div>
+
+            <div style="margin-top:18px;">
+              <div class="section-title">Delivery options</div>
+              <div style="font-size:13px;color:#334155;margin-top:6px;">
+                • Live webinar (remote)<br/>
+                • In-house workshop delivery<br/>
+                • Hybrid formats available<br/>
+                • Customised versions for your organisation
               </div>
             </div>
           </div>
@@ -3008,44 +3032,79 @@ function bodySafeAudience(content: any) {
                 : ""
             }
 
-           ${
-  contentCards
-    ? `
-      <div style="margin-top:18px;">
-        <div class="section-title">Business outcomes</div>
-        <ul style="margin-top:8px;padding-left:18px;font-size:13px;color:#334155;">
-          <li>Improved wellbeing, engagement, and productivity</li>
-          <li>Practical tools participants can apply immediately</li>
-          <li>Supports organisational health and retention</li>
-          <li>Delivered in a clear, structured, and accessible format</li>
-        </ul>
-      </div>
+            ${
+              contentCards
+                ? `
+              <div style="margin-top:18px;">
+                <div class="section-title">Business outcomes</div>
+                <ul style="margin-top:8px;padding-left:18px;font-size:13px;color:#334155;">
+                  <li>Improved wellbeing, engagement, and productivity</li>
+                  <li>Practical tools participants can apply immediately</li>
+                  <li>Supports organisational health and retention</li>
+                  <li>Delivered in a clear, structured, and accessible format</li>
+                </ul>
+              </div>
 
-      <div style="margin-top: 18px;">
-        <div class="section-title">Programme structure</div>
-        <div class="session-grid">
-          ${contentCards}
-        </div>              
-        </div>
+              <div style="margin-top: 18px;">
+                <div class="section-title">Programme structure</div>
+                <div class="session-grid">
+                  ${contentCards}
+                </div>
+              </div>
             `
                 : ""
             }
 
             <div class="cta">
-  <div class="cta-title">Tailored delivery available</div>
-  <div class="cta-text">
-    This programme can be tailored for your organisation, team, or audience. A full facilitator pack, delivery notes, and supporting session materials are available separately.
-  </div>
-</div>
+              <div class="cta-title">Tailored delivery available</div>
+              <div class="cta-text">
+                This programme can be tailored for your organisation, team, or audience. A full facilitator pack, delivery notes, and supporting session materials are available separately.
+              </div>
+            </div>
+
             <div class="footer">
-              <div>Prepared from Root Health Ops</div>
+              <div class="footer-brand">
+                ${
+                  logoUrl
+                    ? `<div class="footer-logo">
+                         <img src="${logoUrl}" alt="Logo" />
+                       </div>`
+                    : ""
+                }
+                ${
+                  brand?.footerText
+                    ? `<div>${escapeHtml(brand.footerText)}</div>`
+                    : ""
+                }
+                ${
+                  brand?.yourName
+                    ? `<div><strong>${escapeHtml(brand.yourName)}</strong></div>`
+                    : ""
+                }
+                ${
+                  brand?.businessName
+                    ? `<div>${escapeHtml(brand.businessName)}</div>`
+                    : ""
+                }
+                ${
+                  brand?.contactEmail
+                    ? `<div>${escapeHtml(brand.contactEmail)}</div>`
+                    : ""
+                }
+                ${
+                  brand?.website
+                    ? `<div>${escapeHtml(brand.website)}</div>`
+                    : ""
+                }
+                <div style="margin-top: 6px;">Prepared from Root Health Ops</div>
+              </div>
               <div>${escapeHtml(printDate)}</div>
             </div>
           </div>
         </div>
       </body>
     </html>
-  `;
+  
 
   const win = window.open("", "_blank");
   if (!win) return;
