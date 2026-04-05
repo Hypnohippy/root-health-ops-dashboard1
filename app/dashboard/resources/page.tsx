@@ -3509,6 +3509,17 @@ async function createProgramme() {
     console.error("client pack error", err);
   }
 }
+const [brandProfile, setBrandProfile] = useState<any>({});
+
+useEffect(() => {
+  try {
+    const raw = localStorage.getItem("rootops_brand_profile_v1");
+    if (raw) {
+      setBrandProfile(JSON.parse(raw));
+    }
+  } catch {}
+}, []);
+
 const selectedType = String((selected as any)?.resource_type || "").trim();
   const selectedContent = isTemplate(selected)
     ? selected.outline
