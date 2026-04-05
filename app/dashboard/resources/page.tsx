@@ -3118,6 +3118,38 @@ async function createProgramme() {
     win.print();
   }, 300);
 }
+  async function downloadClientPack(resource: Resource) {
+  try {
+    const content = resource?.content || {};
+
+    const text = `
+${resource.title || "Programme"}
+
+${content.summary || ""}
+
+${Array.isArray(content.sections)
+  ? content.sections
+      .map(
+        (s: any, i: number) =>
+          `\nSession ${i + 1}: ${s.title || ""}\n${(s.bullets || []).join("\n")}`
+      )
+      .join("\n\n")
+  : ""}
+    `.trim();
+
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${resource.title || "client-pack"}.txt`;
+    a.click();
+
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("client pack error", err);
+  }
+}
   const [brandProfile, setBrandProfile] = useState<any>({});
 
 useEffect(() => {
@@ -3779,7 +3811,13 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
       className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10"
     >
       Proposal PDF
-    </button>
+    <button
+  type="button"
+  onClick={() => downloadClientPack(selected as Resource)}
+  className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-600"
+>
+  Download client pack
+</button>
   </div>
 
   {proposalText ? (
