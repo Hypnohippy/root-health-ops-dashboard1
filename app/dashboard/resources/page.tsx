@@ -3827,7 +3827,6 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
       className="mt-4 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
     />
   ) : null}
-</div>
                       </>
                     ) : (
                       <>
