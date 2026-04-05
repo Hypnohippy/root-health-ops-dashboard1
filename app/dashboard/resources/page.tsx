@@ -3945,30 +3945,14 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                         >
                           Edit
                         </button>
-                       <button
+                      <button
   type="button"
-  onClick={async () => {
-    const res = await fetch("/api/export/course-pack", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        course: selectedContent,
-        title: (selected as any)?.title || "Course Pack",
-        organisationId,
-      }),
-    });
-
-    const blob = await res.blob();
-    const url = window.URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "course-pack.doc";
-    a.click();
-    window.URL.revokeObjectURL(url);
-  }}
+  onClick={() =>
+    downloadCoursePack(
+      selectedContent,
+      (selected as any)?.title || "Course Pack"
+    )
+  }
   className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10"
 >
   Download Course Pack
