@@ -3121,46 +3121,394 @@ async function createProgramme() {
   async function downloadClientPack(resource: Resource) {
   try {
     const content = resource?.content || {};
+    const sections = Array.isArray(content?.sections) ? content.sections : [];
+    const slides = Array.isArray(content?.slides) ? content.slides : [];
+    const learningOutcomes = Array.isArray(content?.learning_outcomes)
+      ? content.learning_outcomes
+      : [];
 
-    const text = `
-${resource.title || "Programme"}
+    const isPresentationLike =
+      resource?.resource_type === "presentation" ||
+      resource?.resource_type === "webinar_outline";
 
-${content.summary || ""}
+    const escapeHtml = (value: unknown) =>
+      String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 
-${Array.isArray(content.sections)
-  ? content.sections
-      .map(
-        (s: any, i: number) =>
-          `\nSession ${i + 1}: ${s.title || ""}\n${(s.bullets || []).join("\n")}`
-      )
-      .join("\n\n")
-  : ""}
-    `.trim();
+    let brand: any = {};
+    try {
+      const raw = localStorage.getItem("rootops_brand_profile_v1");
+      if (raw) brand = JSON.parse(raw);
+    } catch {}
 
-    const blob = new Blob([text], { type: "text/plain" });
+    const title = String(resource?.title || "Client Pack").trim();
+    const summary = String(
+      content?.summary ||
+        content?.objective ||
+        content?.audience_takeaway ||
+        ""
+    ).trim();
+
+    const audience = String(
+      content?.intended_reader ||
+        content?.audience ||
+        "Public, workplace, or practitioner audiences"
+    ).trim();
+
+    const estimatedLearningTime = String(
+      content?.estimated_learning_time ||
+        content?.duration ||
+        "To be agreed"
+    ).trim();
+
+    const bodyCards = (isPresentationLike ? slides : sections)
+      .map((item: any, index: number) => {
+        const itemTitle = String(
+          item?.title ||
+            item?.slide_title ||
+            `${isPresentationLike ? "Slide" : "Session"} ${index + 1}`
+        ).trim();
+
+        const itemSummary = String(
+          item?.summary ||
+            item?.slide_goal ||
+            item?.speaker_notes ||
+            ""
+        ).trim();
+
+        const bullets = Array.isArray(item?.bullets) ? item.bullets : [];
+
+        return `
+          <div class="module-card">
+            <div class="module-label">
+              ${isPresentationLike ? `Slide ${index + 1}` : `Session ${index + 1}`}
+            </div>
+            <div class="module-title">${escapeHtml(itemTitle)}</div>
+            ${
+              itemSummary
+                ? `<div class="module-summary">${escapeHtml(itemSummary)}</div>`
+                : ""
+            }
+            ${
+              bullets.length
+                ? `
+                  <ul class="module-bullets">
+                    ${bullets
+                      .map((b: string) => `<li>${escapeHtml(b)}</li>`)
+                      .join("")}
+                  </ul>
+                `
+                : ""
+            }
+          </div>
+        `;
+      })
+      .join("");
+
+    const html = `
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapeHtml(title)} - Client Pack</title>
+          <style>
+            body {
+              font-family: Arial, Helvetica, sans-serif;
+              color: #0f172a;
+              background: #ffffff;
+              margin: 0;
+              padding: 32px;
+              line-height: 1.5;
+            }
+
+            .page {
+              max-width: 860px;
+              margin: 0 auto;
+            }
+
+            .top-logo {
+              margin-bottom: 16px;
+            }
+
+            .top-logo img {
+              height: 52px;
+              width: auto;
+              object-fit: contain;
+            }
+
+            .eyebrow {
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.08em;
+              font-weight: 700;
+              color: #2563eb;
+              margin-bottom: 8px;
+            }
+
+            .title {
+              font-size: 30px;
+              line-height: 1.2;
+              font-weight: 700;
+              margin: 0 0 12px 0;
+            }
+
+            .summary {
+              font-size: 15px;
+              color: #334155;
+              margin-bottom: 18px;
+            }
+
+            .meta-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 12px;
+              margin-bottom: 24px;
+            }
+
+            .meta-card {
+              border: 1px solid #dbeafe;
+              border-radius: 12px;
+              padding: 12px;
+              background: #f8fafc;
+            }
+
+            .meta-label {
+              font-size: 10px;
+              text-transform: uppercase;
+              letter-spacing: 0.08em;
+              font-weight: 700;
+              color: #64748b;
+              margin-bottom: 6px;
+            }
+
+            .meta-value {
+              font-size: 13px;
+              color: #0f172a;
+            }
+
+            .section-title {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 28px 0 10px 0;
+              color: #0f172a;
+            }
+
+            .soft-card {
+              border: 1px solid #e2e8f0;
+              background: #f8fafc;
+              border-radius: 14px;
+              padding: 14px;
+            }
+
+            .soft-card ul {
+              margin: 0 0 0 18px;
+              padding: 0;
+            }
+
+            .soft-card li {
+              margin-bottom: 6px;
+            }
+
+            .module-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 14px;
+              margin-top: 12px;
+            }
+
+            .module-card {
+              border: 1px solid #dbeafe;
+              border-radius: 14px;
+              padding: 14px;
+              background: #ffffff;
+              page-break-inside: avoid;
+            }
+
+            .module-label {
+              font-size: 10px;
+              text-transform: uppercase;
+              letter-spacing: 0.08em;
+              font-weight: 700;
+              color: #2563eb;
+              margin-bottom: 6px;
+            }
+
+            .module-title {
+              font-size: 16px;
+              font-weight: 700;
+              margin-bottom: 8px;
+              color: #0f172a;
+            }
+
+            .module-summary {
+              font-size: 13px;
+              color: #334155;
+              margin-bottom: 8px;
+            }
+
+            .module-bullets {
+              margin: 8px 0 0 18px;
+              padding: 0;
+            }
+
+            .module-bullets li {
+              margin-bottom: 5px;
+              font-size: 13px;
+            }
+
+            .footer {
+              margin-top: 30px;
+              padding-top: 14px;
+              border-top: 1px solid #e2e8f0;
+              font-size: 12px;
+              color: #64748b;
+            }
+
+            .footer-logo {
+              margin-bottom: 10px;
+            }
+
+            .footer-logo img {
+              height: 30px;
+              width: auto;
+              object-fit: contain;
+            }
+
+            .footer-line {
+              margin-top: 4px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="page">
+            ${
+              brand?.logoUrl
+                ? `
+              <div class="top-logo">
+                <img src="${escapeHtml(brand.logoUrl)}" alt="Logo" />
+              </div>
+            `
+                : ""
+            }
+
+            <div class="eyebrow">Client pack</div>
+            <h1 class="title">${escapeHtml(title)}</h1>
+
+            ${
+              summary
+                ? `<div class="summary">${escapeHtml(summary)}</div>`
+                : ""
+            }
+
+            <div class="meta-grid">
+              <div class="meta-card">
+                <div class="meta-label">Audience</div>
+                <div class="meta-value">${escapeHtml(audience)}</div>
+              </div>
+
+              <div class="meta-card">
+                <div class="meta-label">Estimated learning time</div>
+                <div class="meta-value">${escapeHtml(estimatedLearningTime)}</div>
+              </div>
+            </div>
+
+            ${
+              learningOutcomes.length
+                ? `
+              <div class="section-title">What participants will gain</div>
+              <div class="soft-card">
+                <ul>
+                  ${learningOutcomes
+                    .map((item: string) => `<li>${escapeHtml(item)}</li>`)
+                    .join("")}
+                </ul>
+              </div>
+            `
+                : ""
+            }
+
+            ${
+              bodyCards
+                ? `
+              <div class="section-title">${
+                isPresentationLike ? "Presentation structure" : "Programme structure"
+              }</div>
+              <div class="module-grid">
+                ${bodyCards}
+              </div>
+            `
+                : ""
+            }
+
+            <div class="footer">
+              ${
+                brand?.logoUrl
+                  ? `
+                <div class="footer-logo">
+                  <img src="${escapeHtml(brand.logoUrl)}" alt="Logo" />
+                </div>
+              `
+                  : ""
+              }
+
+              ${
+                brand?.footerText
+                  ? `<div class="footer-line">${escapeHtml(brand.footerText)}</div>`
+                  : ""
+              }
+              ${
+                brand?.yourName
+                  ? `<div class="footer-line"><strong>${escapeHtml(
+                      brand.yourName
+                    )}</strong></div>`
+                  : ""
+              }
+              ${
+                brand?.businessName
+                  ? `<div class="footer-line">${escapeHtml(
+                      brand.businessName
+                    )}</div>`
+                  : ""
+              }
+              ${
+                brand?.contactEmail
+                  ? `<div class="footer-line">${escapeHtml(
+                      brand.contactEmail
+                    )}</div>`
+                  : ""
+              }
+              ${
+                brand?.website
+                  ? `<div class="footer-line">${escapeHtml(brand.website)}</div>`
+                  : ""
+              }
+
+              <div class="footer-line" style="margin-top: 8px;">
+                Created with Root Health Ops
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob([html], {
+      type: "application/msword",
+    });
+
     const url = URL.createObjectURL(blob);
-
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${resource.title || "client-pack"}.txt`;
+    a.download = `${title.replace(/[^a-z0-9]+/gi, "-")}-client-pack.doc`;
     a.click();
-
     URL.revokeObjectURL(url);
   } catch (err) {
     console.error("client pack error", err);
   }
 }
-  const [brandProfile, setBrandProfile] = useState<any>({});
-
-useEffect(() => {
-  try {
-    const raw = localStorage.getItem("rootops_brand_profile_v1");
-    if (raw) {
-      setBrandProfile(JSON.parse(raw));
-    }
-  } catch {}
-}, []);
-
 const selectedType = String((selected as any)?.resource_type || "").trim();
   const selectedContent = isTemplate(selected)
     ? selected.outline
