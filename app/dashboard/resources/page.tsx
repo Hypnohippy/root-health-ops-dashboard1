@@ -3519,7 +3519,287 @@ useEffect(() => {
     }
   } catch {}
 }, []);
+async function downloadCoursePack(
+  selectedContent: any,
+  selectedTitle: string
+) {
+  try {
+    let brand: any = {};
+    try {
+      const raw = localStorage.getItem("rootops_brand_profile_v1");
+      if (raw) brand = JSON.parse(raw);
+    } catch {}
 
+    const escapeHtml = (value: unknown) =>
+      String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+    const content = selectedContent || {};
+    const sections = Array.isArray(content?.sections) ? content.sections : [];
+    const slides = Array.isArray(content?.slides) ? content.slides : [];
+    const learningOutcomes = Array.isArray(content?.learning_outcomes)
+      ? content.learning_outcomes
+      : [];
+
+    const isPresentationLike =
+      Array.isArray(slides) && slides.length > 0;
+
+    const title = String(selectedTitle || "Course Pack").trim();
+
+    const htmlSections = (isPresentationLike ? slides : sections)
+      .map((item: any, index: number) => {
+        const itemTitle = String(
+          item?.title ||
+            item?.slide_title ||
+            `${isPresentationLike ? "Slide" : "Session"} ${index + 1}`
+        ).trim();
+
+        const summary = String(
+          item?.summary ||
+            item?.slide_goal ||
+            item?.speaker_notes ||
+            ""
+        ).trim();
+
+        const bullets = Array.isArray(item?.bullets) ? item.bullets : [];
+
+        return `
+          <div class="page-break">
+            <div class="section">
+              <div class="section-label">
+                ${isPresentationLike ? `Slide ${index + 1}` : `Session ${index + 1}`}
+              </div>
+
+              <div class="section-title">${escapeHtml(itemTitle)}</div>
+
+              ${
+                summary
+                  ? `<div class="section-summary">${escapeHtml(summary)}</div>`
+                  : ""
+              }
+
+              ${
+                bullets.length
+                  ? `
+                    <ul class="section-bullets">
+                      ${bullets
+                        .map((b: string) => `<li>${escapeHtml(b)}</li>`)
+                        .join("")}
+                    </ul>
+                  `
+                  : ""
+              }
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    const html = `
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapeHtml(title)} - Course Pack</title>
+          <style>
+            @page {
+              size: A4;
+              margin: 20mm;
+            }
+
+            body {
+              font-family: Arial, Helvetica, sans-serif;
+              color: #0f172a;
+              background: white;
+              margin: 0;
+              padding: 0;
+            }
+
+            .page {
+              padding: 24mm 18mm;
+            }
+
+            .cover {
+              text-align: center;
+              padding-top: 60px;
+            }
+
+            .logo img {
+              height: 60px;
+              margin-bottom: 20px;
+            }
+
+            .title {
+              font-size: 32px;
+              font-weight: 700;
+              margin-bottom: 10px;
+            }
+
+            .subtitle {
+              font-size: 16px;
+              color: #475569;
+              margin-bottom: 30px;
+            }
+
+            .section {
+              margin-bottom: 30px;
+            }
+
+            .section-label {
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.08em;
+              font-weight: 700;
+              color: #2563eb;
+              margin-bottom: 6px;
+            }
+
+            .section-title {
+              font-size: 22px;
+              font-weight: 700;
+              margin-bottom: 10px;
+            }
+
+            .section-summary {
+              font-size: 14px;
+              color: #334155;
+              margin-bottom: 10px;
+            }
+
+            .section-bullets {
+              margin-left: 18px;
+            }
+
+            .section-bullets li {
+              margin-bottom: 6px;
+            }
+
+            .page-break {
+              page-break-before: always;
+            }
+
+            .footer {
+              margin-top: 40px;
+              font-size: 12px;
+              color: #64748b;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 10px;
+            }
+
+            .footer-logo img {
+              height: 30px;
+              margin-bottom: 10px;
+            }
+
+            .footer-line {
+              margin-top: 4px;
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="page">
+            <div class="cover">
+              ${
+                brand?.logoUrl
+                  ? `<div class="logo"><img src="${escapeHtml(
+                      brand.logoUrl
+                    )}" alt="Logo" /></div>`
+                  : ""
+              }
+
+              <div class="title">${escapeHtml(title)}</div>
+
+              <div class="subtitle">
+                Full facilitator course pack
+              </div>
+
+              ${
+                learningOutcomes.length
+                  ? `
+                <div style="margin-top:30px;text-align:left;">
+                  <strong>Learning outcomes:</strong>
+                  <ul style="margin-top:10px;">
+                    ${learningOutcomes
+                      .map((o: string) => `<li>${escapeHtml(o)}</li>`)
+                      .join("")}
+                  </ul>
+                </div>
+              `
+                  : ""
+              }
+
+              <div class="footer">
+                ${
+                  brand?.logoUrl
+                    ? `<div class="footer-logo"><img src="${escapeHtml(
+                        brand.logoUrl
+                      )}" alt="Logo" /></div>`
+                    : ""
+                }
+                ${
+                  brand?.footerText
+                    ? `<div class="footer-line">${escapeHtml(brand.footerText)}</div>`
+                    : ""
+                }
+                ${
+                  brand?.yourName
+                    ? `<div class="footer-line"><strong>${escapeHtml(
+                        brand.yourName
+                      )}</strong></div>`
+                    : ""
+                }
+                ${
+                  brand?.businessName
+                    ? `<div class="footer-line">${escapeHtml(
+                        brand.businessName
+                      )}</div>`
+                    : ""
+                }
+                ${
+                  brand?.contactEmail
+                    ? `<div class="footer-line">${escapeHtml(
+                        brand.contactEmail
+                      )}</div>`
+                    : ""
+                }
+                ${
+                  brand?.website
+                    ? `<div class="footer-line">${escapeHtml(
+                        brand.website
+                      )}</div>`
+                    : ""
+                }
+                <div class="footer-line" style="margin-top:6px;">
+                  Created with Root Health Ops
+                </div>
+              </div>
+            </div>
+          </div>
+
+          ${htmlSections}
+        </body>
+      </html>
+    `;
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+
+    setTimeout(() => {
+      win.focus();
+      win.print();
+    }, 300);
+  } catch (err) {
+    console.error("course pack error", err);
+  }
+}
 const selectedType = String((selected as any)?.resource_type || "").trim();
   const selectedContent = isTemplate(selected)
     ? selected.outline
