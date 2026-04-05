@@ -3734,7 +3734,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                             ? "Deleting…"
                             : "Delete"}
                         </button>
-                        <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                       <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
   <div className="text-sm font-semibold text-slate-200">
     Proposal builder
   </div>
@@ -3811,13 +3811,16 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
       className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-xs text-slate-100 hover:bg-white/10"
     >
       Proposal PDF
+    </button>
+
     <button
-  type="button"
-  onClick={() => downloadClientPack(selected as Resource)}
-  className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-600"
->
-  Download client pack
-</button>
+      type="button"
+      onClick={() => downloadClientPack(selected as Resource)}
+      className="rounded-full border border-slate-700 bg-slate-900 px-4 py-2 text-xs text-slate-200 hover:border-slate-600"
+    >
+      Download client pack
+    </button>
+  </div>
 
   {proposalText ? (
     <textarea
@@ -3827,6 +3830,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
       className="mt-4 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
     />
   ) : null}
+</div>
                       </>
                     ) : (
                       <>
