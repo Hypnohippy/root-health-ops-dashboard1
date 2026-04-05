@@ -3118,7 +3118,18 @@ async function createProgramme() {
     win.print();
   }, 300);
 }
-  const selectedType = String((selected as any)?.resource_type || "").trim();
+  const [brandProfile, setBrandProfile] = useState<any>({});
+
+useEffect(() => {
+  try {
+    const raw = localStorage.getItem("rootops_brand_profile_v1");
+    if (raw) {
+      setBrandProfile(JSON.parse(raw));
+    }
+  } catch {}
+}, []);
+
+const selectedType = String((selected as any)?.resource_type || "").trim();
   const selectedContent = isTemplate(selected)
     ? selected.outline
     : editMode
@@ -3811,8 +3822,17 @@ async function createProgramme() {
                   </div>
                 )}
 
-                               {selectedContent ? (
+                                              {selectedContent ? (
                   <div className="space-y-4">
+                    {brandProfile?.logoUrl ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                        <img
+                          src={brandProfile.logoUrl}
+                          alt="Brand logo"
+                          className="h-14 w-auto object-contain"
+                        />
+                      </div>
+                    ) : null}
                     {!editMode && isPresentation && !isTemplate(selected) ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                         <div className="text-sm font-semibold text-slate-200">
@@ -5267,7 +5287,7 @@ async function createProgramme() {
                       </div>
                     ) : null}
 
-                    {isTemplate(selected) && selected.tags?.length > 0 ? (
+                                       {isTemplate(selected) && selected.tags?.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {selected.tags.map((tag) => (
                           <span
@@ -5279,6 +5299,34 @@ async function createProgramme() {
                         ))}
                       </div>
                     ) : null}
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-400">
+                      {brandProfile?.footerText ? (
+                        <div>{brandProfile.footerText}</div>
+                      ) : null}
+
+                      {brandProfile?.yourName ? (
+                        <div className="mt-1 font-semibold text-slate-200">
+                          {brandProfile.yourName}
+                        </div>
+                      ) : null}
+
+                      {brandProfile?.businessName ? (
+                        <div className="mt-1">{brandProfile.businessName}</div>
+                      ) : null}
+
+                      {brandProfile?.contactEmail ? (
+                        <div className="mt-1">{brandProfile.contactEmail}</div>
+                      ) : null}
+
+                      {brandProfile?.website ? (
+                        <div className="mt-1">{brandProfile.website}</div>
+                      ) : null}
+
+                      <div className="mt-2 text-slate-500">
+                        Created with Root Health Ops
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
