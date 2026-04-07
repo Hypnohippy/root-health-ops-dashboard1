@@ -1,26 +1,43 @@
-// app/api/social/connect/facebook/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-/**
- * START FACEBOOK OAUTH FLOW
- *
- * This route sends the user to your social posting provider’s OAuth page.
- *
- * For now it uses placeholder URLs. We will swap these for your provider
- * (Ayrshare, or another) once chosen.
- */
+export const runtime = "nodejs";
 
-export async function GET() {
-  // TODO: Replace with real OAuth provider later
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/social/callback/facebook`;
+function getMetaAppId() {
+  return (
+    process.env.FACEBOOK_APP_ID ||
+    process.env.META_APP_ID ||
+    process.env.SOCIAL_API_CLIENT_ID ||
+    ""
+  ).trim();
+}
 
-  // Fake external authorization endpoint (placeholder)
-  const authUrl = new URL("https://example-social-provider.com/oauth/authorize");
-  authUrl.searchParams.set("client_id", process.env.SOCIAL_API_CLIENT_ID || "");
+export async function GET(req: NextRequest) {
+  const origin = req.nextUrl.origin;
+  const appId = getMetaAppId();
+
+  if (!appId) {
+    return NextResponse.redirect(
+      `${origin}/dashboard/connect?error=facebook_missing_app_id`
+    );
+  }
+
+  const redirectUri = `${origin}/api/social/callback/facebook`;
+
+  const authUrl = new URL("https://www.facebook.com/v24.0/dialog/oauth");
+  authUrl.searchParams.set("client_id", appId);
   authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("scope", "facebook");
-  authUrl.searchParams.set("state", "facebook-oauth");
+  authUrl.searchParams.set(
+    "scope",
+    [
+      "pages_show_list",
+      "pages_manage_posts",
+      "business_management",
+      "instagram_basic",
+      "instagram_content_publish",
+    ].join(",")
+  );
+  authUrl.searchParams.set("state", "meta-oauth");
 
   return NextResponse.redirect(authUrl.toString());
 }
