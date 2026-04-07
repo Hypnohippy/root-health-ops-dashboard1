@@ -21,16 +21,61 @@ const ALLOWED_PLATFORMS = [
   "whatsapp",
 ];
 
-async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
-  if (error) {
-    console.error("[quick-blast] organisations error", error);
-    return null;
+function tryParseSbCookie(raw: string | undefined | null): any | null {
+  if (!raw) return null;
+
+  const attempts = [raw];
+
+  try {
+    attempts.push(decodeURIComponent(raw));
+  } catch {}
+
+  for (const value of attempts) {
+    try {
+      return JSON.parse(value);
+    } catch {}
   }
-  if (!data || data.length === 0) return null;
-  return data[0].id as string;
+
+  return null;
 }
 
+function extractAccessTokenFromCookies(req: NextRequest): string | null {
+  const all = req.cookies.getAll();
+  const sbCookie = all.find(
+    (c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token")
+  );
+
+  const parsed = tryParseSbCookie(sbCookie?.value);
+  const token = String(parsed?.access_token || "").trim();
+
+  return token || null;
+}
+
+async function getAuthedUserId(req: NextRequest): Promise<string | null> {
+  const accessToken = extractAccessTokenFromCookies(req);
+  if (!accessToken) return null;
+
+  const {
+    data: { user },
+    error,
+  } = await supabaseAdmin.auth.getUser(accessToken);
+
+  if (error || !user) return null;
+  return String(user.id);
+}
+
+async function getLatestMembershipOrgId(userId: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from("organisation_members")
+    .select("organisation_id, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data?.organisation_id) return null;
+  return String(data.organisation_id);
+}
 function originFromReq(req: NextRequest) {
   return new URL(req.url).origin;
 }
@@ -96,7 +141,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const organisationId = organisationIdFromBody || (await getSingleTenantOrganisationId());
+   const userId = await getAuthedUserId(req);
+const organisationId =
+  organisationIdFromBody ||
+  (userId ? await getLatestMembershipOrgId(userId) : null);
     if (!organisationId) {
       return NextResponse.json(
         { success: false, error: "No organisation found. Create an organisation row first (or pass organisationId)." },
