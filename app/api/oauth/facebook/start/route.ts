@@ -1,14 +1,13 @@
 // app/api/oauth/facebook/start/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getCurrentUserId } from "@/lib/supabaseServer";
 import crypto from "crypto";
 
 export const runtime = "nodejs";
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
 const FACEBOOK_APP_ID = (process.env.FACEBOOK_APP_ID || process.env.META_APP_ID || "").trim();
-
-const SINGLE_ORG_ID = (process.env.SINGLE_ORG_ID || "").trim();
 
 function baseUrl(req: NextRequest) {
   try {
@@ -22,18 +21,20 @@ function norm(v: any) {
   return String(v ?? "").trim();
 }
 
-async function getOrganisationIdFallback(): Promise<string | null> {
-  if (SINGLE_ORG_ID) return SINGLE_ORG_ID;
+async function getOrganisationIdForCurrentUser(): Promise<string | null> {
+  const userId = await getCurrentUserId();
+  if (!userId) return null;
 
   const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id, created_at")
+    .from("organisation_members")
+    .select("organisation_id, created_at")
+    .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (error || !data?.id) return null;
-  return String(data.id);
+  if (error || !data?.organisation_id) return null;
+  return String(data.organisation_id);
 }
 
 function encodeState(obj: any) {
@@ -42,40 +43,52 @@ function encodeState(obj: any) {
 
 export async function GET(req: NextRequest) {
   const back = new URL(`${baseUrl(req)}/dashboard/connect`);
-  back.searchParams.set("provider", "facebook");
+  const provider = norm(req.nextUrl.searchParams.get("provider")) || "facebook";
+  back.searchParams.set("provider", provider);
 
   try {
     if (!FACEBOOK_APP_ID) {
       back.searchParams.set("error", "facebook_missing_app_id");
-      back.searchParams.set("error_description", "Missing FACEBOOK_APP_ID (or META_APP_ID) in env.");
+      back.searchParams.set(
+        "error_description",
+        "Missing FACEBOOK_APP_ID (or META_APP_ID) in env."
+      );
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
     const url = new URL(req.url);
     const orgFromQuery = norm(url.searchParams.get("organisationId"));
-    const organisationId = orgFromQuery || (await getOrganisationIdFallback());
+    const organisationId = orgFromQuery || (await getOrganisationIdForCurrentUser());
 
     if (!organisationId) {
       back.searchParams.set("error", "no_organisation");
-      back.searchParams.set("error_description", "No organisationId provided and none found.");
+      back.searchParams.set(
+        "error_description",
+        "No organisation membership found for this user."
+      );
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
     const redirectUri = `${baseUrl(req)}/api/oauth/facebook/callback`;
 
-    // Minimal scopes for posting to a Page
-    const scope = ["pages_show_list", "pages_read_engagement", "pages_manage_posts"].join(",");
+    const scope = [
+      "pages_show_list",
+      "pages_read_engagement",
+      "pages_manage_posts",
+      "business_management",
+      "instagram_basic",
+      "instagram_content_publish",
+    ].join(",");
 
-    // ✅ carry org through the OAuth roundtrip
     const state = encodeState({
-      provider: "facebook",
+      provider,
       organisationId,
       nonce: crypto.randomUUID(),
       t: Date.now(),
     });
 
     const oauthUrl =
-      "https://www.facebook.com/v19.0/dialog/oauth?" +
+      "https://www.facebook.com/v24.0/dialog/oauth?" +
       new URLSearchParams({
         client_id: FACEBOOK_APP_ID,
         redirect_uri: redirectUri,
