@@ -1,7 +1,6 @@
 // app/api/oauth/facebook/start/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getCurrentUserId } from "@/lib/supabaseServer";
 import crypto from "crypto";
 
 export const runtime = "nodejs";
@@ -21,8 +20,51 @@ function norm(v: any) {
   return String(v ?? "").trim();
 }
 
-async function getOrganisationIdForCurrentUser(): Promise<string | null> {
-  const userId = await getCurrentUserId();
+function tryParseSbCookie(raw: string | undefined | null): any | null {
+  if (!raw) return null;
+
+  const attempts = [raw];
+
+  try {
+    attempts.push(decodeURIComponent(raw));
+  } catch {}
+
+  for (const value of attempts) {
+    try {
+      return JSON.parse(value);
+    } catch {}
+  }
+
+  return null;
+}
+
+function extractAccessTokenFromCookies(req: NextRequest): string | null {
+  const all = req.cookies.getAll();
+  const sbCookie = all.find(
+    (c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token")
+  );
+
+  const parsed = tryParseSbCookie(sbCookie?.value);
+  const token = String(parsed?.access_token || "").trim();
+
+  return token || null;
+}
+
+async function getAuthedUserId(req: NextRequest): Promise<string | null> {
+  const accessToken = extractAccessTokenFromCookies(req);
+  if (!accessToken) return null;
+
+  const {
+    data: { user },
+    error,
+  } = await supabaseAdmin.auth.getUser(accessToken);
+
+  if (error || !user) return null;
+  return String(user.id);
+}
+
+async function getOrganisationIdForCurrentUser(req: NextRequest): Promise<string | null> {
+  const userId = await getAuthedUserId(req);
   if (!userId) return null;
 
   const { data, error } = await supabaseAdmin
@@ -58,7 +100,7 @@ export async function GET(req: NextRequest) {
 
     const url = new URL(req.url);
     const orgFromQuery = norm(url.searchParams.get("organisationId"));
-    const organisationId = orgFromQuery || (await getOrganisationIdForCurrentUser());
+    const organisationId = orgFromQuery || (await getOrganisationIdForCurrentUser(req));
 
     if (!organisationId) {
       back.searchParams.set("error", "no_organisation");
