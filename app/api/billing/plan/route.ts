@@ -6,119 +6,42 @@ export const runtime = "nodejs";
 
 type PlanKey = "solo" | "growth" | "team";
 
-/**
- * TEMPORARY META REVIEW BYPASS
- * Turn this to false after Meta approval.
- */
-const META_REVIEW_BYPASS = true;
-
-function isMetaReviewerEmail(email: string) {
-  const e = String(email || "").toLowerCase().trim();
-  return e.endsWith("@fb.com") || e.endsWith("@meta.com");
-}
-
-function tryParseSbCookie(raw: string | undefined | null): any | null {
-  if (!raw) return null;
-
-  const attempts = [raw];
-
-  try {
-    attempts.push(decodeURIComponent(raw));
-  } catch {}
-
-  for (const value of attempts) {
-    try {
-      return JSON.parse(value);
-    } catch {}
-  }
-
-  return null;
-}
-
-function extractAccessTokenFromCookies(req: NextRequest): string | null {
-  const all = req.cookies.getAll();
-  const sbCookie = all.find(
-    (c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token")
-  );
-
-  const parsed = tryParseSbCookie(sbCookie?.value);
-  const token = String(parsed?.access_token || "").trim();
-
-  return token || null;
-}
-
-async function getAuthedUser(req: NextRequest) {
-  const accessToken = extractAccessTokenFromCookies(req);
-  if (!accessToken) return null;
-
-  const {
-    data: { user },
-    error,
-  } = await supabaseAdmin.auth.getUser(accessToken);
-
-  if (error || !user) return null;
-  return user;
-}
-
-async function getOrganisationIdForCurrentUser(req: NextRequest): Promise<string | null> {
-  const user = await getAuthedUser(req);
-  if (!user?.id) return null;
-
+async function getSingleTenantOrganisationId() {
   const { data, error } = await supabaseAdmin
-    .from("organisation_members")
-    .select("organisation_id, created_at")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .from("organisations")
+    .select("id")
+    .limit(1);
 
-  if (error || !data?.organisation_id) return null;
-  return String(data.organisation_id);
+  if (error) {
+    console.error("[billing/plan] organisations error", error);
+    return null;
+  }
+  if (!data || data.length === 0) return null;
+  return data[0].id as string;
 }
 
 function mapPlan(raw: string | null | undefined): PlanKey {
   const p = String(raw || "").toLowerCase().trim();
 
+  // We’ve used these labels in other places:
+  // - organisation_plans.plan often: basic | pro | enterprise
+  // - pricing uses: solo | growth | team
   if (p === "enterprise" || p === "team") return "team";
   if (p === "pro" || p === "growth") return "growth";
   if (p === "basic" || p === "solo") return "solo";
 
+  // Default safe assumption: solo
   return "solo";
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const user = await getAuthedUser(req);
-    const userEmail = String(user?.email || "").trim();
-
-    // ✅ TEMP reviewer bypass for Meta app review
-    if (META_REVIEW_BYPASS && isMetaReviewerEmail(userEmail)) {
-      return NextResponse.json(
-        {
-          ok: true,
-          organisationId: null,
-          plan: "team",
-          rawPlan: "reviewer_bypass",
-          postsPerMonth: 999999,
-          trialEndsAt: null,
-          updatedAt: new Date().toISOString(),
-          isActive: true,
-          status: "active",
-          subscriptionStatus: "active",
-          creditsRemaining: 999999,
-          reviewBypass: true,
-        },
-        { status: 200 }
-      );
-    }
-
     // optional orgId override
     let organisationId = req.nextUrl.searchParams.get("organisationId")?.trim() || "";
 
-    // ✅ use logged-in user's organisation membership first
     if (!organisationId) {
-      const membershipOrg = await getOrganisationIdForCurrentUser(req);
-      if (membershipOrg) organisationId = membershipOrg;
+      const fallback = await getSingleTenantOrganisationId();
+      if (fallback) organisationId = fallback;
     }
 
     if (!organisationId) {
@@ -128,6 +51,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Try organisation_plans first (your webhook writes here)
     const { data: planRows, error: planErr } = await supabaseAdmin
       .from("organisation_plans")
       .select("plan, posts_per_month, trial_ends_at, updated_at")
@@ -145,8 +69,8 @@ export async function GET(req: NextRequest) {
       {
         ok: true,
         organisationId,
-        plan,
-        rawPlan,
+        plan, // solo | growth | team  (what UI wants)
+        rawPlan, // basic | pro | enterprise (what DB may store)
         postsPerMonth: planRows?.[0]?.posts_per_month ?? null,
         trialEndsAt: planRows?.[0]?.trial_ends_at ?? null,
         updatedAt: planRows?.[0]?.updated_at ?? null,
