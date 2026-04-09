@@ -91,6 +91,158 @@ const initialProviders: Provider[] = [
 ];
 
 // ✅ Updated: Google now uses the real OAuth start route
+type ConnectHelperCard = {
+  provider: ProviderId | "facebook" | "instagram";
+  tone: "info" | "success" | "warning";
+  title: string;
+  body: string;
+  steps: string[];
+  primaryLabel?: string;
+  primaryHref?: string;
+  secondaryLabel?: string;
+  secondaryHref?: string;
+};
+
+function buildConnectHelperFromUrl(): ConnectHelperCard | null {
+  if (typeof window === "undefined") return null;
+
+  const params = new URLSearchParams(window.location.search);
+
+  const provider = (String(params.get("provider") || "facebook").trim().toLowerCase() ||
+    "facebook") as ProviderId;
+
+  const connected = String(params.get("connected") || "").trim();
+  const instagramState = String(params.get("instagram") || "").trim();
+  const error = String(params.get("error") || "").trim().toLowerCase();
+  const errorDescription = String(params.get("error_description") || "").trim();
+
+  if (connected === "1") {
+    return {
+      provider,
+      tone: "success",
+      title:
+        instagramState === "connected"
+          ? "You’re connected 🎉"
+          : "Facebook connected 🎉",
+      body:
+        instagramState === "connected"
+          ? "Your Facebook Page and linked Instagram account are now connected."
+          : "Your Facebook Page is now connected and ready to use.",
+      steps: [
+        "Go back to the dashboard when you’re ready.",
+        "Use Quick Blast to send a simple test post.",
+        "If you also want Instagram, make sure your Instagram is a Professional account linked to that Facebook Page.",
+      ],
+    };
+  }
+
+  if (error === "facebook_no_pages") {
+    return {
+      provider,
+      tone: "warning",
+      title:
+        provider === "instagram"
+          ? "Instagram needs a Facebook Page first"
+          : "You’re nearly there — you just need a Facebook Page",
+      body:
+        "We could not find any Facebook Pages on this account. That usually means you are using a personal Facebook profile only, or you are signed into the wrong Facebook account.",
+      steps: [
+        "Make sure you are signed into the Facebook account you use for your business.",
+        "If you only have a personal profile, create a Facebook Page first.",
+        "If you already have a Page, make sure you have Full control / Admin access to it.",
+        "If you want Instagram too, switch Instagram to a Professional account and link it to that Facebook Page.",
+        "Then come back here and press Connect again.",
+      ],
+      primaryLabel: "Create a Facebook Page",
+      primaryHref: "https://www.facebook.com/pages/create",
+      secondaryLabel: "Try connect again",
+      secondaryHref:
+        provider === "instagram"
+          ? "/api/social/connect/start?provider=instagram"
+          : "/api/social/connect/start?provider=facebook",
+    };
+  }
+
+  if (error === "facebook_missing_page_token") {
+    return {
+      provider,
+      tone: "warning",
+      title: "We found your Page, but Facebook did not give us permission yet",
+      body:
+        "This usually means the Page access is incomplete or the wrong Facebook account was used during login.",
+      steps: [
+        "Open your Facebook Page settings.",
+        "Check that your Facebook profile has Full control / Admin access.",
+        "Then come back here and try the connection again.",
+      ],
+      secondaryLabel: "Try connect again",
+      secondaryHref:
+        provider === "instagram"
+          ? "/api/social/connect/start?provider=instagram"
+          : "/api/social/connect/start?provider=facebook",
+    };
+  }
+
+  if (error === "no_organisation") {
+    return {
+      provider,
+      tone: "warning",
+      title: "Your workspace is still getting ready",
+      body:
+        "We could not find your workspace during connect. This is usually fixed by signing out and back in once.",
+      steps: [
+        "Sign out of Root Health Ops.",
+        "Close the browser tab.",
+        "Sign back in.",
+        "Come back to Connect and try again.",
+      ],
+    };
+  }
+
+  if (error === "facebook_token_exchange_failed") {
+    return {
+      provider,
+      tone: "warning",
+      title: "Facebook login started, but didn’t finish properly",
+      body:
+        errorDescription ||
+        "This usually clears on a second attempt once the correct Facebook account is selected.",
+      steps: [
+        "Make sure you are using the Facebook account that manages your business Page.",
+        "Close the Facebook login popup or tab.",
+        "Come back here and try again.",
+      ],
+      secondaryLabel: "Try connect again",
+      secondaryHref:
+        provider === "instagram"
+          ? "/api/social/connect/start?provider=instagram"
+          : "/api/social/connect/start?provider=facebook",
+    };
+  }
+
+  if (!error) return null;
+
+  return {
+    provider,
+    tone: "info",
+    title: "Let’s fix this together",
+    body:
+      errorDescription ||
+      "Something interrupted the connection. We’ll keep this simple and get you back on track.",
+    steps: [
+      "Make sure you are signed into the correct social account.",
+      "Try the connection again.",
+      "If it still fails, we can guide you step by step.",
+    ],
+    secondaryLabel: "Try connect again",
+    secondaryHref:
+      provider === "instagram"
+        ? "/api/social/connect/start?provider=instagram"
+        : provider === "facebook"
+        ? "/api/social/connect/start?provider=facebook"
+        : undefined,
+  };
+}
 const connectUrls: Record<ProviderId, string> = {
   facebook: "/api/social/connect/start?provider=facebook",
   instagram: "/api/social/connect/start?provider=instagram",
@@ -145,6 +297,10 @@ export default function DashboardConnectPage() {
   useEffect(() => {
     void loadSocialAccounts();
   }, []);
+  useEffect(() => {
+  const helper = buildConnectHelperFromUrl();
+  setConnectHelper(helper);
+}, []);
 
   const handleConnectClick = (provider: Provider) => {
     const url = connectUrls[provider.id];
@@ -211,6 +367,74 @@ export default function DashboardConnectPage() {
         </header>
 
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {connectHelper ? (
+  <div
+    className={[
+      "mb-6 rounded-3xl border p-5",
+      connectHelper.tone === "success"
+        ? "border-emerald-500/30 bg-emerald-500/10"
+        : connectHelper.tone === "warning"
+        ? "border-amber-500/30 bg-amber-500/10"
+        : "border-sky-500/30 bg-sky-500/10",
+    ].join(" ")}
+  >
+    <div
+      className={[
+        "text-base font-semibold",
+        connectHelper.tone === "success"
+          ? "text-emerald-200"
+          : connectHelper.tone === "warning"
+          ? "text-amber-200"
+          : "text-sky-200",
+      ].join(" ")}
+    >
+      {connectHelper.title}
+    </div>
+
+    <div className="mt-2 text-sm text-slate-200">
+      {connectHelper.body}
+    </div>
+
+    <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+        Step by step
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {connectHelper.steps.map((step, index) => (
+          <div key={`${step}-${index}`} className="flex items-start gap-3 text-sm text-slate-200">
+            <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-slate-100">
+              {index + 1}
+            </div>
+            <div>{step}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <div className="mt-4 flex flex-wrap gap-3">
+      {connectHelper.primaryHref && connectHelper.primaryLabel ? (
+        <a
+          href={connectHelper.primaryHref}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+        >
+          {connectHelper.primaryLabel}
+        </a>
+      ) : null}
+
+      {connectHelper.secondaryHref && connectHelper.secondaryLabel ? (
+        <a
+          href={connectHelper.secondaryHref}
+          className="rounded-2xl border border-slate-600 bg-slate-900 px-4 py-2 text-sm text-slate-100 hover:bg-white/10"
+        >
+          {connectHelper.secondaryLabel}
+        </a>
+      ) : null}
+    </div>
+  </div>
+) : null}
           {providers.map((provider) => {
             const busy = busyProvider === provider.id;
             const connected = provider.status === "connected";
