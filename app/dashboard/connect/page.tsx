@@ -264,6 +264,7 @@ type SocialAccountRow = {
 export default function DashboardConnectPage() {
   const [providers, setProviders] = useState<Provider[]>(initialProviders);
   const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
+  const [connectHelper, setConnectHelper] = useState<ConnectHelperCard | null>(null);
 
   async function loadSocialAccounts() {
     try {
