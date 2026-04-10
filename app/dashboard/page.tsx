@@ -1358,6 +1358,23 @@ export default function DashboardHomePage() {
         <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
+              <div style={{ marginBottom: 20 }}>
+  <button
+    onClick={() => {
+      const orgId = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1";
+      window.location.href = `/api/billing/portal?organisationId=${orgId}`;
+    }}
+    style={{
+      padding: "10px 14px",
+      borderRadius: "10px",
+      border: "1px solid #ccc",
+      background: "transparent",
+      cursor: "pointer",
+    }}
+  >
+    Cancel membership
+  </button>
+</div>
               <div className="text-xs text-slate-400">Root Health Ops</div>
 
               {organisation?.brand_logo_url ? (
@@ -2457,6 +2474,30 @@ export default function DashboardHomePage() {
                               loading="lazy"
                             />
                           </div>
+                          <div style={{ marginBottom: 20 }}>
+  <button
+    onClick={() => {
+      const orgId = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1";
+      window.location.href = `/api/billing/portal?organisationId=${orgId}`;
+    }}
+    style={{
+      padding: "10px 14px",
+      borderRadius: "10px",
+      border: "1px solid #ccc",
+      background: "transparent",
+      cursor: "pointer",
+    }}
+  >
+    Cancel membership
+  </button>
+
+  <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+    <a href="/terms" style={{ marginRight: 10 }}>
+      Terms
+    </a>
+    <a href="/privacy">Privacy</a>
+  </div>
+</div>
                           <div className="p-3">
                             <div className="text-xs font-semibold text-slate-100 line-clamp-1">
                               {title}
