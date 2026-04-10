@@ -250,23 +250,34 @@ export default function DashboardShell({ children }: DashboardShellProps) {
         <div className="mx-auto max-w-6xl px-4 flex flex-col md:flex-row items-center justify-between gap-2">
           <div>© {new Date().getFullYear()} Root Health Ops</div>
 
-          <div className="flex flex-wrap items-center gap-4">
-            <button
-              type="button"
-              onClick={openSupport}
-              className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-[12px] text-emerald-200 hover:bg-emerald-500/15 hover:text-emerald-100"
-            >
-              Contact Support
-            </button>
+         <div className="flex flex-wrap items-center gap-4">
+  <button
+    type="button"
+    onClick={openSupport}
+    className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-[12px] text-emerald-200 hover:bg-emerald-500/15 hover:text-emerald-100"
+  >
+    Contact Support
+  </button>
 
-            <Link href="/terms" className="hover:text-slate-200">
-              Terms of Service
-            </Link>
+  <button
+    type="button"
+    onClick={() => {
+      const orgId = "d69bd1d1-5e14-4beb-b233-1d6b9a2315a2";
+      window.location.href = `/api/billing/portal?organisationId=${orgId}`;
+    }}
+    className="text-sm text-slate-400 hover:text-slate-200"
+  >
+    Cancel Membership
+  </button>
 
-            <Link href="/privacy" className="hover:text-slate-200">
-              Privacy Policy
-            </Link>
-          </div>
+  <Link href="/terms" className="hover:text-slate-200">
+    Terms of Service
+  </Link>
+
+  <Link href="/privacy" className="hover:text-slate-200">
+    Privacy Policy
+  </Link>
+</div>
         </div>
       </footer>
 
