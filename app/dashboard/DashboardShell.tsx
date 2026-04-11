@@ -263,7 +263,7 @@ export default function DashboardShell({ children }: DashboardShellProps) {
     type="button"
     onClick={() => {
       alert(
-        "Membership cancellation is not live yet because Stripe customer records have not been saved into the database. We are wiring this next."
+        "Membership cancellation will work once Stripe customer records are saved for this workspace."
       );
     }}
     className="text-sm text-slate-400 hover:text-slate-200"
