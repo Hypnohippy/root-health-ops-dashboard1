@@ -95,24 +95,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      client_reference_id: organisationId,
-      subscription_data: {
-        metadata: {
-          organisationId,
-        },
-      },
-      success_url: `${appUrl}/dashboard?billing=success`,
-      cancel_url: `${appUrl}/dashboard?billing=cancelled`,
-    });
+   const organisationId = "REPLACE_THIS_TEMP";
 
+const session = await stripe.checkout.sessions.create({
+  mode: "subscription",
+  line_items: [
+    {
+      price: priceId,
+      quantity: 1,
+    },
+  ],
+
+  // 🔑 THIS IS THE FIX
+  client_reference_id: organisationId,
+
+  subscription_data: {
+    metadata: {
+      organisationId,
+    },
+  },
+
+  success_url: `${appUrl}/dashboard?billing=success`,
+  cancel_url: `${appUrl}/dashboard?billing=cancelled`,
+});
     if (!session.url) {
       return NextResponse.json(
         { error: "No checkout URL returned from Stripe." },
