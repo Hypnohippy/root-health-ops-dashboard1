@@ -250,7 +250,7 @@ export default function DashboardShell({ children }: DashboardShellProps) {
         <div className="mx-auto max-w-6xl px-4 flex flex-col md:flex-row items-center justify-between gap-2">
           <div>© {new Date().getFullYear()} Root Health Ops</div>
 
-         <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
   <button
     type="button"
     onClick={openSupport}
@@ -262,8 +262,9 @@ export default function DashboardShell({ children }: DashboardShellProps) {
   <button
     type="button"
     onClick={() => {
-      const orgId = "d69bd1d1-5e14-4beb-b233-1d6b9a2315a2";
-      window.location.href = `/api/billing/portal?organisationId=${orgId}`;
+      alert(
+        "Membership cancellation is not live yet because Stripe customer records have not been saved into the database. We are wiring this next."
+      );
     }}
     className="text-sm text-slate-400 hover:text-slate-200"
   >
