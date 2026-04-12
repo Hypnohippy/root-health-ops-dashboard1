@@ -95,8 +95,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-   const organisationId = "REPLACE_THIS_TEMP";
-
 const session = await stripe.checkout.sessions.create({
   mode: "subscription",
   line_items: [
