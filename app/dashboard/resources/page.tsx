@@ -194,13 +194,13 @@ function upgradeLegacyResourceContent(content: any) {
   }
 
   if (Array.isArray(next.sections)) {
-    next.sections = next.sections.map((section: any) => ({
-      title: String(section?.title || "").trim(),
-      bullets: Array.isArray(section?.bullets)
-        ? section.bullets.map((b: any) => String(b || "").trim())
-        : [],
-    }));
-  }
+  next.sections = next.sections.map((section: any, index: number) => ({
+    title: String(section?.title || "").trim() || `Section ${index + 1}`,
+    bullets: Array.isArray(section?.bullets)
+      ? section.bullets.map((b: any) => String(b || "").trim())
+      : [],
+  }));
+}
 
   if (Array.isArray(next.reflection_prompts)) {
     next.reflection_prompts = next.reflection_prompts.map((p: any) =>
@@ -1192,7 +1192,7 @@ function isTemplate(item: any): item is StarterTemplate {
     setError(null);
 
     try {
-      const res = await fetch("/api/resource-library", {
+      const saveRes = await fetch("/api/resource-library", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1794,17 +1794,7 @@ async function clearUploadedSlideImage(
         "Please turn this into a polished teaching resource and supporting content. I may want slides, webinar notes, social promo posts, and email copy.",
       ].join("\n"),
     };
-// 🔧 FIX: ensure all sections have titles (prevents "sectionTitle is required")
-if (content && Array.isArray(content.sections)) {
-  content.sections = content.sections.map((section: any, i: number) => ({
-    ...section,
-    title:
-      String(section?.title || "").trim() || `Section ${i + 1}`,
-    bullets: Array.isArray(section?.bullets)
-      ? section.bullets.map((b: any) => String(b || "").trim())
-      : [],
-  }));
-}
+
   const res = await fetch("/api/resource-library", {
     const saveData = await saveRes.json().catch(() => null);
 
