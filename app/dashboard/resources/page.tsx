@@ -2110,6 +2110,16 @@ async function createProgramme() {
       } else if (creatorType === "course") {
         content = aiData?.course || null;
       }
+      // 🔧 FIX: ensure sections always have titles
+if (content && Array.isArray(content.sections)) {
+  content.sections = content.sections.map((section: any, index: number) => ({
+    ...section,
+    title: String(section?.title || "").trim() || `Section ${index + 1}`,
+    bullets: Array.isArray(section?.bullets)
+      ? section.bullets.map((b: any) => String(b || "").trim())
+      : [],
+  }));
+}
       const saveRes = await fetch("/api/resource-library", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
