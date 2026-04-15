@@ -1243,7 +1243,7 @@ function isTemplate(item: any): item is StarterTemplate {
 
     setError(null);
 
-    const res = await fetch("/api/resource-library", {
+    const saveRes = await fetch("/api/resource-library", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
