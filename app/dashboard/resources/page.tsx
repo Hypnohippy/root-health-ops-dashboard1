@@ -2383,7 +2383,7 @@ if (content && Array.isArray(content.sections)) {
         courseSummary: String(content?.summary || "").trim(),
         learnerAudience: String(content?.learner_audience || "").trim(),
         deliveryContext: String(content?.delivery_context || "").trim(),
-        sectionTitle: String(section?.title || "").trim(),
+        sectionTitle: String(section?.title || "").trim() || `Section ${sectionIndex + 1}`,
         sectionSummary: String(section?.summary || "").trim(),
         sectionBullets: Array.isArray(section?.bullets) ? section.bullets : [],
         keyConceptsExplained: String(
@@ -2496,7 +2496,7 @@ if (content && Array.isArray(content.sections)) {
         courseTitle: resource.title,
         courseAudience: String(content?.intended_reader || "").trim(),
         courseSummary: String(content?.summary || "").trim(),
-        sectionTitle: String(section?.title || "").trim(),
+        sectionTitle: String(section?.title || "").trim() || `Section ${sectionIndex + 1}`,
         sectionSummary: String(section?.summary || "").trim(),
         sectionBullets: Array.isArray(section?.bullets) ? section.bullets : [],
         mainPoints: String(section?.main_points || "").trim(),
