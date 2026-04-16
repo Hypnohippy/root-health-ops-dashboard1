@@ -2054,7 +2054,9 @@ async function createProgramme() {
 
     try {
       let route = "";
-    let isFounderMode = true; // 🔥 YOU control this (true = FB content, false = normal users)
+    let outputStyle: "corporate" | "guide" = "guide";  // 🔥 YOU control this (true = FB content, false = normal users)
+
+let isFounderMode = true; // 🔥 YOU control this (true = FB content, false = normal users)
 
 let body: any = {
   topic: title,
@@ -2087,8 +2089,7 @@ let body: any = {
     : creatorTone.trim(),
 
   fillLevel: creatorFillLevel,
-};
-            if (creatorType === "webinar_outline") {
+};            if (creatorType === "webinar_outline") {
   route = "/api/ai/presentation-outline";
   body.duration = creatorDuration.trim() || "30 mins";
   body.deliveryMode = "online";
