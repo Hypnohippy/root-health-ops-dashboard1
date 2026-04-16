@@ -2054,16 +2054,36 @@ async function createProgramme() {
 
     try {
       let route = "";
-      let body: any = {
+     let body: any = {
   topic: title,
   name: title,
-  goal: creatorGoal.trim(),
-  audience: creatorAudience.trim(),
+
+  goal:
+    creatorGoal.trim() ||
+    "Help new therapists and coaches build confidence, get their first clients, and grow without feeling overwhelmed or salesy.",
+
+  audience:
+    creatorAudience.trim() ||
+    "New therapists and coaches starting out, feeling unsure about confidence, clients, and how to talk about their work.",
+
   instructorType: creatorInstructorType,
-  learnerAudience: creatorLearnerAudience,
-  deliveryContext: creatorDeliveryContext,
-  notes: creatorNotes.trim(),
-  tone: creatorTone.trim(),
+
+  learnerAudience:
+    creatorLearnerAudience ||
+    "Beginner therapist or coach",
+
+  deliveryContext:
+    creatorDeliveryContext ||
+    "early-stage practice building",
+
+  notes:
+    creatorNotes.trim() ||
+    "Keep tone supportive, real, and non-clinical. Avoid jargon. Focus on real-world struggles like confidence, pricing, marketing, and isolation.",
+
+  tone:
+    creatorTone.trim() ||
+    "warm, supportive, real, non-clinical, encouraging",
+
   fillLevel: creatorFillLevel,
 };
 
