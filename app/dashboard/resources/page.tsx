@@ -2074,9 +2074,8 @@ audience:
 
 notes:
   outputStyle === "guide"
-    ? "Write as a complete, standalone guide (not a programme). Do NOT include corporate language, delivery formats, or HR framing. Structure it as a practical guide with clear sections, steps, examples, and actionable advice. Include mistakes to avoid and real-world insight."
+    ? "Write as a complete, standalone downloadable guide. Do NOT include ANY of the following: programme summaries, estimated learning time, level, format, delivery options, or corporate/HR language. Do NOT structure as sessions. Instead, create a clean guide with: introduction, clear sections, step-by-step advice, real examples, common mistakes, and a simple action plan. This should feel like a practical document someone could read and immediately apply."
     : creatorNotes.trim(),
-
 tone:
   outputStyle === "guide"
     ? "practical, supportive, real-world, mentor-like, non-clinical"
