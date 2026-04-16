@@ -2054,39 +2054,40 @@ async function createProgramme() {
 
     try {
       let route = "";
-     let body: any = {
+    let isFounderMode = true; // 🔥 YOU control this (true = FB content, false = normal users)
+
+let body: any = {
   topic: title,
   name: title,
 
-  goal:
-    creatorGoal.trim() ||
-    "Help new therapists and coaches build confidence, get their first clients, and grow without feeling overwhelmed or salesy.",
+  goal: isFounderMode
+    ? "Help new therapists and coaches set up, grow, and market their business with clarity, confidence, and real-world guidance."
+    : creatorGoal.trim(),
 
-  audience:
-    creatorAudience.trim() ||
-    "New therapists and coaches starting out, feeling unsure about confidence, clients, and how to talk about their work.",
+  audience: isFounderMode
+    ? "New therapists and coaches starting out who need clear, practical help building their practice."
+    : creatorAudience.trim(),
 
   instructorType: creatorInstructorType,
 
-  learnerAudience:
-    creatorLearnerAudience ||
-    "Beginner therapist or coach",
+  learnerAudience: isFounderMode
+    ? "Beginner therapist or coach building a business"
+    : creatorLearnerAudience,
 
-  deliveryContext:
-    creatorDeliveryContext ||
-    "early-stage practice building",
+  deliveryContext: isFounderMode
+    ? "real-world early-stage business building"
+    : creatorDeliveryContext,
 
-  notes:
-    creatorNotes.trim() ||
-    "Keep tone supportive, real, and non-clinical. Avoid jargon. Focus on real-world struggles like confidence, pricing, marketing, and isolation.",
+  notes: isFounderMode
+    ? "Write as someone who has been through it. Be real, practical, supportive. Include steps, examples, mistakes to avoid, and what actually works. Avoid clinical tone."
+    : creatorNotes.trim(),
 
-  tone:
-    creatorTone.trim() ||
-    "warm, supportive, real, non-clinical, encouraging",
+  tone: isFounderMode
+    ? "experienced, supportive, real, non-clinical, mentor-like"
+    : creatorTone.trim(),
 
   fillLevel: creatorFillLevel,
 };
-
             if (creatorType === "webinar_outline") {
   route = "/api/ai/presentation-outline";
   body.duration = creatorDuration.trim() || "30 mins";
