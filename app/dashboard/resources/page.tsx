@@ -2062,32 +2062,25 @@ let body: any = {
   topic: title,
   name: title,
 
-  goal: isFounderMode
-    ? "Help new therapists and coaches set up, grow, and market their business with clarity, confidence, and real-world guidance."
+ goal:
+  outputStyle === "guide"
+    ? "Create a comprehensive, practical guide that helps new therapists and coaches take real action to build their practice and get clients."
     : creatorGoal.trim(),
 
-  audience: isFounderMode
-    ? "New therapists and coaches starting out who need clear, practical help building their practice."
+audience:
+  outputStyle === "guide"
+    ? "New therapists and coaches starting out who need clear, step-by-step guidance."
     : creatorAudience.trim(),
 
-  instructorType: creatorInstructorType,
-
-  learnerAudience: isFounderMode
-    ? "Beginner therapist or coach building a business"
-    : creatorLearnerAudience,
-
-  deliveryContext: isFounderMode
-    ? "real-world early-stage business building"
-    : creatorDeliveryContext,
-
-  notes: isFounderMode
-    ? "Write as someone who has been through it. Be real, practical, supportive. Include steps, examples, mistakes to avoid, and what actually works. Avoid clinical tone."
+notes:
+  outputStyle === "guide"
+    ? "Write as a complete, standalone guide (not a programme). Do NOT include corporate language, delivery formats, or HR framing. Structure it as a practical guide with clear sections, steps, examples, and actionable advice. Include mistakes to avoid and real-world insight."
     : creatorNotes.trim(),
 
-  tone: isFounderMode
-    ? "experienced, supportive, real, non-clinical, mentor-like"
+tone:
+  outputStyle === "guide"
+    ? "practical, supportive, real-world, mentor-like, non-clinical"
     : creatorTone.trim(),
-
   fillLevel: creatorFillLevel,
 };            if (creatorType === "webinar_outline") {
   route = "/api/ai/presentation-outline";
