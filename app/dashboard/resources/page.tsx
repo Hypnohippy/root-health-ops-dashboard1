@@ -3019,110 +3019,172 @@ if (content && Array.isArray(content.sections)) {
                 : ""
             }
 
-            <div class="eyebrow">${isPresentationLike ? "Presentation summary" : "Programme summary"}</div>
-            <h1 class="hero-title">${escapeHtml(title)}</h1>
+           <div class="eyebrow">${
+  String(resource.resource_type || "").toLowerCase() === "guide" ||
+  String(resource.resource_type || "").toLowerCase() === "worksheet"
+    ? "Guide"
+    : isPresentationLike
+    ? "Presentation summary"
+    : "Programme summary"
+}</div>
 
-            <div style="margin-top:6px;font-size:12px;color:#475569;">
-              Prepared for organisations, HR teams, and decision-makers
-            </div>
+<h1 class="hero-title">${escapeHtml(title)}</h1>
 
-            <div class="hero-summary">
-              ${escapeHtml(
-                summary ||
-                  (isPresentationLike
-                    ? "A clear, practical presentation that can be shared with decision-makers, organisers, or HR teams."
-                    : "A structured, practical learning programme that can be delivered in-house or online.")
-              )}
-            </div>
+<div style="margin-top:6px;font-size:12px;color:#475569;">
+  ${
+    String(resource.resource_type || "").toLowerCase() === "guide" ||
+    String(resource.resource_type || "").toLowerCase() === "worksheet"
+      ? "Practical guidance for therapists and coaches building their practice"
+      : "Prepared for organisations, HR teams, and decision-makers"
+  }
+</div>
 
-            <div class="meta-grid">
-              <div class="meta-card">
-                <div class="meta-label">Designed for</div>
-                <div class="meta-value">${escapeHtml(
-                  intendedReader || "Public, workplace, or practitioner audiences"
-                )}</div>
-              </div>
+<div class="hero-summary">
+  ${escapeHtml(
+    summary ||
+      (
+        String(resource.resource_type || "").toLowerCase() === "guide" ||
+        String(resource.resource_type || "").toLowerCase() === "worksheet"
+      )
+        ? "A practical, supportive guide designed to help therapists and coaches take confident next steps."
+        : isPresentationLike
+        ? "A clear, practical presentation that can be shared with decision-makers, organisers, or HR teams."
+        : "A structured, practical learning programme that can be delivered in-house or online."
+  )}
+</div>
 
-              <div class="meta-card">
-                <div class="meta-label">Estimated learning time</div>
-                <div class="meta-value">${escapeHtml(
-                  estimatedLearningTime || "To be agreed"
-                )}</div>
-              </div>
+<div class="meta-grid">
+  <div class="meta-card">
+    <div class="meta-label">Designed for</div>
+    <div class="meta-value">${escapeHtml(
+      intendedReader || "Public, workplace, or practitioner audiences"
+    )}</div>
+  </div>
 
-              <div class="meta-card">
-                <div class="meta-label">Level</div>
-                <div class="meta-value">${escapeHtml(
-                  practitionerLevel || "Suitable for mixed audiences where tailored"
-                )}</div>
-              </div>
+  ${
+    String(resource.resource_type || "").toLowerCase() === "guide" ||
+    String(resource.resource_type || "").toLowerCase() === "worksheet"
+      ? ""
+      : `
+  <div class="meta-card">
+    <div class="meta-label">Estimated learning time</div>
+    <div class="meta-value">${escapeHtml(
+      estimatedLearningTime || "To be agreed"
+    )}</div>
+  </div>
 
-              <div class="meta-card">
-                <div class="meta-label">Format</div>
-                <div class="meta-value">Can be delivered in-house or online</div>
-              </div>
-            </div>
+  <div class="meta-card">
+    <div class="meta-label">Level</div>
+    <div class="meta-value">${escapeHtml(
+      practitionerLevel || "Suitable for mixed audiences where tailored"
+    )}</div>
+  </div>
 
-            <div style="margin-top:18px;">
-              <div class="section-title">Delivery options</div>
-              <div style="font-size:13px;color:#334155;margin-top:6px;">
-                • Live webinar (remote)<br/>
-                • In-house workshop delivery<br/>
-                • Hybrid formats available<br/>
-                • Customised versions for your organisation
-              </div>
-            </div>
-          </div>
+  <div class="meta-card">
+    <div class="meta-label">Format</div>
+    <div class="meta-value">Can be delivered in-house or online</div>
+  </div>
+  `
+  }
+</div>
 
-          <div class="body-wrap">
-            ${
-              learningOutcomes.length
-                ? `
-              <div>
-                <div class="section-title">What participants will gain</div>
-                <div class="soft-card">
-                  <ul style="margin:0 0 0 18px; padding:0;">
-                    ${learningOutcomes
-                      .slice(0, 4)
-                      .map((item: string) => `<li>${escapeHtml(item)}</li>`)
-                      .join("")}
-                  </ul>
-                </div>
-              </div>
-            `
-                : ""
-            }
+${
+  String(resource.resource_type || "").toLowerCase() === "guide" ||
+  String(resource.resource_type || "").toLowerCase() === "worksheet"
+    ? ""
+    : `
+<div style="margin-top:18px;">
+  <div class="section-title">Delivery options</div>
+  <div style="font-size:13px;color:#334155;margin-top:6px;">
+    • Live webinar (remote)<br/>
+    • In-house workshop delivery<br/>
+    • Hybrid formats available<br/>
+    • Customised versions for your organisation
+  </div>
+</div>
+`
+}
+</div>
 
-            ${
-              contentCards
-                ? `
-              <div style="margin-top:18px;">
-                <div class="section-title">Business outcomes</div>
-                <ul style="margin-top:8px;padding-left:18px;font-size:13px;color:#334155;">
-                  <li>Improved wellbeing, engagement, and productivity</li>
-                  <li>Practical tools participants can apply immediately</li>
-                  <li>Supports organisational health and retention</li>
-                  <li>Delivered in a clear, structured, and accessible format</li>
-                </ul>
-              </div>
+<div class="body-wrap">
+  ${
+    learningOutcomes.length
+      ? `
+    <div>
+      <div class="section-title">${
+        String(resource.resource_type || "").toLowerCase() === "guide" ||
+        String(resource.resource_type || "").toLowerCase() === "worksheet"
+          ? "What this guide will help you with"
+          : "What participants will gain"
+      }</div>
+      <div class="soft-card">
+        <ul style="margin:0 0 0 18px; padding:0;">
+          ${learningOutcomes
+            .slice(0, 4)
+            .map((item: string) => `<li>${escapeHtml(item)}</li>`)
+            .join("")}
+        </ul>
+      </div>
+    </div>
+  `
+      : ""
+  }
 
-              <div style="margin-top: 18px;">
-                <div class="section-title">Programme structure</div>
-                <div class="session-grid">
-                  ${contentCards}
-                </div>
-              </div>
-            `
-                : ""
-            }
+  ${
+    contentCards
+      ? (
+          String(resource.resource_type || "").toLowerCase() === "guide" ||
+          String(resource.resource_type || "").toLowerCase() === "worksheet"
+        )
+        ? `
+    <div style="margin-top: 18px;">
+      <div class="section-title">Guide contents</div>
+      <div class="session-grid">
+        ${contentCards}
+      </div>
+    </div>
+  `
+        : `
+    <div style="margin-top:18px;">
+      <div class="section-title">Business outcomes</div>
+      <ul style="margin-top:8px;padding-left:18px;font-size:13px;color:#334155;">
+        <li>Improved wellbeing, engagement, and productivity</li>
+        <li>Practical tools participants can apply immediately</li>
+        <li>Supports organisational health and retention</li>
+        <li>Delivered in a clear, structured, and accessible format</li>
+      </ul>
+    </div>
 
-            <div class="cta">
-              <div class="cta-title">Tailored delivery available</div>
-              <div class="cta-text">
-                This programme can be tailored for your organisation, team, or audience. A full facilitator pack, delivery notes, and supporting session materials are available separately.
-              </div>
-            </div>
+    <div style="margin-top: 18px;">
+      <div class="section-title">Programme structure</div>
+      <div class="session-grid">
+        ${contentCards}
+      </div>
+    </div>
+  `
+      : ""
+  }
 
+  ${
+    String(resource.resource_type || "").toLowerCase() === "guide" ||
+    String(resource.resource_type || "").toLowerCase() === "worksheet"
+      ? `
+    <div class="cta">
+      <div class="cta-title">Next steps</div>
+      <div class="cta-text">
+        Choose one section to act on this week, keep your actions simple, and focus on consistency rather than perfection.
+      </div>
+    </div>
+  `
+      : `
+    <div class="cta">
+      <div class="cta-title">Tailored delivery available</div>
+      <div class="cta-text">
+        This programme can be tailored for your organisation, team, or audience. A full facilitator pack, delivery notes, and supporting session materials are available separately.
+      </div>
+    </div>
+  `
+  }
             <div class="footer">
               <div class="footer-brand">
                 ${
