@@ -48,7 +48,8 @@ type CreateResourceType =
   | "presentation"
   | "guide"
   | "worksheet"
-  | "course";
+  | "course"
+  | "facebook_group_pack";
 type FillLevel = "skeleton" | "draft" | "ready";
 type PresentationMode = "audience" | "presenter";
 type PresentationTheme = "calm" | "corporate" | "warm" | "dark";
@@ -95,6 +96,7 @@ function defaultTitleForType(type: CreateResourceType) {
   if (type === "presentation") return "New Presentation";
   if (type === "guide") return "New Guide";
   if (type === "course") return "New Course";
+  if (type === "facebook_group_pack") return "New Facebook Group Pack";
   return "New Worksheet";
 }
 function typeLabel(type: CreateResourceType) {
@@ -102,6 +104,7 @@ function typeLabel(type: CreateResourceType) {
   if (type === "presentation") return "Presentation";
   if (type === "guide") return "Guide";
   if (type === "course") return "Course";
+  if (type === "facebook_group_pack") return "Facebook Group Pack";
   return "Worksheet";
 }
 function deepClone<T>(value: T): T {
@@ -2061,46 +2064,56 @@ let isFounderMode = true; // 🔥 YOU control this (true = FB content, false = n
 let body: any = {
   topic: title,
   name: title,
+  goal: creatorGoal.trim(),
+  audience: creatorAudience.trim(),
+  instructorType: creatorInstructorType,
+  learnerAudience: creatorLearnerAudience,
+  deliveryContext: creatorDeliveryContext,
+  notes: creatorNotes.trim(),
+  tone: creatorTone.trim(),
+  fillLevel: creatorFillLevel,
+};
 
- goal:
-  outputStyle === "guide"
-    ? "Create a comprehensive, practical guide that helps new therapists and coaches take real action to build their practice and get clients."
-    : creatorGoal.trim(),
-
-audience:
-  outputStyle === "guide"
-    ? "New therapists and coaches starting out who need clear, step-by-step guidance."
-    : creatorAudience.trim(),
-
-notes:
-  outputStyle === "guide"
-    ? `You are creating a downloadable GUIDE, not a programme or training course.
+if (creatorType === "facebook_group_pack") {
+  body = {
+    topic: title,
+    name: title,
+    goal:
+      "Create a practical Facebook group content pack for new therapists and coaches starting out.",
+    audience:
+      "New therapists and coaches building confidence, setting up properly, learning marketing, and trying to get their first clients.",
+    instructorType: creatorInstructorType,
+    learnerAudience: "Beginner therapist or coach",
+    deliveryContext: "Facebook group support and authority-building content",
+    notes:
+      `Create a COMPLETE downloadable resource pack, not a corporate programme.
 
 STRICT RULES:
-- DO NOT include: programme summary, estimated learning time, level, format, delivery options, or any corporate/HR language.
-- DO NOT structure content as sessions or modules.
+- Do NOT write as a programme, workshop, webinar, or course brochure.
+- Do NOT include estimated learning time, level, format, delivery options, or HR/corporate language.
+- Do NOT structure as sessions.
 
-INSTEAD:
-- Write this as a clean, standalone guide.
-- Start with a short, relatable introduction.
-- Use clear section headings (not sessions).
-- Provide practical, step-by-step advice.
-- Include real-world examples.
-- Include a section called "Common mistakes to avoid".
-- Include a final section called "Simple action plan".
+INSTEAD CREATE:
+- A strong title
+- A short relatable introduction
+- 5 to 8 clear practical sections
+- Real examples
+- Step-by-step advice
+- Time frames where useful (example: post on Facebook 3 times weekly)
+- "Common mistakes to avoid"
+- "Next steps"
+- "Quick action plan"
 
 STYLE:
-- Human, experienced, supportive.
-- Feels like advice from someone who has done it.
-- Non-clinical, non-corporate, no jargon.
-
-This should feel like a document someone could download and immediately use.`
-    : creatorNotes.trim(),tone:
-  outputStyle === "guide"
-    ? "practical, supportive, real-world, mentor-like, non-clinical"
-    : creatorTone.trim(),
-  fillLevel: creatorFillLevel,
-};            if (creatorType === "webinar_outline") {
+- Warm, practical, supportive, mentor-like
+- Sounds like someone who has done this in real life
+- Non-clinical
+- Useful enough to give away free in a Facebook group`,
+    tone: "warm, practical, supportive, mentor-like, non-clinical",
+    fillLevel: creatorFillLevel,
+  };
+}          
+ if (creatorType === "webinar_outline") {
   route = "/api/ai/presentation-outline";
   body.duration = creatorDuration.trim() || "30 mins";
   body.deliveryMode = "online";
@@ -2111,6 +2124,8 @@ This should feel like a document someone could download and immediately use.`
   body.deliveryMode = "online";
   body.resourceKind = "presentation";
 } else if (creatorType === "guide") {
+  route = "/api/ai/guide";
+} else if (creatorType === "facebook_group_pack") {
   route = "/api/ai/guide";
 } else if (creatorType === "worksheet") {
   route = "/api/ai/worksheet";
@@ -2132,17 +2147,20 @@ This should feel like a document someone could download and immediately use.`
       let resourceType = creatorType;
       let content: any = null;
 
-            if (creatorType === "webinar_outline") {
-        content = aiData?.presentation || aiData?.outline || null;
-      } else if (creatorType === "presentation") {
-        content = aiData?.presentation || null;
-      } else if (creatorType === "guide") {
-        content = aiData?.guide || null;
-      } else if (creatorType === "worksheet") {
-        content = aiData?.worksheet || null;
-      } else if (creatorType === "course") {
-        content = aiData?.course || null;
-      }
+           if (creatorType === "webinar_outline") {
+  content = aiData?.presentation || aiData?.outline || null;
+} else if (creatorType === "presentation") {
+  content = aiData?.presentation || null;
+} else if (creatorType === "guide") {
+  content = aiData?.guide || null;
+} else if (creatorType === "facebook_group_pack") {
+  content = aiData?.guide || null;
+  resourceType = "guide";
+} else if (creatorType === "worksheet") {
+  content = aiData?.worksheet || null;
+} else if (creatorType === "course") {
+  content = aiData?.course || null;
+}
       // 🔧 FIX: ensure sections always have titles
 if (content && Array.isArray(content.sections)) {
   content.sections = content.sections.map((section: any, index: number) => ({
