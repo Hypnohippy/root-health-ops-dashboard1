@@ -2074,7 +2074,27 @@ audience:
 
 notes:
   outputStyle === "guide"
-    ? "Write as a complete, standalone downloadable guide. Do NOT include ANY of the following: programme summaries, estimated learning time, level, format, delivery options, or corporate/HR language. Do NOT structure as sessions. Instead, create a clean guide with: introduction, clear sections, step-by-step advice, real examples, common mistakes, and a simple action plan. This should feel like a practical document someone could read and immediately apply."
+    ? "You are creating a downloadable GUIDE, not a programme or training course.
+
+STRICT RULES:
+- DO NOT include: programme summary, estimated learning time, level, format, delivery options, or any corporate/HR language.
+- DO NOT structure content as sessions or modules.
+
+INSTEAD:
+- Write this as a clean, standalone guide.
+- Start with a short, relatable introduction.
+- Use clear section headings (not sessions).
+- Provide practical, step-by-step advice.
+- Include real-world examples.
+- Include a section: 'Common mistakes to avoid'.
+- Include a final section: 'Simple action plan'.
+
+STYLE:
+- Human, experienced, supportive.
+- Feels like advice from someone who has done it.
+- Non-clinical, non-corporate, no jargon.
+
+This should feel like a document someone could download and immediately use."
     : creatorNotes.trim(),
 tone:
   outputStyle === "guide"
