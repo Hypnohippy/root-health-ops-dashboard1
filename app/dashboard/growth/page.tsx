@@ -76,8 +76,43 @@ export default function GrowthPage() {
     await loadFollowups();
   }
 
+  async function updateReply(targetId: string) {
+    const statusSelect = document.getElementById(
+      `reply-status-${targetId}`
+    ) as HTMLSelectElement | null;
+
+    const notesInput = document.getElementById(
+      `reply-notes-${targetId}`
+    ) as HTMLTextAreaElement | null;
+
+    const reply_status = statusSelect?.value || "no_reply";
+    const reply_notes = notesInput?.value || "";
+
+    const res = await fetch("/api/growth/update-reply", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        id: targetId,
+        reply_status,
+        reply_notes,
+      }),
+    });
+
+    const json = await res.json();
+
+    if (!json.success) {
+      alert(json.error || "Could not update reply.");
+      return;
+    }
+
+    alert("Reply tracking saved ✅");
+    await loadFollowups();
+  }
+
   function copy(text: string) {
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(text || "");
   }
 
   return (
@@ -85,12 +120,16 @@ export default function GrowthPage() {
       <h1 style={title}>🚀 Daily Growth Cockpit</h1>
 
       <p style={subtitle}>
-        Generate today’s content, then work through the people who need a message today.
+        Generate today’s content, message today’s targets, and track replies.
       </p>
 
       <div style={{ marginTop: 16 }}>
-        <a href="/dashboard/growth/tracker" style={smallLink}>📊 Tracker</a>{" "}
-        <a href="/dashboard/growth/followups" style={smallLink}>🎯 Follow-Ups</a>
+        <a href="/dashboard/growth/tracker" style={smallLink}>
+          📊 Tracker
+        </a>{" "}
+        <a href="/dashboard/growth/followups" style={smallLink}>
+          🎯 Follow-Ups
+        </a>
       </div>
 
       <section style={card}>
@@ -108,7 +147,10 @@ export default function GrowthPage() {
 
         {data && (
           <div style={{ marginTop: 24 }}>
-            <Section title="LinkedIn Post" onCopy={() => copy(data.linkedin_post)}>
+            <Section
+              title="LinkedIn Post"
+              onCopy={() => copy(data.linkedin_post)}
+            >
               {data.linkedin_post}
             </Section>
 
@@ -125,7 +167,10 @@ export default function GrowthPage() {
               {data.dm_message}
             </Section>
 
-            <Section title="Follow Up" onCopy={() => copy(data.follow_up_message)}>
+            <Section
+              title="Follow Up"
+              onCopy={() => copy(data.follow_up_message)}
+            >
               {data.follow_up_message}
             </Section>
 
@@ -154,10 +199,15 @@ export default function GrowthPage() {
               <h3 style={{ margin: 0 }}>{target.target_name}</h3>
 
               <p style={muted}>
-                {target.role_title || "Role not added"} · {target.company || "Company not added"}
+                {target.role_title || "Role not added"} ·{" "}
+                {target.company || "Company not added"}
               </p>
 
               <p style={stage}>Stage: {target.stage}</p>
+
+              <p style={replyStatus}>
+                Reply status: {target.reply_status || "no_reply"}
+              </p>
 
               {target.linkedin_url && (
                 <a href={target.linkedin_url} target="_blank" style={profileLink}>
@@ -165,17 +215,48 @@ export default function GrowthPage() {
                 </a>
               )}
 
-              <div style={messageBox}>
-                {target.suggested_message}
-              </div>
+              <div style={messageBox}>{target.suggested_message}</div>
 
-              <button onClick={() => copy(target.suggested_message)} style={copyButton}>
+              <button
+                onClick={() => copy(target.suggested_message)}
+                style={copyButton}
+              >
                 Copy Message
               </button>
 
               <button onClick={() => markSent(target)} style={sentButton}>
                 Mark Sent / Move Next
               </button>
+
+              <div style={replyBox}>
+                <h4 style={{ marginTop: 0 }}>Track Reply</h4>
+
+                <select
+                  id={`reply-status-${target.id}`}
+                  defaultValue={target.reply_status || "no_reply"}
+                  style={select}
+                >
+                  <option value="no_reply">No reply yet</option>
+                  <option value="replied">Replied</option>
+                  <option value="call_booked">Call booked</option>
+                  <option value="not_interested">Not interested</option>
+                  <option value="warm_lead">Warm lead</option>
+                </select>
+
+                <textarea
+                  id={`reply-notes-${target.id}`}
+                  defaultValue={target.reply_notes || ""}
+                  placeholder="Notes e.g. asked for more info, wants pilot details, book call next week..."
+                  style={textarea}
+                />
+
+                <button
+                  onClick={() => updateReply(target.id)}
+                  style={saveReplyButton}
+                >
+                  Save Reply Tracking
+                </button>
+              </div>
             </article>
           ))
         )}
@@ -279,6 +360,11 @@ const stage: React.CSSProperties = {
   fontWeight: 700,
 };
 
+const replyStatus: React.CSSProperties = {
+  color: "#86efac",
+  fontWeight: 700,
+};
+
 const profileLink: React.CSSProperties = {
   display: "inline-block",
   marginBottom: 10,
@@ -312,6 +398,45 @@ const sentButton: React.CSSProperties = {
   padding: "7px 10px",
   borderRadius: 8,
   background: "#22c55e",
+  color: "#020617",
+  border: "none",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const replyBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: 14,
+  borderRadius: 12,
+  background: "#0f172a",
+  border: "1px solid #334155",
+};
+
+const select: React.CSSProperties = {
+  width: "100%",
+  padding: 10,
+  borderRadius: 8,
+  background: "#020617",
+  color: "#ffffff",
+  border: "1px solid #334155",
+};
+
+const textarea: React.CSSProperties = {
+  width: "100%",
+  minHeight: 80,
+  marginTop: 10,
+  padding: 10,
+  borderRadius: 8,
+  background: "#020617",
+  color: "#ffffff",
+  border: "1px solid #334155",
+};
+
+const saveReplyButton: React.CSSProperties = {
+  marginTop: 10,
+  padding: "8px 12px",
+  borderRadius: 8,
+  background: "#38bdf8",
   color: "#020617",
   border: "none",
   fontWeight: 800,
