@@ -4,19 +4,34 @@ import { useState } from "react";
 
 export default function GrowthPage() {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<string | null>(null);
 
   async function generate() {
     setLoading(true);
     setResult(null);
 
-    const res = await fetch("/api/ai/growth-engine", {
-      method: "POST",
-      body: JSON.stringify({ day: new Date().getDate() }),
-    });
+    try {
+      const res = await fetch("/api/ai/growth-engine", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          day: new Date().getDate(),
+        }),
+      });
 
-    const data = await res.json();
-    setResult(data.data);
+      const data = await res.json();
+
+      if (!data.success) {
+        setResult("❌ API Error: " + (data.error || "Unknown error"));
+      } else {
+        setResult(data.data);
+      }
+    } catch (err: any) {
+      setResult("❌ Browser Error: " + err.message);
+    }
+
     setLoading(false);
   }
 
@@ -34,24 +49,24 @@ export default function GrowthPage() {
           borderRadius: 8,
           background: "#111",
           color: "#fff",
-          cursor: "pointer"
+          cursor: "pointer",
         }}
       >
         {loading ? "Generating..." : "Generate Today’s Plan"}
       </button>
 
       {result && (
-        <pre
+        <div
           style={{
             marginTop: 20,
             background: "#f5f5f5",
             padding: 16,
             borderRadius: 8,
-            whiteSpace: "pre-wrap"
+            whiteSpace: "pre-wrap",
           }}
         >
           {result}
-        </pre>
+        </div>
       )}
     </div>
   );
