@@ -63,7 +63,7 @@ Return clean JSON only.
 `;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-5.3",
+      model: "gpt-5.3-chat-latest",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
     });
