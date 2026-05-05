@@ -21,7 +21,7 @@ export default function GrowthPage() {
       const json = await res.json();
 
       if (json.success) {
-        setFollowups(json.data || []);
+        setFollowups((json.data || []).slice(0, 10));
       }
     } catch {
       setFollowups([]);
