@@ -36,20 +36,34 @@ export default function GrowthPage() {
   }
 
   return (
-    <div style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 600 }}>
+    <div
+      style={{
+        padding: 24,
+        color: "#111827",
+        background: "#ffffff",
+        minHeight: "100vh",
+      }}
+    >
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: "#111827" }}>
         🚀 Daily Growth Engine
       </h1>
 
+      <p style={{ marginTop: 8, color: "#4b5563" }}>
+        Generate today’s LinkedIn post, outreach messages, follow-up and SEO idea.
+      </p>
+
       <button
         onClick={generate}
+        disabled={loading}
         style={{
           marginTop: 16,
-          padding: "10px 16px",
-          borderRadius: 8,
-          background: "#111",
-          color: "#fff",
-          cursor: "pointer",
+          padding: "12px 18px",
+          borderRadius: 10,
+          background: "#111827",
+          color: "#ffffff",
+          cursor: loading ? "not-allowed" : "pointer",
+          border: "none",
+          fontWeight: 600,
         }}
       >
         {loading ? "Generating..." : "Generate Today’s Plan"}
@@ -58,11 +72,14 @@ export default function GrowthPage() {
       {result && (
         <div
           style={{
-            marginTop: 20,
-            background: "#f5f5f5",
-            padding: 16,
-            borderRadius: 8,
+            marginTop: 24,
+            background: "#f9fafb",
+            color: "#111827",
+            padding: 18,
+            borderRadius: 12,
             whiteSpace: "pre-wrap",
+            border: "1px solid #e5e7eb",
+            lineHeight: 1.6,
           }}
         >
           {result}
