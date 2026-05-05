@@ -3,32 +3,47 @@ import { revalidatePath } from "next/cache";
 
 export const runtime = "nodejs";
 
+function daysSince(date: string | null) {
+  if (!date) return 999;
+  const diff = Date.now() - new Date(date).getTime();
+  return diff / (1000 * 60 * 60 * 24);
+}
+
+function isDue(target: any) {
+  const days = daysSince(target.last_action_at);
+
+  if (target.stage === "connection") return true;
+  if (target.stage === "day3_dm") return days >= 3;
+  if (target.stage === "day10_insight") return days >= 7;
+  if (target.stage === "day17_followup") return days >= 7;
+
+  return false;
+}
+
 function firstName(name: string) {
-  return name.trim().split(" ")[0] || name;
+  return name.split(" ")[0];
 }
 
 function getMessage(target: any) {
   const name = firstName(target.target_name);
-  const company = target.company || "your organisation";
-  const role = target.role_title || "your role";
 
   if (target.stage === "connection") {
-    return `Hi ${name}, I noticed your work around ${role} at ${company}. I’ve been speaking with HR and wellbeing leaders about what actually gets used beyond traditional EAP support. It would be good to connect.`;
+    return `Hi ${name}, I noticed your work in ${target.role_title}. I’ve been speaking with HR leaders about what actually gets used beyond EAPs. Would be good to connect.`;
   }
 
   if (target.stage === "day3_dm") {
-    return `Thanks for connecting, ${name}. I’ve been asking HR leaders a simple question: what parts of your current wellbeing or EAP setup do people genuinely use — and where does it fall short?`;
+    return `Thanks for connecting, ${name}. Quick question — what parts of your current wellbeing setup actually get used, and where does it fall short?`;
   }
 
   if (target.stage === "day10_insight") {
-    return `Hi ${name}, one thing I keep seeing is that support often exists, but people only reach for it once things have already escalated. Do you find that at ${company}, or is engagement stronger?`;
+    return `Hi ${name}, one thing I keep seeing is support exists, but people only use it once things escalate. Do you see that in your organisation?`;
   }
 
   if (target.stage === "day17_followup") {
-    return `Just wanted to gently follow up, ${name}. Curious how you’re seeing engagement with wellbeing support in practice at the moment.`;
+    return `Just wanted to follow up, ${name}. Curious how you're seeing engagement with wellbeing support in practice.`;
   }
 
-  return `Hi ${name}, keeping this one parked for now.`;
+  return "";
 }
 
 function nextStage(stage: string) {
@@ -42,47 +57,17 @@ export default async function FollowUpsPage() {
   const { data } = await supabaseAdmin
     .from("growth_targets")
     .select("*")
-    .eq("status", "active")
-    .order("created_at", { ascending: false });
+    .eq("status", "active");
 
-  async function addTarget(formData: FormData) {
-    "use server";
+  const due = data?.filter(isDue) || [];
 
-    await supabaseAdmin.from("growth_targets").insert({
-      target_name: String(formData.get("target_name") || ""),
-      company: String(formData.get("company") || ""),
-      role_title: String(formData.get("role_title") || ""),
-      linkedin_url: String(formData.get("linkedin_url") || ""),
-      notes: String(formData.get("notes") || ""),
-      stage: "connection",
-      status: "active",
-    });
-
-    revalidatePath("/dashboard/growth/followups");
-  }
-
-  async function advanceTarget(id: string, currentStage: string) {
+  async function advanceTarget(id: string, stage: string) {
     "use server";
 
     await supabaseAdmin
       .from("growth_targets")
       .update({
-        stage: nextStage(currentStage),
-        last_action_at: new Date().toISOString(),
-      })
-      .eq("id", id);
-
-    revalidatePath("/dashboard/growth/followups");
-  }
-
-  async function parkTarget(id: string) {
-    "use server";
-
-    await supabaseAdmin
-      .from("growth_targets")
-      .update({
-        status: "parked",
-        stage: "parked",
+        stage: nextStage(stage),
         last_action_at: new Date().toISOString(),
       })
       .eq("id", id);
@@ -92,212 +77,85 @@ export default async function FollowUpsPage() {
 
   return (
     <main style={page}>
-      <h1 style={title}>🎯 Follow-Up Engine</h1>
+      <h1 style={title}>🎯 Today’s Follow-Ups</h1>
 
       <p style={subtitle}>
-        Add LinkedIn targets, generate personalised messages, and move them through the outreach sequence.
+        Only showing people you should message today.
       </p>
 
-      <div style={{ marginTop: 16 }}>
-        <a href="/dashboard/growth" style={button}>← Daily Growth Engine</a>{" "}
-        <a href="/dashboard/growth/tracker" style={button}>📊 Tracker</a>
-      </div>
+      <a href="/dashboard/growth" style={button}>
+        ← Back
+      </a>
 
-      <section style={card}>
-        <h2>Add Target</h2>
-
-        <form action={addTarget}>
-          <input name="target_name" placeholder="Name e.g. Sarah Jones" required style={input} />
-          <input name="company" placeholder="Company e.g. Acme Ltd" style={input} />
-          <input name="role_title" placeholder="Role e.g. HR Director" style={input} />
-          <input name="linkedin_url" placeholder="LinkedIn URL optional" style={input} />
-          <textarea name="notes" placeholder="Notes e.g. posted about burnout, hybrid work, EAPs" style={textarea} />
-
-          <button style={greenButton}>Add Target</button>
-        </form>
-      </section>
-
-      <section style={{ marginTop: 24 }}>
-        {!data || data.length === 0 ? (
-          <p>No targets yet.</p>
+      <div style={{ marginTop: 24 }}>
+        {due.length === 0 ? (
+          <p>No follow-ups due today.</p>
         ) : (
-          data.map((target: any) => (
-            <article key={target.id} style={card}>
-              <p style={date}>
-                Added: {new Date(target.created_at).toLocaleString("en-GB")}
-              </p>
+          due.map((t: any) => (
+            <article key={t.id} style={card}>
+              <h2>{t.target_name}</h2>
+              <p style={muted}>{t.role_title} · {t.company}</p>
 
-              <h2 style={cardTitle}>
-                {target.target_name}
-              </h2>
+              <p style={stage}>Stage: {t.stage}</p>
 
-              <p style={muted}>
-                {target.role_title || "Role not added"} · {target.company || "Company not added"}
-              </p>
-
-              <p style={stageBadge}>
-                Stage: {target.stage}
-              </p>
-
-              {target.linkedin_url && (
-                <p>
-                  <a href={target.linkedin_url} target="_blank" style={link}>
-                    Open LinkedIn profile
-                  </a>
-                </p>
-              )}
-
-              {target.notes && (
-                <>
-                  <h3 style={smallTitle}>Notes</h3>
-                  <p style={text}>{target.notes}</p>
-                </>
-              )}
-
-              <h3 style={smallTitle}>Suggested Message</h3>
-
-              <div style={messageBox}>
-                {getMessage(target)}
+              <div style={msg}>
+                {getMessage(t)}
               </div>
 
-              <form action={advanceTarget.bind(null, target.id, target.stage)} style={{ display: "inline-block" }}>
-                <button style={greenButton}>
-                  Mark Sent / Move Next
-                </button>
-              </form>
-
-              <form action={parkTarget.bind(null, target.id)} style={{ display: "inline-block", marginLeft: 10 }}>
-                <button style={darkButton}>
-                  Park
+              <form action={advanceTarget.bind(null, t.id, t.stage)}>
+                <button style={btn}>
+                  Mark Sent
                 </button>
               </form>
             </article>
           ))
         )}
-      </section>
+      </div>
     </main>
   );
 }
 
-const page: React.CSSProperties = {
+const page = {
   padding: 24,
-  color: "#ffffff",
+  color: "#fff",
   background: "#020617",
   minHeight: "100vh",
 };
 
-const title: React.CSSProperties = {
-  fontSize: 28,
-  fontWeight: 700,
-};
+const title = { fontSize: 28, fontWeight: 700 };
+const subtitle = { color: "#cbd5e1" };
 
-const subtitle: React.CSSProperties = {
-  marginTop: 8,
-  color: "#cbd5e1",
-};
-
-const button: React.CSSProperties = {
+const button = {
   display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  background: "#ffffff",
-  color: "#020617",
-  textDecoration: "none",
-  fontWeight: 700,
+  marginTop: 12,
+  padding: "8px 12px",
+  background: "#fff",
+  color: "#000",
+  borderRadius: 8,
 };
 
-const card: React.CSSProperties = {
+const card = {
   background: "#0f172a",
-  border: "1px solid #334155",
-  borderRadius: 14,
-  padding: 18,
-  marginTop: 18,
-};
-
-const input: React.CSSProperties = {
-  display: "block",
-  width: "100%",
-  marginTop: 10,
-  padding: 10,
-  borderRadius: 8,
-  border: "1px solid #334155",
-  background: "#020617",
-  color: "#ffffff",
-};
-
-const textarea: React.CSSProperties = {
-  display: "block",
-  width: "100%",
-  marginTop: 10,
-  padding: 10,
-  borderRadius: 8,
-  border: "1px solid #334155",
-  background: "#020617",
-  color: "#ffffff",
-  minHeight: 80,
-};
-
-const greenButton: React.CSSProperties = {
-  marginTop: 12,
-  padding: "9px 12px",
-  borderRadius: 8,
-  background: "#22c55e",
-  color: "#020617",
-  border: "none",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const darkButton: React.CSSProperties = {
-  marginTop: 12,
-  padding: "9px 12px",
-  borderRadius: 8,
-  background: "#334155",
-  color: "#ffffff",
-  border: "none",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const date: React.CSSProperties = {
-  color: "#94a3b8",
-  fontSize: 13,
-};
-
-const cardTitle: React.CSSProperties = {
-  fontSize: 22,
-  marginTop: 8,
-};
-
-const muted: React.CSSProperties = {
-  color: "#cbd5e1",
-};
-
-const stageBadge: React.CSSProperties = {
-  color: "#facc15",
-  fontWeight: 700,
-};
-
-const smallTitle: React.CSSProperties = {
-  marginTop: 16,
-  fontSize: 16,
-};
-
-const text: React.CSSProperties = {
-  color: "#e5e7eb",
-  whiteSpace: "pre-wrap",
-};
-
-const messageBox: React.CSSProperties = {
-  background: "#020617",
   border: "1px solid #334155",
   borderRadius: 10,
   padding: 14,
-  color: "#ffffff",
-  whiteSpace: "pre-wrap",
-  lineHeight: 1.6,
+  marginBottom: 14,
 };
 
-const link: React.CSSProperties = {
-  color: "#93c5fd",
+const muted = { color: "#94a3b8" };
+const stage = { color: "#facc15" };
+
+const msg = {
+  marginTop: 10,
+  background: "#020617",
+  padding: 10,
+  borderRadius: 8,
+};
+
+const btn = {
+  marginTop: 10,
+  padding: "6px 10px",
+  background: "#22c55e",
+  color: "#000",
+  borderRadius: 6,
 };
