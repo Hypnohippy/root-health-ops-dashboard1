@@ -5,10 +5,12 @@ import { useState } from "react";
 export default function GrowthPage() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
+  const [saved, setSaved] = useState(false);
 
   async function generate() {
     setLoading(true);
     setData(null);
+    setSaved(false);
 
     try {
       const res = await fetch("/api/ai/growth-engine", {
@@ -26,7 +28,8 @@ export default function GrowthPage() {
       if (!json.success) {
         alert(json.error);
       } else {
-        setData(JSON.parse(json.data));
+        setData(json.data);
+        setSaved(true);
       }
     } catch (err: any) {
       alert(err.message);
@@ -57,15 +60,19 @@ export default function GrowthPage() {
         {loading ? "Generating..." : "Generate Today’s Plan"}
       </button>
 
+      {saved && (
+        <p style={{ marginTop: 12, color: "#86efac" }}>
+          Saved to Growth Tracker ✅
+        </p>
+      )}
+
       {data && (
         <div style={{ marginTop: 24 }}>
 
-          {/* POST */}
           <Section title="LinkedIn Post" onCopy={() => copy(data.linkedin_post)}>
             {data.linkedin_post}
           </Section>
 
-          {/* CONNECTIONS */}
           <Section title="Connection Messages">
             {data.connection_messages.map((msg: string, i: number) => (
               <div key={i} style={{ marginBottom: 10 }}>
@@ -75,17 +82,14 @@ export default function GrowthPage() {
             ))}
           </Section>
 
-          {/* DM */}
           <Section title="DM Message" onCopy={() => copy(data.dm_message)}>
             {data.dm_message}
           </Section>
 
-          {/* FOLLOW UP */}
           <Section title="Follow Up" onCopy={() => copy(data.follow_up_message)}>
             {data.follow_up_message}
           </Section>
 
-          {/* SEO */}
           <Section title="SEO Article">
             <strong>{data.seo_article.title}</strong>
             <ul>
