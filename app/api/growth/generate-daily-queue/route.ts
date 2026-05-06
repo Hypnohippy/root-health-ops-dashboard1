@@ -36,7 +36,14 @@ export async function GET() {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    const dueTargets = (targets || []).filter(isDue).slice(0, 10);
+    const dueTargets = (targets || [])
+  .filter(isDue)
+  .filter((t) =>
+    !t.lead_quality ||
+    t.lead_quality === "unreviewed" ||
+    t.lead_quality === "valid"
+  )
+  .slice(0, 10);
 
     const results = [];
 
