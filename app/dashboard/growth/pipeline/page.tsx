@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 export default function GrowthPipelinePage() {
   const [targets, setTargets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [generatedMessages, setGeneratedMessages] = useState<Record<string, string>>({});
+  const [generatingFor, setGeneratingFor] = useState<string | null>(null);
 
   useEffect(() => {
     loadPipeline();
@@ -60,6 +62,52 @@ export default function GrowthPipelinePage() {
     await loadPipeline();
   }
 
+  async function generateMessage(targetId: string) {
+    const messageType = (
+      document.getElementById(`message-type-${targetId}`) as HTMLSelectElement | null
+    )?.value || "next_best_message";
+
+    setGeneratingFor(targetId);
+
+    const res = await fetch("/api/growth/generate-message", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        targetId,
+        messageType,
+      }),
+    });
+
+    const json = await res.json();
+
+    if (!json.success) {
+      alert(json.error || "Could not generate message.");
+      setGeneratingFor(null);
+      return;
+    }
+
+    setGeneratedMessages((prev) => ({
+      ...prev,
+      [targetId]: json.message || "",
+    }));
+
+    setGeneratingFor(null);
+  }
+
+  function updateGeneratedMessage(targetId: string, value: string) {
+    setGeneratedMessages((prev) => ({
+      ...prev,
+      [targetId]: value,
+    }));
+  }
+
+  function copy(text: string) {
+    navigator.clipboard.writeText(text || "");
+    alert("Copied ✅");
+  }
+
   const warm = targets.filter((t) => t.reply_status === "warm_lead");
   const calls = targets.filter((t) => t.reply_status === "call_booked");
   const replied = targets.filter((t) => t.reply_status === "replied");
@@ -96,7 +144,7 @@ export default function GrowthPipelinePage() {
       <h1 style={title}>💼 Growth Pipeline</h1>
 
       <p style={subtitle}>
-        Track replies, calls booked, deal value and revenue potential.
+        Track replies, calls booked, deal value and generate editable client-specific messages.
       </p>
 
       <div style={{ marginTop: 16 }}>
@@ -116,12 +164,71 @@ export default function GrowthPipelinePage() {
             <Stat label="Booked Value" value={`£${bookedValue.toLocaleString()}`} />
           </div>
 
-          <PipelineSection title="🔥 Hot Leads / Focus Today" targets={hotLeads} onSave={updateDeal} />
-          <PipelineSection title="🔥 Warm Leads" targets={warm} onSave={updateDeal} />
-          <PipelineSection title="📅 Calls Booked" targets={calls} onSave={updateDeal} />
-          <PipelineSection title="💬 Replied" targets={replied} onSave={updateDeal} />
-          <PipelineSection title="⏳ No Reply Yet" targets={noReply} onSave={updateDeal} />
-          <PipelineSection title="🚫 Not Interested" targets={notInterested} onSave={updateDeal} />
+          <PipelineSection
+            title="🔥 Hot Leads / Focus Today"
+            targets={hotLeads}
+            onSave={updateDeal}
+            onGenerate={generateMessage}
+            generatingFor={generatingFor}
+            generatedMessages={generatedMessages}
+            onMessageChange={updateGeneratedMessage}
+            onCopy={copy}
+          />
+
+          <PipelineSection
+            title="🔥 Warm Leads"
+            targets={warm}
+            onSave={updateDeal}
+            onGenerate={generateMessage}
+            generatingFor={generatingFor}
+            generatedMessages={generatedMessages}
+            onMessageChange={updateGeneratedMessage}
+            onCopy={copy}
+          />
+
+          <PipelineSection
+            title="📅 Calls Booked"
+            targets={calls}
+            onSave={updateDeal}
+            onGenerate={generateMessage}
+            generatingFor={generatingFor}
+            generatedMessages={generatedMessages}
+            onMessageChange={updateGeneratedMessage}
+            onCopy={copy}
+          />
+
+          <PipelineSection
+            title="💬 Replied"
+            targets={replied}
+            onSave={updateDeal}
+            onGenerate={generateMessage}
+            generatingFor={generatingFor}
+            generatedMessages={generatedMessages}
+            onMessageChange={updateGeneratedMessage}
+            onCopy={copy}
+          />
+
+          <PipelineSection
+            title="⏳ No Reply Yet"
+            targets={noReply}
+            onSave={updateDeal}
+            onGenerate={generateMessage}
+            generatingFor={generatingFor}
+            generatedMessages={generatedMessages}
+            onMessageChange={updateGeneratedMessage}
+            onCopy={copy}
+          />
+
+          <PipelineSection
+            title="🚫 Not Interested"
+            targets={notInterested}
+            onSave={updateDeal}
+            onGenerate={generateMessage}
+            generatingFor={generatingFor}
+            generatedMessages={generatedMessages}
+            onMessageChange={updateGeneratedMessage}
+            onCopy={copy}
+          />
         </>
       )}
     </main>
@@ -141,10 +248,20 @@ function PipelineSection({
   title,
   targets,
   onSave,
+  onGenerate,
+  generatingFor,
+  generatedMessages,
+  onMessageChange,
+  onCopy,
 }: {
   title: string;
   targets: any[];
   onSave: (id: string) => void;
+  onGenerate: (id: string) => void;
+  generatingFor: string | null;
+  generatedMessages: Record<string, string>;
+  onMessageChange: (id: string, value: string) => void;
+  onCopy: (text: string) => void;
 }) {
   return (
     <section style={section}>
@@ -178,6 +295,51 @@ function PipelineSection({
                 <p style={text}>{target.reply_notes}</p>
               </>
             )}
+
+            <div style={messageGeneratorBox}>
+              <h4 style={{ marginTop: 0 }}>Generate Editable Message</h4>
+
+              <label style={label}>Message type</label>
+              <select
+                id={`message-type-${target.id}`}
+                defaultValue="next_best_message"
+                style={input}
+              >
+                <option value="next_best_message">Next best message</option>
+                <option value="linkedin_follow_up">LinkedIn follow-up</option>
+                <option value="email_intro">Email intro</option>
+                <option value="pilot_proposal_intro">Pilot proposal intro</option>
+                <option value="call_booking_message">Call booking message</option>
+                <option value="post_call_follow_up">Post-call follow-up</option>
+                <option value="gentle_nudge">Gentle nudge</option>
+              </select>
+
+              <button
+                onClick={() => onGenerate(target.id)}
+                style={generateButton}
+                disabled={generatingFor === target.id}
+              >
+                {generatingFor === target.id ? "Generating..." : "Generate Message"}
+              </button>
+
+              {generatedMessages[target.id] && (
+                <>
+                  <label style={label}>Editable finished message</label>
+                  <textarea
+                    value={generatedMessages[target.id]}
+                    onChange={(e) => onMessageChange(target.id, e.target.value)}
+                    style={editableMessage}
+                  />
+
+                  <button
+                    onClick={() => onCopy(generatedMessages[target.id])}
+                    style={copyButton}
+                  >
+                    Copy Edited Message
+                  </button>
+                </>
+              )}
+            </div>
 
             <div style={dealBox}>
               <h4 style={{ marginTop: 0 }}>Deal Tracking</h4>
@@ -323,6 +485,14 @@ const text: React.CSSProperties = {
   lineHeight: 1.6,
 };
 
+const messageGeneratorBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: 14,
+  borderRadius: 12,
+  background: "#0f172a",
+  border: "1px solid #334155",
+};
+
 const dealBox: React.CSSProperties = {
   marginTop: 16,
   padding: 14,
@@ -345,6 +515,41 @@ const input: React.CSSProperties = {
   background: "#020617",
   color: "#ffffff",
   border: "1px solid #334155",
+};
+
+const editableMessage: React.CSSProperties = {
+  width: "100%",
+  minHeight: 180,
+  marginTop: 8,
+  padding: 12,
+  borderRadius: 10,
+  background: "#020617",
+  color: "#ffffff",
+  border: "1px solid #334155",
+  whiteSpace: "pre-wrap",
+  lineHeight: 1.6,
+};
+
+const generateButton: React.CSSProperties = {
+  marginTop: 12,
+  padding: "8px 12px",
+  borderRadius: 8,
+  background: "#facc15",
+  color: "#020617",
+  border: "none",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const copyButton: React.CSSProperties = {
+  marginTop: 10,
+  padding: "8px 12px",
+  borderRadius: 8,
+  background: "#ffffff",
+  color: "#020617",
+  border: "none",
+  fontWeight: 800,
+  cursor: "pointer",
 };
 
 const saveButton: React.CSSProperties = {
