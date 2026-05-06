@@ -90,32 +90,33 @@ export async function POST(req: Request) {
           `${firstName} ${lastName}`.trim();
 
         return {
-          target_name: targetName,
-          company: pick(row, [
-            "Company",
-            "Company Name",
-            "Organisation",
-            "Organization",
-            "Account Name",
-          ]),
-          role_title: pick(row, [
-            "Job Title",
-            "Title",
-            "Role",
-            "Position",
-            "Headline",
-          ]),
-          linkedin_url: pick(row, [
-            "LinkedIn",
-            "LinkedIn URL",
-            "Profile URL",
-            "Person LinkedIn URL",
-            "Linkedin Url",
-          ]),
-          notes: buildNotes(row),
-          stage: "connection",
-          status: "active",
-        };
+  target_name: targetName,
+  company: pick(row, [
+    "Company",
+    "Company Name",
+    "Organisation",
+    "Organization",
+    "Account Name",
+  ]),
+  role_title: pick(row, [
+    "Job Title",
+    "Title",
+    "Role",
+    "Position",
+    "Headline",
+  ]),
+  linkedin_url: pick(row, [
+    "LinkedIn",
+    "LinkedIn URL",
+    "Profile URL",
+    "Person LinkedIn URL",
+    "Linkedin Url",
+  ]),
+  notes: buildNotes(row),
+  stage: "connection",
+  status: "active",
+  lead_quality: "unreviewed",
+};
       })
       .filter((row) => row.target_name);
 
