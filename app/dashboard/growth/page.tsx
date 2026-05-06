@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 
 export default function GrowthPage() {
   const [loading, setLoading] = useState(false);
+  const [queueLoading, setQueueLoading] = useState(false);
   const [data, setData] = useState<any>(null);
   const [saved, setSaved] = useState(false);
   const [followups, setFollowups] = useState<any[]>([]);
+  const [queue, setQueue] = useState<any[]>([]);
   const [followupsLoading, setFollowupsLoading] = useState(true);
 
   useEffect(() => {
@@ -28,6 +30,34 @@ export default function GrowthPage() {
     }
 
     setFollowupsLoading(false);
+  }
+
+  async function generateDailyQueue() {
+    setQueueLoading(true);
+    setQueue([]);
+
+    try {
+      const res = await fetch("/api/growth/generate-daily-queue");
+      const json = await res.json();
+
+      if (!json.success) {
+        alert(json.error || "Could not generate daily queue.");
+      } else {
+        setQueue(json.data || []);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+
+    setQueueLoading(false);
+  }
+
+  function updateQueueMessage(id: string, value: string) {
+    setQueue((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, message: value } : item
+      )
+    );
   }
 
   async function generate() {
@@ -73,6 +103,7 @@ export default function GrowthPage() {
       }),
     });
 
+    setQueue((prev) => prev.filter((item) => item.id !== target.id));
     await loadFollowups();
   }
 
@@ -113,6 +144,7 @@ export default function GrowthPage() {
 
   function copy(text: string) {
     navigator.clipboard.writeText(text || "");
+    alert("Copied ✅");
   }
 
   return (
@@ -120,16 +152,13 @@ export default function GrowthPage() {
       <h1 style={title}>🚀 Daily Growth Cockpit</h1>
 
       <p style={subtitle}>
-        Generate today’s content, message today’s targets, and track replies.
+        Generate content, prepare today’s messages, and track replies.
       </p>
 
       <div style={{ marginTop: 16 }}>
-        <a href="/dashboard/growth/tracker" style={smallLink}>
-          📊 Tracker
-        </a>{" "}
-        <a href="/dashboard/growth/followups" style={smallLink}>
-          🎯 Follow-Ups
-        </a>
+        <a href="/dashboard/growth/tracker" style={smallLink}>📊 Tracker</a>{" "}
+        <a href="/dashboard/growth/followups" style={smallLink}>🎯 Follow-Ups</a>{" "}
+        <a href="/dashboard/growth/pipeline" style={smallLink}>💼 Pipeline</a>
       </div>
 
       <section style={card}>
@@ -147,10 +176,7 @@ export default function GrowthPage() {
 
         {data && (
           <div style={{ marginTop: 24 }}>
-            <Section
-              title="LinkedIn Post"
-              onCopy={() => copy(data.linkedin_post)}
-            >
+            <Section title="LinkedIn Post" onCopy={() => copy(data.linkedin_post)}>
               {data.linkedin_post}
             </Section>
 
@@ -167,10 +193,7 @@ export default function GrowthPage() {
               {data.dm_message}
             </Section>
 
-            <Section
-              title="Follow Up"
-              onCopy={() => copy(data.follow_up_message)}
-            >
+            <Section title="Follow Up" onCopy={() => copy(data.follow_up_message)}>
               {data.follow_up_message}
             </Section>
 
@@ -187,7 +210,55 @@ export default function GrowthPage() {
       </section>
 
       <section style={card}>
-        <h2>2. Message These People Today</h2>
+        <h2>2. Generate Today’s Message Queue</h2>
+
+        <p style={muted}>
+          Creates editable personalised messages for up to 10 people due today.
+        </p>
+
+        <button onClick={generateDailyQueue} style={yellowButton} disabled={queueLoading}>
+          {queueLoading ? "Generating messages..." : "Generate Today’s Messages"}
+        </button>
+
+        {queue.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            {queue.map((item) => (
+              <article key={item.id} style={targetCard}>
+                <h3 style={{ margin: 0 }}>{item.target_name}</h3>
+
+                <p style={muted}>
+                  {item.role_title || "Role not added"} · {item.company || "Company not added"}
+                </p>
+
+                <p style={stage}>Stage: {item.stage}</p>
+
+                {item.linkedin_url && (
+                  <a href={item.linkedin_url} target="_blank" style={profileLink}>
+                    Open LinkedIn profile
+                  </a>
+                )}
+
+                <textarea
+                  value={item.message}
+                  onChange={(e) => updateQueueMessage(item.id, e.target.value)}
+                  style={editableMessage}
+                />
+
+                <button onClick={() => copy(item.message)} style={copyButton}>
+                  Copy Message
+                </button>
+
+                <button onClick={() => markSent(item)} style={sentButton}>
+                  Mark Sent / Move Next
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section style={card}>
+        <h2>3. Message These People Today</h2>
 
         {followupsLoading ? (
           <p style={muted}>Loading follow-ups...</p>
@@ -217,10 +288,7 @@ export default function GrowthPage() {
 
               <div style={messageBox}>{target.suggested_message}</div>
 
-              <button
-                onClick={() => copy(target.suggested_message)}
-                style={copyButton}
-              >
+              <button onClick={() => copy(target.suggested_message)} style={copyButton}>
                 Copy Message
               </button>
 
@@ -250,10 +318,7 @@ export default function GrowthPage() {
                   style={textarea}
                 />
 
-                <button
-                  onClick={() => updateReply(target.id)}
-                  style={saveReplyButton}
-                >
+                <button onClick={() => updateReply(target.id)} style={saveReplyButton}>
                   Save Reply Tracking
                 </button>
               </div>
@@ -335,6 +400,17 @@ const mainButton: React.CSSProperties = {
   cursor: "pointer",
 };
 
+const yellowButton: React.CSSProperties = {
+  marginTop: 12,
+  padding: "12px 18px",
+  borderRadius: 10,
+  background: "#facc15",
+  color: "#020617",
+  border: "none",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
 const section: React.CSSProperties = {
   background: "#020617",
   padding: 16,
@@ -377,6 +453,19 @@ const messageBox: React.CSSProperties = {
   border: "1px solid #334155",
   borderRadius: 10,
   padding: 14,
+  whiteSpace: "pre-wrap",
+  lineHeight: 1.6,
+};
+
+const editableMessage: React.CSSProperties = {
+  width: "100%",
+  minHeight: 140,
+  marginTop: 10,
+  padding: 12,
+  borderRadius: 10,
+  background: "#0f172a",
+  color: "#ffffff",
+  border: "1px solid #334155",
   whiteSpace: "pre-wrap",
   lineHeight: 1.6,
 };
