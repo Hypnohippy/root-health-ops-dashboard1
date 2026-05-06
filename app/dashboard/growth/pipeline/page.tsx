@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function GrowthPipelinePage() {
   const [targets, setTargets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-
   const [callPrep, setCallPrep] = useState<Record<string, string>>({});
   const [loadingPrep, setLoadingPrep] = useState<string | null>(null);
 
@@ -53,6 +52,48 @@ export default function GrowthPipelinePage() {
     setLoadingPrep(null);
   }
 
+  async function saveCallOutcome(targetId: string) {
+    const callOutcome = (
+      document.getElementById(`call-outcome-${targetId}`) as HTMLSelectElement | null
+    )?.value;
+
+    const callNotes = (
+      document.getElementById(`call-notes-${targetId}`) as HTMLTextAreaElement | null
+    )?.value;
+
+    const nextStep = (
+      document.getElementById(`next-step-${targetId}`) as HTMLInputElement | null
+    )?.value;
+
+    const nextStepDate = (
+      document.getElementById(`next-step-date-${targetId}`) as HTMLInputElement | null
+    )?.value;
+
+    const res = await fetch("/api/growth/update-call-outcome", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        id: targetId,
+        call_outcome: callOutcome || "",
+        call_notes: callNotes || "",
+        next_step: nextStep || "",
+        next_step_date: nextStepDate || null,
+      }),
+    });
+
+    const json = await res.json();
+
+    if (!json.success) {
+      alert(json.error || "Could not save call outcome.");
+      return;
+    }
+
+    alert("Call outcome saved ✅");
+    await loadPipeline();
+  }
+
   function updatePrep(targetId: string, value: string) {
     setCallPrep((prev) => ({
       ...prev,
@@ -72,12 +113,13 @@ export default function GrowthPipelinePage() {
       <h1 style={title}>📅 Calls & Call Prep</h1>
 
       <p style={subtitle}>
-        Prepare for booked calls with structured, editable AI-generated prep.
+        Prepare for booked calls, record outcomes, and set the next step.
       </p>
 
       <div style={{ marginTop: 16 }}>
         <a href="/dashboard/growth" style={button}>← Cockpit</a>{" "}
-        <a href="/dashboard/growth/pipeline" style={button}>💼 Pipeline</a>
+        <a href="/dashboard/growth/followups" style={button}>🎯 Follow-Ups</a>{" "}
+        <a href="/dashboard/growth/tracker" style={button}>📊 Tracker</a>
       </div>
 
       {loading ? (
@@ -100,8 +142,7 @@ export default function GrowthPipelinePage() {
 
             {target.call_date && (
               <p style={date}>
-                Call date:{" "}
-                {new Date(target.call_date).toLocaleString("en-GB")}
+                Call date: {new Date(target.call_date).toLocaleString("en-GB")}
               </p>
             )}
 
@@ -109,18 +150,14 @@ export default function GrowthPipelinePage() {
               onClick={() => generateCallPrep(target.id)}
               style={generateButton}
             >
-              {loadingPrep === target.id
-                ? "Generating..."
-                : "Generate Call Prep"}
+              {loadingPrep === target.id ? "Generating..." : "Generate Call Prep"}
             </button>
 
             {callPrep[target.id] && (
               <>
                 <textarea
                   value={callPrep[target.id]}
-                  onChange={(e) =>
-                    updatePrep(target.id, e.target.value)
-                  }
+                  onChange={(e) => updatePrep(target.id, e.target.value)}
                   style={textarea}
                 />
 
@@ -132,6 +169,59 @@ export default function GrowthPipelinePage() {
                 </button>
               </>
             )}
+
+            <section style={outcomeBox}>
+              <h3 style={{ marginTop: 0 }}>Call Outcome</h3>
+
+              <label style={label}>Outcome</label>
+              <select
+                id={`call-outcome-${target.id}`}
+                defaultValue={target.call_outcome || ""}
+                style={input}
+              >
+                <option value="">Select outcome</option>
+                <option value="good_call">Good call</option>
+                <option value="proposal_needed">Proposal needed</option>
+                <option value="proposal_sent">Proposal sent</option>
+                <option value="follow_up_needed">Follow-up needed</option>
+                <option value="won">Won</option>
+                <option value="lost">Lost</option>
+                <option value="no_show">No show</option>
+              </select>
+
+              <label style={label}>Call notes</label>
+              <textarea
+                id={`call-notes-${target.id}`}
+                defaultValue={target.call_notes || ""}
+                placeholder="What did they say? What matters to them? Any objections?"
+                style={textareaSmall}
+              />
+
+              <label style={label}>Next step</label>
+              <input
+                id={`next-step-${target.id}`}
+                defaultValue={target.next_step || ""}
+                placeholder="e.g. Send pilot proposal, book second call, send pricing"
+                style={input}
+              />
+
+              <label style={label}>Next step date</label>
+              <input
+                id={`next-step-date-${target.id}`}
+                type="datetime-local"
+                defaultValue={
+                  target.next_step_date ? target.next_step_date.slice(0, 16) : ""
+                }
+                style={input}
+              />
+
+              <button
+                onClick={() => saveCallOutcome(target.id)}
+                style={saveButton}
+              >
+                Save Call Outcome
+              </button>
+            </section>
           </article>
         ))
       )}
@@ -216,6 +306,51 @@ const copyButton: React.CSSProperties = {
   padding: "8px 12px",
   borderRadius: 8,
   background: "#22c55e",
+  color: "#020617",
+  border: "none",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const outcomeBox: React.CSSProperties = {
+  marginTop: 18,
+  padding: 14,
+  borderRadius: 12,
+  background: "#020617",
+  border: "1px solid #334155",
+};
+
+const label: React.CSSProperties = {
+  display: "block",
+  marginTop: 10,
+  marginBottom: 4,
+  color: "#cbd5e1",
+};
+
+const input: React.CSSProperties = {
+  width: "100%",
+  padding: 10,
+  borderRadius: 8,
+  background: "#0f172a",
+  color: "#ffffff",
+  border: "1px solid #334155",
+};
+
+const textareaSmall: React.CSSProperties = {
+  width: "100%",
+  minHeight: 90,
+  padding: 10,
+  borderRadius: 8,
+  background: "#0f172a",
+  color: "#ffffff",
+  border: "1px solid #334155",
+};
+
+const saveButton: React.CSSProperties = {
+  marginTop: 12,
+  padding: "8px 12px",
+  borderRadius: 8,
+  background: "#38bdf8",
   color: "#020617",
   border: "none",
   fontWeight: 800,
