@@ -23,7 +23,14 @@ export default async function GrowthPipelinePage() {
   const replied = data?.filter((t: any) => t.reply_status === "replied") || [];
   const noReply = data?.filter((t: any) => !t.reply_status || t.reply_status === "no_reply") || [];
   const notInterested = data?.filter((t: any) => t.reply_status === "not_interested") || [];
+const recentReplies =
+  data?.filter((t: any) => {
+    if (!t.replied_at) return false;
+    const diff = Date.now() - new Date(t.replied_at).getTime();
+    return diff < 1000 * 60 * 60 * 48; // last 48h
+  }) || [];
 
+const hotLeads = [...warm, ...calls, ...recentReplies];
   return (
     <main style={page}>
       <h1 style={title}>💼 Growth Pipeline</h1>
@@ -44,7 +51,7 @@ export default async function GrowthPipelinePage() {
         <Stat label="Replied" value={replied.length} />
         <Stat label="No Reply" value={noReply.length} />
       </div>
-
+      <PipelineSection title="🔥 Hot Leads (Focus Today)" targets={hotLeads} />
       <PipelineSection title="🔥 Warm Leads" targets={warm} />
       <PipelineSection title="📅 Calls Booked" targets={calls} />
       <PipelineSection title="💬 Replied" targets={replied} />
