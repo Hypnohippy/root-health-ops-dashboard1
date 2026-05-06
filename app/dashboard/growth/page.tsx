@@ -220,7 +220,19 @@ export default function GrowthPage() {
           {queueLoading ? "Generating messages..." : "Generate Today’s Messages"}
         </button>
 
-        {queue.length > 0 && (
+       {queue.length === 0 && !queueLoading && (
+  <div style={{ marginTop: 16 }}>
+    <p style={{ color: "#94a3b8" }}>
+      No targets due today.
+    </p>
+
+    <a href="/dashboard/growth/followups" style={smallLink}>
+      → Add or view targets
+    </a>
+  </div>
+)}
+
+{queue.length > 0 && (
           <div style={{ marginTop: 18 }}>
             {queue.map((item) => (
               <article key={item.id} style={targetCard}>
