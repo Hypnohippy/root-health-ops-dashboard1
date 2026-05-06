@@ -1,8 +1,27 @@
 import { NextResponse } from "next/server";
-import Papa from "papaparse";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
+
+function parseCSV(text: string) {
+  const rows = text
+    .replace(/\r/g, "")
+    .split("\n")
+    .filter((row) => row.trim().length > 0);
+
+  const headers = rows[0].split(",").map((h) => h.trim());
+
+  return rows.slice(1).map((row) => {
+    const values = row.split(",").map((v) => v.trim());
+    const obj: Record<string, string> = {};
+
+    headers.forEach((header, index) => {
+      obj[header] = values[index] || "";
+    });
+
+    return obj;
+  });
+}
 
 function pick(row: Record<string, any>, possibleNames: string[]) {
   const keys = Object.keys(row);
@@ -28,8 +47,8 @@ function buildNotes(row: Record<string, any>) {
     "last name",
     "company",
     "company name",
-    "organization",
     "organisation",
+    "organization",
     "job title",
     "title",
     "role",
@@ -41,10 +60,7 @@ function buildNotes(row: Record<string, any>) {
   ];
 
   return Object.entries(row)
-    .filter(([key, value]) => {
-      if (!value) return false;
-      return !used.includes(key.trim().toLowerCase());
-    })
+    .filter(([key, value]) => value && !used.includes(key.trim().toLowerCase()))
     .map(([key, value]) => `${key}: ${value}`)
     .join("\n");
 }
@@ -62,20 +78,9 @@ export async function POST(req: Request) {
     }
 
     const text = await file.text();
+    const parsedRows = parseCSV(text);
 
-    const parsed = Papa.parse<Record<string, any>>(text, {
-      header: true,
-      skipEmptyLines: true,
-    });
-
-    if (parsed.errors.length > 0) {
-      return NextResponse.json(
-        { success: false, error: parsed.errors[0].message },
-        { status: 400 }
-      );
-    }
-
-    const rows = parsed.data
+    const rows = parsedRows
       .map((row) => {
         const firstName = pick(row, ["First Name", "First name", "first_name"]);
         const lastName = pick(row, ["Last Name", "Last name", "last_name"]);
@@ -84,35 +89,29 @@ export async function POST(req: Request) {
           pick(row, ["Name", "Full Name", "Full name", "Contact Name"]) ||
           `${firstName} ${lastName}`.trim();
 
-        const company = pick(row, [
-          "Company",
-          "Company Name",
-          "Organisation",
-          "Organization",
-          "Account Name",
-        ]);
-
-        const roleTitle = pick(row, [
-          "Job Title",
-          "Title",
-          "Role",
-          "Position",
-          "Headline",
-        ]);
-
-        const linkedinUrl = pick(row, [
-          "LinkedIn",
-          "LinkedIn URL",
-          "Profile URL",
-          "Person LinkedIn URL",
-          "Linkedin Url",
-        ]);
-
         return {
           target_name: targetName,
-          company,
-          role_title: roleTitle,
-          linkedin_url: linkedinUrl,
+          company: pick(row, [
+            "Company",
+            "Company Name",
+            "Organisation",
+            "Organization",
+            "Account Name",
+          ]),
+          role_title: pick(row, [
+            "Job Title",
+            "Title",
+            "Role",
+            "Position",
+            "Headline",
+          ]),
+          linkedin_url: pick(row, [
+            "LinkedIn",
+            "LinkedIn URL",
+            "Profile URL",
+            "Person LinkedIn URL",
+            "Linkedin Url",
+          ]),
           notes: buildNotes(row),
           stage: "connection",
           status: "active",
@@ -122,7 +121,10 @@ export async function POST(req: Request) {
 
     if (rows.length === 0) {
       return NextResponse.json(
-        { success: false, error: "No valid targets found. The CSV needs at least a name column." },
+        {
+          success: false,
+          error: "No valid targets found. The CSV needs a name column.",
+        },
         { status: 400 }
       );
     }
