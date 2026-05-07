@@ -155,9 +155,10 @@ export default function GrowthPage() {
         Generate content, prepare today’s messages, and track replies.
       </p>
 
-     <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
+    <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
   <a href="/dashboard/growth/import" style={smallLink}>📥 Import Targets</a>
-  <a href="/dashboard/growth/followups" style={smallLink}>🎯 Follow-Ups</a>
+  <a href="/dashboard/growth/followups" style={smallLink}>👥 Leads</a>
+  <a href="/dashboard/growth/waiting" style={smallLink}>⏳ Waiting</a>
   <a href="/dashboard/growth/pipeline" style={smallLink}>💼 Pipeline</a>
   <a href="/dashboard/growth/tracker" style={smallLink}>📊 Content Tracker</a>
 </div>
