@@ -124,7 +124,7 @@ export default async function FollowUpsPage() {
 
   return (
     <main style={page}>
-      <h1 style={title}>🎯 Follow-Up Engine</h1>
+      <h1 style={title}>👥 Leads / Contact Review</h1>
 
       <p style={subtitle}>
         Add targets, review lead quality, and move valid prospects through the LinkedIn outreach sequence.
@@ -157,7 +157,7 @@ export default async function FollowUpsPage() {
       </section>
 
       <section style={{ marginTop: 24 }}>
-        <h2>Due Today</h2>
+        <h2>Outreach Queue</h2>
 
         {due.length === 0 ? (
           <p style={muted}>No follow-ups due today.</p>
