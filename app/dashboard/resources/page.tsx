@@ -901,28 +901,39 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
     setTimeout(() => {
       setCreatorTitle(seed.title || "Recovery & Resilience Workshop");
-      setCreatorGoal(seed.goal || "Create a tailored workplace presentation.");
+
+      setCreatorGoal(
+        seed.goal ||
+          `Create a tailored workplace presentation responding to ${seed.initiative || "the current workforce pattern"}.`
+      );
+
       setCreatorAudience(seed.audience || "Workplace audience");
       setCreatorDuration(seed.duration || "45 minutes");
+      setCreatorInstructorType("workplace trainer");
+      setCreatorLearnerAudience("companies or workplace teams");
+      setCreatorDeliveryContext("workplace session");
       setCreatorTone("calm, professional, practical and workplace-appropriate");
-      setCreatorDeliveryContext(seed.deliveryFormat || "workshop");
-      setCreatorLearnerAudience(seed.audience || "workplace audience");
+
       setCreatorNotes(
         [
           `Proposal request ID: ${seed.requestId || ""}`,
+          `Recommended initiative: ${seed.initiative || ""}`,
           `Support option: ${seed.deliveryPreference || ""}`,
           `Delivery format: ${seed.deliveryFormat || ""}`,
           `Location: ${seed.location || "Online / not specified"}`,
           `Estimated investment: ${seed.investment || ""}`,
           seed.notes ? `Additional notes: ${seed.notes}` : "",
+          "",
+          "Create this as a practical workplace presentation for HR decision-makers and employees. Keep it grounded, useful, non-spiritual, and suitable for organisational delivery.",
         ]
           .filter(Boolean)
           .join("\n")
       );
+
       setCreatorFillLevel("draft");
       setToast("Proposal request loaded into Resource Creator ✅");
       localStorage.removeItem("rootops_proposal_request_seed_v1");
-    }, 0);
+    }, 250);
   } catch (e) {
     console.error("Failed to load proposal request seed", e);
   }
