@@ -127,105 +127,134 @@ async function deleteRequest(id: string) {
         {error ? <p style={styles.error}>{error}</p> : null}
 
         <div style={styles.grid}>
-          {requests.map((item) => (
-            <article key={item.id} style={styles.card}>
-              <div style={styles.cardTop}>
-                <div>
-                  <p style={styles.kicker}>{item.status || "pending"}</p>
-                  <h2 style={styles.cardTitle}>{item.initiative}</h2>
-                  <p style={styles.subtitle}>{item.workshop_title}</p>
-                </div>
+         {requests.map((item) => (
+  <article key={item.id} style={styles.card}>
+    <div style={styles.pipelineTop}>
+      <div>
+        <p style={styles.statusBadge}>{item.status || "pending"}</p>
 
-                <strong style={styles.price}>
-                  {item.estimated_investment || "Investment to confirm"}
-                </strong>
-              </div>
+        <h2 style={styles.leadName}>
+          {item.contact_name || "Unknown contact"}
+        </h2>
 
-              <div style={styles.detailGrid}>
-                <Detail label="Audience" value={item.audience} />
-                <Detail label="Duration" value={item.duration} />
-                <Detail label="Support" value={item.delivery_preference} />
-                <Detail label="Format" value={item.delivery_format} />
-                <Detail label="Location" value={item.location || "Online / not specified"} />
-<Detail label="Contact" value={item.contact_name || "Not provided"} />
-<Detail label="Email" value={item.contact_email || "Not provided"} />
-<Detail label="Phone" value={item.contact_phone || "Not provided"} />
-<Detail
-  label="Discussion"
-  value={item.wants_discussion ? "Requested" : "Not requested"}
-/>
-<Detail label="Source" value={item.source} />              </div>
+        <p style={styles.leadContact}>
+          {item.contact_email || "No email provided"}
+          {item.contact_phone ? ` · ${item.contact_phone}` : ""}
+        </p>
+      </div>
 
-              {item.notes ? (
-                <p style={styles.notes}>
-                  <strong>Notes:</strong> {item.notes}
-                </p>
-              ) : null}
+      <strong style={styles.price}>
+        {item.estimated_investment || "Investment to confirm"}
+      </strong>
+    </div>
 
-              <div style={styles.actions}>
-  <button
-  style={styles.button}
-  onClick={() => {
-    localStorage.setItem(
-      "rootops_proposal_request_seed_v1",
-      JSON.stringify({
-        requestId: item.id,
-        title: item.workshop_title || item.initiative,
-        goal: `Create a tailored workplace presentation responding to ${item.initiative}.`,
-        audience: item.audience,
-        duration: item.duration,
-        deliveryPreference: item.delivery_preference,
-        deliveryFormat: item.delivery_format,
-        location: item.location,
-        investment: item.estimated_investment,
-        notes: item.notes,
-      })
-    );
+    <div style={styles.opportunityBlock}>
+      <h3 style={styles.cardTitle}>{item.workshop_title}</h3>
+      <p style={styles.subtitle}>{item.initiative}</p>
 
-    window.location.href = "/dashboard/resources";
-  }}
->
-  Generate Proposal
-</button>
+      <p style={styles.summaryLine}>
+        {item.audience || "Audience not specified"} ·{" "}
+        {item.duration || "Duration not specified"} ·{" "}
+        {item.delivery_format || "Format not specified"} ·{" "}
+        {item.location || "Online / not specified"}
+      </p>
 
-  <button
-    style={styles.secondaryButton}
-    onClick={() => updateRequestStatus(item.id, "in progress")}
-  >
-    Mark In Progress
-  </button>
+      {item.wants_discussion ? (
+        <p style={styles.discussionFlag}>Discussion requested ✅</p>
+      ) : null}
+    </div>
 
-  <button
-    style={styles.secondaryButton}
-    onClick={() => updateRequestStatus(item.id, "proposal sent")}
-  >
-    Mark Proposal Sent
-  </button>
+    {item.notes ? (
+      <details style={styles.detailsBox}>
+        <summary style={styles.detailsSummary}>Show details</summary>
+        <p style={styles.notes}>
+          <strong>Notes:</strong> {item.notes}
+        </p>
+        <p style={styles.notes}>
+          <strong>Support:</strong> {item.delivery_preference}
+        </p>
+        <p style={styles.notes}>
+          <strong>Source:</strong> {item.source}
+        </p>
+      </details>
+    ) : (
+      <details style={styles.detailsBox}>
+        <summary style={styles.detailsSummary}>Show details</summary>
+        <p style={styles.notes}>
+          <strong>Support:</strong> {item.delivery_preference}
+        </p>
+        <p style={styles.notes}>
+          <strong>Source:</strong> {item.source}
+        </p>
+      </details>
+    )}
 
-  <button
-    style={styles.secondaryButton}
-    onClick={() => updateRequestStatus(item.id, "accepted")}
-  >
-    Mark Accepted
-  </button>
+    <div style={styles.actions}>
+      <button
+        style={styles.button}
+        onClick={() => {
+          localStorage.setItem(
+            "rootops_proposal_request_seed_v1",
+            JSON.stringify({
+              requestId: item.id,
+              title: item.workshop_title || item.initiative,
+              initiative: item.initiative,
+              goal: `Create a tailored workplace presentation responding to ${item.initiative}.`,
+              audience: item.audience,
+              duration: item.duration,
+              deliveryPreference: item.delivery_preference,
+              deliveryFormat: item.delivery_format,
+              location: item.location,
+              investment: item.estimated_investment,
+              notes: item.notes,
+            })
+          );
 
-  <button
-    style={styles.secondaryButton}
-    onClick={() => updateRequestStatus(item.id, "delivered")}
-  >
-    Mark Delivered
-  </button>
+          window.location.href = "/dashboard/resources";
+        }}
+      >
+        Generate Proposal
+      </button>
 
-  <button
-    style={styles.deleteButton}
-    onClick={() => deleteRequest(item.id)}
-  >
-    Delete
-  </button>
+      <button
+        style={styles.secondaryButton}
+        onClick={() => updateRequestStatus(item.id, "in progress")}
+      >
+        In Progress
+      </button>
+
+      <button
+        style={styles.secondaryButton}
+        onClick={() => updateRequestStatus(item.id, "proposal sent")}
+      >
+        Proposal Sent
+      </button>
+
+      <button
+        style={styles.secondaryButton}
+        onClick={() => updateRequestStatus(item.id, "accepted")}
+      >
+        Accepted
+      </button>
+
+      <button
+        style={styles.secondaryButton}
+        onClick={() => updateRequestStatus(item.id, "delivered")}
+      >
+        Delivered
+      </button>
+
+      <button
+        style={styles.deleteButton}
+        onClick={() => deleteRequest(item.id)}
+      >
+        Delete
+      </button>
+    </div>
+  </article>
+))}
 </div>
-            </article>
-          ))}
-        </div>
+         
 
         {!loading && requests.length === 0 ? (
           <p style={styles.empty}>No proposal requests yet.</p>
@@ -356,4 +385,68 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: "24px",
     color: "#64748b",
   },
+  pipelineTop: {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "18px",
+  flexWrap: "wrap",
+},
+
+statusBadge: {
+  display: "inline-block",
+  margin: "0 0 10px",
+  padding: "6px 10px",
+  borderRadius: "999px",
+  background: "#fef3c7",
+  color: "#92400e",
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  fontSize: "11px",
+  fontWeight: 900,
+},
+
+leadName: {
+  margin: 0,
+  fontSize: "26px",
+  color: "#0f172a",
+},
+
+leadContact: {
+  margin: "6px 0 0",
+  color: "#475569",
+  fontSize: "14px",
+},
+
+opportunityBlock: {
+  marginTop: "16px",
+  paddingTop: "16px",
+  borderTop: "1px solid #e2e8f0",
+},
+
+summaryLine: {
+  margin: "10px 0 0",
+  color: "#334155",
+  fontWeight: 700,
+},
+
+discussionFlag: {
+  margin: "10px 0 0",
+  color: "#166534",
+  fontWeight: 900,
+},
+
+detailsBox: {
+  marginTop: "14px",
+  padding: "12px 14px",
+  borderRadius: "16px",
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+},
+
+detailsSummary: {
+  cursor: "pointer",
+  fontWeight: 900,
+  color: "#334155",
+},
 };
