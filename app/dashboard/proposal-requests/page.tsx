@@ -55,6 +55,56 @@ export default function ProposalRequestsPage() {
   useEffect(() => {
     loadRequests();
   }, []);
+  async function updateRequestStatus(id: string, status: string) {
+  try {
+    const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/proposal_requests?id=eq.${id}`;
+
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+        Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ status }),
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to update request");
+    }
+
+    await loadRequests();
+  } catch (e: any) {
+    setError(e?.message || "Failed to update request");
+  }
+}
+
+async function deleteRequest(id: string) {
+  const ok = window.confirm("Delete this proposal request?");
+  if (!ok) return;
+
+  try {
+    const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/proposal_requests?id=eq.${id}`;
+
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+        Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+        Prefer: "return=minimal",
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to delete request");
+    }
+
+    await loadRequests();
+  } catch (e: any) {
+    setError(e?.message || "Failed to delete request");
+  }
+}
 
   return (
     <main style={styles.page}>
@@ -103,9 +153,43 @@ export default function ProposalRequestsPage() {
               ) : null}
 
               <div style={styles.actions}>
-                <button style={styles.button}>Generate Proposal</button>
-                <button style={styles.secondaryButton}>Mark In Progress</button>
-              </div>
+  <button style={styles.button}>Generate Proposal</button>
+
+  <button
+    style={styles.secondaryButton}
+    onClick={() => updateRequestStatus(item.id, "in progress")}
+  >
+    Mark In Progress
+  </button>
+
+  <button
+    style={styles.secondaryButton}
+    onClick={() => updateRequestStatus(item.id, "proposal sent")}
+  >
+    Mark Proposal Sent
+  </button>
+
+  <button
+    style={styles.secondaryButton}
+    onClick={() => updateRequestStatus(item.id, "accepted")}
+  >
+    Mark Accepted
+  </button>
+
+  <button
+    style={styles.secondaryButton}
+    onClick={() => updateRequestStatus(item.id, "delivered")}
+  >
+    Mark Delivered
+  </button>
+
+  <button
+    style={styles.deleteButton}
+    onClick={() => deleteRequest(item.id)}
+  >
+    Delete
+  </button>
+</div>
             </article>
           ))}
         </div>
@@ -222,6 +306,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     cursor: "pointer",
   },
+  deleteButton: {
+  border: "1px solid #fecaca",
+  borderRadius: "999px",
+  padding: "12px 18px",
+  background: "#fee2e2",
+  color: "#991b1b",
+  fontWeight: 800,
+  cursor: "pointer",
+},
   error: {
     color: "#991b1b",
     fontWeight: 800,
