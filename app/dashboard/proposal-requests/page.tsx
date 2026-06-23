@@ -17,6 +17,10 @@ type ProposalRequest = {
   status: string;
   source: string;
   notify_email: string;
+  contact_name: string;
+contact_email: string;
+contact_phone: string;
+wants_discussion: boolean;
 };
 
 export default function ProposalRequestsPage() {
@@ -143,8 +147,14 @@ async function deleteRequest(id: string) {
                 <Detail label="Support" value={item.delivery_preference} />
                 <Detail label="Format" value={item.delivery_format} />
                 <Detail label="Location" value={item.location || "Online / not specified"} />
-                <Detail label="Source" value={item.source} />
-              </div>
+<Detail label="Contact" value={item.contact_name || "Not provided"} />
+<Detail label="Email" value={item.contact_email || "Not provided"} />
+<Detail label="Phone" value={item.contact_phone || "Not provided"} />
+<Detail
+  label="Discussion"
+  value={item.wants_discussion ? "Requested" : "Not requested"}
+/>
+<Detail label="Source" value={item.source} />              </div>
 
               {item.notes ? (
                 <p style={styles.notes}>
