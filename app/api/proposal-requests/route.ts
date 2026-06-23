@@ -32,9 +32,13 @@ export async function POST(req: Request) {
       delivery_format: body.delivery_format || "",
       location: body.location || "",
       estimated_investment: body.estimated_investment || "",
-      notify_email: body.notify_email || "david@fuelgeist.co.uk",
-      notes: body.notes || "",
-      status: "pending",
+    notify_email: body.notify_email || "david@fuelgeist.co.uk",
+contact_name: body.contact_name || "",
+contact_email: body.contact_email || "",
+contact_phone: body.contact_phone || "",
+wants_discussion: !!body.wants_discussion,
+notes: body.notes || "",
+status: "pending",
       source: body.source || "root-health-v2",
     });
 
