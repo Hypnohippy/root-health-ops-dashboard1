@@ -889,6 +889,45 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
     return () => clearTimeout(t);
   }, [toast]);
 
+  useEffect(() => {
+  try {
+    const raw = localStorage.getItem("rootops_proposal_request_seed_v1");
+    if (!raw) return;
+
+    const seed = JSON.parse(raw);
+
+    setCreatorOpen(true);
+    setCreatorType("presentation");
+
+    setTimeout(() => {
+      setCreatorTitle(seed.title || "Recovery & Resilience Workshop");
+      setCreatorGoal(seed.goal || "Create a tailored workplace presentation.");
+      setCreatorAudience(seed.audience || "Workplace audience");
+      setCreatorDuration(seed.duration || "45 minutes");
+      setCreatorTone("calm, professional, practical and workplace-appropriate");
+      setCreatorDeliveryContext(seed.deliveryFormat || "workshop");
+      setCreatorLearnerAudience(seed.audience || "workplace audience");
+      setCreatorNotes(
+        [
+          `Proposal request ID: ${seed.requestId || ""}`,
+          `Support option: ${seed.deliveryPreference || ""}`,
+          `Delivery format: ${seed.deliveryFormat || ""}`,
+          `Location: ${seed.location || "Online / not specified"}`,
+          `Estimated investment: ${seed.investment || ""}`,
+          seed.notes ? `Additional notes: ${seed.notes}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      );
+      setCreatorFillLevel("draft");
+      setToast("Proposal request loaded into Resource Creator ✅");
+      localStorage.removeItem("rootops_proposal_request_seed_v1");
+    }, 0);
+  } catch (e) {
+    console.error("Failed to load proposal request seed", e);
+  }
+}, []);
+
     useEffect(() => {
     setCreatorTitle(defaultTitleForType(creatorType));
 
