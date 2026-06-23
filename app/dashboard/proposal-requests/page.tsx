@@ -153,7 +153,30 @@ async function deleteRequest(id: string) {
               ) : null}
 
               <div style={styles.actions}>
-  <button style={styles.button}>Generate Proposal</button>
+  <button
+  style={styles.button}
+  onClick={() => {
+    localStorage.setItem(
+      "rootops_proposal_request_seed_v1",
+      JSON.stringify({
+        requestId: item.id,
+        title: item.workshop_title || item.initiative,
+        goal: `Create a tailored workplace presentation responding to ${item.initiative}.`,
+        audience: item.audience,
+        duration: item.duration,
+        deliveryPreference: item.delivery_preference,
+        deliveryFormat: item.delivery_format,
+        location: item.location,
+        investment: item.estimated_investment,
+        notes: item.notes,
+      })
+    );
+
+    window.location.href = "/dashboard/resources";
+  }}
+>
+  Generate Proposal
+</button>
 
   <button
     style={styles.secondaryButton}
