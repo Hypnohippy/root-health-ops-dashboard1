@@ -66,7 +66,8 @@ function fixture({ user = "user-a", memberships = [{ organisation_id: "org-a", r
   return { route,req,calls,llm,profiles,wrapper };
 }
 function routes(dir) { return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?routes(dir+"/"+e.name):e.name==="route.ts"?[dir+"/"+e.name]:[]); }
-const allRoutes=[...routes("app/api/ai"),...routes("app/api/growth"), "app/api/coach/route.ts"];
+// These two Phase 4A routes have dedicated isolation coverage in growth-ingestion.test.mjs.
+const allRoutes=[...routes("app/api/ai"),...routes("app/api/growth").filter(path => !["app/api/growth/ingest/route.ts", "app/api/growth/acquisition/route.ts"].includes(path)), "app/api/coach/route.ts"];
 
 test("every AI/growth handler denies anonymous, foreign tenants and ambiguous memberships before business access", async () => {
   for (const file of allRoutes) {
