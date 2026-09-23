@@ -13,7 +13,7 @@ function load(file, mocks = {}, env = {}) {
   const loadedModule = { exports: {} };
   vm.runInNewContext(output, {
     module: loadedModule, exports: loadedModule.exports, require: name => name in mocks ? mocks[name] : nodeRequire(name),
-    process: { env }, Buffer, Date, URL, URLSearchParams, console,
+    process: { env }, Buffer, Date, URL, URLSearchParams, console: mocks.__console || console,
     fetch: mocks.__fetch || (() => { throw new Error("Unexpected provider request"); }),
   }, { filename: file });
   return loadedModule.exports;
@@ -227,4 +227,60 @@ test("connection-health API requires membership and only returns safe fields", a
   assert.deepEqual(filters, [["organisation_id", "org-a"]]);
   assert.equal(JSON.stringify(result.body).includes("do-not-expose"), false);
   assert.equal(result.headers["Cache-Control"], "private, no-store");
+});
+
+
+test("Threads reconnect retries transient long-token identity failure without storing the short token", async () => {
+  for (const mode of ["fallback", "normal", "both_fail", "revoked", "exchange_fail", "state_fail", "membership_fail", "network"]) {
+    const requests = [], writes = [], logs = [];
+    const db = { from() {
+      const query = {
+        update(data) { writes.push(data); return query; },
+        insert(data) { writes.push(data); return query; },
+        select() { return query; }, eq() { return query; }, order() { return query; }, limit() { return query; },
+        maybeSingle: async () => ({data:null,error:null}),
+        then(resolve) { return Promise.resolve({error:null}).then(resolve); },
+      }; return query;
+    }};
+    const api = load("app/api/oauth/threads/callback/route.ts", {
+      "next/server": responseMock,
+      "@/lib/oauthState": { consumeOAuthState: async () => { if(mode==="state_fail") throw Error("secret-state"); return {organisationId:"org-a"}; } },
+      "@/lib/tenantAuth": { requireOrganisation: async id => { assert.equal(id,"org-a"); if(mode==="membership_fail") throw Error("secret-cookie"); } },
+      "@/lib/supabaseAdmin": {supabaseAdmin:db},
+      __console: {error: (...args)=>logs.push(args),warn: (...args)=>logs.push(args)},
+      __fetch: async url => {
+        requests.push(url);
+        let json, status=200;
+        if(url.includes("/oauth/access_token")) json={access_token:"secret-short",expires_in:3600};
+        else if(!url.includes("/me?")) {
+          if(mode==="exchange_fail") {status=400;json={error:{code:1,message:"secret-long"}};}
+          else json={access_token:"secret-long",expires_in:5184000};
+        } else if(url.includes("secret-long") && mode!=="normal" && mode!=="membership_fail") {
+          if(mode==="network") throw Error("secret-long");
+          status=400;json={error:{code:mode==="revoked"?190:1,type:"OAuthException",message:"secret-long"}};
+        } else if(mode==="both_fail") {status=400;json={error:{code:1,message:"secret-short"}};}
+        else json={id:"threads-user",username:"tester"};
+        return {ok:status===200,status,json:async()=>json};
+      },
+    }, {THREADS_CLIENT_ID:"app",THREADS_CLIENT_SECRET:"secret-client",NEXT_PUBLIC_APP_URL:"https://app.example"});
+    const result=await api.GET({nextUrl:new URL("https://app.example/api/oauth/threads/callback?code=secret-code&state=signed")});
+    const success=["fallback","normal","exchange_fail","network"].includes(mode);
+    assert.equal(result.redirect.includes("connected=1"),success,mode);
+    const insert=writes.find(w=>w.page_access_token);
+    if(success) {
+      assert.equal(insert.organisation_id,"org-a");
+      assert.equal(insert.page_id,"threads-user");
+      assert.equal(insert.page_access_token,mode==="exchange_fail"?"secret-short":"secret-long");
+      assert.ok(insert.token_expires_at);
+    } else assert.equal(writes.length,0,mode);
+    const identity=requests.filter(u=>u.includes("/me?"));
+    if(["fallback","both_fail","network"].includes(mode)) {
+      assert.equal(identity.length,2); assert.ok(identity[0].includes("secret-long")); assert.ok(identity[1].includes("secret-short"));
+      assert.ok(logs.some(l=>l[1].stage==="identity" && l[1].tokenType==="long_lived"));
+    }
+    if(mode==="revoked") assert.equal(identity.length,1);
+    if(mode==="state_fail") assert.equal(requests.length,0);
+    assert.equal(JSON.stringify(logs).includes("secret-"),false);
+    assert.equal(result.redirect.includes("secret-"),false);
+  }
 });

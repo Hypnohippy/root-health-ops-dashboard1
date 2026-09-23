@@ -19,10 +19,30 @@ function baseUrl(req: NextRequest) {
   }
 }
 
+type Stage = "code_exchange" | "long_lived_exchange" | "identity" | "save" | "state";
+type TokenType = "none" | "short_lived" | "long_lived";
+
+// Never log raw provider/DB errors: their messages may echo credentials or URLs.
+function diagnostic(stage: Stage, tokenType: TokenType, result?: { status: number; json: any }) {
+  const error = result?.json?.error;
+  console.error("[threads/callback] stage failed", {
+    stage, tokenType, status: result?.status ?? 0,
+    code: typeof error?.code === "number" ? error.code : null,
+    subcode: typeof error?.error_subcode === "number" ? error.error_subcode : null,
+    oauthException: error?.type === "OAuthException",
+    transient: error?.is_transient === true,
+  });
+}
+
 async function fetchJson(url: string, init?: RequestInit) {
-  const res = await fetch(url, { cache: "no-store", ...(init || {}) });
-  const json: any = await res.json().catch(() => null);
-  return { ok: res.ok, status: res.status, json };
+  try {
+    const res = await fetch(url, { cache: "no-store", ...(init || {}) });
+    const json: any = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, json };
+  } catch {
+    // Fetch exceptions can contain the token-bearing URL. Return only a sentinel.
+    return { ok: false, status: 0, json: null };
+  }
 }
 
 function norm(v: any) {
@@ -59,7 +79,7 @@ async function upsertThreadsSocialAccount(args: {
     .eq("platform", "threads");
 
   if (deactErr) {
-    console.warn("[threads/callback] deactivate existing threads rows failed", deactErr);
+    diagnostic("save", "none");
     // We continue anyway, because we can still set the right one active.
   }
 
@@ -75,7 +95,7 @@ async function upsertThreadsSocialAccount(args: {
     .maybeSingle();
 
   if (existingError) {
-    console.warn("[threads/callback] existing lookup error", existingError);
+    diagnostic("save", "none");
   }
 
   const pageName = args.username ? String(args.username) : null;
@@ -93,7 +113,8 @@ async function upsertThreadsSocialAccount(args: {
         token_expires_at: args.tokenExpiresAt ?? null,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", existing.id);
+      .eq("id", existing.id)
+      .eq("organisation_id", organisationId);
 
     if (error) throw error;
     return;
@@ -120,6 +141,7 @@ async function upsertThreadsSocialAccount(args: {
 }
 
 export async function GET(req: NextRequest) {
+  let stage: Stage = "state";
   try {
     const back = new URL(`${baseUrl(req)}/dashboard/connect`);
     back.searchParams.set("provider", "threads");
@@ -148,6 +170,7 @@ export async function GET(req: NextRequest) {
 
     const redirectUri = `${baseUrl(req)}/api/oauth/threads/callback`;
 
+    stage = "code_exchange";
     // 1) code -> short-lived token
     const tokenRes = await fetchJson("https://graph.threads.net/oauth/access_token", {
       method: "POST",
@@ -162,7 +185,7 @@ export async function GET(req: NextRequest) {
     });
 
     if (!tokenRes.ok || !tokenRes.json?.access_token) {
-      console.error("[threads/callback] token exchange failed", tokenRes.json);
+      diagnostic(stage, "none", tokenRes);
       back.searchParams.set("error", "threads_token_exchange_failed");
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
@@ -178,25 +201,38 @@ export async function GET(req: NextRequest) {
         access_token: shortToken,
       }).toString();
 
+    stage = "long_lived_exchange";
     const longRes = await fetchJson(exchangeUrl);
 
-    const accessToken = String(longRes.json?.access_token || shortToken);
-    const expiresIn = Number(longRes.json?.expires_in || 0);
-    const tokenExpiresAt =
-      expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
+    const hasLongToken = longRes.ok && !longRes.json?.error &&
+      typeof longRes.json?.access_token === "string" && !!longRes.json.access_token.trim();
+    if (!hasLongToken) diagnostic(stage, "short_lived", longRes);
+    const accessToken = hasLongToken ? String(longRes.json.access_token) : shortToken;
+    const expiresIn = Number(hasLongToken ? longRes.json.expires_in : (tokenRes.json.expires_in || 3600));
+    const tokenExpiresAt = Number.isFinite(expiresIn) && expiresIn > 0
+      ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
 
-    // 3) fetch threads user
-    const meUrl =
+    stage = "identity";
+    const readIdentity = (token: string) => fetchJson(
       "https://graph.threads.net/v1.0/me?" +
-      new URLSearchParams({
-        fields: "id,username",
-        access_token: accessToken,
-      }).toString();
-
-    const meRes = await fetchJson(meUrl);
-
-    if (!meRes.ok || !meRes.json?.id) {
-      console.error("[threads/callback] failed to fetch me", meRes.json);
+      new URLSearchParams({ fields: "id,username", access_token: token }).toString()
+    );
+    const validIdentity = (result: Awaited<ReturnType<typeof fetchJson>>) =>
+      result.ok && !result.json?.error && typeof result.json?.id === "string" && !!result.json.id.trim();
+    let meRes = await readIdentity(accessToken);
+    if (!validIdentity(meRes)) {
+      diagnostic(stage, hasLongToken ? "long_lived" : "short_lived", meRes);
+      const code = meRes.json?.error?.code;
+      const transient = ![190, 10, 200].includes(code) && (
+        code === 1 || code === 2 || meRes.json?.error?.is_transient === true ||
+        meRes.status === 0 || meRes.status >= 500
+      );
+      if (hasLongToken && transient) {
+        meRes = await readIdentity(shortToken);
+        if (!validIdentity(meRes)) diagnostic(stage, "short_lived", meRes);
+      }
+    }
+    if (!validIdentity(meRes)) {
       back.searchParams.set("error", "threads_me_failed");
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
@@ -211,6 +247,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
+    stage = "save";
     await requireOrganisation(organisationId);
     await upsertThreadsSocialAccount({
       organisationId,
@@ -222,12 +259,12 @@ export async function GET(req: NextRequest) {
 
     back.searchParams.set("connected", "1");
     return NextResponse.redirect(back.toString(), { status: 302 });
-  } catch (e: any) {
-    console.error("[threads/callback] crashed", e);
+  } catch {
+    diagnostic(stage, "none");
     const back = new URL(`${baseUrl(req)}/dashboard/connect`);
     back.searchParams.set("provider", "threads");
     back.searchParams.set("error", "threads_callback_crashed");
-    back.searchParams.set("error_description", e?.message || "unknown");
+
     return NextResponse.redirect(back.toString(), { status: 302 });
   }
 }
