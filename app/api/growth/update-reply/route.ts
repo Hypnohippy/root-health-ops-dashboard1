@@ -1,9 +1,10 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-export async function POST(req: Request) {
+export const POST = withTenantRoute(async function POST(req: Request, tenant) {
   try {
     const { id, reply_status, reply_notes } = await req.json();
 
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
         reply_notes: reply_notes || "",
         replied_at: reply_status === "no_reply" ? null : new Date().toISOString(),
       })
-      .eq("id", id);
+      .eq("id", id).eq("organisation_id", tenant.organisationId);
 
     if (error) {
       return NextResponse.json(
@@ -37,4 +38,4 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
-}
+}, { generation: false, write: true });

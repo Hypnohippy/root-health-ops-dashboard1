@@ -1,6 +1,8 @@
 // app/dashboard/page.tsx
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import React, { useEffect, useMemo, useState } from "react";
 import BrandGrowthProfileEditor from "./components/BrandGrowthProfileEditor";
 import MediaDropzone, { UploadedMedia } from "./components/MediaDropzone";
@@ -499,7 +501,7 @@ export default function DashboardHomePage() {
   async function loadSocialAccounts() {
     setLoadingAccounts(true);
     try {
-      const res = await fetch("/api/social-accounts", { cache: "no-store" });
+      const res = await tenantFetch("/api/social-accounts", { cache: "no-store" });
       const data = await res.json().catch(() => null);
 
             const org =
@@ -580,14 +582,13 @@ export default function DashboardHomePage() {
         return;
       }
 
-      const res = await fetch("/api/ai/quick-blast", {
+      const res = await tenantFetch("/api/ai/quick-blast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           subject,
           tone: aiTone,
           length: aiLength,
-          audience: "clients",
           platforms: selected,
         }),
       });
@@ -663,7 +664,7 @@ export default function DashboardHomePage() {
         ? params.result!.results!
         : [];
 
-      await fetch("/api/growth/experiments/log-event", {
+      await tenantFetch("/api/growth/experiments/log-event", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
@@ -1313,7 +1314,7 @@ export default function DashboardHomePage() {
         <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
-      
+
               <div className="text-xs text-slate-400">Root Health Ops</div>
 
               {organisation?.brand_logo_url ? (

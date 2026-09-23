@@ -1,3 +1,4 @@
+import { requireOrganisation } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -20,10 +21,11 @@ function nextDueDate(target: any) {
   return base.toLocaleString("en-GB");
 }
 
-export default async function WaitingPage() {
+export default async function WaitingPage({ searchParams }: { searchParams: Promise<{ organisationId?: string }> }) {
+  const { organisationId } = await requireOrganisation((await searchParams).organisationId, false);
   const { data, error } = await supabaseAdmin
     .from("growth_targets")
-    .select("*")
+    .select("*").eq("organisation_id", organisationId)
     .eq("status", "active")
     .not("last_action_at", "is", null)
     .order("last_action_at", { ascending: false });

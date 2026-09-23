@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
@@ -26,7 +27,7 @@ function containsExplicitConditionLanguage(text: string) {
   return keywords.some((k) => s.includes(k));
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -60,12 +61,12 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
-      "You are Root Coach, a gentle educator and worksheet creator for therapists, coaches, and wellbeing brands.",
+      "You create useful worksheets for the supplied business and audience.",
       "Create a calm, ethical worksheet that feels supportive, practical, and easy to use.",
-      "Do not make diagnosis, treatment, cure, or recovery claims.",
+      "Follow the shared factual-claims and subject-specific safety rules.",
       explicitConditionTopic
         ? "The user has explicitly chosen a condition/topic. You may refer to that topic carefully, respectfully, and in broad educational language without sounding diagnostic or reductive."
-        : "Do not assume any diagnosis, condition, neurotype, disorder, or label unless the user explicitly asked for that topic. Default to broad, non-diagnostic language such as stress, overwhelm, focus, confidence, emotional wellbeing, work pressure, resilience, or support.",
+        : "Stay within the supplied business context and requested subject; do not introduce unrelated topics.",
       "Use UK spelling.",
       "Return only valid JSON matching the schema.",
     ].join(" ");
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
     ].join("\n");
 
     const schema = {
-      name: "root_coach_worksheet",
+      name: "business_worksheet",
       strict: true,
       schema: {
         type: "object",
@@ -128,7 +129,7 @@ export async function POST(req: NextRequest) {
 
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
-      input: [
+      input: [...tenant.messages,
         { role: "system", content: system },
         { role: "user", content: prompt },
       ],
@@ -167,4 +168,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

@@ -1,5 +1,7 @@
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import { fetchOrganisationProfile, type ProfileResponse } from "@/lib/organisationProfileClient";
 import { emptyProfile } from "@/lib/brandGrowthProfile";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -770,7 +772,7 @@ export default function ResourcesPage() {
 const [proposalText, setProposalText] = useState("");
   async function loadUsage() {
   try {
-    const res = await fetch("/api/usage");
+    const res = await tenantFetch("/api/usage");
     const data = await res.json();
 
     setUsage(data?.usage || 0);
@@ -788,7 +790,7 @@ const [proposalText, setProposalText] = useState("");
   const [creatorGoal, setCreatorGoal] = useState("");
 const [creatorAudience, setCreatorAudience] = useState("");
 const [creatorInstructorType, setCreatorInstructorType] =
-  useState("therapist");
+  useState("educator");
 const [creatorLearnerAudience, setCreatorLearnerAudience] =
   useState("members of the public");
 const [creatorDeliveryContext, setCreatorDeliveryContext] =
@@ -816,7 +818,7 @@ const [improvingPresentation, setImprovingPresentation] = useState(false);
 const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   async function loadOrganisation() {
     try {
-      const res = await fetch("/api/social-accounts", { cache: "no-store" });
+      const res = await tenantFetch("/api/social-accounts", { cache: "no-store" });
       const data = await res.json();
 
       if (!res.ok || !data?.organisationId) {
@@ -862,7 +864,7 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
       setLoading(false);
     }
   }
- 
+
   useEffect(() => {
   async function init() {
     const org = await loadOrganisation();
@@ -1351,7 +1353,7 @@ function isTemplate(item: any): item is StarterTemplate {
     setError(null);
 
     try {
-      const res = await fetch("/api/ai/slide-image", {
+      const res = await tenantFetch("/api/ai/slide-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1438,7 +1440,7 @@ function isTemplate(item: any): item is StarterTemplate {
       const slide = getSafeSlide(currentSlides[i]);
       if (!slide) continue;
 
-      const res = await fetch("/api/ai/slide-image", {
+      const res = await tenantFetch("/api/ai/slide-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1530,7 +1532,7 @@ async function improveSlide(resource: Resource, slideIndex: number) {
   setError(null);
 
   try {
-    const res = await fetch("/api/ai/improve-slide", {
+    const res = await tenantFetch("/api/ai/improve-slide", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1600,7 +1602,7 @@ async function improvePresentation(resource: Resource) {
   setToast(null);
 
   try {
-    const res = await fetch("/api/ai/improve-presentation", {
+    const res = await tenantFetch("/api/ai/improve-presentation", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2051,7 +2053,7 @@ async function createProgramme() {
       fillLevel: creatorFillLevel,
     };
 
-    const aiRes = await fetch("/api/ai/programme", {
+    const aiRes = await tenantFetch("/api/ai/programme", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -2064,7 +2066,7 @@ async function createProgramme() {
     }
 
     const content = aiData?.programme || null;
-    
+
     const saveRes = await fetch("/api/resource-library", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2131,11 +2133,11 @@ if (creatorType === "facebook_group_pack") {
     topic: title,
     name: title,
     goal:
-      "Create a practical Facebook group content pack for new therapists and coaches starting out.",
+      creatorGoal.trim() || "Create a practical Facebook group content pack for the saved business and audience.",
     audience:
-      "New therapists and coaches building confidence, setting up properly, learning marketing, and trying to get their first clients.",
+      creatorAudience.trim(),
     instructorType: creatorInstructorType,
-    learnerAudience: "Beginner therapist or coach",
+    learnerAudience: creatorLearnerAudience,
     deliveryContext: "Facebook group support and authority-building content",
     notes:
       `Create a COMPLETE downloadable resource pack, not a corporate programme.
@@ -2164,7 +2166,7 @@ STYLE:
     tone: "warm, practical, supportive, mentor-like, non-clinical",
     fillLevel: creatorFillLevel,
   };
-}          
+}
  if (creatorType === "webinar_outline") {
   route = "/api/ai/presentation-outline";
   body.duration = creatorDuration.trim() || "30 mins";
@@ -2184,7 +2186,7 @@ STYLE:
 } else if (creatorType === "course") {
   route = "/api/ai/course";
 }
-      const aiRes = await fetch(route, {
+      const aiRes = await tenantFetch(route, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -2455,7 +2457,7 @@ if (content && Array.isArray(content.sections)) {
   setError(null);
 
   try {
-    const aiRes = await fetch("/api/ai/elite-deep-teach-section", {
+    const aiRes = await tenantFetch("/api/ai/elite-deep-teach-section", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -2570,7 +2572,7 @@ if (content && Array.isArray(content.sections)) {
   setError(null);
 
   try {
-    const aiRes = await fetch("/api/ai/deep-teach-section", {
+    const aiRes = await tenantFetch("/api/ai/deep-teach-section", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -2665,7 +2667,7 @@ if (content && Array.isArray(content.sections)) {
 
   setBusyAction(`upgrade:${resource.id}`);
   setError(null);
-   
+
  try {
     const content = deepClone(resource.content || {});
 
@@ -3086,7 +3088,7 @@ if (content && Array.isArray(content.sections)) {
   ${
     String(resource.resource_type || "").toLowerCase() === "guide" ||
     String(resource.resource_type || "").toLowerCase() === "worksheet"
-      ? "Practical guidance for therapists and coaches building their practice"
+      ? "Practical guidance for your business and audience"
       : "Prepared for organisations, HR teams, and decision-makers"
   }
 </div>
@@ -3098,7 +3100,7 @@ if (content && Array.isArray(content.sections)) {
         String(resource.resource_type || "").toLowerCase() === "guide" ||
         String(resource.resource_type || "").toLowerCase() === "worksheet"
       )
-        ? "A practical, supportive guide designed to help therapists and coaches take confident next steps."
+        ? "A practical guide designed to help your audience take useful next steps."
         : isPresentationLike
         ? "A clear, practical presentation that can be shared with decision-makers, organisers, or HR teams."
         : "A structured, practical learning programme that can be delivered in-house or online."
@@ -5569,7 +5571,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                         ))}
                       </div>
                     ) : null}
-                   
+
                                         {Array.isArray(selectedContent?.slides) &&
                     selectedContent.slides.length > 0 ? (
                       <div className="space-y-6">
@@ -6299,6 +6301,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                     onChange={(e) => setCreatorInstructorType(e.target.value)}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
                   >
+                    <option value="educator">Educator / business expert</option>
                     <option value="therapist">Therapist</option>
                     <option value="coach">Coach</option>
                     <option value="lifestyle coach">Lifestyle coach</option>

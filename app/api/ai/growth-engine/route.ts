@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -10,30 +11,30 @@ const openai = new OpenAI({
 
 const pillars = [
   "Founder story (personal, reflective, non-salesy)",
-  "Platform depth (show what Root Health Ops does)",
-  "Market insight (speak to HR / wellbeing decision makers)",
+  "Platform depth (explain the saved primary offer)",
+  "Market insight (speak to the saved customer audience)",
 ];
 
 function getPillar(day: number) {
   return pillars[day % pillars.length];
 }
 
-export async function POST(req: Request) {
+export const POST = withTenantRoute(async function POST(req: Request, tenant) {
   try {
-    const { day = 1, target = "HR Directors UK" } = await req.json();
+    const { day = 1, target = tenant.profile?.customers.audience || "the saved audience" } = await req.json();
 
     const pillar = getPillar(day);
 
     const prompt = `
 You are a world-class LinkedIn growth strategist.
 
-Create a DAILY growth pack for a founder building Root Health Ops.
+Create a DAILY growth pack for a founder growing the supplied business.
 
 RULES:
 - Tone: human, reflective, intelligent, never salesy
 - Audience: ${target}
 - No hype, no cringe, no emojis
-- Feels like lived experience, not marketing
+- Do not invent lived experience; label hypothetical examples
 - Return valid JSON only
 - No markdown
 - No explanation outside JSON
@@ -60,7 +61,7 @@ CONTENT:
 
     const completion = await openai.chat.completions.create({
       model: "gpt-5.3-chat-latest",
-      messages: [{ role: "user", content: prompt }],
+      messages: [...tenant.messages,{ role: "user", content: prompt }],
     });
 
     const text = completion.choices[0].message?.content || "{}";
@@ -83,6 +84,7 @@ CONTENT:
     const { data, error } = await supabaseAdmin
       .from("growth_plans")
       .insert({
+        organisation_id: tenant.organisationId,
         day_number: day,
         target,
         linkedin_post: parsed.linkedin_post || "",
@@ -117,4 +119,4 @@ CONTENT:
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

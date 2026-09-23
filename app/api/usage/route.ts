@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { accessErrorResponse } from "@/lib/tenantAuth";
 import {
   getMonthlyUsageForOrganisation,
   getPlanLimit,
@@ -6,10 +7,10 @@ import {
   getCurrentOrganisationId,
 } from "@/lib/usage";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const organisationId = await getCurrentOrganisationId();
-    const plan = await getCurrentOrganisationPlan();
+    const organisationId = await getCurrentOrganisationId(new URL(req.url).searchParams.get("organisationId") || undefined);
+    const plan = await getCurrentOrganisationPlan(organisationId);
     const limit = getPlanLimit(plan);
 
     const usage = organisationId
@@ -23,6 +24,8 @@ export async function GET() {
       plan,
     });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { error: e?.message || "Failed to fetch usage" },
       { status: 500 }

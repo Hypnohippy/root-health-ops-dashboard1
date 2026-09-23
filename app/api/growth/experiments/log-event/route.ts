@@ -1,3 +1,5 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
+import { requireOwnedRecord, accessErrorResponse } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -8,12 +10,13 @@ function safeUuidLike(s: any) {
   return v;
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     const body = await req.json().catch(() => null);
 
-    const organisationId = safeUuidLike(body?.organisationId);
+    const organisationId = tenant.organisationId;
     const experimentId = safeUuidLike(body?.experimentId);
+    await requireOwnedRecord("growth_experiments", experimentId, tenant.organisationId);
 
     // For now, this endpoint is specifically for experiment logging
     if (!organisationId || !experimentId) {
@@ -71,9 +74,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, inserted: rows.length });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { success: false, error: e?.message || "Unexpected error." },
       { status: 500 }
     );
   }
-}
+}, { generation: false, write: true });

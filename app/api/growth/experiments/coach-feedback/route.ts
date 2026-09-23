@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/growth/experiments/coach-feedback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -39,7 +40,7 @@ function top(list: string[], max = 4) {
   return uniq(list.map((x) => x.trim()).filter(Boolean)).slice(0, max);
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     const body = await req.json().catch(() => ({}));
     const experimentId = safeUuidLike(body?.experimentId || body?.experiment_id);
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
     // Experiment
     const expRes = await supabaseAdmin
       .from("growth_experiments")
-      .select("*")
+      .select("*").eq("organisation_id", tenant.organisationId)
       .eq("id", experimentId)
       .maybeSingle();
 
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
     // Events
     const eventsRes = await supabaseAdmin
       .from("growth_experiment_events")
-      .select("platform, ok, action, meta, created_at")
+      .select("platform, ok, action, meta, created_at").eq("organisation_id", tenant.organisationId)
       .eq("experiment_id", experimentId)
       .order("created_at", { ascending: false })
       .limit(80);
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
     // Outcomes
     const outRes = await supabaseAdmin
       .from("growth_experiment_outcomes")
-      .select("metric_name, metric_value, meta, created_at")
+      .select("metric_name, metric_value, meta, created_at").eq("organisation_id", tenant.organisationId)
       .eq("experiment_id", experimentId)
       .order("created_at", { ascending: false })
       .limit(50);
@@ -213,4 +214,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { generation: false, write: true });

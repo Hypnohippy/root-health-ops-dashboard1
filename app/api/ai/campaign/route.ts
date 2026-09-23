@@ -1,9 +1,10 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 
 /** Healthcheck: visit /api/ai/campaign to confirm the route exists */
-export async function GET() {
+export const GET = withTenantRoute(async function GET() {
   return NextResponse.json({ ok: true, route: "/api/ai/campaign" });
-}
+}, { generation: false, write: false });
 
 /**
  * Performance ad generator:
@@ -20,163 +21,31 @@ export async function GET() {
  * Returns:
  * { variants: [{ primary_text, headline }, ...] }
  */
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     const {
       platform,
       objective,
       url,
       audienceKeywords,
-      brandVoice = "Root Health founder",
+      brandVoice = tenant.profile?.voice.tone || "clear and practical",
       lengthMode = "medium",
     } = await req.json();
 
-    const lengthInstructions =
-      lengthMode === "short"
-        ? `
-LENGTH & DEPTH:
-- SHORT format.
-- 2–4 sentences total.
-- Fast, punchy, highly scannable.
-- Focus on hook + 1–2 pain points + 1 clear benefit + strong CTA.
-`
-        : lengthMode === "long"
-        ? `
-LENGTH & DEPTH:
-- LONG format.
-- 250–450 words.
-- Full emotional journey:
-  - Emotional hook
-  - Pain + lived experience
-  - Insight / "why this keeps happening"
-  - How Root Health works (simple process)
-  - Features & benefits
-  - Gentle urgency + low-ticket reassurance
-  - Strong CTA.
-`
-        : `
-LENGTH & DEPTH:
-- MEDIUM format.
-- 120–220 words.
-- Enough room for:
-  - Emotional hook
-  - Clear pain points
-  - Before/after transformation
-  - 2–3 key features → benefits
-  - Strong CTA.
-`;
-
-    const platformTuning = `
-PLATFORM TUNING:
-
-If platform includes "Meta" or "Facebook" or "Instagram":
-- More emotional, human, conversational.
-- Use 2–4 emojis to support (not clutter).
-- Focus on end-of-day stress, burnout, feeling "done", wanting simple steps.
-- Make it feel like a supportive friend who's also very clear and action-focused.
-
-If platform is "LinkedIn":
-- More professional and outcome-focused.
-- Include 1–2 stats related to stress, burnout, absenteeism or productivity.
-  (Example style, adapt as needed: "Stress-related absence costs UK employers billions each year.")
-- Address HR, leaders, or self-managing professionals.
-- Still emotionally intelligent, but more about performance, retention, and sustainable work.
-
-If platform is "Google":
-- Shorter, more direct.
-- Front-load the main benefit and who it's for.
-- Strong keyword-style phrasing ("burnout recovery plan", "stress tracking", etc.).
-
-If platform is "TikTok":
-- Add a bit more energy and pattern-break language.
-- Very scannable lines and strong calls to "watch", "see", "try this today".
-`;
-
     const prompt = `
-You are a senior PERFORMANCE MARKETING copywriter writing for ${brandVoice}.
-You are creating AD-STYLE COPY for the Root Health app.
-
-CONTEXT:
-- Platform: ${platform}
-- Objective: ${objective}
-- Landing page: ${url}
-- Audience: people navigating stress/burnout who want practical, hopeful help.
-- Audience keywords: ${audienceKeywords}
-
-GOAL:
-We want people to think "Hell yes, this is for me" and either buy or click to learn more.
-Root Health is a low-ticket, self-guided app that helps people see the roots of their stress and take small, realistic steps.
-
-${lengthInstructions}
-
-${platformTuning}
-
-STRUCTURE INSIDE PRIMARY_TEXT (AD COPY):
-
-Each PRIMARY_TEXT should:
-
-1) Start with a strong HOOK line.
-   - One short sentence.
-   - May include 1–2 emojis (e.g. 😵‍💫, 🧠, 💚, 🔁, 🔍).
-   - It should speak directly to the lived experience of stress, burnout, or feeling like you're "holding it all together".
-
-2) Move into the PAIN / "BEFORE" EXPERIENCE.
-   - Describe 2–4 specific ways stress shows up (can't switch off, snapping at people, brain fog, physical tension, shame about not coping).
-   - Use bullet-ish formatting or short lines so it's easy to scan.
-   - This can include ❌ bullets OR line-broken sentences, but must feel like real life, not generic.
-
-3) Name the COST / IMPACT.
-   - For general consumers: energy, sleep, relationships, confidence, health anxiety.
-   - For LinkedIn / professionals: absenteeism, presenteeism, lower output, staff turnover, performance reviews, financial cost.
-   - You can reference general "studies" or "estimates" without naming specific papers.
-
-4) Introduce INSIGHT / "WHY" THIS HAPPENS.
-   - One or two lines explaining that stress is not just "in your head" and that patterns in body, mind, habits and environment stack up.
-   - This is where Root Health feels like a compassionate, smart guide.
-
-5) Explain HOW ROOT HEALTH WORKS in simple, practical terms.
-   - e.g. "Map what you're feeling", "Spot your patterns", "Build small root-level routines".
-   - Mention that it's self-paced, practical, and built for people who don't have time/energy for traditional therapy right now.
-   - Emphasise clarity, awareness, and tiny doable actions.
-
-6) Highlight FEATURES → BENEFITS.
-   - Features examples: body-mapping, stress dashboards, simple routines, weekly reflections, progress tracking.
-   - Benefits examples: feeling less alone, seeing patterns clearly, fewer crashes, more steady days, feeling more "you".
-
-7) Close with a CLEAR CTA that fits the objective:
-   - Leads: "Start your Root Health plan today", "Get your personalised reset".
-   - Traffic: "Tap to see inside", "Explore Root Health now".
-   - Awareness: "Learn what your stress is trying to tell you", "See why so many people are turning to Root Health".
-
-TONE & RULES:
-- NEVER apologise or say "I'm sorry you're feeling...".
-- NEVER ask reflective therapist-style questions ("What might be causing this for you?").
-- This is ad copy: confident, grounded, hopeful, commercial AND caring.
-- Avoid clinical jargon; speak like a real human, but with authority.
-- Emojis are allowed, but 3–6 max per ad.
-
-HEADLINE RULES:
-- 4–9 words.
-- Scroll-stopping.
-- Clear benefit or identity.
-  Examples of style:
-  - "See Your Stress Patterns Clearly"
-  - "A Calm Plan for Busy Brains"
-  - "Support for the You That Holds It All"
-  - "Cut Through Burnout Noise"
-
-TASK:
-Generate 3 DISTINCT ad variants for this campaign in the chosen length mode.
-Each variant must be meaningfully different in angle (e.g. one more emotional, one more practical, one more stats/logic).
-
-Return ONLY valid JSON with exactly this shape:
-{
-  "variants": [
-    { "primary_text": "string", "headline": "string" },
-    { "primary_text": "string", "headline": "string" },
-    { "primary_text": "string", "headline": "string" }
-  ]
-}
+Create 3 distinct performance-ad variants for the business in the saved context.
+Platform: ${platform}
+Objective: ${objective}
+Landing page: ${url || tenant.profile?.offer.destinationUrl || "Not supplied"}
+Audience keywords: ${audienceKeywords || tenant.profile?.customers.audience || "Not supplied"}
+Brand voice: ${brandVoice}
+Length: ${lengthMode === "short" ? "2–4 sentences" : lengthMode === "long" ? "250–450 words" : "120–220 words"}.
+Use a clear hook, a relevant customer problem, supported features/benefits and an
+appropriate next step using the saved CTA when it fits. Do not invent studies,
+statistics, urgency, prices, transformations, product features or testimonials.
+Vary the angles: practical, customer-focused and informative. Headlines: 4–9 words.
+Return ONLY JSON:
+{"variants":[{"primary_text":"string","headline":"string"},{"primary_text":"string","headline":"string"},{"primary_text":"string","headline":"string"}]}
 `.trim();
 
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -191,11 +60,11 @@ Return ONLY valid JSON with exactly this shape:
         top_p: 0.95,
         max_tokens: 900,
         response_format: { type: "json_object" },
-        messages: [
+        messages: [...tenant.messages,
           {
             role: "system",
             content:
-              "You write high-converting performance ads (not comments, not therapy). Output strictly JSON matching the requested schema.",
+              "You write high-converting performance ads (not comments). Output strictly JSON matching the requested schema.",
           },
           { role: "user", content: prompt },
         ],
@@ -244,4 +113,4 @@ Return ONLY valid JSON with exactly this shape:
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

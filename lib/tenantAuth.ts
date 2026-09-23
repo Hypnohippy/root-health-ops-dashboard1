@@ -61,7 +61,7 @@ export async function requireLegacyFacebookOrganisation() {
   return requireOrganisation(id);
 }
 
-export async function requireOwnedRecord(table: "growth_experiments" | "campaigns" | "sequences", id: string | null | undefined, organisationId: string) {
+export async function requireOwnedRecord(table: "growth_experiments" | "campaigns" | "sequences" | "scheduled_posts", id: string | null | undefined, organisationId: string) {
   if (!id) return;
   const { data, error } = await supabaseAdmin.from(table).select("id")
     .eq("id", id).eq("organisation_id", organisationId).maybeSingle();

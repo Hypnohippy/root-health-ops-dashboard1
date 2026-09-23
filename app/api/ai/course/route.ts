@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import {
@@ -5,7 +6,6 @@ import {
   getMonthlyUsageForOrganisation,
   getPlanLimit,
   getCurrentOrganisationPlan,
-  getCurrentOrganisationId,
 } from "@/lib/usage";
 
 export const runtime = "nodejs";
@@ -68,10 +68,10 @@ function extractJsonObject(raw: string) {
   return null;
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
- const organisationId = await getCurrentOrganisationId();
-const userPlan = await getCurrentOrganisationPlan();
+ const organisationId = tenant.organisationId;
+const userPlan = await getCurrentOrganisationPlan(tenant.organisationId);
 
 const usage = organisationId
   ? await getMonthlyUsageForOrganisation(organisationId)
@@ -100,7 +100,7 @@ if (usage + cost > monthlyLimit) {
     const topic = String(body?.topic || body?.name || "").trim();
 const goal = String(body?.goal || "").trim();
 const audience = String(body?.audience || "").trim();
-const instructorType = String(body?.instructorType || "therapist").trim();
+const instructorType = String(body?.instructorType || "educator").trim();
 const learnerAudience = String(
   body?.learnerAudience || "members of the public"
 ).trim();
@@ -124,11 +124,11 @@ const fillLevel = String(body?.fillLevel || "draft").trim();
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
-      "You are Root Coach, an expert course creator for therapists, coaches, and lifestyle practitioners, including CBT therapists, integrative therapists, counsellors, coaches, and lifestyle coaches.",
+      "You are an expert course creator for the supplied business, subject and learner audience.",
       "Write in UK English only.",
       "Never use American spelling.",
       "Use a professional UK CPD tone.",
-      "Create fully teachable lesson material for therapists, coaches, and lifestyle practitioners who may not already know the topic well.",
+      "Create fully teachable lesson material for instructors who may not already know the topic well.",
       "Tailor the material to the specified instructor type, learner audience, and delivery context. Do not assume therapist-to-therapist teaching unless explicitly requested.",
       "Do not create vague outlines.",
       "Do not say 'introduce', 'discuss', 'cover', or 'explore' unless you also provide the actual teaching content.",
@@ -138,10 +138,10 @@ const fillLevel = String(body?.fillLevel || "draft").trim();
       "If scripting is relevant, include wording the teacher can actually say.",
       "If context or variation is mentioned, explain how it changes practice.",
       "Assume the teacher is not already an expert.",
-      "Do not make diagnosis, treatment, cure, or recovery claims.",
+      "Follow the shared factual-claims and subject-specific safety rules.",
       explicitConditionTopic
         ? "The user has explicitly chosen a condition or topic. You may refer to that topic carefully and respectfully."
-        : "Do not assume any diagnosis, condition, neurotype, disorder, or label unless the user explicitly asked for that topic.",
+        : "Stay within the supplied business context and requested subject; do not introduce unrelated topics.",
       "Return JSON only. No markdown fences. No commentary.",
     ].join(" ");
 
@@ -206,7 +206,7 @@ const fillLevel = String(body?.fillLevel || "draft").trim();
 
     const response = await client.responses.create({
       model: "gpt-4o-mini",
-      input: [
+      input: [...tenant.messages,
         { role: "system", content: system },
         { role: "user", content: userPrompt },
       ],
@@ -304,4 +304,4 @@ if (organisationId) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

@@ -1,6 +1,8 @@
 // app/dashboard/campaigns/page.tsx
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import React, { useEffect, useMemo, useState } from "react";
 
 type ExperimentStatus = "planned" | "running" | "completed";
@@ -204,7 +206,7 @@ async function authFetch(url: string, init?: RequestInit) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  return fetch(url, {
+  return tenantFetch(url, {
     ...init,
     headers,
     cache: "no-store",

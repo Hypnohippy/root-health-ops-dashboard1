@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -7,7 +8,7 @@ function norm(v: any) {
   return String(v ?? "").trim();
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     const body = await req.json().catch(() => ({}));
     const id = norm(body.id);
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
     const up = await supabaseAdmin
       .from("growth_experiments")
       .update(patch)
-      .eq("id", id)
+      .eq("id", id).eq("organisation_id", tenant.organisationId)
       .select()
       .maybeSingle();
 
@@ -42,4 +43,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { generation: false, write: true });

@@ -1,5 +1,7 @@
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import { useState } from "react";
 
 export default function ImportTargetsPage() {
@@ -19,7 +21,7 @@ export default function ImportTargetsPage() {
     const formData = new FormData();
     formData.append("file", file);
 
-    const res = await fetch("/api/growth/import-targets", {
+    const res = await tenantFetch("/api/growth/import-targets", {
       method: "POST",
       body: formData,
     });

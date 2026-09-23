@@ -1,3 +1,4 @@
+import { requireOrganisation } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
 
@@ -27,19 +28,19 @@ function getMessage(target: any) {
   const name = firstName(target.target_name || "there");
 
   if (target.stage === "connection") {
-    return `Hi ${name}, I noticed your work in ${target.role_title || "HR / wellbeing"}. I’ve been speaking with HR leaders about what actually gets used beyond EAPs. Would be good to connect.`;
+    return `Hi ${name}, I noticed your work in ${target.role_title || "your field"}. Would be good to connect.`;
   }
 
   if (target.stage === "day3_dm") {
-    return `Thanks for connecting, ${name}. Quick question — what parts of your current wellbeing setup actually get used, and where does it fall short?`;
+    return `Thanks for connecting, ${name}. Quick question — what is your main business priority at the moment?`;
   }
 
   if (target.stage === "day10_insight") {
-    return `Hi ${name}, one thing I keep seeing is support exists, but people only use it once things escalate. Do you see that in your organisation?`;
+    return `Hi ${name}, what would make the biggest practical difference for your team right now?`;
   }
 
   if (target.stage === "day17_followup") {
-    return `Just wanted to follow up, ${name}. Curious how you're seeing engagement with wellbeing support in practice.`;
+    return `Just wanted to follow up, ${name}. Would it be useful to continue our conversation?`;
   }
 
   return "";
@@ -61,10 +62,11 @@ function qualityLabel(value: string | null) {
   return "Unreviewed";
 }
 
-export default async function FollowUpsPage() {
+export default async function FollowUpsPage({ searchParams }: { searchParams: Promise<{ organisationId?: string }> }) {
+  const { organisationId } = await requireOrganisation((await searchParams).organisationId, false);
   const { data } = await supabaseAdmin
     .from("growth_targets")
-    .select("*")
+    .select("*").eq("organisation_id", organisationId)
     .eq("status", "active")
     .order("created_at", { ascending: false });
 
@@ -73,8 +75,10 @@ export default async function FollowUpsPage() {
 
   async function addTarget(formData: FormData) {
     "use server";
+    const verified = await requireOrganisation(organisationId);
 
     await supabaseAdmin.from("growth_targets").insert({
+      organisation_id: verified.organisationId,
       target_name: String(formData.get("target_name") || ""),
       company: String(formData.get("company") || ""),
       role_title: String(formData.get("role_title") || ""),
@@ -90,6 +94,7 @@ export default async function FollowUpsPage() {
 
   async function advanceTarget(id: string, stage: string) {
     "use server";
+    const verified = await requireOrganisation(organisationId);
 
     await supabaseAdmin
       .from("growth_targets")
@@ -97,13 +102,14 @@ export default async function FollowUpsPage() {
         stage: nextStage(stage),
         last_action_at: new Date().toISOString(),
       })
-      .eq("id", id);
+      .eq("id", id).eq("organisation_id", verified.organisationId);
 
     revalidatePath("/dashboard/growth/followups");
   }
 
   async function updateLeadQuality(formData: FormData) {
     "use server";
+    const verified = await requireOrganisation(organisationId);
 
     const id = String(formData.get("id") || "");
     const lead_quality = String(formData.get("lead_quality") || "unreviewed");
@@ -117,7 +123,7 @@ export default async function FollowUpsPage() {
         lead_quality,
         lead_quality_notes,
       })
-      .eq("id", id);
+      .eq("id", id).eq("organisation_id", verified.organisationId);
 
     revalidatePath("/dashboard/growth/followups");
   }

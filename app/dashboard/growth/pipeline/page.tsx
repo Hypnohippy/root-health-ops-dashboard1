@@ -1,5 +1,7 @@
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import { useEffect, useState } from "react";
 
 export default function GrowthPipelinePage() {
@@ -15,7 +17,7 @@ export default function GrowthPipelinePage() {
   async function loadPipeline() {
     setLoading(true);
 
-    const res = await fetch("/api/growth/pipeline");
+    const res = await tenantFetch("/api/growth/pipeline");
     const json = await res.json();
 
     if (json.success) {
@@ -28,7 +30,7 @@ export default function GrowthPipelinePage() {
   async function generateCallPrep(targetId: string) {
     setLoadingPrep(targetId);
 
-    const res = await fetch("/api/growth/generate-call-prep", {
+    const res = await tenantFetch("/api/growth/generate-call-prep", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -69,7 +71,7 @@ export default function GrowthPipelinePage() {
       document.getElementById(`next-step-date-${targetId}`) as HTMLInputElement | null
     )?.value;
 
-    const res = await fetch("/api/growth/update-call-outcome", {
+    const res = await tenantFetch("/api/growth/update-call-outcome", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

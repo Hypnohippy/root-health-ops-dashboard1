@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -8,7 +9,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-export async function POST(req: Request) {
+export const POST = withTenantRoute(async function POST(req: Request, tenant) {
   try {
     const { targetId } = await req.json();
 
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
 
     const { data: target, error } = await supabaseAdmin
       .from("growth_targets")
-      .select("*")
+      .select("*").eq("organisation_id", tenant.organisationId)
       .eq("id", targetId)
       .single();
 
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
     }
 
     const prompt = `
-You are David Prince's B2B sales call preparation assistant for Root Health Ops.
+You are the business’s B2B sales call preparation assistant for the supplied business.
 
 Create a concise call prep sheet.
 
@@ -46,7 +47,7 @@ Reply notes: ${target.reply_notes || "None"}
 Lead quality: ${target.lead_quality || "unreviewed"}
 Reply status: ${target.reply_status || "no_reply"}
 Deal stage: ${target.deal_stage || "lead"}
-Deal value: £${target.deal_value || 1500}
+Deal value: £${target.deal_value ?? "Not supplied"}
 Call date: ${target.call_date || "Not set"}
 
 RULES:
@@ -55,7 +56,7 @@ RULES:
 - No hype
 - Do not invent facts
 - Do not mention AI
-- Focus on workplace wellbeing, EAP limitations, pilot value, measurable outcomes
+- Focus on the saved primary offer, customer problems and desired outcomes; frame assumptions as questions
 
 OUTPUT FORMAT:
 
@@ -72,10 +73,10 @@ DISCOVERY QUESTIONS:
 4.
 5.
 
-ROOT HEALTH OPS ANGLE:
+BUSINESS ANGLE:
 ...
 
-PILOT OFFER POSITIONING:
+OFFER POSITIONING:
 ...
 
 RISKS / OBJECTIONS:
@@ -87,7 +88,7 @@ SOFT CLOSE:
 
     const completion = await openai.chat.completions.create({
       model: "gpt-5.3-chat-latest",
-      messages: [{ role: "user", content: prompt }],
+      messages: [...tenant.messages,{ role: "user", content: prompt }],
     });
 
     return NextResponse.json({
@@ -100,4 +101,4 @@ SOFT CLOSE:
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

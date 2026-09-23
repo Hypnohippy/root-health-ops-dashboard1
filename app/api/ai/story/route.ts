@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 
 /**
@@ -11,7 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
  *   "tone": "inspirational" | "emotional" | "corporate" | "cinematic" | "conversational" | "raw",
  *   "length": "short" | "medium" | "long",
  *   "character": "Sarah",
- *   "scenario": "NHS nurse burnt out after double shifts",
+ *   "scenario": "a shop owner preparing for a busy weekend",
  *   "platform": "LinkedIn" | "Facebook" | "Instagram",
  *   "seriesEpisode": 1,
  *   "totalEpisodes": 5
@@ -27,15 +28,15 @@ import { NextRequest, NextResponse } from "next/server";
  * }
  */
 
-export async function GET() {
+export const GET = withTenantRoute(async function GET() {
   return NextResponse.json({
     ok: true,
     route: "/api/ai/story",
     usage: "POST a JSON body with storyType, tone, length, character, scenario, platform, etc.",
   });
-}
+}, { generation: false, write: false });
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     const body = await req.json().catch(() => ({}));
 
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
     const safeScenario =
       typeof scenario === "string" && scenario.trim().length > 0
         ? scenario.trim()
-        : "a professional who looks fine on the outside but is quietly burning out";
+        : "a clearly labelled hypothetical customer exploring the business’s primary offer";
 
     const safeStoryType =
       typeof storyType === "string" ? String(storyType) : "workplace";
@@ -94,14 +95,9 @@ export async function POST(req: NextRequest) {
         : `Write in a neutral, platform-agnostic style that would work on most social platforms.`;
 
     const prompt = `
-You are a senior STORYTELLER and content strategist for Root Health / Root Cause Power.
-
-You write engaging, emotionally intelligent stories about stress, burnout, trauma recovery, and reclaiming your health – without ever sounding clinical, diagnostic, or like you're offering medical treatment.
-
-CONTEXT ABOUT THE BRAND:
-- Root Health / Root Cause Power is a self-guided app that helps people map their stress, see patterns, and take small, doable steps.
-- There is a unique "Glass Human" / body-mapping diagnostic that visually shows where stress lives in the body.
-- The founder has lived experience with trauma, burnout, and rebuilding – but this is NOT therapy advice, it's about awareness and empowerment.
+You are a senior storyteller and content strategist for the supplied business.
+Use only the saved business context and supplied facts. If no factual story is supplied,
+clearly label the story as a hypothetical illustration, never a real testimonial.
 
 REQUEST:
 Generate 3 DISTINCT STORY VARIANTS for social media about:
@@ -117,8 +113,8 @@ EACH STORY MUST:
 - Have a short, intriguing TITLE (max 8 words).
 - Open with a HOOK that feels like the start of a scene, not a generic advice line.
 - Clearly follow a human arc: tension → insight / turn → shift / hope.
-- Include one subtle reference to Root Health or "the app" or "Glass Human" in a way that feels natural, not salesy.
-- Never over-promise results or sound like clinical treatment.
+- Reference the saved business or offer only where relevant and natural.
+- Never promise unsupported results or invent a real customer experience.
 - Stay away from heavy graphic detail – we're aiming for emotionally resonant, not triggering.
 - Finish with EXACTLY ONE clear, low-friction INVITATION TO COMMENT to drive engagement.
 
@@ -187,7 +183,7 @@ Return ONLY valid JSON with exactly this shape:
         top_p: 0.9,
         max_tokens: 900,
         response_format: { type: "json_object" },
-        messages: [
+        messages: [...tenant.messages,
           {
             role: "system",
             content:
@@ -240,4 +236,4 @@ Return ONLY valid JSON with exactly this shape:
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/ai/root-coach/route.ts
 import { NextResponse } from "next/server";
 
@@ -11,7 +12,7 @@ export const runtime = "nodejs";
  */
 
 const SYSTEM_PROMPT = `
-You are Root Coach inside the Root Health Ops Dashboard.
+You are a helpful business content coach inside the dashboard.
 
 Your job is to reduce user stress, keep momentum, and help the user successfully post content.
 Be warm, conversational, and human — like a calm teammate sitting next to them.
@@ -164,7 +165,7 @@ function deterministicFallback(input: {
   return null;
 }
 
-export async function POST(req: Request) {
+export const POST = withTenantRoute(async function POST(req: Request, tenant) {
   try {
     const {
       context,
@@ -219,7 +220,7 @@ What happened (raw): ${String(errorMessage || "No details provided")}
       },
       body: JSON.stringify({
         model: "gpt-4.1-mini",
-        messages: [
+        messages: [...tenant.messages,
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: safeContext },
         ],
@@ -262,4 +263,4 @@ What happened (raw): ${String(errorMessage || "No details provided")}
         "Option B: Save for later",
     });
   }
-}
+}, { generation: true, write: true });

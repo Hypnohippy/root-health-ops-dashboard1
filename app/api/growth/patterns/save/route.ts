@@ -1,37 +1,20 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
+import { requireOwnedRecord, accessErrorResponse } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-const SINGLE_ORG_ID = (process.env.SINGLE_ORG_ID || "").trim();
-
-async function getOrganisationIdFallback(): Promise<string | null> {
-  if (SINGLE_ORG_ID) return SINGLE_ORG_ID;
-
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id, created_at")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !data?.id) return null;
-  return String(data.id);
-}
-
 function norm(v: any) {
   return String(v ?? "").trim();
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     const body = await req.json().catch(() => ({}));
     const suggestion = body?.suggestion;
 
-    const organisationId = await getOrganisationIdFallback();
-    if (!organisationId) {
-      return NextResponse.json({ success: false, error: "No organisation found." }, { status: 200 });
-    }
+    const organisationId = tenant.organisationId;
 
     const platform = norm(suggestion?.platform) || null;
     const pattern_type = norm(suggestion?.pattern_type);
@@ -42,6 +25,7 @@ export async function POST(req: NextRequest) {
     const performance_score =
       suggestion?.performance_score != null ? Number(suggestion.performance_score) : null;
     const source_post_id = norm(suggestion?.source_post_id) || null;
+    await requireOwnedRecord("scheduled_posts", source_post_id, tenant.organisationId);
 
     if (!pattern_type || !format) {
       return NextResponse.json(
@@ -74,6 +58,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json({ success: false, error: e?.message || "Save failed" }, { status: 200 });
   }
-}
+}, { generation: false, write: true });

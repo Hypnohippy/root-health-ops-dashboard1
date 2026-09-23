@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/ai/improve-slide/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
@@ -15,7 +16,7 @@ function cleanBullets(input: unknown): string[] {
   return input.map((x) => safe(x)).filter(Boolean);
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -63,12 +64,12 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
-      "You are Root Coach, a calm and thoughtful presentation editor.",
+      "You are a thoughtful presentation editor for the supplied business.",
       "Your job is to improve ONE slide inside an existing presentation.",
       "You must preserve the core meaning unless the instruction clearly asks to change it.",
       "Make the slide more useful, polished, and presentation-ready.",
       "Use UK spelling.",
-      "Do not make diagnosis, treatment, cure, or medical claims.",
+      "Follow the shared factual-claims and subject-specific safety rules.",
       "Keep the slide supportive, professional, and educational.",
       "Bullets should be concise and clear for on-slide display.",
       "Speaker notes should be fuller than bullets but still practical and usable.",
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest) {
       .join("\n");
 
     const schema = {
-      name: "root_coach_improved_slide",
+      name: "business_improved_slide",
       strict: true,
       schema: {
         type: "object",
@@ -152,7 +153,7 @@ export async function POST(req: NextRequest) {
 
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
-      input: [
+      input: [...tenant.messages,
         { role: "system", content: system },
         { role: "user", content: prompt },
       ],
@@ -190,4 +191,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

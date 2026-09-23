@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/ai/story-series/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
@@ -7,7 +8,7 @@ if (!OPENAI_API_KEY) {
   console.error("Missing OPENAI_API_KEY in environment variables");
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
         : 3;
 
     const prompt = `
-You are a specialist in social storytelling for therapists, coaches, and HR leaders.
+You are a specialist in social storytelling for the supplied business and audience.
 Create a high-impact story series for social media.
 
 Inputs:
@@ -56,7 +57,7 @@ Rules:
 - Each post must feel like a distinct "episode" (no repetition).
 - Strong hook. Real human language.
 - Platform-aware formatting (LinkedIn = structured & punchy, Facebook = conversational).
-- Include a clear CTA per post using the CTA style.
+- Use the saved CTA/destination where appropriate; otherwise use a relevant question or leave cta empty.
 - Optional: include a simple, realistic image concept.
 
 Return STRICT JSON ONLY in this format:
@@ -82,7 +83,7 @@ Return STRICT JSON ONLY in this format:
       },
       body: JSON.stringify({
         model: "gpt-4.1-mini",
-        messages: [
+        messages: [...tenant.messages,
           {
             role: "system",
             content:
@@ -139,4 +140,4 @@ Return STRICT JSON ONLY in this format:
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

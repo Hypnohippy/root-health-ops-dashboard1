@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
@@ -46,7 +47,7 @@ function containsExplicitConditionLanguage(text: string) {
   return keywords.some((k) => s.includes(k));
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -58,9 +59,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
 
     const subject = String(body?.subject ?? "").trim();
-    const tone = String(body?.tone ?? "calm").trim();
+    const tone = String(body?.tone ?? tenant.profile?.voice.tone ?? "clear and helpful").trim();
     const length = String(body?.length ?? "short").trim();
-    const audience = String(body?.audience ?? "clients").trim();
+    const audience = String(body?.audience ?? tenant.profile?.customers.audience ?? "customers").trim();
     const platforms = asProviderList(body?.platforms);
 
     if (!subject) {
@@ -77,14 +78,14 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
-      "You write concise, warm, premium social posts for a health and wellbeing brand called Root Health.",
-      "The tone must be supportive, human, non-salesy, and non-medical.",
-      "Do not make diagnosis, treatment, recovery, or cure claims.",
-      "Avoid absolute promises. Avoid crisis advice. Encourage gentle self-compassion.",
+      "You write useful, engaging social posts for the business in the organisation context.",
+      "Use the saved brand tone unless a suitable tone is explicitly requested.",
+      "Follow the shared factual-claims and subject-specific safety rules.",
+
       explicitConditionTopic
         ? "The user has explicitly chosen a condition/topic. You may refer to that topic carefully, respectfully, and in broad educational language without sounding diagnostic or reductive."
-        : "Do not assume any diagnosis, condition, neurotype, disorder, or label unless the user explicitly asked for that topic. Default to broad, non-diagnostic language such as stress, overwhelm, focus, confidence, work pressure, emotional wellbeing, or feeling stuck.",
-      "Avoid labelling the audience as if all readers share one condition.",
+        : "Stay within the supplied business context and requested subject; do not introduce unrelated topics.",
+
       "Use UK spelling.",
       "Return ONLY valid JSON that matches the provided schema.",
     ].join(" ");
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
       lengthHint,
       explicitConditionTopic
         ? "Use the requested topic carefully, without over-labelling people."
-        : "Keep the language broad and inclusive. Do not introduce diagnostic labels that were not requested.",
+        : "Keep the language relevant to the supplied business and audience.",
       "",
       "Generate 3 distinct variants:",
       "- Variant 1: reflective / philosophical",
@@ -119,12 +120,12 @@ export async function POST(req: NextRequest) {
       "Each variant must include:",
       "- a strong first line hook",
       "- the main post text",
-      "- a gentle CTA question at the end",
+      "- an appropriate CTA or question; leave CTA empty if none fits",
       "- 0–6 relevant hashtags (no spam, no cringe)",
     ].join("\n");
 
     const schema = {
-      name: "root_health_quick_blast",
+      name: "business_quick_blast",
       strict: true,
       schema: {
         type: "object",
@@ -158,7 +159,7 @@ export async function POST(req: NextRequest) {
 
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
-      input: [
+      input: [...tenant.messages,
         { role: "system", content: system },
         { role: "user", content: prompt },
       ],
@@ -204,4 +205,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

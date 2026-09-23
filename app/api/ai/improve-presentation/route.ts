@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
@@ -30,7 +31,7 @@ function cleanSlides(input: unknown) {
   }));
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -67,12 +68,12 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
-      "You are Root Coach, a calm and thoughtful presentation editor.",
+      "You are a thoughtful presentation editor for the supplied business.",
       "Your job is to improve an entire presentation draft.",
       "You must preserve the core topic unless the instruction clearly asks to change it.",
       "Make the presentation more useful, polished, and delivery-ready.",
       "Use UK spelling.",
-      "Do not make diagnosis, treatment, cure, or medical claims.",
+      "Follow the shared factual-claims and subject-specific safety rules.",
       "Keep the tone supportive, professional, and educational.",
       "Bullets should be concise and clear for slides.",
       "Speaker notes should be practical and fuller than bullets.",
@@ -110,7 +111,7 @@ export async function POST(req: NextRequest) {
       .join("\n");
 
     const schema = {
-      name: "root_coach_improved_presentation",
+      name: "business_improved_presentation",
       strict: true,
       schema: {
         type: "object",
@@ -170,7 +171,7 @@ export async function POST(req: NextRequest) {
 
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
-      input: [
+      input: [...tenant.messages,
         { role: "system", content: system },
         { role: "user", content: prompt },
       ],
@@ -208,4 +209,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

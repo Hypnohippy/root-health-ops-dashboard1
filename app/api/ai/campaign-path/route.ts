@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import OpenAI from "openai";
@@ -27,10 +28,11 @@ function containsExplicitConditionLanguage(text: string) {
   return keywords.some((k) => s.includes(k));
 }
 
-async function getHookPatterns() {
+async function getHookPatterns(organisationId: string) {
   const { data, error } = await supabaseAdmin
     .from("hook_patterns")
     .select("name, description, psychology, best_phase, examples")
+    .eq("organisation_id", organisationId)
     .order("created_at", { ascending: true })
     .limit(20);
 
@@ -38,7 +40,7 @@ async function getHookPatterns() {
   return data || [];
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json({ error: "Missing OPENAI_API_KEY" }, { status: 500 });
@@ -60,11 +62,11 @@ export async function POST(req: NextRequest) {
       containsExplicitConditionLanguage(audience) ||
       containsExplicitConditionLanguage(notes);
 
-    const hooks = await getHookPatterns();
+    const hooks = await getHookPatterns(tenant.organisationId);
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
-      "You are Root Coach, a gentle marketing strategist for therapists, coaches, and health brands.",
+      "You are a marketing strategist for the business in the organisation context.",
       "You create calm, ethical campaign journeys that do not feel salesy.",
       "Design a 4 phase campaign path using these phases exactly:",
       "1. Awareness",
@@ -81,8 +83,8 @@ export async function POST(req: NextRequest) {
       "Use the supplied hook pattern library where relevant.",
       explicitConditionTopic
         ? "The user has explicitly chosen a condition/topic. You may refer to that topic carefully, respectfully, and in broad educational language without sounding diagnostic or reductive."
-        : "Do not assume any diagnosis, condition, neurotype, disorder, or label unless the user explicitly asked for that topic. Default to broad, non-diagnostic language such as stress, overwhelm, focus, confidence, emotional wellbeing, work pressure, resilience, or support.",
-      "Avoid writing as if all readers share the same diagnosis or label.",
+        : "Stay within the supplied business context and requested subject; do not introduce unrelated topics.",
+      "Follow the shared factual-claims and subject-specific safety rules.",
       "Use UK spelling.",
       "Return only valid JSON matching the schema.",
     ].join(" ");
@@ -94,14 +96,14 @@ export async function POST(req: NextRequest) {
       `Notes: ${notes || "None"}`,
       explicitConditionTopic
         ? "Use the requested topic carefully and respectfully."
-        : "Keep the campaign broad, inclusive, and non-diagnostic unless the user clearly requested otherwise.",
+        : "Keep the campaign relevant to the supplied business and audience.",
       "",
       "Hook pattern library:",
       JSON.stringify(hooks, null, 2),
     ].join("\n");
 
     const schema = {
-      name: "root_coach_campaign_path",
+      name: "business_campaign_path",
       strict: true,
       schema: {
         type: "object",
@@ -142,7 +144,7 @@ export async function POST(req: NextRequest) {
 
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
-      input: [
+      input: [...tenant.messages,
         { role: "system", content: system },
         { role: "user", content: prompt },
       ],
@@ -178,4 +180,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

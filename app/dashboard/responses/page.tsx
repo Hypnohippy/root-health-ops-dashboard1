@@ -1,6 +1,8 @@
 // app/dashboard/responses/page.tsx
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type InboxPlatform =
@@ -427,7 +429,7 @@ export default function ResponsesPage() {
   }, []);
 
   const resolveOrg = async () => {
-    const res = await fetch("/api/social-accounts", { method: "GET" });
+    const res = await tenantFetch("/api/social-accounts", { method: "GET" });
     const data: any = await res.json().catch(() => null);
 
     const org =
@@ -727,7 +729,7 @@ export default function ResponsesPage() {
     };
 
     const callAi = async () => {
-      const res = await fetch("/api/ai/root-coach", {
+      const res = await tenantFetch("/api/ai/root-coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",

@@ -1,5 +1,7 @@
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import { useEffect, useState } from "react";
 
 export default function GrowthPage() {
@@ -19,7 +21,7 @@ export default function GrowthPage() {
     setFollowupsLoading(true);
 
     try {
-      const res = await fetch("/api/growth/followups-due");
+      const res = await tenantFetch("/api/growth/followups-due");
       const json = await res.json();
 
       if (json.success) {
@@ -37,7 +39,7 @@ export default function GrowthPage() {
     setQueue([]);
 
     try {
-      const res = await fetch("/api/growth/generate-daily-queue");
+      const res = await tenantFetch("/api/growth/generate-daily-queue");
       const json = await res.json();
 
       if (!json.success) {
@@ -66,7 +68,7 @@ export default function GrowthPage() {
     setSaved(false);
 
     try {
-      const res = await fetch("/api/ai/growth-engine", {
+      const res = await tenantFetch("/api/ai/growth-engine", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -92,7 +94,7 @@ export default function GrowthPage() {
   }
 
   async function markSent(target: any) {
-    await fetch("/api/growth/mark-sent", {
+    await tenantFetch("/api/growth/mark-sent", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -119,7 +121,7 @@ export default function GrowthPage() {
     const reply_status = statusSelect?.value || "no_reply";
     const reply_notes = notesInput?.value || "";
 
-    const res = await fetch("/api/growth/update-reply", {
+    const res = await tenantFetch("/api/growth/update-reply", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
