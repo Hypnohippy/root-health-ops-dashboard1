@@ -1,3 +1,4 @@
+import { requirePublishingOrganisation, accessErrorResponse, publishingHeaders } from "@/lib/tenantAuth";
 // app/api/publish/now/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -29,7 +30,7 @@ function sleep(ms: number) {
 }
 
 function originFromReq(req: NextRequest) {
-  return req.nextUrl.origin;
+  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || req.nextUrl.origin;
 }
 
 function norm(v: any) {
@@ -804,7 +805,7 @@ async function postToLinkedInViaInternal(
 
   const res = await fetch(`${origin}/api/linkedin/post`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: publishingHeaders(req),
     body: JSON.stringify({
       organisationId: args.organisationId,
       text: args.message,
@@ -835,7 +836,7 @@ async function postToTikTokViaInternal(
 
   const res = await fetch(`${origin}/api/tiktok/post`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: publishingHeaders(req),
     body: JSON.stringify({
       organisationId: args.organisationId,
       message: args.message,
@@ -859,7 +860,7 @@ async function postToTikTokViaInternal(
 export async function POST(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const organisationId = (url.searchParams.get("organisationId") || "").trim();
+    const { organisationId } = await requirePublishingOrganisation(req, (url.searchParams.get("organisationId") || "").trim());
 
     if (!organisationId) {
       return NextResponse.json(
@@ -1256,6 +1257,8 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("[publish/now] unexpected error", err);
     return NextResponse.json(
       { success: false, error: err?.message || "Internal server error" },

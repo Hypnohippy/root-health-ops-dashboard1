@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/social/scheduled/update/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({} as any));
 
     const id = String(body?.id || "").trim();
-    const organisationId = String(body?.organisationId || "").trim();
+    const { organisationId } = await requireOrganisation(String(body?.organisationId || "").trim(), true);
 
     if (!id) {
       return NextResponse.json({ success: false, error: "Missing id." }, { status: 200 });
@@ -44,9 +45,7 @@ export async function POST(req: NextRequest) {
 
     let q = supabaseAdmin.from("scheduled_posts").update(patch).eq("id", id);
 
-    if (organisationId) {
-      q = q.eq("organisation_id", organisationId);
-    }
+    q = q.eq("organisation_id", organisationId);
 
     const { data, error } = await q.select("*").maybeSingle();
 
@@ -63,6 +62,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, item: data }, { status: 200 });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { success: false, error: e?.message || "Update failed." },
       { status: 200 }

@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/social/scheduled/list/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
@@ -6,7 +7,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
-    const organisationId = searchParams.get("organisationId") || "";
+    const { organisationId } = await requireOrganisation(searchParams.get("organisationId") || "", false);
     const limitRaw = searchParams.get("limit") || "200";
 
     const limit = Math.max(1, Math.min(500, Number(limitRaw) || 200));
@@ -47,6 +48,8 @@ export async function GET(req: NextRequest) {
       { status: 200 }
     );
   } catch (err) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("[scheduled/list] unexpected", err);
     return NextResponse.json(
       { success: false, error: "Internal error in scheduled list." },

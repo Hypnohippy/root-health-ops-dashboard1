@@ -1,18 +1,9 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/oauth/facebook/save-page/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
-
-async function getSingleTenantOrganisationId(): Promise<string | null> {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .limit(1);
-
-  if (error || !data || data.length === 0) return null;
-  return String(data[0].id);
-}
 
 function corsHeaders() {
   return {
@@ -51,9 +42,7 @@ async function handleSave(req: NextRequest) {
         ""
     ).trim() || null;
 
-  const organisationId =
-    String(body?.organisationId ?? body?.organisation_id ?? "").trim() ||
-    (await getSingleTenantOrganisationId());
+  const { organisationId } = await requireOrganisation(body?.organisationId ?? body?.organisation_id);
 
   if (!platform) {
     return NextResponse.json(
@@ -117,6 +106,8 @@ export async function POST(req: NextRequest) {
   try {
     return await handleSave(req);
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { success: false, error: e?.message || "Save-page POST crashed" },
       { status: 500, headers: corsHeaders() }
@@ -128,6 +119,8 @@ export async function PUT(req: NextRequest) {
   try {
     return await handleSave(req);
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { success: false, error: e?.message || "Save-page PUT crashed" },
       { status: 500, headers: corsHeaders() }
@@ -139,6 +132,8 @@ export async function PATCH(req: NextRequest) {
   try {
     return await handleSave(req);
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { success: false, error: e?.message || "Save-page PATCH crashed" },
       { status: 500, headers: corsHeaders() }

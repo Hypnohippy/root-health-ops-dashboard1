@@ -1,3 +1,4 @@
+import { requirePublishingOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/linkedin/post/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -264,7 +265,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
 
     const text = String(body?.text ?? body?.message ?? "").trim();
-    const organisationId = String(body?.organisationId ?? "").trim();
+    const { organisationId } = await requirePublishingOrganisation(req, String(body?.organisationId ?? "").trim());
     const imageUrl = String(body?.imageUrl ?? "").trim();
     const videoUrl = String(body?.videoUrl ?? "").trim();
 
@@ -468,6 +469,8 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("[linkedin/post] error", err);
     return NextResponse.json(
       { ok: false, error: err?.message || "Server error", userMessage: "Something went wrong sending to LinkedIn. Please try again." },

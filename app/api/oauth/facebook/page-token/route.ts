@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/oauth/facebook/page-token/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
@@ -5,6 +6,7 @@ export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
+    await requireOrganisation(req.nextUrl.searchParams.get("organisationId"));
     const body = await req.json().catch(() => ({}));
     const userToken = String(body?.userToken || "").trim();
     const pageId = String(body?.pageId || "").trim();
@@ -61,6 +63,8 @@ export async function POST(req: NextRequest) {
       pageAccessToken,
     });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { error: e?.message || "page-token route crashed" },
       { status: 500 }

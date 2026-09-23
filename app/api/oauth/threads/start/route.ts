@@ -7,15 +7,15 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   try {
     const origin = (process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin).replace(/\/$/, "");
-    const clientId = (process.env.LINKEDIN_CLIENT_ID || "").trim();
-    const redirectUri = origin + "/api/oauth/linkedin/callback";
-    if (!clientId) return NextResponse.json({ error: "Missing linkedin client configuration." }, { status: 503 });
-    const state = await createOAuthState("linkedin", req.nextUrl.searchParams.get("organisationId"));
-    const authUrl = new URL("https://www.linkedin.com/oauth/v2/authorization");
+    const clientId = (process.env.THREADS_CLIENT_ID || "").trim();
+    const redirectUri = origin + "/api/oauth/threads/callback";
+    if (!clientId) return NextResponse.json({ error: "Missing threads client configuration." }, { status: 503 });
+    const state = await createOAuthState("threads", req.nextUrl.searchParams.get("organisationId"));
+    const authUrl = new URL("https://threads.net/oauth/authorize");
     authUrl.searchParams.set("client_id", clientId);
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("redirect_uri", redirectUri);
-    authUrl.searchParams.set("scope", "openid profile email w_member_social");
+    authUrl.searchParams.set("scope", "threads_basic,threads_content_publish");
     authUrl.searchParams.set("state", state);
 
     return NextResponse.redirect(authUrl);

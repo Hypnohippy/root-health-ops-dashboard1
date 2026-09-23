@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/social/scheduled/import/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
@@ -50,17 +51,7 @@ export async function POST(req: NextRequest) {
     if (platforms.length === 0) return okJson({ success: false, error: "Pick at least one platform" }, 400);
     if (items.length === 0) return okJson({ success: false, error: "No items provided" }, 400);
 
-    // ✅ default organisation: most recently created org
-    const { data: org, error: orgErr } = await supabaseAdmin
-      .from("organisations")
-      .select("id, created_at")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (orgErr || !org?.id) return okJson({ success: false, error: "No organisation found." }, 400);
-
-    const orgId = norm(body?.organisationId || meta?.organisationId || String(org.id));
+    const { organisationId: orgId } = await requireOrganisation(body?.organisationId || meta?.organisationId);
 
     if (!orgId) {
       return okJson({ success: false, error: "Missing organisationId (could not infer)." }, 400);
@@ -114,6 +105,8 @@ export async function POST(req: NextRequest) {
       source,
     });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return okJson({ success: false, error: e?.message || "Import failed" }, 500);
   }
 }

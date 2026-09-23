@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/responses/reply/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    const organisationId = String(body?.organisationId || "").trim();
+    const { organisationId } = await requireOrganisation(body?.organisationId);
     const platform = String(body?.platform || "").trim().toLowerCase();
     const externalId = String(body?.externalId || "").trim(); // comment id
     const message = String(body?.message || "").trim();
@@ -119,6 +120,8 @@ export async function POST(req: NextRequest) {
       400
     );
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return okJson({ success: false, error: e?.message || "Reply failed" }, 500);
   }
 }

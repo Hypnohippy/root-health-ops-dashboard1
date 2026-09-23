@@ -1,6 +1,7 @@
+import { requireOrganisation } from "@/lib/tenantAuth";
+import { consumeOAuthState } from "@/lib/oauthState";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getCurrentUserId } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
@@ -45,24 +46,12 @@ export async function GET(req: NextRequest) {
     return redirectToConnect(origin, { error: "facebook_missing_env" });
   }
 
-  const userId = await getCurrentUserId();
-  if (!userId) {
-    return redirectToConnect(origin, { error: "not_logged_in" });
+  let organisationId: string;
+  try {
+    ({ organisationId } = await consumeOAuthState("facebook", req.nextUrl.searchParams.get("state")));
+  } catch {
+    return redirectToConnect(origin, { error: "invalid_oauth_state_or_membership" });
   }
-
-  const { data: membership, error: membershipError } = await supabaseAdmin
-    .from("organisation_members")
-    .select("organisation_id, created_at")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (membershipError || !membership?.organisation_id) {
-    return redirectToConnect(origin, { error: "no_org_found" });
-  }
-
-  const organisationId = String(membership.organisation_id);
 
   const redirectUri = `${origin}/api/social/callback/facebook`;
 
@@ -150,6 +139,7 @@ export async function GET(req: NextRequest) {
   const now = new Date().toISOString();
 
   // 5) Save FACEBOOK row
+  await requireOrganisation(organisationId);
   const { error: fbSaveError } = await supabaseAdmin
     .from("social_accounts")
     .upsert(

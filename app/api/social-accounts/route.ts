@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/social-accounts/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
@@ -18,106 +19,6 @@ function normPlatform(p: any) {
   return String(p || "").trim().toLowerCase();
 }
 
-function getForcedOrgId() {
-  return (
-    String(process.env.SINGLE_ORG_ID || "").trim() ||
-    String(process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim() ||
-    null
-  );
-}
-
-function tryParseSbCookie(raw: string | undefined | null): any | null {
-  if (!raw) return null;
-
-  const attempts = [raw];
-
-  try {
-    attempts.push(decodeURIComponent(raw));
-  } catch {}
-
-  for (const value of attempts) {
-    try {
-      return JSON.parse(value);
-    } catch {}
-  }
-
-  return null;
-}
-
-function extractAccessTokenFromCookies(req: NextRequest): string | null {
-  const all = req.cookies.getAll();
-  const sbCookie = all.find(
-    (c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token")
-  );
-
-  const parsed = tryParseSbCookie(sbCookie?.value);
-  const token = String(parsed?.access_token || "").trim();
-
-  return token || null;
-}
-
-async function getAuthedUserId(req: NextRequest): Promise<string | null> {
-  const accessToken = extractAccessTokenFromCookies(req);
-  if (!accessToken) return null;
-
-  const {
-    data: { user },
-    error,
-  } = await supabaseAdmin.auth.getUser(accessToken);
-
-  if (error || !user) return null;
-  return String(user.id);
-}
-
-async function getOrgIdFromRequestOrMembership(
-  req: NextRequest,
-  userId: string
-): Promise<string | null> {
-  const url = new URL(req.url);
-
-  const queryOrg =
-    String(url.searchParams.get("organisationId") || "").trim() ||
-    String(url.searchParams.get("organisation_id") || "").trim();
-
-  if (queryOrg) return queryOrg;
-
-  // First try: latest org membership for this user
-  const { data, error } = await supabaseAdmin
-    .from("organisation_members")
-    .select("organisation_id, created_at")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!error && data?.organisation_id) {
-    return String(data.organisation_id);
-  }
-
-  // Fallback only if no membership exists
-  const forced = getForcedOrgId();
-  if (forced) return forced;
-
-  return null;
-}
-async function requireMembership(organisationId: string, userId: string) {
-  const { data, error } = await supabaseAdmin
-    .from("organisation_members")
-    .select("role")
-    .eq("organisation_id", organisationId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error) return { ok: false, role: null as string | null };
-  if (!data) return { ok: false, role: null as string | null };
-  return { ok: true, role: String(data.role || "").trim() || null };
-}
-
-function isWriteRole(role: string | null) {
-  const r = String(role || "").toLowerCase();
-  return r === "owner" || r === "admin" || r === "manager";
-}
-
 /**
  * GET /api/social-accounts
  * GET /api/social-accounts?organisationId=...
@@ -125,29 +26,9 @@ function isWriteRole(role: string | null) {
  */
 export async function GET(req: NextRequest) {
   try {
-    const userId = await getAuthedUserId(req);
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: "Not signed in." },
-        { status: 401 }
-      );
-    }
-
-    const organisationId = await getOrgIdFromRequestOrMembership(req, userId);
-    if (!organisationId) {
-      return NextResponse.json(
-        { success: false, error: "Missing organisationId." },
-        { status: 400 }
-      );
-    }
-
-    const mem = await requireMembership(organisationId, userId);
-    if (!mem.ok) {
-      return NextResponse.json(
-        { success: false, error: "Not a member of this organisation." },
-        { status: 403 }
-      );
-    }
+    const { organisationId } = await requireOrganisation(
+      req.nextUrl.searchParams.get("organisationId") || req.nextUrl.searchParams.get("organisation_id"), false
+    );
 
     const { data, error } = await supabaseAdmin
       .from("social_accounts")
@@ -196,6 +77,8 @@ return NextResponse.json({
   organisation: org || null,
 });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { success: false, error: e?.message || "Failed to load social accounts" },
       { status: 500 }
@@ -211,35 +94,9 @@ return NextResponse.json({
  */
 export async function POST(req: NextRequest) {
   try {
-    const userId = await getAuthedUserId(req);
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: "Not signed in." },
-        { status: 401 }
-      );
-    }
-
-    const organisationId = await getOrgIdFromRequestOrMembership(req, userId);
-    if (!organisationId) {
-      return NextResponse.json(
-        { success: false, error: "Missing organisationId." },
-        { status: 400 }
-      );
-    }
-
-    const mem = await requireMembership(organisationId, userId);
-    if (!mem.ok) {
-      return NextResponse.json(
-        { success: false, error: "Not a member of this organisation." },
-        { status: 403 }
-      );
-    }
-    if (!isWriteRole(mem.role)) {
-      return NextResponse.json(
-        { success: false, error: "Insufficient role to update connections." },
-        { status: 403 }
-      );
-    }
+    const { organisationId } = await requireOrganisation(
+      req.nextUrl.searchParams.get("organisationId") || req.nextUrl.searchParams.get("organisation_id"), true
+    );
 
     const body = await req.json().catch(() => ({} as any));
     const platform = normPlatform(body?.platform);
@@ -347,6 +204,8 @@ export async function POST(req: NextRequest) {
       mode: "inserted",
     });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { success: false, error: e?.message || "Failed to save social account" },
       { status: 500 }
@@ -361,35 +220,9 @@ export async function POST(req: NextRequest) {
  */
 export async function DELETE(req: NextRequest) {
   try {
-    const userId = await getAuthedUserId(req);
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: "Not signed in." },
-        { status: 401 }
-      );
-    }
-
-    const organisationId = await getOrgIdFromRequestOrMembership(req, userId);
-    if (!organisationId) {
-      return NextResponse.json(
-        { success: false, error: "Missing organisationId." },
-        { status: 400 }
-      );
-    }
-
-    const mem = await requireMembership(organisationId, userId);
-    if (!mem.ok) {
-      return NextResponse.json(
-        { success: false, error: "Not a member of this organisation." },
-        { status: 403 }
-      );
-    }
-    if (!isWriteRole(mem.role)) {
-      return NextResponse.json(
-        { success: false, error: "Insufficient role to update connections." },
-        { status: 403 }
-      );
-    }
+    const { organisationId } = await requireOrganisation(
+      req.nextUrl.searchParams.get("organisationId") || req.nextUrl.searchParams.get("organisation_id"), true
+    );
 
     const body = await req.json().catch(() => ({} as any));
     const platform = normPlatform(body?.platform);
@@ -421,6 +254,8 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { success: false, error: e?.message || "Disconnect failed" },
       { status: 500 }

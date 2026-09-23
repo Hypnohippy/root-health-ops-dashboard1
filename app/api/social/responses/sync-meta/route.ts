@@ -1,18 +1,10 @@
+import { requirePublishingOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
 type Platform = "facebook";
-
-async function getOrgIdSingleTenant(): Promise<string | null> {
-  const forced = (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
-  if (forced) return forced;
-
-  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
-  if (error || !data || data.length === 0) return null;
-  return String((data as any)[0].id);
-}
 
 async function loadFacebookAccount(orgId: string) {
   const { data, error } = await supabaseAdmin
@@ -243,16 +235,7 @@ async function syncFacebookMessages(args: { orgId: string; pageId: string; token
 
 export async function POST(req: NextRequest) {
   try {
-    // Optional: protect this endpoint for cron
-    const secret = (process.env.CRON_SECRET || "").trim();
-    if (secret) {
-      const got = (req.headers.get("x-cron-secret") || "").trim();
-      if (got !== secret) {
-        return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-      }
-    }
-
-    const orgId = await getOrgIdSingleTenant();
+    const { organisationId: orgId } = await requirePublishingOrganisation(req, req.nextUrl.searchParams.get("organisationId"));
     if (!orgId) return NextResponse.json({ ok: false, error: "No organisation found." }, { status: 200 });
 
     const fb = await loadFacebookAccount(orgId);
@@ -285,6 +268,8 @@ export async function POST(req: NextRequest) {
       note: "This sync writes to social_responses (used for automated leads + coaching).",
     });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json({ ok: false, error: e?.message || "Sync failed." }, { status: 200 });
   }
 }

@@ -1,3 +1,5 @@
+import { requireOrganisation } from "@/lib/tenantAuth";
+import { consumeOAuthState } from "@/lib/oauthState";
 // app/api/oauth/threads/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -21,26 +23,6 @@ async function fetchJson(url: string, init?: RequestInit) {
   const res = await fetch(url, { cache: "no-store", ...(init || {}) });
   const json: any = await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, json };
-}
-
-/**
- * Multi-tenant safe: choose the most recently created org as a fallback.
- * (In the future: pass orgId in state and use that instead.)
- */
-async function getLatestOrganisationId() {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id, created_at")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[threads/callback] organisations error", error);
-    return null;
-  }
-  if (!data?.id) return null;
-  return String(data.id);
 }
 
 function norm(v: any) {
@@ -162,6 +144,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
+    const { organisationId } = await consumeOAuthState("threads", req.nextUrl.searchParams.get("state"));
+
     const redirectUri = `${baseUrl(req)}/api/oauth/threads/callback`;
 
     // 1) code -> short-lived token
@@ -221,12 +205,13 @@ export async function GET(req: NextRequest) {
     const username = meRes.json.username ? String(meRes.json.username) : undefined;
 
     // 4) save to org
-    const organisationId = await getLatestOrganisationId();
+
     if (!organisationId) {
       back.searchParams.set("error", "no_organisation");
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
+    await requireOrganisation(organisationId);
     await upsertThreadsSocialAccount({
       organisationId,
       threadsUserId,

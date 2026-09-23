@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/oauth/threads/manual-save/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -9,27 +10,6 @@ async function fetchJson(url: string, init?: RequestInit) {
   const res = await fetch(url, { cache: "no-store", ...(init || {}) });
   const json: any = await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, json };
-}
-
-/**
- * ✅ IMPORTANT:
- * Match the Threads OAuth callback + connect UI behaviour:
- * choose the most recently created organisation (single-tenant fallback).
- */
-async function getLatestOrganisationId() {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id, created_at")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[threads/manual-save] organisations error", error);
-    return null;
-  }
-  if (!data?.id) return null;
-  return String(data.id);
 }
 
 async function upsertThreadsSocialAccount(args: {
@@ -100,6 +80,7 @@ async function upsertThreadsSocialAccount(args: {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
+    const { organisationId } = await requireOrganisation(body?.organisationId);
     const accessToken = String(body?.accessToken || "").trim();
 
     if (!accessToken) {
@@ -133,8 +114,6 @@ export async function POST(req: NextRequest) {
     const threadsUserId = String(meRes.json.id);
     const username = meRes.json.username ? String(meRes.json.username) : null;
 
-    // ✅ Use latest org (matches callback + typical connect page behaviour)
-    const organisationId = await getLatestOrganisationId();
     if (!organisationId) {
       return NextResponse.json({ ok: false, error: "No organisation found in DB" }, { status: 500 });
     }
@@ -149,6 +128,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, organisationId, threadsUserId, username }, { status: 200 });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     console.error("[threads/manual-save] crashed", e);
     return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });
   }

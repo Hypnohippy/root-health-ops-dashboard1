@@ -1,3 +1,4 @@
+import { requireLegacyFacebookOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { NextResponse } from "next/server";
 
 // 🔍 Simple GET so you can check the route in a browser
@@ -12,6 +13,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    await requireLegacyFacebookOrganisation();
     const { message } = await req.json();
 
     if (!message) {
@@ -52,6 +54,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
+    const denied = accessErrorResponse(error);
+    if (denied) return denied;
     return NextResponse.json(
       { error: error.message || "Unexpected server error" },
       { status: 500 }

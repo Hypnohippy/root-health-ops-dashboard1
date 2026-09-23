@@ -30,6 +30,8 @@ export async function GET(req: NextRequest) {
   if (provider && allowed.has(provider)) {
     const url = new URL(`${origin}/api/social/connect/start`);
     url.searchParams.set("provider", provider);
+    const org = searchParams.get("organisationId") || searchParams.get("organisation_id");
+    if (org) url.searchParams.set("organisationId", org);
     return NextResponse.redirect(url, { status: 302 });
   }
 

@@ -1,31 +1,24 @@
+import { loadFacebookConnection } from "@/lib/facebookConnection";
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/facebook/post-direct/route.ts
 import { NextResponse } from "next/server";
 
-// Try a few possible env var names so we don't fight naming differences
-const PAGE_ID =
-  process.env.FACEBOOK_PAGE_ID ||
-  process.env.FB_PAGE_ID ||
-  process.env.NEXT_PUBLIC_FACEBOOK_PAGE_ID;
-
-const PAGE_ACCESS_TOKEN =
-  process.env.FACEBOOK_PAGE_ACCESS_TOKEN ||
-  process.env.FB_PAGE_ACCESS_TOKEN ||
-  process.env.PAGE_ACCESS_TOKEN ||
-  process.env.NEXT_PUBLIC_FACEBOOK_PAGE_ACCESS_TOKEN;
-
 export async function POST(req: Request) {
   try {
+    const body = await req.json().catch(() => null);
+    const { organisationId } = await requireOrganisation(body?.organisationId);
+    const account = await loadFacebookConnection(organisationId);
+    const PAGE_ID = account?.page_id;
+    const PAGE_ACCESS_TOKEN = account?.page_access_token;
     if (!PAGE_ID || !PAGE_ACCESS_TOKEN) {
       return NextResponse.json(
         {
           error:
-            "Missing Facebook Page ID or Access Token env vars. Expected one of: FACEBOOK_PAGE_ID / FB_PAGE_ID (for ID) and FACEBOOK_PAGE_ACCESS_TOKEN / FB_PAGE_ACCESS_TOKEN / PAGE_ACCESS_TOKEN (for token).",
+            "Facebook is not connected for this organisation.",
         },
         { status: 500 }
       );
     }
-
-    const body = (await req.json().catch(() => null)) as any;
 
     const message = body?.message as string | undefined;
 
@@ -71,6 +64,8 @@ export async function POST(req: Request) {
       facebookResponse: fbData,
     });
   } catch (error: any) {
+    const denied = accessErrorResponse(error);
+    if (denied) return denied;
     console.error("[facebook/post-direct] Unexpected error", error);
     return NextResponse.json(
       { error: error?.message || "Unexpected error posting to Facebook." },

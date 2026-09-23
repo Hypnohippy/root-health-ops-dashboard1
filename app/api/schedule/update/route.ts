@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/schedule/update/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -19,7 +20,7 @@ function toIsoOrThrow(s: any) {
 export async function POST(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const organisationId = (url.searchParams.get("organisationId") || "").trim();
+    const { organisationId } = await requireOrganisation((url.searchParams.get("organisationId") || "").trim(), true);
     if (!organisationId) {
       return NextResponse.json({ success: false, error: "Missing organisationId" }, { status: 400 });
     }
@@ -105,6 +106,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, item: data }, { status: 200 });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json({ success: false, error: e?.message || "Internal error." }, { status: 500 });
   }
 }

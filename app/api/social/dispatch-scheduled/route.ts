@@ -1,6 +1,7 @@
 // app/api/social/dispatch-scheduled/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { requireOwnedRecord } from "@/lib/tenantAuth";
 
 export const runtime = "nodejs";
 
@@ -12,11 +13,11 @@ function norm(v: any) {
 }
 
 function originFromReq(req: NextRequest) {
-  return new URL(req.url).origin;
+  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || new URL(req.url).origin;
 }
 
 function isAuthorized(req: NextRequest) {
-  if (!CRON_SECRET) return true;
+  if (!CRON_SECRET) return false;
   const auth = norm(req.headers.get("authorization"));
   return auth === `Bearer ${CRON_SECRET}`;
 }
@@ -115,6 +116,7 @@ async function logPublishOutcomeToExperiment(params: {
     const meta = params.scheduledPostMeta && typeof params.scheduledPostMeta === "object" ? params.scheduledPostMeta : {};
     const expId = safeUuidLike(meta?.experiment_id || meta?.experimentId);
     if (!expId) return; // only log when linked to an experiment
+    await requireOwnedRecord("growth_experiments", expId, orgId);
 
     const contentPreview = String(params.message || "").slice(0, 400);
 
@@ -171,13 +173,16 @@ export async function GET(req: NextRequest) {
 
     const nowIso = new Date().toISOString();
 
-    const { data: due, error } = await supabaseAdmin
+    const requestedOrg = req.nextUrl.searchParams.get("organisationId");
+    let dueQuery = supabaseAdmin
       .from("scheduled_posts")
       .select("id, organisation_id, scheduled_for, status")
       .in("status", ["queued", "scheduled"])
       .lte("scheduled_for", nowIso)
       .order("scheduled_for", { ascending: true })
       .limit(10);
+    if (requestedOrg) dueQuery = dueQuery.eq("organisation_id", requestedOrg);
+    const { data: due, error } = await dueQuery;
 
     if (error) throw new Error(error.message);
 
@@ -202,7 +207,7 @@ export async function GET(req: NextRequest) {
           `${origin}/api/publish/now?organisationId=${encodeURIComponent(organisationId)}`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${CRON_SECRET}` },
             cache: "no-store",
             body: JSON.stringify({ id, platforms }),
           }

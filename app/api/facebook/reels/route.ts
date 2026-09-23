@@ -1,3 +1,5 @@
+import { loadFacebookConnection } from "@/lib/facebookConnection";
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/facebook/reels/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
@@ -8,8 +10,7 @@ export const runtime = "nodejs";
  *
  * Expected body:
  * {
- *   pageId: string,
- *   pageAccessToken: string,
+ *   organisationId?: string, // resolved from authenticated membership when unambiguous
  *   videoUrl: string,        // MUST be https and publicly fetchable
  *   description?: string
  * }
@@ -18,8 +19,10 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({} as any));
 
-    const pageId = String(body?.pageId || "").trim();
-    const pageAccessToken = String(body?.pageAccessToken || "").trim();
+    const { organisationId } = await requireOrganisation(body?.organisationId);
+    const account = await loadFacebookConnection(organisationId);
+    const pageId = account?.page_id;
+    const pageAccessToken = account?.page_access_token;
     const videoUrl = String(body?.videoUrl || "").trim();
     const description = String(body?.description || "").trim();
 
@@ -123,6 +126,8 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     return NextResponse.json(
       {
         ok: false,
