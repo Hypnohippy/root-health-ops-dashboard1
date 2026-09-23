@@ -18,13 +18,15 @@ export async function createSupabaseServerClient() {
 
   return createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
-      getAll() {
-        return cookieStore.getAll();
+      // @supabase/ssr 0.2 uses per-cookie methods (including chunked cookies).
+      get(name: string) {
+        return cookieStore.get(name)?.value;
       },
-      setAll() {
+      set() {
         // In server components/layouts we do not mutate cookies here.
         // proxy.ts handles refresh/update on real requests.
       },
+      remove() {},
     },
   });
 }

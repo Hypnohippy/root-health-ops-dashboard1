@@ -1,5 +1,7 @@
 "use client";
 
+import { fetchOrganisationProfile, type ProfileResponse } from "@/lib/organisationProfileClient";
+import { emptyProfile } from "@/lib/brandGrowthProfile";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type Resource = {
@@ -1094,11 +1096,11 @@ function downloadProposalAsPdf(resource: Resource, proposal: string) {
 
   const title = String(resource?.title || "Proposal").trim();
 
-  let brand: any = {};
-  try {
-    const raw = localStorage.getItem("rootops_brand_profile_v1");
-    if (raw) brand = JSON.parse(raw);
-  } catch {}
+  if (!brandData || brandData.organisationId !== organisationId) {
+    alert(brandLoadError || "Branding is still loading. Please try again in a moment.");
+    return;
+  }
+  const brand = brandData.profile;
 
   const html = `
     <html>
@@ -2727,11 +2729,11 @@ if (content && Array.isArray(content.sections)) {
     year: "numeric",
   });
 
-  let brand: any = {};
-  try {
-    const raw = localStorage.getItem("rootops_brand_profile_v1");
-    if (raw) brand = JSON.parse(raw);
-  } catch {}
+  if (!brandData || brandData.organisationId !== organisationId) {
+    alert(brandLoadError || "Branding is still loading. Please try again in a moment.");
+    return;
+  }
+  const brand = brandData.profile;
 
   const title = String(resource?.title || "Programme Summary").trim();
   const logoUrl = String(brand?.logoUrl || "").trim();
@@ -3312,11 +3314,11 @@ ${
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
 
-    let brand: any = {};
-    try {
-      const raw = localStorage.getItem("rootops_brand_profile_v1");
-      if (raw) brand = JSON.parse(raw);
-    } catch {}
+    if (!brandData || brandData.organisationId !== organisationId) {
+      alert(brandLoadError || "Branding is still loading. Please try again in a moment.");
+      return;
+    }
+    const brand = brandData.profile;
 
     const title = String(resource?.title || "Client Pack").trim();
     const summary = String(
@@ -3682,26 +3684,29 @@ ${
     console.error("client pack error", err);
   }
 }
-const [brandProfile, setBrandProfile] = useState<any>({});
-
+const [brandData, setBrandData] = useState<ProfileResponse | null>(null);
+const [brandLoadError, setBrandLoadError] = useState("");
+const brandProfile = brandData?.organisationId === organisationId ? brandData.profile : emptyProfile;
 useEffect(() => {
-  try {
-    const raw = localStorage.getItem("rootops_brand_profile_v1");
-    if (raw) {
-      setBrandProfile(JSON.parse(raw));
-    }
-  } catch {}
-}, []);
+  if (!organisationId) return;
+  const controller = new AbortController();
+  fetchOrganisationProfile(organisationId, undefined, controller.signal).then(data => {
+    setBrandData(data); setBrandLoadError("");
+  }).catch(error => {
+    if (!controller.signal.aborted) setBrandLoadError(error instanceof Error ? error.message : "Could not load branding.");
+  });
+  return () => controller.abort();
+}, [organisationId]);
 async function downloadCoursePack(
   selectedContent: any,
   selectedTitle: string
 ) {
   try {
-    let brand: any = {};
-    try {
-      const raw = localStorage.getItem("rootops_brand_profile_v1");
-      if (raw) brand = JSON.parse(raw);
-    } catch {}
+    if (!brandData || brandData.organisationId !== organisationId) {
+      alert(brandLoadError || "Branding is still loading. Please try again in a moment.");
+      return;
+    }
+    const brand = brandData.profile;
 
     const escapeHtml = (value: unknown) =>
       String(value || "")

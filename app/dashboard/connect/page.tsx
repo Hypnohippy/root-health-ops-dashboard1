@@ -1,6 +1,7 @@
 // app/dashboard/connect/page.tsx
 "use client";
 
+import BrandGrowthProfileEditor from "../components/BrandGrowthProfileEditor";
 import React, { useEffect, useState } from "react";
 
 type ProviderId =
@@ -261,6 +262,13 @@ type SocialAccountRow = {
   is_active?: boolean | null;
 };
 
+function scopedUrl(path: string) {
+  const url = new URL(path, window.location.origin);
+  const organisationId = new URLSearchParams(window.location.search).get("organisationId");
+  if (organisationId) url.searchParams.set("organisationId", organisationId);
+  return url.pathname + url.search;
+}
+
 export default function DashboardConnectPage() {
   const [providers, setProviders] = useState<Provider[]>(initialProviders);
   const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
@@ -268,7 +276,7 @@ export default function DashboardConnectPage() {
 
   async function loadSocialAccounts() {
     try {
-      const res = await fetch("/api/social-accounts", { cache: "no-store" });
+      const res = await fetch(scopedUrl("/api/social-accounts"), { cache: "no-store" });
       const data = await res.json().catch(() => null);
       const rows: SocialAccountRow[] = data?.socialAccounts ?? [];
 
@@ -316,7 +324,7 @@ export default function DashboardConnectPage() {
       prev.map((p) => (p.id === provider.id ? { ...p, status: "pending" } : p))
     );
 
-    window.location.href = url;
+    window.location.href = scopedUrl(url);
   };
 
   const handleDisconnectClick = async (provider: Provider) => {
@@ -336,7 +344,7 @@ export default function DashboardConnectPage() {
     );
 
     try {
-      await fetch("/api/social-accounts", {
+      await fetch(scopedUrl("/api/social-accounts"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ platform: provider.id }),
@@ -354,7 +362,7 @@ export default function DashboardConnectPage() {
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold">
-              Connect your channels
+              Connect your business
             </h1>
             <p className="text-sm text-slate-300 mt-1 max-w-xl">
               One-click OAuth connections. You stay in control — we only post
@@ -362,11 +370,14 @@ export default function DashboardConnectPage() {
             </p>
           </div>
           <div className="text-xs text-slate-400 bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 max-w-xs">
-            <p className="font-medium text-slate-200 mb-1">Therapist-friendly</p>
+            <p className="font-medium text-slate-200 mb-1">Simple setup</p>
             <p>No tech setup. Click connect, choose the right account, done.</p>
           </div>
         </header>
 
+        <BrandGrowthProfileEditor />
+
+        <h2 className="mb-4 text-lg font-semibold">Your channels</h2>
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {connectHelper ? (
   <div
