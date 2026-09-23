@@ -1,22 +1,25 @@
+import { requireOrganisation } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
 
 export const runtime = "nodejs";
 
-export default async function GrowthTrackerPage() {
+export default async function GrowthTrackerPage({ searchParams }: { searchParams: Promise<{ organisationId?: string }> }) {
+  const { organisationId } = await requireOrganisation((await searchParams).organisationId, false);
   const { data } = await supabaseAdmin
     .from("growth_plans")
-    .select("*")
+    .select("*").eq("organisation_id", organisationId)
     .order("created_at", { ascending: false })
     .limit(50);
 
   async function markUsed(id: string) {
     "use server";
+    const verified = await requireOrganisation(organisationId);
 
     await supabaseAdmin
       .from("growth_plans")
       .update({ used: true })
-      .eq("id", id);
+      .eq("id", id).eq("organisation_id", verified.organisationId);
 
     revalidatePath("/dashboard/growth/tracker");
   }

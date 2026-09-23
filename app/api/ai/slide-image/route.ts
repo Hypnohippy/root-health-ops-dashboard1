@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { randomUUID } from "crypto";
@@ -92,7 +93,7 @@ function inferArtworkLabel(body: any) {
       artworkChip: "Practical culture",
       visualDirection:
         safe(body?.visualDirection) ||
-        "A premium workplace wellbeing illustration with polished editorial styling, modern teal and cyan palette, subtle human presence, elegant depth, and clear presentation-friendly space",
+        "A premium workplace illustration with polished editorial styling, modern teal and cyan palette, subtle human presence, elegant depth, and clear presentation-friendly space",
     };
   }
 
@@ -148,7 +149,7 @@ function buildImagePrompt(body: any, inferred: { visualDirection: string }) {
         ].join(", ")
       : [
           "premium calm editorial illustration",
-          "high-end wellbeing presentation aesthetic",
+          "high-end presentation aesthetic",
           "soft cinematic lighting",
           "elegant modern depth",
           "polished, refined, human-centred",
@@ -203,7 +204,7 @@ function buildStoragePath(body: any) {
   return `presentations/${presentationSlug}/${slideSlug}-${stamp}-${id}.png`;
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -223,7 +224,7 @@ export async function POST(req: NextRequest) {
     }
 
     const inferred = inferArtworkLabel(body);
-    const prompt = buildImagePrompt(body, inferred);
+    const prompt = tenant.messages.map(message => message.content).join("\n\n") + "\n\nIMAGE REQUEST:\n" + buildImagePrompt(body, inferred);
 
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
@@ -244,7 +245,7 @@ export async function POST(req: NextRequest) {
     }
 
     const imageBuffer = Buffer.from(imageBase64, "base64");
-    const storagePath = buildStoragePath(body);
+    const storagePath = `${tenant.organisationId}/${buildStoragePath(body)}`;
 
     const uploadResult = await supabaseAdmin.storage
       .from(STORAGE_BUCKET)
@@ -292,4 +293,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

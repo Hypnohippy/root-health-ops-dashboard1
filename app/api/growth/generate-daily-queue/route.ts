@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -24,11 +25,11 @@ function isDue(target: any) {
   return false;
 }
 
-export async function GET() {
+export const GET = withTenantRoute(async function GET(req: Request, tenant) {
   try {
     const { data: targets, error } = await supabaseAdmin
       .from("growth_targets")
-      .select("*")
+      .select("*").eq("organisation_id", tenant.organisationId)
       .eq("status", "active")
       .order("created_at", { ascending: false });
 
@@ -49,7 +50,7 @@ export async function GET() {
 
     for (const target of dueTargets) {
       const prompt = `
-You are David Prince's calm, intelligent B2B outreach assistant for Root Health Ops.
+You are the business’s calm, intelligent B2B outreach assistant for the supplied business.
 
 Create the next best outreach message for this LinkedIn target.
 
@@ -79,7 +80,7 @@ Return only the finished message.
 
       const completion = await openai.chat.completions.create({
         model: "gpt-5.3-chat-latest",
-        messages: [{ role: "user", content: prompt }],
+        messages: [...tenant.messages,{ role: "user", content: prompt }],
       });
 
       results.push({
@@ -100,4 +101,4 @@ Return only the finished message.
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
-}
+}, { generation: true, write: true });

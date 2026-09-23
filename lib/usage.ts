@@ -1,17 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireOrganisation } from "@/lib/tenantAuth";
 
-export async function getCurrentOrganisationId() {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .limit(1);
-
-  if (error) {
-    console.error("[usage] organisations error", error);
-    return null;
-  }
-
-  return data?.[0]?.id ?? null;
+export async function getCurrentOrganisationId(requested?: string) {
+  return (await requireOrganisation(requested, false)).organisationId;
 }
 
 export async function logUsageForOrganisation(
@@ -59,10 +50,12 @@ export function mapStoredPlanToPublicPlan(
   return "solo";
 }
 
-export async function getCurrentOrganisationPlan() {
+export async function getCurrentOrganisationPlan(requested?: string) {
+  const organisationId = await getCurrentOrganisationId(requested);
   const { data, error } = await supabaseAdmin
     .from("organisation_plans")
     .select("plan")
+    .eq("organisation_id", organisationId)
     .limit(1);
 
   if (error) {

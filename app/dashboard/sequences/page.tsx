@@ -1,5 +1,7 @@
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import React, { useEffect, useMemo, useState } from "react";
 
 type AiVariant = {
@@ -645,7 +647,7 @@ export default function SequencesPage() {
 
   async function loadOrganisation() {
     try {
-      const res = await fetch("/api/social-accounts", { cache: "no-store" });
+      const res = await tenantFetch("/api/social-accounts", { cache: "no-store" });
       const data = await res.json();
 
       if (!res.ok || !data?.organisationId) {
@@ -824,7 +826,7 @@ export default function SequencesPage() {
     setGenerateErrors((prev) => ({ ...prev, [s.id]: null }));
 
     try {
-      const res = await fetch("/api/ai/quick-blast", {
+      const res = await tenantFetch("/api/ai/quick-blast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -882,7 +884,7 @@ export default function SequencesPage() {
     setPathErrors((prev) => ({ ...prev, [s.id]: null }));
 
     try {
-      const res = await fetch("/api/ai/campaign-path", {
+      const res = await tenantFetch("/api/ai/campaign-path", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -976,7 +978,7 @@ export default function SequencesPage() {
     setWebinarErrors((prev) => ({ ...prev, [s.id]: null }));
 
     try {
-      const res = await fetch("/api/ai/webinar-outline", {
+      const res = await tenantFetch("/api/ai/webinar-outline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/ai/story-series/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
@@ -7,7 +8,7 @@ if (!OPENAI_API_KEY) {
   console.error("Missing OPENAI_API_KEY in environment variables");
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -20,11 +21,11 @@ export async function POST(req: NextRequest) {
 
     const {
       idea,
-      storyType = "Problem → Solution → Success",
+      storyType = "Narrative with scene, progression, tension and resolution",
       tone = "Inspirational & human",
       seriesLength = 3,
       platform = "linkedin",
-      ctaStyle = "Comment for more / next part",
+      ctaStyle = "None unless appropriate to the requested form",
     } = body || {};
 
     if (!idea || typeof idea !== "string" || idea.trim().length === 0) {
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
         : 3;
 
     const prompt = `
-You are a specialist in social storytelling for therapists, coaches, and HR leaders.
+You are a specialist in social storytelling for the supplied business and audience.
 Create a high-impact story series for social media.
 
 Inputs:
@@ -54,9 +55,9 @@ Inputs:
 Rules:
 - Produce exactly ${n} posts as a coherent series.
 - Each post must feel like a distinct "episode" (no repetition).
-- Strong hook. Real human language.
-- Platform-aware formatting (LinkedIn = structured & punchy, Facebook = conversational).
-- Include a clear CTA per post using the CTA style.
+- Write actual narrative episodes with scene, progression and tension, building to resolution across the series. No mandatory marketing hooks or product references.
+- Platform-aware formatting (adapt to the requested length and form without forcing a template).
+- Use the saved CTA/destination where appropriate; otherwise use a relevant question or leave cta empty.
 - Optional: include a simple, realistic image concept.
 
 Return STRICT JSON ONLY in this format:
@@ -67,7 +68,7 @@ Return STRICT JSON ONLY in this format:
       "title": "short compelling title",
       "body": "full post text with line breaks",
       "platformSuggestion": "linkedin | facebook | instagram | etc.",
-      "cta": "one short CTA",
+      "cta": "optional appropriate CTA, or empty string",
       "imagePrompt": "optional short image idea"
     }
   ]
@@ -82,7 +83,7 @@ Return STRICT JSON ONLY in this format:
       },
       body: JSON.stringify({
         model: "gpt-4.1-mini",
-        messages: [
+        messages: [...tenant.messages,
           {
             role: "system",
             content:
@@ -139,4 +140,4 @@ Return STRICT JSON ONLY in this format:
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

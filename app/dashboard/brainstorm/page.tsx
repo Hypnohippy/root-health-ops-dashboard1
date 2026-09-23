@@ -1,6 +1,8 @@
 // app/dashboard/brainstorm/page.tsx
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ConnectedChannelsBar from "../components/ConnectedChannelsBar";
 
@@ -672,7 +674,7 @@ export default function BrainstormPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/ai/brainstorm", {
+      const res = await tenantFetch("/api/ai/brainstorm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

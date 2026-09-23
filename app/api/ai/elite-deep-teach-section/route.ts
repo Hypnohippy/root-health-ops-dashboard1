@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import {
@@ -5,13 +6,12 @@ import {
   getMonthlyUsageForOrganisation,
   getPlanLimit,
   getCurrentOrganisationPlan,
-  getCurrentOrganisationId,
 } from "@/lib/usage";
 export const runtime = "nodejs";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -57,8 +57,8 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-const organisationId = await getCurrentOrganisationId();
-const userPlan = await getCurrentOrganisationPlan();
+const organisationId = tenant.organisationId;
+const userPlan = await getCurrentOrganisationPlan(tenant.organisationId);
 
 const usage = organisationId
   ? await getMonthlyUsageForOrganisation(organisationId)
@@ -182,7 +182,7 @@ if (usage + cost > monthlyLimit) {
 
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
-      input: [
+      input: [...tenant.messages,
         { role: "system", content: system },
         { role: "user", content: userPrompt },
       ],
@@ -253,4 +253,4 @@ if (organisationId) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

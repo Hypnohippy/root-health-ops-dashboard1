@@ -1,23 +1,8 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
-
-const SINGLE_ORG_ID = (process.env.SINGLE_ORG_ID || "").trim();
-
-async function getOrganisationIdFallback(): Promise<string | null> {
-  if (SINGLE_ORG_ID) return SINGLE_ORG_ID;
-
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id, created_at")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !data?.id) return null;
-  return String(data.id);
-}
 
 function detectFormat(row: any): "text" | "image" | "video" {
   const imageUrl = String(row?.image_url || "").trim();
@@ -54,21 +39,14 @@ function scoreHeuristic(row: any): number {
   return score;
 }
 
-export async function GET() {
+export const GET = withTenantRoute(async function GET(req: Request, tenant) {
   try {
-    const organisationId = await getOrganisationIdFallback();
-    if (!organisationId) {
-      return NextResponse.json(
-        { success: false, error: "No organisation found to generate a suggestion." },
-        { status: 200 }
-      );
-    }
+    const organisationId = tenant.organisationId;
 
     // Look at the most recent posted items (Quick Blast counts too)
     const { data, error } = await supabaseAdmin
       .from("scheduled_posts")
-      .select("id, message, platforms, image_url, meta, created_at, posted_at, status")
-      .eq("organisation_id", organisationId)
+      .select("id, message, platforms, image_url, meta, created_at, posted_at, status").eq("organisation_id", tenant.organisationId)
       .in("status", ["posted", "failed"]) // we can learn from either
       .order("created_at", { ascending: false })
       .limit(25);
@@ -127,4 +105,4 @@ export async function GET() {
       { status: 200 }
     );
   }
-}
+}, { generation: false, write: false });

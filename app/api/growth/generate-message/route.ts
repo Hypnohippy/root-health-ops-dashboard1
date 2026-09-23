@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -8,7 +9,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-export async function POST(req: Request) {
+export const POST = withTenantRoute(async function POST(req: Request, tenant) {
   try {
     const { targetId, messageType = "next_best_message" } = await req.json();
 
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
 
     const { data: target, error } = await supabaseAdmin
       .from("growth_targets")
-      .select("*")
+      .select("*").eq("organisation_id", tenant.organisationId)
       .eq("id", targetId)
       .single();
 
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
     }
 
     const prompt = `
-You are David Prince's calm, intelligent B2B outreach assistant for Root Health Ops.
+You are the business’s calm, intelligent B2B outreach assistant for the supplied business.
 
 Create a client-specific message.
 
@@ -56,7 +57,7 @@ RULES:
 - Warm, professional, non-pushy
 - No hype
 - No emojis
-- Make it feel written by David
+- Use the saved business voice
 - Use the person's first name naturally
 - Keep it concise
 - If it is an email, include subject line and body
@@ -69,7 +70,7 @@ Return only the finished message.
 
     const completion = await openai.chat.completions.create({
       model: "gpt-5.3-chat-latest",
-      messages: [{ role: "user", content: prompt }],
+      messages: [...tenant.messages,{ role: "user", content: prompt }],
     });
 
     const message = completion.choices[0].message?.content || "";
@@ -84,4 +85,4 @@ Return only the finished message.
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

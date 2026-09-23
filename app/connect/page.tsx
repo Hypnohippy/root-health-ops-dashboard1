@@ -1,5 +1,7 @@
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import React, { useEffect, useState } from "react";
 
 type ProviderId =
@@ -235,7 +237,7 @@ export default function ConnectPage() {
 
   const loadSocialAccounts = async () => {
     try {
-      const res = await fetch("/api/social-accounts");
+      const res = await tenantFetch("/api/social-accounts");
       if (!res.ok) return;
 
       const data = await res.json();
@@ -265,7 +267,7 @@ export default function ConnectPage() {
 
   const deleteSocialAccount = async (providerId: ProviderId) => {
     try {
-      await fetch("/api/social-accounts", {
+      await tenantFetch("/api/social-accounts", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ platform: providerId }),
@@ -328,7 +330,7 @@ export default function ConnectPage() {
       const message = err?.message || "Something went wrong sending the test post.";
       setTestError(message);
 
-      fetch("/api/ai/root-coach", {
+      tenantFetch("/api/ai/root-coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

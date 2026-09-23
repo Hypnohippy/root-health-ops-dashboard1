@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import {
@@ -5,7 +6,6 @@ import {
   getMonthlyUsageForOrganisation,
   getPlanLimit,
   getCurrentOrganisationPlan,
-  getCurrentOrganisationId,
 } from "@/lib/usage";
 export const runtime = "nodejs";
 
@@ -32,7 +32,7 @@ function containsExplicitConditionLanguage(text: string) {
   return keywords.some((k) => s.includes(k));
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -64,9 +64,9 @@ export async function POST(req: NextRequest) {
       containsExplicitConditionLanguage(goal) ||
       containsExplicitConditionLanguage(audience) ||
       containsExplicitConditionLanguage(notes);
-    
-const organisationId = await getCurrentOrganisationId();
-const userPlan = await getCurrentOrganisationPlan();
+
+const organisationId = tenant.organisationId;
+const userPlan = await getCurrentOrganisationPlan(tenant.organisationId);
 
 const usage = organisationId
   ? await getMonthlyUsageForOrganisation(organisationId)
@@ -82,16 +82,16 @@ if (usage + cost > monthlyLimit) {
     },
     { status: 403 }
   );
-}   
+}
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
-      "You are Root Coach, a gentle educator and marketing strategist for therapists, coaches, and wellbeing brands.",
+      "You are an educator and marketing strategist for the business in the organisation context.",
       "Create a calm, ethical teaching-ready presentation that feels supportive, useful, and non-salesy.",
-      "Do not make diagnosis, treatment, cure, or recovery claims.",
+      "Follow the shared factual-claims and subject-specific safety rules.",
       explicitConditionTopic
         ? "The user has explicitly chosen a condition/topic. You may refer to that topic carefully, respectfully, and in broad educational language without sounding diagnostic or reductive."
-        : "Do not assume any diagnosis, condition, neurotype, disorder, or label unless the user explicitly asked for that topic. Default to broad, non-diagnostic language such as stress, overwhelm, focus, confidence, emotional wellbeing, work pressure, resilience, or support.",
+        : "Stay within the supplied business context and requested subject; do not introduce unrelated topics.",
       "Make the content genuinely educational, not just headings.",
       "Each slide must include practical teaching content that a speaker could actually use.",
       "Speaker notes should be fuller than the on-slide bullets, but still concise and usable.",
@@ -144,7 +144,7 @@ if (usage + cost > monthlyLimit) {
       "- calm professional",
       "- warm supportive",
       "- grounded workplace",
-      "- reflective wellbeing",
+      "- reflective learning",
       "",
       "visual_direction should be a short design cue for that slide, such as:",
       "- soft layered circles and calming blue-green gradient",
@@ -155,7 +155,7 @@ if (usage + cost > monthlyLimit) {
     ].join("\n");
 
     const schema = {
-      name: "root_coach_presentation_outline",
+      name: "business_presentation_outline",
       strict: true,
       schema: {
         type: "object",
@@ -212,7 +212,7 @@ if (usage + cost > monthlyLimit) {
 
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
-      input: [
+      input: [...tenant.messages,
         { role: "system", content: system },
         { role: "user", content: prompt },
       ],
@@ -239,7 +239,7 @@ if (usage + cost > monthlyLimit) {
         { status: 500 }
       );
     }
-    
+
 if (organisationId) {
   await logUsageForOrganisation(organisationId, "presentation_generation");
 }
@@ -254,4 +254,4 @@ if (organisationId) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

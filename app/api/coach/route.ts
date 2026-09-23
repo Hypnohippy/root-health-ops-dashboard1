@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/coach/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
@@ -9,7 +10,7 @@ const client = new OpenAI({
 });
 
 const ROOT_COACH_SYSTEM_PROMPT = `
-You are Root Coach inside the Root Health Ops Dashboard.
+You are a helpful business content coach inside the dashboard.
 
 Your job is to reduce user stress, maintain momentum, and help them succeed with posting.
 Speak in plain English. Be calm, supportive, and decisive.
@@ -120,14 +121,14 @@ function deterministicFallback(input: {
   return null;
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     const body = await req.json().catch(() => ({}));
 
     const {
       mode = "unknown",
       stepId = "none",
-      orgName = "",
+
       platform = "",
       errorMessage = "",
       recentStats = {},
@@ -147,7 +148,7 @@ export async function POST(req: NextRequest) {
 Context:
 - Situation: ${mode}
 - Step: ${stepId}
-- Organisation: ${orgName || "your workspace"}
+- Organisation: ${tenant.profile?.business.name || "your workspace"}
 - Platform: ${platform || "the selected channel(s)"}
 - Outcome: ${outcome || "unknown"}
 - Success channels: ${Array.isArray(successPlatforms) ? successPlatforms.join(", ") : ""}
@@ -160,7 +161,7 @@ Remember: speak to the user in plain English and recommend an in-app next action
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [
+      messages: [...tenant.messages,
         { role: "system", content: ROOT_COACH_SYSTEM_PROMPT },
         { role: "user", content: userContext },
       ],
@@ -191,7 +192,7 @@ Remember: speak to the user in plain English and recommend an in-app next action
       { status: 200 }
     );
   }
-}
+}, { generation: true });
 
 function safeJsonForPrompt(v: any) {
   try {

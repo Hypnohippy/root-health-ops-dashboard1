@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import {
@@ -5,7 +6,6 @@ import {
   getMonthlyUsageForOrganisation,
   getPlanLimit,
   getCurrentOrganisationPlan,
-  getCurrentOrganisationId,
 } from "@/lib/usage";
 
 export const runtime = "nodejs";
@@ -45,7 +45,7 @@ function extractJsonObject(raw: string) {
   return null;
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     const topic = String(body?.topic || body?.name || "").trim();
     const goal = String(body?.goal || "").trim();
     const audience = String(body?.audience || "").trim();
-    const instructorType = String(body?.instructorType || "therapist").trim();
+    const instructorType = String(body?.instructorType || "educator").trim();
     const learnerAudience = String(
       body?.learnerAudience || "companies or workplace teams"
     ).trim();
@@ -76,8 +76,8 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-const organisationId = await getCurrentOrganisationId();
-const userPlan = await getCurrentOrganisationPlan();
+const organisationId = tenant.organisationId;
+const userPlan = await getCurrentOrganisationPlan(tenant.organisationId);
 
 const usage = organisationId
   ? await getMonthlyUsageForOrganisation(organisationId)
@@ -97,7 +97,7 @@ if (usage + cost > monthlyLimit) {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
-  "You are Root Coach, an expert programme designer for therapeutic, coaching, public wellbeing, and workplace settings.",
+  "You are an expert programme designer for the supplied business, subject and delivery setting.",
   "Write in UK English only. Never use American spelling.",
   "",
   "CRITICAL:",
@@ -107,11 +107,11 @@ if (usage + cost > monthlyLimit) {
   "",
   "- If audience is members of the public or clients:",
   "  Use simple, reassuring, non-technical language.",
-  "  Focus on practical coping, understanding, and self-awareness.",
+  "  Focus on useful skills and the requested learning outcomes.",
   "",
   "- If audience is companies or workplace teams:",
   "  Use workplace language (teams, communication, workload, culture, boundaries).",
-  "  Focus on wellbeing, performance, burnout prevention, and team dynamics.",
+  "  Focus on the requested business outcomes and team skills.",
   "",
   "- If audience is therapists or practitioners:",
   "  Use CPD-style tone.",
@@ -129,8 +129,8 @@ if (usage + cost > monthlyLimit) {
   "- Make it usable by someone stepping in to deliver the session.",
   "",
   "SAFETY:",
-  "- Avoid diagnosis or medical claims.",
-  "- Avoid implying treatment or cure.",
+  "Follow the shared factual-claims and subject-specific safety rules.",
+
   "",
   "OUTPUT:",
   "- Return JSON only.",
@@ -184,14 +184,14 @@ if (usage + cost > monthlyLimit) {
       "- Provide exactly 4 sessions/modules.",
       "- Make it feel like a coherent programme rather than unrelated lessons.",
       "- Include progression across the 4 sessions.",
-      "- Make it useful for business, workplace wellbeing, and organisational delivery where relevant.",
+      "- Make it useful for business, learning, and organisational delivery where relevant.",
       "- Keep it practical and delivery-ready.",
       "- Return JSON only.",
     ].join("\n");
 
     const response = await client.responses.create({
       model: "gpt-4o-mini",
-      input: [
+      input: [...tenant.messages,
         { role: "system", content: system },
         { role: "user", content: userPrompt },
       ],
@@ -289,4 +289,4 @@ if (organisationId) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

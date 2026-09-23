@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
@@ -26,7 +27,7 @@ function containsExplicitConditionLanguage(text: string) {
   return keywords.some((k) => s.includes(k));
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -70,14 +71,14 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
-      "You are Root Coach, helping create tasteful slide artwork direction for wellbeing education content.",
+      "You create tasteful slide artwork direction for the supplied business and subject.",
       "Return visual design guidance for ONE slide.",
       "Keep the artwork calm, premium, human, and presentation-friendly.",
       "Avoid anything sensational, chaotic, childish, or cluttered.",
-      "Do not create medical claims, diagnosis language, or stigmatising imagery.",
+      "Do not create misleading claims or demeaning imagery.",
       explicitConditionTopic
         ? "The chosen topic may mention a condition explicitly. Keep the imagery respectful, non-clinical, and broadly educational."
-        : "Do not imply any diagnosis or condition unless the user explicitly chose it.",
+        : "Keep imagery relevant to the supplied business and subject.",
       "The result must help a designer or image generator create a clean background visual for the slide.",
       "Use UK spelling.",
       "Return only valid JSON matching the schema.",
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
       "- image_prompt: a richer prompt suitable for later image generation",
       "",
       "The design should work behind readable presentation text.",
-      "Prefer soft gradients, abstract forms, calm shapes, subtle human-centred symbolism, or clean workplace/wellbeing visual language where suitable.",
+      "Prefer soft gradients, abstract forms, calm shapes, subtle human-centred symbolism, or clean subject-appropriate visual language where suitable.",
     ].join("\n");
 
     const schema = {
@@ -126,7 +127,7 @@ export async function POST(req: NextRequest) {
 
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
-      input: [
+      input: [...tenant.messages,
         { role: "system", content: system },
         { role: "user", content: prompt },
       ],
@@ -164,4 +165,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

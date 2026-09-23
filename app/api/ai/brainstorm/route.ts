@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/ai/brainstorm/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
@@ -26,7 +27,7 @@ function clean(s: any) {
   return String(s ?? "").trim();
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     if (!OPENAI_API_KEY) {
       return NextResponse.json(
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
 
     const prompt = clean(body?.prompt);
     const platform = clean(body?.platform || "linkedin") as ProviderId;
-    const tone = clean(body?.tone || "Professional & confident");
+    const tone = clean(body?.tone || tenant.profile?.voice.tone || "Professional & confident");
     const goal = clean(body?.goal || "Brainstorm + draft posts");
     const history: BrainstormChatMsg[] = Array.isArray(body?.history)
       ? body.history
@@ -60,10 +61,10 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const system = [
-      "You are Root Health Ops Brainstorm Coach.",
+      "You are a practical business brainstorming partner.",
       "Act like a friendly texting partner: riff, expand, propose angles, and ask 0–2 smart questions.",
-      "UK spelling. Premium, warm, therapist-friendly.",
-      "No medical diagnosis/treatment claims. No crisis advice.",
+      "Use UK spelling. The saved tone is a default; honour the user's requested creative tone and form.",
+      "Follow the shared factual-claims and subject-specific safety rules.",
       "Return ONLY valid JSON matching the schema.",
       "",
       "Output must include:",
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
       "4) drafts: exactly 3 draft posts, each with an imageQuery string suitable for finding a topical Commons image.",
       "",
       "IMPORTANT: The user may request 'links to pictures for each story'.",
-      "You should NOT fetch links. Just provide imageQuery phrases (e.g. 'adhd workplace sticky notes desk').",
+      "You should NOT fetch links. Just provide imageQuery phrases (e.g. 'bakery sourdough preparation counter').",
     ].join(" ");
 
     const userPrompt = [
@@ -83,8 +84,8 @@ export async function POST(req: NextRequest) {
       `Goal: ${goal}`,
       "",
       "Draft rules:",
-      "- Each draft must feel distinct (different hook/angle).",
-      "- Include hook, body, gentle CTA question.",
+      "- Each draft must feel distinct while honouring the requested form; otherwise choose appropriate varied forms.",
+      "- Do not impose hook/body/CTA structure. A requested story needs scene, progression, tension and resolution. Leave cta empty when inappropriate.",
       "- Hashtags 0–6, not spammy.",
       "- suggestedMode: quick_blast OR story_series (pick what fits).",
       "- imageQuery: a short search phrase that would find a topical, relevant photo/illustration.",
@@ -93,7 +94,7 @@ export async function POST(req: NextRequest) {
     ].join("\n");
 
     const schema = {
-      name: "root_health_brainstorm",
+      name: "business_brainstorm",
       strict: true,
       schema: {
         type: "object",
@@ -151,7 +152,7 @@ export async function POST(req: NextRequest) {
 
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
-      input: inputMsgs,
+      input: [...tenant.messages, ...inputMsgs],
       text: { format: { type: "json_schema", ...schema } },
     });
 
@@ -184,4 +185,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { generation: true, write: true });

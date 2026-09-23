@@ -1,6 +1,8 @@
 // app/dashboard/stories/new/page.tsx
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import React, { useEffect, useMemo, useState } from "react";
 import { applyAntiDuplicateVariation } from "../../../../lib/socialText";
 import MediaDropzone from "../../components/MediaDropzone";
@@ -270,7 +272,7 @@ export default function StorySeriesBuilderPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/social-accounts", { cache: "no-store" });
+        const res = await tenantFetch("/api/social-accounts", { cache: "no-store" });
         const data: any = await res.json().catch(() => null);
         const id = data?.organisationId ? String(data.organisationId) : null;
         setOrgId(id);
@@ -415,7 +417,7 @@ export default function StorySeriesBuilderPage() {
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        const res = await fetch("/api/ai/story-series", {
+        const res = await tenantFetch("/api/ai/story-series", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),

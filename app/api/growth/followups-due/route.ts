@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -27,28 +28,28 @@ function getMessage(target: any) {
   const name = firstName(target.target_name);
 
   if (target.stage === "connection") {
-    return `Hi ${name}, I noticed your work in ${target.role_title || "HR / wellbeing"}. I’ve been speaking with HR leaders about what actually gets used beyond EAPs. Would be good to connect.`;
+    return `Hi ${name}, I noticed your work in ${target.role_title || "your field"}. Would be good to connect.`;
   }
 
   if (target.stage === "day3_dm") {
-    return `Thanks for connecting, ${name}. Quick question — what parts of your current wellbeing setup actually get used, and where does it fall short?`;
+    return `Thanks for connecting, ${name}. Quick question — what is your main business priority at the moment?`;
   }
 
   if (target.stage === "day10_insight") {
-    return `Hi ${name}, one thing I keep seeing is support exists, but people only use it once things escalate. Do you see that in your organisation?`;
+    return `Hi ${name}, what would make the biggest practical difference for your team right now?`;
   }
 
   if (target.stage === "day17_followup") {
-    return `Just wanted to follow up, ${name}. Curious how you're seeing engagement with wellbeing support in practice.`;
+    return `Just wanted to follow up, ${name}. Would it be useful to continue our conversation?`;
   }
 
   return "";
 }
 
-export async function GET() {
+export const GET = withTenantRoute(async function GET(req: Request, tenant) {
   const { data, error } = await supabaseAdmin
     .from("growth_targets")
-    .select("*")
+    .select("*").eq("organisation_id", tenant.organisationId)
     .eq("status", "active")
     .order("created_at", { ascending: false });
 
@@ -62,4 +63,4 @@ export async function GET() {
   }));
 
   return NextResponse.json({ success: true, data: due });
-}
+}, { generation: false, write: false });

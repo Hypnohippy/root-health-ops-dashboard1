@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -7,64 +8,9 @@ function norm(v: any) {
   return String(v ?? "").trim();
 }
 
-function parseCookie(req: NextRequest, name: string) {
-  const raw = req.headers.get("cookie") || "";
-  const parts = raw.split(";").map((p) => p.trim());
-  for (const p of parts) {
-    if (p.startsWith(name + "=")) return decodeURIComponent(p.slice(name.length + 1));
-  }
-  return null;
-}
-
-async function getUserIdFromReq(req: NextRequest): Promise<string | null> {
-  const auth = norm(req.headers.get("authorization"));
-  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  if (bearer) {
-    const { data, error } = await supabaseAdmin.auth.getUser(bearer);
-    if (!error && data?.user?.id) return data.user.id;
-  }
-
-  const access =
-    parseCookie(req, "sb-access-token") ||
-    parseCookie(req, "supabase-auth-token") ||
-    parseCookie(req, "sb:token");
-
-  if (access) {
-    const token = access.startsWith("[")
-      ? (() => {
-          try {
-            const arr = JSON.parse(access);
-            return Array.isArray(arr) ? String(arr[0] || "") : "";
-          } catch {
-            return "";
-          }
-        })()
-      : access;
-
-    if (token) {
-      const { data, error } = await supabaseAdmin.auth.getUser(token);
-      if (!error && data?.user?.id) return data.user.id;
-    }
-  }
-
-  return null;
-}
-
-async function getOrgContext(req: NextRequest) {
-  const forced = norm(process.env.SINGLE_ORG_ID || process.env.NEXT_PUBLIC_SINGLE_ORG_ID);
-  const userId = await getUserIdFromReq(req);
-
-  if (!forced) {
-    if (!userId) throw new Error("Not authenticated");
-    return { organisationId: null as any, userId, mode: "member_auth" as const };
-  }
-
-  return { organisationId: forced, userId: userId || "anon", mode: "forced_env" as const };
-}
-
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
-    const ctx = await getOrgContext(req);
+    const ctx = { ...tenant, mode: "member_auth" };
     const body = await req.json().catch(() => ({}));
 
     const id = norm(body?.id);
@@ -77,19 +23,12 @@ export async function POST(req: NextRequest) {
 
     const { data: exp, error: expErr } = await supabaseAdmin
       .from("growth_experiments")
-      .select("id, organisation_id")
+      .select("id, organisation_id").eq("organisation_id", tenant.organisationId)
       .eq("id", id)
       .maybeSingle();
 
     if (expErr) throw new Error(expErr.message);
     if (!exp?.id) throw new Error("Experiment not found");
-
-    // If forced env: only allow updating experiments inside forced org
-    if (ctx.mode === "forced_env") {
-      if (String(exp.organisation_id) !== String(ctx.organisationId)) {
-        throw new Error("Not allowed for this organisation");
-      }
-    }
 
     const now = new Date().toISOString();
     const patch: any = { status, updated_at: now };
@@ -100,7 +39,7 @@ export async function POST(req: NextRequest) {
     const upd = await supabaseAdmin
       .from("growth_experiments")
       .update(patch)
-      .eq("id", id)
+      .eq("id", id).eq("organisation_id", tenant.organisationId)
       .select()
       .maybeSingle();
 
@@ -112,4 +51,4 @@ export async function POST(req: NextRequest) {
     const status = msg === "Not authenticated" ? 401 : msg.includes("Not allowed") ? 403 : 500;
     return NextResponse.json({ success: false, error: msg }, { status });
   }
-}
+}, { generation: false, write: true });

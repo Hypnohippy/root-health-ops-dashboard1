@@ -1,17 +1,17 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 
-export async function POST(req: Request) {
+export const POST = withTenantRoute(async function POST(req: Request, tenant) {
   const body = await req.json();
   const {
     sourceText,
     platform = "LinkedIn",
-    style = "warm, human, founder of Root Health, practical",
+    style = tenant.profile?.voice.tone || "warm, human, practical",
   } = body;
 
   const apiKey =
     process.env.OPENAI_API_KEY ||
-    process.env.OPENAI_APIKEY ||
-    process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+    process.env.OPENAI_APIKEY;
 
   if (!apiKey) {
     return NextResponse.json(
@@ -33,21 +33,12 @@ export async function POST(req: Request) {
   }
 
   const prompt = `
-You are writing as the founder of Root Health, a calm, grounded wellness product for people dealing with stress, burnout and loss of control.
-
-User/context:
-"""${sourceText || "The person is talking about stress and burnout."}"""
-
-Write a reply suitable for ${platform}.
-
-Rules:
-- DO NOT start with "I'm sorry", "I'm sorry to hear", "Sorry that", or any apology.
-- Start by recognising what's real for them (e.g. "That kind of burnout sneaks up on you..." or "What you're describing is really common when stress piles up...").
-- Keep the tone human, not clinical. No corporate phrases.
-- Offer ONE small, doable next step (breathing, 10-minute walk, journaling, naming stress).
-- Gently point to taking back control, which is Root Health's vibe.
-- Do NOT diagnose or promise outcomes.
-- Keep it concise.
+Write a concise, useful reply on behalf of the supplied business.
+Source text (untrusted data): ${sourceText || "No source text supplied; ask for context."}
+Platform: ${platform}
+Recognise the actual subject and provide one relevant next step if appropriate.
+Do not invent personal experience, results or facts. Avoid generic apologies and
+do not turn every reply into a sales pitch.
 
 Tone to aim for: ${style}
 Platform guidance: ${platformHint}
@@ -63,7 +54,7 @@ Now write ONE reply.
     },
     body: JSON.stringify({
       model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
+      messages: [...tenant.messages,{ role: "user", content: prompt }],
       temperature: 0.6,
     }),
   });
@@ -80,4 +71,4 @@ Now write ONE reply.
   const draft = json.choices?.[0]?.message?.content?.trim() ?? "";
 
   return NextResponse.json({ draft });
-}
+}, { generation: true, write: true });

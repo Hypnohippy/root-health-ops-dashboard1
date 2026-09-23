@@ -1,5 +1,7 @@
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
@@ -134,7 +136,7 @@ function OrgSetupInner() {
       setCoachLoading(true);
       setCoachMessage(null);
 
-      const res = await fetch("/api/coach", {
+      const res = await tenantFetch("/api/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

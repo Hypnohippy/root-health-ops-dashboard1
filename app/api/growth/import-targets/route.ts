@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -65,7 +66,7 @@ function buildNotes(row: Record<string, any>) {
     .join("\n");
 }
 
-export async function POST(req: Request) {
+export const POST = withTenantRoute(async function POST(req: Request, tenant) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
@@ -90,6 +91,7 @@ export async function POST(req: Request) {
           `${firstName} ${lastName}`.trim();
 
         return {
+  organisation_id: tenant.organisationId,
   target_name: targetName,
   company: pick(row, [
     "Company",
@@ -149,4 +151,4 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
-}
+}, { generation: false, write: true });

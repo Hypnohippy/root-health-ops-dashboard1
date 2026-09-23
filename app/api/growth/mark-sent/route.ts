@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -10,7 +11,7 @@ function nextStage(stage: string) {
   return "parked";
 }
 
-export async function POST(req: Request) {
+export const POST = withTenantRoute(async function POST(req: Request, tenant) {
   try {
     const { id, stage } = await req.json();
 
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
         last_action_at: new Date().toISOString(),
         status: newStage === "parked" ? "parked" : "active",
       })
-      .eq("id", id);
+      .eq("id", id).eq("organisation_id", tenant.organisationId);
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -40,4 +41,4 @@ export async function POST(req: Request) {
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
-}
+}, { generation: false, write: true });

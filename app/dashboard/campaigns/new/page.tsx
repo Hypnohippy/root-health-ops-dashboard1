@@ -1,5 +1,7 @@
 "use client";
 
+import { tenantFetch } from "@/lib/tenantFetch";
+
 import React, { useMemo, useState } from "react";
 
 type Variant = {
@@ -26,7 +28,7 @@ function PlatformPreview({
   primaryText,
   headline,
   url,
-  pageName = "Root Health",
+  pageName = "Your business",
 }: {
   platform: PlatformPreviewType;
   primaryText: string;
@@ -49,7 +51,7 @@ function PlatformPreview({
           <div className="h-36 bg-gradient-to-br from-slate-600/70 via-slate-500/60 to-emerald-500/40" />
           <div className="p-3">
             <div className="text-[11px] uppercase text-slate-300 tracking-wide">
-              {url?.replace(/^https?:\/\//, "") || "roothealth.app"}
+              {url?.replace(/^https?:\/\//, "") || "your-business.example"}
             </div>
             <div className="text-sm font-semibold text-slate-50">{headline}</div>
           </div>
@@ -73,7 +75,7 @@ function PlatformPreview({
           <div className="h-32 bg-gradient-to-br from-sky-600/70 via-sky-500/60 to-emerald-500/40" />
           <div className="p-3">
             <div className="text-xs text-slate-300">
-              {url?.replace(/^https?:\/\//, "") || "roothealth.app"}
+              {url?.replace(/^https?:\/\//, "") || "your-business.example"}
             </div>
             <div className="text-sm font-semibold text-slate-50">{headline}</div>
           </div>
@@ -87,7 +89,7 @@ function PlatformPreview({
     <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 text-sm max-w-xl space-y-2 shadow-lg">
       <div className="text-xs text-slate-300">Sponsored · Google</div>
       <div className="text-[11px] text-emerald-400">
-        {url?.replace(/^https?:\/\//, "") || "roothealth.app"}
+        {url?.replace(/^https?:\/\//, "") || "your-business.example"}
       </div>
       <div className="text-base font-semibold text-slate-50">{headline}</div>
       <p className="text-sm text-slate-100 whitespace-pre-wrap">{primaryText}</p>
@@ -114,23 +116,23 @@ function toPlatformKey(ui: string): "meta" | "linkedin" | "google" | "tiktok" {
 
 export default function NewCampaignPage() {
   // core fields
-  const [name, setName] = useState("Root Health – December Stress Relief");
+  const [name, setName] = useState("New campaign");
   const [platformUi, setPlatformUi] = useState("Meta (Facebook/IG)");
   const [objective, setObjective] = useState<"Leads" | "Traffic" | "Awareness">("Leads");
   const [budgetDaily, setBudgetDaily] = useState("10");
-  const [url, setUrl] = useState("https://roothealth.app");
+  const [url, setUrl] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [location, setLocation] = useState("United Kingdom");
   const [ageRange, setAgeRange] = useState("25-54");
-  const [audienceKeywords, setAudienceKeywords] = useState("burnout, stress, anxiety, self care, therapy");
+  const [audienceKeywords, setAudienceKeywords] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
 
   // UTM
   const [utmSource, setUtmSource] = useState("facebook");
   const [utmMedium, setUtmMedium] = useState("paid_social");
-  const [utmCampaign, setUtmCampaign] = useState("root_health_dec_stress");
+  const [utmCampaign, setUtmCampaign] = useState("");
 
   // ad length
   const [lengthMode, setLengthMode] = useState<LengthMode>("medium");
@@ -171,7 +173,7 @@ export default function NewCampaignPage() {
     resetNotices();
     setIsGenerating(true);
     try {
-      const res = await fetch("/api/ai/campaign", {
+      const res = await tenantFetch("/api/ai/campaign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -179,7 +181,6 @@ export default function NewCampaignPage() {
           objective,
           url,
           audienceKeywords,
-          brandVoice: "Root Health founder",
           lengthMode,
         }),
       });
@@ -228,7 +229,7 @@ export default function NewCampaignPage() {
 
     return {
       // campaigns table
-      name: name || "Root Health campaign",
+      name: name || "New campaign",
       platform: platformKey, // ✅ canonical
       objective: String(objective || "").toLowerCase(),
       status: "draft",
@@ -435,7 +436,7 @@ export default function NewCampaignPage() {
       <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
         <header className="flex items-center justify-between gap-2">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-50">New Campaign – Root Health</h1>
+            <h1 className="text-2xl font-semibold text-slate-50">New Campaign</h1>
             <p className="text-sm text-slate-300">
               Plan, generate, preview, save A/B/C variants — then export and book the ad directly on the platform.
             </p>
@@ -579,7 +580,7 @@ export default function NewCampaignPage() {
                   onChange={(e) => setAudienceKeywords(e.target.value)}
                 />
                 <p className="text-[11px] text-slate-300">
-                  Example: "burnout, NHS staff, senior leaders, new mums, ADHD, small business owners".
+                  Example: "local families, independent shops, founders, small business owners".
                 </p>
               </div>
             </section>
@@ -804,7 +805,7 @@ export default function NewCampaignPage() {
                   primaryText={selectedVariant.primary_text}
                   headline={selectedVariant.headline}
                   url={url}
-                  pageName="Root Health"
+                  pageName="Your business"
                 />
               ) : (
                 <p className="text-xs text-slate-300">

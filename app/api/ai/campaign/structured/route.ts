@@ -1,9 +1,10 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 
 /** Healthcheck */
-export async function GET() {
+export const GET = withTenantRoute(async function GET() {
   return NextResponse.json({ ok: true, route: "/api/ai/campaign/structured" });
-}
+}, { generation: false, write: false });
 
 /**
  * Returns JSON with sections for long-form ads:
@@ -16,29 +17,29 @@ export async function GET() {
  *   "button": { "label": "Find out more", "url": "https://..." }
  * }
  */
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
-    const { platform, objective, url, audienceKeywords, brandVoice = "Root Health founder" } = await req.json();
+    const { platform, objective, url, audienceKeywords, brandVoice = tenant.profile?.voice.tone || "clear and practical" } = await req.json();
 
     const prompt = `
 You are a senior DIRECT-RESPONSE copywriter for ${brandVoice}.
 Create a STRUCTURED long-form ad for ${platform} with objective ${objective}.
-Audience: people facing stress/burnout; want practical, hopeful steps.
-Style: precise, motivating, benefit-led; NOT a therapist reply; no apologies.
+Audience: use the saved audience and any supplied audience keywords.
+Style: precise, motivating, benefit-led; not a conversational reply; no apologies.
 
 Sections required (RETURN STRICT JSON ONLY):
 - hook: 1-2 punchy lines to stop scroll.
-- before: 8-10 bullet points (short) describing the "before Root Health" experience. Use crisp fragments.
-- after: 8-10 bullet points (short) describing the "after Root Health" benefits/outcomes.
-- explainer: 3-5 sentences explaining how Root Health works (question → discover → act), why it’s simple, and why it works.
-- ctas: 2-3 concise CTA lines. Examples: "Start your plan today", "Get your personalised steps".
-- button: { "label": "Find out more", "url": "${url}" }
+- before: 8-10 bullet points (short) describing the "current customer challenges" experience. Use crisp fragments.
+- after: 8-10 bullet points (short) describing the "desired customer outcomes" benefits/outcomes.
+- explainer: 3-5 sentences explaining the supplied primary offer and supported benefits without inventing mechanisms or results.
+- ctas: 2-3 concise CTA lines appropriate to the saved primary offer and CTA.
+- button: { "label": "Find out more", "url": "${url || tenant.profile?.offer.destinationUrl || ""}" }
 
 Constraints:
-- No clinical phrasing; no "I'm sorry you..." or "what you're experiencing..."
+- No unnecessary jargon; no "I'm sorry you..." or "what you're experiencing..."
 - Write bullets as short fragments (no long sentences).
 - Use second-person language ("you").
-- Make it platform-agnostic but performance-ready.
+- Adapt naturally to the selected platform.
 
 Audience keywords: ${audienceKeywords}
 
@@ -64,7 +65,7 @@ Return ONLY valid JSON with this shape:
         temperature: 0.8,
         max_tokens: 900,
         response_format: { type: "json_object" },
-        messages: [
+        messages: [...tenant.messages,
           { role: "system", content: "You produce performance ad structures only. Output strictly JSON." },
           { role: "user", content: prompt },
         ],
@@ -91,4 +92,4 @@ Return ONLY valid JSON with this shape:
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Server error" }, { status: 500 });
   }
-}
+}, { generation: true, write: true });
