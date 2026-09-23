@@ -39,8 +39,9 @@ applied to a live Supabase project by this change.
   edits. Concurrent changes to the same field use the last saved value.
 - Validation rejects unknown keys, invalid types, oversized fields, unsafe URLs
   and unsupported growth modes. All fields are optional and can be cleared.
-- Existing organisation name, logo, website and tone seed missing profile fields.
-  They are not written back to the organisations table.
+- `organisation_profiles` is the canonical branding store. Only `id` and `name`
+  are queried from organisations; its name seeds a missing business name. Optional
+  legacy branding columns are neither required nor read.
 
 Old `rootops_brand_profile_v1` data is only read by the explicit **Review browser
 branding** importer. It shows the destination organisation, requires the user to
@@ -51,7 +52,8 @@ storage. Older branding on another browser must be imported from that browser.
 Uploaded PNG/JPEG/WebP logos (up to 512 KB) are stored as data URLs, preserving
 embedded export logos without adding a storage bucket. Existing HTTPS logo URLs
 are allowed but are not fetched by the server; those images need network access
-when opening an exported document. Existing organisation brand colour is retained.
+when opening an exported document. Exports use the default colour `#10b981`
+without requiring a legacy organisation colour column.
 
 The installed `@supabase/ssr` 0.2 package uses get/set/remove cookie adapters.
 The server and session proxy now use that API; the previous getAll/setAll methods

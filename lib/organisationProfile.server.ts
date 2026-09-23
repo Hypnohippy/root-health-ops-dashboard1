@@ -8,17 +8,14 @@ export async function getOrganisationProfile(requested?: unknown) {
   const { data, error } = await supabaseAdmin.from("organisation_profiles")
     .select("profile,updated_at").eq("organisation_id", organisationId).maybeSingle();
   if (error) throw error;
-  // Existing organisation branding remains a fallback until fields are saved here.
+  // Profile branding is canonical; only the organisation name is a safe fallback.
   const { data: organisation, error: orgError } = await supabaseAdmin.from("organisations")
-    .select("*").eq("id", organisationId).maybeSingle();
+    .select("id,name").eq("id", organisationId).maybeSingle();
   if (orgError) throw orgError;
   const profile = normaliseProfile(data?.profile, normaliseProfile({
-    businessName: organisation?.brand_name || organisation?.name || "",
-    logoUrl: organisation?.brand_logo_url || organisation?.logo_url || "",
-    website: organisation?.website || "", brandTone: organisation?.brand_tone || "",
+    businessName: organisation?.name || "",
   }));
-  const colour = String(organisation?.brand_primary_color || "");
-  const brandPrimaryColor = /^#[0-9a-f]{6}$/i.test(colour) ? colour : "#10b981";
+  const brandPrimaryColor = "#10b981";
   return { organisationId, canEdit: isWriteRole(role), brandPrimaryColor, organisationName: String(organisation?.name || profile.businessName || "Your organisation"), profile, updatedAt: data?.updated_at ?? null };
 }
 

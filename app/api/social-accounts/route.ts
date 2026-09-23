@@ -63,10 +63,10 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // 🔹 Get organisation branding
-const { data: org, error: orgError } = await supabaseAdmin
+    // Only guaranteed organisation columns; branding lives in organisation_profiles.
+const { data: org } = await supabaseAdmin
   .from("organisations")
-  .select("name, brand_name, brand_logo_url, brand_primary_color, brand_secondary_color")
+  .select("id,name")
   .eq("id", organisationId)
   .maybeSingle();
 

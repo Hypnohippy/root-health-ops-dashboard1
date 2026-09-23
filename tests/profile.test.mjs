@@ -92,12 +92,15 @@ function fixture({ user = "user-a", role = "owner", databaseError = false } = {}
   const db = {
     from(table) {
       const filters = {};
+      let selected;
       const query = {
-        select() { return query; }, eq(k, v) { filters[k] = v; return query; }, limit() { return query; },
+        select(columns) { selected = columns; return query; }, eq(k, v) { filters[k] = v; return query; }, limit() { return query; },
+        async order() { return { data: [], error: null }; },
         async maybeSingle() {
-          events.push({ table, filters: { ...filters } });
+          events.push({ table, selected, filters: { ...filters } });
           if (databaseError) return { data: null, error: { message: "Database unavailable" } };
-          return { data: table === "organisations" ? { name: "Example organisation", brand_name: "Existing brand", brand_primary_color: "#123456" } : profiles.get(filters.organisation_id) || null, error: null };
+          if (table === "organisations" && selected !== "id,name") return { data: null, error: { message: "Only id and name may be queried" } };
+          return { data: table === "organisations" ? { id: "org-a", name: "Example organisation" } : profiles.get(filters.organisation_id) || null, error: null };
         },
         then(resolve) { return Promise.resolve({ data: !filters.organisation_id || filters.organisation_id === "org-a" ? [{ organisation_id: "org-a", role }] : [], error: null }).then(resolve); },
       };
@@ -114,8 +117,26 @@ function fixture({ user = "user-a", role = "owner", databaseError = false } = {}
   const server = load("lib/organisationProfile.server.ts", { "@/lib/tenantAuth": auth, "@/lib/supabaseAdmin": { supabaseAdmin: db }, "@/lib/brandGrowthProfile": model });
   const api = load("app/api/organisation/profile/route.ts", { "next/server": response, "@/lib/tenantAuth": auth, "@/lib/brandGrowthProfile": model, "@/lib/organisationProfile.server": server });
   const req = (org = "org-a", body = { profile: { businessName: "Saved brand" } }) => ({ nextUrl: new URL(`https://example.test?organisationId=${org}`), text: async () => JSON.stringify(body) });
-  return { api, req, events, server };
+  const socialApi = load("app/api/social-accounts/route.ts", { "next/server": response, "@/lib/tenantAuth": auth, "../../../lib/supabaseAdmin": { supabaseAdmin: db } });
+  return { api, req, events, server, socialApi };
 }
+test("profile loads with only organisation id/name and uses canonical profile branding", async () => {
+  const f = fixture();
+  const initial = await f.api.GET(f.req());
+  assert.equal(initial.status, 200);
+  assert.equal(initial.body.profile.businessName, "Example organisation");
+  const social = await f.socialApi.GET(f.req());
+  assert.equal(social.status, 200);
+  assert.equal(social.body.organisation.name, "Example organisation");
+  for (const key of ["logoUrl", "website", "brandTone"]) assert.equal(initial.body.profile[key], "");
+  const profile = { businessName: "Saved business", logoUrl: "https://example.com/logo.png", website: "https://example.com", brandTone: "Friendly" };
+  assert.equal((await f.api.PATCH(f.req("org-a", { profile }))).status, 200);
+  const saved = await f.api.GET(f.req());
+  assert.equal(saved.status, 200);
+  for (const [key, value] of Object.entries(profile)) assert.equal(saved.body.profile[key], value);
+  assert.ok(f.events.filter(e => e.table === "organisations").every(e => e.selected === "id,name" && e.filters.id === "org-a"));
+});
+
 test("profile GET/PATCH deny anonymous and foreign-tenant requests before profile access", async () => {
   for (const [settings, org, status] of [[{ user: null }, "org-a", 401], [{}, "org-b", 403]]) {
     const f = fixture(settings);
@@ -140,7 +161,7 @@ test("profile save/reload retains all fields, scopes queries, and cannot overwri
   const result = await f.api.GET(f.req());
   assert.equal(result.body.profile.businessDescription, "Fresh bread");
   assert.equal(result.body.profile.yourName, "Alex");
-  assert.equal(result.body.brandPrimaryColor, "#123456");
+  assert.equal(result.body.brandPrimaryColor, "#10b981");
   assert.ok(f.events.filter(e => e.table === "organisation_profiles").every(e => e.filters.organisation_id === "org-a"));
   assert.equal((await f.api.PATCH(f.req("org-a", { profile: { organisation_id: "org-b" } }))).status, 400);
   assert.equal((await f.api.PATCH(f.req("org-a", { organisationId: "org-b", profile: { cta: "bad" } }))).status, 400);
