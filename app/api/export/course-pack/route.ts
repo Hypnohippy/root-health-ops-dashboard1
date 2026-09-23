@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getOrganisationProfile } from "@/lib/organisationProfile.server";
+import { accessErrorResponse } from "@/lib/tenantAuth";
 
 function escapeHtml(value: unknown) {
   return String(value || "")
@@ -55,22 +56,6 @@ function toUkEnglish(text: string) {
     .replace(/\bpracticing\b/gi, "practising");
 }
 
-async function imageUrlToDataUri(url: string): Promise<string> {
-  try {
-    if (!url) return "";
-
-    const res = await fetch(url);
-    if (!res.ok) return "";
-
-    const contentType = res.headers.get("content-type") || "image/png";
-    const arrayBuffer = await res.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
-
-    return `data:${contentType};base64,${base64}`;
-  } catch {
-    return "";
-  }
-}
 
 function formatNumberedLines(text: string) {
   const safe = toUkEnglish(String(text || "").trim());
@@ -170,25 +155,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing course" }, { status: 400 });
     }
 
-    let brandName = "Course Pack";
-    let brandColor = "#10b981";
-    let logoUrl = "";
-    let logoDataUri = "";
-
-    if (organisationId) {
-      const { data: org } = await supabaseAdmin
-        .from("organisations")
-        .select("name, brand_name, brand_primary_color, brand_logo_url")
-        .eq("id", organisationId)
-        .maybeSingle();
-
-      if (org) {
-        brandName = String(org.brand_name || org.name || "Course Pack").trim();
-        brandColor = String(org.brand_primary_color || "#10b981").trim();
-        logoUrl = String(org.brand_logo_url || "").trim();
-        logoDataUri = await imageUrlToDataUri(logoUrl);
-      }
-    }
+    const { profile, brandPrimaryColor } = await getOrganisationProfile(organisationId);
+    const brandName = profile.businessName || "Course Pack";
+    const brandColor = brandPrimaryColor;
+    // Uploaded logos are already data URLs; external images load in the document,
+    // never through an unrestricted server-side fetch of a user-supplied URL.
+    const logoUrl = profile.logoUrl;
+    const logoDataUri = logoUrl;
 
     const courseTitle = String(title || course?.title || "Course Pack").trim();
     const summary = String(course?.summary || "").trim();
@@ -652,6 +625,8 @@ export async function POST(req: Request) {
       },
     });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { error: e?.message || "Failed to generate course pack" },
       { status: 500 }

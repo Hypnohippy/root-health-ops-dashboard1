@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:security": "node --test tests/tenant-security.test.mjs"
+    "test:security": "node --test tests/tenant-security.test.mjs tests/profile.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.2.0",
@@ -20,6 +20,7 @@
     "stripe": "^16.0.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

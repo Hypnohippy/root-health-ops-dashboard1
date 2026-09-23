@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import BrandGrowthProfileEditor from "./components/BrandGrowthProfileEditor";
 import MediaDropzone, { UploadedMedia } from "./components/MediaDropzone";
 
 type ProviderId =
@@ -64,7 +65,6 @@ const DRAFTS_KEY = "rootops_quickblast_drafts_v1";
 
 // Local-only Growth Memory (we’ll wire Supabase later)
 const GROWTH_MEMORY_KEY = "rootops_growth_memory_v1";
-const BRAND_PROFILE_KEY = "rootops_brand_profile_v1";
 
 // ✅ Brainstorm → Quick Blast prefill keys (supports both naming families)
 const PREFILL_QUICKBLAST_KEYS = [
@@ -97,14 +97,6 @@ type CurrentExperimentPayload = {
   source?: string | null; // e.g. "growth_lab" | "brainstorm"
 };
 
-type BrandProfile = {
-  yourName: string;
-  businessName: string;
-  logoUrl: string;
-  footerText: string;
-  contactEmail: string;
-  website: string;
-};
 type Draft = {
   id: string;
   savedAt: number;
@@ -402,15 +394,6 @@ export default function DashboardHomePage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountRow[]>([]);
      const [organisationId, setOrganisationId] = useState<string | null>(null);
-  const [brandProfile, setBrandProfile] = useState<BrandProfile>({
-    yourName: "",
-    businessName: "",
-    logoUrl: "",
-    footerText: "",
-    contactEmail: "",
-    website: "",
-  });
-  const [brandSavedToast, setBrandSavedToast] = useState<string | null>(null);
   const [organisation, setOrganisation] = useState<any>(null);
 
   // ✅ Current experiment context (optional)
@@ -542,33 +525,6 @@ export default function DashboardHomePage() {
 
     function refreshChannels() {
     void loadSocialAccounts();
-  }
-
-  function loadBrandProfile() {
-    try {
-      const raw = localStorage.getItem(BRAND_PROFILE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      setBrandProfile({
-        yourName: String(parsed?.yourName || ""),
-        businessName: String(parsed?.businessName || ""),
-        logoUrl: String(parsed?.logoUrl || ""),
-        footerText: String(parsed?.footerText || ""),
-        contactEmail: String(parsed?.contactEmail || ""),
-        website: String(parsed?.website || ""),
-      });
-    } catch {}
-  }
-
-  function saveBrandProfile() {
-    try {
-      localStorage.setItem(BRAND_PROFILE_KEY, JSON.stringify(brandProfile));
-      setBrandSavedToast("Brand profile saved ✅");
-      setTimeout(() => setBrandSavedToast(null), 2200);
-    } catch {
-      setBrandSavedToast("Could not save brand profile");
-      setTimeout(() => setBrandSavedToast(null), 2200);
-    }
   }
 
   function saveForLater() {
@@ -979,7 +935,6 @@ export default function DashboardHomePage() {
     useEffect(() => {
     void loadSocialAccounts();
     setDrafts(loadDrafts());
-    loadBrandProfile();
 
     // 1) Load any persisted experiment context
     try {
@@ -1383,155 +1338,7 @@ export default function DashboardHomePage() {
                 </div>
               </div>
 
-                            <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950/60 p-4 max-w-3xl">
-                <div className="text-sm font-semibold text-slate-100">
-                  Brand your outputs
-                </div>
-                <div className="mt-1 text-xs text-slate-400">
-                  This brands PDFs, proposals, summaries, and course packs without changing the platform itself.
-                </div>
-
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Your name
-                    </label>
-                    <input
-                      value={brandProfile.yourName}
-                      onChange={(e) =>
-                        setBrandProfile((prev) => ({
-                          ...prev,
-                          yourName: e.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="Jane Smith"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Business name
-                    </label>
-                    <input
-                      value={brandProfile.businessName}
-                      onChange={(e) =>
-                        setBrandProfile((prev) => ({
-                          ...prev,
-                          businessName: e.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="Calm Minds Therapy"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Contact email
-                    </label>
-                    <input
-                      value={brandProfile.contactEmail}
-                      onChange={(e) =>
-                        setBrandProfile((prev) => ({
-                          ...prev,
-                          contactEmail: e.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="hello@yourbusiness.com"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300">
-                      Website
-                    </label>
-                    <input
-                      value={brandProfile.website}
-                      onChange={(e) =>
-                        setBrandProfile((prev) => ({
-                          ...prev,
-                          website: e.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="https://yourbusiness.com"
-                    />
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-medium text-slate-300">
-                      Logo upload
-                    </label>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/jpg,image/webp"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          const result = String(reader.result || "");
-                          setBrandProfile((prev) => ({
-                            ...prev,
-                            logoUrl: result,
-                          }));
-                        };
-                        reader.readAsDataURL(file);
-                      }}
-                      className="mt-2 block w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300"
-                    />
-
-                    {brandProfile.logoUrl ? (
-                      <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-900/60 p-3">
-                        <div className="text-[11px] text-slate-400 mb-2">
-                          Logo preview
-                        </div>
-                        <img
-                          src={brandProfile.logoUrl}
-                          alt="Logo preview"
-                          className="h-14 w-auto object-contain"
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-medium text-slate-300">
-                      Footer text
-                    </label>
-                    <input
-                      value={brandProfile.footerText}
-                      onChange={(e) =>
-                        setBrandProfile((prev) => ({
-                          ...prev,
-                          footerText: e.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="Prepared by Calm Minds Therapy"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={saveBrandProfile}
-                    className="rounded-xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                  >
-                    Save brand profile
-                  </button>
-
-                  {brandSavedToast ? (
-                    <div className="text-xs text-emerald-300">
-                      {brandSavedToast}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
+              <BrandGrowthProfileEditor key={organisationId || "current"} organisationId={organisationId} compact />
 
               {experimentId ? (
                 <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">

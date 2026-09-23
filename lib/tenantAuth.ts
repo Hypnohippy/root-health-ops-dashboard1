@@ -23,7 +23,7 @@ export async function requireOrganisation(requested?: unknown, write = true) {
   if (!data?.length) throw new AccessError("Not a member of this organisation.");
   if (data.length !== 1) throw new AccessError("Select an organisation explicitly.", 400);
   if (write && !isWriteRole(data[0].role)) throw new AccessError("Insufficient organisation role.");
-  return { organisationId: String(data[0].organisation_id), userId };
+  return { organisationId: String(data[0].organisation_id), userId, role: String(data[0].role || "") };
 }
 
 export function accessErrorResponse(error: unknown) {
