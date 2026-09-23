@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { accessErrorResponse } from "@/lib/tenantAuth";
 import { ProfileValidationError } from "@/lib/brandGrowthProfile";
 import { getOrganisationProfile, updateOrganisationProfile } from "@/lib/organisationProfile.server";
+import { logProfileFailure } from "@/lib/profileDiagnostics.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store" };
 function failure(error: unknown) {
-  return accessErrorResponse(error) || NextResponse.json({
+  const denied = accessErrorResponse(error);
+  if (!denied && !(error instanceof ProfileValidationError)) logProfileFailure("route", error);
+  return denied || NextResponse.json({
     success: false,
     error: error instanceof ProfileValidationError ? error.message : "Could not load or save your profile. Please try again or contact support.",
   }, { status: error instanceof ProfileValidationError ? 400 : 503, headers });

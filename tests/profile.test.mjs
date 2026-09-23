@@ -10,7 +10,7 @@ const nodeRequire = createRequire(import.meta.url);
 function load(file, mocks = {}, env = {}) {
   const output = ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const loaded = { exports: {} };
-  vm.runInNewContext(output, { exports: loaded.exports, module: loaded, require: name => name in mocks ? mocks[name] : nodeRequire(name), URL, TextEncoder, Buffer, console, process: { env } }, { filename: file });
+  vm.runInNewContext(output, { exports: loaded.exports, module: loaded, require: name => name in mocks ? mocks[name] : nodeRequire(name), URL, TextEncoder, Buffer, console: mocks.__console || console, process: { env } }, { filename: file });
   return loaded.exports;
 }
 const model = load("lib/brandGrowthProfile.ts");
@@ -86,8 +86,10 @@ test("legacy import only copies recognised brand fields and validates them", () 
   assert.throws(() => model.legacyBrandPatch({ logoUrl: "javascript:bad" }));
 });
 
-function fixture({ user = "user-a", role = "owner", databaseError = false } = {}) {
+function fixture({ user = "user-a", role = "owner", databaseError = false, failureTable = "organisation_profiles" } = {}) {
   const events = [];
+  const logs = [];
+  const diagnostics = load("lib/profileDiagnostics.server.ts", { __console: { error: (...args) => logs.push(args) } });
   const profiles = new Map();
   const db = {
     from(table) {
@@ -98,7 +100,7 @@ function fixture({ user = "user-a", role = "owner", databaseError = false } = {}
         async order() { return { data: [], error: null }; },
         async maybeSingle() {
           events.push({ table, selected, filters: { ...filters } });
-          if (databaseError) return { data: null, error: { message: "Database unavailable" } };
+          if (databaseError && table === failureTable) return { data: null, error: { message: "Database unavailable", code: "42P01", details: "Missing relation", hint: "Check migration" } };
           if (table === "organisations" && selected !== "id,name") return { data: null, error: { message: "Only id and name may be queried" } };
           return { data: table === "organisations" ? { id: "org-a", name: "Example organisation" } : profiles.get(filters.organisation_id) || null, error: null };
         },
@@ -114,11 +116,11 @@ function fixture({ user = "user-a", role = "owner", databaseError = false } = {}
   };
   const response = { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200, headers: options.headers }) } };
   const auth = load("lib/tenantAuth.ts", { "next/server": response, "@/lib/supabaseServer": { getCurrentUserId: async () => user }, "@/lib/supabaseAdmin": { supabaseAdmin: db } });
-  const server = load("lib/organisationProfile.server.ts", { "@/lib/tenantAuth": auth, "@/lib/supabaseAdmin": { supabaseAdmin: db }, "@/lib/brandGrowthProfile": model });
-  const api = load("app/api/organisation/profile/route.ts", { "next/server": response, "@/lib/tenantAuth": auth, "@/lib/brandGrowthProfile": model, "@/lib/organisationProfile.server": server });
+  const server = load("lib/organisationProfile.server.ts", { "@/lib/tenantAuth": auth, "@/lib/supabaseAdmin": { supabaseAdmin: db }, "@/lib/brandGrowthProfile": model, "@/lib/profileDiagnostics.server": diagnostics });
+  const api = load("app/api/organisation/profile/route.ts", { "next/server": response, "@/lib/tenantAuth": auth, "@/lib/brandGrowthProfile": model, "@/lib/organisationProfile.server": server, "@/lib/profileDiagnostics.server": diagnostics });
   const req = (org = "org-a", body = { profile: { businessName: "Saved brand" } }) => ({ nextUrl: new URL(`https://example.test?organisationId=${org}`), text: async () => JSON.stringify(body) });
   const socialApi = load("app/api/social-accounts/route.ts", { "next/server": response, "@/lib/tenantAuth": auth, "../../../lib/supabaseAdmin": { supabaseAdmin: db } });
-  return { api, req, events, server, socialApi };
+  return { api, req, events, server, socialApi, logs };
 }
 test("profile loads with only organisation id/name and uses canonical profile branding", async () => {
   const f = fixture();
@@ -216,4 +218,36 @@ test("SQL migration enforces RLS, role grants, atomic patch merging and organisa
     await db.exec("reset role; set role anon");
     await assert.rejects(db.query("select * from public.organisation_profiles"), /permission denied/);
   } finally { await db.close(); }
+});
+
+
+test("diagnostics identify each failed stage and preserve customer-safe responses", async () => {
+  for (const failureTable of ["organisation_profiles", "organisations"]) {
+    const f = fixture({ databaseError: true, failureTable });
+    const response = await f.api.GET(f.req());
+    assert.equal(response.status, 503);
+    assert.equal(response.body.error, "Could not load or save your profile. Please try again or contact support.");
+    assert.deepEqual(f.logs.map(entry => entry[1].stage), [failureTable + " read", "route"]);
+    assert.equal(f.logs[0][1].code, "42P01");
+    assert.equal(f.logs[0][1].details, "Missing relation");
+    assert.equal(f.logs[0][1].hint, "Check migration");
+    assert.equal(JSON.stringify(response).includes("42P01"), false);
+  }
+  const denied = fixture({ user: null });
+  assert.equal((await denied.api.GET(denied.req())).status, 401);
+  assert.deepEqual(denied.logs.map(entry => entry[1].stage), ["requireOrganisation"]);
+});
+
+test("diagnostics omit raw objects and redact secrets and failing-row profile data", () => {
+  const logs = [];
+  const diagnostics = load("lib/profileDiagnostics.server.ts", { __console: { error: (...args) => logs.push(args) } }, { SUPABASE_SERVICE_ROLE_KEY: "private-service-key" });
+  diagnostics.logProfileFailure("route", {
+    message: "Error private-service-key Bearer opaque-token",
+    code: "23514", details: "Failing row contains (private profile contents)",
+    hint: "Cookie: private-cookie", profile: { businessName: "private business" },
+    headers: { Authorization: "private header" },
+  });
+  const text = JSON.stringify(logs);
+  for (const secret of ["private-service-key", "opaque-token", "private profile contents", "private-cookie", "private business", "private header"]) assert.equal(text.includes(secret), false);
+  assert.equal(logs[0][1].code, "23514");
 });
