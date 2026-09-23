@@ -79,7 +79,7 @@ export const POST = withTenantRoute(async function POST(req: NextRequest, tenant
 
     const system = [
       "You write useful, engaging social posts for the business in the organisation context.",
-      "Use the saved brand tone unless a suitable tone is explicitly requested.",
+      "Use the saved brand tone unless a different tone is explicitly requested.",
       "Follow the shared factual-claims and subject-specific safety rules.",
 
       explicitConditionTopic
@@ -113,15 +113,10 @@ export const POST = withTenantRoute(async function POST(req: NextRequest, tenant
         : "Keep the language relevant to the supplied business and audience.",
       "",
       "Generate 3 distinct variants:",
-      "- Variant 1: reflective / philosophical",
-      "- Variant 2: practical / grounded (simple steps)",
-      "- Variant 3: story-style (short personal tone, but not oversharing)",
-      "",
-      "Each variant must include:",
-      "- a strong first line hook",
-      "- the main post text",
-      "- an appropriate CTA or question; leave CTA empty if none fits",
-      "- 0–6 relevant hashtags (no spam, no cringe)",
+      "Honour the form and tone requested in the subject or creative brief for all variants. Otherwise choose genuinely different appropriate forms, not three marketing templates.",
+      "Each variant has a title and complete text. A requested story needs scene, progression, tension and resolution.",
+      "Do not force hooks, numbered steps, offers, product references or engagement endings.",
+      "Use an empty cta string and empty hashtags array when they do not fit the requested form; otherwise use up to 6 relevant hashtags.",
     ].join("\n");
 
     const schema = {

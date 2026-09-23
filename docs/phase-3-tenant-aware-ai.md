@@ -146,3 +146,5 @@ Supabase deployment or external-platform end-to-end test is claimed.
 - `/api/growth/update-reply`
 
 Additional boundaries: `/api/coach`, `/api/usage`, and `/dashboard/growth/update-call-outcome` (delegates to the protected API). Growth tracker, waiting and follow-up server pages/actions are also scoped.
+
+Creative form: the profile supplies context, not a script. Explicit creative form and tone take precedence over brand defaults within saved exclusions and safety constraints. Shared prompts support narratives, reflections, explainers, opinions and other forms without mandatory offers, CTAs or hashtags. Story endings no longer require comment invitations; Quick Blast and Brainstorm preserve their JSON contracts without fixed prose templates. Regression coverage checks actual outgoing model requests; prose quality still requires human review.

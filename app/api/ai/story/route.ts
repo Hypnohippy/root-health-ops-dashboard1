@@ -59,7 +59,7 @@ export const POST = withTenantRoute(async function POST(req: NextRequest, tenant
     const safeScenario =
       typeof scenario === "string" && scenario.trim().length > 0
         ? scenario.trim()
-        : "a clearly labelled hypothetical customer exploring the business’s primary offer";
+        : "a clearly labelled hypothetical human story relevant to the supplied context, without requiring an offer or product";
 
     const safeStoryType =
       typeof storyType === "string" ? String(storyType) : "workplace";
@@ -111,26 +111,14 @@ Generate 3 DISTINCT STORY VARIANTS for social media about:
 
 EACH STORY MUST:
 - Have a short, intriguing TITLE (max 8 words).
-- Open with a HOOK that feels like the start of a scene, not a generic advice line.
-- Clearly follow a human arc: tension → insight / turn → shift / hope.
+- Establish a concrete scene and let events progress through tension to a meaningful resolution.
+- Follow the requested creative intent; a resolution need not be a sales success or a happy ending.
 - Reference the saved business or offer only where relevant and natural.
 - Never promise unsupported results or invent a real customer experience.
 - Stay away from heavy graphic detail – we're aiming for emotionally resonant, not triggering.
-- Finish with EXACTLY ONE clear, low-friction INVITATION TO COMMENT to drive engagement.
-
-ACCEPTABLE ENGAGEMENT INVITES (CHOOSE ONE PER STORY):
-- "If this resonates, just drop a 🌱 in the comments."
-- "Which part hit you most – A, B or C?"
-- "If you've ever felt like this, just comment 'same'."
-- "What would you say to ${safeCharacter} if they were your friend?"
-- "Should I share the next chapter? Comment 'Next chapter' if yes."
-- "Have you ever had a moment like this?"
-
-RULES FOR ENGAGEMENT INVITE:
-- Use exactly ONE invite at the END of the story.
-- Do NOT say "What do you think?" or "Share your thoughts below".
-- Do NOT ask more than one question.
-- Keep it emotionally safe – no pressure to over-share.
+- Produce an actual narrative, not an advert disguised as a story.
+- Let the narrative ending stand. Do not require a CTA, comment invitation, offer, product, numbered steps or hashtags.
+- Only add an invitation or next step if the user requests it and it fits the story.
 
 PLATFORM ADAPTATION:
 ${platformGuidance}
@@ -181,13 +169,13 @@ Return ONLY valid JSON with exactly this shape:
         model: "gpt-4o-mini",
         temperature: 0.9,
         top_p: 0.9,
-        max_tokens: 900,
+        max_tokens: 3000,
         response_format: { type: "json_object" },
         messages: [...tenant.messages,
           {
             role: "system",
             content:
-              "You are an expert narrative copywriter. You ONLY output valid JSON as instructed. You write emotionally intelligent micro-stories that are safe, sensitive, and engagement-friendly.",
+              "You are an expert narrative copywriter. You ONLY output valid JSON as instructed. You write emotionally intelligent micro-stories that are faithful to the requested creative intent and shared safety rules.",
           },
           { role: "user", content: prompt },
         ],

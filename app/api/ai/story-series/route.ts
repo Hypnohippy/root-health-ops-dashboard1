@@ -21,11 +21,11 @@ export const POST = withTenantRoute(async function POST(req: NextRequest, tenant
 
     const {
       idea,
-      storyType = "Problem → Solution → Success",
+      storyType = "Narrative with scene, progression, tension and resolution",
       tone = "Inspirational & human",
       seriesLength = 3,
       platform = "linkedin",
-      ctaStyle = "Comment for more / next part",
+      ctaStyle = "None unless appropriate to the requested form",
     } = body || {};
 
     if (!idea || typeof idea !== "string" || idea.trim().length === 0) {
@@ -55,8 +55,8 @@ Inputs:
 Rules:
 - Produce exactly ${n} posts as a coherent series.
 - Each post must feel like a distinct "episode" (no repetition).
-- Strong hook. Real human language.
-- Platform-aware formatting (LinkedIn = structured & punchy, Facebook = conversational).
+- Write actual narrative episodes with scene, progression and tension, building to resolution across the series. No mandatory marketing hooks or product references.
+- Platform-aware formatting (adapt to the requested length and form without forcing a template).
 - Use the saved CTA/destination where appropriate; otherwise use a relevant question or leave cta empty.
 - Optional: include a simple, realistic image concept.
 
@@ -68,7 +68,7 @@ Return STRICT JSON ONLY in this format:
       "title": "short compelling title",
       "body": "full post text with line breaks",
       "platformSuggestion": "linkedin | facebook | instagram | etc.",
-      "cta": "one short CTA",
+      "cta": "optional appropriate CTA, or empty string",
       "imagePrompt": "optional short image idea"
     }
   ]

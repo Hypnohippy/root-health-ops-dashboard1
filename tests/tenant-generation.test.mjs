@@ -181,3 +181,27 @@ test("growth ownership migration leaves legacy rows unassigned and revokes direc
     for(const table of ["growth_targets","growth_plans","hook_patterns"]) await assert.rejects(db.query(`select * from ${table}`),/permission denied/);
   } finally { await db.close(); }
 });
+
+test("creative intent survives profile tone and route templates without mandatory marketing endings", async () => {
+  for (const [name, body] of [
+    ["quick-blast", {subject:"Write a quiet fictional story with no CTA",tone:"spare literary prose"}],
+    ["story", {scenario:"A fictional baker loses a recipe and finds a new approach",tone:"spare literary prose",length:"long"}],
+    ["brainstorm", {prompt:"Write a founder reflection with no CTA",tone:"spare literary prose"}],
+    ["story-series", {idea:"A fictional baker searches for a missing recipe"}],
+  ]) {
+    const f=fixture();
+    await f.route(`app/api/ai/${name}/route.ts`).POST(f.req({organisationId:"org-a",...body}));
+    assert.equal(f.llm.length,1,name);
+    const messages=f.llm[0].input || f.llm[0].messages;
+    const policy=messages[0].content;
+    for (const form of ["founder reflection","opinion/thought piece","educational explainer","conversational observation","case-style narrative","list/post","question-led discussion","short punchy post","long-form LinkedIn-style post"]) assert.ok(policy.includes(form),form);
+    assert.ok(policy.includes("scene, progression, tension and resolution"));
+    assert.ok(policy.includes("even outside the usual brand voice"));
+    assert.ok(policy.includes("subject to saved exclusions and safety rules"));
+    assert.ok(policy.includes("empty CTA strings and empty hashtag arrays"));
+    const all=JSON.stringify(messages);
+    assert.equal(/EXACTLY ONE|INVITATION TO COMMENT|Variant 2: practical|Include hook, body/.test(all),false,name);
+    if(body.tone) assert.ok(all.includes(body.tone));
+    if(name==="story") assert.ok(f.llm[0].max_tokens>=3000);
+  }
+});
