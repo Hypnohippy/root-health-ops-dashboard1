@@ -153,6 +153,8 @@ export default function GrowthPage() {
     <div style={page}>
       <h1 style={title}>🚀 Daily Growth Cockpit</h1>
 
+      <button onClick={() => { window.location.href = "/dashboard/growth/acquisition" + window.location.search; }}>Open acquisition queue</button>
+
       <p style={subtitle}>
         Generate content, prepare today’s messages, and track replies.
       </p>
