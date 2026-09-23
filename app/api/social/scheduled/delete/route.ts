@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/social/scheduled/delete/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
@@ -11,13 +12,13 @@ export const runtime = "nodejs";
  * Fix:
  * - Do NOT rely on "latest org" inside delete routes.
  * - If organisationId is provided, we enforce it.
- * - If not provided, we delete by id only (admin route).
+ * - Every mutation is scoped to a verified organisation membership.
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({} as any));
     const id = String(body?.id || "").trim();
-    const organisationId = String(body?.organisationId || "").trim();
+    const { organisationId } = await requireOrganisation(String(body?.organisationId || "").trim(), true);
 
     if (!id) {
       return NextResponse.json({ success: false, error: "Missing id." }, { status: 200 });
@@ -26,9 +27,7 @@ export async function POST(req: NextRequest) {
     let q = supabaseAdmin.from("scheduled_posts").delete().eq("id", id);
 
     // If caller provided orgId, enforce it (prevents cross-org deletes)
-    if (organisationId) {
-      q = q.eq("organisation_id", organisationId);
-    }
+    q = q.eq("organisation_id", organisationId);
 
     const { data, error } = await q.select("id").maybeSingle();
 
@@ -45,6 +44,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, deletedId: data.id }, { status: 200 });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { success: false, error: e?.message || "Delete failed." },
       { status: 200 }

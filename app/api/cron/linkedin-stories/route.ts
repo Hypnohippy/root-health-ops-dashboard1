@@ -1,3 +1,4 @@
+import { isCronAuthorized } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
@@ -132,6 +133,7 @@ async function markRecordStatus(
 }
 
 export async function GET(_req: NextRequest) {
+  if (!isCronAuthorized(_req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const records = await fetchPendingScheduledPosts();
     if (!records.length) {

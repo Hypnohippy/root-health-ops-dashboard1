@@ -1,3 +1,5 @@
+import { requireOrganisation } from "@/lib/tenantAuth";
+import { consumeOAuthState } from "@/lib/oauthState";
 // app/api/oauth/facebook/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -14,27 +16,6 @@ function baseUrl(req: NextRequest) {
     return req.nextUrl.origin;
   } catch {
     return "";
-  }
-}
-
-function decodeStateMaybe(state: string): any | null {
-  const s = norm(state);
-  if (!s) return null;
-
-  if (s.startsWith("{")) {
-    try {
-      return JSON.parse(s);
-    } catch {
-      return null;
-    }
-  }
-
-  try {
-    const json = Buffer.from(s, "base64url").toString("utf8");
-    if (!json.startsWith("{")) return null;
-    return JSON.parse(json);
-  } catch {
-    return null;
   }
 }
 
@@ -139,13 +120,10 @@ export async function GET(req: NextRequest) {
     }
 
     const stateRaw = norm(url.searchParams.get("state"));
-    const parsed = decodeStateMaybe(stateRaw);
+    const { organisationId } = await consumeOAuthState("facebook", stateRaw);
 
-    const provider = norm(parsed?.provider || "facebook");
+    const provider = "facebook";
     back.searchParams.set("provider", provider);
-
-    const organisationId =
-      norm(parsed?.organisationId || parsed?.organisation_id || parsed?.orgId);
 
     if (!organisationId) {
       back.searchParams.set("error", "no_organisation");
@@ -248,6 +226,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
+    await requireOrganisation(organisationId);
     await upsertSocialAccount({
       organisationId,
       platform: "facebook",
@@ -262,6 +241,7 @@ export async function GET(req: NextRequest) {
     const igUsername = norm(chosen?.instagram_business_account?.username);
 
     if (igId) {
+      await requireOrganisation(organisationId);
       await upsertSocialAccount({
         organisationId,
         platform: "instagram",

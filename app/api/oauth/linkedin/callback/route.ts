@@ -1,3 +1,5 @@
+import { requireOrganisation } from "@/lib/tenantAuth";
+import { consumeOAuthState } from "@/lib/oauthState";
 // app/api/oauth/linkedin/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -8,10 +10,6 @@ export const runtime = "nodejs";
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
 const LINKEDIN_CLIENT_ID = (process.env.LINKEDIN_CLIENT_ID || "").trim();
 const LINKEDIN_CLIENT_SECRET = (process.env.LINKEDIN_CLIENT_SECRET || "").trim();
-
-// IMPORTANT: do NOT use NEXT_PUBLIC_ for server-only org forcing.
-// If you want a single-org override, use SINGLE_ORG_ID (server-only).
-const SINGLE_ORG_ID = (process.env.SINGLE_ORG_ID || "").trim();
 
 function baseUrl(req: NextRequest) {
   try {
@@ -29,30 +27,6 @@ async function fetchJson(url: string, init?: RequestInit) {
   const res = await fetch(url, { cache: "no-store", ...(init || {}) });
   const json: any = await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, json };
-}
-
-function decodeState(state: string) {
-  try {
-    const raw = Buffer.from(state, "base64url").toString("utf8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-async function getOrganisationIdFallback(): Promise<string | null> {
-  if (SINGLE_ORG_ID) return SINGLE_ORG_ID;
-
-  // Single-tenant fallback: most recently created org
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id, created_at")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !data?.id) return null;
-  return String(data.id);
 }
 
 async function upsertLinkedInSocialAccount(args: {
@@ -140,7 +114,7 @@ export async function GET(req: NextRequest) {
     }
 
     const stateRaw = norm(req.nextUrl.searchParams.get("state") || "");
-    const st = stateRaw ? decodeState(stateRaw) : null;
+    const { organisationId } = await consumeOAuthState("linkedin", stateRaw);
 
     const redirectUri = `${baseUrl(req)}/api/oauth/linkedin/callback`;
 
@@ -199,8 +173,6 @@ export async function GET(req: NextRequest) {
       null;
 
     // 3) pick org id
-    const organisationId =
-      (st?.organisationId ? String(st.organisationId) : "") || (await getOrganisationIdFallback());
 
     if (!organisationId) {
       back.searchParams.set("error", "no_organisation");
@@ -209,6 +181,7 @@ export async function GET(req: NextRequest) {
     }
 
     // 4) save connection
+    await requireOrganisation(organisationId);
     await upsertLinkedInSocialAccount({
       organisationId,
       linkedInUserId,

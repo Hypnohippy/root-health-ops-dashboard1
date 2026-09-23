@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse, publishingHeaders } from "@/lib/tenantAuth";
 // app/api/publish/run/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -37,32 +38,16 @@ function toPlatformList(raw: any): ProviderId[] {
     .filter(Boolean) as ProviderId[];
 }
 
-async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
-  if (error) {
-    console.error("[publish/run] organisations error", error);
-    return null;
-  }
-  if (!data || data.length === 0) return null;
-  return String(data[0].id);
-}
-
 function originFromReq(req: NextRequest) {
-  return req.nextUrl.origin;
+  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || req.nextUrl.origin;
 }
 
 async function runOnce(req: NextRequest, opts: { organisationId?: string; limit?: number; mode?: RunMode }) {
-  let organisationId = norm(opts.organisationId);
-  if (!organisationId) {
-    const fallback = await getSingleTenantOrganisationId();
-    if (fallback) organisationId = fallback;
-  }
-
-  if (!organisationId) {
-    return NextResponse.json(
-      { ok: false, error: "Missing organisationId (and no single-tenant org found)." },
-      { status: 200 }
-    );
+  let organisationId: string;
+  try {
+    ({ organisationId } = await requireOrganisation(opts.organisationId));
+  } catch (error) {
+    return accessErrorResponse(error) || NextResponse.json({ error: "Authorization failed" }, { status: 500 });
   }
 
   const limit = Math.min(Math.max(Number(opts.limit || 10), 1), 50);
@@ -131,7 +116,7 @@ async function runOnce(req: NextRequest, opts: { organisationId?: string; limit?
       // /api/publish/now writes dispatch results into the scheduled_posts row
       const pubRes = await fetch(`${origin}/api/publish/now?organisationId=${encodeURIComponent(organisationId)}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: publishingHeaders(req),
         cache: "no-store",
         body: JSON.stringify({
           id,
@@ -150,6 +135,8 @@ async function runOnce(req: NextRequest, opts: { organisationId?: string; limit?
         error: pubJson?.error || null,
       });
     } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
       const msg = String(e?.message || "Runner failed");
 
       // Write a runner-level failure so UI has *something* to show

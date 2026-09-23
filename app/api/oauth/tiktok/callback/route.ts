@@ -1,7 +1,8 @@
+import { requireOrganisation } from "@/lib/tenantAuth";
+import { consumeOAuthState } from "@/lib/oauthState";
 // app/api/oauth/tiktok/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import crypto from "crypto";
 import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
@@ -11,11 +12,6 @@ const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
 const TIKTOK_CLIENT_KEY = (process.env.TIKTOK_CLIENT_KEY || "").trim();
 const TIKTOK_CLIENT_SECRET = (process.env.TIKTOK_CLIENT_SECRET || "").trim();
 const TIKTOK_REDIRECT_URI = (process.env.TIKTOK_REDIRECT_URI || "").trim(); // must match TikTok app setting
-
-const OAUTH_STATE_SECRET = (process.env.OAUTH_STATE_SECRET || "dev-secret").trim();
-
-// optional single-org override (server only)
-const SINGLE_ORG_ID = (process.env.SINGLE_ORG_ID || "").trim();
 
 function baseUrl(req: NextRequest) {
   try {
@@ -29,62 +25,7 @@ function norm(v: any) {
   return String(v ?? "").trim();
 }
 
-function b64urlDecodeToString(input: string) {
-  const b64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
-  return Buffer.from(b64 + pad, "base64").toString("utf8");
-}
-
 // expected: "<base64url(json)>.<base64url(signatureHex)>"
-function verifyAndParseSignedState(state: string): any | null {
-  const parts = String(state || "").split(".");
-  if (parts.length !== 2) return null;
-
-  const bodyB64Url = parts[0];
-  const sigB64Url = parts[1];
-
-  const expectedHex = crypto
-    .createHmac("sha256", OAUTH_STATE_SECRET)
-    .update(bodyB64Url)
-    .digest("hex");
-
-  const gotHex = (() => {
-    try {
-      // signature stored as base64url of hex string
-      return b64urlDecodeToString(sigB64Url);
-    } catch {
-      return "";
-    }
-  })();
-
-  if (!gotHex || gotHex !== expectedHex) return null;
-
-  try {
-    const jsonStr = b64urlDecodeToString(bodyB64Url);
-    return JSON.parse(jsonStr);
-  } catch {
-    return null;
-  }
-}
-
-function parseStateAny(state: string): any | null {
-  const s = String(state || "").trim();
-  if (!s) return null;
-
-  const signed = verifyAndParseSignedState(s);
-  if (signed) return signed;
-
-  try {
-    if (s.startsWith("{") && s.endsWith("}")) return JSON.parse(s);
-  } catch {}
-
-  try {
-    const decoded = b64urlDecodeToString(s);
-    if (decoded.startsWith("{") && decoded.endsWith("}")) return JSON.parse(decoded);
-  } catch {}
-
-  return null;
-}
 
 async function fetchJson(url: string, init?: RequestInit) {
   const res = await fetch(url, { cache: "no-store", ...(init || {}) });
@@ -125,20 +66,6 @@ async function fetchTikTokUser(accessToken: string) {
 
   const json: any = await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, json };
-}
-
-async function getOrganisationIdFallback(): Promise<string | null> {
-  if (SINGLE_ORG_ID) return SINGLE_ORG_ID;
-
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id, created_at")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !data?.id) return null;
-  return String(data.id);
 }
 
 /**
@@ -271,9 +198,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(back.toString(), { status: 302 });
     }
 
-    const state = parseStateAny(stateRaw);
-    const organisationId =
-      norm(state?.organisationId) || (await getOrganisationIdFallback()) || "";
+    const { organisationId } = await consumeOAuthState("tiktok", stateRaw);
 
     if (!organisationId) {
       back.searchParams.set("error", "no_organisation");
@@ -329,6 +254,7 @@ export async function GET(req: NextRequest) {
       norm(userData?.display_name || userData?.displayName || userData?.username || "") || "TikTok";
 
     // 3) Save
+    await requireOrganisation(organisationId);
     await upsertTikTokSocialAccount({
       organisationId,
       openId,

@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/.phase1-checks/
 
 # next.js
 /.next/

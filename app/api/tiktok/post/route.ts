@@ -1,3 +1,4 @@
+import { requirePublishingOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/tiktok/post/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -147,7 +148,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({} as any));
 
-    const organisationId = String(body?.organisationId ?? body?.organisation_id ?? "").trim();
+    const { organisationId } = await requirePublishingOrganisation(req, String(body?.organisationId ?? body?.organisation_id ?? "").trim());
     const message = String(body?.message ?? "").trim();
     const videoUrl = String(body?.videoUrl ?? "").trim();
 
@@ -282,6 +283,8 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("[tiktok/post] fatal", err);
     return NextResponse.json({ ok: false, error: err?.message || "TikTok post route crashed." }, { status: 200 });
   }

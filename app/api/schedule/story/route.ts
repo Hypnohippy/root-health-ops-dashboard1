@@ -1,29 +1,8 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
-
-async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .limit(1);
-
-  if (error) {
-    console.error("[schedule/story] organisations error", error);
-    return null;
-  }
-  if (!data || data.length === 0) return null;
-  return data[0].id as string;
-}
-
-async function resolveOrganisationId(req: NextRequest) {
-  try {
-    const orgFromQuery = req.nextUrl.searchParams.get("organisationId");
-    if (orgFromQuery && orgFromQuery.trim()) return orgFromQuery.trim();
-  } catch {}
-  return await getSingleTenantOrganisationId();
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -44,7 +23,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const organisationId = await resolveOrganisationId(req);
+    const { organisationId } = await requireOrganisation(req.nextUrl.searchParams.get("organisationId"));
     if (!organisationId) {
       return NextResponse.json(
         { error: "No organisation found in database." },
@@ -90,6 +69,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, organisationId, item: data });
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     return NextResponse.json(
       { error: err?.message || "Server error" },
       { status: 500 }

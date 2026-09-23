@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/scheduled/cancel/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -7,7 +8,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const organisationId = (url.searchParams.get("organisationId") || "").trim();
+    const { organisationId } = await requireOrganisation((url.searchParams.get("organisationId") || "").trim(), true);
     if (!organisationId) {
       return NextResponse.json({ ok: false, error: "Missing organisationId" }, { status: 400 });
     }
@@ -34,6 +35,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, id: data.id, status: data.status }, { status: 200 });
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("[scheduled/cancel] fatal", err);
     return NextResponse.json({ ok: false, error: err?.message || "Internal error" }, { status: 500 });
   }

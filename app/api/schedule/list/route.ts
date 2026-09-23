@@ -1,33 +1,14 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/schedule/list/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .limit(1);
-
-  if (error) {
-    console.error("[schedule/list] organisations error", error);
-    return null;
-  }
-  if (!data || data.length === 0) return null;
-  return data[0].id as string;
-}
-
 export async function GET(req: NextRequest) {
   try {
-    // Accept org from query, else fall back to single-tenant org
-    let organisationId =
-      req.nextUrl.searchParams.get("organisationId")?.trim() || "";
-
-    if (!organisationId) {
-      const fallback = await getSingleTenantOrganisationId();
-      if (fallback) organisationId = fallback;
-    }
+    // Resolve only an authenticated membership.
+    const { organisationId } = await requireOrganisation(req.nextUrl.searchParams.get("organisationId"), false);
 
     if (!organisationId) {
       return NextResponse.json(
@@ -59,6 +40,8 @@ export async function GET(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("[schedule/list] fatal", err);
     return NextResponse.json(
       { ok: false, error: err?.message || "Internal error." },

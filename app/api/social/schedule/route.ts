@@ -1,3 +1,4 @@
+import { requireOrganisation, requireOwnedRecord, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/social/schedule/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
     const platforms: string[] | undefined = body.platforms;
     const imageUrl: string | undefined = body.imageUrl;
     const scheduledAt: string | undefined = body.scheduledAt;
-    const organisationId: string | undefined = body.organisationId;
+    const { organisationId } = await requireOrganisation(body.organisationId);
 
     // NEW: campaign/performance columns (all optional)
     const campaignId = s(body.campaignId ?? body.campaign_id);
@@ -57,6 +58,9 @@ export async function POST(req: NextRequest) {
     // Existing: optional series / sequence fields
     const sequenceId: string | undefined = body.sequenceId || body.sequence_id;
     const metaIncoming: any = body.meta;
+    await requireOwnedRecord("campaigns", campaignId, organisationId);
+    await requireOwnedRecord("sequences", sequenceId, organisationId);
+    await requireOwnedRecord("growth_experiments", s(metaIncoming?.experiment_id || metaIncoming?.experimentId), organisationId);
 
     const createdBy =
       normalizeCreatedBy(body.createdBy) ||
@@ -150,6 +154,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, scheduled: true, item: data }, { status: 200 });
   } catch (err) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("[schedule] unexpected error", err);
     return NextResponse.json({ success: false, error: "Internal server error in /api/social/schedule." }, { status: 200 });
   }

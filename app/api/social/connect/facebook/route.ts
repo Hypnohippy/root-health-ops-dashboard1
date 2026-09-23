@@ -1,3 +1,5 @@
+import { createOAuthState } from "@/lib/oauthState";
+import { accessErrorResponse } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -12,6 +14,7 @@ function getMetaAppId() {
 }
 
 export async function GET(req: NextRequest) {
+  try {
   const origin = req.nextUrl.origin;
   const appId = getMetaAppId();
 
@@ -37,7 +40,10 @@ export async function GET(req: NextRequest) {
       "instagram_content_publish",
     ].join(",")
   );
-  authUrl.searchParams.set("state", "meta-oauth");
+  authUrl.searchParams.set("state", await createOAuthState("facebook", req.nextUrl.searchParams.get("organisationId")));
 
   return NextResponse.redirect(authUrl.toString());
+  } catch (error) {
+    return accessErrorResponse(error) || NextResponse.json({ error: "Unable to start OAuth." }, { status: 500 });
+  }
 }

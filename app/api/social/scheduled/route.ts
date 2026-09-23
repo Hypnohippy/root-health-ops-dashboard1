@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/social/scheduled/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -62,31 +63,7 @@ export async function GET(req: NextRequest) {
     const range = String(url.searchParams.get("range") || "future").toLowerCase();
     const includeQuickBlast = String(url.searchParams.get("includeQuickBlast") || "0") === "1";
 
-    // Prefer explicit orgId from client
-    let organisationId = String(url.searchParams.get("organisationId") || "").trim();
-
-    if (!organisationId) {
-      const forced =
-        (process.env.SINGLE_ORG_ID || "").trim() ||
-        (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
-
-      if (forced) {
-        organisationId = forced;
-      } else {
-        const { data: org, error: orgErr } = await supabaseAdmin
-          .from("organisations")
-          .select("id, created_at")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (orgErr || !org?.id) {
-          return NextResponse.json({ success: false, error: "No organisation found." }, { status: 200 });
-        }
-
-        organisationId = String(org.id);
-      }
-    }
+    const { organisationId } = await requireOrganisation(url.searchParams.get("organisationId"), false);
 
     const nowIso = new Date().toISOString();
     const last24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -130,6 +107,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ success: true, organisationId, items: cleaned }, { status: 200 });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { success: false, error: e?.message || "Failed to load scheduled posts." },
       { status: 200 }

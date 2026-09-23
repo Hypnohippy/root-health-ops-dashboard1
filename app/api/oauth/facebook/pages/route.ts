@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -6,6 +7,7 @@ type FbPage = { id: string; name: string; access_token?: string };
 
 export async function GET(req: NextRequest) {
   try {
+    await requireOrganisation(req.nextUrl.searchParams.get("organisationId"));
     const token = req.cookies.get("fb_user_token")?.value || "";
 
     if (!token) {
@@ -41,6 +43,8 @@ export async function GET(req: NextRequest) {
     const pages: FbPage[] = Array.isArray(json?.data) ? json.data : [];
     return NextResponse.json({ pages });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return NextResponse.json(
       { error: e?.message || "Failed to load pages" },
       { status: 500 }

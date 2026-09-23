@@ -1,8 +1,9 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/social/quick-blast/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
-const DISPATCH_SECRET = process.env.DISPATCH_SECRET;
+const CRON_SECRET = process.env.CRON_SECRET;
 
 // Platforms your UI supports
 const ALLOWED_PLATFORMS = [
@@ -17,24 +18,10 @@ const ALLOWED_PLATFORMS = [
   "google",
 ];
 
-async function getSingleTenantOrganisationId() {
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .limit(1);
-
-  if (error) {
-    console.error("[quick-blast] organisations error", error);
-    return null;
-  }
-  if (!data || data.length === 0) return null;
-  return data[0].id as string;
-}
-
 function originFromReq(req: NextRequest) {
   // Works on Vercel + local
   const url = new URL(req.url);
-  return url.origin;
+  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || url.origin;
 }
 
 export async function POST(req: NextRequest) {
@@ -44,7 +31,7 @@ export async function POST(req: NextRequest) {
     const message: string = (body?.message ?? "").toString();
     const platformsRaw: any[] = Array.isArray(body?.platforms) ? body.platforms : [];
 
-    // Optional: allow caller to pass organisationId, otherwise single-tenant fallback
+    // An explicit organisation must belong to the current user.
     const organisationIdFromBody =
       typeof body?.organisationId === "string" && body.organisationId.trim()
         ? body.organisationId.trim()
@@ -92,8 +79,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const organisationId =
-      organisationIdFromBody || (await getSingleTenantOrganisationId());
+    const { organisationId } = await requireOrganisation(organisationIdFromBody);
 
     if (!organisationId) {
       return NextResponse.json(
@@ -143,19 +129,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Trigger dispatcher immediately (no Ayrshare here, no Make here).
-    // If DISPATCH_SECRET is not set, cron will still pick it up within a minute.
+    // If CRON_SECRET is not set, cron will still pick it up within a minute.
     let dispatchJson: any = null;
 
-    if (DISPATCH_SECRET) {
+    if (CRON_SECRET) {
       try {
         const origin = originFromReq(req);
-        const dispatchUrl = `${origin}/api/social/dispatch-scheduled?secret=${encodeURIComponent(
-          DISPATCH_SECRET
-        )}`;
+        const dispatchUrl = `${origin}/api/social/dispatch-scheduled?organisationId=${encodeURIComponent(organisationId)}`;
 
         const res = await fetch(dispatchUrl, {
           method: "GET",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${CRON_SECRET}` },
           cache: "no-store",
         });
 
@@ -173,14 +157,16 @@ export async function POST(req: NextRequest) {
         queued: true,
         organisationId,
         scheduledPostId: created.id,
-        note: DISPATCH_SECRET
+        note: CRON_SECRET
           ? "Queued and triggered dispatcher."
-          : "Queued. Dispatcher secret not set; cron will pick it up shortly.",
+          : "Queued. Publishing is unavailable until CRON_SECRET is configured.",
         dispatch: dispatchJson, // may be null; UI can ignore
       },
       { status: 200 }
     );
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("[quick-blast] unexpected error", err);
     return NextResponse.json(
       { success: false, error: err?.message || "Quick Blast crashed." },

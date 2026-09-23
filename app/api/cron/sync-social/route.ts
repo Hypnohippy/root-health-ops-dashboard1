@@ -1,30 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-
+import { isCronAuthorized, publishingHeaders } from "@/lib/tenantAuth";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export const runtime = "nodejs";
-
 export async function GET(req: NextRequest) {
+  if (!isCronAuthorized(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const secret = (process.env.CRON_SECRET || "").trim();
-    if (secret) {
-      const got = (req.nextUrl.searchParams.get("secret") || "").trim();
-      if (got !== secret) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    const { data, error } = await supabaseAdmin.from("social_accounts").select("organisation_id").eq("platform", "facebook").eq("is_active", true);
+    if (error) throw error;
+    const origin = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
+    const results = [];
+    for (const organisationId of new Set((data || []).map(row => row.organisation_id))) {
+      const url = new URL("/api/social/responses/sync-meta", origin);
+      url.searchParams.set("organisationId", organisationId);
+      const response = await fetch(url, { method: "POST", headers: publishingHeaders(req), cache: "no-store" });
+      results.push({ organisationId, ok: response.ok });
     }
-
-    const origin = req.nextUrl.origin;
-
-    const res = await fetch(`${origin}/api/social/responses/sync-meta`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(secret ? { "x-cron-secret": secret } : {}),
-      },
-      cache: "no-store",
-    });
-
-    const json = await res.json().catch(() => null);
-
-    return NextResponse.json({ ok: res.ok, status: res.status, result: json }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Cron failed" }, { status: 200 });
+    return NextResponse.json({ ok: results.every(r => r.ok), results });
+  } catch {
+    return NextResponse.json({ error: "Social sync failed" }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { requireOrganisation, requireOwnedRecord, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/social/quick-blast/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -21,63 +22,8 @@ const ALLOWED_PLATFORMS = [
   "whatsapp",
 ];
 
-function tryParseSbCookie(raw: string | undefined | null): any | null {
-  if (!raw) return null;
-
-  const attempts = [raw];
-
-  try {
-    attempts.push(decodeURIComponent(raw));
-  } catch {}
-
-  for (const value of attempts) {
-    try {
-      return JSON.parse(value);
-    } catch {}
-  }
-
-  return null;
-}
-
-function extractAccessTokenFromCookies(req: NextRequest): string | null {
-  const all = req.cookies.getAll();
-  const sbCookie = all.find(
-    (c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token")
-  );
-
-  const parsed = tryParseSbCookie(sbCookie?.value);
-  const token = String(parsed?.access_token || "").trim();
-
-  return token || null;
-}
-
-async function getAuthedUserId(req: NextRequest): Promise<string | null> {
-  const accessToken = extractAccessTokenFromCookies(req);
-  if (!accessToken) return null;
-
-  const {
-    data: { user },
-    error,
-  } = await supabaseAdmin.auth.getUser(accessToken);
-
-  if (error || !user) return null;
-  return String(user.id);
-}
-
-async function getLatestMembershipOrgId(userId: string): Promise<string | null> {
-  const { data, error } = await supabaseAdmin
-    .from("organisation_members")
-    .select("organisation_id, created_at")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !data?.organisation_id) return null;
-  return String(data.organisation_id);
-}
 function originFromReq(req: NextRequest) {
-  return new URL(req.url).origin;
+  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || new URL(req.url).origin;
 }
 
 // Match the “uuid-like” check used in your log-event route (safe, permissive)
@@ -141,10 +87,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-   const userId = await getAuthedUserId(req);
-const organisationId =
-  organisationIdFromBody ||
-  (userId ? await getLatestMembershipOrgId(userId) : null);
+    const { organisationId } = await requireOrganisation(organisationIdFromBody);
+    await requireOwnedRecord("growth_experiments", experimentId, organisationId);
     if (!organisationId) {
       return NextResponse.json(
         { success: false, error: "No organisation found. Create an organisation row first (or pass organisationId)." },
@@ -218,7 +162,7 @@ const organisationId =
     if (CRON_SECRET) {
       try {
         const origin = originFromReq(req);
-        const dispatchUrl = `${origin}/api/social/dispatch-scheduled`;
+        const dispatchUrl = `${origin}/api/social/dispatch-scheduled?organisationId=${encodeURIComponent(organisationId)}`;
 
         const res = await fetch(dispatchUrl, {
           method: "GET",
@@ -242,13 +186,15 @@ const organisationId =
         organisationId,
         scheduledPostId: created.id,
         experimentId: experimentId || null,
-        note: CRON_SECRET ? "Queued and triggered dispatcher." : "Queued. CRON_SECRET not set; cron will pick it up.",
+        note: CRON_SECRET ? "Queued and triggered dispatcher." : "Queued. Publishing is unavailable until CRON_SECRET is configured.",
         dispatch: dispatchJson,
         userMessage: "Sent.",
       },
       { status: 200 }
     );
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("[quick-blast] unexpected error", err);
     return NextResponse.json({ success: false, error: err?.message || "Quick Blast crashed." }, { status: 200 });
   }

@@ -1,25 +1,9 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
-
-async function resolveOrganisationId(explicit?: string | null) {
-  const id = (explicit || "").trim();
-  if (id) return id;
-
-  // fallback: most recent org
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw new Error(`Could not resolve organisationId: ${error.message}`);
-  if (!data?.id) throw new Error("No organisation found.");
-  return String(data.id);
-}
 
 async function upsertLinkedInAccount(args: {
   organisationId: string;
@@ -73,7 +57,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
 
     const token = String(body?.token || "").trim();
-    const organisationId = await resolveOrganisationId(body?.organisationId || null);
+    const { organisationId } = await requireOrganisation(body?.organisationId);
 
     if (!token) {
       return NextResponse.json({ success: false, error: "Missing token" }, { status: 400 });
@@ -113,6 +97,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, organisationId }, { status: 200 });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     console.error("[oauth/linkedin/finish] error", e);
     return NextResponse.json(
       { success: false, error: e?.message || "Finish failed" },

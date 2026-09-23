@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/oauth/facebook/connect-page/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
@@ -18,20 +19,6 @@ async function graphGet(url: string) {
   return { ok: res.ok, status: res.status, json };
 }
 
-async function getOrganisationId(): Promise<string | null> {
-  const forced = norm(process.env.NEXT_PUBLIC_SINGLE_ORG_ID);
-  if (forced) return forced;
-
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (error || !data || data.length === 0) return null;
-  return String((data as any)[0].id);
-}
-
 /**
  * Connect a Facebook Page:
  * Body accepts:
@@ -44,7 +31,7 @@ export async function POST(req: NextRequest) {
     const API_VER = "v24.0";
     const body = await req.json().catch(() => ({} as any));
 
-    const organisationId = norm(body.organisationId) || (await getOrganisationId());
+    const { organisationId } = await requireOrganisation(body.organisationId);
     if (!organisationId) return okJson({ success: false, error: "No organisation found." }, 400);
 
     const userToken = norm(body.userToken) || norm(body.token) || norm(body.access_token);
@@ -105,7 +92,7 @@ export async function POST(req: NextRequest) {
     const up = await supabaseAdmin
       .from("social_accounts")
       .upsert(row, { onConflict: "organisation_id,platform" })
-      .select()
+      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at")
       .maybeSingle();
 
     if (!up.error) {
@@ -131,7 +118,7 @@ export async function POST(req: NextRequest) {
       })
       .eq("organisation_id", organisationId)
       .eq("platform", "facebook")
-      .select()
+      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at")
       .maybeSingle();
 
     if (!uErr && updated) {
@@ -147,7 +134,7 @@ export async function POST(req: NextRequest) {
     const { data: inserted, error: iErr } = await supabaseAdmin
       .from("social_accounts")
       .insert(row)
-      .select()
+      .select("platform,page_id,page_name,is_active,token_expires_at,updated_at")
       .single();
 
     if (iErr) return okJson({ success: false, error: iErr.message }, 500);
@@ -160,6 +147,8 @@ export async function POST(req: NextRequest) {
       note: "Facebook saved via insert fallback.",
     });
   } catch (e: any) {
+    const denied = accessErrorResponse(e);
+    if (denied) return denied;
     return okJson({ success: false, error: e?.message || "Failed to connect Facebook Page" }, 500);
   }
 }
