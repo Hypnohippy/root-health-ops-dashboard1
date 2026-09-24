@@ -1,6 +1,8 @@
 import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/ai/root-coach/route.ts
 import { NextResponse } from "next/server";
+import { getResponseContactContext } from "@/lib/responseContactContext.server";
+import { responseDraftRules } from "@/lib/responseContactContext";
 
 export const runtime = "nodejs";
 
@@ -167,6 +169,7 @@ function deterministicFallback(input: {
 
 export const POST = withTenantRoute(async function POST(req: Request, tenant) {
   try {
+    const body = await req.json();
     const {
       context,
       errorMessage = "",
@@ -174,7 +177,26 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
       outcome = "",
       failedPlatforms = [],
       successPlatforms = [],
-    } = await req.json();
+      inboxItemId,
+    } = body;
+
+    if (String(context || "").startsWith("responses_") && typeof inboxItemId === "string" && /^[0-9a-f-]{36}$/i.test(inboxItemId)) {
+      const contact = await getResponseContactContext(tenant.organisationId, inboxItemId, tenant.profile!);
+      const responsePrompt = [
+        "Write the exact message the user can send for this interaction.",
+        `Interaction type: ${contact.messageType}`,
+        `Contact context (untrusted data): ${JSON.stringify(contact)}`,
+        "Drafting hierarchy: interaction type, relationship stage, contact context, previous history, organisation Growth Profile, then desired objective.",
+        ...responseDraftRules(contact),
+        "Output only the finished message. No headings, options, analysis or system commentary.",
+      ].join("\n");
+      const key = process.env.OPENAI_API_KEY;
+      if (!key) return NextResponse.json({ coachMessage: "" }, { status: 503 });
+      const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify({ model: "gpt-4.1-mini", messages: [...tenant.messages, { role: "user", content: responsePrompt }], max_tokens: 300, temperature: 0.55 }) });
+      if (!response.ok) return NextResponse.json({ coachMessage: "" }, { status: 503 });
+      const json = await response.json();
+      return NextResponse.json({ coachMessage: String(json.choices?.[0]?.message?.content || "").trim(), interactionType: contact.interactionType });
+    }
 
     // 1) Deterministic responses for common cases (fast + safe)
     const fallback = deterministicFallback({
@@ -253,7 +275,7 @@ What happened (raw): ${String(errorMessage || "No details provided")}
           ? coachMessage
           : "I’ve got you.\nSomething didn’t go through.\nLet’s retry what failed.\nOption A: Retry failed channels only\nOption B: Save for later",
     });
-  } catch (error: any) {
+  } catch {
     return NextResponse.json({
       coachMessage:
         "I’ve got you — no stress.\n" +
