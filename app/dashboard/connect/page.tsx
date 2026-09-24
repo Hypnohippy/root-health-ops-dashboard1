@@ -1,545 +1,142 @@
-// app/dashboard/connect/page.tsx
 "use client";
 
+import React, { useEffect, useMemo, useState } from "react";
 import BrandGrowthProfileEditor from "../components/BrandGrowthProfileEditor";
-import React, { useEffect, useState } from "react";
+import {
+  capabilityLabels,
+  channelCatalog,
+  channelGroups,
+  type CapabilityState,
+  type ChannelDefinition,
+} from "@/lib/channelCapabilities";
 
-type ProviderId =
-  | "facebook"
-  | "instagram"
-  | "tiktok"
-  | "linkedin"
-  | "google"
-  | "email"
-  | "whatsapp"
-  | "threads";
+type ConnectionState = "connected" | "expired" | "reconnect_required" | "not_connected";
+type Health = { provider: string; state: ConnectionState; accountName?: string | null };
 
-type ConnectionStatus = "connected" | "disconnected" | "pending";
+const statusStyle = {
+  Connected: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+  Connect: "border-sky-400/30 bg-sky-400/10 text-sky-200",
+  "Action required": "border-amber-400/30 bg-amber-400/10 text-amber-200",
+  "Awaiting provider approval": "border-violet-400/30 bg-violet-400/10 text-violet-200",
+  "Available soon": "border-slate-600 bg-slate-800 text-slate-300",
+} as const;
 
-type Provider = {
-  id: ProviderId;
-  name: string;
-  label: string;
-  description: string;
-  hint?: string;
-  status: ConnectionStatus;
-  accountName?: string;
-  lastSync?: string;
+const capabilityStyle: Record<CapabilityState, string> = {
+  available: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
+  limited: "border-amber-400/25 bg-amber-400/10 text-amber-200",
+  planned: "border-slate-600 bg-slate-800 text-slate-300",
+  unavailable: "border-slate-700 bg-slate-900 text-slate-500",
 };
 
-const initialProviders: Provider[] = [
-  {
-    id: "facebook",
-    name: "Facebook",
-    label: "Facebook Page",
-    description: "Post and reply via secure OAuth connection.",
-    hint: "Requires a Facebook Page you manage (Full control/Admin).",
-    status: "disconnected",
-  },
-  {
-    id: "instagram",
-    name: "Instagram",
-    label: "Instagram",
-    description: "Connect an Instagram Business account linked to a Facebook Page.",
-    hint: "Instagram Business must be linked to a Facebook Page.",
-    status: "disconnected",
-  },
-  {
-    id: "linkedin",
-    name: "LinkedIn",
-    label: "LinkedIn",
-    description: "Professional presence and referral partner content.",
-    status: "disconnected",
-  },
-  {
-    id: "threads",
-    name: "Threads",
-    label: "Threads",
-    description: "Text-first posts (and images) via Threads OAuth.",
-    hint: "Connect the Threads account you want to post as.",
-    status: "disconnected",
-  },
-  {
-    id: "tiktok",
-    name: "TikTok",
-    label: "TikTok",
-    description: "Short-form video built from your campaigns.",
-    hint: "Connect your TikTok account via Login Kit (sandbox for review).",
-    status: "disconnected",
-  },
-  {
-    id: "google",
-    name: "Google",
-    label: "Google Business Profile",
-    description: "Local SEO posts so clients find you when they’re searching.",
-    hint: "Connect your Google account for Business Profile posting.",
-    status: "disconnected",
-  },
-  {
-    id: "email",
-    name: "Email",
-    label: "Email newsletter",
-    description: "Educational campaigns and gentle nurture sequences.",
-    status: "disconnected",
-  },
-  {
-    id: "whatsapp",
-    name: "WhatsApp",
-    label: "WhatsApp / messaging",
-    description: "Automated follow-ups and check-ins, never spammy.",
-    status: "disconnected",
-  },
-];
-
-// ✅ Updated: Google now uses the real OAuth start route
-type ConnectHelperCard = {
-  provider: ProviderId | "facebook" | "instagram";
-  tone: "info" | "success" | "warning";
-  title: string;
-  body: string;
-  steps: string[];
-  primaryLabel?: string;
-  primaryHref?: string;
-  secondaryLabel?: string;
-  secondaryHref?: string;
-};
-
-function buildConnectHelperFromUrl(): ConnectHelperCard | null {
-  if (typeof window === "undefined") return null;
-
-  const params = new URLSearchParams(window.location.search);
-
-  const provider = (String(params.get("provider") || "facebook").trim().toLowerCase() ||
-    "facebook") as ProviderId;
-
-  const connected = String(params.get("connected") || "").trim();
-  const instagramState = String(params.get("instagram") || "").trim();
-  const error = String(params.get("error") || "").trim().toLowerCase();
-  const errorDescription = String(params.get("error_description") || "").trim();
-
-  if (connected === "1") {
-    return {
-      provider,
-      tone: "success",
-      title:
-        instagramState === "connected"
-          ? "You’re connected 🎉"
-          : "Facebook connected 🎉",
-      body:
-        instagramState === "connected"
-          ? "Your Facebook Page and linked Instagram account are now connected."
-          : "Your Facebook Page is now connected and ready to use.",
-      steps: [
-        "Go back to the dashboard when you’re ready.",
-        "Use Quick Blast to send a simple test post.",
-        "If you also want Instagram, make sure your Instagram is a Professional account linked to that Facebook Page.",
-      ],
-    };
-  }
-
-  if (error === "facebook_no_pages") {
-    return {
-      provider,
-      tone: "warning",
-      title:
-        provider === "instagram"
-          ? "Instagram needs a Facebook Page first"
-          : "You’re nearly there — you just need a Facebook Page",
-      body:
-        "We could not find any Facebook Pages on this account. That usually means you are using a personal Facebook profile only, or you are signed into the wrong Facebook account.",
-      steps: [
-        "Make sure you are signed into the Facebook account you use for your business.",
-        "If you only have a personal profile, create a Facebook Page first.",
-        "If you already have a Page, make sure you have Full control / Admin access to it.",
-        "If you want Instagram too, switch Instagram to a Professional account and link it to that Facebook Page.",
-        "Then come back here and press Connect again.",
-      ],
-      primaryLabel: "Create a Facebook Page",
-      primaryHref: "https://www.facebook.com/pages/create",
-      secondaryLabel: "Try connect again",
-      secondaryHref:
-        provider === "instagram"
-          ? "/api/social/connect/start?provider=instagram"
-          : "/api/social/connect/start?provider=facebook",
-    };
-  }
-
-  if (error === "facebook_missing_page_token") {
-    return {
-      provider,
-      tone: "warning",
-      title: "We found your Page, but Facebook did not give us permission yet",
-      body:
-        "This usually means the Page access is incomplete or the wrong Facebook account was used during login.",
-      steps: [
-        "Open your Facebook Page settings.",
-        "Check that your Facebook profile has Full control / Admin access.",
-        "Then come back here and try the connection again.",
-      ],
-      secondaryLabel: "Try connect again",
-      secondaryHref:
-        provider === "instagram"
-          ? "/api/social/connect/start?provider=instagram"
-          : "/api/social/connect/start?provider=facebook",
-    };
-  }
-
-  if (error === "no_organisation") {
-    return {
-      provider,
-      tone: "warning",
-      title: "Your workspace is still getting ready",
-      body:
-        "We could not find your workspace during connect. This is usually fixed by signing out and back in once.",
-      steps: [
-        "Sign out of Root Health Ops.",
-        "Close the browser tab.",
-        "Sign back in.",
-        "Come back to Connect and try again.",
-      ],
-    };
-  }
-
-  if (error === "facebook_token_exchange_failed") {
-    return {
-      provider,
-      tone: "warning",
-      title: "Facebook login started, but didn’t finish properly",
-      body:
-        errorDescription ||
-        "This usually clears on a second attempt once the correct Facebook account is selected.",
-      steps: [
-        "Make sure you are using the Facebook account that manages your business Page.",
-        "Close the Facebook login popup or tab.",
-        "Come back here and try again.",
-      ],
-      secondaryLabel: "Try connect again",
-      secondaryHref:
-        provider === "instagram"
-          ? "/api/social/connect/start?provider=instagram"
-          : "/api/social/connect/start?provider=facebook",
-    };
-  }
-
-  if (!error) return null;
-
-  return {
-    provider,
-    tone: "info",
-    title: "Let’s fix this together",
-    body:
-      errorDescription ||
-      "Something interrupted the connection. We’ll keep this simple and get you back on track.",
-    steps: [
-      "Make sure you are signed into the correct social account.",
-      "Try the connection again.",
-      "If it still fails, we can guide you step by step.",
-    ],
-    secondaryLabel: "Try connect again",
-    secondaryHref:
-      provider === "instagram"
-        ? "/api/social/connect/start?provider=instagram"
-        : provider === "facebook"
-        ? "/api/social/connect/start?provider=facebook"
-        : undefined,
-  };
-}
-const connectUrls: Record<ProviderId, string> = {
-  facebook: "/api/social/connect/start?provider=facebook",
-  instagram: "/api/social/connect/start?provider=instagram",
-  linkedin: "/api/oauth/linkedin/start",
-  threads: "/api/social/connect/start?provider=threads",
-  tiktok: "/api/oauth/tiktok/start",
-  google: "/api/oauth/google/start",
-  email: "#",
-  whatsapp: "#",
-};
-
-type SocialAccountRow = {
-  platform: ProviderId;
-  page_id: string | null;
-  page_name: string | null;
-  is_active?: boolean | null;
-};
-
-function scopedUrl(path: string) {
-  const url = new URL(path, window.location.origin);
-  const organisationId = new URLSearchParams(window.location.search).get("organisationId");
-  if (organisationId) url.searchParams.set("organisationId", organisationId);
-  return url.pathname + url.search;
+function scopedUrl(path: string, organisationId: string | null) {
+  if (!organisationId) return path;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}organisationId=${encodeURIComponent(organisationId)}`;
 }
 
-export default function DashboardConnectPage() {
-  const [providers, setProviders] = useState<Provider[]>(initialProviders);
-  const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
-  const [connectHelper, setConnectHelper] = useState<ConnectHelperCard | null>(null);
+function displayStatus(channel: ChannelDefinition, health?: Health) {
+  if (channel.statusMode === "provider_approval") return "Awaiting provider approval" as const;
+  if (channel.statusMode === "available_soon") return "Available soon" as const;
+  if (health?.state === "connected") return "Connected" as const;
+  if (health?.state === "expired" || health?.state === "reconnect_required") return "Action required" as const;
+  return channel.statusMode === "managed_setup" ? "Action required" as const : "Connect" as const;
+}
 
-  async function loadSocialAccounts() {
-    try {
-      const res = await fetch(scopedUrl("/api/social-accounts"), { cache: "no-store" });
-      const data = await res.json().catch(() => null);
-      const rows: SocialAccountRow[] = data?.socialAccounts ?? [];
-
-      setProviders((prev) =>
-        prev.map((p) => {
-          const row = rows.find((r) => r.platform === p.id);
-          const isActive = row ? row.is_active !== false : false;
-
-          if (!row || !isActive) {
-            return { ...p, status: "disconnected", accountName: undefined };
-          }
-
-          return {
-            ...p,
-            status: "connected",
-            accountName: row.page_name ?? p.accountName,
-          };
-        })
-      );
-    } catch (e) {
-      console.error("[dashboard/connect] loadSocialAccounts failed", e);
-    } finally {
-      setBusyProvider(null);
-    }
-  }
-
-  useEffect(() => {
-    void loadSocialAccounts();
-  }, []);
-  useEffect(() => {
-  const helper = buildConnectHelperFromUrl();
-  setConnectHelper(helper);
-}, []);
-
-  const handleConnectClick = (provider: Provider) => {
-    const url = connectUrls[provider.id];
-
-    if (!url || url === "#") {
-      alert(`Connect flow for ${provider.name} is coming soon.`);
-      return;
-    }
-
-    setBusyProvider(provider.id);
-    setProviders((prev) =>
-      prev.map((p) => (p.id === provider.id ? { ...p, status: "pending" } : p))
-    );
-
-    window.location.href = scopedUrl(url);
-  };
-
-  const handleDisconnectClick = async (provider: Provider) => {
-    if (!confirm(`Disconnect ${provider.label}?`)) return;
-
-    setProviders((prev) =>
-      prev.map((p) =>
-        p.id === provider.id
-          ? {
-              ...p,
-              status: "disconnected",
-              accountName: undefined,
-              lastSync: undefined,
-            }
-          : p
-      )
-    );
-
-    try {
-      await fetch(scopedUrl("/api/social-accounts"), {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: provider.id }),
-      });
-    } catch (e) {
-      console.error("[dashboard/connect] disconnect failed", e);
-    } finally {
-      await loadSocialAccounts();
-    }
-  };
+function ChannelCard({ channel, health, organisationId, onDisconnect }: {
+  channel: ChannelDefinition;
+  health?: Health;
+  organisationId: string | null;
+  onDisconnect: (provider: string) => Promise<void>;
+}) {
+  const status = displayStatus(channel, health);
+  const canConnect = Boolean(channel.connectPath) && (status === "Connect" || status === "Action required");
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
-      <div className="mx-auto w-full max-w-6xl bg-slate-900/70 border border-slate-700 rounded-3xl shadow-xl p-6 md:p-10 backdrop-blur">
-        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-semibold">
-              Connect your business
-            </h1>
-            <p className="text-sm text-slate-300 mt-1 max-w-xl">
-              One-click OAuth connections. You stay in control — we only post
-              what you approve.
-            </p>
-          </div>
-          <div className="text-xs text-slate-400 bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 max-w-xs">
-            <p className="font-medium text-slate-200 mb-1">Simple setup</p>
-            <p>No tech setup. Click connect, choose the right account, done.</p>
-          </div>
+    <article className="rounded-2xl border border-slate-700 bg-slate-900/80 p-5 shadow-sm transition hover:border-slate-600">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-white">{channel.name}</h3>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-300">{channel.description}</p>
+        </div>
+        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyle[status]}`}>{status}</span>
+      </div>
+
+      {health?.accountName && <p className="mt-3 text-xs text-slate-400">Connected as {health.accountName}</p>}
+      {channel.note && <p className="mt-3 rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs leading-5 text-slate-300">{channel.note}</p>}
+
+      <div className="mt-4 flex flex-wrap gap-2" aria-label={`${channel.name} capabilities`}>
+        {capabilityLabels.map((label) => {
+          const capability = channel.capabilities[label] ?? "unavailable";
+          return <span key={label} className={`rounded-full border px-2 py-1 text-[11px] font-medium ${capabilityStyle[capability]}`}>{label}: {capability}</span>;
+        })}
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        {canConnect && <a href={scopedUrl(channel.connectPath!, organisationId)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300">{status === "Action required" ? "Reconnect" : "Connect"}</a>}
+        {status === "Connected" && channel.disconnectable && <button type="button" onClick={() => onDisconnect(channel.id)} className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-semibold text-slate-200 hover:border-rose-400 hover:text-rose-200">Disconnect</button>}
+      </div>
+    </article>
+  );
+}
+
+export default function ConnectPage() {
+  const [health, setHealth] = useState<Health[]>([]);
+  const [message, setMessage] = useState("");
+  const organisationId = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("organisationId");
+  const healthByProvider = useMemo(() => new Map(health.map((item) => [item.provider, item])), [health]);
+
+  async function loadHealth() {
+    const response = await fetch(scopedUrl("/api/social/connection-health", organisationId), { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "Could not load connections.");
+    setHealth(body.connections || []);
+  }
+
+  useEffect(() => {
+    loadHealth().then(() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("connected")) setMessage(`${params.get("connected")} connected successfully.`);
+      if (params.get("error")) setMessage("That connection could not be completed. Please try again.");
+    }).catch(() => setMessage("Connection status is temporarily unavailable."));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function disconnect(provider: string) {
+    const response = await fetch("/api/social-accounts", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider, organisationId }),
+    });
+    if (!response.ok) return setMessage("Could not disconnect that channel.");
+    setMessage(`${provider} disconnected.`);
+    await loadHealth();
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-950 px-4 py-8 text-white sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl space-y-8">
+        <header>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Connections</p>
+          <h1 className="mt-2 text-3xl font-bold">Connect the channels your growth system uses</h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">See what each connection can do today, what needs attention and what is planned. Provider credentials stay on the server.</p>
+          {message && <p role="status" className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</p>}
         </header>
 
         <BrandGrowthProfileEditor />
 
-        <h2 className="mb-4 text-lg font-semibold">Your channels</h2>
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {connectHelper ? (
-  <div
-    className={[
-      "mb-6 rounded-3xl border p-5",
-      connectHelper.tone === "success"
-        ? "border-emerald-500/30 bg-emerald-500/10"
-        : connectHelper.tone === "warning"
-        ? "border-amber-500/30 bg-amber-500/10"
-        : "border-sky-500/30 bg-sky-500/10",
-    ].join(" ")}
-  >
-    <div
-      className={[
-        "text-base font-semibold",
-        connectHelper.tone === "success"
-          ? "text-emerald-200"
-          : connectHelper.tone === "warning"
-          ? "text-amber-200"
-          : "text-sky-200",
-      ].join(" ")}
-    >
-      {connectHelper.title}
-    </div>
-
-    <div className="mt-2 text-sm text-slate-200">
-      {connectHelper.body}
-    </div>
-
-    <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-        Step by step
-      </div>
-
-      <div className="mt-3 space-y-2">
-        {connectHelper.steps.map((step, index) => (
-          <div key={`${step}-${index}`} className="flex items-start gap-3 text-sm text-slate-200">
-            <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-slate-100">
-              {index + 1}
+        {channelGroups.map((group) => (
+          <section key={group} aria-labelledby={`group-${group.replaceAll(" ", "-")}`}>
+            <div className="mb-4">
+              <h2 id={`group-${group.replaceAll(" ", "-")}`} className="text-xl font-semibold text-white">{group}</h2>
+              <p className="mt-1 text-sm text-slate-400">Capabilities reflect the workflows currently implemented in Ops.</p>
             </div>
-            <div>{step}</div>
-          </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {channelCatalog.filter((channel) => channel.group === group).map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} />)}
+            </div>
+          </section>
         ))}
+
+        <p className="border-t border-slate-800 pt-5 text-xs leading-5 text-slate-400">OAuth and managed server connections are shown from their current organisation-scoped state. Customers are never asked to paste organisation IDs, webhook URLs or provider secrets into this page.</p>
       </div>
-    </div>
-
-    <div className="mt-4 flex flex-wrap gap-3">
-      {connectHelper.primaryHref && connectHelper.primaryLabel ? (
-        <a
-          href={connectHelper.primaryHref}
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
-        >
-          {connectHelper.primaryLabel}
-        </a>
-      ) : null}
-
-      {connectHelper.secondaryHref && connectHelper.secondaryLabel ? (
-        <a
-          href={connectHelper.secondaryHref}
-          className="rounded-2xl border border-slate-600 bg-slate-900 px-4 py-2 text-sm text-slate-100 hover:bg-white/10"
-        >
-          {connectHelper.secondaryLabel}
-        </a>
-      ) : null}
-    </div>
-  </div>
-) : null}
-          {providers.map((provider) => {
-            const busy = busyProvider === provider.id;
-            const connected = provider.status === "connected";
-
-            return (
-              <div
-                key={provider.id}
-                className="flex flex-col rounded-2xl border border-slate-700 bg-slate-900/80 p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold">
-                        {provider.label}
-                      </span>
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                          provider.status === "connected"
-                            ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/60"
-                            : provider.status === "pending"
-                            ? "bg-amber-500/15 text-amber-200 border-amber-500/60"
-                            : "bg-slate-800 text-slate-300 border-slate-600"
-                        }`}
-                      >
-                        {provider.status === "connected"
-                          ? "Connected"
-                          : provider.status === "pending"
-                          ? "Pending"
-                          : "Not connected"}
-                      </span>
-                    </div>
-
-                    <p className="mt-1 text-xs text-slate-300">
-                      {provider.description}
-                    </p>
-
-                    {provider.hint && (
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        {provider.hint}
-                      </p>
-                    )}
-
-                    {provider.accountName && connected && (
-                      <p className="mt-2 text-[11px] text-emerald-300">
-                        Connected as{" "}
-                        <span className="font-medium">{provider.accountName}</span>
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {!connected && (
-                    <button
-                      type="button"
-                      onClick={() => handleConnectClick(provider)}
-                      disabled={busy}
-                      className="rounded-full bg-blue-500 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-blue-400 disabled:opacity-60"
-                    >
-                      {busy
-                        ? `Opening ${provider.name}…`
-                        : `Connect ${provider.name}`}
-                    </button>
-                  )}
-
-                  {connected && (
-                    <button
-                      type="button"
-                      onClick={() => handleDisconnectClick(provider)}
-                      className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-red-500 hover:text-red-200"
-                    >
-                      Disconnect
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => void loadSocialAccounts()}
-                    className="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-500"
-                  >
-                    Refresh
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </section>
-
-        <footer className="mt-8 text-xs text-slate-400">
-          Tip: Always click Connect from this page. Don’t bookmark callback URLs
-          — they need live OAuth state.
-        </footer>
-      </div>
-    </div>
+    </main>
   );
 }
