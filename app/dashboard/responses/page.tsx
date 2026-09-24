@@ -12,6 +12,7 @@ type InboxPlatform =
   | "threads"
   | "tiktok"
   | "reddit"
+  | "email"
   | "unknown";
 
 type InboxStatus = "unread" | "needs_reply" | "replied" | "archived" | "unknown";
@@ -24,7 +25,7 @@ type InboxItem = {
   authorName?: string | null;
   authorHandle?: string | null;
 
-  kind?: "comment" | "dm" | "mention" | "reaction" | "unknown";
+  kind?: "comment" | "dm" | "mention" | "reaction" | "email_reply" | "unknown";
   text: string;
 
   permalink?: string | null;
@@ -36,6 +37,13 @@ type InboxItem = {
 
   // ✅ needed to reply
   externalId?: string | null;
+  emailClassification?: string | null;
+  responseState?: string | null;
+  emailThreadId?: string | null;
+  outreachReference?: string | null;
+  senderEmail?: string | null;
+  subject?: string | null;
+  followUpAt?: string | null;
 };
 
 type ApiResponse = {
@@ -66,6 +74,7 @@ const PLATFORM_LABEL: Record<InboxPlatform, string> = {
   threads: "Threads",
   tiktok: "TikTok",
   reddit: "Reddit",
+  email: "Email",
   unknown: "Unknown",
 };
 
@@ -76,6 +85,7 @@ const PLATFORM_DOT: Record<InboxPlatform, string> = {
   threads: "bg-white",
   tiktok: "bg-slate-200",
   reddit: "bg-orange-400",
+  email: "bg-violet-400",
   unknown: "bg-slate-500",
 };
 
@@ -395,6 +405,7 @@ export default function ResponsesPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
+  const [emailActionBusy, setEmailActionBusy] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -734,9 +745,9 @@ export default function ResponsesPage() {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
-          context: "responses_public_reply_draft_v2",
+          context: selected.platform === "email" ? "responses_email_reply_draft_v1" : "responses_public_reply_draft_v2",
           userAction:
-            "Write ONLY the reply text that I can post as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
+            selected.platform === "email" ? "Write ONLY a professional email reply draft. Do not claim it has been sent." : "Write ONLY the reply text that I can post as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
           outcome: "success",
           platform: itemSnapshot.platform,
           item: {
@@ -754,7 +765,7 @@ export default function ResponsesPage() {
             "No medical claims or diagnosis. No promises or guarantees.",
             "If distress/urgency is present, suggest seeking local support services.",
             "Ask at most ONE clarifying question if helpful.",
-            "Keep it suitable for public replies.",
+            selected.platform === "email" ? "Keep it suitable for a direct business email and preserve the existing thread context." : "Keep it suitable for public replies.",
           ],
         }),
       });
@@ -820,7 +831,7 @@ export default function ResponsesPage() {
       setTimeout(() => setCopied(false), 2500);
 
       // local mark
-      setLocalStatus(selected.id, "replied");
+      if (selected.platform !== "email") setLocalStatus(selected.id, "replied");
     } catch {
       setCopied(false);
     }
@@ -941,6 +952,27 @@ export default function ResponsesPage() {
     setTimeout(() => setAiStatus(null), 1800);
   };
 
+  const applyEmailAction = async (action: string) => {
+    if (!selected || selected.platform !== "email") return;
+    let followUpAt: string | null = null;
+    if (action === "set_follow_up") {
+      followUpAt = window.prompt("Follow-up date (YYYY-MM-DD):");
+      if (!followUpAt) return;
+    }
+    setEmailActionBusy(true); setError(null);
+    try {
+      const org = organisationId || (await resolveOrg());
+      const res = await fetch(`/api/responses/email/${encodeURIComponent(selected.id)}/action`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organisationId: org, action, followUpAt, idempotencyKey: crypto.randomUUID() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Could not update email response.");
+      setAiStatus("Email response updated."); await load();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not update email response."); }
+    finally { setEmailActionBusy(false); }
+  };
+
   const savedForSelected = useMemo(() => {
     if (!selected) return [];
     return savedDrafts.filter((d) => d.inboxItemId === selected.id);
@@ -961,7 +993,7 @@ export default function ResponsesPage() {
               Responses
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-              Your inbox for comments and messages — pull latest, reply inside the dashboard.
+              Your inbox for social activity and imported outreach email replies.
             </p>
           </div>
 
@@ -1042,6 +1074,9 @@ export default function ResponsesPage() {
                 <option className="bg-slate-950 text-slate-100" value="reddit">
                   Reddit
                 </option>
+                <option className="bg-slate-950 text-slate-100" value="email">
+                  Email
+                </option>
               </select>
 
               <select
@@ -1103,7 +1138,7 @@ export default function ResponsesPage() {
           <div className="lg:col-span-2 space-y-3">
             {!loading && filtered.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
-                No items found. Hit <b>Pull latest</b> to fetch comments into your inbox.
+                No items found. Pull latest fetches connected social comments; email replies arrive through the secure intake.
               </div>
             ) : (
               filtered.map((it) => (
@@ -1176,6 +1211,7 @@ export default function ResponsesPage() {
                   <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">
                     {it.text || "(empty)"}
                   </div>
+                  {it.platform === "email" && it.emailClassification ? <div className="mt-2 text-[11px] text-violet-200">{it.emailClassification.replaceAll("_", " ")} · {(it.responseState || "").replaceAll("_", " ")}</div> : null}
                 </button>
               ))
             )}
@@ -1186,7 +1222,7 @@ export default function ResponsesPage() {
               <div>
                 <div className="text-base font-semibold">Reply assistant</div>
                 <div className="mt-1 text-xs text-slate-300">
-                  AI draft → edit → Send reply (Facebook/Instagram).
+                  {selected?.platform === "email" ? "Draft and classify here. Email sending remains outside Ops in this phase." : "AI draft → edit → Send reply (Facebook/Instagram)."}
                 </div>
               </div>
 
@@ -1238,6 +1274,7 @@ export default function ResponsesPage() {
                     </div>
 
                     <div className="mt-3 text-sm whitespace-pre-wrap">{selected.text}</div>
+                    {selected.platform === "email" ? <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-xs"><div><b>Subject:</b> {selected.subject || "(no subject)"}</div><div><b>Classification:</b> {(selected.emailClassification || "unclassified").replaceAll("_", " ")}</div><div><b>State:</b> {(selected.responseState || "unclassified").replaceAll("_", " ")}</div>{selected.outreachReference ? <div><b>Outreach:</b> {selected.outreachReference}</div> : null}{selected.emailThreadId ? <div><b>Thread:</b> {selected.emailThreadId}</div> : null}</div> : null}
 
                     {selected.permalink ? (
                       <div className="mt-3 text-[11px]">
@@ -1262,15 +1299,19 @@ export default function ResponsesPage() {
                       AI Suggest
                     </button>
 
-                    <button
+                    {selected.platform !== "email" && <button
                       type="button"
                       onClick={sendReply}
                       disabled={sendingReply || !replyDraft.trim()}
                       className="rounded-2xl bg-blue-500 px-4 py-3 text-sm font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
                       {sendingReply ? "Sending…" : "Send reply"}
-                    </button>
+                    </button>}
                   </div>
+
+                  {selected.platform === "email" ? <div className="grid grid-cols-2 gap-2">
+                    {[["mark_no_reply","No reply needed"],["set_follow_up","Set follow-up"],["nurture","Nurture"],["closed_lost","Closed / lost"],["engaged","Engaged"],["converted","Converted"]].map(([id,label]) => <button key={id} type="button" disabled={emailActionBusy} onClick={() => void applyEmailAction(id)} className="rounded-2xl border border-violet-300/30 bg-violet-300/10 px-3 py-2 text-xs font-semibold disabled:opacity-50">{label}</button>)}
+                  </div> : null}
 
                   <div className="grid grid-cols-2 gap-2">
                     <button
