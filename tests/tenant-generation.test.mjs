@@ -59,6 +59,7 @@ function fixture({ user = "user-a", memberships = [{ organisation_id: "org-a", r
     "@/lib/responseContactContext.server": { getResponseContactContext: async () => null },
     "@/lib/responseContactContext": { responseDraftRules: () => [] },
     "@/lib/growthOutreach": load("lib/growthOutreach.ts"),
+    "@/lib/contactLifecycle": load("lib/contactLifecycle.ts"),
     __fetch: async (_url, options) => { const payload=JSON.parse(options.body);llm.push(payload);return new Response(JSON.stringify({choices:[{message:{content:output}}]}),{headers:{"Content-Type":"application/json"}}); },
   };
   const route = file => load(file, mocks);
