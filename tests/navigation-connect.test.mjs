@@ -73,3 +73,11 @@ test("Acquisition resolves the workspace and never asks for an organisation ID",
   assert.match(source, /Loading workspace/);
   assert.doesNotMatch(source, /Organisation ID|name="organisationId"|new URLSearchParams\(window\.location\.search\)/);
 });
+
+test("Connect is summary-first and keeps capabilities behind expanders", () => {
+  const source = fs.readFileSync("app/dashboard/connect/page.tsx", "utf8");
+  for (const heading of ["Connected", "Needs attention", "Available / Coming soon", "Capabilities"]) assert.match(source, new RegExp(heading.replace("/", "\\/")));
+  assert.match(source, /<details className=/);
+  assert.match(source, /sections\.future/);
+  assert.doesNotMatch(source, /channelCatalog\.filter\(\(channel\) => channel\.group === group\)\.map/);
+});
