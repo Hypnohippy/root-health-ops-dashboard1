@@ -49,3 +49,27 @@ test("Connect uses organisation-scoped health and does not invent setup links", 
   assert.doesNotMatch(source, /href=["']#["']/);
   assert.doesNotMatch(source, /localStorage/);
 });
+
+test("connection health is indexed by server platform and connected channels resolve", () => {
+  const { connectionHealthByPlatform } = load("lib/connectionUi.ts");
+  const linkedin = { platform: "linkedin", state: "connected", name: "Root Health", expiresAt: null };
+  const byPlatform = connectionHealthByPlatform([linkedin]);
+  assert.equal(byPlatform.get("linkedin").state, "connected");
+  const source = fs.readFileSync("app/dashboard/connect/page.tsx", "utf8");
+  assert.match(source, /healthByProvider\.get\(channel\.id\)/);
+  assert.doesNotMatch(source, /item\.provider|accountName/);
+});
+
+test("LinkedIn callback query produces a human-readable success message", () => {
+  const { connectionSuccessMessage } = load("lib/connectionUi.ts");
+  assert.equal(connectionSuccessMessage(new URLSearchParams("provider=linkedin&connected=1")), "LinkedIn connected successfully.");
+});
+
+test("Acquisition resolves the workspace and never asks for an organisation ID", () => {
+  const source = fs.readFileSync("app/dashboard/growth/acquisition/page.tsx", "utf8");
+  assert.match(source, /fetch\("\/api\/org\/current"/);
+  assert.match(source, /setOrganisationId\(data\.organisationId\)/);
+  assert.match(source, /\/api\/growth\/acquisition\?\$\{params\}/);
+  assert.match(source, /Loading workspace/);
+  assert.doesNotMatch(source, /Organisation ID|name="organisationId"|new URLSearchParams\(window\.location\.search\)/);
+});
