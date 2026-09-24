@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:security": "node --test tests/tenant-security.test.mjs tests/profile.test.mjs tests/tenant-generation.test.mjs tests/growth-ingestion.test.mjs"
+    "test:security": "node --test tests/tenant-security.test.mjs tests/profile.test.mjs tests/tenant-generation.test.mjs tests/growth-ingestion.test.mjs tests/acquisition-actions.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.2.0",

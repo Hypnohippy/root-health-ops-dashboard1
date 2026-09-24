@@ -1,7 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 
 export const recordTypes = ["b2b_lead", "personal_opportunity", "partner_opportunity", "social_opportunity"] as const;
-export const statuses = ["new", "reviewing", "accepted", "dismissed"] as const;
+export const ingestionStatuses = ["new", "reviewing", "accepted", "dismissed"] as const;
+export const statuses = ["new", "reviewing", "accepted", "actioned", "engaged", "converted", "nurture", "lost", "dismissed"] as const;
 export const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class IngestionError extends Error {
   constructor(message: string, public status = 400) { super(message); }
@@ -39,7 +40,7 @@ export function parseIngestion(value: unknown) {
     if (r.organisation_id !== undefined) throw new IngestionError("Use the batch organisation_id only.");
     if (!recordTypes.includes(r.record_type as typeof recordTypes[number])) throw new IngestionError("Invalid record_type.");
     const status = r.status ?? "new";
-    if (!statuses.includes(status as typeof statuses[number])) throw new IngestionError("Invalid status.");
+    if (!ingestionStatuses.includes(status as typeof ingestionStatuses[number])) throw new IngestionError("Invalid status.");
     const sourceUrl = text(r.source_url, "source_url", 2048);
     if (sourceUrl) {
       try { const url = new URL(sourceUrl); if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) throw Error(); }
