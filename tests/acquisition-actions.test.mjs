@@ -95,4 +95,7 @@ test("queue UI offers prepared drafts but contains no send, publish or public-re
   assert.ok(ui.includes("expandedId===item.id"));
   assert.ok(ui.includes('bg-slate-950 text-slate-100'));
   assert.equal(/className="[^"]*bg-white(?:\s|\")/.test(ui),false);
+  assert.ok(ui.includes('<option key={s} value={s}>{title(s)}</option>'));
+  assert.ok(ui.includes('setItems([]);setTotal(0);setStatus(e.target.value)'));
+  assert.match(ui,/catch\(e\)\{if\(!signal\?\.aborted\)\{setItems\(\[\]\);setTotal\(0\);setError/);
 });
