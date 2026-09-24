@@ -19,6 +19,7 @@ type PrimaryNavItem = {
   label: string;
   href: string;
   match: (pathname: string) => boolean;
+  badge?: string | number;
 };
 
 type SecondaryNavItem = {
@@ -135,6 +136,16 @@ export default function ClientDashboardLayout({
       match: (p) => p === "/dashboard",
     },
     {
+      label: "Acquisition",
+      href: "/dashboard/growth/acquisition",
+      match: (p) => p.startsWith("/dashboard/growth/acquisition"),
+    },
+    {
+      label: "Responses",
+      href: "/dashboard/responses",
+      match: (p) => p.startsWith("/dashboard/responses"),
+    },
+    {
       label: "Campaign Studio",
       href: "/dashboard/sequences",
       match: (p) => p.startsWith("/dashboard/sequences"),
@@ -150,18 +161,17 @@ export default function ClientDashboardLayout({
       match: (p) =>
         p.startsWith("/dashboard/stories") ||
         p.startsWith("/dashboard/scheduled") ||
-        p.startsWith("/dashboard/approvals") ||
-        p.startsWith("/dashboard/responses"),
-    },
-    {
-      label: "Resources",
-      href: "/dashboard/resources",
-      match: (p) => p.startsWith("/dashboard/resources"),
+        p.startsWith("/dashboard/approvals"),
     },
     {
       label: "Growth Lab",
       href: "/dashboard/growth-lab",
       match: (p) => p.startsWith("/dashboard/growth-lab"),
+    },
+    {
+      label: "Resources",
+      href: "/dashboard/resources",
+      match: (p) => p.startsWith("/dashboard/resources"),
     },
     {
       label: "Connect",
@@ -171,9 +181,7 @@ export default function ClientDashboardLayout({
     },
   ];
 
-  const activePrimary = useMemo(() => {
-    return primaryNav.find((item) => item.match(pathname))?.label || "Home";
-  }, [pathname]);
+  const activePrimary = primaryNav.find((item) => item.match(pathname))?.label || "Home";
 
   const secondaryNav = useMemo<SecondaryNavItem[]>(() => {
     if (activePrimary === "Publishing") {
@@ -181,7 +189,6 @@ export default function ClientDashboardLayout({
         { label: "Stories", href: "/dashboard/stories/new" },
         { label: "Scheduled", href: "/dashboard/scheduled" },
         { label: "Approvals", href: "/dashboard/approvals" },
-        { label: "Responses", href: "/dashboard/responses" },
       ];
     }
 
@@ -240,7 +247,7 @@ export default function ClientDashboardLayout({
               </div>
             </div>
 
-            <nav className="flex flex-wrap items-center gap-2">
+            <nav aria-label="Primary navigation" className="hidden flex-wrap items-center gap-2 md:flex">
               {primaryNav.map((item) => (
                 <Link
                   key={item.label}
@@ -248,9 +255,21 @@ export default function ClientDashboardLayout({
                   className={primaryLinkClasses(item)}
                 >
                   {item.label}
+                  {item.badge !== undefined ? <span className="ml-2 rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]" aria-label={`${item.badge} items`}>{item.badge}</span> : null}
                 </Link>
               ))}
             </nav>
+
+            <details className="group md:hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
+                <span>{activePrimary}</span><span aria-hidden className="text-slate-400 transition group-open:rotate-180">⌄</span>
+              </summary>
+              <nav aria-label="Mobile navigation" className="mt-2 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-xl">
+                {primaryNav.map((item) => <Link key={item.label} href={item.href} className={`${primaryLinkClasses(item)} justify-between`}>
+                  <span>{item.label}</span>{item.badge !== undefined ? <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{item.badge}</span> : null}
+                </Link>)}
+              </nav>
+            </details>
 
             {secondaryNav.length > 0 ? (
               <div className="flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">

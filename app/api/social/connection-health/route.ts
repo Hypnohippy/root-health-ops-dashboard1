@@ -6,6 +6,16 @@ import { connectionHealth } from "@/lib/connectionHealth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function emailEngineConfigured(organisationId: string) {
+  try {
+    const endpoints = JSON.parse(process.env.B2B_ENGINE_ENDPOINTS || "[]") as Array<Record<string, unknown>>;
+    const ingestion = JSON.parse(process.env.GROWTH_INGESTION_KEYS || "[]") as Array<Record<string, unknown>>;
+    const endpoint = Array.isArray(endpoints) && endpoints.some(row => row.organisation_id === organisationId && row.source_engine === "root_health_b2b" && typeof row.url === "string" && typeof row.secret === "string");
+    const inbound = Array.isArray(ingestion) && ingestion.some(row => row.organisation_id === organisationId && Array.isArray(row.source_engines) && row.source_engines.includes("root_health_b2b") && typeof row.secret === "string");
+    return endpoint && inbound;
+  } catch { return false; }
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { organisationId } = await requireOrganisation(req.nextUrl.searchParams.get("organisationId"), false);
@@ -13,8 +23,12 @@ export async function GET(req: NextRequest) {
       .select("platform,is_active,page_access_token,token_expires_at,page_name")
       .eq("organisation_id", organisationId).order("updated_at", { ascending: false });
     if (error) throw error;
+    const emailConnected = emailEngineConfigured(organisationId);
+    const connections = connectionHealth(data || []).map(connection => connection.platform === "email"
+      ? { ...connection, state: emailConnected ? "connected" : "not_connected", name: emailConnected ? "B2B Gmail engine" : null }
+      : connection);
     return NextResponse.json({
-      success: true, organisationId, connections: connectionHealth(data || []),
+      success: true, organisationId, connections,
       // Stored health cannot detect remote revocations before a provider call fails.
       source: "stored_credentials",
     }, { headers: { "Cache-Control": "private, no-store" } });
