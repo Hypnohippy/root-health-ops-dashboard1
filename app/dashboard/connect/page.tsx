@@ -35,6 +35,7 @@ function scopedUrl(path: string, organisationId: string | null) {
 function displayStatus(channel: ChannelDefinition, health?: ConnectionHealth) {
   if (channel.statusMode === "provider_approval") return "Awaiting provider approval" as const;
   if (channel.statusMode === "available_soon") return "Available soon" as const;
+  if (channel.id === "google") return "Action required" as const;
   if (health?.state === "connected") return "Connected" as const;
   if (health?.state === "expired" || health?.state === "reconnect_required") return "Action required" as const;
   return channel.statusMode === "managed_setup" ? "Action required" as const : "Connect" as const;
@@ -47,7 +48,7 @@ function ChannelCard({ channel, health, organisationId, onDisconnect }: {
   onDisconnect: (provider: string) => Promise<void>;
 }) {
   const status = displayStatus(channel, health);
-  const canConnect = Boolean(channel.connectPath) && (status === "Connect" || status === "Action required");
+  const canConnect = Boolean(channel.connectPath) && health?.state !== "connected" && (status === "Connect" || status === "Action required");
 
   return (
     <article className="rounded-2xl border border-slate-700 bg-slate-900/80 p-5 shadow-sm transition hover:border-slate-600">
@@ -62,16 +63,19 @@ function ChannelCard({ channel, health, organisationId, onDisconnect }: {
       {health?.name && <p className="mt-3 text-xs text-slate-400">Connected as {health.name}</p>}
       {channel.note && <p className="mt-3 rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs leading-5 text-slate-300">{channel.note}</p>}
 
-      <div className="mt-4 flex flex-wrap gap-2" aria-label={`${channel.name} capabilities`}>
-        {capabilityLabels.map((label) => {
-          const capability = channel.capabilities[label] ?? "unavailable";
-          return <span key={label} className={`rounded-full border px-2 py-1 text-[11px] font-medium ${capabilityStyle[capability]}`}>{label}: {capability}</span>;
-        })}
-      </div>
+      <details className="mt-4 rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2">
+        <summary className="cursor-pointer text-xs font-semibold text-slate-300 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Capabilities</summary>
+        <div className="mt-3 flex flex-wrap gap-2" aria-label={`${channel.name} capabilities`}>
+          {capabilityLabels.map((label) => {
+            const capability = channel.capabilities[label] ?? "unavailable";
+            return <span key={label} className={`rounded-full border px-2 py-1 text-[11px] font-medium ${capabilityStyle[capability]}`}>{label}: {capability}</span>;
+          })}
+        </div>
+      </details>
 
       <div className="mt-4 flex gap-2">
-        {canConnect && <a href={scopedUrl(channel.connectPath!, organisationId)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300">{status === "Action required" ? "Reconnect" : "Connect"}</a>}
-        {status === "Connected" && channel.disconnectable && <button type="button" onClick={() => onDisconnect(channel.id)} className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-semibold text-slate-200 hover:border-rose-400 hover:text-rose-200">Disconnect</button>}
+        {canConnect && <a href={scopedUrl(channel.connectPath!, organisationId)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300">{health?.state === "expired" || health?.state === "reconnect_required" || health?.state === "connected" ? "Reconnect" : "Connect"}</a>}
+        {health?.state === "connected" && channel.disconnectable && <button type="button" onClick={() => onDisconnect(channel.id)} className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-semibold text-slate-200 hover:border-rose-400 hover:text-rose-200">Disconnect</button>}
       </div>
     </article>
   );
@@ -82,6 +86,13 @@ export default function ConnectPage() {
   const [message, setMessage] = useState("");
   const organisationId = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("organisationId");
   const healthByProvider = useMemo(() => connectionHealthByPlatform(health), [health]);
+  const sections = useMemo(() => {
+    const current = channelCatalog.filter((channel) => channel.statusMode !== "available_soon");
+    const connected = current.filter((channel) => channel.id !== "google" && healthByProvider.get(channel.id)?.state === "connected");
+    const needsAttention = current.filter((channel) => !connected.includes(channel));
+    const future = channelCatalog.filter((channel) => channel.statusMode === "available_soon");
+    return { connected, needsAttention, future };
+  }, [healthByProvider]);
 
   async function loadHealth() {
     const response = await fetch(scopedUrl("/api/social/connection-health", organisationId), { cache: "no-store" });
@@ -123,19 +134,31 @@ export default function ConnectPage() {
           {message && <p role="status" className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</p>}
         </header>
 
-        <BrandGrowthProfileEditor />
+        <section aria-labelledby="connected-channels">
+          <h2 id="connected-channels" className="text-xl font-semibold">Connected</h2>
+          <p className="mt-1 text-sm text-slate-400">Channels currently available to this workspace.</p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">{sections.connected.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} />)}</div>
+          {sections.connected.length === 0 && <p className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-400">No channels are connected yet.</p>}
+        </section>
 
-        {channelGroups.map((group) => (
-          <section key={group} aria-labelledby={`group-${group.replaceAll(" ", "-")}`}>
-            <div className="mb-4">
-              <h2 id={`group-${group.replaceAll(" ", "-")}`} className="text-xl font-semibold text-white">{group}</h2>
-              <p className="mt-1 text-sm text-slate-400">Capabilities reflect the workflows currently implemented in Ops.</p>
-            </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              {channelCatalog.filter((channel) => channel.group === group).map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} />)}
-            </div>
-          </section>
-        ))}
+        <section aria-labelledby="attention-channels">
+          <h2 id="attention-channels" className="text-xl font-semibold">Needs attention</h2>
+          <p className="mt-1 text-sm text-slate-400">Connect, reconnect or review provider setup.</p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">{sections.needsAttention.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} />)}</div>
+        </section>
+
+        <details className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
+          <summary className="cursor-pointer text-lg font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Available / Coming soon <span className="ml-2 text-sm font-normal text-slate-400">{sections.future.length} planned channels</span></summary>
+          <div className="mt-4 space-y-6">{channelGroups.map((group) => {
+            const channels = sections.future.filter((channel) => channel.group === group);
+            return channels.length ? <section key={group}><h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">{group}</h3><div className="grid gap-3 lg:grid-cols-2">{channels.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} />)}</div></section> : null;
+          })}</div>
+        </details>
+
+        <details className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
+          <summary className="cursor-pointer text-lg font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Brand &amp; Growth Profile</summary>
+          <div className="mt-5"><BrandGrowthProfileEditor /></div>
+        </details>
 
         <p className="border-t border-slate-800 pt-5 text-xs leading-5 text-slate-400">OAuth and managed server connections are shown from their current organisation-scoped state. Customers are never asked to paste organisation IDs, webhook URLs or provider secrets into this page.</p>
       </div>
