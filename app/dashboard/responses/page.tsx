@@ -925,7 +925,7 @@ export default function ResponsesPage() {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error || "Could not save email draft.");
         setItems(prev => prev.map(item => item.id === selected.id ? { ...item, emailReplyDraft: text, emailDeliveryStatus: "draft" } : item));
-        setAiStatus("Email draft saved in Ops."); setTimeout(() => setAiStatus(null), 2000);
+        setAiStatus("Draft saved in Ops"); setTimeout(() => setAiStatus(null), 2000);
       } catch (e) { setError(e instanceof Error ? e.message : "Could not save email draft."); }
       finally { setEmailActionBusy(false); }
       return;
@@ -1373,6 +1373,12 @@ export default function ResponsesPage() {
                     </button>
                   </div>
 
+                  {selected.platform === "email" && selected.emailReplyDraft ? (
+                    <div className={`text-xs font-medium ${replyDraft === selected.emailReplyDraft ? "text-emerald-300" : "text-amber-300"}`}>
+                      {replyDraft === selected.emailReplyDraft ? "Saved in Ops" : "Unsaved changes"}
+                    </div>
+                  ) : null}
+
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -1391,13 +1397,13 @@ export default function ResponsesPage() {
                     </button>
                   </div>
 
-                  <button
+                  {selected.platform !== "email" ? <button
                     type="button"
                     onClick={() => setShowSaved(true)}
                     className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
                   >
                     View saved{savedForSelected.length > 0 ? ` (${savedForSelected.length})` : ""}
-                  </button>
+                  </button> : null}
 
                   {aiStatus && (
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300 whitespace-pre-wrap">

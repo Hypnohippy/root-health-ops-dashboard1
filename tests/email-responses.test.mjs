@@ -51,6 +51,16 @@ test("email action route requires tenant write membership and scopes email item 
  }
 });
 
+test("edited email drafts save server-side and the email UI reflects the authoritative saved draft",async()=>{
+ const response={NextResponse:{json:(body,o={})=>({body,status:o.status||200})}};const updates=[];
+ const auth={requireOrganisation:async(id,write)=>{assert.equal(id,A);assert.equal(write,true);return{organisationId:A,userId:USER};},accessErrorResponse:()=>null};
+ const db={from(table){assert.equal(table,"inbox_items");const filters={};let update=null;const q={update(value){update=value;updates.push(value);return q;},eq(k,v){filters[k]=v;return q;},select(){return q;},async maybeSingle(){assert.equal(filters.id,ITEM);assert.equal(filters.organisation_id,A);assert.equal(filters.platform,"email");return{data:{id:ITEM,...update},error:null};}};return q;}};
+ const route=load("app/api/responses/email/[id]/draft/route.ts",{"next/server":response,"@/lib/tenantAuth":auth,"@/lib/supabaseAdmin":{supabaseAdmin:db},"@/lib/growthIngestion.server":{uuid:/^[0-9a-f-]{36}$/i}});
+ const edited="This is the human-edited response.";const req=new Request("https://ops/draft",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({organisationId:A,draft:edited})});
+ const result=await route.POST(req,{params:Promise.resolve({id:ITEM})});assert.equal(result.status,200);assert.equal(updates[0].email_reply_draft,edited);assert.equal(updates[0].email_delivery_status,"draft");
+ const ui=fs.readFileSync("app/dashboard/responses/page.tsx","utf8");assert.ok(ui.includes('setAiStatus("Draft saved in Ops")'));assert.ok(ui.includes('replyDraft === selected.emailReplyDraft ? "Saved in Ops" : "Unsaved changes"'));assert.ok(ui.includes('selected.platform !== "email" ? <button'));assert.equal(/selected\.platform === "email"[^\n]*No saved drafts for this item yet/.test(ui),false);
+});
+
 test("approve-send rejects wrong tenants, deduplicates approvals and leaves failed dispatch retryable",async()=>{
  const response={NextResponse:{json:(body,o={})=>({body,status:o.status||200})}};const SEND="dddddddd-dddd-4ddd-8ddd-dddddddddddd";
  for(const mode of ["denied","foreign","duplicate","failure","success"]){const writes=[];let dispatches=0;class AccessError extends Error{constructor(){super("denied");this.status=403;}}
