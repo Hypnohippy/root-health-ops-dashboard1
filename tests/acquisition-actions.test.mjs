@@ -91,4 +91,8 @@ test("queue UI offers prepared drafts but contains no send, publish or public-re
   for(const key of ["prepared_outreach","outreach_draft","prepared_draft","content_draft","reply_draft"]) assert.ok(ui.includes(key));
   assert.equal(/fetch\([^\n]*(publish|reply|send)|\/api\/(quick-blast|publish|responses)/i.test(ui),false);
   assert.ok(ui.includes("Nothing here sends, publishes or replies automatically."));
+  assert.ok(ui.includes('min-h-[78px]'));
+  assert.ok(ui.includes("expandedId===item.id"));
+  assert.ok(ui.includes('bg-slate-950 text-slate-100'));
+  assert.equal(/className="[^"]*bg-white(?:\s|\")/.test(ui),false);
 });

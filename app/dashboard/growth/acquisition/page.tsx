@@ -1,93 +1,63 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 
-type Event = { id: string; action: string; previous_status: string; new_status: string; outcome: string | null; note: string | null; created_at: string };
-type Item = { id: string; record_type: string; source_engine: string; source_record_id: string; source_url: string | null; evidence: string | null; entity: string | null; person: string | null; company: string | null; reason: string | null; signal: string | null; suggested_action: string | null; status: string; current_action: string | null; actioned_at: string | null; outcome: string | null; outcome_at: string | null; metadata: Record<string, unknown>; acquisition_item_events?: Event[] };
-type Action = { id: string; label: string; route?: boolean; outcome?: boolean };
-const statuses = ["new", "reviewing", "accepted", "actioned", "engaged", "converted", "nurture", "lost", "dismissed"];
-const typeLabels: Record<string, string> = { b2b_lead: "B2B lead", personal_opportunity: "Personal opportunity", partner_opportunity: "Partner opportunity", social_opportunity: "Social opportunity" };
-const actions: Record<string, Action[]> = {
-  b2b_lead: [{id:"start_review",label:"Start review"},{id:"accept",label:"Accept"},{id:"dismiss",label:"Dismiss"},{id:"prepare_outreach",label:"Prepare outreach",route:true},{id:"route_outreach",label:"Open outreach workflow",route:true},{id:"nurture",label:"Follow up / nurture"}],
-  personal_opportunity: [{id:"start_review",label:"Start review"},{id:"accept",label:"Accept"},{id:"dismiss",label:"Dismiss"},{id:"create_content_draft",label:"Create content draft",route:true},{id:"route_campaign",label:"Open Campaign Studio",route:true},{id:"route_publishing",label:"Open Publishing",route:true},{id:"mark_actioned",label:"Mark actioned"}],
-  partner_opportunity: [{id:"start_review",label:"Start review"},{id:"accept",label:"Accept"},{id:"dismiss",label:"Dismiss"},{id:"prepare_outreach",label:"Prepare outreach",route:true},{id:"route_outreach",label:"Open outreach workflow",route:true},{id:"nurture",label:"Follow up / nurture"}],
-  social_opportunity: [{id:"start_review",label:"Start review"},{id:"accept",label:"Accept"},{id:"dismiss",label:"Dismiss"},{id:"create_content_draft",label:"Create content draft",route:true},{id:"route_publishing",label:"Open Publishing",route:true},{id:"route_responses",label:"Open Responses",route:true},{id:"mark_actioned",label:"Mark actioned"}],
+type Event = { id:string; action:string; previous_status:string; new_status:string; outcome:string|null; note:string|null; created_at:string };
+type Item = { id:string; record_type:string; source_engine:string; source_record_id:string; source_url:string|null; evidence:string|null; entity:string|null; person:string|null; company:string|null; reason:string|null; signal:string|null; suggested_action:string|null; status:string; current_action:string|null; actioned_at:string|null; outcome:string|null; outcome_at:string|null; metadata:Record<string,unknown>; acquisition_item_events?:Event[] };
+type Action = { id:string; label:string; route?:boolean; outcome?:boolean };
+const statuses=["new","reviewing","accepted","actioned","engaged","converted","nurture","lost","dismissed"];
+const typeLabels:Record<string,string>={b2b_lead:"B2B lead",personal_opportunity:"Personal",partner_opportunity:"Partner",social_opportunity:"Social"};
+const typeTone:Record<string,string>={b2b_lead:"border-sky-400/30 bg-sky-400/10 text-sky-200",personal_opportunity:"border-violet-400/30 bg-violet-400/10 text-violet-200",partner_opportunity:"border-amber-400/30 bg-amber-400/10 text-amber-200",social_opportunity:"border-pink-400/30 bg-pink-400/10 text-pink-200"};
+const statusTone:Record<string,string>={new:"border-sky-400/30 bg-sky-400/10 text-sky-200",reviewing:"border-amber-400/30 bg-amber-400/10 text-amber-200",accepted:"border-emerald-400/30 bg-emerald-400/10 text-emerald-200",actioned:"border-indigo-400/30 bg-indigo-400/10 text-indigo-200",engaged:"border-cyan-400/30 bg-cyan-400/10 text-cyan-200",converted:"border-emerald-400/40 bg-emerald-400/15 text-emerald-100",nurture:"border-violet-400/30 bg-violet-400/10 text-violet-200",lost:"border-slate-400/30 bg-slate-400/10 text-slate-300",dismissed:"border-slate-400/30 bg-slate-400/10 text-slate-300"};
+const actions:Record<string,Action[]>={
+ b2b_lead:[{id:"start_review",label:"Start review"},{id:"accept",label:"Accept"},{id:"dismiss",label:"Dismiss"},{id:"prepare_outreach",label:"Prepare outreach",route:true},{id:"route_outreach",label:"Open outreach workflow",route:true},{id:"nurture",label:"Follow up / nurture"}],
+ personal_opportunity:[{id:"start_review",label:"Start review"},{id:"accept",label:"Accept"},{id:"dismiss",label:"Dismiss"},{id:"create_content_draft",label:"Create content draft",route:true},{id:"route_campaign",label:"Open Campaign Studio",route:true},{id:"route_publishing",label:"Open Publishing",route:true},{id:"mark_actioned",label:"Mark actioned"}],
+ partner_opportunity:[{id:"start_review",label:"Start review"},{id:"accept",label:"Accept"},{id:"dismiss",label:"Dismiss"},{id:"prepare_outreach",label:"Prepare outreach",route:true},{id:"route_outreach",label:"Open outreach workflow",route:true},{id:"nurture",label:"Follow up / nurture"}],
+ social_opportunity:[{id:"start_review",label:"Start review"},{id:"accept",label:"Accept"},{id:"dismiss",label:"Dismiss"},{id:"create_content_draft",label:"Create content draft",route:true},{id:"route_publishing",label:"Open Publishing",route:true},{id:"route_responses",label:"Open Responses",route:true},{id:"mark_actioned",label:"Mark actioned"}],
 };
-const transitionActions: Record<string, string[]> = {
-  start_review:["new"], accept:["new","reviewing","nurture"], dismiss:["new","reviewing","accepted","nurture"], prepare_outreach:["accepted","reviewing","nurture"], route_outreach:["accepted","reviewing","nurture"],
-  create_content_draft:["accepted","reviewing","nurture"], route_campaign:["accepted","reviewing","nurture"], route_publishing:["accepted","reviewing","nurture"], route_responses:["accepted","reviewing","nurture"], mark_actioned:["accepted","reviewing","nurture"],
-  nurture:["reviewing","accepted","actioned","engaged"], mark_engaged:["actioned","nurture"], mark_converted:["actioned","engaged","nurture"], mark_lost:["reviewing","accepted","actioned","engaged","nurture"],
-};
-const outcomeActions: Action[] = [{id:"mark_engaged",label:"Engaged",outcome:true},{id:"mark_converted",label:"Converted",outcome:true},{id:"mark_lost",label:"Lost",outcome:true}];
-const preparedKeys = ["prepared_outreach", "outreach_draft", "prepared_draft", "content_draft", "reply_draft", "draft"];
-function preparedText(metadata: Record<string, unknown>) { for (const key of preparedKeys) if (typeof metadata[key] === "string" && metadata[key].trim()) return metadata[key].trim(); return ""; }
-function title(value: string) { return value.replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase()); }
+const transitionActions:Record<string,string[]>={start_review:["new"],accept:["new","reviewing","nurture"],dismiss:["new","reviewing","accepted","nurture"],prepare_outreach:["accepted","reviewing","nurture"],route_outreach:["accepted","reviewing","nurture"],create_content_draft:["accepted","reviewing","nurture"],route_campaign:["accepted","reviewing","nurture"],route_publishing:["accepted","reviewing","nurture"],route_responses:["accepted","reviewing","nurture"],mark_actioned:["accepted","reviewing","nurture"],nurture:["reviewing","accepted","actioned","engaged"],mark_engaged:["actioned","nurture"],mark_converted:["actioned","engaged","nurture"],mark_lost:["reviewing","accepted","actioned","engaged","nurture"]};
+const outcomeActions:Action[]=[{id:"mark_engaged",label:"Engaged",outcome:true},{id:"mark_converted",label:"Converted",outcome:true},{id:"mark_lost",label:"Lost",outcome:true}];
+const preparedKeys=["prepared_outreach","outreach_draft","prepared_draft","content_draft","reply_draft","draft"];
+function preparedText(metadata:Record<string,unknown>){for(const key of preparedKeys)if(typeof metadata[key]==="string"&&metadata[key].trim())return metadata[key].trim();return "";}
+function title(value:string){return value.replaceAll("_"," ").replace(/\b\w/g,c=>c.toUpperCase());}
+const pill="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none";
 
-export default function AcquisitionQueue() {
-  const [organisationId, setOrganisationId] = useState("");
-  const [items, setItems] = useState<Item[]>([]);
-  const [status, setStatus] = useState("");
-  const [page, setPage] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState("");
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  useEffect(() => { setOrganisationId(new URLSearchParams(window.location.search).get("organisationId") || ""); }, []);
-  const load = useCallback(async (signal?: AbortSignal) => {
-    if (!organisationId) return;
-    setLoading(true); setError("");
-    try {
-      const params = new URLSearchParams({ organisationId, page: String(page), status });
-      const res = await fetch(`/api/growth/acquisition?${params}`, { signal, cache: "no-store" });
-      const data = await res.json();
-      if (!res.ok) throw Error(data.error || "Unable to load queue.");
-      setItems(data.items); setTotal(data.total);
-    } catch (e) { if (!signal?.aborted) setError(e instanceof Error ? e.message : "Unable to load queue."); }
-    finally { if (!signal?.aborted) setLoading(false); }
-  }, [organisationId, page, status]);
-  useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load]);
-
-  async function act(item: Item, action: Action) {
-    let outcome: string | undefined;
-    if (action.outcome) {
-      outcome = window.prompt(`Optional note for ${action.label.toLowerCase()}:`) || action.label.toLowerCase();
-      if (!outcome) return;
-    }
-    setBusy(`${item.id}:${action.id}`); setError("");
-    try {
-      const res = await fetch(`/api/growth/acquisition/${encodeURIComponent(item.id)}/action`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organisationId, action: action.id, outcome, note: notes[item.id] || null, idempotencyKey: crypto.randomUUID() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw Error(data.error || "Unable to update item.");
-      await load();
-      if (action.route && data.destination) window.location.assign(data.destination);
-    } catch (e) { setError(e instanceof Error ? e.message : "Unable to update item."); }
-    finally { setBusy(""); }
-  }
-
-  return <main className="mx-auto max-w-6xl space-y-6 p-6">
-    <div><h1 className="text-2xl font-semibold">Acquisition queue</h1><p className="mt-2 text-slate-600">Review opportunities, choose the next action, then continue in the existing Ops workflow. Nothing here sends, publishes or replies automatically.</p></div>
-    {!organisationId && <form method="get" className="flex flex-wrap items-end gap-2"><label className="grid gap-1">Organisation ID<input name="organisationId" required className="rounded border p-2" /></label><button className="rounded bg-slate-900 px-4 py-2 text-white">Open queue</button></form>}
-    {organisationId && <><label className="flex items-center gap-2">Status<select value={status} onChange={e => { setStatus(e.target.value); setPage(0); }} className="rounded border p-2"><option value="">All</option>{statuses.map(s => <option key={s}>{s}</option>)}</select></label>
-      {loading && <p role="status">Loading opportunities…</p>}{error && <p role="alert" className="rounded bg-red-50 p-3 text-red-800">{error}</p>}
-      {!loading && !error && items.length === 0 && <p>No imported opportunities yet for this selection.</p>}
-      <div className="grid gap-4">{items.map(item => {
-        const draft = preparedText(item.metadata || {});
-        const available = [...(actions[item.record_type] || []), ...outcomeActions].filter(action => transitionActions[action.id]?.includes(item.status));
-        const history = [...(item.acquisition_item_events || [])].sort((a,b) => b.created_at.localeCompare(a.created_at));
-        return <article key={item.id} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-800">{typeLabels[item.record_type] || title(item.record_type)}</span><h2 className="mt-2 text-lg font-semibold">{item.entity || item.company || item.person || typeLabels[item.record_type]}</h2><p className="text-sm text-slate-500">{item.source_engine} · {title(item.status)}</p></div>{item.current_action && <div className="text-right text-sm"><strong>Current action</strong><div>{title(item.current_action)}</div>{item.outcome && <div>Outcome: {item.outcome}</div>}</div>}</div>
-          {(item.person || item.company) && <p>{[item.person, item.company].filter(Boolean).join(" · ")}</p>}
-          {item.reason && <p className="whitespace-pre-wrap"><strong>Why it matters: </strong>{item.reason}</p>}{item.signal && <p className="whitespace-pre-wrap"><strong>Signal: </strong>{item.signal}</p>}{item.suggested_action && <p className="rounded bg-amber-50 p-3 whitespace-pre-wrap"><strong>Suggested next step: </strong>{item.suggested_action}</p>}
-          {draft && <details open={item.record_type === "partner_opportunity" || item.record_type === "social_opportunity"}><summary className="cursor-pointer font-medium">Prepared draft</summary><div className="mt-2 rounded bg-slate-50 p-3 whitespace-pre-wrap">{draft}</div><button type="button" className="mt-2 text-sm underline" onClick={() => navigator.clipboard.writeText(draft)}>Copy draft</button></details>}
-          {item.evidence && <details><summary className="cursor-pointer font-medium">Source evidence</summary><p className="mt-2 whitespace-pre-wrap">{item.evidence}</p></details>}{item.source_url && /^https?:\/\//i.test(item.source_url) && <a href={item.source_url} target="_blank" rel="noopener noreferrer" className="inline-block underline">Open source</a>}
-          {available.length > 0 ? <div className="space-y-2"><label className="grid max-w-xl gap-1 text-sm">Internal note (optional)<input value={notes[item.id] || ""} onChange={e => setNotes(n => ({...n,[item.id]:e.target.value}))} maxLength={2000} className="rounded border p-2" /></label><div className="flex flex-wrap gap-2">{available.map(action => <button type="button" key={action.id} disabled={!!busy} onClick={() => void act(item, action)} className="rounded border px-3 py-2 text-sm disabled:opacity-50">{busy === `${item.id}:${action.id}` ? "Saving…" : action.label}</button>)}</div></div> : <p className="text-sm text-slate-500">This item has reached a final state.</p>}
-          <details><summary className="cursor-pointer font-medium">History and import details</summary>{history.length ? <ol className="mt-2 space-y-2">{history.map(event => <li key={event.id} className="text-sm">{new Date(event.created_at).toLocaleString()}: {title(event.action)} ({title(event.previous_status)} → {title(event.new_status)}){event.note ? ` — ${event.note}` : ""}</li>)}</ol> : <p className="mt-2 text-sm">No queue actions yet.</p>}<p className="mt-3 text-sm">Source record: {item.source_record_id}</p><pre className="mt-2 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-3 text-xs">{JSON.stringify(item.metadata, null, 2)}</pre></details>
-        </article>;
-      })}</div>
-      {!error && <nav aria-label="Queue pages" className="flex items-center gap-4"><button disabled={loading || page === 0} onClick={() => setPage(p => p - 1)}>Previous</button><span>Page {page + 1} · {total} items</span><button disabled={loading || (page + 1) * 25 >= total} onClick={() => setPage(p => p + 1)}>Next</button></nav>}
-    </>}
-  </main>;
+export default function AcquisitionQueue(){
+ const [organisationId,setOrganisationId]=useState("");const [items,setItems]=useState<Item[]>([]);const [status,setStatus]=useState("");const [page,setPage]=useState(0);const [total,setTotal]=useState(0);const [error,setError]=useState("");const [loading,setLoading]=useState(false);const [busy,setBusy]=useState("");const [notes,setNotes]=useState<Record<string,string>>({});const [expandedId,setExpandedId]=useState<string|null>(null);
+ useEffect(()=>setOrganisationId(new URLSearchParams(window.location.search).get("organisationId")||""),[]);
+ const load=useCallback(async(signal?:AbortSignal)=>{if(!organisationId)return;setLoading(true);setError("");try{const params=new URLSearchParams({organisationId,page:String(page),status});const res=await fetch(`/api/growth/acquisition?${params}`,{signal,cache:"no-store"});const data=await res.json();if(!res.ok)throw Error(data.error||"Unable to load queue.");setItems(data.items);setTotal(data.total);}catch(e){if(!signal?.aborted)setError(e instanceof Error?e.message:"Unable to load queue.");}finally{if(!signal?.aborted)setLoading(false);}},[organisationId,page,status]);
+ useEffect(()=>{const controller=new AbortController();void load(controller.signal);return()=>controller.abort();},[load]);
+ async function act(item:Item,action:Action){let outcome:string|undefined;if(action.outcome){outcome=window.prompt(`Optional note for ${action.label.toLowerCase()}:`)||action.label.toLowerCase();if(!outcome)return;}setBusy(`${item.id}:${action.id}`);setError("");try{const res=await fetch(`/api/growth/acquisition/${encodeURIComponent(item.id)}/action`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({organisationId,action:action.id,outcome,note:notes[item.id]||null,idempotencyKey:crypto.randomUUID()})});const data=await res.json();if(!res.ok)throw Error(data.error||"Unable to update item.");await load();if(action.route&&data.destination)window.location.assign(data.destination);}catch(e){setError(e instanceof Error?e.message:"Unable to update item.");}finally{setBusy("");}}
+ const pageCount=Math.max(1,Math.ceil(total/25));
+ return <div className="min-h-screen bg-slate-950 text-slate-100">
+  <div className="pointer-events-none fixed inset-0 overflow-hidden"><div className="absolute -top-48 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl"/><div className="absolute bottom-0 right-0 h-[420px] w-[420px] rounded-full bg-sky-500/10 blur-3xl"/></div>
+  <main className="relative mx-auto max-w-6xl space-y-5 px-3 py-6 sm:px-6 sm:py-10">
+   <header><h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Acquisition queue</h1><p className="mt-1 max-w-3xl text-sm text-slate-300">Review opportunities and route the next action into existing Ops workflows. Nothing here sends, publishes or replies automatically.</p></header>
+   {!organisationId&&<form method="get" className="flex flex-wrap items-end gap-2 rounded-2xl border border-white/10 bg-white/5 p-4"><label className="grid gap-1 text-sm font-medium text-slate-200">Organisation ID<input name="organisationId" required className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-white outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"/></label><button className="rounded-xl bg-emerald-500 px-4 py-2 font-semibold text-slate-950 hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300">Open queue</button></form>}
+   {organisationId&&<>
+    <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/95 px-4 py-3 shadow-xl backdrop-blur">
+     <label className="flex items-center gap-2 text-sm font-medium text-slate-200">Status<select value={status} onChange={e=>{setStatus(e.target.value);setPage(0);setExpandedId(null);}} className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none hover:border-white/20 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"><option value="">All statuses</option>{statuses.map(s=><option key={s}>{title(s)}</option>)}</select></label>
+     <div className="text-xs text-slate-400">{total} items · Page {page+1} of {pageCount}</div>
+    </div>
+    {loading&&<p role="status" className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">Loading opportunities…</p>}{error&&<p role="alert" className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}{!loading&&!error&&items.length===0&&<p className="rounded-xl border border-white/10 bg-white/5 p-5 text-sm text-slate-300">No imported opportunities for this filter.</p>}
+    <div className="space-y-2">{items.map(item=>{
+     const expanded=expandedId===item.id;const draft=preparedText(item.metadata||{});const preview=(item.signal||item.reason||item.suggested_action||"No signal summary supplied.").replace(/\s+/g," ").trim();const name=item.entity||item.company||item.person||typeLabels[item.record_type]||"Opportunity";const secondary=[item.person,item.company].filter(Boolean).filter(value=>value!==name).join(" · ");const available=[...(actions[item.record_type]||[]),...outcomeActions].filter(action=>transitionActions[action.id]?.includes(item.status));const history=[...(item.acquisition_item_events||[])].sort((a,b)=>b.created_at.localeCompare(a.created_at));
+     return <article key={item.id} className={`overflow-hidden rounded-2xl border transition ${expanded?"border-emerald-400/30 bg-slate-900 shadow-[0_18px_50px_rgba(0,0,0,0.35)]":"border-white/10 bg-white/[0.04] hover:border-white/20 hover:bg-white/[0.07]"}`}>
+      <button type="button" aria-expanded={expanded} aria-controls={`acquisition-${item.id}`} onClick={()=>setExpandedId(expanded?null:item.id)} className="grid min-h-[78px] w-full grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-left text-white outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+       <div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><span className={`${pill} ${typeTone[item.record_type]||"border-white/15 bg-white/5 text-slate-200"}`}>{typeLabels[item.record_type]||title(item.record_type)}</span><h2 className="truncate text-sm font-semibold text-white sm:text-base">{name}</h2></div><p className="mt-1 truncate text-xs text-slate-400">{secondary?`${secondary} · `:""}{preview}</p></div>
+       <div className="hidden max-w-[210px] text-right sm:block"><span className={`${pill} ${statusTone[item.status]||"border-white/15 bg-white/5 text-slate-200"}`}>{title(item.status)}</span>{(item.current_action||item.outcome)&&<p className="mt-1 truncate text-[11px] text-slate-400">{item.current_action?title(item.current_action):""}{item.outcome?` · ${item.outcome}`:""}</p>}</div>
+       <div className="flex items-center gap-2"><span className={`${pill} sm:hidden ${statusTone[item.status]||"border-white/15 bg-white/5 text-slate-200"}`}>{title(item.status)}</span><span className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200">{expanded?"Close":"Review"} <span aria-hidden>{expanded?"↑":"↓"}</span></span></div>
+      </button>
+      {expanded&&<div id={`acquisition-${item.id}`} className="space-y-5 border-t border-white/10 px-4 py-5 text-slate-100 sm:px-5">
+       <div className="grid gap-4 md:grid-cols-2"><div className="space-y-3">{item.reason&&<p className="whitespace-pre-wrap text-sm text-slate-200"><strong className="text-white">Why it matters: </strong>{item.reason}</p>}{item.signal&&<p className="whitespace-pre-wrap text-sm text-slate-200"><strong className="text-white">Signal: </strong>{item.signal}</p>}</div><div className="space-y-2 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-100"><strong>Suggested next step</strong><p className="whitespace-pre-wrap text-amber-50/90">{item.suggested_action||"Review the source and choose an action."}</p>{item.current_action&&<p className="text-xs text-amber-200/80">Current: {title(item.current_action)}{item.outcome?` · ${item.outcome}`:""}</p>}</div></div>
+       {draft&&<details className="rounded-xl border border-white/10 bg-black/20 p-3"><summary className="cursor-pointer font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Prepared draft</summary><div className="mt-3 whitespace-pre-wrap rounded-xl border border-white/10 bg-slate-950 p-3 text-sm text-slate-200">{draft}</div><button type="button" className="mt-2 text-sm font-medium text-emerald-300 underline hover:text-emerald-200" onClick={()=>navigator.clipboard.writeText(draft)}>Copy draft</button></details>}
+       <div className="flex flex-wrap gap-4 text-sm">{item.evidence&&<details className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 p-3"><summary className="cursor-pointer font-semibold text-white">Source evidence</summary><p className="mt-3 whitespace-pre-wrap text-slate-300">{item.evidence}</p></details>}{item.source_url&&/^https?:\/\//i.test(item.source_url)&&<a href={item.source_url} target="_blank" rel="noopener noreferrer" className="self-start rounded-xl border border-sky-400/30 bg-sky-400/10 px-3 py-2 font-semibold text-sky-200 hover:bg-sky-400/15">Open source ↗</a>}</div>
+       {available.length>0?<div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-3"><label className="grid max-w-2xl gap-1 text-sm font-medium text-slate-200">Internal note (optional)<input value={notes[item.id]||""} onChange={e=>setNotes(n=>({...n,[item.id]:e.target.value}))} maxLength={2000} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white placeholder:text-slate-500 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"/></label><div className="flex flex-wrap gap-2">{available.map(action=><button type="button" key={action.id} disabled={!!busy} onClick={()=>void act(item,action)} className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-400/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 disabled:opacity-50">{busy===`${item.id}:${action.id}`?"Saving…":action.label}</button>)}</div></div>:<p className="text-sm text-slate-400">This item has reached a final state.</p>}
+       <details className="rounded-xl border border-white/10 bg-black/20 p-3"><summary className="cursor-pointer font-semibold text-white">History and import details</summary>{history.length?<ol className="mt-3 space-y-2">{history.map(event=><li key={event.id} className="text-sm text-slate-300">{new Date(event.created_at).toLocaleString()}: <span className="text-white">{title(event.action)}</span> ({title(event.previous_status)} → {title(event.new_status)}){event.note?` — ${event.note}`:""}</li>)}</ol>:<p className="mt-3 text-sm text-slate-400">No queue actions yet.</p>}<p className="mt-3 text-xs text-slate-400">Source record: {item.source_record_id}</p><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-slate-950 p-3 text-xs text-slate-300">{JSON.stringify(item.metadata,null,2)}</pre></details>
+      </div>}
+     </article>;
+    })}</div>
+    {!error&&<nav aria-label="Queue pages" className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300"><button disabled={loading||page===0} onClick={()=>{setPage(p=>p-1);setExpandedId(null);}} className="rounded-lg px-3 py-2 font-semibold text-white hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:text-slate-600 disabled:hover:bg-transparent">← Previous</button><span>{page+1} / {pageCount}</span><button disabled={loading||(page+1)*25>=total} onClick={()=>{setPage(p=>p+1);setExpandedId(null);}} className="rounded-lg px-3 py-2 font-semibold text-white hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:text-slate-600 disabled:hover:bg-transparent">Next →</button></nav>}
+   </>}
+  </main>
+ </div>;
 }
