@@ -62,13 +62,17 @@ function qualityLabel(value: string | null) {
   return "Unreviewed";
 }
 
-export default async function FollowUpsPage({ searchParams }: { searchParams: Promise<{ organisationId?: string }> }) {
-  const { organisationId } = await requireOrganisation((await searchParams).organisationId, false);
-  const { data } = await supabaseAdmin
+export default async function FollowUpsPage({ searchParams }: { searchParams: Promise<{ organisationId?: string; stage?: string }> }) {
+  const params = await searchParams;
+  const { organisationId } = await requireOrganisation(params.organisationId, false);
+  const requestedStage = ["connection", "day3_dm", "day10_insight", "day17_followup", "parked"].includes(params.stage || "") ? params.stage : null;
+  let query = supabaseAdmin
     .from("growth_targets")
     .select("*").eq("organisation_id", organisationId)
     .eq("status", "active")
     .order("created_at", { ascending: false });
+  if (requestedStage) query = query.eq("stage", requestedStage);
+  const { data } = await query;
 
   const targets = data || [];
   const due = targets.filter(isDue);
@@ -163,7 +167,7 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
       </section>
 
       <section style={{ marginTop: 24 }}>
-        <h2>Outreach Queue</h2>
+        <h2>{requestedStage === "connection" ? "Outreach ready" : "Outreach Queue"}</h2>
 
         {due.length === 0 ? (
           <p style={muted}>No follow-ups due today.</p>

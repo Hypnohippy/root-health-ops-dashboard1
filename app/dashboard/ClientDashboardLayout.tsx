@@ -39,6 +39,23 @@ export default function ClientDashboardLayout({
   const [supportDone, setSupportDone] = useState<null | "ok" | "fail">(null);
   const [supportError, setSupportError] = useState<string | null>(null);
   const [orgId, setOrgId] = useState<string>("");
+  const [navCounts, setNavCounts] = useState<{acquisition?:number;responses?:number;today?:number}>({});
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const workspace = await fetch("/api/org/current", { cache: "no-store" });
+        const current = await workspace.json();
+        if (!workspace.ok || !current.organisationId) return;
+        if (active) setOrgId(current.organisationId);
+        const response = await fetch(`/api/home/attention?organisationId=${encodeURIComponent(current.organisationId)}`, { cache: "no-store" });
+        const data = await response.json();
+        if (active && response.ok && data.counts) setNavCounts({ acquisition: data.counts.newOpportunities, responses: data.counts.repliesNeedingResponse, today: data.counts.followupsDue });
+      } catch { /* badges are optional; Home shows the actionable error */ }
+    })();
+    return () => { active = false; };
+  }, []);
 
   const canSend = useMemo(() => {
     return !supportSending && supportMsg.trim().length >= 5;
@@ -139,34 +156,33 @@ export default function ClientDashboardLayout({
       label: "Acquisition",
       href: "/dashboard/growth/acquisition",
       match: (p) => p.startsWith("/dashboard/growth/acquisition"),
+      badge: navCounts.acquisition,
     },
     {
       label: "Responses",
       href: "/dashboard/responses",
       match: (p) => p.startsWith("/dashboard/responses"),
+      badge: navCounts.responses,
     },
     {
-      label: "Campaign Studio",
+      label: "Campaigns",
       href: "/dashboard/sequences",
-      match: (p) => p.startsWith("/dashboard/sequences"),
-    },
-    {
-      label: "Brainstorm",
-      href: "/dashboard/brainstorm",
-      match: (p) => p.startsWith("/dashboard/brainstorm"),
+      match: (p) => p.startsWith("/dashboard/sequences") || p.startsWith("/dashboard/brainstorm") || p.startsWith("/dashboard/growth-lab") || p.startsWith("/dashboard/campaigns"),
     },
     {
       label: "Publishing",
-      href: "/dashboard/stories/new",
+      href: "/dashboard/publishing",
       match: (p) =>
+        p.startsWith("/dashboard/publishing") ||
         p.startsWith("/dashboard/stories") ||
         p.startsWith("/dashboard/scheduled") ||
         p.startsWith("/dashboard/approvals"),
     },
     {
-      label: "Growth Lab",
-      href: "/dashboard/growth-lab",
-      match: (p) => p.startsWith("/dashboard/growth-lab"),
+      label: "Growth",
+      href: "/dashboard/growth",
+      match: (p) => p.startsWith("/dashboard/growth") && !p.startsWith("/dashboard/growth/acquisition"),
+      badge: navCounts.today,
     },
     {
       label: "Resources",
@@ -176,19 +192,37 @@ export default function ClientDashboardLayout({
     {
       label: "Connect",
       href: "/dashboard/connect",
-      match: (p) =>
-        p.startsWith("/dashboard/connect") || p.startsWith("/dashboard/metrics"),
+      match: (p) => p.startsWith("/dashboard/connect"),
     },
   ];
 
   const activePrimary = primaryNav.find((item) => item.match(pathname))?.label || "Home";
 
   const secondaryNav = useMemo<SecondaryNavItem[]>(() => {
+    if (activePrimary === "Campaigns") {
+      return [
+        { label: "Campaign Studio", href: "/dashboard/sequences" },
+        { label: "Brainstorm", href: "/dashboard/brainstorm" },
+        { label: "Growth Lab", href: "/dashboard/growth-lab" },
+      ];
+    }
     if (activePrimary === "Publishing") {
       return [
+        { label: "Quick Blast", href: "/dashboard/publishing" },
         { label: "Stories", href: "/dashboard/stories/new" },
         { label: "Scheduled", href: "/dashboard/scheduled" },
         { label: "Approvals", href: "/dashboard/approvals" },
+      ];
+    }
+
+    if (activePrimary === "Growth") {
+      return [
+        { label: "Today’s follow-ups", href: "/dashboard/growth" },
+        { label: "Targets", href: "/dashboard/growth/followups" },
+        { label: "Waiting", href: "/dashboard/growth/waiting" },
+        { label: "Pipeline", href: "/dashboard/growth/pipeline" },
+        { label: "Import", href: "/dashboard/growth/import" },
+        { label: "Tracker", href: "/dashboard/growth/tracker" },
       ];
     }
 

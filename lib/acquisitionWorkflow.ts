@@ -22,7 +22,7 @@ const allowedFrom: Record<AcquisitionAction, AcquisitionStatus[]> = {
 const destinations: Partial<Record<AcquisitionAction, string>> = {
   prepare_outreach: "/dashboard/growth/pipeline", route_outreach: "/dashboard/growth/pipeline",
   create_content_draft: "/dashboard/brainstorm", route_campaign: "/dashboard/campaigns/new",
-  route_publishing: "/dashboard", route_responses: "/dashboard/responses",
+  route_publishing: "/dashboard/publishing", route_responses: "/dashboard/responses",
 };
 
 export class AcquisitionWorkflowError extends Error { constructor(message: string, public status = 400) { super(message); } }

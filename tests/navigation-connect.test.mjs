@@ -13,7 +13,7 @@ function load(file) {
 
 test("dashboard exposes the permanent primary journeys in the requested order", () => {
   const source = fs.readFileSync("app/dashboard/ClientDashboardLayout.tsx", "utf8");
-  const labels = ["Home", "Acquisition", "Responses", "Campaign Studio", "Brainstorm", "Publishing", "Growth Lab", "Resources", "Connect"];
+  const labels = ["Home", "Acquisition", "Responses", "Campaigns", "Publishing", "Growth", "Resources", "Connect"];
   let cursor = -1;
   for (const label of labels) {
     const next = source.indexOf(`label: \"${label}\"`);
