@@ -25,10 +25,11 @@ type InboxItem = {
   authorName?: string | null;
   authorHandle?: string | null;
 
-  kind?: "comment" | "dm" | "mention" | "reaction" | "email_reply" | "unknown";
+  kind?: "comment" | "dm" | "mention" | "reaction" | "email_reply" | "connection_accepted" | "unknown";
   text: string;
 
   permalink?: string | null;
+  linkedinMessageUrl?: string | null;
 
   createdAt: string;
 
@@ -380,6 +381,9 @@ function contactAwareFallback(context: ContactBriefing | null, item: InboxItem) 
   return `${greeting}${known} I’d be interested to hear what is getting most attention in your remit at the moment.`;
 }
 
+const isLinkedInAcceptance = (item?: InboxItem | null) => item?.platform === "linkedin" && item.kind === "connection_accepted";
+const customerStatus = (item: InboxItem) => isLinkedInAcceptance(item) ? "first message opportunity" : item.status === "needs_reply" ? "needs reply" : item.status === "unread" ? "unread" : item.status === "replied" ? "replied" : item.status;
+
 function readSavedDrafts(): SavedDraft[] {
   if (typeof window === "undefined") return [];
   try {
@@ -710,13 +714,7 @@ export default function ResponsesPage() {
           </div>
 
           <Pill tone={statusTone(it.status)}>
-            {it.status === "needs_reply"
-              ? "needs reply"
-              : it.status === "unread"
-              ? "unread"
-              : it.status === "replied"
-              ? "replied"
-              : it.status}
+            {customerStatus(it)}
           </Pill>
         </div>
 
@@ -754,7 +752,7 @@ export default function ResponsesPage() {
   async function runAiSuggest() {
     if (!selected) return;
 
-    setAiStatus("Drafting reply…");
+    setAiStatus(isLinkedInAcceptance(selected) ? "Drafting first message…" : "Drafting reply…");
     setCopied(false);
 
     const fallback = contactAwareFallback(contactContext, selected);
@@ -776,10 +774,10 @@ export default function ResponsesPage() {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
-          context: selected.platform === "email" ? "responses_email_reply_draft_v1" : "responses_public_reply_draft_v2",
+          context: selected.platform === "email" ? "responses_email_reply_draft_v1" : isLinkedInAcceptance(selected) ? "responses_linkedin_first_message_v1" : "responses_public_reply_draft_v2",
           inboxItemId: selected.id,
           userAction:
-            selected.platform === "email" ? "Write ONLY a professional email reply draft. Do not claim it has been sent." : "Write ONLY the reply text that I can post as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
+            selected.platform === "email" ? "Write ONLY a professional email reply draft. Do not claim it has been sent." : isLinkedInAcceptance(selected) ? "Write ONLY the first LinkedIn direct message after this person accepted our connection request. This is a first-message opportunity, not an inbound reply; do not imply prior dialogue." : "Write ONLY the reply text that I can post as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
           outcome: "success",
           platform: itemSnapshot.platform,
           item: {
@@ -996,6 +994,18 @@ export default function ResponsesPage() {
     setLocalStatus(selected.id, "needs_reply");
     setAiStatus("Marked as needs reply.");
     setTimeout(() => setAiStatus(null), 1800);
+  };
+
+  const markContacted = async () => {
+    if (!selected || !isLinkedInAcceptance(selected)) return;
+    setAiStatus("Saving…");
+    try {
+      const org = organisationId || (await resolveOrg());
+      const response = await fetch("/api/responses/update-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: org, id: selected.id, status: "replied" }) });
+      if (!response.ok) throw new Error("Unable to mark this contact as contacted.");
+      setLocalStatus(selected.id, "replied");
+      setAiStatus("Marked as contacted.");
+    } catch (error) { setAiStatus(error instanceof Error ? error.message : "Unable to mark this contact as contacted."); }
   };
 
   const approveAndSendEmail = async () => {
@@ -1246,13 +1256,7 @@ export default function ResponsesPage() {
                           : "border-white/10 bg-white/5 text-slate-200",
                       ].join(" ")}
                     >
-                      {it.status === "needs_reply"
-                        ? "needs reply"
-                        : it.status === "unread"
-                        ? "unread"
-                        : it.status === "replied"
-                        ? "replied"
-                        : it.status}
+                      {customerStatus(it)}
                     </span>
                   </div>
 
@@ -1282,15 +1286,19 @@ export default function ResponsesPage() {
           <div className="space-y-6">
             <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
               <div>
-                <div className="text-base font-semibold">Reply assistant</div>
+                <div className="text-base font-semibold">{isLinkedInAcceptance(selected) ? "First message assistant" : "Reply assistant"}</div>
                 <div className="mt-1 text-xs text-slate-300">
-                  {selected?.platform === "email" ? "Edit and approve here. The existing B2B engine sends the exact approved text through Gmail." : "AI draft → edit → Send reply (Facebook/Instagram)."}
+                  {selected?.platform === "email"
+                    ? "Edit and approve here. The existing B2B engine sends the exact approved text through Gmail."
+                    : isLinkedInAcceptance(selected)
+                      ? "AI Suggest → edit → Copy or open LinkedIn. Nothing is sent automatically."
+                      : "AI draft → edit → Send reply (Facebook/Instagram)."}
                 </div>
               </div>
 
               {!selected ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                  Select an item from the left to draft a reply.
+                  Select an item from the left to draft a message.
                 </div>
               ) : (
                 <div className="mt-4 space-y-4">
@@ -1328,7 +1336,7 @@ export default function ResponsesPage() {
                             : "border-white/10 bg-white/5 text-slate-200",
                         ].join(" ")}
                       >
-                        {selected.status}
+                        {customerStatus(selected)}
                       </span>
                     </div>
 
@@ -1349,15 +1357,16 @@ export default function ResponsesPage() {
                   {selected.platform === "email" ? <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-xs"><div><b>Sender:</b> {selected.senderEmail || selected.authorHandle || "Unknown"}</div><div><b>Subject:</b> {selected.subject || "(no subject)"}</div><div><b>Classification:</b> {(selected.emailClassification || "unclassified").replaceAll("_", " ")}</div><div><b>State:</b> {(selected.responseState || "unclassified").replaceAll("_", " ")}</div>{selected.emailDeliveryStatus ? <div><b>Delivery:</b> {selected.emailDeliveryStatus.replaceAll("_", " ")}</div> : null}{selected.outreachReference ? <div><b>Outreach:</b> {selected.outreachReference}</div> : null}{selected.emailThreadId ? <div><b>Thread:</b> {selected.emailThreadId}</div> : <div><b>Thread:</b> unavailable — engine will send safely without threading if supported</div>}</div> : null}
 
                     {selected.permalink ? (
-                      <div className="mt-3 text-[11px]">
+                      <div className="mt-3 flex flex-wrap gap-3 text-[11px]">
                         <a
                           href={selected.permalink}
                           target="_blank"
                           rel="noreferrer"
                           className="text-sky-300 hover:text-sky-200 underline"
                         >
-                          Open on platform
+                          {isLinkedInAcceptance(selected) ? "Open LinkedIn" : "Open on platform"}
                         </a>
+                        {isLinkedInAcceptance(selected) && selected.linkedinMessageUrl ? <a href={selected.linkedinMessageUrl} target="_blank" rel="noreferrer" className="text-emerald-300 hover:text-emerald-200 underline">Open LinkedIn Message</a> : null}
                       </div>
                     ) : null}
                   </div>
@@ -1371,7 +1380,7 @@ export default function ResponsesPage() {
                       AI Suggest
                     </button>
 
-                    {selected.platform !== "email" && <button
+                    {selected.platform !== "email" && !isLinkedInAcceptance(selected) && <button
                       type="button"
                       onClick={sendReply}
                       disabled={sendingReply || !replyDraft.trim()}
@@ -1379,6 +1388,7 @@ export default function ResponsesPage() {
                     >
                       {sendingReply ? "Sending…" : "Send reply"}
                     </button>}
+                    {isLinkedInAcceptance(selected) ? <button type="button" onClick={() => void markContacted()} className="rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-400 transition">Mark Contacted</button> : null}
                   </div>
 
                   {selected.platform === "email" ? <div className="grid grid-cols-2 gap-2">
@@ -1446,7 +1456,7 @@ export default function ResponsesPage() {
 
                   <textarea
                     className="w-full min-h-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
-                    placeholder="Your reply draft will appear here…"
+                    placeholder={isLinkedInAcceptance(selected) ? "Your first message draft will appear here…" : "Your reply draft will appear here…"}
                     value={replyDraft}
                     onChange={(e) => setReplyDraft(e.target.value)}
                   />

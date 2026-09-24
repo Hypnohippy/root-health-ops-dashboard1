@@ -463,30 +463,39 @@ const LINKEDIN_ACCEPTANCE_LABEL_ = 'RootOps/LinkedIn-Acceptance-Imported';
 
 /* Install this as a time-driven trigger after deployment. It never sends email or LinkedIn messages. */
 function runLinkedInAcceptanceIntake_() {
+  return processLinkedInAcceptanceIntake_('newer_than:14d from:(invitations@linkedin.com OR invitations@e.linkedin.com) {subject:"accepted your invitation" subject:connections}', 50, true);
+}
+
+/* Safe bounded backfill. It deliberately ignores the old thread label because earlier runs may have imported only one person from a digest. */
+function backfillLinkedInAcceptanceLast30Days_() {
+  return processLinkedInAcceptanceIntake_('newer_than:30d from:(invitations@linkedin.com OR invitations@e.linkedin.com) {subject:"accepted your invitation" subject:connections}', 200, false);
+}
+
+function processLinkedInAcceptanceIntake_(query, maxThreads, applyLabel) {
   const props = PropertiesService.getScriptProperties();
   const organisationId = String(props.getProperty('OPS_ORGANISATION_ID') || '').trim();
   const secret = String(props.getProperty('OPS_INGESTION_SECRET') || '');
   if (organisationId !== PHASE4D_EXPECTED_ORGANISATION_ID_ || secret.length < 32) throw new Error('LINKEDIN_INTAKE_NOT_CONFIGURED');
   const label = GmailApp.getUserLabelByName(LINKEDIN_ACCEPTANCE_LABEL_) || GmailApp.createLabel(LINKEDIN_ACCEPTANCE_LABEL_);
-  const query = 'newer_than:7d -label:"' + LINKEDIN_ACCEPTANCE_LABEL_ + '" from:(invitations@linkedin.com OR invitations@e.linkedin.com) subject:"accepted your invitation"';
-  const threads = GmailApp.search(query, 0, 50);
-  let imported = 0, duplicates = 0, failed = 0;
+  const threads = GmailApp.search(query, 0, Math.max(1, Math.min(Number(maxThreads || 50), 200)));
+  let imported = 0, duplicates = 0, candidates = 0, failed = 0;
   threads.forEach(function(thread) {
     let threadSucceeded = true;
     thread.getMessages().forEach(function(message) {
       if (!isLinkedInAcceptanceMessage_(message)) return;
       try {
         const result = sendLinkedInAcceptanceToOps_(message, organisationId, secret);
-        imported += Number(result.candidatesInserted || 0);
-        duplicates += Number(result.candidatesFilteredOrDuplicate || 0);
+        imported += Number(result.acceptedConnectionsRecorded || 0);
+        duplicates += Number(result.acceptedConnectionsDuplicate || 0);
+        candidates += Number(result.candidatesInserted || 0);
       } catch (error) {
         threadSucceeded = false; failed++;
         Logger.log('LINKEDIN ACCEPTANCE INTAKE FAILED: ' + phase4DSafeError_(error));
       }
     });
-    if (threadSucceeded) thread.addLabel(label);
+    if (threadSucceeded && applyLabel) thread.addLabel(label);
   });
-  const result = { ok: failed === 0, threads: threads.length, candidatesImported: imported, filteredOrDuplicate: duplicates, failed: failed };
+  const result = { ok: failed === 0, threads: threads.length, acceptedConnectionsImported: imported, acceptedConnectionsDuplicate: duplicates, networkCandidatesImported: candidates, failed: failed };
   Logger.log('LINKEDIN ACCEPTANCE INTAKE: ' + JSON.stringify(result));
   return result;
 }
@@ -494,7 +503,10 @@ function runLinkedInAcceptanceIntake_() {
 function isLinkedInAcceptanceMessage_(message) {
   const subject = String(message.getSubject() || '');
   const from = String(message.getFrom() || '').toLowerCase();
-  return /accepted your invitation/i.test(subject) && /(?:^|[<@])(?:invitations@)?(?:e\.)?linkedin\.com(?:>|$)/i.test(from);
+  if (!/(?:^|[<@])(?:invitations@)?(?:e\.)?linkedin\.com(?:>|$)/i.test(from)) return false;
+  if (/accepted your invitation/i.test(subject)) return true;
+  const body = String(message.getBody ? message.getBody() : '');
+  return /\bconnections?(?:,|\b)/i.test(subject) && /You have\s+\d+\s+new connections?\b/i.test(body) && /linkedin\.com\/(?:comm\/)?in\//i.test(body) && /linkedin\.com\/(?:messaging|comm\/messaging)/i.test(body);
 }
 
 function sendLinkedInAcceptanceToOps_(message, organisationId, secret) {
@@ -521,14 +533,15 @@ function sendLinkedInAcceptanceToOps_(message, organisationId, secret) {
 /* Safe diagnostic: reads Script Properties and tests detection only. No Gmail search, labels or HTTP calls. */
 function testLinkedInAcceptanceIntakeSafe_() {
   const props = PropertiesService.getScriptProperties();
-  const fake = { getSubject: function() { return 'Nick Fahy accepted your invitation'; }, getFrom: function() { return 'LinkedIn <invitations@e.linkedin.com>'; } };
+  const fake = { getSubject: function() { return 'Nick Fahy accepted your invitation'; }, getFrom: function() { return 'LinkedIn <invitations@e.linkedin.com>'; }, getBody: function() { return ''; } };
+  const digest = { getSubject: function() { return 'See Kate’s and other people’s connections, experience, and more'; }, getFrom: function() { return 'LinkedIn <invitations@linkedin.com>'; }, getBody: function() { return 'You have 2 new connections <a href="https://linkedin.com/in/kate">Kate</a> <a href="https://linkedin.com/messaging/compose/?recipient=kate">Message</a>'; } };
   const rejected = { getSubject: function() { return 'People you may know'; }, getFrom: function() { return 'news@e.linkedin.com'; } };
   const result = {
     organisationCorrect: String(props.getProperty('OPS_ORGANISATION_ID') || '').trim() === PHASE4D_EXPECTED_ORGANISATION_ID_,
     ingestionSecretPresent: String(props.getProperty('OPS_INGESTION_SECRET') || '').length >= 32,
-    acceptanceDetected: isLinkedInAcceptanceMessage_(fake), promotionalMailRejected: !isLinkedInAcceptanceMessage_(rejected)
+    acceptanceDetected: isLinkedInAcceptanceMessage_(fake), digestDetected: isLinkedInAcceptanceMessage_(digest), promotionalMailRejected: !isLinkedInAcceptanceMessage_(rejected)
   };
-  result.ok = result.organisationCorrect && result.ingestionSecretPresent && result.acceptanceDetected && result.promotionalMailRejected;
+  result.ok = result.organisationCorrect && result.ingestionSecretPresent && result.acceptanceDetected && result.digestDetected && result.promotionalMailRejected;
   Logger.log('LINKEDIN ACCEPTANCE SAFE DIAGNOSTIC: ' + JSON.stringify(result));
   return result;
 }

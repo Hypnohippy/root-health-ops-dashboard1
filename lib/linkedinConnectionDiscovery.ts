@@ -10,9 +10,11 @@ export type LinkedInContact = {
 };
 export type LinkedInAcceptance = {
   accepted: LinkedInContact;
+  acceptedConnections: LinkedInContact[];
   suggestions: LinkedInContact[];
   gmailMessageId: string;
   discoveredAt: string;
+  sourceFormat: "individual" | "digest";
 };
 export type BuyerTargeting = {
   audience?: string;
@@ -35,7 +37,14 @@ export type LinkedInCandidateRecord = {
 function plainText(html: string) {
   return html.replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&#39;|&apos;/gi, "'").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim();
 }
-function canonicalProfile(url: string) { return url.split(/[?#]/)[0].replace(/\/$/, "").toLowerCase(); }
+export function canonicalLinkedInAcceptanceProfile(value: string) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    const path = url.pathname.toLowerCase().replace(/^\/comm\/in\//, "/in/").replace(/\/$/, "");
+    return `${host}${path}`;
+  } catch { return value.trim().toLowerCase().split(/[?#]/)[0].replace(/^https?:\/\/(?:www\.)?/, "").replace(/^linkedin\.com\/comm\/in\//, "linkedin.com/in/").replace(/\/$/, ""); }
+}
 function companyFromHeadline(headline: string) { return headline.match(/\bat\s+([^|·,]+)/i)?.[1]?.trim() || ""; }
 function links(html: string) {
   return [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].map((match) => ({ url: match[1].replace(/&amp;/g, "&"), label: plainText(match[2]), index: match.index || 0, end: (match.index || 0) + match[0].length }));
@@ -48,24 +57,45 @@ function contact(name: string, headline: string, profileUrl: string, messageUrl:
 }
 
 export function parseLinkedInAcceptanceEmail(input: { subject: string; sender: string; html: string; gmailMessageId: string; discoveredAt?: string }): LinkedInAcceptance | null {
-  if (!/accepted your invitation/i.test(input.subject) || !/@(?:e\.)?linkedin\.com\b/i.test(input.sender)) return null;
-  const acceptedName = input.subject.replace(/\s+accepted your invitation.*$/i, "").trim();
-  if (!acceptedName) return null;
+  if (!/@(?:e\.)?linkedin\.com\b/i.test(input.sender)) return null;
+  const individual = /accepted your invitation/i.test(input.subject);
+  const digestMatch = plainText(input.html).match(/You have\s+(\d+)\s+new connections?\b/i);
+  const digest = Boolean(digestMatch && /\bconnections?(?:,|\b)/i.test(input.subject));
+  if (!individual && !digest) return null;
   const marker = input.html.search(/Suggestions from [\s\S]{0,120}?network/i);
-  const acceptedHtml = marker >= 0 ? input.html.slice(0, marker) : input.html;
+  const footer = input.html.search(/(?:<footer\b|Unsubscribe|Manage your email|Help Center|LinkedIn Corporation|Privacy Policy)/i);
+  const end = Math.min(...[marker, footer, input.html.length].filter(value => value >= 0));
+  const digestStart = digest ? input.html.search(/You have[\s\S]{0,40}?new connections?/i) : 0;
+  const acceptedHtml = input.html.slice(Math.max(0, digestStart), end);
   const acceptedLinks = links(acceptedHtml);
-  const profile = acceptedLinks.find((item) => /linkedin\.com\/(?:comm\/)?in\//i.test(item.url));
-  if (!profile) return null;
-  const messageUrl = acceptedLinks.find((item) => /linkedin\.com\/(?:messaging|comm\/messaging)/i.test(item.url))?.url || null;
-  const acceptedHeadline = followingText(acceptedHtml, profile.end, acceptedLinks.find((item) => item.index > profile.end)?.index || acceptedHtml.length);
+  const profileLinks = acceptedLinks.filter(item => /linkedin\.com\/(?:comm\/)?in\//i.test(item.url));
+  const seenAccepted = new Set<string>();
+  const acceptedConnections = profileLinks.flatMap((profile, index) => {
+    const identity = canonicalLinkedInAcceptanceProfile(profile.url);
+    if (!identity || seenAccepted.has(identity)) return [];
+    const name = profile.label.replace(/^(?:View\s+)?profile\s*(?:of)?\s*/i, "").trim();
+    if (!name || /^(?:linkedin|view profile|profile)$/i.test(name)) return [];
+    seenAccepted.add(identity);
+    const nextProfile = profileLinks[index + 1]?.index || acceptedHtml.length;
+    const message = acceptedLinks.find(link => link.index > profile.end && link.index < nextProfile && /linkedin\.com\/(?:messaging|comm\/messaging)/i.test(link.url));
+    const headline = followingText(acceptedHtml, profile.end, message?.index || nextProfile);
+    return [contact(name, headline, profile.url, message?.url || null, null)];
+  });
+  if (individual) {
+    const acceptedName = input.subject.replace(/\s+accepted your invitation.*$/i, "").trim();
+    if (!acceptedName || !acceptedConnections.length) return null;
+    acceptedConnections.splice(1);
+    acceptedConnections[0] = { ...acceptedConnections[0], name: acceptedName };
+  }
+  if (!acceptedConnections.length) return null;
 
   const suggestionSource = marker >= 0 ? input.html.slice(marker) : "";
-  const footer = suggestionSource.search(/(?:<footer\b|Unsubscribe|Manage your email|Help Center|LinkedIn Corporation|Privacy Policy)/i);
-  const suggestionHtml = footer >= 0 ? suggestionSource.slice(0, footer) : suggestionSource;
+  const suggestionFooter = suggestionSource.search(/(?:<footer\b|Unsubscribe|Manage your email|Help Center|LinkedIn Corporation|Privacy Policy)/i);
+  const suggestionHtml = suggestionFooter >= 0 ? suggestionSource.slice(0, suggestionFooter) : suggestionSource;
   const suggestionLinks = links(suggestionHtml).filter((item) => /linkedin\.com\/(?:comm\/)?in\//i.test(item.url));
   const seen = new Set<string>();
   const suggestions = suggestionLinks.flatMap((item, index) => {
-    const key = canonicalProfile(item.url);
+    const key = canonicalLinkedInAcceptanceProfile(item.url);
     if (seen.has(key)) return [];
     seen.add(key);
     const next = suggestionLinks[index + 1]?.index || suggestionHtml.length;
@@ -73,11 +103,15 @@ export function parseLinkedInAcceptanceEmail(input: { subject: string; sender: s
     const mutual = context.match(/(\d+)\s+mutual connection/i);
     return [contact(item.label, context, item.url, null, mutual ? Number(mutual[1]) : null)];
   });
-  return { accepted: contact(acceptedName, acceptedHeadline, profile.url, messageUrl, null), suggestions, gmailMessageId: input.gmailMessageId, discoveredAt: input.discoveredAt || new Date().toISOString() };
+  return { accepted: acceptedConnections[0], acceptedConnections, suggestions: digest ? [] : suggestions, gmailMessageId: input.gmailMessageId, discoveredAt: input.discoveredAt || new Date().toISOString(), sourceFormat: digest ? "digest" : "individual" };
+}
+
+export function linkedinAcceptanceSourceRecordId(profileUrl: string) {
+  return `linkedin-acceptance-${createHash("sha256").update(canonicalLinkedInAcceptanceProfile(profileUrl)).digest("hex").slice(0, 32)}`;
 }
 
 export function linkedinNetworkSourceRecordId(acceptedProfileUrl: string, suggestedProfileUrl: string) {
-  const digest = createHash("sha256").update([canonicalProfile(acceptedProfileUrl), canonicalProfile(suggestedProfileUrl)].join("|")).digest("hex").slice(0, 32);
+  const digest = createHash("sha256").update([canonicalLinkedInAcceptanceProfile(acceptedProfileUrl), canonicalLinkedInAcceptanceProfile(suggestedProfileUrl)].join("|")).digest("hex").slice(0, 32);
   return `linkedin-network-${digest}`;
 }
 
@@ -90,7 +124,7 @@ export function qualifiesForBuyerTargeting(candidate: LinkedInContact, targeting
 }
 
 export function uniqueLinkedInSuggestions(acceptance: LinkedInAcceptance, existingSourceIds: Set<string>, knownProfileUrls: Set<string>) {
-  return acceptance.suggestions.filter((candidate) => !existingSourceIds.has(linkedinNetworkSourceRecordId(acceptance.accepted.profileUrl, candidate.profileUrl)) && !knownProfileUrls.has(canonicalProfile(candidate.profileUrl)));
+  return acceptance.suggestions.filter((candidate) => !existingSourceIds.has(linkedinNetworkSourceRecordId(acceptance.accepted.profileUrl, candidate.profileUrl)) && !knownProfileUrls.has(canonicalLinkedInAcceptanceProfile(candidate.profileUrl)));
 }
 
 export function acceptedConnectionDraft(contact: LinkedInContact) {
