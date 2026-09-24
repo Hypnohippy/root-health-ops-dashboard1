@@ -52,6 +52,12 @@ type InboxItem = {
   emailSentAt?: string | null;
 };
 
+type ContactBriefing = {
+  interactionType: string; messageType: string; name:string|null; role:string|null; company:string|null; sector:string|null;
+  source:string; whyRelevant:string; relationship:string; latestEvent:string; whatWeKnow:string[]; history:string[];
+  lastAction:string|null; currentStage:string|null; buyingSignalLabel:string; objective:string;
+};
+
 type ApiResponse = {
   success: boolean;
   items?: InboxItem[];
@@ -366,6 +372,14 @@ function draftReplyLocal({
   );
 }
 
+function contactAwareFallback(context: ContactBriefing | null, item: InboxItem) {
+  if (context?.interactionType !== "linkedin_connection_first_message") return draftReplyLocal({ platform:item.platform, authorName:item.authorName, text:item.text, postText:item.postText });
+  const first = (context.name || item.authorName || "").trim().split(/\s+/)[0];
+  const greeting = first ? `Hi ${first}, thanks for connecting.` : "Thanks for connecting.";
+  const known = context.role && context.company ? ` Your role as ${context.role} at ${context.company} caught my attention.` : context.role ? ` Your work as ${context.role} caught my attention.` : context.company ? ` Your work at ${context.company} caught my attention.` : "";
+  return `${greeting}${known} I’d be interested to hear what is getting most attention in your remit at the moment.`;
+}
+
 function readSavedDrafts(): SavedDraft[] {
   if (typeof window === "undefined") return [];
   try {
@@ -430,6 +444,8 @@ export default function ResponsesPage() {
   const [replyDraft, setReplyDraft] = useState("");
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [contactContext, setContactContext] = useState<ContactBriefing | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
 
   // Saved drafts
   const [savedDrafts, setSavedDrafts] = useState<SavedDraft[]>([]);
@@ -593,6 +609,15 @@ export default function ResponsesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
+  useEffect(() => {
+    if (!selectedId || !organisationId) { setContactContext(null); return; }
+    const controller = new AbortController(); setContextLoading(true); setContactContext(null);
+    fetch(`/api/responses/${encodeURIComponent(selectedId)}/context?organisationId=${encodeURIComponent(organisationId)}`, { cache:"no-store", signal:controller.signal })
+      .then(async response => { const data = await response.json(); if (response.ok && data.context) setContactContext(data.context); })
+      .catch(() => undefined).finally(() => { if (!controller.signal.aborted) setContextLoading(false); });
+    return () => controller.abort();
+  }, [selectedId, organisationId]);
+
   // restore scroll after selection to prevent “skippy”
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -732,12 +757,7 @@ export default function ResponsesPage() {
     setAiStatus("Drafting reply…");
     setCopied(false);
 
-    const fallback = draftReplyLocal({
-      platform: selected.platform,
-      authorName: selected.authorName,
-      text: selected.text,
-      postText: selected.postText,
-    });
+    const fallback = contactAwareFallback(contactContext, selected);
 
     const itemSnapshot = {
       platform: selected.platform,
@@ -757,6 +777,7 @@ export default function ResponsesPage() {
         cache: "no-store",
         body: JSON.stringify({
           context: selected.platform === "email" ? "responses_email_reply_draft_v1" : "responses_public_reply_draft_v2",
+          inboxItemId: selected.id,
           userAction:
             selected.platform === "email" ? "Write ONLY a professional email reply draft. Do not claim it has been sent." : "Write ONLY the reply text that I can post as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
           outcome: "success",
@@ -793,7 +814,7 @@ export default function ResponsesPage() {
 
     try {
       const r1 = await callAi();
-      let cleaned1 = sanitizeAiReply(r1.raw);
+      const cleaned1 = sanitizeAiReply(r1.raw);
 
       if (
         !r1.ok ||
@@ -1273,6 +1294,16 @@ export default function ResponsesPage() {
                 </div>
               ) : (
                 <div className="mt-4 space-y-4">
+                  <section aria-label="Why this contact matters" className="rounded-2xl border border-sky-400/20 bg-sky-400/[0.07] p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold text-white">Why this contact matters</h2>{contactContext?.messageType ? <Pill>{`Message type: ${contactContext.messageType}`}</Pill> : null}</div>
+                    {contextLoading ? <p className="mt-3 text-sm text-slate-400">Loading contact context…</p> : contactContext ? <div className="mt-3 grid gap-3 text-sm text-slate-300">
+                      <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Who</div><p className="mt-1 text-white">{[contactContext.name, contactContext.role, contactContext.company].filter(Boolean).join(" — ") || "Contact details are incomplete."}</p>{contactContext.sector ? <p className="mt-1 text-xs text-slate-400">Sector: {contactContext.sector}</p> : null}</div>
+                      <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Why relevant</div><p className="mt-1">{contactContext.whyRelevant}</p><p className="mt-1 text-xs text-slate-400">{contactContext.buyingSignalLabel}</p></div>
+                      <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Relationship</div><p className="mt-1">{contactContext.relationship}</p><p className="mt-1 text-xs text-slate-400">Source: {contactContext.source}{contactContext.currentStage ? ` · ${contactContext.currentStage}` : ""}</p></div>
+                      {(contactContext.whatWeKnow.length > 0 || contactContext.history.length > 1) ? <details className="rounded-xl border border-white/10 bg-black/20 p-3"><summary className="cursor-pointer font-semibold text-slate-200">What we know and previous history</summary><ul className="mt-2 space-y-1 text-xs text-slate-400">{[...contactContext.whatWeKnow,...contactContext.history.slice(1)].map((entry,index)=><li key={`${index}-${entry}`}>• {entry}</li>)}</ul></details> : <p className="text-xs text-slate-400">No additional outreach history is recorded.</p>}
+                      <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] p-3"><div className="text-xs font-semibold uppercase tracking-wide text-emerald-200">Best next move</div><p className="mt-1 text-emerald-50">{contactContext.objective}</p></div>
+                    </div> : <p className="mt-3 text-sm text-slate-400">No linked contact history was found. AI Suggest will use only the selected response and saved Growth Profile.</p>}
+                  </section>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">

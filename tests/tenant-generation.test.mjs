@@ -56,6 +56,8 @@ function fixture({ user = "user-a", memberships = [{ organisation_id: "org-a", r
   const create = async payload => { llm.push(payload); return { output_text: output, choices: [{ message: { content: output } }] }; };
   class OpenAI { responses={create};chat={completions:{create}};images={generate:create}; }
   const mocks = { "next/server": response, "openai": OpenAI, "@/lib/tenantRoute.server": wrapper, "@/lib/tenantAuth": auth, "@/lib/supabaseAdmin": { supabaseAdmin: db }, "@/lib/usage": { getCurrentOrganisationPlan: async () => "team", getMonthlyUsageForOrganisation: async () => 0, getPlanLimit: () => 150, logUsageForOrganisation: async () => {} },
+    "@/lib/responseContactContext.server": { getResponseContactContext: async () => null },
+    "@/lib/responseContactContext": { responseDraftRules: () => [] },
     "@/lib/growthOutreach": load("lib/growthOutreach.ts"),
     __fetch: async (_url, options) => { const payload=JSON.parse(options.body);llm.push(payload);return new Response(JSON.stringify({choices:[{message:{content:output}}]}),{headers:{"Content-Type":"application/json"}}); },
   };
