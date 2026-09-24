@@ -1,12 +1,13 @@
 // app/api/responses/update-status/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 
-function cleanStr(v: any): string {
+function cleanStr(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-function cleanStatus(v: any): string {
+function cleanStatus(v: unknown): string {
   const s = cleanStr(v).toLowerCase();
   const allowed = new Set(["unread", "needs_reply", "replied", "archived"]);
   return allowed.has(s) ? s : "";
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    const verified = await requireOrganisation(organisationId, true);
 
     if (!id) {
       return NextResponse.json({ success: false, error: "Missing id" }, { status: 400 });
@@ -40,7 +42,7 @@ export async function POST(req: NextRequest) {
     const { error } = await supabaseAdmin
       .from("inbox_items")
       .update({ status })
-      .eq("organisation_id", organisationId)
+      .eq("organisation_id", verified.organisationId)
       .eq("id", id);
 
     if (error) {
@@ -54,7 +56,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {
     console.error("[responses/update-status] unexpected error", err);
-    return NextResponse.json(
+    return accessErrorResponse(err) || NextResponse.json(
       { success: false, error: "Internal server error" },
       { status: 500 }
     );
