@@ -59,7 +59,9 @@ function fixture({ user = "user-a", memberships = [{ organisation_id: "org-a", r
     "@/lib/responseContactContext.server": { getResponseContactContext: async () => null },
     "@/lib/responseContactContext": { responseDraftRules: () => [] },
     "@/lib/growthOutreach": load("lib/growthOutreach.ts"),
-    "@/lib/contactLifecycle": load("lib/contactLifecycle.ts"),
+    "@/lib/contactLifecycle": load("lib/contactLifecycle.ts", { "@/lib/growthOutreach": load("lib/growthOutreach.ts") }),
+    "@/lib/lifecycleSnapshot.server": { readLifecycleInput: () => { throw Error("Unexpected lifecycle read"); } },
+    "@/lib/lifecycleReconciliation.server": { reconcileLifecycle: () => { throw Error("Unexpected reconciliation"); } },
     __fetch: async (_url, options) => { const payload=JSON.parse(options.body);llm.push(payload);return new Response(JSON.stringify({choices:[{message:{content:output}}]}),{headers:{"Content-Type":"application/json"}}); },
   };
   const route = file => load(file, mocks);
@@ -86,6 +88,13 @@ test("every AI/growth handler denies anonymous, foreign tenants and ambiguous me
       }
     }
   }
+});
+
+test("lifecycle reconciliation denies a viewer before reading or repairing state", async () => {
+  const f = fixture({ memberships: [{ organisation_id: "org-a", role: "viewer" }] });
+  const response = await f.route("app/api/growth/lifecycle/reconcile/route.ts").POST(f.req({ organisationId: "org-a" }));
+  assert.equal(response.status, 403);
+  assert.equal(f.calls.some(c => c.table !== "organisation_members"), false);
 });
 
 test("Quick Blast, Story and Brainstorm use only verified bakery context and preserve formats", async () => {

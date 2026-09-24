@@ -3,11 +3,16 @@ import type { GenerationProfile } from "@/lib/tenantGeneration";
 export const outreachStages = ["connection", "day3_dm", "day10_insight", "day17_followup", "parked"] as const;
 export type OutreachStage = typeof outreachStages[number];
 
+export function growthFollowUpDueAt(target: { stage?: string | null; last_action_at?: string | null }) {
+  const days = target.stage === "day3_dm" ? 3 : ["day10_insight", "day17_followup"].includes(target.stage || "") ? 7 : null;
+  const last = Date.parse(target.last_action_at || "");
+  return days !== null && Number.isFinite(last) ? new Date(last + days * 86400000).toISOString() : null;
+}
+
 export function isGrowthTargetDue(target: { stage?: string | null; last_action_at?: string | null }, now = Date.now()) {
   if (target.stage === "connection") return true;
-  if (!target.last_action_at) return false;
-  const days = (now - new Date(target.last_action_at).getTime()) / 86400000;
-  return target.stage === "day3_dm" ? days >= 3 : ["day10_insight", "day17_followup"].includes(target.stage || "") ? days >= 7 : false;
+  const dueAt = growthFollowUpDueAt(target);
+  return dueAt !== null && now >= Date.parse(dueAt);
 }
 
 export function nextGrowthStage(stage: string): OutreachStage {
