@@ -25,7 +25,7 @@ type InboxItem = {
   authorName?: string | null;
   authorHandle?: string | null;
 
-  kind?: "comment" | "dm" | "mention" | "reaction" | "email_reply" | "unknown";
+  kind?: "comment" | "dm" | "mention" | "reaction" | "email_reply" | "connection_accepted" | "unknown";
   text: string;
 
   permalink?: string | null;
@@ -380,6 +380,9 @@ function contactAwareFallback(context: ContactBriefing | null, item: InboxItem) 
   return `${greeting}${known} I’d be interested to hear what is getting most attention in your remit at the moment.`;
 }
 
+const isConnectionAccepted = (item?: InboxItem | null) => item?.platform === "linkedin" && item.kind === "connection_accepted";
+const customerStatus = (item: InboxItem) => isConnectionAccepted(item) ? "first message opportunity" : item.status === "needs_reply" ? "needs reply" : item.status === "unread" ? "unread" : item.status === "replied" ? "replied" : item.status;
+
 function readSavedDrafts(): SavedDraft[] {
   if (typeof window === "undefined") return [];
   try {
@@ -710,13 +713,7 @@ export default function ResponsesPage() {
           </div>
 
           <Pill tone={statusTone(it.status)}>
-            {it.status === "needs_reply"
-              ? "needs reply"
-              : it.status === "unread"
-              ? "unread"
-              : it.status === "replied"
-              ? "replied"
-              : it.status}
+            {customerStatus(it)}
           </Pill>
         </div>
 
@@ -754,7 +751,7 @@ export default function ResponsesPage() {
   async function runAiSuggest() {
     if (!selected) return;
 
-    setAiStatus("Drafting reply…");
+    setAiStatus(isConnectionAccepted(selected) ? "Drafting first message…" : "Drafting reply…");
     setCopied(false);
 
     const fallback = contactAwareFallback(contactContext, selected);
@@ -776,10 +773,10 @@ export default function ResponsesPage() {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
-          context: selected.platform === "email" ? "responses_email_reply_draft_v1" : "responses_public_reply_draft_v2",
+          context: selected.platform === "email" ? "responses_email_reply_draft_v1" : isConnectionAccepted(selected) ? "responses_linkedin_first_message_v1" : "responses_public_reply_draft_v2",
           inboxItemId: selected.id,
           userAction:
-            selected.platform === "email" ? "Write ONLY a professional email reply draft. Do not claim it has been sent." : "Write ONLY the reply text that I can post as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
+            selected.platform === "email" ? "Write ONLY a professional email reply draft. Do not claim it has been sent." : isConnectionAccepted(selected) ? "Write ONLY the first LinkedIn direct message after this person accepted our connection request. This is not a reply and they have not contacted us." : "Write ONLY the reply text that I can post as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
           outcome: "success",
           platform: itemSnapshot.platform,
           item: {
@@ -1246,13 +1243,7 @@ export default function ResponsesPage() {
                           : "border-white/10 bg-white/5 text-slate-200",
                       ].join(" ")}
                     >
-                      {it.status === "needs_reply"
-                        ? "needs reply"
-                        : it.status === "unread"
-                        ? "unread"
-                        : it.status === "replied"
-                        ? "replied"
-                        : it.status}
+                      {customerStatus(it)}
                     </span>
                   </div>
 
@@ -1282,7 +1273,7 @@ export default function ResponsesPage() {
           <div className="space-y-6">
             <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
               <div>
-                <div className="text-base font-semibold">Reply assistant</div>
+                <div className="text-base font-semibold">{isConnectionAccepted(selected) ? "First message assistant" : "Reply assistant"}</div>
                 <div className="mt-1 text-xs text-slate-300">
                   {selected?.platform === "email" ? "Edit and approve here. The existing B2B engine sends the exact approved text through Gmail." : "AI draft → edit → Send reply (Facebook/Instagram)."}
                 </div>
@@ -1290,7 +1281,7 @@ export default function ResponsesPage() {
 
               {!selected ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                  Select an item from the left to draft a reply.
+                  Select an item from the left to draft a message.
                 </div>
               ) : (
                 <div className="mt-4 space-y-4">
@@ -1446,7 +1437,7 @@ export default function ResponsesPage() {
 
                   <textarea
                     className="w-full min-h-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
-                    placeholder="Your reply draft will appear here…"
+                    placeholder={isConnectionAccepted(selected) ? "Your first message draft will appear here…" : "Your reply draft will appear here…"}
                     value={replyDraft}
                     onChange={(e) => setReplyDraft(e.target.value)}
                   />

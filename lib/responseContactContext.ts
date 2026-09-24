@@ -37,7 +37,7 @@ export function interactionTypeFor(item: Record<string, unknown>, target?: Recor
 }
 
 export function messageTypeLabel(type: InteractionType) {
-  return ({ linkedin_connection_first_message: "First message after connection", linkedin_followup: "LinkedIn follow-up", linkedin_reply: "Reply to a LinkedIn message", email_reply: "Email reply", social_reply: "Social reply", nurture: "Nurture / re-engagement", warm_opportunity: "Warm opportunity follow-up" } as Record<InteractionType,string>)[type];
+  return ({ linkedin_connection_first_message: "First message opportunity", linkedin_followup: "LinkedIn follow-up", linkedin_reply: "Reply to a LinkedIn message", email_reply: "Email reply", social_reply: "Social reply", nurture: "Nurture / re-engagement", warm_opportunity: "Warm opportunity follow-up" } as Record<InteractionType,string>)[type];
 }
 
 export function objectiveFor(type: InteractionType, hasSignal: boolean) {
@@ -60,7 +60,7 @@ export function profileFit(headline: string, company: string, profile: Generatio
 
 export function responseDraftRules(context: ResponseContactContext) {
   const common = ["Use only supplied facts; never invent background, dialogue, results or a buying signal.", `The desired next-message objective is: ${context.objective}`];
-  if (context.interactionType === "linkedin_connection_first_message") return [...common, "This is the first outbound LinkedIn message after the person accepted a connection request; it is not a reply.", "Acknowledge the connection naturally, keep it short and human, avoid a hard pitch, and open a relevant low-friction conversation.", "Never imply prior dialogue and never say ‘glad to help’, ‘thanks for getting in touch’, or ‘following up on our conversation’." ];
+  if (context.interactionType === "linkedin_connection_first_message") return [...common, "This is a state change: the person accepted our LinkedIn connection request. They did not contact us, ask a question or start a conversation.", "This is the first outbound LinkedIn direct message after acceptance; it is not a reply and there is no prior dialogue unless the supplied history explicitly proves otherwise.", "Acknowledge the connection naturally, use only known role, company, source and profile-fit context, keep it short and human, avoid a hard pitch, and open a relevant low-friction conversation.", "Never answer an unstated question or say ‘glad to help’, ‘thanks for getting in touch’, ‘following up on your message’, or ‘following up on our conversation’." ];
   if (context.interactionType === "linkedin_followup") return [...common, "This is a later LinkedIn follow-up. Continue from the recorded relationship stage rather than writing a first-connection opener."];
   if (context.interactionType === "email_reply") return [...common, "Reply directly to the inbound email and preserve its thread context."];
   if (context.interactionType === "social_reply") return [...common, "Write a concise public response to the actual comment or reply."];

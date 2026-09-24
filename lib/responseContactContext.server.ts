@@ -29,7 +29,7 @@ export async function getResponseContactContext(organisationId: string, itemId: 
   const type = interactionTypeFor(item, target);
   const hasSignal = Boolean(text(acquisition?.signal) || ["positive","interested","engaged","call_booked"].includes(target?.reply_status || "") || ["opportunity","meeting","converted","won"].includes(target?.deal_stage || ""));
   const history = [
-    item.kind === "connection_accepted" ? `Accepted your LinkedIn connection${date(item.created_at_platform || item.inserted_at) ? ` on ${date(item.created_at_platform || item.inserted_at)}` : ""}.` : null,
+    item.kind === "connection_accepted" ? `New LinkedIn connection. This person accepted your connection request${date(item.created_at_platform || item.inserted_at) ? ` on ${date(item.created_at_platform || item.inserted_at)}` : ""}. No earlier conversation is recorded.` : null,
     target?.last_action_at ? `${plainStage(target.stage) || "Previous outreach"} — last action ${date(target.last_action_at)}.` : null,
     target?.replied_at ? `Reply recorded ${date(target.replied_at)}${text(target.reply_notes) ? `: ${text(target.reply_notes)}` : "."}` : null,
     text(item.last_reply_text) ? `Last response sent: ${text(item.last_reply_text)}` : null,

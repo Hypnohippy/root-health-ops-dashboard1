@@ -10,7 +10,7 @@ const context = load("lib/responseContactContext.ts");
 test("LinkedIn acceptance is classified as a first outbound message with plain customer language",()=>{
   const type=context.interactionTypeFor({platform:"linkedin",kind:"connection_accepted"},null);
   assert.equal(type,"linkedin_connection_first_message");
-  assert.equal(context.messageTypeLabel(type),"First message after connection");
+  assert.equal(context.messageTypeLabel(type),"First message opportunity");
   assert.equal(context.plainSource(null,"connection_accepted"),"LinkedIn connection acceptance email");
   assert.doesNotMatch(context.messageTypeLabel(type),/connection_accepted|day3_dm|linkedin_connection_network/);
 });
@@ -18,7 +18,7 @@ test("LinkedIn acceptance is classified as a first outbound message with plain c
 test("first-message rules prohibit fake prior dialogue and aggressive pitching",()=>{
   const briefing={interactionType:"linkedin_connection_first_message",objective:"Open a relevant conversation."};
   const rules=context.responseDraftRules(briefing).join(" ");
-  assert.match(rules,/first outbound LinkedIn message/i); assert.match(rules,/not a reply/i); assert.match(rules,/never imply prior dialogue/i); assert.match(rules,/avoid a hard pitch/i);
+  assert.match(rules,/state change/i); assert.match(rules,/did not contact us/i); assert.match(rules,/first outbound LinkedIn direct message/i); assert.match(rules,/not a reply/i); assert.match(rules,/no prior dialogue/i); assert.match(rules,/avoid a hard pitch/i); assert.match(rules,/following up on your message/i);
 });
 
 test("later relationship stages use distinct drafting logic",()=>{
@@ -42,7 +42,9 @@ test("Responses briefing and AI Suggest use the same server-enriched tenant cont
   const server=fs.readFileSync("lib/responseContactContext.server.ts","utf8");
   const ai=fs.readFileSync("app/api/ai/root-coach/route.ts","utf8");
   assert.match(ui,/Why this contact matters/); assert.match(ui,/Message type:/); assert.match(ui,/inboxItemId: selected\.id/);
+  assert.match(ui,/first message opportunity/); assert.match(ui,/First message assistant/); assert.match(ui,/responses_linkedin_first_message_v1/);
   assert.match(route,/requireOrganisation\(requested, false\)/); assert.match(server,/from\("inbox_items"\)/); assert.match(server,/from\("acquisition_items"\)/); assert.match(server,/from\("growth_targets"\)/);
+  assert.match(server,/New LinkedIn connection/); assert.match(server,/No earlier conversation is recorded/);
   assert.match(ai,/getResponseContactContext\(tenant\.organisationId, inboxItemId/); assert.match(ai,/Drafting hierarchy: interaction type, relationship stage/);
 });
 
