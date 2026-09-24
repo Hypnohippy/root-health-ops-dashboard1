@@ -30,7 +30,7 @@ export async function dispatchApprovedEmail(instruction: ApprovedEmailInstructio
   const endpoint = engineEndpoint(instruction.organisation_id, instruction.source_engine);
   const response = await fetch(endpoint.url, {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${endpoint.secret}` },
-    body: JSON.stringify(instruction), signal: AbortSignal.timeout(15000),
+    body: JSON.stringify({ ...instruction, engine_secret: endpoint.secret }), signal: AbortSignal.timeout(15000),
   });
   const data = await response.json().catch(() => ({})) as Record<string, unknown>;
   if (!response.ok || data.accepted !== true) throw new Error("The B2B engine did not accept the approved email.");

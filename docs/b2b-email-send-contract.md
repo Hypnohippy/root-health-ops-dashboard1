@@ -10,7 +10,7 @@ Configure `B2B_ENGINE_ENDPOINTS` in Ops as a JSON array. Each entry is scoped to
 [{"organisation_id":"78fa2ac8-e7b6-4b9b-9604-035723ece6b1","source_engine":"root_health_b2b","url":"https://script.google.com/macros/s/DEPLOYMENT_ID/exec","secret":"32-or-more-character-secret"}]
 ```
 
-Ops sends `POST` JSON with `Authorization: Bearer <secret>`:
+Ops sends `POST` JSON with `Authorization: Bearer <secret>`. Because Apps Script web apps do not expose that header to `doPost(e)`, the server-only dispatcher also includes the same secret in `engine_secret`:
 
 ```json
 {
@@ -18,6 +18,7 @@ Ops sends `POST` JSON with `Authorization: Bearer <secret>`:
   "response_item_id": "uuid",
   "send_request_id": "uuid",
   "source_engine": "root_health_b2b",
+  "engine_secret": "same server-only shared secret",
   "gmail_thread_id": "optional Gmail thread ID",
   "gmail_message_id": "optional inbound Gmail message ID",
   "in_reply_to": "optional original outreach reference",
@@ -30,12 +31,13 @@ Ops sends `POST` JSON with `Authorization: Bearer <secret>`:
 
 The Apps Script handler must:
 
-1. Reject an invalid bearer secret or mismatched organisation/source engine.
-2. Persist `idempotency_key` before attempting Gmail delivery and return the stored result for duplicates.
+1. Compare `engine_secret` with the `B2B_ENGINE_SECRET` Script Property and reject a mismatched organisation/source engine. The value must never be logged or persisted.
+2. Persist `idempotency_key`, delivery state, addressing metadata, and a SHA-256 digest of the approved body before attempting Gmail delivery. Never persist the full approved body in Script Properties.
 3. pass `approved_body` directly to Gmail without generation, rewriting, templating, signatures, or other text changes.
 4. Use `gmail_thread_id` to reply in the original thread when it resolves. If references are absent or stale, safely send to `recipient` with `subject` rather than guessing a different thread.
 5. Return HTTP 2xx with `{ "accepted": true, "idempotency_key": "..." }` only after the instruction is durably queued or sent.
 6. Never send an instruction that has not passed these checks.
+7. Keep delivery and acknowledgement state separate. Once Gmail delivery is recorded as sent, acknowledgement failures must retain the sent state and retries may only repeat the acknowledgement.
 
 ## Delivery acknowledgement
 

@@ -37,7 +37,7 @@ test("engine dispatch sends edited and unedited drafts exactly as approved and t
  const sent=[];const env={B2B_ENGINE_ENDPOINTS:JSON.stringify([{organisation_id:A,source_engine:"root_health_b2b",url:"https://engine.example/send",secret:"x".repeat(40)}])};
  const dispatch=load("lib/emailEngineDispatch.server.ts",{},env,{fetch:async(_url,init)=>{sent.push(JSON.parse(init.body));return new Response(JSON.stringify({accepted:true,idempotency_key:sent.at(-1).idempotency_key}),{status:202,headers:{"content-type":"application/json"}});}});
  for(const approved_body of ["Original proposed response.","Edited by the approving human — exactly this text."]){await dispatch.dispatchApprovedEmail({organisation_id:A,response_item_id:ITEM,send_request_id:crypto.randomUUID(),source_engine:"root_health_b2b",gmail_thread_id:null,gmail_message_id:null,in_reply_to:null,recipient:"buyer@example.com",subject:"Re: Hello",approved_body,idempotency_key:crypto.randomUUID()});}
- assert.deepEqual(sent.map(x=>x.approved_body),["Original proposed response.","Edited by the approving human — exactly this text."]);assert.equal(sent[0].gmail_thread_id,null);assert.equal(sent[0].gmail_message_id,null);
+ assert.deepEqual(sent.map(x=>x.approved_body),["Original proposed response.","Edited by the approving human — exactly this text."]);assert.equal(sent[0].gmail_thread_id,null);assert.equal(sent[0].gmail_message_id,null);assert.equal(sent[0].engine_secret,"x".repeat(40));
 });
 
 test("email action route requires tenant write membership and scopes email item before RPC",async()=>{
