@@ -21,7 +21,8 @@ export async function POST(req:Request){
       return {id:randomUUID(),organisation_id:organisationId,platform:"email",kind:"email_reply",status:result.needsHumanReply?"needs_reply":"unread",text,
         author_name:clean(r.sender_name,500),author_handle:clean(r.sender_email,500),external_id:messageId,created_at_platform:clean(r.received_at,100)||new Date().toISOString(),inserted_at:new Date().toISOString(),
         post_text:subject,post_id:clean(r.thread_id,500),raw:{source_engine:sourceEngine,metadata},email_classification:result.classification,response_state:result.responseState,
-        email_thread_id:clean(r.thread_id,500),email_message_id:messageId,in_reply_to:clean(r.in_reply_to,500),outreach_reference:clean(r.outreach_reference,500),sender_email:clean(r.sender_email,500),email_subject:subject};
+        email_thread_id:clean(r.thread_id,500),email_message_id:messageId,in_reply_to:clean(r.in_reply_to,500),outreach_reference:clean(r.outreach_reference,500),sender_email:clean(r.sender_email,500),email_subject:subject,
+        source_engine:sourceEngine,proposed_response:clean(r.proposed_response,50000),email_reply_draft:clean(r.proposed_response,50000),email_delivery_status:clean(r.proposed_response,50000)?"draft":null};
     });
     const {data,error}=await supabaseAdmin.from("inbox_items").upsert(rows,{onConflict:"organisation_id,email_message_id",ignoreDuplicates:true}).select("id");
     if(error)return NextResponse.json({error:"Unable to import email responses."},{status:503});
