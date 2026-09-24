@@ -98,4 +98,10 @@ test("queue UI offers prepared drafts but contains no send, publish or public-re
   assert.ok(ui.includes('<option key={s} value={s}>{title(s)}</option>'));
   assert.ok(ui.includes('setItems([]);setTotal(0);setStatus(e.target.value)'));
   assert.match(ui,/catch\(e\)\{if\(!signal\?\.aborted\)\{setItems\(\[\]\);setTotal\(0\);setError/);
+  assert.ok(ui.includes('readyB2b?"Ready":title(item.status)'));
+  assert.ok(ui.includes('{expanded?"Close":"View"}'));
+  assert.ok(ui.includes('Ready for outreach'));
+  assert.ok(ui.includes('This lead has passed automated qualification, contact and message checks.'));
+  assert.ok(ui.includes('View source ↗'));
+  assert.doesNotMatch(ui,/b2b_lead:\[\{id:"start_review"/);
 });
