@@ -1293,7 +1293,7 @@ export default function ResponsesPage() {
                       <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Relationship</div><p className="mt-1">{contactContext.relationship}</p><p className="mt-1 text-xs text-slate-400">Source: {contactContext.source}{contactContext.currentStage ? ` · ${contactContext.currentStage}` : ""}</p></div>
                       {(contactContext.whatWeKnow.length > 0 || contactContext.history.length > 1) ? <details className="rounded-xl border border-white/10 bg-black/20 p-3"><summary className="cursor-pointer font-semibold text-slate-200">What we know and previous history</summary><ul className="mt-2 space-y-1 text-xs text-slate-400">{[...contactContext.whatWeKnow,...contactContext.history.slice(1)].map((entry,index)=><li key={`${index}-${entry}`}>• {entry}</li>)}</ul></details> : <p className="text-xs text-slate-400">No additional outreach history is recorded.</p>}
                       <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] p-3"><div className="text-xs font-semibold uppercase tracking-wide text-emerald-200">Best next move</div><p className="mt-1 text-emerald-50">{contactContext.objective}</p></div>
-                    </div> : <p className="mt-3 text-sm text-slate-400">No linked contact history was found. AI Suggest will use only the selected response and saved Growth Profile.</p>}
+                    </div> : <p className="mt-3 text-sm text-slate-400">The contact briefing could not be loaded. The selected event remains available below.</p>}
                   </section>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="flex items-center justify-between gap-2">

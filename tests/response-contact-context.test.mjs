@@ -43,6 +43,7 @@ test("Responses briefing and AI Suggest use the same server-enriched tenant cont
   const ai=fs.readFileSync("app/api/ai/root-coach/route.ts","utf8");
   assert.match(ui,/Why this contact matters/); assert.match(ui,/Message type:/); assert.match(ui,/inboxItemId: selected\.id/);
   assert.match(ui,/first message opportunity/); assert.match(ui,/First message assistant/); assert.match(ui,/responses_linkedin_first_message_v1/);
+  assert.doesNotMatch(ui,/No linked contact history was found/);
   assert.match(route,/requireOrganisation\(requested, false\)/); assert.match(server,/from\("inbox_items"\)/); assert.match(server,/from\("acquisition_items"\)/); assert.match(server,/from\("growth_targets"\)/);
   assert.match(server,/New LinkedIn connection/); assert.match(server,/No earlier conversation is recorded/);
   assert.match(ai,/getResponseContactContext\(tenant\.organisationId, inboxItemId/); assert.match(ai,/Drafting hierarchy: interaction type, relationship stage/);
