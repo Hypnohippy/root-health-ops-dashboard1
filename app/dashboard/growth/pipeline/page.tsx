@@ -9,10 +9,7 @@ export default function GrowthPipelinePage() {
   const [loading, setLoading] = useState(true);
   const [callPrep, setCallPrep] = useState<Record<string, string>>({});
   const [loadingPrep, setLoadingPrep] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadPipeline();
-  }, []);
+  const [view, setView] = useState<"warm" | "meetings">("meetings");
 
   async function loadPipeline() {
     setLoading(true);
@@ -26,6 +23,11 @@ export default function GrowthPipelinePage() {
 
     setLoading(false);
   }
+
+  useEffect(() => {
+    setView(new URLSearchParams(window.location.search).get("view") === "warm" ? "warm" : "meetings");
+    void loadPipeline();
+  }, []);
 
   async function generateCallPrep(targetId: string) {
     setLoadingPrep(targetId);
@@ -108,14 +110,16 @@ export default function GrowthPipelinePage() {
     alert("Copied ✅");
   }
 
-  const calls = targets.filter((t) => t.reply_status === "call_booked");
+  const calls = targets.filter((t) => view === "warm"
+    ? ["positive", "interested", "engaged", "call_booked"].includes(t.reply_status || "") || ["engaged", "opportunity", "meeting"].includes(t.deal_stage || "")
+    : t.reply_status === "call_booked" || ["meeting", "converted", "won"].includes(t.deal_stage || ""));
 
   return (
     <main style={page}>
-      <h1 style={title}>📅 Calls & Call Prep</h1>
+      <h1 style={title}>{view === "warm" ? "Active opportunities" : "📅 Meetings & outcomes"}</h1>
 
       <p style={subtitle}>
-        Prepare for booked calls, record outcomes, and set the next step.
+        {view === "warm" ? "Keep warm replies and live opportunities moving." : "Prepare for booked calls, record outcomes, and set the next step."}
       </p>
 
       <div style={{ marginTop: 16 }}>

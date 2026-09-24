@@ -421,8 +421,9 @@ export default function ResponsesPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
-  const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">("all");
-  const [statusFilter, setStatusFilter] = useState<InboxStatus | "all">("all");
+  const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("platform") as InboxPlatform) || "all");
+  const [statusFilter, setStatusFilter] = useState<InboxStatus | "all">(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("status") as InboxStatus) || "all");
+  const [kindFilter] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("kind") || "");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -545,6 +546,7 @@ export default function ResponsesPage() {
     return items.filter((it) => {
       if (platformFilter !== "all" && it.platform !== platformFilter) return false;
       if (statusFilter !== "all" && it.status !== statusFilter) return false;
+      if (kindFilter && it.kind !== kindFilter) return false;
       if (!q) return true;
 
       const hay = [
@@ -561,7 +563,7 @@ export default function ResponsesPage() {
 
       return hay.includes(q);
     });
-  }, [items, query, platformFilter, statusFilter]);
+  }, [items, query, platformFilter, statusFilter, kindFilter]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {

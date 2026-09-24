@@ -21,9 +21,9 @@ const response={NextResponse:{json:(body,opts={})=>({body,status:opts.status||20
 test("each opportunity type exposes only its intended review workflow destinations",()=>{
   const cases = [
     ["b2b_lead","prepare_outreach","/dashboard/growth/pipeline"], ["b2b_lead","route_outreach","/dashboard/growth/pipeline"],
-    ["personal_opportunity","create_content_draft","/dashboard/brainstorm"], ["personal_opportunity","route_campaign","/dashboard/campaigns/new"], ["personal_opportunity","route_publishing","/dashboard"],
+    ["personal_opportunity","create_content_draft","/dashboard/brainstorm"], ["personal_opportunity","route_campaign","/dashboard/campaigns/new"], ["personal_opportunity","route_publishing","/dashboard/publishing"],
     ["partner_opportunity","prepare_outreach","/dashboard/growth/pipeline"], ["partner_opportunity","route_outreach","/dashboard/growth/pipeline"],
-    ["social_opportunity","create_content_draft","/dashboard/brainstorm"], ["social_opportunity","route_publishing","/dashboard"], ["social_opportunity","route_responses","/dashboard/responses"],
+    ["social_opportunity","create_content_draft","/dashboard/brainstorm"], ["social_opportunity","route_publishing","/dashboard/publishing"], ["social_opportunity","route_responses","/dashboard/responses"],
   ];
   for(const [type,action,destination] of cases) {
     const plan=workflow.planAcquisitionAction(type,"accepted",action);

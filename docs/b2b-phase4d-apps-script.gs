@@ -455,3 +455,80 @@ function testPhase4DAckFailureCannotDuplicateSafe_() {
   if (!result.ok) throw new Error('PHASE4D_SAFE_REGRESSION_FAILED');
   return result;
 }
+
+/* Phase 4G LinkedIn acceptance discovery. Separate from doPost, reply classification and Phase 4D sending. */
+const LINKEDIN_ACCEPTANCE_OPS_URL_ = 'https://roothealthops.com/api/growth/linkedin-connections/ingest';
+const LINKEDIN_ACCEPTANCE_SOURCE_ENGINE_ = 'root_health_b2b';
+const LINKEDIN_ACCEPTANCE_LABEL_ = 'RootOps/LinkedIn-Acceptance-Imported';
+
+/* Install this as a time-driven trigger after deployment. It never sends email or LinkedIn messages. */
+function runLinkedInAcceptanceIntake_() {
+  const props = PropertiesService.getScriptProperties();
+  const organisationId = String(props.getProperty('OPS_ORGANISATION_ID') || '').trim();
+  const secret = String(props.getProperty('OPS_INGESTION_SECRET') || '');
+  if (organisationId !== PHASE4D_EXPECTED_ORGANISATION_ID_ || secret.length < 32) throw new Error('LINKEDIN_INTAKE_NOT_CONFIGURED');
+  const label = GmailApp.getUserLabelByName(LINKEDIN_ACCEPTANCE_LABEL_) || GmailApp.createLabel(LINKEDIN_ACCEPTANCE_LABEL_);
+  const query = 'newer_than:7d -label:"' + LINKEDIN_ACCEPTANCE_LABEL_ + '" from:(invitations@linkedin.com OR invitations@e.linkedin.com) subject:"accepted your invitation"';
+  const threads = GmailApp.search(query, 0, 50);
+  let imported = 0, duplicates = 0, failed = 0;
+  threads.forEach(function(thread) {
+    let threadSucceeded = true;
+    thread.getMessages().forEach(function(message) {
+      if (!isLinkedInAcceptanceMessage_(message)) return;
+      try {
+        const result = sendLinkedInAcceptanceToOps_(message, organisationId, secret);
+        imported += Number(result.candidatesInserted || 0);
+        duplicates += Number(result.candidatesFilteredOrDuplicate || 0);
+      } catch (error) {
+        threadSucceeded = false; failed++;
+        Logger.log('LINKEDIN ACCEPTANCE INTAKE FAILED: ' + phase4DSafeError_(error));
+      }
+    });
+    if (threadSucceeded) thread.addLabel(label);
+  });
+  const result = { ok: failed === 0, threads: threads.length, candidatesImported: imported, filteredOrDuplicate: duplicates, failed: failed };
+  Logger.log('LINKEDIN ACCEPTANCE INTAKE: ' + JSON.stringify(result));
+  return result;
+}
+
+function isLinkedInAcceptanceMessage_(message) {
+  const subject = String(message.getSubject() || '');
+  const from = String(message.getFrom() || '').toLowerCase();
+  return /accepted your invitation/i.test(subject) && /(?:^|[<@])(?:invitations@)?(?:e\.)?linkedin\.com(?:>|$)/i.test(from);
+}
+
+function sendLinkedInAcceptanceToOps_(message, organisationId, secret) {
+  const payload = {
+    organisation_id: organisationId,
+    source_engine: LINKEDIN_ACCEPTANCE_SOURCE_ENGINE_,
+    subject: String(message.getSubject() || ''),
+    sender: String(message.getFrom() || ''),
+    html: String(message.getBody() || ''),
+    gmail_message_id: String(message.getId() || ''),
+    discovered_at: message.getDate().toISOString()
+  };
+  const response = UrlFetchApp.fetch(LINKEDIN_ACCEPTANCE_OPS_URL_, {
+    method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + secret },
+    payload: JSON.stringify(payload), muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) throw new Error('LINKEDIN_INTAKE_HTTP_' + code);
+  const body = JSON.parse(response.getContentText() || '{}');
+  if (!body.success) throw new Error('LINKEDIN_INTAKE_REJECTED');
+  return body;
+}
+
+/* Safe diagnostic: reads Script Properties and tests detection only. No Gmail search, labels or HTTP calls. */
+function testLinkedInAcceptanceIntakeSafe_() {
+  const props = PropertiesService.getScriptProperties();
+  const fake = { getSubject: function() { return 'Nick Fahy accepted your invitation'; }, getFrom: function() { return 'LinkedIn <invitations@e.linkedin.com>'; } };
+  const rejected = { getSubject: function() { return 'People you may know'; }, getFrom: function() { return 'news@e.linkedin.com'; } };
+  const result = {
+    organisationCorrect: String(props.getProperty('OPS_ORGANISATION_ID') || '').trim() === PHASE4D_EXPECTED_ORGANISATION_ID_,
+    ingestionSecretPresent: String(props.getProperty('OPS_INGESTION_SECRET') || '').length >= 32,
+    acceptanceDetected: isLinkedInAcceptanceMessage_(fake), promotionalMailRejected: !isLinkedInAcceptanceMessage_(rejected)
+  };
+  result.ok = result.organisationCorrect && result.ingestionSecretPresent && result.acceptanceDetected && result.promotionalMailRejected;
+  Logger.log('LINKEDIN ACCEPTANCE SAFE DIAGNOSTIC: ' + JSON.stringify(result));
+  return result;
+}
