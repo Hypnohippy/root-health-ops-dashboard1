@@ -56,6 +56,7 @@ function fixture({ user = "user-a", memberships = [{ organisation_id: "org-a", r
   const create = async payload => { llm.push(payload); return { output_text: output, choices: [{ message: { content: output } }] }; };
   class OpenAI { responses={create};chat={completions:{create}};images={generate:create}; }
   const mocks = { "next/server": response, "openai": OpenAI, "@/lib/tenantRoute.server": wrapper, "@/lib/tenantAuth": auth, "@/lib/supabaseAdmin": { supabaseAdmin: db }, "@/lib/usage": { getCurrentOrganisationPlan: async () => "team", getMonthlyUsageForOrganisation: async () => 0, getPlanLimit: () => 150, logUsageForOrganisation: async () => {} },
+    "@/lib/growthOutreach": load("lib/growthOutreach.ts"),
     __fetch: async (_url, options) => { const payload=JSON.parse(options.body);llm.push(payload);return new Response(JSON.stringify({choices:[{message:{content:output}}]}),{headers:{"Content-Type":"application/json"}}); },
   };
   const route = file => load(file, mocks);
@@ -67,7 +68,7 @@ function fixture({ user = "user-a", memberships = [{ organisation_id: "org-a", r
 }
 function routes(dir) { return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?routes(dir+"/"+e.name):e.name==="route.ts"?[dir+"/"+e.name]:[]); }
 // These two Phase 4A routes have dedicated isolation coverage in growth-ingestion.test.mjs.
-const allRoutes=[...routes("app/api/ai"),...routes("app/api/growth").filter(path => !["app/api/growth/ingest/route.ts", "app/api/growth/acquisition/route.ts", "app/api/growth/acquisition/[id]/action/route.ts"].includes(path)), "app/api/coach/route.ts"];
+const allRoutes=[...routes("app/api/ai"),...routes("app/api/growth").filter(path => !["app/api/growth/ingest/route.ts", "app/api/growth/linkedin-connections/ingest/route.ts", "app/api/growth/acquisition/route.ts", "app/api/growth/acquisition/[id]/action/route.ts"].includes(path)), "app/api/coach/route.ts"];
 
 test("every AI/growth handler denies anonymous, foreign tenants and ambiguous memberships before business access", async () => {
   for (const file of allRoutes) {

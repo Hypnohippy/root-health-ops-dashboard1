@@ -2,28 +2,13 @@ import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isGrowthTargetDue } from "@/lib/growthOutreach";
 
 export const runtime = "nodejs";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
-
-function daysSince(date: string | null) {
-  if (!date) return 999;
-  return (Date.now() - new Date(date).getTime()) / (1000 * 60 * 60 * 24);
-}
-
-function isDue(target: any) {
-  const days = daysSince(target.last_action_at);
-
-  if (target.stage === "connection") return true;
-  if (target.stage === "day3_dm") return days >= 3;
-  if (target.stage === "day10_insight") return days >= 7;
-  if (target.stage === "day17_followup") return days >= 7;
-
-  return false;
-}
 
 export const GET = withTenantRoute(async function GET(req: Request, tenant) {
   try {
@@ -38,7 +23,7 @@ export const GET = withTenantRoute(async function GET(req: Request, tenant) {
     }
 
     const dueTargets = (targets || [])
-  .filter(isDue)
+  .filter(isGrowthTargetDue)
   .filter((t) =>
     !t.lead_quality ||
     t.lead_quality === "unreviewed" ||
@@ -71,6 +56,9 @@ RULES:
 - No emojis
 - Do not mention AI
 - Do not invent facts
+- Ground the opener in the supplied role, company or notes when available
+- Never use vague defaults such as “I noticed your work in your field”
+- Do not default to a generic “thanks for connecting” pitch
 - Use their first name naturally
 - If stage is connection, keep under 300 characters
 - If stage is later, keep concise and natural
@@ -98,7 +86,7 @@ Return only the finished message.
       success: true,
       data: results,
     });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "Unable to generate queue." }, { status: 500 });
   }
 }, { generation: true, write: true });
