@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:security": "node --test tests/tenant-security.test.mjs tests/profile.test.mjs tests/tenant-generation.test.mjs tests/growth-ingestion.test.mjs tests/acquisition-actions.test.mjs tests/email-responses.test.mjs tests/apps-script-phase4d.test.mjs tests/navigation-connect.test.mjs tests/linkedin-connection-discovery.test.mjs tests/growth-consolidation.test.mjs tests/command-centre.test.mjs tests/response-contact-context.test.mjs"
+    "test:security": "node --test tests/tenant-security.test.mjs tests/profile.test.mjs tests/tenant-generation.test.mjs tests/growth-ingestion.test.mjs tests/acquisition-actions.test.mjs tests/email-responses.test.mjs tests/apps-script-phase4d.test.mjs tests/navigation-connect.test.mjs tests/linkedin-connection-discovery.test.mjs tests/linkedin-activity-coverage.test.mjs tests/growth-consolidation.test.mjs tests/command-centre.test.mjs tests/response-contact-context.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.2.0",

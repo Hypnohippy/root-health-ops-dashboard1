@@ -1,6 +1,8 @@
 // app/api/responses/pull/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { linkedinActivityCoverageSummary } from "@/lib/linkedinActivityCoverage";
+import { accessErrorResponse, requireOrganisation } from "@/lib/tenantAuth";
 
 export const runtime = "nodejs";
 
@@ -303,6 +305,17 @@ async function pullInstagram(organisationId: string, igUserId: string, token: st
  * ✅ LinkedIn pull with detailed debug so we can see exactly what fails.
  */
 async function pullLinkedIn(organisationId: string, token: string, sinceDays: number) {
+  const coverage = linkedinActivityCoverageSummary();
+  if (!coverage.hasRelationshipEventCoverage) {
+    return {
+      ok: false,
+      platform: "linkedin",
+      error: "LinkedIn activity reading is not included in the app's approved access.",
+      status: 403,
+      capability: "additional_linkedin_approval_required",
+      hint: "Connection acceptances continue through the supported Gmail intake. LinkedIn comments, reactions, invitations and messages require additional LinkedIn product approval.",
+    };
+  }
   const debug: any = {
     step: null,
     userinfo: null,
@@ -483,13 +496,15 @@ async function pullTikTokNotImplemented() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const organisationId = norm(body?.organisationId);
+    const requestedOrganisationId = norm(body?.organisationId);
     const sinceDaysRaw = Number(body?.sinceDays ?? 14);
     const sinceDays = Math.max(1, Math.min(90, isNaN(sinceDaysRaw) ? 14 : sinceDaysRaw));
 
-    if (!organisationId) {
+    if (!requestedOrganisationId) {
       return okJson({ success: false, error: "Missing organisationId" }, 400);
     }
+
+    const { organisationId } = await requireOrganisation(requestedOrganisationId, true);
 
     const accounts = await loadActiveAccounts(organisationId);
 
@@ -543,6 +558,6 @@ export async function POST(req: NextRequest) {
       note: "Pull complete (FB/IG + LinkedIn debug).",
     });
   } catch (e: any) {
-    return okJson({ success: false, error: e?.message || "Pull failed" }, 500);
+    return accessErrorResponse(e) || okJson({ success: false, error: e?.message || "Pull failed" }, 500);
   }
 }
