@@ -44,6 +44,12 @@ type InboxItem = {
   senderEmail?: string | null;
   subject?: string | null;
   followUpAt?: string | null;
+  proposedResponse?: string | null;
+  emailReplyDraft?: string | null;
+  emailDeliveryStatus?: string | null;
+  emailSentMessageId?: string | null;
+  emailSentThreadId?: string | null;
+  emailSentAt?: string | null;
 };
 
 type ApiResponse = {
@@ -577,9 +583,12 @@ export default function ResponsesPage() {
   }, [filtered, selectedId]);
 
   useEffect(() => {
-    setReplyDraft("");
+    const item = items.find((candidate) => candidate.id === selectedId);
+    setReplyDraft(item?.platform === "email" ? item.emailReplyDraft || item.proposedResponse || "" : "");
     setAiStatus(null);
     setCopied(false);
+    // The selected ID is the intentional reset boundary; list refreshes must not overwrite active edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   // restore scroll after selection to prevent “skippy”
@@ -895,7 +904,7 @@ export default function ResponsesPage() {
     }
   };
 
-  const saveDraft = () => {
+  const saveDraft = async () => {
     if (!selected) {
       setAiStatus("Select an inbox item first.");
       setTimeout(() => setAiStatus(null), 2000);
@@ -905,6 +914,20 @@ export default function ResponsesPage() {
     if (!text) {
       setAiStatus("Nothing to save yet — generate or type a draft first.");
       setTimeout(() => setAiStatus(null), 2400);
+      return;
+    }
+
+    if (selected.platform === "email") {
+      setEmailActionBusy(true); setError(null);
+      try {
+        const org = organisationId || (await resolveOrg());
+        const res = await fetch(`/api/responses/email/${encodeURIComponent(selected.id)}/draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: org, draft: text }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || "Could not save email draft.");
+        setItems(prev => prev.map(item => item.id === selected.id ? { ...item, emailReplyDraft: text, emailDeliveryStatus: "draft" } : item));
+        setAiStatus("Email draft saved in Ops."); setTimeout(() => setAiStatus(null), 2000);
+      } catch (e) { setError(e instanceof Error ? e.message : "Could not save email draft."); }
+      finally { setEmailActionBusy(false); }
       return;
     }
 
@@ -950,6 +973,22 @@ export default function ResponsesPage() {
     setLocalStatus(selected.id, "needs_reply");
     setAiStatus("Marked as needs reply.");
     setTimeout(() => setAiStatus(null), 1800);
+  };
+
+  const approveAndSendEmail = async () => {
+    if (!selected || selected.platform !== "email") return;
+    const approvedBody = replyDraft.trim();
+    if (!approvedBody) { setAiStatus("Type or load a response before approval."); return; }
+    setEmailActionBusy(true); setError(null);
+    try {
+      const org = organisationId || (await resolveOrg());
+      const res = await fetch(`/api/responses/email/${encodeURIComponent(selected.id)}/approve-send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: org, approvedBody, idempotencyKey: crypto.randomUUID() }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "The B2B engine could not accept this email.");
+      setAiStatus(data.status === "sent" ? "Email already sent." : "Approved text sent securely to the B2B engine. Waiting for delivery acknowledgement.");
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not approve email sending."); }
+    finally { setEmailActionBusy(false); }
   };
 
   const applyEmailAction = async (action: string) => {
@@ -1222,7 +1261,7 @@ export default function ResponsesPage() {
               <div>
                 <div className="text-base font-semibold">Reply assistant</div>
                 <div className="mt-1 text-xs text-slate-300">
-                  {selected?.platform === "email" ? "Draft and classify here. Email sending remains outside Ops in this phase." : "AI draft → edit → Send reply (Facebook/Instagram)."}
+                  {selected?.platform === "email" ? "Edit and approve here. The existing B2B engine sends the exact approved text through Gmail." : "AI draft → edit → Send reply (Facebook/Instagram)."}
                 </div>
               </div>
 
@@ -1274,7 +1313,7 @@ export default function ResponsesPage() {
                     </div>
 
                     <div className="mt-3 text-sm whitespace-pre-wrap">{selected.text}</div>
-                    {selected.platform === "email" ? <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-xs"><div><b>Subject:</b> {selected.subject || "(no subject)"}</div><div><b>Classification:</b> {(selected.emailClassification || "unclassified").replaceAll("_", " ")}</div><div><b>State:</b> {(selected.responseState || "unclassified").replaceAll("_", " ")}</div>{selected.outreachReference ? <div><b>Outreach:</b> {selected.outreachReference}</div> : null}{selected.emailThreadId ? <div><b>Thread:</b> {selected.emailThreadId}</div> : null}</div> : null}
+                  {selected.platform === "email" ? <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-xs"><div><b>Sender:</b> {selected.senderEmail || selected.authorHandle || "Unknown"}</div><div><b>Subject:</b> {selected.subject || "(no subject)"}</div><div><b>Classification:</b> {(selected.emailClassification || "unclassified").replaceAll("_", " ")}</div><div><b>State:</b> {(selected.responseState || "unclassified").replaceAll("_", " ")}</div>{selected.emailDeliveryStatus ? <div><b>Delivery:</b> {selected.emailDeliveryStatus.replaceAll("_", " ")}</div> : null}{selected.outreachReference ? <div><b>Outreach:</b> {selected.outreachReference}</div> : null}{selected.emailThreadId ? <div><b>Thread:</b> {selected.emailThreadId}</div> : <div><b>Thread:</b> unavailable — engine will send safely without threading if supported</div>}</div> : null}
 
                     {selected.permalink ? (
                       <div className="mt-3 text-[11px]">
@@ -1310,6 +1349,7 @@ export default function ResponsesPage() {
                   </div>
 
                   {selected.platform === "email" ? <div className="grid grid-cols-2 gap-2">
+                    <button type="button" disabled={emailActionBusy || !replyDraft.trim() || selected.emailDeliveryStatus === "sent"} onClick={() => void approveAndSendEmail()} className="col-span-2 rounded-2xl bg-violet-500 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">{emailActionBusy ? "Working…" : selected.emailDeliveryStatus === "sent" ? "Sent" : "Approve & Send"}</button>
                     {[["mark_no_reply","No reply needed"],["set_follow_up","Set follow-up"],["nurture","Nurture"],["closed_lost","Closed / lost"],["engaged","Engaged"],["converted","Converted"]].map(([id,label]) => <button key={id} type="button" disabled={emailActionBusy} onClick={() => void applyEmailAction(id)} className="rounded-2xl border border-violet-300/30 bg-violet-300/10 px-3 py-2 text-xs font-semibold disabled:opacity-50">{label}</button>)}
                   </div> : null}
 
@@ -1325,7 +1365,7 @@ export default function ResponsesPage() {
 
                     <button
                       type="button"
-                      onClick={saveDraft}
+                      onClick={() => void saveDraft()}
                       disabled={!replyDraft.trim()}
                       className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >

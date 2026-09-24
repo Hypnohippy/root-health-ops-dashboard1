@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("inbox_items")
       .select(
-        "id, organisation_id, platform, status, kind, author_name, author_handle, text, permalink, created_at_platform, inserted_at, post_text, post_id, external_id, last_reply_text, last_replied_at, email_classification, response_state, email_thread_id, email_message_id, in_reply_to, outreach_reference, sender_email, email_subject, follow_up_at"
+        "id, organisation_id, platform, status, kind, author_name, author_handle, text, permalink, created_at_platform, inserted_at, post_text, post_id, external_id, last_reply_text, last_replied_at, email_classification, response_state, email_thread_id, email_message_id, in_reply_to, outreach_reference, sender_email, email_subject, follow_up_at, proposed_response, email_reply_draft, email_delivery_status, email_sent_message_id, email_sent_thread_id, email_sent_at"
 
       )
       .eq("organisation_id", verified.organisationId)
@@ -58,6 +58,12 @@ export async function GET(req: NextRequest) {
       senderEmail: r.sender_email ?? null,
       subject: r.email_subject ?? null,
       followUpAt: r.follow_up_at ?? null,
+      proposedResponse: r.proposed_response ?? null,
+      emailReplyDraft: r.email_reply_draft ?? null,
+      emailDeliveryStatus: r.email_delivery_status ?? null,
+      emailSentMessageId: r.email_sent_message_id ?? null,
+      emailSentThreadId: r.email_sent_thread_id ?? null,
+      emailSentAt: r.email_sent_at ?? null,
     }));
 
     return okJson({
