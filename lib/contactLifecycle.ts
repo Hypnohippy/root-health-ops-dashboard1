@@ -1,3 +1,5 @@
+import { growthFollowUpDueAt } from "@/lib/growthOutreach";
+
 /** Read-only projection. No persisted identity, workflow transitions or sending. */
 export type LifecycleTable = "acquisition_items" | "inbox_items" | "growth_targets";
 export type LifecycleRow = { id: string; organisation_id: string; [key: string]: unknown };
@@ -71,9 +73,10 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
     else if (row.deal_stage === "meeting" || row.reply_status === "call_booked") currentStage = "meeting";
     else if (["engaged", "opportunity"].includes(String(row.deal_stage)) || ["positive", "interested", "engaged"].includes(String(row.reply_status))) currentStage = "engaged";
     else if (stage === "parked" || status === "parked") currentStage = "nurture";
+    else if (status === "waiting") currentStage = "waiting";
     else if (status === "active") currentStage = stage === "connection" ? "outreach_ready" : ["day3_dm", "day10_insight", "day17_followup"].includes(stage || "") ? "follow_up" : "unknown";
     nextAction = ({ outreach_ready: "connection", follow_up: stage, engaged: "review_engagement", meeting: "review_meeting", nurture: "review_nurture" } as Partial<Record<LifecycleStage, string>>)[currentStage] || null;
-    if (currentStage === "follow_up" && date(row.last_action_at)) nextDueDate = new Date(Date.parse(String(row.last_action_at)) + (stage === "day3_dm" ? 3 : 7) * 86400000).toISOString();
+    if (currentStage === "follow_up") nextDueDate = growthFollowUpDueAt({ stage, last_action_at: text(row.last_action_at) });
     if (currentStage === "meeting") nextDueDate = date(row.call_date);
     if (!["converted", "lost", "unknown"].includes(currentStage) && text(row.next_step)) {
       nextAction = text(row.next_step);
@@ -98,7 +101,7 @@ function addAlias(index: Map<string, Set<string>>, alias: string | null, identit
 }
 const unique = (values?: Set<string>) => values?.size === 1 ? [...values][0] : null;
 
-export function buildContactLifecycle(organisationId: string, input: LifecycleInput) {
+export function buildContactLifecycle(organisationId: string, input: LifecycleInput, now = Date.now()) {
   if (!organisationId.trim()) throw new Error("Organisation is required.");
   const rows = (Object.keys(input) as LifecycleTable[]).flatMap(table => input[table]
     .filter(row => row.organisation_id === organisationId).map(row => project(table, row)));
@@ -126,6 +129,7 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
       name: members.find(p => p.name)?.name || null, company: members.find(p => p.company)?.company || null,
       currentStage: winner.currentStage, lastAction: actions[0] || null, nextAction: winner.nextAction,
       nextDueDate: winner.nextDueDate, channel: winner.channel, source: winner.source,
+      followUpStatus: winner.currentStage === "follow_up" && winner.nextDueDate ? (Date.parse(winner.nextDueDate) <= now ? "due" : "waiting") : null,
       records: members.map(p => ({ table: p.table, id: p.row.id, stage: p.currentStage, source: p.source })),
     };
   });

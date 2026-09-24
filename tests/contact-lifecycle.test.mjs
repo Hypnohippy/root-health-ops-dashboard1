@@ -13,7 +13,7 @@ function load(file, dependencies = {}) {
   } }, { filename: file });
   return mod.exports;
 }
-const model = load("lib/contactLifecycle.ts");
+const model = load("lib/contactLifecycle.ts", { "@/lib/growthOutreach": load("lib/growthOutreach.ts") });
 const row = (id, fields = {}) => ({ id, organisation_id: "tenant-a", ...fields });
 const build = (input) => JSON.parse(JSON.stringify(model.buildContactLifecycle("tenant-a", { acquisition_items: [], inbox_items: [], growth_targets: [], ...input })));
 
@@ -91,7 +91,7 @@ test("GET authenticates, scopes and pages every read; failures never return part
   const calls = [];
   let authorised = true;
   let fail = false;
-  const route = load("app/api/growth/lifecycle/route.ts", {
+  const dependencies = {
     "next/server": { NextResponse: { json: (body, options) => ({ body, options }) } },
     "@/lib/contactLifecycle": model,
     "@/lib/tenantRoute.server": { withTenantRoute: (handler, options) => {
@@ -106,7 +106,9 @@ test("GET authenticates, scopes and pages every read; failures never return part
       } };
       return query;
     } } },
-  });
+  };
+  dependencies["@/lib/lifecycleSnapshot.server"] = load("lib/lifecycleSnapshot.server.ts", dependencies);
+  const route = load("app/api/growth/lifecycle/route.ts", dependencies);
   const result = await route.GET({});
   assert.equal(result.body.data.length, 500);
   assert.equal(calls.length, 4);
