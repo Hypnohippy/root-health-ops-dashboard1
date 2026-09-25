@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { tenantFetch } from "@/lib/tenantFetch";
+import LifecycleContactLookup from "./LifecycleContactLookup";
 
 type Summary = {
   contactsInspected: number;
@@ -59,6 +60,7 @@ export default function LifecycleReconciliationControl() {
         </dl>}
         {error && <p className="text-red-300">Errors: {error}</p>}
       </div>
+      <LifecycleContactLookup />
     </details>
   );
 }
