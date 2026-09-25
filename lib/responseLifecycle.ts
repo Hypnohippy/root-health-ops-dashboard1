@@ -12,10 +12,11 @@ export function presentResponseLifecycle(contact: Contact, item: LifecycleRow) {
   const currentChannel = !contact.channel || contact.channel === item.platform;
   const supportedChannel = ["email", "linkedin", "facebook", "instagram", "threads", "reddit", "tiktok"].includes(String(item.platform));
   const correctReply = !actionItemId || actionItemId === item.id;
+  const engineAction = contact.actionRecord.table === "acquisition_items" && contact.engineEvidence?.some(e => e.sourceEngine === contact.source);
   const ownsAction = contact.actionRecord.table === "inbox_items" && contact.actionRecord.id === item.id;
   const deliveryIssue = ownsAction && item.platform === "email" && item.email_classification === "bounce" && stage === "lost";
   const redirect = ownsAction && item.platform === "email" && item.email_classification === "redirect" && ["follow_up", "needs_reply"].includes(stage);
-  const canDraft = !deliveryIssue && !redirect && supportedChannel && currentChannel && correctReply && !closed.has(stage) && ["outreach_ready", "needs_reply", "follow_up", "engaged", "meeting", "nurture"].includes(stage);
+  const canDraft = !engineAction && !deliveryIssue && !redirect && supportedChannel && currentChannel && correctReply && !closed.has(stage) && ["outreach_ready", "needs_reply", "follow_up", "engaged", "meeting", "nurture"].includes(stage);
   const humanActionRequired = deliveryIssue || redirect || stage === "needs_reply" || stage === "outreach_ready" || (stage === "follow_up" && due) || stage === "meeting";
   const onRequest = canDraft && !actionItemId && (["engaged", "meeting", "nurture"].includes(stage) || (stage === "follow_up" && !due));
   const nextAction = deliveryIssue ? "Review delivery failure and contact details" : redirect ? "Review referral or redirect instructions" : stage === "follow_up" ? (due ? "Follow up" : "Wait for scheduled follow-up")
@@ -26,7 +27,7 @@ export function presentResponseLifecycle(contact: Contact, item: LifecycleRow) {
     lastAction: contact.lastAction, nextAction, nextDueDate: contact.nextDueDate, channel: contact.channel,
     humanActionRequired, canDraft, draftOnRequest: onRequest, actionItemId,
     canMarkContacted: canDraft && stage === "outreach_ready" && item.platform === "linkedin" && item.kind === "connection_accepted" && item.status !== "replied" && !item.contacted_at && !item.last_replied_at,
-    blockedReason: canDraft ? null : deliveryIssue ? "Resolve the delivery issue before further outreach." : redirect ? "Review the intended recipient or destination before drafting." : closed.has(stage) ? "This contact is closed; outreach drafting is unavailable."
+    blockedReason: canDraft ? null : engineAction ? "Review the current action in the source engine; this snapshot does not authorize a message." : deliveryIssue ? "Resolve the delivery issue before further outreach." : redirect ? "Review the intended recipient or destination before drafting." : closed.has(stage) ? "This contact is closed; outreach drafting is unavailable."
       : !supportedChannel ? "Message drafting is not available for this channel."
       : !correctReply ? "Open the current reply to respond; this event is history."
       : !currentChannel ? `The next action belongs to ${contact.channel}; this event is history.`

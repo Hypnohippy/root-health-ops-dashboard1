@@ -13,7 +13,7 @@ function load(file, dependencies = {}) {
   } }, { filename: file });
   return mod.exports;
 }
-const model = load("lib/contactLifecycle.ts", { "@/lib/growthOutreach": load("lib/growthOutreach.ts") });
+const model = load("lib/contactLifecycle.ts", { "@/lib/engineState": load("lib/engineState.ts"), "@/lib/growthOutreach": load("lib/growthOutreach.ts") });
 const row = (id, fields = {}) => ({ id, organisation_id: "tenant-a", ...fields });
 const build = (input) => JSON.parse(JSON.stringify(model.buildContactLifecycle("tenant-a", { acquisition_items: [], inbox_items: [], growth_targets: [], ...input })));
 
