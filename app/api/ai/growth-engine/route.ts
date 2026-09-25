@@ -2,6 +2,7 @@ import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isGrowthTargetDue } from "@/lib/growthOutreach";
 
 export const runtime = "nodejs";
 
@@ -106,6 +107,60 @@ export const POST = withTenantRoute(
         );
       }
 
+      const { data: targets, error: targetsError } =
+        await supabaseAdmin
+          .from("growth_targets")
+          .select(
+            "id,target_name,company,role_title,linkedin_url,stage,status,lead_quality,notes,reply_status,reply_notes,deal_stage,created_at,last_action_at"
+          )
+          .eq(
+            "organisation_id",
+            tenant.organisationId
+          )
+          .eq("status", "active")
+          .order("created_at", {
+            ascending: false,
+          });
+
+      if (targetsError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: targetsError.message,
+          },
+          { status: 500 }
+        );
+      }
+
+      const dueTargets = (targets || [])
+        .filter(isGrowthTargetDue)
+        .filter(
+          (target) =>
+            !target.lead_quality ||
+            target.lead_quality === "unreviewed" ||
+            target.lead_quality === "valid"
+        )
+        .slice(0, 10);
+
+      const outreachContext = dueTargets.map(
+        (target) => ({
+          id: target.id,
+          name: target.target_name || "",
+          company: target.company || "",
+          role: target.role_title || "",
+          stage: target.stage || "connection",
+          notes: target.notes || "",
+          replyStatus:
+            target.reply_status || "no_reply",
+          replyNotes:
+            target.reply_notes || "",
+          dealStage:
+            target.deal_stage || "lead",
+          linkedinUrl:
+            target.linkedin_url || "",
+        })
+      );
+
       const prompt = `
 You are a world-class growth strategist creating a DAILY growth pack for the business described below.
 
@@ -138,11 +193,16 @@ Preferred CTA: ${callToAction || "No fixed CTA supplied"}
 Destination: ${destinationUrl || "No destination supplied"}
 Brand tone: ${tone || "Use a natural professional UK tone"}
 
+TODAY'S ACTUAL OUTREACH TARGETS:
+${JSON.stringify(outreachContext)}
+
 RULES:
 - Use the real supplied business facts.
+- Use the actual outreach target names supplied above.
 - NEVER output placeholders.
 - NEVER output bracketed placeholder text such as [Name], [topic], [field], [audience], [offer], [problem], [organisation], [specific point], or anything similar.
-- If a detail is unknown, write naturally around it rather than inserting a placeholder.
+- If a target has no company, role or notes, write naturally around the missing detail.
+- Never invent a company, role, fact, post, interest or relationship.
 - Do not invent lived founder experiences.
 - Do not invent customer results, testimonials, statistics, certifications or product features.
 - No hype.
@@ -151,10 +211,11 @@ RULES:
 - UK spelling.
 - Human, thoughtful, useful and natural.
 - Avoid repetitive marketing formulas.
-- LinkedIn posts should be complete publishable drafts, not templates.
-- Connection messages should be complete reusable messages that do not require placeholders.
-- Connection messages must stay under 300 characters.
-- DM and follow-up messages should also be complete reusable drafts with no placeholders.
+- LinkedIn posts must be complete publishable drafts, not templates.
+- Each outreach message must be personalised to the named target.
+- For connection-stage targets, keep the message under 300 characters.
+- For later-stage targets, keep the message concise and natural.
+- Do not default to vague phrases such as "your current priorities caught my attention" unless actual supplied context supports that statement.
 - Return valid JSON only.
 - No markdown.
 - No explanation outside the JSON.
@@ -179,12 +240,16 @@ RETURN THIS EXACT JSON SHAPE:
       "copy": "complete publishable LinkedIn post"
     }
   ],
-  "connection_messages": [
-    "complete message",
-    "complete message"
+  "outreach_targets": [
+    {
+      "id": "exact target id supplied above",
+      "name": "exact target name supplied above",
+      "stage": "exact target stage supplied above",
+      "message": "complete personalised message"
+    }
   ],
-  "dm_message": "complete reusable post-connection DM",
-  "follow_up_message": "complete reusable follow-up",
+  "dm_message": "complete reusable post-connection DM with no placeholders",
+  "follow_up_message": "complete reusable follow-up with no placeholders",
   "seo_article": {
     "title": "complete title",
     "outline": [
@@ -195,26 +260,29 @@ RETURN THIS EXACT JSON SHAPE:
 
 CONTENT REQUIREMENTS:
 1. Create exactly 3 meaningfully different LinkedIn post options.
-2. The 3 posts should not simply rewrite the same idea.
-3. Create 10 connection message variations.
-4. Create one post-connection DM.
-5. Create one soft follow-up.
-6. Create one SEO article title and useful outline.
+2. The 3 posts must not simply rewrite the same idea.
+3. Create exactly one outreach message for every supplied outreach target.
+4. Preserve each target's exact id and name.
+5. Create one reusable post-connection DM.
+6. Create one soft follow-up.
+7. Create one SEO article title and useful outline.
 `;
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-5.6-terra",
-        messages: [
-          ...tenant.messages,
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      });
+      const completion =
+        await openai.chat.completions.create({
+          model: "gpt-5.6-terra",
+          messages: [
+            ...tenant.messages,
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        });
 
       const text =
-        completion.choices[0].message?.content || "{}";
+        completion.choices[0].message
+          ?.content || "{}";
 
       let parsed: any;
 
@@ -233,7 +301,9 @@ CONTENT REQUIREMENTS:
       }
 
       if (
-        !Array.isArray(parsed.linkedin_posts) ||
+        !Array.isArray(
+          parsed.linkedin_posts
+        ) ||
         parsed.linkedin_posts.length !== 3
       ) {
         return NextResponse.json(
@@ -247,14 +317,45 @@ CONTENT REQUIREMENTS:
       }
 
       if (
-        !Array.isArray(parsed.connection_messages) ||
-        parsed.connection_messages.length === 0
+        !Array.isArray(
+          parsed.outreach_targets
+        )
       ) {
         return NextResponse.json(
           {
             success: false,
             error:
-              "AI did not return connection messages.",
+              "AI did not return the outreach target list.",
+          },
+          { status: 500 }
+        );
+      }
+
+      const expectedIds = new Set(
+        dueTargets.map((target) =>
+          String(target.id)
+        )
+      );
+
+      const returnedIds = new Set(
+        parsed.outreach_targets.map(
+          (target: any) =>
+            String(target?.id || "")
+        )
+      );
+
+      if (
+        expectedIds.size !==
+          returnedIds.size ||
+        [...expectedIds].some(
+          (id) => !returnedIds.has(id)
+        )
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "AI did not return exactly the same outreach targets supplied by Ops.",
           },
           { status: 500 }
         );
@@ -272,27 +373,44 @@ CONTENT REQUIREMENTS:
       }
 
       const firstLinkedInPost =
-        parsed.linkedin_posts?.[0]?.copy || "";
+        parsed.linkedin_posts?.[0]?.copy ||
+        "";
 
-      const { data, error } = await supabaseAdmin
-        .from("growth_plans")
-        .insert({
-          organisation_id: tenant.organisationId,
-          day_number: day,
-          target: audience,
-          linkedin_post: firstLinkedInPost,
-          connection_messages:
-            parsed.connection_messages || [],
-          dm_message: parsed.dm_message || "",
-          follow_up_message:
-            parsed.follow_up_message || "",
-          seo_article:
-            parsed.seo_article || {},
-          raw_output: parsed,
-          status: "generated",
-        })
-        .select("id")
-        .single();
+      const connectionMessages =
+        parsed.outreach_targets.map(
+          (target: any) =>
+            target?.message || ""
+        );
+
+      const { data, error } =
+        await supabaseAdmin
+          .from("growth_plans")
+          .insert({
+            organisation_id:
+              tenant.organisationId,
+            day_number: day,
+            target: audience,
+            linkedin_post:
+              firstLinkedInPost,
+            connection_messages:
+              connectionMessages,
+            dm_message:
+              parsed.dm_message || "",
+            follow_up_message:
+              parsed.follow_up_message || "",
+            seo_article:
+              parsed.seo_article || {},
+            raw_output: {
+              ...parsed,
+              outreach_source:
+                "growth_targets",
+              outreach_target_count:
+                dueTargets.length,
+            },
+            status: "generated",
+          })
+          .select("id")
+          .single();
 
       if (error) {
         return NextResponse.json(
@@ -307,7 +425,11 @@ CONTENT REQUIREMENTS:
       return NextResponse.json({
         success: true,
         id: data.id,
-        data: parsed,
+        data: {
+          ...parsed,
+          outreach_target_count:
+            dueTargets.length,
+        },
       });
     } catch (error: any) {
       return NextResponse.json(
@@ -321,5 +443,8 @@ CONTENT REQUIREMENTS:
       );
     }
   },
-  { generation: true, write: true }
+  {
+    generation: true,
+    write: true,
+  }
 );
