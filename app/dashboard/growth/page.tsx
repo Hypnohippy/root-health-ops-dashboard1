@@ -137,9 +137,11 @@ export default function GrowthPage() {
       await generateDailyQueue();
       await loadFollowups();
 
-      setRunMessage(
-        "Today’s plan is approved and running. Personalised outreach due today has been prepared below. Nothing has been sent automatically yet."
-      );
+     setRunMessage(
+  json.alreadyQueued
+    ? "Today’s plan was already approved. The LinkedIn post is already queued, and personalised outreach due today has been prepared below."
+    : "Today’s plan is approved and running. The LinkedIn post has been queued automatically, and personalised outreach due today has been prepared below."
+);
     } catch (err: any) {
       alert(err.message || "Could not run today’s plan.");
     }
