@@ -1,6 +1,8 @@
 // app/dashboard/responses/page.tsx
 "use client";
 
+import ResponseLifecycleDetails from "./ResponseLifecycleDetails";
+import type { ResponseLifecycle } from "@/lib/responseLifecycle";
 import { tenantFetch } from "@/lib/tenantFetch";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -19,6 +21,7 @@ type InboxStatus = "unread" | "needs_reply" | "replied" | "archived" | "unknown"
 
 type InboxItem = {
   id: string;
+  lifecycle?: ResponseLifecycle | null;
   platform: InboxPlatform;
   status: InboxStatus;
 
@@ -56,6 +59,7 @@ type InboxItem = {
 type ContactBriefing = {
   interactionType: string; messageType: string; name:string|null; role:string|null; company:string|null; sector:string|null;
   source:string; whyRelevant:string; relationship:string; latestEvent:string; whatWeKnow:string[]; history:string[];
+  lifecycle?: ResponseLifecycle;
   lastAction:string|null; currentStage:string|null; buyingSignalLabel:string; objective:string;
 };
 
@@ -78,7 +82,6 @@ type SavedDraft = {
 };
 
 const STORAGE_KEY_DRAFTS = "rootops_saved_response_drafts_v1";
-const STORAGE_KEY_STATUS = "rootops_inbox_status_overrides_v1";
 
 const PLATFORM_LABEL: Record<InboxPlatform, string> = {
   facebook: "Facebook",
@@ -116,12 +119,6 @@ function statusTone(s: InboxStatus): "good" | "warn" | "neutral" {
   return "neutral";
 }
 
-function clampText(s: string, max = 900) {
-  const t = (s || "").trim();
-  if (t.length <= max) return t;
-  return t.slice(0, max) + "…";
-}
-
 function makeSnippet(s: string, max = 80) {
   const t = (s || "").replace(/\s+/g, " ").trim();
   if (t.length <= max) return t;
@@ -129,260 +126,17 @@ function makeSnippet(s: string, max = 80) {
 }
 
 /** ✅ Detect “system helper / ops UI” responses that are NOT paste-ready replies */
-function looksLikeSystemHelper(raw: string) {
-  const t = (raw || "").toLowerCase();
-  if (!t.trim()) return true;
-
-  const bad = [
-    "option a",
-    "option b",
-    "post now",
-    "post the reply",
-    "save for later",
-    "drafted successfully",
-    "sent smoothly",
-    "no channels have posted",
-    "choose where to send",
-    "reply didn’t go through",
-    "didn't go through",
-    "didn’t post",
-    "didn't post",
-    "looks like your reply",
-    "great news",
-    "ready to go",
-    "let’s try sending it again",
-    "let’s get it out there",
-  ];
-
-  return bad.some((x) => t.includes(x));
-}
-
-/**
- * Strip “Option A/B”, “post didn’t go through”, “save for later”, etc.
- * If it still looks like UI/ops language after cleaning, return "" to force fallback.
- */
-function sanitizeAiReply(raw: string) {
-  const t = (raw || "").trim();
-  if (!t) return "";
-
-  const lower = t.toLowerCase();
-  const looksBad =
-    looksLikeSystemHelper(t) ||
-    lower.includes("option a") ||
-    lower.includes("option b") ||
-    lower.includes("save") ||
-    lower.includes("post");
-
-  if (!looksBad) return t;
-
-  const cleaned = t
-    .split("\n")
-    .map((l) => l.trimEnd())
-    .filter((l) => {
-      const ll = l.toLowerCase().trim();
-      if (!ll) return true;
-      if (ll.startsWith("option a")) return false;
-      if (ll.startsWith("option b")) return false;
-      if (ll.includes("post") && ll.includes("reply")) return false;
-      if (ll.includes("save") && ll.includes("later")) return false;
-      if (ll.includes("great news")) return false;
-      if (ll.includes("drafted successfully")) return false;
-      if (ll.includes("sent smoothly")) return false;
-      if (ll.includes("no channels")) return false;
-      if (ll.includes("choose where")) return false;
-      if (ll.includes("looks like your reply")) return false;
-      if (ll.includes("ready to go")) return false;
-      if (ll.includes("didn't go through")) return false;
-      if (ll.includes("didn’t go through")) return false;
-      if (ll.includes("didn't post")) return false;
-      if (ll.includes("didn’t post")) return false;
-      return true;
-    })
-    .join("\n")
-    .trim();
-
-  if (!cleaned) return "";
-  if (looksLikeSystemHelper(cleaned)) return "";
-
-  return cleaned;
-}
-
-/** If AI response is super generic, prefer the local fallback */
-function isTooGeneric(ai: string, original: string) {
-  const a = (ai || "").trim().toLowerCase();
-  const o = (original || "").trim().toLowerCase();
-  if (!a) return true;
-
-  const genericSignals = [
-    "thanks so much for your comment",
-    "we really appreciate your support",
-    "have a great day",
-    "here if you have any questions",
-  ];
-  const looksGeneric = genericSignals.some((x) => a.includes(x));
-
-  const originalHasConcern =
-    o.includes("overwhelm") ||
-    o.includes("overwhelmed") ||
-    o.includes("anx") ||
-    o.includes("panic") ||
-    o.includes("stress") ||
-    o.includes("burnout") ||
-    o.includes("ptsd") ||
-    o.includes("depress");
-
-  const originalHasQuestion =
-    o.includes("?") ||
-    o.startsWith("how") ||
-    o.startsWith("what") ||
-    o.startsWith("why") ||
-    o.includes("any small") ||
-    o.includes("first step");
-
-  const aiMentionsConcern =
-    a.includes("overwhelm") ||
-    a.includes("stress") ||
-    a.includes("anx") ||
-    a.includes("panic") ||
-    a.includes("small step") ||
-    a.includes("first step") ||
-    a.includes("try");
-
-  if (looksGeneric && (originalHasConcern || originalHasQuestion) && !aiMentionsConcern)
-    return true;
-
-  if (looksGeneric && a.length < 180) return true;
-
-  return false;
-}
-
-/**
- * Local fallback drafter (enterprise-safe).
- * Used whenever AI drifts into “posting UI” language or becomes generic.
- */
-function draftReplyLocal({
-  platform,
-  authorName,
-  text,
-  postText,
-}: {
-  platform: InboxPlatform;
-  authorName?: string | null;
-  text: string;
-  postText?: string | null;
-}) {
-  const name = (authorName || "").trim();
-  const greeting = name ? `Hi ${name} — ` : "Thanks for this — ";
-
-  const t = (text || "").trim();
-  const tl = t.toLowerCase();
-
-  const isPraise =
-    tl.includes("love") ||
-    tl.includes("great") ||
-    tl.includes("amazing") ||
-    tl.includes("thank") ||
-    tl.includes("helpful") ||
-    tl.includes("brilliant");
-
-  const isQuestion =
-    tl.includes("?") ||
-    tl.startsWith("how") ||
-    tl.startsWith("what") ||
-    tl.startsWith("why") ||
-    tl.startsWith("any ") ||
-    tl.startsWith("can ");
-
-  const isConcern =
-    tl.includes("struggle") ||
-    tl.includes("anxious") ||
-    tl.includes("anxiety") ||
-    tl.includes("panic") ||
-    tl.includes("depress") ||
-    tl.includes("ptsd") ||
-    tl.includes("stress") ||
-    tl.includes("overwhelm") ||
-    tl.includes("overwhelmed") ||
-    tl.includes("burnout");
-
-  const isNegative =
-    tl.includes("hate") ||
-    tl.includes("bad") ||
-    tl.includes("terrible") ||
-    tl.includes("worst") ||
-    tl.includes("scam") ||
-    tl.includes("fake") ||
-    tl.includes("useless");
-
-  const platformLine =
-    platform === "linkedin"
-      ? "If you’d like, I can share a quick example you can try this week."
-      : platform === "instagram" || platform === "threads"
-      ? "If you want, reply “yes” and I’ll share a simple next step."
-      : "If you want, tell me a bit more and I’ll point you to a simple next step.";
-
-  const contextHint =
-    postText && postText.trim()
-      ? `\n\n(For context: this was in reply to your post about “${postText
-          .trim()
-          .slice(0, 120)}${postText.trim().length > 120 ? "…" : ""}”)`
-      : "";
-
-  if (isConcern) {
-    return (
-      `${greeting}I really appreciate you sharing that.\n\n` +
-      `A gentle first step is to pick one small thing you can do today — something you can repeat without pressure.\n\n` +
-      `For example: 60 seconds of slow breathing, a short walk, or writing down the next one thing you can control.\n\n` +
-      `${platformLine}\n\n` +
-      `If this feels urgent or you’re not safe, please reach out to local support services right away.` +
-      contextHint
-    );
-  }
-
-  if (isNegative) {
-    return (
-      `${greeting}I hear you.\n\n` +
-      `I’m sorry it landed that way — if you’re open to it, tell me what part didn’t work for you and I’ll try to make it clearer or point you to something more useful.\n\n` +
-      `No pressure either way.` +
-      contextHint
-    );
-  }
-
-  if (isPraise) {
-    return (
-      `${greeting}that means a lot — thank you.\n\n` +
-      `What part resonated most for you? I’m shaping the next posts around what people find genuinely useful.\n\n` +
-      `${platformLine}` +
-      contextHint
-    );
-  }
-
-  if (isQuestion) {
-    return (
-      `${greeting}good question.\n\n` +
-      `A simple way to start is: choose one clear outcome (e.g., “feel calmer in 2 minutes”), then pick one repeatable action you can do daily.\n\n` +
-      `If you tell me your situation (work / study / home), I’ll tailor a short, practical version.` +
-      contextHint
-    );
-  }
-
-  return (
-    `${greeting}thanks for taking the time to comment.\n\n` +
-    `If you tell me what you’re aiming for right now (more energy, less stress, better routine), I’ll suggest one small next step you can try.` +
-    contextHint
-  );
-}
-
-function contactAwareFallback(context: ContactBriefing | null, item: InboxItem) {
-  if (context?.interactionType !== "linkedin_connection_first_message") return draftReplyLocal({ platform:item.platform, authorName:item.authorName, text:item.text, postText:item.postText });
-  const first = (context.name || item.authorName || "").trim().split(/\s+/)[0];
-  const greeting = first ? `Hi ${first}, thanks for connecting.` : "Thanks for connecting.";
-  const known = context.role && context.company ? ` Your role as ${context.role} at ${context.company} caught my attention.` : context.role ? ` Your work as ${context.role} caught my attention.` : context.company ? ` Your work at ${context.company} caught my attention.` : "";
-  return `${greeting}${known} I’d be interested to hear what is getting most attention in your remit at the moment.`;
-}
-
 const isLinkedInAcceptance = (item?: InboxItem | null) => item?.platform === "linkedin" && item.kind === "connection_accepted";
-const customerStatus = (item: InboxItem) => isLinkedInAcceptance(item) ? "first message opportunity" : item.status === "needs_reply" ? "needs reply" : item.status === "unread" ? "unread" : item.status === "replied" ? "replied" : item.status;
+const customerStatus = (item: InboxItem) => item.lifecycle?.label || "State unavailable";
+const responseFilterStatus = (item: InboxItem): InboxStatus => {
+  const lifecycle = item.lifecycle;
+  if (!lifecycle) return "unknown";
+  if (lifecycle.humanActionRequired && lifecycle.currentStage !== "outreach_ready") return "needs_reply";
+  if (["converted", "lost", "dismissed", "no_reply_needed"].includes(lifecycle.currentStage)) return "archived";
+  if (lifecycle.currentStage === "outreach_ready") return "unread";
+  return lifecycle.humanActionRequired ? "needs_reply" : "replied";
+};
+
 
 function readSavedDrafts(): SavedDraft[] {
   if (typeof window === "undefined") return [];
@@ -403,26 +157,7 @@ function writeSavedDrafts(next: SavedDraft[]) {
   } catch {}
 }
 
-type StatusOverrides = Record<string, InboxStatus>;
 
-function readStatusOverrides(): StatusOverrides {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY_STATUS);
-    const parsed = raw ? JSON.parse(raw) : null;
-    if (!parsed || typeof parsed !== "object") return {};
-    return parsed as StatusOverrides;
-  } catch {
-    return {};
-  }
-}
-
-function writeStatusOverrides(next: StatusOverrides) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY_STATUS, JSON.stringify(next));
-  } catch {}
-}
 
 export default function ResponsesPage() {
   const [loading, setLoading] = useState(true);
@@ -455,20 +190,17 @@ export default function ResponsesPage() {
   const [savedDrafts, setSavedDrafts] = useState<SavedDraft[]>([]);
   const [showSaved, setShowSaved] = useState(false);
 
-  // Local status overrides to stop “replied → snaps back”
-  const statusOverridesRef = useRef<StatusOverrides>({});
-
   // Prevent jump-to-top on select
   const listScrollYRef = useRef<number>(0);
 
   useEffect(() => {
     setSavedDrafts(readSavedDrafts());
-    statusOverridesRef.current = readStatusOverrides();
+
   }, []);
 
   const resolveOrg = async () => {
     const res = await tenantFetch("/api/social-accounts", { method: "GET" });
-    const data: any = await res.json().catch(() => null);
+    const data = await res.json().catch(() => null);
 
     const org =
       typeof data?.organisationId === "string"
@@ -480,12 +212,6 @@ export default function ResponsesPage() {
     if (!org) throw new Error("Workspace not loaded yet. Please refresh and try again.");
     setOrganisationId(org);
     return org;
-  };
-
-  const applyOverrides = (rows: InboxItem[]) => {
-    const ov = statusOverridesRef.current || {};
-    if (!ov || Object.keys(ov).length === 0) return rows;
-    return rows.map((x) => (ov[x.id] ? { ...x, status: ov[x.id] } : x));
   };
 
   const load = async () => {
@@ -500,18 +226,18 @@ export default function ResponsesPage() {
         cache: "no-store",
       });
 
-      const data: ApiResponse = await res.json().catch(() => ({ success: false } as any));
+      const data: ApiResponse = await res.json().catch(() => ({ success: false }));
 
       if (!res.ok || data?.success === false) {
         throw new Error(data?.error || `Failed to load inbox (HTTP ${res.status}).`);
       }
 
       const rows = Array.isArray(data?.items) ? data.items : [];
-      setItems(applyOverrides(rows));
+      setItems(rows);
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
-    } catch (e: any) {
-      setError(e?.message || "Could not load responses inbox.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load responses inbox.");
       setItems([]);
       setNote(null);
       setConfigured(false);
@@ -541,7 +267,7 @@ export default function ResponsesPage() {
         body: JSON.stringify({ organisationId: org }),
       });
 
-      const data: any = await res.json().catch(() => null);
+      const data = await res.json().catch(() => null);
       if (!res.ok || !data?.success) {
         throw new Error(data?.error || `Pull failed (HTTP ${res.status}).`);
       }
@@ -549,8 +275,8 @@ export default function ResponsesPage() {
       setAiStatus(`Pulled ${data?.pulled || 0} item(s). Refreshing list…`);
       await load();
       setTimeout(() => setAiStatus(null), 2600);
-    } catch (e: any) {
-      setError(e?.message || "Could not pull latest comments.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not pull latest comments.");
     } finally {
       setPulling(false);
     }
@@ -565,7 +291,7 @@ export default function ResponsesPage() {
     const q = query.trim().toLowerCase();
     return items.filter((it) => {
       if (platformFilter !== "all" && it.platform !== platformFilter) return false;
-      if (statusFilter !== "all" && it.status !== statusFilter) return false;
+      if (statusFilter !== "all" && responseFilterStatus(it) !== statusFilter) return false;
       if (kindFilter && it.kind !== kindFilter) return false;
       if (!q) return true;
 
@@ -593,9 +319,9 @@ export default function ResponsesPage() {
       replied: 0,
     };
     for (const it of items) {
-      if (it.status === "unread") c.unread++;
-      if (it.status === "needs_reply") c.needs_reply++;
-      if (it.status === "replied") c.replied++;
+      if (responseFilterStatus(it) === "unread") c.unread++;
+      if (responseFilterStatus(it) === "needs_reply") c.needs_reply++;
+      if (responseFilterStatus(it) === "replied") c.replied++;
     }
     return c;
   }, [items]);
@@ -617,10 +343,10 @@ export default function ResponsesPage() {
     if (!selectedId || !organisationId) { setContactContext(null); return; }
     const controller = new AbortController(); setContextLoading(true); setContactContext(null);
     fetch(`/api/responses/${encodeURIComponent(selectedId)}/context?organisationId=${encodeURIComponent(organisationId)}`, { cache:"no-store", signal:controller.signal })
-      .then(async response => { const data = await response.json(); if (response.ok && data.context) setContactContext(data.context); })
+      .then(async response => { const data = await response.json(); if (!controller.signal.aborted && response.ok && data.context) setContactContext(data.context); })
       .catch(() => undefined).finally(() => { if (!controller.signal.aborted) setContextLoading(false); });
     return () => controller.abort();
-  }, [selectedId, organisationId]);
+  }, [selectedId, organisationId, items]);
 
   // restore scroll after selection to prevent “skippy”
   useEffect(() => {
@@ -658,197 +384,31 @@ export default function ResponsesPage() {
     );
   };
 
-  const GlassCard = ({
-    children,
-    className = "",
-  }: {
-    children: React.ReactNode;
-    className?: string;
-  }) => (
-    <div
-      className={[
-        "rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </div>
-  );
-
-  const onSelectRow = (it: InboxItem) => {
-    if (typeof window !== "undefined") listScrollYRef.current = window.scrollY || 0;
-    setSelectedId(it.id);
-  };
-
-  const Row = ({ it }: { it: InboxItem }) => {
-    const isSelected = it.id === selectedId;
-    return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          onSelectRow(it);
-        }}
-        className={[
-          "w-full text-left rounded-2xl border p-4 transition",
-          isSelected
-            ? "border-emerald-300/30 bg-emerald-300/5"
-            : "border-white/10 bg-black/20 hover:bg-white/5",
-        ].join(" ")}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <span
-              className={[
-                "h-2 w-2 rounded-full",
-                PLATFORM_DOT[it.platform] || PLATFORM_DOT.unknown,
-                "shadow-[0_0_0_4px_rgba(255,255,255,0.06)]",
-              ].join(" ")}
-            />
-            <div className="text-xs font-semibold text-slate-100 truncate">
-              {PLATFORM_LABEL[it.platform] || "Unknown"}
-              <span className="ml-2 text-[11px] font-normal text-slate-400">
-                {it.kind || "activity"}
-              </span>
-            </div>
-          </div>
-
-          <Pill tone={statusTone(it.status)}>
-            {customerStatus(it)}
-          </Pill>
-        </div>
-
-        <div className="mt-2 text-xs text-slate-400">
-          {safeDate(it.createdAt)}
-          {it.authorName || it.authorHandle ? (
-            <>
-              {" "}
-              ·{" "}
-              <span className="text-slate-300">
-                {it.authorName || it.authorHandle}
-                {it.authorHandle && it.authorName ? ` (${it.authorHandle})` : ""}
-              </span>
-            </>
-          ) : null}
-        </div>
-
-        <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">
-          {it.text || "(empty)"}
-        </div>
-      </button>
-    );
-  };
-
-  const setLocalStatus = (id: string, status: InboxStatus) => {
-    const nextOv: StatusOverrides = {
-      ...(statusOverridesRef.current || {}),
-      [id]: status,
-    };
-    statusOverridesRef.current = nextOv;
-    writeStatusOverrides(nextOv);
-    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, status } : x)));
-  };
+  const selectionRef = useRef("");
+  selectionRef.current = `${organisationId}:${selectedId}`;
 
   async function runAiSuggest() {
-    if (!selected) return;
-
-    setAiStatus(isLinkedInAcceptance(selected) ? "Drafting first message…" : "Drafting reply…");
+    if (!selected?.lifecycle?.canDraft) return;
+    const selection = selectionRef.current;
+    setAiStatus("Drafting for the current lifecycle…");
     setCopied(false);
-
-    const fallback = contactAwareFallback(contactContext, selected);
-
-    const itemSnapshot = {
-      platform: selected.platform,
-      kind: selected.kind || "comment",
-      text: selected.text,
-      authorName: selected.authorName || null,
-      authorHandle: selected.authorHandle || null,
-      createdAt: selected.createdAt,
-      postText: selected.postText || null,
-      permalink: selected.permalink || null,
-    };
-
-    const callAi = async () => {
-      const res = await tenantFetch("/api/ai/root-coach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          context: selected.platform === "email" ? "responses_email_reply_draft_v1" : isLinkedInAcceptance(selected) ? "responses_linkedin_first_message_v1" : "responses_public_reply_draft_v2",
-          inboxItemId: selected.id,
-          userAction:
-            selected.platform === "email" ? "Write ONLY a professional email reply draft. Do not claim it has been sent." : isLinkedInAcceptance(selected) ? "Write ONLY the first LinkedIn direct message after this person accepted our connection request. This is a first-message opportunity, not an inbound reply; do not imply prior dialogue." : "Write ONLY the reply text that I can post as a public reply. Do NOT mention posting, saving, drafts, channels, options, or system status.",
-          outcome: "success",
-          platform: itemSnapshot.platform,
-          item: {
-            kind: itemSnapshot.kind,
-            text: clampText(itemSnapshot.text, 900),
-            authorName: itemSnapshot.authorName,
-            authorHandle: itemSnapshot.authorHandle,
-            createdAt: itemSnapshot.createdAt,
-            postText: itemSnapshot.postText ? clampText(itemSnapshot.postText, 300) : null,
-            permalink: itemSnapshot.permalink,
-          },
-          rules: [
-            "Output ONLY the reply text (no headings, no options, no meta).",
-            "Be warm, concise, respectful.",
-            "No medical claims or diagnosis. No promises or guarantees.",
-            "If distress/urgency is present, suggest seeking local support services.",
-            "Ask at most ONE clarifying question if helpful.",
-            selected.platform === "email" ? "Keep it suitable for a direct business email and preserve the existing thread context." : "Keep it suitable for public replies.",
-          ],
-        }),
-      });
-
-      const data: any = await res.json().catch(() => null);
-      const raw =
-        (typeof data?.coachMessage === "string" && data.coachMessage) ||
-        (typeof data?.message === "string" && data.message) ||
-        (typeof data?.text === "string" && data.text) ||
-        "";
-
-      return { ok: res.ok, raw };
-    };
-
+    setReplyDraft("");
     try {
-      const r1 = await callAi();
-      const cleaned1 = sanitizeAiReply(r1.raw);
-
-      if (
-        !r1.ok ||
-        !cleaned1 ||
-        looksLikeSystemHelper(r1.raw) ||
-        isTooGeneric(cleaned1, itemSnapshot.text)
-      ) {
-        const r2 = await callAi();
-        const cleaned2 = sanitizeAiReply(r2.raw);
-
-        if (
-          r2.ok &&
-          cleaned2 &&
-          !looksLikeSystemHelper(r2.raw) &&
-          !isTooGeneric(cleaned2, itemSnapshot.text)
-        ) {
-          setReplyDraft(cleaned2);
-          setAiStatus("Draft ready — edit it, then send.");
-          setTimeout(() => setAiStatus(null), 4200);
-          return;
-        }
-
-        setReplyDraft(fallback);
-        setAiStatus("AI drift detected — using safe fallback. (Edit it if you want.)");
-        setTimeout(() => setAiStatus(null), 5200);
+      const res = await tenantFetch("/api/ai/root-coach", {
+        method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+        body: JSON.stringify({ organisationId, context: "responses_lifecycle_draft_v1", inboxItemId: selected.id, requestedLifecycleDraft: true }),
+      });
+      const data = await res.json();
+      if (selectionRef.current !== selection) return;
+      if (!res.ok) {
+        setAiStatus(data.error || "The current lifecycle does not permit this draft.");
+        await load();
         return;
       }
-
-      setReplyDraft(cleaned1);
-      setAiStatus("Draft ready — edit it, then send.");
-      setTimeout(() => setAiStatus(null), 4200);
-    } catch {
-      setReplyDraft(fallback);
-      setAiStatus("AI draft failed — using safe fallback. (Edit it if you want.)");
-      setTimeout(() => setAiStatus(null), 5200);
-    }
+      if (!data.coachMessage || typeof data.coachMessage !== "string") throw new Error("No draft returned.");
+      setReplyDraft(data.coachMessage);
+      setAiStatus("Draft ready for review. Nothing has been sent.");
+    } catch { if (selectionRef.current !== selection) return; setAiStatus("Unable to verify and draft for the current lifecycle. Refresh before trying again."); }
   }
 
   const copyDraft = async () => {
@@ -860,15 +420,14 @@ export default function ResponsesPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
 
-      // local mark
-      if (selected.platform !== "email") setLocalStatus(selected.id, "replied");
+      // Copying is not evidence of contact or sending.
     } catch {
       setCopied(false);
     }
   };
 
   const sendReply = async () => {
-    if (!selected) return;
+    if (!selected?.lifecycle?.canDraft) return;
     const msg = (replyDraft || "").trim();
     if (!msg) {
       setAiStatus("Type or generate a reply first.");
@@ -907,19 +466,19 @@ export default function ResponsesPage() {
         }),
       });
 
-      const data: any = await res.json().catch(() => null);
+      const data = await res.json().catch(() => null);
       if (!res.ok || !data?.success) {
         throw new Error(data?.error || `Reply failed (HTTP ${res.status}).`);
       }
 
       setAiStatus("Reply sent ✅");
-      setLocalStatus(selected.id, "replied");
+
       setTimeout(() => setAiStatus(null), 2400);
 
       // refresh list so status persists from DB
       await load();
-    } catch (e: any) {
-      setError(e?.message || "Could not send reply.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not send reply.");
     } finally {
       setSendingReply(false);
     }
@@ -989,27 +548,21 @@ export default function ResponsesPage() {
     setTimeout(() => setAiStatus(null), 1400);
   };
 
-  const markNeedsReply = () => {
-    if (!selected) return;
-    setLocalStatus(selected.id, "needs_reply");
-    setAiStatus("Marked as needs reply.");
-    setTimeout(() => setAiStatus(null), 1800);
-  };
-
   const markContacted = async () => {
-    if (!selected || !isLinkedInAcceptance(selected)) return;
+    if (!selected?.lifecycle?.canMarkContacted) return;
     setAiStatus("Saving…");
     try {
       const org = organisationId || (await resolveOrg());
       const response = await fetch("/api/responses/update-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: org, id: selected.id, status: "replied" }) });
       if (!response.ok) throw new Error("Unable to mark this contact as contacted.");
-      setLocalStatus(selected.id, "replied");
-      setAiStatus("Marked as contacted.");
+      setReplyDraft("");
+      await load();
+      setAiStatus("Marked as contacted. Lifecycle refreshed.");
     } catch (error) { setAiStatus(error instanceof Error ? error.message : "Unable to mark this contact as contacted."); }
   };
 
   const approveAndSendEmail = async () => {
-    if (!selected || selected.platform !== "email") return;
+    if (!selected || selected.platform !== "email" || !selected.lifecycle?.canDraft) return;
     const approvedBody = replyDraft.trim();
     if (!approvedBody) { setAiStatus("Type or load a response before approval."); return; }
     setEmailActionBusy(true); setError(null);
@@ -1074,13 +627,13 @@ export default function ResponsesPage() {
               All: {counts.total}
             </span>
             <span className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold text-amber-100">
-              Unread: {counts.unread}
+              First messages: {counts.unread}
             </span>
             <span className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold text-amber-100">
-              Needs reply: {counts.needs_reply}
+              Needs action: {counts.needs_reply}
             </span>
             <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold text-emerald-100">
-              Replied: {counts.replied}
+              Waiting / handled: {counts.replied}
             </span>
 
             <button
@@ -1123,7 +676,7 @@ export default function ResponsesPage() {
               <select
                 className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
                 value={platformFilter}
-                onChange={(e) => setPlatformFilter(e.target.value as any)}
+                onChange={(e) => setPlatformFilter(e.target.value as InboxPlatform | "all")}
               >
                 <option className="bg-slate-950 text-slate-100" value="all">
                   All platforms
@@ -1154,22 +707,22 @@ export default function ResponsesPage() {
               <select
                 className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as any)}
+                onChange={(e) => setStatusFilter(e.target.value as InboxStatus | "all")}
               >
                 <option className="bg-slate-950 text-slate-100" value="all">
                   All statuses
                 </option>
                 <option className="bg-slate-950 text-slate-100" value="unread">
-                  Unread
+                  First message opportunities
                 </option>
                 <option className="bg-slate-950 text-slate-100" value="needs_reply">
-                  Needs reply
+                  Needs action
                 </option>
                 <option className="bg-slate-950 text-slate-100" value="replied">
-                  Replied
+                  Waiting / handled
                 </option>
                 <option className="bg-slate-950 text-slate-100" value="archived">
-                  Archived
+                  Closed / no action due
                 </option>
               </select>
             </div>
@@ -1249,9 +802,9 @@ export default function ResponsesPage() {
                     <span
                       className={[
                         "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold",
-                        statusTone(it.status) === "good"
+                        statusTone(responseFilterStatus(it)) === "good"
                           ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-                          : statusTone(it.status) === "warn"
+                          : statusTone(responseFilterStatus(it)) === "warn"
                           ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
                           : "border-white/10 bg-white/5 text-slate-200",
                       ].join(" ")}
@@ -1277,7 +830,8 @@ export default function ResponsesPage() {
                   <div className="mt-3 text-sm text-slate-100 line-clamp-3 whitespace-pre-wrap">
                     {it.text || "(empty)"}
                   </div>
-                  {it.platform === "email" && it.emailClassification ? <div className="mt-2 text-[11px] text-violet-200">{it.emailClassification.replaceAll("_", " ")} · {(it.responseState || "").replaceAll("_", " ")}</div> : null}
+                  <ResponseLifecycleDetails lifecycle={it.lifecycle} compact />
+                  {it.platform === "email" && it.emailClassification ? <div className="mt-2 text-[11px] text-violet-200">{it.emailClassification.replaceAll("_", " ")} · {it.lifecycle?.label || "State unavailable"}</div> : null}
                 </button>
               ))
             )}
@@ -1286,11 +840,11 @@ export default function ResponsesPage() {
           <div className="space-y-6">
             <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
               <div>
-                <div className="text-base font-semibold">{isLinkedInAcceptance(selected) ? "First message assistant" : "Reply assistant"}</div>
+                <div className="text-base font-semibold">{selected?.lifecycle?.label || "Response assistant"}</div>
                 <div className="mt-1 text-xs text-slate-300">
                   {selected?.platform === "email"
                     ? "Edit and approve here. The existing B2B engine sends the exact approved text through Gmail."
-                    : isLinkedInAcceptance(selected)
+                    : selected?.lifecycle?.canMarkContacted
                       ? "AI Suggest → edit → Copy or open LinkedIn. Nothing is sent automatically."
                       : "AI draft → edit → Send reply (Facebook/Instagram)."}
                 </div>
@@ -1304,11 +858,12 @@ export default function ResponsesPage() {
                 <div className="mt-4 space-y-4">
                   <section aria-label="Why this contact matters" className="rounded-2xl border border-sky-400/20 bg-sky-400/[0.07] p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold text-white">Why this contact matters</h2>{contactContext?.messageType ? <Pill>{`Message type: ${contactContext.messageType}`}</Pill> : null}</div>
+                    <ResponseLifecycleDetails lifecycle={selected.lifecycle} />
                     {contextLoading ? <p className="mt-3 text-sm text-slate-400">Loading contact context…</p> : contactContext ? <div className="mt-3 grid gap-3 text-sm text-slate-300">
                       <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Who</div><p className="mt-1 text-white">{[contactContext.name, contactContext.role, contactContext.company].filter(Boolean).join(" — ") || "Contact details are incomplete."}</p>{contactContext.sector ? <p className="mt-1 text-xs text-slate-400">Sector: {contactContext.sector}</p> : null}</div>
                       <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Why relevant</div><p className="mt-1">{contactContext.whyRelevant}</p><p className="mt-1 text-xs text-slate-400">{contactContext.buyingSignalLabel}</p></div>
                       <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Relationship</div><p className="mt-1">{contactContext.relationship}</p><p className="mt-1 text-xs text-slate-400">Source: {contactContext.source}{contactContext.currentStage ? ` · ${contactContext.currentStage}` : ""}</p></div>
-                      {(contactContext.whatWeKnow.length > 0 || contactContext.history.length > 1) ? <details className="rounded-xl border border-white/10 bg-black/20 p-3"><summary className="cursor-pointer font-semibold text-slate-200">What we know and previous history</summary><ul className="mt-2 space-y-1 text-xs text-slate-400">{[...contactContext.whatWeKnow,...contactContext.history.slice(1)].map((entry,index)=><li key={`${index}-${entry}`}>• {entry}</li>)}</ul></details> : <p className="text-xs text-slate-400">No additional outreach history is recorded.</p>}
+                      {(contactContext.whatWeKnow.length > 0 || contactContext.history.length > 0) ? <details className="rounded-xl border border-white/10 bg-black/20 p-3"><summary className="cursor-pointer font-semibold text-slate-200">What we know and previous history</summary><ul className="mt-2 space-y-1 text-xs text-slate-400">{[...contactContext.whatWeKnow,...contactContext.history].map((entry,index)=><li key={`${index}-${entry}`}>• {entry}</li>)}</ul></details> : <p className="text-xs text-slate-400">No additional outreach history is recorded.</p>}
                       <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] p-3"><div className="text-xs font-semibold uppercase tracking-wide text-emerald-200">Best next move</div><p className="mt-1 text-emerald-50">{contactContext.objective}</p></div>
                     </div> : <p className="mt-3 text-sm text-slate-400">The contact briefing could not be loaded. The selected event remains available below.</p>}
                   </section>
@@ -1329,9 +884,9 @@ export default function ResponsesPage() {
                       <span
                         className={[
                           "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold",
-                          statusTone(selected.status) === "good"
+                          statusTone(responseFilterStatus(selected)) === "good"
                             ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-                            : statusTone(selected.status) === "warn"
+                            : statusTone(responseFilterStatus(selected)) === "warn"
                             ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
                             : "border-white/10 bg-white/5 text-slate-200",
                         ].join(" ")}
@@ -1354,7 +909,7 @@ export default function ResponsesPage() {
                     </div>
 
                     <div className="mt-3 text-sm whitespace-pre-wrap">{selected.text}</div>
-                  {selected.platform === "email" ? <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-xs"><div><b>Sender:</b> {selected.senderEmail || selected.authorHandle || "Unknown"}</div><div><b>Subject:</b> {selected.subject || "(no subject)"}</div><div><b>Classification:</b> {(selected.emailClassification || "unclassified").replaceAll("_", " ")}</div><div><b>State:</b> {(selected.responseState || "unclassified").replaceAll("_", " ")}</div>{selected.emailDeliveryStatus ? <div><b>Delivery:</b> {selected.emailDeliveryStatus.replaceAll("_", " ")}</div> : null}{selected.outreachReference ? <div><b>Outreach:</b> {selected.outreachReference}</div> : null}{selected.emailThreadId ? <div><b>Thread:</b> {selected.emailThreadId}</div> : <div><b>Thread:</b> unavailable — engine will send safely without threading if supported</div>}</div> : null}
+                  {selected.platform === "email" ? <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-xs"><div><b>Sender:</b> {selected.senderEmail || selected.authorHandle || "Unknown"}</div><div><b>Subject:</b> {selected.subject || "(no subject)"}</div><div><b>Classification:</b> {(selected.emailClassification || "unclassified").replaceAll("_", " ")}</div><div><b>State:</b> {selected.lifecycle?.label || "State unavailable"}</div>{selected.emailDeliveryStatus ? <div><b>Delivery:</b> {selected.emailDeliveryStatus.replaceAll("_", " ")}</div> : null}{selected.outreachReference ? <div><b>Outreach:</b> {selected.outreachReference}</div> : null}{selected.emailThreadId ? <div><b>Thread:</b> {selected.emailThreadId}</div> : <div><b>Thread:</b> unavailable — engine will send safely without threading if supported</div>}</div> : null}
 
                     {selected.permalink ? (
                       <div className="mt-3 flex flex-wrap gap-3 text-[11px]">
@@ -1375,32 +930,33 @@ export default function ResponsesPage() {
                     <button
                       type="button"
                       onClick={runAiSuggest}
+                      disabled={!selected.lifecycle?.canDraft}
                       className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
                     >
-                      AI Suggest
+                      {selected.lifecycle?.draftOnRequest ? "AI Suggest (on request)" : "AI Suggest"}
                     </button>
 
                     {selected.platform !== "email" && !isLinkedInAcceptance(selected) && <button
                       type="button"
                       onClick={sendReply}
-                      disabled={sendingReply || !replyDraft.trim()}
+                      disabled={sendingReply || !replyDraft.trim() || !selected.lifecycle?.canDraft}
                       className="rounded-2xl bg-blue-500 px-4 py-3 text-sm font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
                       {sendingReply ? "Sending…" : "Send reply"}
                     </button>}
-                    {isLinkedInAcceptance(selected) ? <button type="button" onClick={() => void markContacted()} className="rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-400 transition">Mark Contacted</button> : null}
+                    {selected.lifecycle?.canMarkContacted ? <button type="button" onClick={() => void markContacted()} className="rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-400 transition">Mark Contacted</button> : null}
                   </div>
 
                   {selected.platform === "email" ? <div className="grid grid-cols-2 gap-2">
-                    <button type="button" disabled={emailActionBusy || !replyDraft.trim() || selected.emailDeliveryStatus === "sent"} onClick={() => void approveAndSendEmail()} className="col-span-2 rounded-2xl bg-violet-500 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">{emailActionBusy ? "Working…" : selected.emailDeliveryStatus === "sent" ? "Sent" : "Approve & Send"}</button>
-                    {[["mark_no_reply","No reply needed"],["set_follow_up","Set follow-up"],["nurture","Nurture"],["closed_lost","Closed / lost"],["engaged","Engaged"],["converted","Converted"]].map(([id,label]) => <button key={id} type="button" disabled={emailActionBusy} onClick={() => void applyEmailAction(id)} className="rounded-2xl border border-violet-300/30 bg-violet-300/10 px-3 py-2 text-xs font-semibold disabled:opacity-50">{label}</button>)}
+                    <button type="button" disabled={emailActionBusy || !replyDraft.trim() || !selected.lifecycle?.canDraft || selected.emailDeliveryStatus === "sent"} onClick={() => void approveAndSendEmail()} className="col-span-2 rounded-2xl bg-violet-500 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">{emailActionBusy ? "Working…" : selected.emailDeliveryStatus === "sent" ? "Sent" : "Approve & Send"}</button>
+                    {[["mark_no_reply","No reply needed"],["set_follow_up","Set follow-up"],["nurture","Nurture"],["closed_lost","Closed / lost"],["engaged","Engaged"],["converted","Converted"]].map(([id,label]) => <button key={id} type="button" disabled={emailActionBusy || ["converted", "lost", "dismissed"].includes(selected.lifecycle?.currentStage || "unknown")} onClick={() => void applyEmailAction(id)} className="rounded-2xl border border-violet-300/30 bg-violet-300/10 px-3 py-2 text-xs font-semibold disabled:opacity-50">{label}</button>)}
                   </div> : null}
 
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={copyDraft}
-                      disabled={!replyDraft.trim()}
+                      disabled={!replyDraft.trim() || !selected.lifecycle?.canDraft}
                       className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
                       {copied ? "Copied" : "Copy"}
@@ -1409,7 +965,7 @@ export default function ResponsesPage() {
                     <button
                       type="button"
                       onClick={() => void saveDraft()}
-                      disabled={!replyDraft.trim()}
+                      disabled={!replyDraft.trim() || !selected.lifecycle?.canDraft}
                       className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
                       Save draft
@@ -1431,13 +987,7 @@ export default function ResponsesPage() {
                       Clear
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={markNeedsReply}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
-                    >
-                      Mark needs reply
-                    </button>
+
                   </div>
 
                   {selected.platform !== "email" ? <button
@@ -1456,7 +1006,7 @@ export default function ResponsesPage() {
 
                   <textarea
                     className="w-full min-h-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
-                    placeholder={isLinkedInAcceptance(selected) ? "Your first message draft will appear here…" : "Your reply draft will appear here…"}
+                    placeholder={selected.lifecycle?.canDraft ? "Your current-stage message draft will appear here…" : "No message due for this lifecycle state."}
                     value={replyDraft}
                     onChange={(e) => setReplyDraft(e.target.value)}
                   />

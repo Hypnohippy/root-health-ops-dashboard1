@@ -11,6 +11,6 @@ export async function GET(req: Request, routeContext: { params: Promise<{ id: st
     const requested = new URL(req.url).searchParams.get("organisationId");
     const tenant = await requireOrganisation(requested, false);
     const profile = await getOrganisationGenerationProfile(tenant.organisationId);
-    return NextResponse.json({ success: true, context: await getResponseContactContext(tenant.organisationId, id, profile) });
+    return NextResponse.json({ success: true, context: await getResponseContactContext(tenant.organisationId, id, profile) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return accessErrorResponse(error) || NextResponse.json({ error: "Contact context could not be loaded." }, { status: 503 }); }
 }
