@@ -15,7 +15,7 @@ function load(file, dependencies = {}) {
   return mod.exports;
 }
 const outreach = load("lib/growthOutreach.ts");
-const model = load("lib/contactLifecycle.ts", { "@/lib/growthOutreach": outreach });
+const model = load("lib/contactLifecycle.ts", { "@/lib/engineState": load("lib/engineState.ts"), "@/lib/growthOutreach": outreach });
 const planner = load("lib/lifecycleReconciliation.ts", { "@/lib/contactLifecycle": model, "@/lib/growthOutreach": outreach });
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc", TARGET = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";

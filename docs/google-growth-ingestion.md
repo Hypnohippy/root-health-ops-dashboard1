@@ -1,5 +1,8 @@
 # Phase 4A: Google Growth Engine receiver
 
+For mutable engine operational snapshots, see [Google engine state sync](google-engine-state-sync.md).
+The opportunity intake contract on this page remains unchanged.
+
 The existing B2B and Personal Lead Engines can submit opportunities to Ops. No Apps Script changes, Sheets write-back, model calls, message sending, scheduling or publishing are included.
 
 ## Deployment

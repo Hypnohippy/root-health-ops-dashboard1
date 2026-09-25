@@ -1,4 +1,5 @@
 import { growthFollowUpDueAt, nextGrowthStage } from "@/lib/growthOutreach";
+import { projectEngineState, type EngineState } from "@/lib/engineState";
 
 /** Read-only projection. No persisted identity, workflow transitions or sending. */
 export type LifecycleTable = "acquisition_items" | "inbox_items" | "growth_targets";
@@ -32,14 +33,15 @@ export function lifecycleLinkedInIdentity(value: unknown): string | null {
 
 function project(table: LifecycleTable, row: LifecycleRow): Projection {
   const raw = object(row.raw);
+  const engine = table === "acquisition_items" && row.engine_state ? row.engine_state as EngineState : null;
   const meta = table === "inbox_items" ? { ...raw, ...object(raw.metadata) } : object(row.metadata);
-  const name = text(table === "acquisition_items" ? row.person : table === "growth_targets" ? row.target_name : row.author_name);
-  const company = text(row.company) || text(meta.company);
-  const linkedin = [row.linkedin_identity, row.linkedin_url, meta.linkedin_url, meta.profile_url,
+  const name = text(engine?.person) || text(table === "acquisition_items" ? row.person : table === "growth_targets" ? row.target_name : row.author_name);
+  const company = text(engine?.company) || text(row.company) || text(meta.company);
+  const linkedin = [row.linkedin_identity, row.linkedin_url, engine?.linkedin_identity, meta.linkedin_url, meta.profile_url,
     table === "acquisition_items" ? row.source_url : null,
     table === "inbox_items" && row.platform === "linkedin" && row.kind === "connection_accepted" ? row.permalink : null,
   ].map(lifecycleLinkedInIdentity).find(Boolean) || null;
-  const email = [row.sender_email, row.email, meta.email, meta.sender_email,
+  const email = [row.sender_email, row.email, engine?.email, meta.email, meta.sender_email,
     row.platform === "email" ? row.author_handle : null,
   ].map(text).find(value => value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))?.toLowerCase() || null;
   const fallback = name && company ? JSON.stringify([normal(name), normal(company)]) : null;
@@ -54,6 +56,14 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
     currentStage = stages[status || ""] || "unknown";
     nextAction = ({ new: "review", reviewing: "review", outreach_ready: "prepare_outreach", engaged: "review_engagement", nurture: "review_nurture" } as Partial<Record<LifecycleStage, string>>)[currentStage] || null;
     if (text(row.current_action)) lastAction = action(String(row.current_action), latest(row.updated_at, row.outcome_at, row.actioned_at));
+    if (engine) {
+      const source = projectEngineState(engine);
+      if (currentStage !== "dismissed" && (lifecycleStagePriority[source.stage] > lifecycleStagePriority[currentStage] ||
+        (source.stage === currentStage && (!date(row.updated_at) || String(row.engine_observed_at) >= date(row.updated_at)!)))) {
+        currentStage = source.stage; nextAction = source.nextAction; nextDueDate = source.nextDueDate;
+      }
+      if (source.lastAction && source.lastActionAt && (!lastAction?.at || source.lastActionAt > lastAction.at)) lastAction = action(source.lastAction, source.lastActionAt);
+    }
   } else if (table === "inbox_items") {
     const state = text(row.response_state) || status;
     const stages: Record<string, LifecycleStage> = { needs_reply: "needs_reply", waiting_for_human: "waiting", no_reply_needed: "no_reply_needed", follow_up: "follow_up", nurture: "nurture", closed_or_lost: "lost", engaged: "engaged", converted: "converted", replied: "engaged", archived: "no_reply_needed", unread: "needs_reply" };
@@ -102,14 +112,14 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
     if (date(row.replied_at) && (!lastAction?.at || String(date(row.replied_at)) > lastAction.at)) lastAction = action(`reply:${text(row.reply_status) || "recorded"}`, row.replied_at);
   }
   return { table, row, linkedin, email, fallback, name, company, currentStage, lastAction, nextAction, nextDueDate,
-    channel: table === "growth_targets" ? "linkedin" : text(row.platform) || (linkedin ? "linkedin" : email ? "email" : null),
+    channel: table === "growth_targets" ? "linkedin" : text(engine?.channel) || text(row.platform) || (linkedin ? "linkedin" : email ? "email" : null),
     source: text(row.source_engine) || text(row.source_type) || table,
-    observedAt: latest(row.updated_at, row.response_updated_at, row.last_replied_at, row.last_action_at, row.replied_at, row.outcome_at, row.created_at_platform, row.created_at, row.inserted_at),
+    observedAt: latest(row.engine_observed_at, row.updated_at, row.response_updated_at, row.last_replied_at, row.last_action_at, row.replied_at, row.outcome_at, row.created_at_platform, row.created_at, row.inserted_at),
   };
 }
 
 // Explicit presentation precedence; never repairs conflicting source states.
-const priority: Record<LifecycleStage, number> = { converted: 140, lost: 130, meeting: 120, needs_reply: 110, engaged: 100, nurture: 90, follow_up: 80, waiting: 70, no_reply_needed: 60, actioned: 50, outreach_ready: 40, reviewing: 30, dismissed: 20, new: 10, unknown: 0 };
+export const lifecycleStagePriority: Record<LifecycleStage, number> = { converted: 140, lost: 130, meeting: 120, needs_reply: 110, engaged: 100, nurture: 90, follow_up: 80, waiting: 70, no_reply_needed: 60, actioned: 50, outreach_ready: 40, reviewing: 30, dismissed: 20, new: 10, unknown: 0 };
 const sourcePriority: Record<LifecycleTable, number> = { growth_targets: 3, inbox_items: 2, acquisition_items: 1 };
 const rowKey = (p: Projection) => `${p.table}:${p.row.id}`;
 function addAlias(index: Map<string, Set<string>>, alias: string | null, identity: string) {
@@ -139,14 +149,14 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
   return [...groups].sort(([a], [b]) => compare(a, b)).map(([identity, members]) => {
     // A later acknowledgement or completed email response supersedes an older
     // pending cadence in this read-only view, even before reconciliation runs.
-    const waitingSince = members.filter(p => p.table === "inbox_items" && p.row.platform === "email" && p.currentStage === "waiting")
-      .map(p => latest(p.row.created_at_platform, p.row.inserted_at, p.row.email_sent_at, p.row.last_replied_at)).filter((v): v is string => !!v).sort().at(-1);
+    const waitingSince = members.filter(p => p.currentStage === "waiting" && ((p.table === "inbox_items" && p.row.platform === "email") || (p.table === "acquisition_items" && p.row.engine_state)))
+      .map(p => p.row.engine_state ? latest(object(p.row.engine_state).last_inbound_at, object(p.row.engine_state).last_outbound_at) : latest(p.row.created_at_platform, p.row.inserted_at, p.row.email_sent_at, p.row.last_replied_at)).filter((v): v is string => !!v).sort().at(-1);
     if (waitingSince) for (const p of members) {
       if (p.currentStage === "follow_up" && date(p.row.last_action_at || p.row.contacted_at) && waitingSince >= date(p.row.last_action_at || p.row.contacted_at)!) {
         p.currentStage = "waiting"; p.nextAction = null; p.nextDueDate = null;
       }
     }
-    members.sort((a, b) => priority[b.currentStage] - priority[a.currentStage]
+    members.sort((a, b) => lifecycleStagePriority[b.currentStage] - lifecycleStagePriority[a.currentStage]
       || compare(b.observedAt || "", a.observedAt || "") || sourcePriority[b.table] - sourcePriority[a.table] || compare(rowKey(a), rowKey(b)));
     const winner = members[0];
     // A pending reply is an action within a meeting relationship, not a stage
@@ -158,8 +168,14 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
       currentStage: winner.currentStage, lastAction: actions[0] || null, nextAction: actionOwner.nextAction,
       nextDueDate: actionOwner.nextDueDate, channel: actionOwner.channel, source: winner.source,
       actionRecord: { table: actionOwner.table, id: actionOwner.row.id },
-      followUpStatus: winner.currentStage === "follow_up" && winner.nextDueDate ? (Date.parse(winner.nextDueDate) <= now ? "due" : "waiting") : null,
+      followUpStatus: winner.currentStage === "follow_up" ? (winner.nextDueDate ? (Date.parse(winner.nextDueDate) <= now ? "due" : "waiting") : ["due", "follow_up_due"].includes(String(object(winner.row.engine_state).follow_up_status)) ? "due" : null) : null,
       records: members.map(p => ({ table: p.table, id: p.row.id, stage: p.currentStage, source: p.source })),
+      engineEvidence: members.filter(p => p.table === "acquisition_items" && p.row.engine_state).map(p => ({
+        sourceEngine: p.row.source_engine, sourceRecordId: p.row.source_record_id, observedAt: p.row.engine_observed_at,
+        state: p.row.engine_state, operationalState: projectEngineState(p.row.engine_state as EngineState).operationalState,
+        humanActionRequired: projectEngineState(p.row.engine_state as EngineState).humanActionRequired ||
+          (p.currentStage === "follow_up" && (p.nextDueDate ? Date.parse(p.nextDueDate) <= now : ["due", "follow_up_due"].includes(String(object(p.row.engine_state).follow_up_status)))),
+      })),
     };
   });
 }

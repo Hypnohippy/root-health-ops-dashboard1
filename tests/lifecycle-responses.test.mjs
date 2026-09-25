@@ -13,7 +13,7 @@ function load(file, dependencies = {}, globals = {}) {
   return mod.exports;
 }
 const outreach = load("lib/growthOutreach.ts");
-const lifecycle = load("lib/contactLifecycle.ts", { "@/lib/growthOutreach": outreach });
+const lifecycle = load("lib/contactLifecycle.ts", { "@/lib/engineState": load("lib/engineState.ts"), "@/lib/growthOutreach": outreach });
 const presentation = load("lib/responseLifecycle.ts", { "@/lib/contactLifecycle": lifecycle });
 const context = load("lib/responseContactContext.ts");
 const Card = load("app/dashboard/responses/ResponseLifecycleDetails.tsx", { "react/jsx-runtime": jsx }).default;

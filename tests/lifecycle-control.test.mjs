@@ -54,7 +54,7 @@ test("manual control sends one authenticated tenant POST, prevents duplicate cli
 
 test("lookup uses canonical profile identity ahead of names, returns candidates safely and isolates tenants", async () => {
   const outreach = load("lib/growthOutreach.ts", {});
-  const model = load("lib/contactLifecycle.ts", { "@/lib/growthOutreach": outreach }, { URL });
+  const model = load("lib/contactLifecycle.ts", { "@/lib/engineState": load("lib/engineState.ts"), "@/lib/growthOutreach": outreach }, { URL });
   const rows = [
     { id: "nick", organisation_id: "tenant-a", target_name: "Nick", linkedin_identity: "linkedin.com/in/nick-fahy-54778a1", stage: "day3_dm", status: "active", source_type: "acceptance", source_record_id: "source-1", notes: "private unrelated notes" },
     { id: "legacy", organisation_id: "tenant-a", target_name: "Dips Kang", linkedin_url: "https://www.linkedin.com/in/dips-kang/?trk=mail", stage: "connection", status: "active" },
