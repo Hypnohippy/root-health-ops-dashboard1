@@ -7,17 +7,18 @@ reconciliation or register triggers. Home is unchanged.
 
 ## Deployment boundary
 
-The current engine source and live sheet schemas are not in this repository and
-were not available for verification. The receiver and optional manual exporter
-are implemented and tested with fixtures. Neither engine has been connected live
-by this change. Do not treat the example mappings below as verified live headers
-(except the B2B headers explicitly supplied for this task).
+The user verified both spreadsheet IDs, the B2B `Leads` headers, all seven Personal
+tab names and the `Partner Outreach` headers. Concrete configurations now use that
+schema: [B2B](google-engine-state-b2b.config.json) and
+[Personal](google-engine-state-personal.config.json). These are field mappings,
+not a claim of live deployment. Remaining identity/safety fields and tab-specific
+gaps are listed below; the whole schema is no longer marked unverified.
 
 1. Apply `supabase/migrations/20260925100000_acquisition_engine_state.sql` and deploy Ops.
 2. Reuse the existing server-only `GROWTH_INGESTION_KEYS` configuration with the
    correct organisation and source engine scope. No default tenant is selected.
-3. Verify the existing source IDs, actual sheet headers, classifications and safety
-   evidence in each engine. Preserve existing acquisition source IDs exactly;
+3. Resolve only each mapping's `pending` entries before enabling that mapping.
+   Preserve existing acquisition source IDs exactly;
    never use mutable row numbers, generated IDs per run, or names as source IDs.
 4. The engine can POST the contract below. Alternatively add
    `docs/google-engine-state-export.gs` as a separate Apps Script file, configure
@@ -68,6 +69,12 @@ supplying both aliases is rejected. Additional allowlisted fields:
 `person`, `company`. Unknown state fields are rejected. Unknown enum strings are
 retained as source evidence without guessing a lifecycle transition. Source
 classification must be explicitly mapped; free-text email content is not used.
+
+Verified live additions: `followUpCount` → `follow_up_count`, `discoverySource` →
+`discovery_source`, `discoveredAt` → `discovered_at`, and Personal `Conversions` →
+`conversions`. Counts remain source strings and do not infer a conversion or change
+cadence. Discovery dates are timezone-qualified source timestamps. These values
+travel in each state snapshot, so updates are not lost in import-only metadata.
 
 Top-level opportunity/evidence fields match the existing intake contract. New
 items always enter the human-owned acquisition queue as `new`; source approval
@@ -133,29 +140,78 @@ automation or new send permission is introduced.
 
 ## Manual exporter configuration
 
-Set `OPS_STATE_SYNC_SECRET` to the scoped ingestion secret. Example
-`OPS_STATE_SYNC_CONFIG` (replace sheet/header placeholders after source inspection):
+Set `OPS_STATE_SYNC_SECRET` to the scoped ingestion secret. Use the corresponding
+checked-in configuration JSON as `OPS_STATE_SYNC_CONFIG` after resolving its
+specific pending fields. A mapping with nonempty `pending` is skipped and returned
+by tab name with its exact reasons; it cannot block other fully configured tabs.
 
-```json
-{
-  "organisation_id":"78fa2ac8-e7b6-4b9b-9604-035723ece6b1",
-  "source_engine":"root_health_b2b",
-  "spreadsheet_id":"VERIFIED_SPREADSHEET_ID",
-  "sheets":[{
-    "name":"VERIFIED_TAB_NAME",
-    "id_header":"VERIFIED_STABLE_ID_HEADER",
-    "record_type":"b2b_lead",
-    "fields":{"person":"VERIFIED_PERSON_HEADER","company":"VERIFIED_COMPANY_HEADER"},
-    "state":{"Status":"Status","followUpStage":"followUpStage","lastFollowUpAt":"lastFollowUpAt","nextFollowUpAt":"nextFollowUpAt","followUpStatus":"followUpStatus","lastInboundAt":"lastInboundAt","lastOutboundAt":"lastOutboundAt","email":"VERIFIED_EMAIL_HEADER"}
-  }]
-}
-```
+### B2B: live `Leads`
 
-Personal mappings use their matching record type and explicit `safety` header
-mapping, e.g. `"safety":{"public_context":"VERIFIED_PUBLIC_CONTEXT_HEADER",...}`.
-Map source URLs in `fields.source_url`. Mappings are deliberately explicit because
-Personal's live schema has not been verified. Optional `id_prefix` must match any
-prefix already used by existing ingestion. The adapter reads Sheets only, sends
+Spreadsheet: `1HXba9e-_WBh8oyJ-hOykpfR993T7-RCSmxWpkX5I1Po`.
+
+| Verified column | Exported field |
+| --- | --- |
+| Organisation | company and entity |
+| Person | person |
+| Email | state.email |
+| Status | state.Status |
+| followUpStage / lastFollowUpAt / nextFollowUpAt | Corresponding existing cadence fields |
+| followUpCount / followUpStatus | Source count and follow-up status |
+| lastInboundAt | Last inbound timestamp |
+| lastOutboundAt, otherwise Sent at | Last outbound timestamp; fallback only when the first column is empty |
+| discoverySource / discoveredAt | Source discovery provenance in the snapshot |
+
+**Only pending B2B field:** the existing ingestion `source_record_id` rule and any
+prefix. No stable-ID column was supplied. Email is contact identity, not an assumed
+replacement source ID. `id_header` deliberately remains null until the existing
+rule is verified. No row number or synthetic source ID is introduced.
+
+### Personal: live `Partner Outreach`
+
+Spreadsheet: `1ZfyIebRh6G8HkuJrM6cizPocd8oBh3Cu1u_Lh9M2UAM`.
+
+| Verified column | Exported field |
+| --- | --- |
+| Outreach ID | id_header; exact cell value preserved, subject to confirming any existing prefix |
+| Contact name / Partner / Organisation | person / company and entity |
+| Email | state.email |
+| Send status / Sent at | state.status / last_outbound_at |
+| Reply status / Reply at | reply_state / last_inbound_at |
+| Approval status | approval_state; never an Ops approval |
+| Conversions | Source count only; not proof that the particular contact converted |
+| Email source URL, otherwise Contact page, otherwise Website | source_url |
+| Business context | evidence |
+| Action ID / Queue row | Metadata action link / row locator, never identity |
+| Role / Team, Website, Contact page, Email source URL, Verification, Referral link | Import provenance metadata |
+
+Draft subject/body and Notes are not exported: they are not required for state
+visibility. Import provenance metadata retains the existing first-import-wins
+semantics; changing operational fields are in `state`.
+
+**Pending Partner fields:** confirmation of the existing Outreach ID prefix (if
+any), and the actual `Verification` value semantics/evidence for all required
+Personal safety flags. No boolean safety columns were supplied. A populated
+business context, email address, approved draft, or sent status is not substituted
+for those checks. The mapping is staged but not enabled until that evidence is
+available; safety enforcement is unchanged.
+
+### Personal tabs with names verified but headers pending
+
+| Tab | Missing mapping evidence |
+| --- | --- |
+| Acquisition Queue | Headers, stable ID, type/source fields, Personal safety evidence |
+| Social Queue | Headers, stable ID, direct public discussion URL, Personal safety evidence |
+| Search Demand | Headers, stable ID, public source/context, Personal safety evidence |
+| Funnel Events | Headers, stable event/contact linkage and outcome semantics, Personal eligibility |
+| Action Outputs | Headers, stable action/source linkage and state, Personal safety evidence |
+| Leads | Headers, existing stable ID and public-context eligibility; no assumption of consumer outreach permission |
+
+These are individual pending entries, not guessed schemas. Current status enum
+values were not supplied for either mapped tab: strings are passed through the
+existing normalizer, and unfamiliar values remain raw evidence instead of invented
+transitions. Optional `id_prefix` must match any prefix already used by existing
+ingestion. Dates returned by Sheets as Date objects become ISO timestamps; ambiguous
+text dates are not guessed and the receiver rejects them. The adapter reads Sheets only, sends
 batches of at most 25, refuses redirects, returns counts, stops on HTTP errors and
 never logs secrets or record payloads. It does not access Gmail or install triggers.
 

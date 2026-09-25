@@ -1,0 +1,25 @@
+{
+  "organisation_id": "78fa2ac8-e7b6-4b9b-9604-035723ece6b1",
+  "source_engine": "root_health_b2b",
+  "spreadsheet_id": "1HXba9e-_WBh8oyJ-hOykpfR993T7-RCSmxWpkX5I1Po",
+  "sheets": [{
+    "name": "Leads",
+    "record_type": "b2b_lead",
+    "id_header": null,
+    "pending": ["Existing ingestion source_record_id rule/header and any prefix must be verified. No ID column was supplied; do not substitute Email or a row number."],
+    "fields": { "entity": "Organisation", "company": "Organisation", "person": "Person" },
+    "state": {
+      "email": "Email",
+      "Status": "Status",
+      "followUpStage": "followUpStage",
+      "lastFollowUpAt": "lastFollowUpAt",
+      "nextFollowUpAt": "nextFollowUpAt",
+      "followUpCount": "followUpCount",
+      "followUpStatus": "followUpStatus",
+      "lastInboundAt": "lastInboundAt",
+      "lastOutboundAt": ["lastOutboundAt", "Sent at"],
+      "discoverySource": "discoverySource",
+      "discoveredAt": "discoveredAt"
+    }
+  }]
+}

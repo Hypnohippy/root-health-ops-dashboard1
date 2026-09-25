@@ -2,6 +2,7 @@ import type { LifecycleStage } from "@/lib/contactLifecycle";
 
 /** Source evidence only. Stages below belong to the existing Phase 4L projection. */
 export type EngineState = {
+  follow_up_count?: string | null; discovery_source?: string | null; discovered_at?: string | null; conversions?: string | null;
   status: string | null; reply_state: string | null; approval_state: string | null;
   funnel_state: string | null; outcome: string | null; opportunity_type: string | null;
   follow_up_stage: string | null; follow_up_status: string | null;

@@ -135,3 +135,72 @@ test("manual exporter reads configured headers, forwards timestamps, and never w
   assert.equal(sent[0].options.followRedirects, false);
   assert.doesNotMatch(script, /GmailApp|MailApp|newTrigger|setValue|setValues|sendEmail/);
 });
+
+function runMappedExport(config, sheets) {
+  const sent = [], reads = [];
+  const sandbox = { Date, PropertiesService: { getScriptProperties: () => ({ getProperty: key => key === "OPS_STATE_SYNC_CONFIG" ? JSON.stringify(config) : secret }) },
+    SpreadsheetApp: { openById: id => { assert.equal(id, config.spreadsheet_id); return { getSheetByName: name => { reads.push(name); assert.ok(sheets[name], name); return { getDataRange: () => ({ getValues: () => sheets[name] }) }; } }; } },
+    Utilities: { newBlob: s => ({ getBytes: () => Buffer.from(s) }) }, UrlFetchApp: { fetch: (_url, options) => { sent.push(JSON.parse(options.payload)); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ success: true, received: 1, inserted: 1 }) }; } },
+  };
+  vm.runInNewContext(fs.readFileSync("docs/google-engine-state-export.gs", "utf8"), sandbox);
+  const results = sandbox.opsExportEngineState(); return { sent, reads, results };
+}
+const liveConfig = engine => JSON.parse(fs.readFileSync(`docs/google-engine-state-${engine}.config.json`, "utf8"));
+
+test("verified live configurations identify exact spreadsheets and isolate only pending tabs/fields", () => {
+  const b2b = liveConfig("b2b"), personalConfig = liveConfig("personal");
+  assert.equal(b2b.spreadsheet_id, "1HXba9e-_WBh8oyJ-hOykpfR993T7-RCSmxWpkX5I1Po");
+  assert.equal(personalConfig.spreadsheet_id, "1ZfyIebRh6G8HkuJrM6cizPocd8oBh3Cu1u_Lh9M2UAM");
+  assert.equal(b2b.sheets[0].id_header, null);
+  assert.equal(personalConfig.sheets[0].id_header, "Outreach ID");
+  assert.equal(personalConfig.sheets[0].id_prefix, undefined);
+  assert.equal(runMappedExport(b2b, {}).sent.length, 0);
+  const pending = runMappedExport(personalConfig, {});
+  assert.equal(pending.sent.length, 0); assert.equal(pending.reads.length, 0);
+  assert.deepEqual(Array.from(pending.results, r => r.sheet), ["Partner Outreach", "Acquisition Queue", "Social Queue", "Search Demand", "Funnel Events", "Action Outputs", "Leads"]);
+  b2b.sheets[0].pending = [];
+  assert.throws(() => runMappedExport(b2b, { Leads: [["Email"], ["contact@example.com"]] }), /Missing or duplicate mapped source header/);
+});
+
+test("live B2B columns export cadence, discovery/count and Sent at fallback without generating IDs", () => {
+  for (const field of ["follow_up_count", "discovery_source", "discovered_at", "conversions"]) assert.equal(field in parse(record()).engine_state, false);
+  const config = liveConfig("b2b"), mapping = config.sheets[0];
+  // Fixture-only existing ID column: production ID rule remains explicitly pending.
+  mapping.id_header = "Fixture existing ID"; mapping.pending = [];
+  const values = { "Fixture existing ID": "original:stable:123", Organisation: "Business", Person: "Person", Email: "person@example.com", Status: "sent",
+    "Sent at": new Date("2026-09-20T12:00:00Z"), followUpStage: "followup_2", lastFollowUpAt: "", nextFollowUpAt: new Date("2026-09-28T12:00:00Z"),
+    followUpCount: 0, followUpStatus: "scheduled", lastInboundAt: "", lastOutboundAt: "", discoverySource: "public directory", discoveredAt: new Date("2026-09-19T12:00:00Z") };
+  const exportRow = () => runMappedExport(config, { Leads: [Object.keys(values), Object.values(values)] }).sent[0].records[0];
+  let row = exportRow();
+  assert.equal(row.source_record_id, "original:stable:123"); assert.equal(row.company, "Business");
+  assert.equal(row.state.lastOutboundAt, "2026-09-20T12:00:00.000Z"); assert.equal(row.state.followUpCount, "0");
+  let parsed = parse(row);
+  assert.equal(parsed.engine_state.discovery_source, "public directory"); assert.equal(parsed.engine_state.discovered_at, "2026-09-19T12:00:00.000Z");
+  assert.equal(parsed.engine_state.follow_up_count, "0");
+  values.lastOutboundAt = new Date("2026-09-22T12:00:00Z"); row = exportRow(); parsed = parse(row);
+  assert.equal(parsed.engine_state.last_outbound_at, "2026-09-22T12:00:00.000Z");
+  assert.equal(parsed.engine_state.next_follow_up_at, "2026-09-28T12:00:00.000Z");
+});
+
+test("Partner Outreach maps exact source IDs and state, preserves safety gates and skips unrelated pending tabs", () => {
+  const config = liveConfig("personal"), mapping = config.sheets[0]; mapping.pending = [];
+  const values = { "Outreach ID": "outreach-original-5", "Action ID": "action-9", "Queue row": 27, "Partner / Organisation": "Business", Website: "https://example.com",
+    "Contact name": "Person", "Role / Team": "Partners", Email: "person@example.com", "Contact page": "https://example.com/contact", "Email source URL": "",
+    Verification: "uninterpreted source value", "Business context": "Public business partnership", "Draft subject": "PRIVATE DRAFT", "Draft body": "PRIVATE BODY", "Approval status": "pending",
+    "Send status": "", "Sent at": "", "Reply status": "", "Reply at": "", "Referral link": "https://example.com/ref", Conversions: 2, Notes: "PRIVATE NOTES" };
+  const exportRow = () => runMappedExport(config, { "Partner Outreach": [Object.keys(values), Object.values(values)] });
+  const first = exportRow(), row = first.sent[0].records[0];
+  assert.equal(first.results.filter(r => r.pending).length, 6); assert.deepEqual(first.reads, ["Partner Outreach"]);
+  assert.equal(row.source_record_id, "outreach-original-5"); assert.equal(row.metadata.queue_row_reference, "27");
+  assert.equal(row.source_url, "https://example.com/contact"); assert.equal(row.state.approval_state, "pending");
+  assert.equal(row.state.conversions, "2"); assert.doesNotMatch(JSON.stringify(row), /PRIVATE/);
+  assert.throws(() => parse(row), /Personal records require public context/);
+  // Explicit fixture safety evidence only; no equivalent live headers are claimed.
+  for (const [field, value] of Object.entries({ public_context: true, consumer_outreach: false, health_targeting: false, verified_public_business: true })) {
+    const header = `Fixture ${field}`; mapping.safety[field] = header; values[header] = value;
+  }
+  const safe = exportRow().sent[0].records[0];
+  assert.equal(parse(safe).engine_state.conversions, "2"); assert.equal(contact(safe).currentStage, "reviewing");
+  values["Send status"] = "sent"; values["Sent at"] = new Date("2026-09-20T12:00:00Z"); values["Reply status"] = "human_reply_required"; values["Reply at"] = new Date("2026-09-21T12:00:00Z");
+  assert.equal(contact(exportRow().sent[0].records[0]).currentStage, "needs_reply");
+});

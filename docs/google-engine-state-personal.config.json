@@ -1,0 +1,49 @@
+{
+  "organisation_id": "78fa2ac8-e7b6-4b9b-9604-035723ece6b1",
+  "source_engine": "root_health_personal",
+  "spreadsheet_id": "1ZfyIebRh6G8HkuJrM6cizPocd8oBh3Cu1u_Lh9M2UAM",
+  "sheets": [
+    {
+      "name": "Partner Outreach",
+      "record_type": "partner_opportunity",
+      "id_header": "Outreach ID",
+      "pending": [
+        "Confirm whether existing source_record_id uses Outreach ID verbatim or an existing prefix; preserve that exact format.",
+        "Verification value semantics and explicit evidence for public_context, verified_public_business, consumer_outreach=false and health_targeting=false are not yet supplied. Do not infer safety from an approval or sent status."
+      ],
+      "fields": {
+        "person": "Contact name",
+        "company": "Partner / Organisation",
+        "entity": "Partner / Organisation",
+        "source_url": ["Email source URL", "Contact page", "Website"],
+        "evidence": "Business context"
+      },
+      "state": {
+        "email": "Email",
+        "status": "Send status",
+        "approval_state": "Approval status",
+        "last_outbound_at": "Sent at",
+        "reply_state": "Reply status",
+        "last_inbound_at": "Reply at",
+        "conversions": "Conversions"
+      },
+      "metadata": {
+        "action_id": "Action ID",
+        "queue_row_reference": "Queue row",
+        "role_team": "Role / Team",
+        "website": "Website",
+        "contact_page": "Contact page",
+        "email_source_url": "Email source URL",
+        "verification": "Verification",
+        "referral_link": "Referral link"
+      },
+      "safety": {}
+    },
+    { "name": "Acquisition Queue", "pending": ["Tab verified; headers, stable ID rule, source/type fields and Personal safety evidence still required."] },
+    { "name": "Social Queue", "pending": ["Tab verified; headers, stable ID rule, direct public discussion URL and Personal safety evidence still required."] },
+    { "name": "Search Demand", "pending": ["Tab verified; headers, stable ID rule, public source/context and Personal safety evidence still required."] },
+    { "name": "Funnel Events", "pending": ["Tab verified; headers, stable event/contact linkage, outcome semantics and Personal safety evidence still required."] },
+    { "name": "Action Outputs", "pending": ["Tab verified; headers, stable action/source linkage, state fields and Personal safety evidence still required."] },
+    { "name": "Leads", "pending": ["Tab verified; headers, existing stable ID rule and public-context eligibility still required. Consumer leads must not be treated as outreach opportunities."] }
+  ]
+}

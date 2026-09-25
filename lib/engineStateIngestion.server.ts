@@ -3,9 +3,9 @@ import { lifecycleLinkedInIdentity, lifecycleStagePriority } from "@/lib/contact
 import { projectEngineState, type EngineState } from "@/lib/engineState";
 
 const engines = ["root_health_b2b", "root_health_personal"];
-const stringFields = ["status", "reply_state", "approval_state", "funnel_state", "outcome", "opportunity_type", "follow_up_stage", "follow_up_status", "next_action", "channel", "email", "linkedin_identity", "person", "company"] as const;
-const dateFields = ["last_follow_up_at", "next_follow_up_at", "last_inbound_at", "last_outbound_at"] as const;
-const aliases: Record<string, string> = { Status: "status", followUpStage: "follow_up_stage", lastFollowUpAt: "last_follow_up_at", nextFollowUpAt: "next_follow_up_at", followUpStatus: "follow_up_status", lastInboundAt: "last_inbound_at", lastOutboundAt: "last_outbound_at", linkedin_url: "linkedin_identity" };
+const stringFields = ["status", "reply_state", "approval_state", "funnel_state", "outcome", "opportunity_type", "follow_up_stage", "follow_up_status", "next_action", "channel", "email", "linkedin_identity", "person", "company", "follow_up_count", "discovery_source", "conversions"] as const;
+const dateFields = ["last_follow_up_at", "next_follow_up_at", "last_inbound_at", "last_outbound_at", "discovered_at"] as const;
+const aliases: Record<string, string> = { Status: "status", followUpStage: "follow_up_stage", lastFollowUpAt: "last_follow_up_at", nextFollowUpAt: "next_follow_up_at", followUpStatus: "follow_up_status", lastInboundAt: "last_inbound_at", lastOutboundAt: "last_outbound_at", linkedin_url: "linkedin_identity", followUpCount: "follow_up_count", discoverySource: "discovery_source", discoveredAt: "discovered_at" };
 function object(v: unknown): Record<string, unknown> {
   if (!v || typeof v !== "object" || Array.isArray(v)) throw new IngestionError("Expected an object.");
   return v as Record<string, unknown>;
@@ -49,11 +49,14 @@ export function parseEngineStateBatch(value: unknown, now = Date.now()) {
     }
     const state = {} as EngineState;
     for (const field of stringFields) {
+      // Keep earlier snapshot shapes identical for safe retries of pre-mapping exports.
+      if (["follow_up_count", "discovery_source", "conversions"].includes(field) && !(field in canonical)) continue;
       const v = canonical[field];
       if (v != null && (typeof v !== "string" || v.length > (field === "next_action" ? 2000 : 500))) throw new IngestionError(`Invalid ${field}.`);
       state[field] = typeof v === "string" ? v.trim() || null : null;
     }
     for (const field of dateFields) {
+      if (field === "discovered_at" && !(field in canonical)) continue;
       state[field] = canonical[field] == null || canonical[field] === "" ? null : timestamp(canonical[field], field);
       if (field !== "next_follow_up_at" && state[field] && state[field]! > observedAt) throw new IngestionError(`${field} is later than observed_at.`);
     }
@@ -68,7 +71,7 @@ export function parseEngineStateBatch(value: unknown, now = Date.now()) {
     state.person ||= record.person; state.company ||= record.company;
     if (!state.channel && record.source_engine === "root_health_b2b") state.channel = "email";
     if (state.channel) state.channel = state.channel.toLowerCase();
-    if (!state.status && !state.reply_state && !state.outcome && !state.funnel_state && !state.opportunity_type) throw new IngestionError("Supply source state evidence.");
+    if (!state.status && !state.reply_state && !state.approval_state && !state.outcome && !state.funnel_state && !state.opportunity_type) throw new IngestionError("Supply source state evidence.");
     return { ...record, engine_state: state, engine_observed_at: observedAt };
   });
   return { organisationId: base.organisationId, records };
