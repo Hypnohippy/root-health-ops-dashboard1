@@ -5,13 +5,32 @@ import LifecycleReconciliationControl from "./LifecycleReconciliationControl";
 
 import { useEffect, useState } from "react";
 
+type LinkedInPostOption = {
+  label: string;
+  angle: string;
+  copy: string;
+};
+
+type OutreachTarget = {
+  id: string;
+  name: string;
+  stage: string;
+  message: string;
+  company?: string;
+  role?: string;
+  linkedinUrl?: string;
+};
+
 export default function GrowthPage() {
   const [loading, setLoading] = useState(false);
-  const [queueLoading, setQueueLoading] = useState(false);
   const [data, setData] = useState<any>(null);
   const [saved, setSaved] = useState(false);
 
   const [planId, setPlanId] = useState<string | null>(null);
+  const [selectedPostIndex, setSelectedPostIndex] = useState(0);
+  const [postOptions, setPostOptions] = useState<LinkedInPostOption[]>([]);
+  const [outreachTargets, setOutreachTargets] = useState<OutreachTarget[]>([]);
+
   const [approved, setApproved] = useState(false);
   const [running, setRunning] = useState(false);
   const [runMessage, setRunMessage] = useState("");
@@ -41,32 +60,8 @@ export default function GrowthPage() {
     setFollowupsLoading(false);
   }
 
-  async function generateDailyQueue() {
-    setQueueLoading(true);
-    setQueue([]);
-
-    try {
-      const res = await tenantFetch("/api/growth/generate-daily-queue");
-      const json = await res.json();
-
-      if (!json.success) {
-        alert(json.error || "Could not generate daily queue.");
-      } else {
-        setQueue(json.data || []);
-      }
-    } catch (err: any) {
-      alert(err.message);
-    }
-
-    setQueueLoading(false);
-  }
-
-  function updateQueueMessage(id: string, value: string) {
-    setQueue((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, message: value } : item
-      )
-    );
+  function containsPlaceholder(text: string) {
+    return /\[[^\]]+\]/.test(text || "");
   }
 
   async function generate() {
@@ -76,6 +71,10 @@ export default function GrowthPage() {
     setPlanId(null);
     setApproved(false);
     setRunMessage("");
+    setQueue([]);
+    setPostOptions([]);
+    setOutreachTargets([]);
+    setSelectedPostIndex(0);
 
     try {
       const res = await tenantFetch("/api/ai/growth-engine", {
@@ -91,10 +90,20 @@ export default function GrowthPage() {
       const json = await res.json();
 
       if (!json.success) {
-        alert(json.error);
+        alert(json.error || "Could not generate today’s plan.");
       } else {
+        const generatedPosts = Array.isArray(json.data?.linkedin_posts)
+          ? json.data.linkedin_posts
+          : [];
+
+        const generatedTargets = Array.isArray(json.data?.outreach_targets)
+          ? json.data.outreach_targets
+          : [];
+
         setData(json.data);
         setPlanId(json.id);
+        setPostOptions(generatedPosts);
+        setOutreachTargets(generatedTargets);
         setSaved(true);
       }
     } catch (err: any) {
@@ -104,9 +113,62 @@ export default function GrowthPage() {
     setLoading(false);
   }
 
+  function updatePostCopy(index: number, value: string) {
+    setPostOptions((previous) =>
+      previous.map((post, i) =>
+        i === index
+          ? {
+              ...post,
+              copy: value,
+            }
+          : post
+      )
+    );
+  }
+
+  function updateOutreachMessage(id: string, value: string) {
+    setOutreachTargets((previous) =>
+      previous.map((target) =>
+        target.id === id
+          ? {
+              ...target,
+              message: value,
+            }
+          : target
+      )
+    );
+  }
+
   async function approveAndRunToday() {
     if (!planId) {
       alert("Generate today’s plan first.");
+      return;
+    }
+
+    const selectedPost = postOptions[selectedPostIndex];
+
+    if (!selectedPost?.copy?.trim()) {
+      alert("Choose a LinkedIn post before approving today’s plan.");
+      return;
+    }
+
+    if (containsPlaceholder(selectedPost.copy)) {
+      alert(
+        "The selected LinkedIn post still contains placeholder text. Edit it before approval."
+      );
+      return;
+    }
+
+    const badOutreach = outreachTargets.find(
+      (target) =>
+        !target.message?.trim() ||
+        containsPlaceholder(target.message)
+    );
+
+    if (badOutreach) {
+      alert(
+        `The outreach message for ${badOutreach.name || "one contact"} is incomplete or still contains placeholder text.`
+      );
       return;
     }
 
@@ -121,6 +183,7 @@ export default function GrowthPage() {
         },
         body: JSON.stringify({
           id: planId,
+          selectedLinkedInPost: selectedPost.copy.trim(),
         }),
       });
 
@@ -134,14 +197,25 @@ export default function GrowthPage() {
 
       setApproved(true);
 
-      await generateDailyQueue();
+      setQueue(
+        outreachTargets.map((target) => ({
+          id: target.id,
+          target_name: target.name,
+          company: target.company || "",
+          role_title: target.role || "",
+          linkedin_url: target.linkedinUrl || "",
+          stage: target.stage,
+          message: target.message,
+        }))
+      );
+
       await loadFollowups();
 
-     setRunMessage(
-  json.alreadyQueued
-    ? "Today’s plan was already approved. The LinkedIn post is already queued, and personalised outreach due today has been prepared below."
-    : "Today’s plan is approved and running. The LinkedIn post has been queued automatically, and personalised outreach due today has been prepared below."
-);
+      setRunMessage(
+        json.alreadyQueued
+          ? `Today’s plan was already approved. The selected LinkedIn post is already queued. ${outreachTargets.length} reviewed outreach message${outreachTargets.length === 1 ? "" : "s"} are ready below.`
+          : `Today’s plan is approved and running. The selected LinkedIn post has been queued automatically. ${outreachTargets.length} reviewed outreach message${outreachTargets.length === 1 ? "" : "s"} are ready below.`
+      );
     } catch (err: any) {
       alert(err.message || "Could not run today’s plan.");
     }
@@ -149,8 +223,21 @@ export default function GrowthPage() {
     setRunning(false);
   }
 
+  function updateQueueMessage(id: string, value: string) {
+    setQueue((previous) =>
+      previous.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              message: value,
+            }
+          : item
+      )
+    );
+  }
+
   async function markSent(target: any) {
-    await tenantFetch("/api/growth/mark-sent", {
+    const res = await tenantFetch("/api/growth/mark-sent", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -161,7 +248,17 @@ export default function GrowthPage() {
       }),
     });
 
-    setQueue((prev) => prev.filter((item) => item.id !== target.id));
+    const json = await res.json();
+
+    if (!json.success) {
+      alert(json.error || "Could not update this target.");
+      return;
+    }
+
+    setQueue((previous) =>
+      previous.filter((item) => item.id !== target.id)
+    );
+
     await loadFollowups();
   }
 
@@ -221,8 +318,8 @@ export default function GrowthPage() {
       <LifecycleReconciliationControl />
 
       <p style={subtitle}>
-        Generate the day’s plan, review it once, approve it, and let Ops prepare
-        the work that is due.
+        Generate the day, choose the creative direction, review the real people
+        and messages, then approve once.
       </p>
 
       <div
@@ -258,11 +355,15 @@ export default function GrowthPage() {
         <h2>1. Generate Today’s Plan</h2>
 
         <p style={muted}>
-          Generate the proposed content and outreach strategy. Review everything
-          before approving the day.
+          Ops creates three content choices and personalised outreach for the
+          actual people due today.
         </p>
 
-        <button onClick={generate} style={mainButton} disabled={loading}>
+        <button
+          onClick={generate}
+          style={mainButton}
+          disabled={loading}
+        >
           {loading ? "Generating..." : "Generate Today’s Plan"}
         </button>
 
@@ -274,21 +375,127 @@ export default function GrowthPage() {
 
         {data && (
           <div style={{ marginTop: 24 }}>
-            <Section
-              title="LinkedIn Post"
-              onCopy={() => copy(data.linkedin_post)}
-            >
-              {data.linkedin_post}
+            <Section title="Choose Today’s LinkedIn Post">
+              <p style={muted}>
+                Pick the version you want. You can edit the final copy before
+                approving.
+              </p>
+
+              {postOptions.map((post, index) => {
+                const selected = selectedPostIndex === index;
+
+                return (
+                  <article
+                    key={index}
+                    style={{
+                      ...postCard,
+                      border: selected
+                        ? "2px solid #22c55e"
+                        : "1px solid #334155",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        alignItems: "center",
+                      }}
+                    >
+                      <div>
+                        <h3 style={{ margin: 0 }}>
+                          {post.label || `Option ${index + 1}`}
+                        </h3>
+
+                        <p style={postAngle}>
+                          {post.angle || "Alternative creative direction"}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => setSelectedPostIndex(index)}
+                        style={selected ? selectedButton : chooseButton}
+                      >
+                        {selected ? "Selected ✓" : "Use this post"}
+                      </button>
+                    </div>
+
+                    <textarea
+                      value={post.copy || ""}
+                      onChange={(event) =>
+                        updatePostCopy(index, event.target.value)
+                      }
+                      style={postEditor}
+                    />
+
+                    <button
+                      onClick={() => copy(post.copy)}
+                      style={copyButton}
+                    >
+                      Copy
+                    </button>
+                  </article>
+                );
+              })}
             </Section>
 
-            <Section title="Connection Messages">
-              {data.connection_messages?.map(
-                (msg: string, i: number) => (
-                  <div key={i} style={{ marginBottom: 10 }}>
-                    {msg}
-                    <CopyBtn onClick={() => copy(msg)} />
-                  </div>
-                )
+            <Section title="Today’s Named Outreach">
+              <p style={muted}>
+                These are the actual contacts whose lifecycle says they are due
+                today. Review or edit each message before approval.
+              </p>
+
+              {outreachTargets.length === 0 ? (
+                <p style={muted}>
+                  No outreach targets are due today.
+                </p>
+              ) : (
+                outreachTargets.map((target) => (
+                  <article key={target.id} style={targetCard}>
+                    <h3 style={{ margin: 0 }}>
+                      {target.name}
+                    </h3>
+
+                    <p style={muted}>
+                      {target.role || "Role not available"}
+                      {" · "}
+                      {target.company || "Company not available"}
+                    </p>
+
+                    <p style={stage}>
+                      Stage: {target.stage}
+                    </p>
+
+                    {target.linkedinUrl && (
+                      <a
+                        href={target.linkedinUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={profileLink}
+                      >
+                        Open LinkedIn profile
+                      </a>
+                    )}
+
+                    <textarea
+                      value={target.message || ""}
+                      onChange={(event) =>
+                        updateOutreachMessage(
+                          target.id,
+                          event.target.value
+                        )
+                      }
+                      style={editableMessage}
+                    />
+
+                    <button
+                      onClick={() => copy(target.message)}
+                      style={copyButton}
+                    >
+                      Copy
+                    </button>
+                  </article>
+                ))
               )}
             </Section>
 
@@ -311,19 +518,32 @@ export default function GrowthPage() {
 
               <ul>
                 {data.seo_article?.outline?.map(
-                  (o: string, i: number) => (
-                    <li key={i}>{o}</li>
+                  (item: string, index: number) => (
+                    <li key={index}>{item}</li>
                   )
                 )}
               </ul>
             </Section>
 
             <div style={approvalBox}>
-              <h2 style={{ marginTop: 0 }}>Approve Today’s Plan</h2>
+              <h2 style={{ marginTop: 0 }}>
+                Approve Today’s Plan
+              </h2>
 
               <p style={muted}>
-                Approval authorises Ops to prepare today’s work using the plan
-                you have just reviewed.
+                One approval locks in your selected LinkedIn post and the
+                outreach you have reviewed.
+              </p>
+
+              <p style={approvalSummary}>
+                Selected post:{" "}
+                <strong>
+                  {postOptions[selectedPostIndex]?.label ||
+                    `Option ${selectedPostIndex + 1}`}
+                </strong>
+                <br />
+                Named outreach:{" "}
+                <strong>{outreachTargets.length}</strong>
               </p>
 
               <button
@@ -349,93 +569,75 @@ export default function GrowthPage() {
       </section>
 
       <section style={card}>
-        <h2>2. Today’s Personalised Outreach Queue</h2>
+        <h2>2. Approved Outreach for Today</h2>
 
         <p style={muted}>
-          Ops prepares personalised messages for up to 10 people whose lifecycle
-          says they are due today.
+          These are the messages you reviewed above. Nothing is regenerated
+          after approval.
         </p>
 
-        <button
-          onClick={generateDailyQueue}
-          style={yellowButton}
-          disabled={queueLoading}
-        >
-          {queueLoading
-            ? "Generating messages..."
-            : "Generate Today’s Messages"}
-        </button>
+        {!approved ? (
+          <p style={muted}>
+            Approve today’s plan to activate this queue.
+          </p>
+        ) : queue.length === 0 ? (
+          <p style={muted}>
+            No outreach actions are due today.
+          </p>
+        ) : (
+          queue.map((item) => (
+            <article key={item.id} style={targetCard}>
+              <h3 style={{ margin: 0 }}>
+                {item.target_name}
+              </h3>
 
-        {queue.length === 0 && !queueLoading && (
-          <div style={{ marginTop: 16 }}>
-            <p style={{ color: "#94a3b8" }}>
-              No prepared targets currently shown.
-            </p>
+              <p style={muted}>
+                {item.role_title || "Role not available"}
+                {" · "}
+                {item.company || "Company not available"}
+              </p>
 
-            <a
-              href="/dashboard/growth/followups"
-              style={smallLink}
-            >
-              → Add or view targets
-            </a>
-          </div>
-        )}
+              <p style={stage}>
+                Stage: {item.stage}
+              </p>
 
-        {queue.length > 0 && (
-          <div style={{ marginTop: 18 }}>
-            {queue.map((item) => (
-              <article key={item.id} style={targetCard}>
-                <h3 style={{ margin: 0 }}>
-                  {item.target_name}
-                </h3>
-
-                <p style={muted}>
-                  {item.role_title || "Role not added"} ·{" "}
-                  {item.company || "Company not added"}
-                </p>
-
-                <p style={stage}>
-                  Stage: {item.stage}
-                </p>
-
-                {item.linkedin_url && (
-                  <a
-                    href={item.linkedin_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={profileLink}
-                  >
-                    Open LinkedIn profile
-                  </a>
-                )}
-
-                <textarea
-                  value={item.message}
-                  onChange={(e) =>
-                    updateQueueMessage(
-                      item.id,
-                      e.target.value
-                    )
-                  }
-                  style={editableMessage}
-                />
-
-                <button
-                  onClick={() => copy(item.message)}
-                  style={copyButton}
+              {item.linkedin_url && (
+                <a
+                  href={item.linkedin_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={profileLink}
                 >
-                  Copy Message
-                </button>
+                  Open LinkedIn profile
+                </a>
+              )}
 
-                <button
-                  onClick={() => markSent(item)}
-                  style={sentButton}
-                >
-                  Mark Sent / Move Next
-                </button>
-              </article>
-            ))}
-          </div>
+              <textarea
+                value={item.message}
+                onChange={(event) =>
+                  updateQueueMessage(
+                    item.id,
+                    event.target.value
+                  )
+                }
+                style={editableMessage}
+              />
+
+              <button
+                onClick={() => copy(item.message)}
+                style={copyButton}
+              >
+                Copy Message
+              </button>
+
+              <button
+                onClick={() => markSent(item)}
+                style={sentButton}
+              >
+                Mark Sent / Move Next
+              </button>
+            </article>
+          ))
         )}
       </section>
 
@@ -452,10 +654,7 @@ export default function GrowthPage() {
           </p>
         ) : (
           followups.map((target: any) => (
-            <article
-              key={target.id}
-              style={targetCard}
-            >
+            <article key={target.id} style={targetCard}>
               <h3 style={{ margin: 0 }}>
                 {target.target_name}
               </h3>
@@ -513,8 +712,7 @@ export default function GrowthPage() {
                 <select
                   id={`reply-status-${target.id}`}
                   defaultValue={
-                    target.reply_status ||
-                    "no_reply"
+                    target.reply_status || "no_reply"
                   }
                   style={select}
                 >
@@ -541,9 +739,7 @@ export default function GrowthPage() {
 
                 <textarea
                   id={`reply-notes-${target.id}`}
-                  defaultValue={
-                    target.reply_notes || ""
-                  }
+                  defaultValue={target.reply_notes || ""}
                   placeholder="Notes e.g. asked for more info, wants pilot details, book call next week..."
                   style={textarea}
                 />
@@ -671,23 +867,17 @@ const approveButton: React.CSSProperties = {
   fontSize: 16,
 };
 
-const yellowButton: React.CSSProperties = {
-  marginTop: 12,
-  padding: "12px 18px",
-  borderRadius: 10,
-  background: "#facc15",
-  color: "#020617",
-  border: "none",
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
 const approvalBox: React.CSSProperties = {
   marginTop: 22,
   padding: 18,
   borderRadius: 14,
   background: "#052e16",
   border: "1px solid #22c55e",
+};
+
+const approvalSummary: React.CSSProperties = {
+  color: "#d1fae5",
+  lineHeight: 1.7,
 };
 
 const runStatus: React.CSSProperties = {
@@ -703,6 +893,48 @@ const section: React.CSSProperties = {
   borderRadius: 12,
   marginBottom: 16,
   border: "1px solid #334155",
+};
+
+const postCard: React.CSSProperties = {
+  marginTop: 14,
+  padding: 16,
+  borderRadius: 12,
+  background: "#0f172a",
+};
+
+const postAngle: React.CSSProperties = {
+  marginTop: 6,
+  marginBottom: 0,
+  color: "#94a3b8",
+  fontSize: 14,
+};
+
+const postEditor: React.CSSProperties = {
+  width: "100%",
+  minHeight: 220,
+  marginTop: 14,
+  padding: 14,
+  borderRadius: 10,
+  background: "#020617",
+  color: "#ffffff",
+  border: "1px solid #334155",
+  lineHeight: 1.6,
+};
+
+const chooseButton: React.CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: 8,
+  background: "#334155",
+  color: "#ffffff",
+  border: "none",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const selectedButton: React.CSSProperties = {
+  ...chooseButton,
+  background: "#22c55e",
+  color: "#020617",
 };
 
 const targetCard: React.CSSProperties = {
@@ -745,7 +977,7 @@ const messageBox: React.CSSProperties = {
 
 const editableMessage: React.CSSProperties = {
   width: "100%",
-  minHeight: 140,
+  minHeight: 120,
   marginTop: 10,
   padding: 12,
   borderRadius: 10,
