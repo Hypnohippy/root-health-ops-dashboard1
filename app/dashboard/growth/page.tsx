@@ -1,6 +1,7 @@
 "use client";
 
 import { tenantFetch } from "@/lib/tenantFetch";
+import LifecycleReconciliationControl from "./LifecycleReconciliationControl";
 
 import { useEffect, useState } from "react";
 
@@ -154,6 +155,7 @@ export default function GrowthPage() {
       <h1 style={title}>🚀 Daily Growth Cockpit</h1>
 
       <button onClick={() => { window.location.href = "/dashboard/growth/acquisition" + window.location.search; }}>Open acquisition queue</button>
+      <LifecycleReconciliationControl />
 
       <p style={subtitle}>
         Generate content, prepare today’s messages, and track replies.
