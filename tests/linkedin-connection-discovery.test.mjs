@@ -121,5 +121,5 @@ test("worker detects individual and digest mail, provides bounded label-independ
   const statusRoute = fs.readFileSync("app/api/responses/update-status/route.ts", "utf8");
   assert.match(statusRoute, /requireOrganisation\(organisationId, true\)/);
   const responses = fs.readFileSync("app/dashboard/responses/page.tsx", "utf8");
-  assert.match(responses, /Open LinkedIn Message/); assert.match(responses, /Mark Contacted/); assert.match(responses, /responses_linkedin_first_message_v1/);
+  assert.match(responses, /Open LinkedIn Message/); assert.match(responses, /Mark Contacted/); assert.match(responses, /responses_lifecycle_draft_v1/);
 });

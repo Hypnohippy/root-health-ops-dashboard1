@@ -1,4 +1,4 @@
-import { growthFollowUpDueAt } from "@/lib/growthOutreach";
+import { growthFollowUpDueAt, nextGrowthStage } from "@/lib/growthOutreach";
 
 /** Read-only projection. No persisted identity, workflow transitions or sending. */
 export type LifecycleTable = "acquisition_items" | "inbox_items" | "growth_targets";
@@ -59,13 +59,28 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
     const stages: Record<string, LifecycleStage> = { needs_reply: "needs_reply", waiting_for_human: "waiting", no_reply_needed: "no_reply_needed", follow_up: "follow_up", nurture: "nurture", closed_or_lost: "lost", engaged: "engaged", converted: "converted", replied: "engaged", archived: "no_reply_needed", unread: "needs_reply" };
     currentStage = stages[state || ""] || "unknown";
     if (row.kind === "connection_accepted" && currentStage === "needs_reply") currentStage = "outreach_ready";
+    const terminal = ["converted", "lost", "nurture", "no_reply_needed"].includes(currentStage);
+    const sentAt = latest(row.last_replied_at, row.email_sent_at, row.contacted_at);
+    if (!terminal && row.kind === "connection_accepted" && (status === "replied" || sentAt)) {
+      currentStage = "waiting";
+      nextDueDate = growthFollowUpDueAt({ stage: "day3_dm", last_action_at: sentAt });
+      if (nextDueDate) currentStage = "follow_up";
+    } else if (!terminal && row.platform === "email" && ["auto_acknowledgement", "waiting_for_human", "out_of_office"].includes(String(row.email_classification)) && state !== "engaged") {
+      currentStage = "waiting";
+    } else if (!terminal && row.platform === "email" && row.email_delivery_status === "sent" && sentAt && state !== "follow_up") {
+      currentStage = "waiting";
+    } else if (!terminal && row.platform !== "email" && status === "replied") currentStage = "engaged";
     nextAction = ({ needs_reply: "reply", outreach_ready: "first_message", follow_up: "follow_up", nurture: "review_nurture", engaged: "review_engagement" } as Partial<Record<LifecycleStage, string>>)[currentStage] || null;
-    if (currentStage === "follow_up") nextDueDate = date(row.follow_up_at);
+    if (currentStage === "follow_up") nextDueDate = nextDueDate || date(row.follow_up_at);
+    if (row.kind === "connection_accepted" && currentStage === "follow_up") nextAction = "day3_dm";
     if (date(row.last_replied_at)) lastAction = action("reply_sent", row.last_replied_at);
     if (date(row.response_updated_at) && (!lastAction?.at || String(date(row.response_updated_at)) > lastAction.at)) {
       // This is an observed state, not evidence that a draft was sent.
       lastAction = action(`response_state:${state || "unknown"}`, row.response_updated_at);
     }
+    if (date(row.contacted_at) && (!lastAction?.at || String(date(row.contacted_at)) >= lastAction.at)) lastAction = action("marked_contacted", row.contacted_at);
+    if (row.kind === "connection_accepted" && status === "replied" && !lastAction) lastAction = action("marked_contacted", null);
+    if (date(row.email_sent_at) && (!lastAction?.at || String(date(row.email_sent_at)) >= lastAction.at)) lastAction = action("reply_sent", row.email_sent_at);
   } else {
     const stage = text(row.stage);
     if (row.deal_stage === "won" || row.deal_stage === "converted" || row.call_outcome === "won") currentStage = "converted";
@@ -74,9 +89,10 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
     else if (["engaged", "opportunity"].includes(String(row.deal_stage)) || ["positive", "interested", "engaged"].includes(String(row.reply_status))) currentStage = "engaged";
     else if (stage === "parked" || status === "parked") currentStage = "nurture";
     else if (status === "waiting") currentStage = "waiting";
-    else if (status === "active") currentStage = stage === "connection" ? "outreach_ready" : ["day3_dm", "day10_insight", "day17_followup"].includes(stage || "") ? "follow_up" : "unknown";
-    nextAction = ({ outreach_ready: "connection", follow_up: stage, engaged: "review_engagement", meeting: "review_meeting", nurture: "review_nurture" } as Partial<Record<LifecycleStage, string>>)[currentStage] || null;
-    if (currentStage === "follow_up") nextDueDate = growthFollowUpDueAt({ stage, last_action_at: text(row.last_action_at) });
+    else if (status === "active") currentStage = stage === "connection" ? (date(row.last_action_at) ? "follow_up" : "outreach_ready") : ["day3_dm", "day10_insight", "day17_followup"].includes(stage || "") ? "follow_up" : "unknown";
+    const effectiveStage = stage === "connection" && date(row.last_action_at) ? nextGrowthStage(stage) : stage;
+    nextAction = ({ outreach_ready: "connection", follow_up: effectiveStage, engaged: "review_engagement", meeting: "review_meeting", nurture: "review_nurture" } as Partial<Record<LifecycleStage, string>>)[currentStage] || null;
+    if (currentStage === "follow_up") nextDueDate = growthFollowUpDueAt({ stage: effectiveStage, last_action_at: text(row.last_action_at) });
     if (currentStage === "meeting") nextDueDate = date(row.call_date);
     if (!["converted", "lost", "unknown"].includes(currentStage) && text(row.next_step)) {
       nextAction = text(row.next_step);
@@ -121,14 +137,27 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
     groups.set(key, group);
   }
   return [...groups].sort(([a], [b]) => compare(a, b)).map(([identity, members]) => {
+    // A later acknowledgement or completed email response supersedes an older
+    // pending cadence in this read-only view, even before reconciliation runs.
+    const waitingSince = members.filter(p => p.table === "inbox_items" && p.row.platform === "email" && p.currentStage === "waiting")
+      .map(p => latest(p.row.created_at_platform, p.row.inserted_at, p.row.email_sent_at, p.row.last_replied_at)).filter((v): v is string => !!v).sort().at(-1);
+    if (waitingSince) for (const p of members) {
+      if (p.currentStage === "follow_up" && date(p.row.last_action_at || p.row.contacted_at) && waitingSince >= date(p.row.last_action_at || p.row.contacted_at)!) {
+        p.currentStage = "waiting"; p.nextAction = null; p.nextDueDate = null;
+      }
+    }
     members.sort((a, b) => priority[b.currentStage] - priority[a.currentStage]
       || compare(b.observedAt || "", a.observedAt || "") || sourcePriority[b.table] - sourcePriority[a.table] || compare(rowKey(a), rowKey(b)));
     const winner = members[0];
+    // A pending reply is an action within a meeting relationship, not a stage
+    // regression. Closed outcomes remain non-actionable.
+    const actionOwner = winner.currentStage === "meeting" ? members.find(p => p.currentStage === "needs_reply") || winner : winner;
     const actions = members.flatMap(p => p.lastAction ? [p.lastAction] : []).sort((a, b) => compare(b.at || "", a.at || "") || compare(`${a.table}:${a.id}`, `${b.table}:${b.id}`));
     return { contactId: JSON.stringify([organisationId, identity]), identity, organisationId,
       name: members.find(p => p.name)?.name || null, company: members.find(p => p.company)?.company || null,
-      currentStage: winner.currentStage, lastAction: actions[0] || null, nextAction: winner.nextAction,
-      nextDueDate: winner.nextDueDate, channel: winner.channel, source: winner.source,
+      currentStage: winner.currentStage, lastAction: actions[0] || null, nextAction: actionOwner.nextAction,
+      nextDueDate: actionOwner.nextDueDate, channel: actionOwner.channel, source: winner.source,
+      actionRecord: { table: actionOwner.table, id: actionOwner.row.id },
       followUpStatus: winner.currentStage === "follow_up" && winner.nextDueDate ? (Date.parse(winner.nextDueDate) <= now ? "due" : "waiting") : null,
       records: members.map(p => ({ table: p.table, id: p.row.id, stage: p.currentStage, source: p.source })),
     };

@@ -1,12 +1,13 @@
 // app/api/responses/list/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
+import { responseLifecycleMap } from "@/lib/responseLifecycle";
 import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 
 export const runtime = "nodejs";
 
-function okJson(data: any, status = 200) {
-  return NextResponse.json(data, { status });
+function okJson(data: unknown, status = 200) {
+  return NextResponse.json(data, { status, headers: { "Cache-Control": "private, no-store" } });
 }
 
 export async function GET(req: NextRequest) {
@@ -22,26 +23,18 @@ export async function GET(req: NextRequest) {
     const limitRaw = Number(url.searchParams.get("limit") || 200);
     const limit = Math.max(1, Math.min(500, isNaN(limitRaw) ? 200 : limitRaw));
 
-    const { data, error } = await supabaseAdmin
-      .from("inbox_items")
-      .select(
-        "id, organisation_id, platform, status, kind, author_name, author_handle, text, permalink, linkedin_message_url, created_at_platform, inserted_at, post_text, post_id, external_id, last_reply_text, last_replied_at, email_classification, response_state, email_thread_id, email_message_id, in_reply_to, outreach_reference, sender_email, email_subject, follow_up_at, proposed_response, email_reply_draft, email_delivery_status, email_sent_message_id, email_sent_thread_id, email_sent_at"
+    const input = await readLifecycleInput(verified.organisationId);
+    const lifecycles = responseLifecycleMap(verified.organisationId, input);
+    const timestamp = (value: unknown) => typeof value === "string" ? Date.parse(value) || 0 : 0;
+    const data = input.inbox_items.filter(row => row.organisation_id === verified.organisationId)
+      .sort((a, b) => timestamp(b.created_at_platform || b.inserted_at) - timestamp(a.created_at_platform || a.inserted_at) || a.id.localeCompare(b.id)).slice(0, limit);
 
-      )
-      .eq("organisation_id", verified.organisationId)
-      .order("created_at_platform", { ascending: false, nullsFirst: false })
-      .order("inserted_at", { ascending: false })
-      .limit(limit);
-
-    if (error) {
-      return okJson({ success: false, error: error.message }, 500);
-    }
-
-    const items = (data || []).map((r: any) => ({
+    const items = (data || []).map((r) => ({
       id: String(r.id),
-      platform: (r.platform || "unknown") as any,
-      status: (r.status || "unknown") as any,
-      kind: (r.kind || "unknown") as any,
+      lifecycle: lifecycles.get(String(r.id)) || null,
+      platform: (r.platform || "unknown"),
+      status: (r.status || "unknown"),
+      kind: (r.kind || "unknown"),
       authorName: r.author_name ?? null,
       authorHandle: r.author_handle ?? null,
       text: r.text || "",
@@ -74,7 +67,7 @@ export async function GET(req: NextRequest) {
         "Loaded from Supabase inbox_items. Use “Pull latest” to fetch new comments from connected platforms.",
       items,
     });
-  } catch (e: any) {
+  } catch (e) {
     return accessErrorResponse(e) || okJson({ success: false, error: "Unable to load responses." }, 500);
   }
 }

@@ -8,7 +8,7 @@ function load(file) { const mod={exports:{}}; const output=ts.transpileModule(fs
 const context = load("lib/responseContactContext.ts");
 
 test("LinkedIn acceptance is classified as a first outbound message with plain customer language",()=>{
-  const type=context.interactionTypeFor({platform:"linkedin",kind:"connection_accepted"},null);
+  const type=context.interactionTypeFor({platform:"linkedin",kind:"connection_accepted"},{canDraft:true,currentStage:"outreach_ready"});
   assert.equal(type,"linkedin_connection_first_message");
   assert.equal(context.messageTypeLabel(type),"First message after connection");
   assert.equal(context.plainSource(null,"connection_accepted"),"LinkedIn connection acceptance email");
@@ -21,13 +21,15 @@ test("first-message rules prohibit fake prior dialogue and aggressive pitching",
   assert.match(rules,/first outbound LinkedIn message/i); assert.match(rules,/not a reply/i); assert.match(rules,/never imply prior dialogue/i); assert.match(rules,/avoid a hard pitch/i);
 });
 
-test("later relationship stages use distinct drafting logic",()=>{
-  assert.equal(context.interactionTypeFor({platform:"linkedin",kind:"unknown"},{stage:"day3_dm",last_action_at:"2026-09-20"}),"linkedin_followup");
-  assert.equal(context.interactionTypeFor({platform:"linkedin",kind:"dm"},{stage:"day3_dm"}),"linkedin_reply");
-  assert.equal(context.interactionTypeFor({platform:"email",kind:"email_reply"},null),"email_reply");
-  assert.equal(context.interactionTypeFor({platform:"facebook",kind:"comment"},null),"social_reply");
-  assert.equal(context.interactionTypeFor({platform:"linkedin"},{stage:"parked"}),"nurture");
-  assert.equal(context.interactionTypeFor({platform:"linkedin"},{stage:"day3_dm",reply_status:"interested"}),"warm_opportunity");
+test("interaction types require the current lifecycle instead of inferring from the event",()=>{
+  const mapped=(platform,currentStage)=>context.interactionTypeFor({platform,kind:"connection_accepted"},{canDraft:true,currentStage});
+  assert.equal(mapped("linkedin","follow_up"),"linkedin_followup");
+  assert.equal(mapped("linkedin","needs_reply"),"linkedin_reply");
+  assert.equal(mapped("email","needs_reply"),"email_reply");
+  assert.equal(mapped("facebook","needs_reply"),"social_reply");
+  assert.equal(mapped("linkedin","nurture"),"nurture");
+  assert.equal(mapped("linkedin","engaged"),"relationship_message");
+  assert.equal(context.interactionTypeFor({platform:"linkedin",kind:"connection_accepted"}),"no_action");
 });
 
 test("profile fit uses only stored role/company terms and sparse context invents nothing",()=>{
@@ -43,8 +45,8 @@ test("Responses briefing and AI Suggest use the same server-enriched tenant cont
   const ai=fs.readFileSync("app/api/ai/root-coach/route.ts","utf8");
   assert.match(ui,/Why this contact matters/); assert.match(ui,/Message type:/); assert.match(ui,/inboxItemId: selected\.id/);
   assert.doesNotMatch(ui,/No linked contact history was found/);
-  assert.match(route,/requireOrganisation\(requested, false\)/); assert.match(server,/from\("inbox_items"\)/); assert.match(server,/from\("acquisition_items"\)/); assert.match(server,/from\("growth_targets"\)/);
-  assert.match(ai,/getResponseContactContext\(tenant\.organisationId, inboxItemId/); assert.match(ai,/Drafting hierarchy: interaction type, relationship stage/);
+  assert.match(route,/requireOrganisation\(requested, false\)/); assert.match(server,/readLifecycleInput\(organisationId\)/); assert.match(server,/buildContactLifecycle\(organisationId, input\)/); assert.match(server,/presentResponseLifecycle\(contact, item\)/);
+  assert.match(ai,/getResponseContactContext\(tenant\.organisationId, inboxItemId/); assert.match(ai,/Drafting hierarchy: current unified lifecycle stage/);
 });
 
 test("existing email and social controls remain in Responses and LinkedIn is never auto-sent",()=>{

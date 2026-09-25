@@ -110,7 +110,7 @@ export function planLifecycleReconciliation(organisationId: string, input: Lifec
         add("inbox_items", item, patch, "cancel_pending_follow_up");
       } else if (automatic.includes(item) && (!protectedStages.has(stage) || stage === "needs_reply")) {
         add("inbox_items", item, { response_state: "waiting_for_human", follow_up_at: null }, "automatic_acknowledgement");
-      } else if (contacted.includes(item) && ["outreach_ready", "engaged", "waiting"].includes(stage)) {
+      } else if (contacted.includes(item) && ["outreach_ready", "engaged", "waiting", "follow_up"].includes(stage)) {
         add("inbox_items", item, { response_state: "waiting_for_human" }, "marked_contacted");
       }
     }
