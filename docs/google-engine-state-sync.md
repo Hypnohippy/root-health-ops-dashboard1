@@ -7,8 +7,9 @@ reconciliation or register triggers. Home is unchanged.
 
 ## Deployment boundary
 
-The user verified both spreadsheet IDs, the B2B `Leads` headers, all seven Personal
-tab names and the `Partner Outreach` headers. Concrete configurations now use that
+The user verified both spreadsheet IDs and existing source ID rules. Authenticated
+read-only browser access also verified the B2B `Source URL` header and all seven
+Personal tab schemas. Concrete configurations now use that
 schema: [B2B](google-engine-state-b2b.config.json) and
 [Personal](google-engine-state-personal.config.json). These are field mappings,
 not a claim of live deployment. Remaining identity/safety fields and tab-specific
@@ -151,7 +152,7 @@ Spreadsheet: `1HXba9e-_WBh8oyJ-hOykpfR993T7-RCSmxWpkX5I1Po`.
 
 | Verified column | Exported field |
 | --- | --- |
-| Organisation | company and entity |
+| Organisation | company and entity; existing hash input |
 | Person | person |
 | Email | state.email |
 | Status | state.Status |
@@ -160,11 +161,14 @@ Spreadsheet: `1HXba9e-_WBh8oyJ-hOykpfR993T7-RCSmxWpkX5I1Po`.
 | lastInboundAt | Last inbound timestamp |
 | lastOutboundAt, otherwise Sent at | Last outbound timestamp; fallback only when the first column is empty |
 | discoverySource / discoveredAt | Source discovery provenance in the snapshot |
+| Source URL | source_url and existing hash input |
 
-**Only pending B2B field:** the existing ingestion `source_record_id` rule and any
-prefix. No stable-ID column was supplied. Email is contact identity, not an assumed
-replacement source ID. `id_header` deliberately remains null until the existing
-rule is verified. No row number or synthetic source ID is introduced.
+The B2B mapping is complete and enabled in the config. `id_rule: rootOpsStableLeadId_`
+uses the exact existing rule: trim and lowercase each of `Organisation`, `Email`,
+and `Source URL`, join them with `|`, SHA-256 the UTF-8 string, and prefix the full
+lowercase hex digest with `b2b-`. There is no URL rewriting, row number, new prefix
+or alternate identity fallback. Missing required headers fail closed. This uses
+the source URL column, not `discoverySource` or `Email source URL`.
 
 ### Personal: live `Partner Outreach`
 
@@ -172,7 +176,7 @@ Spreadsheet: `1ZfyIebRh6G8HkuJrM6cizPocd8oBh3Cu1u_Lh9M2UAM`.
 
 | Verified column | Exported field |
 | --- | --- |
-| Outreach ID | id_header; exact cell value preserved, subject to confirming any existing prefix |
+| Outreach ID | Exact existing source_record_id; no added prefix |
 | Contact name / Partner / Organisation | person / company and entity |
 | Email | state.email |
 | Send status / Sent at | state.status / last_outbound_at |
@@ -188,29 +192,44 @@ Draft subject/body and Notes are not exported: they are not required for state
 visibility. Import provenance metadata retains the existing first-import-wins
 semantics; changing operational fields are in `state`.
 
-**Pending Partner fields:** confirmation of the existing Outreach ID prefix (if
-any), and the actual `Verification` value semantics/evidence for all required
-Personal safety flags. No boolean safety columns were supplied. A populated
+**Pending Partner fields:** explicit evidence for all required Personal safety
+flags. The observed `VERIFIED` and `CONTACT_PAGE_ONLY` values do not establish them.
+No explicit boolean safety columns exist in the inspected schema. A populated
 business context, email address, approved draft, or sent status is not substituted
 for those checks. The mapping is staged but not enabled until that evidence is
 available; safety enforcement is unchanged.
 
-### Personal tabs with names verified but headers pending
+### Social Queue and Action Outputs mappings
+
+Both schemas were read from the authenticated live sheet. Source IDs are the exact
+existing `Social ID` and `Action ID` values, without a prefix. `Queue row` is only
+provenance, never identity.
+
+| Tab | Verified mapping |
+| --- | --- |
+| Social Queue | Source URL → source_url; Context / Question → evidence; Theme → signal; Status/Platform/Mode → status/channel/opportunity_type; Published at → last_outbound_at (public publication, not a DM); Queue row/Risk/Generated/Clicks/Capacity Checks/Destination → import provenance |
+| Action Outputs | Source URL → source_url; Opportunity → evidence; Theme → signal; Target / Partner → entity; Review status → approval_state; Action type → opportunity_type; Queue row/Lane/Created/Approved at/Actioned at/Destination → import provenance |
+
+Draft text is not exported. Approval/action provenance never authorizes sending.
+Both mappings remain safety-pending: `REACTIVE`/`LOW`/`SENSITIVE` in Social and
+`REVIEW`/lane/action-type labels in Action Outputs are not proof of public context,
+absence of consumer outreach or health targeting. Social also lacks explicit
+verified-direct-discussion evidence. Partner-related actions are not promoted to
+outreach opportunities without explicit verified-public-business evidence.
+
+### Personal tabs without proven operational identity
 
 | Tab | Missing mapping evidence |
 | --- | --- |
-| Acquisition Queue | Headers, stable ID, type/source fields, Personal safety evidence |
-| Social Queue | Headers, stable ID, direct public discussion URL, Personal safety evidence |
-| Search Demand | Headers, stable ID, public source/context, Personal safety evidence |
-| Funnel Events | Headers, stable event/contact linkage and outcome semantics, Personal eligibility |
-| Action Outputs | Headers, stable action/source linkage and state, Personal safety evidence |
-| Leads | Headers, existing stable ID and public-context eligibility; no assumption of consumer outreach permission |
+| Acquisition Queue | Headers verified; no stable ID column or proven existing composite rule. Mutable Theme/Search question and queue row are not durable IDs. Safety evidence unresolved. |
+| Search Demand | Headers verified; no stable ID column or proven existing composite rule. Mutable search phrase/Theme cannot be substituted. Safety evidence unresolved. |
+| Funnel Events | Headers/rows verified: event/trigger/prior-state/next-state definitions, not contact occurrences. No occurrence ID or contact linkage; do not manufacture conversion records. |
+| Leads | Headers verified; External contact ID is empty in the inspected sheet. Message ID is not a proven stable lead ID. Source identity and public-context eligibility unresolved; consent is not public-opportunity verification. |
 
-These are individual pending entries, not guessed schemas. Current status enum
-values were not supplied for either mapped tab: strings are passed through the
-existing normalizer, and unfamiliar values remain raw evidence instead of invented
-transitions. Optional `id_prefix` must match any prefix already used by existing
-ingestion. Dates returned by Sheets as Date objects become ISO timestamps; ambiguous
+These are individual pending entries, not guessed identities. Source status strings
+pass through the existing normalizer; unfamiliar values remain raw evidence instead
+of invented transitions. Personal source IDs above have no added prefix.
+Dates returned by Sheets as Date objects become ISO timestamps; ambiguous
 text dates are not guessed and the receiver rejects them. The adapter reads Sheets only, sends
 batches of at most 25, refuses redirects, returns counts, stops on HTTP errors and
 never logs secrets or record payloads. It does not access Gmail or install triggers.

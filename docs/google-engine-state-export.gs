@@ -2,6 +2,13 @@
  * No triggers, writes, Gmail, message generation, approvals or existing engine hooks.
  * Configuration is in Script Properties; never log credentials or payloads.
  */
+function opsStableB2BSourceId_(organisation, email, sourceUrl) {
+  // Exact existing rootOpsStableLeadId_ rule: trim/lowercase each input; no URL rewriting.
+  var input = [organisation, email, sourceUrl].map(function(value) { return String(value == null ? '' : value).trim().toLowerCase(); }).join('|');
+  return 'b2b-' + Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, input, Utilities.Charset.UTF_8)
+    .map(function(byte) { return ('0' + (byte & 255).toString(16)).slice(-2); }).join('');
+}
+
 function opsExportEngineState() {
   var properties = PropertiesService.getScriptProperties();
   var config = JSON.parse(properties.getProperty('OPS_STATE_SYNC_CONFIG') || '{}');
@@ -26,8 +33,11 @@ function opsExportEngineState() {
     var rows = sheet.getDataRange().getValues();
     if (!rows.length) return;
     var headers = rows[0].map(function(value) { return String(value).trim(); });
-    var required = [mapping.id_header].concat(Object.values(mapping.fields || {}), Object.values(mapping.state || {}), Object.values(mapping.safety || {}), Object.values(mapping.metadata || {})).flat();
-    if (!mapping.id_header || required.some(function(header) { return headers.indexOf(header) < 0 || headers.indexOf(header) !== headers.lastIndexOf(header); })) throw new Error('Missing or duplicate mapped source header.');
+    var hashId = mapping.id_rule === 'rootOpsStableLeadId_';
+    if (mapping.id_rule && !hashId) throw new Error('Unsupported source ID rule.');
+    if (hashId && (config.source_engine !== 'root_health_b2b' || mapping.id_prefix || mapping.id_header)) throw new Error('B2B ID rule cannot be combined with another identity format.');
+    var required = (hashId ? ['Organisation', 'Email', 'Source URL'] : [mapping.id_header]).concat(Object.values(mapping.fields || {}), Object.values(mapping.state || {}), Object.values(mapping.safety || {}), Object.values(mapping.metadata || {})).flat();
+    if ((!hashId && !mapping.id_header) || required.some(function(header) { return headers.indexOf(header) < 0 || headers.indexOf(header) !== headers.lastIndexOf(header); })) throw new Error('Missing or duplicate mapped source header.');
     rows.slice(1).forEach(function(row) {
       if (row.every(function(value) { return value === ''; })) return;
       // Ordered fallbacks use the first populated verified column, never guessed headers.
@@ -39,7 +49,8 @@ function opsExportEngineState() {
         }
         return '';
       }
-      var id = read(mapping.id_header);
+      if (hashId && !read('Organisation') && !read('Email') && !read('Source URL')) throw new Error('Source record has no stable identity evidence.');
+      var id = hashId ? opsStableB2BSourceId_(read('Organisation'), read('Email'), read('Source URL')) : read(mapping.id_header);
       if (id === '' || id == null) throw new Error('Source record has no stable identifier.');
       var record = { source_engine: config.source_engine, source_record_id: (mapping.id_prefix || '') + String(id), record_type: mapping.record_type,
         observed_at: observedAt, state: {}, metadata: { sheet_tab: mapping.name } };

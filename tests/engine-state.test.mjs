@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import ts from "typescript";
 import { PGlite } from "@electric-sql/pglite";
@@ -128,7 +129,7 @@ test("manual exporter reads configured headers, forwards timestamps, and never w
   const config = { organisation_id: A, source_engine: "root_health_b2b", spreadsheet_id: "book", sheets: [{ name: "Leads", id_header: "Lead ID", record_type: "b2b_lead", state: { Status: "Status", lastOutboundAt: "lastOutboundAt" } }] };
   const sandbox = { PropertiesService: { getScriptProperties: () => ({ getProperty: key => key === "OPS_STATE_SYNC_CONFIG" ? JSON.stringify(config) : secret }) },
     SpreadsheetApp: { openById: () => ({ getSheetByName: () => ({ getDataRange: () => ({ getValues: () => [["Lead ID", "Status", "lastOutboundAt"], ["stable", "sent", "2026-09-20T12:00:00Z"]] }) }) }) },
-    Utilities: { newBlob: s => ({ getBytes: () => Buffer.from(s) }) }, UrlFetchApp: { fetch: (url, options) => { sent.push({ url, options }); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ success: true, received: 1, inserted: 1 }) }; } },
+    Utilities: { DigestAlgorithm: { SHA_256: "SHA_256" }, Charset: { UTF_8: "UTF_8" }, computeDigest: (algorithm, input, charset) => { assert.equal(algorithm, "SHA_256"); assert.equal(charset, "UTF_8"); return Array.from(createHash("sha256").update(input, "utf8").digest(), b => b > 127 ? b - 256 : b); }, newBlob: s => ({ getBytes: () => Buffer.from(s) }) }, UrlFetchApp: { fetch: (url, options) => { sent.push({ url, options }); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ success: true, received: 1, inserted: 1 }) }; } },
   };
   vm.runInNewContext(script, sandbox); sandbox.opsExportEngineState();
   assert.equal(sent.length, 1); assert.equal(JSON.parse(sent[0].options.payload).records[0].source_record_id, "stable");
@@ -140,7 +141,7 @@ function runMappedExport(config, sheets) {
   const sent = [], reads = [];
   const sandbox = { Date, PropertiesService: { getScriptProperties: () => ({ getProperty: key => key === "OPS_STATE_SYNC_CONFIG" ? JSON.stringify(config) : secret }) },
     SpreadsheetApp: { openById: id => { assert.equal(id, config.spreadsheet_id); return { getSheetByName: name => { reads.push(name); assert.ok(sheets[name], name); return { getDataRange: () => ({ getValues: () => sheets[name] }) }; } }; } },
-    Utilities: { newBlob: s => ({ getBytes: () => Buffer.from(s) }) }, UrlFetchApp: { fetch: (_url, options) => { sent.push(JSON.parse(options.payload)); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ success: true, received: 1, inserted: 1 }) }; } },
+    Utilities: { DigestAlgorithm: { SHA_256: "SHA_256" }, Charset: { UTF_8: "UTF_8" }, computeDigest: (algorithm, input, charset) => { assert.equal(algorithm, "SHA_256"); assert.equal(charset, "UTF_8"); return Array.from(createHash("sha256").update(input, "utf8").digest(), b => b > 127 ? b - 256 : b); }, newBlob: s => ({ getBytes: () => Buffer.from(s) }) }, UrlFetchApp: { fetch: (_url, options) => { sent.push(JSON.parse(options.payload)); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ success: true, received: 1, inserted: 1 }) }; } },
   };
   vm.runInNewContext(fs.readFileSync("docs/google-engine-state-export.gs", "utf8"), sandbox);
   const results = sandbox.opsExportEngineState(); return { sent, reads, results };
@@ -151,10 +152,9 @@ test("verified live configurations identify exact spreadsheets and isolate only 
   const b2b = liveConfig("b2b"), personalConfig = liveConfig("personal");
   assert.equal(b2b.spreadsheet_id, "1HXba9e-_WBh8oyJ-hOykpfR993T7-RCSmxWpkX5I1Po");
   assert.equal(personalConfig.spreadsheet_id, "1ZfyIebRh6G8HkuJrM6cizPocd8oBh3Cu1u_Lh9M2UAM");
-  assert.equal(b2b.sheets[0].id_header, null);
+  assert.equal(b2b.sheets[0].id_rule, "rootOpsStableLeadId_");
   assert.equal(personalConfig.sheets[0].id_header, "Outreach ID");
   assert.equal(personalConfig.sheets[0].id_prefix, undefined);
-  assert.equal(runMappedExport(b2b, {}).sent.length, 0);
   const pending = runMappedExport(personalConfig, {});
   assert.equal(pending.sent.length, 0); assert.equal(pending.reads.length, 0);
   assert.deepEqual(Array.from(pending.results, r => r.sheet), ["Partner Outreach", "Acquisition Queue", "Social Queue", "Search Demand", "Funnel Events", "Action Outputs", "Leads"]);
@@ -164,19 +164,20 @@ test("verified live configurations identify exact spreadsheets and isolate only 
 
 test("live B2B columns export cadence, discovery/count and Sent at fallback without generating IDs", () => {
   for (const field of ["follow_up_count", "discovery_source", "discovered_at", "conversions"]) assert.equal(field in parse(record()).engine_state, false);
-  const config = liveConfig("b2b"), mapping = config.sheets[0];
-  // Fixture-only existing ID column: production ID rule remains explicitly pending.
-  mapping.id_header = "Fixture existing ID"; mapping.pending = [];
-  const values = { "Fixture existing ID": "original:stable:123", Organisation: "Business", Person: "Person", Email: "person@example.com", Status: "sent",
+  const config = liveConfig("b2b");
+  const values = { "Source URL": "https://example.com/source", Organisation: "Business", Person: "Person", Email: "person@example.com", Status: "sent",
     "Sent at": new Date("2026-09-20T12:00:00Z"), followUpStage: "followup_2", lastFollowUpAt: "", nextFollowUpAt: new Date("2026-09-28T12:00:00Z"),
     followUpCount: 0, followUpStatus: "scheduled", lastInboundAt: "", lastOutboundAt: "", discoverySource: "public directory", discoveredAt: new Date("2026-09-19T12:00:00Z") };
   const exportRow = () => runMappedExport(config, { Leads: [Object.keys(values), Object.values(values)] }).sent[0].records[0];
   let row = exportRow();
-  assert.equal(row.source_record_id, "original:stable:123"); assert.equal(row.company, "Business");
+  assert.equal(row.source_record_id, "b2b-" + createHash("sha256").update("business|person@example.com|https://example.com/source").digest("hex")); assert.equal(row.company, "Business");
   assert.equal(row.state.lastOutboundAt, "2026-09-20T12:00:00.000Z"); assert.equal(row.state.followUpCount, "0");
   let parsed = parse(row);
   assert.equal(parsed.engine_state.discovery_source, "public directory"); assert.equal(parsed.engine_state.discovered_at, "2026-09-19T12:00:00.000Z");
   assert.equal(parsed.engine_state.follow_up_count, "0");
+  const originalId = row.source_record_id;
+  values.Organisation = " Business "; values.Email = "PERSON@EXAMPLE.COM "; values["Source URL"] = " HTTPS://EXAMPLE.COM/SOURCE ";
+  assert.equal(exportRow().source_record_id, originalId);
   values.lastOutboundAt = new Date("2026-09-22T12:00:00Z"); row = exportRow(); parsed = parse(row);
   assert.equal(parsed.engine_state.last_outbound_at, "2026-09-22T12:00:00.000Z");
   assert.equal(parsed.engine_state.next_follow_up_at, "2026-09-28T12:00:00.000Z");
@@ -203,4 +204,25 @@ test("Partner Outreach maps exact source IDs and state, preserves safety gates a
   assert.equal(parse(safe).engine_state.conversions, "2"); assert.equal(contact(safe).currentStage, "reviewing");
   values["Send status"] = "sent"; values["Sent at"] = new Date("2026-09-20T12:00:00Z"); values["Reply status"] = "human_reply_required"; values["Reply at"] = new Date("2026-09-21T12:00:00Z");
   assert.equal(contact(exportRow().sent[0].records[0]).currentStage, "needs_reply");
+});
+
+test("Social Queue and Action Outputs preserve exact stable IDs and do not infer safety from source labels", () => {
+  for (const [tab, idHeader, id] of [["Social Queue", "Social ID", "social-existing-17"], ["Action Outputs", "Action ID", "action-existing-4"]]) {
+    const config = liveConfig("personal"), mapping = config.sheets.find(s => s.name === tab);
+    assert.equal(mapping.id_header, idHeader); assert.equal(mapping.id_prefix, undefined);
+    mapping.pending = [];
+    const headers = [...new Set([idHeader, ...Object.values(mapping.fields), ...Object.values(mapping.state), ...Object.values(mapping.metadata)].flat())];
+    const values = Object.fromEntries(headers.map(h => [h, ""]));
+    Object.assign(values, { [idHeader]: id, "Source URL": "https://www.reddit.com/r/example/comments/abc/discussion/", "Queue row": 83 });
+    if (tab === "Social Queue") Object.assign(values, { Status: "READY", Mode: "REACTIVE", Risk: "LOW", Platform: "reddit", "Context / Question": "Public question", "Published at": new Date("2026-09-20T12:00:00Z") });
+    else Object.assign(values, { "Review status": "REVIEW", "Action type": "CONTENT_BRIEF", Opportunity: "Public content opportunity", Lane: "Intent content" });
+    const result = runMappedExport(config, { [tab]: [Object.keys(values), Object.values(values)] });
+    const row = result.sent[0].records[0];
+    assert.equal(row.source_record_id, id); assert.equal(row.metadata.queue_row_reference, "83");
+    assert.equal(result.results.filter(r => r.pending).length, 6);
+    assert.throws(() => parse(row), /Personal records require public context/);
+    assert.equal(row.safety.public_context, undefined); assert.equal(row.safety.verified_direct_discussion, undefined);
+    if (tab === "Social Queue") assert.equal(row.state.last_outbound_at, "2026-09-20T12:00:00.000Z");
+    else assert.equal(row.state.approval_state, "REVIEW");
+  }
 });

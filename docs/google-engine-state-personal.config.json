@@ -8,7 +8,6 @@
       "record_type": "partner_opportunity",
       "id_header": "Outreach ID",
       "pending": [
-        "Confirm whether existing source_record_id uses Outreach ID verbatim or an existing prefix; preserve that exact format.",
         "Verification value semantics and explicit evidence for public_context, verified_public_business, consumer_outreach=false and health_targeting=false are not yet supplied. Do not infer safety from an approval or sent status."
       ],
       "fields": {
@@ -39,11 +38,25 @@
       },
       "safety": {}
     },
-    { "name": "Acquisition Queue", "pending": ["Tab verified; headers, stable ID rule, source/type fields and Personal safety evidence still required."] },
-    { "name": "Social Queue", "pending": ["Tab verified; headers, stable ID rule, direct public discussion URL and Personal safety evidence still required."] },
-    { "name": "Search Demand", "pending": ["Tab verified; headers, stable ID rule, public source/context and Personal safety evidence still required."] },
-    { "name": "Funnel Events", "pending": ["Tab verified; headers, stable event/contact linkage, outcome semantics and Personal safety evidence still required."] },
-    { "name": "Action Outputs", "pending": ["Tab verified; headers, stable action/source linkage, state fields and Personal safety evidence still required."] },
-    { "name": "Leads", "pending": ["Tab verified; headers, existing stable ID rule and public-context eligibility still required. Consumer leads must not be treated as outreach opportunities."] }
+    { "name": "Acquisition Queue", "pending": ["Headers verified live; no stable ID column or verified existing composite ID rule. Queue row is not an identity. Personal safety evidence also unresolved."] },
+    {
+      "name": "Social Queue", "record_type": "social_opportunity", "id_header": "Social ID",
+      "pending": ["State/provenance headers verified live. REACTIVE mode and LOW/SENSITIVE risk do not explicitly prove public_context, verified_direct_discussion, consumer_outreach=false or health_targeting=false."],
+      "fields": { "source_url": "Source URL", "evidence": "Context / Question", "signal": "Theme" },
+      "state": { "status": "Status", "channel": "Platform", "opportunity_type": "Mode", "last_outbound_at": "Published at" },
+      "metadata": { "queue_row_reference": "Queue row", "risk": "Risk", "generated_at": "Generated", "clicks": "Clicks", "capacity_checks": "Capacity Checks", "destination": "Destination" },
+      "safety": {}
+    },
+    { "name": "Search Demand", "pending": ["Headers verified live; no stable ID or verified existing composite rule. Search phrase/Theme are mutable; no row-number identity. Personal safety evidence unresolved."] },
+    { "name": "Funnel Events", "pending": ["Live rows define funnel rules (Event/Trigger/Required prior state/Next state), not contact event occurrences. No stable occurrence ID or contact linkage; must not create conversions from rule definitions."] },
+    {
+      "name": "Action Outputs", "record_type": "personal_opportunity", "id_header": "Action ID",
+      "pending": ["State/provenance headers verified live. Lane/Action type/REVIEW do not explicitly establish public_context, consumer_outreach=false or health_targeting=false; partner actions also require verified public business evidence before any outreach."],
+      "fields": { "source_url": "Source URL", "evidence": "Opportunity", "signal": "Theme", "entity": "Target / Partner" },
+      "state": { "approval_state": "Review status", "opportunity_type": "Action type" },
+      "metadata": { "queue_row_reference": "Queue row", "lane": "Lane", "created_at": "Created", "approved_at": "Approved at", "actioned_at": "Actioned at", "destination": "Destination" },
+      "safety": {}
+    },
+    { "name": "Leads", "pending": ["Headers verified live; External contact ID is unpopulated in the inspected sheet. Message ID is not a verified stable lead ID. Existing source ID rule and public-context eligibility unresolved; consumer consent is not public opportunity verification."] }
   ]
 }

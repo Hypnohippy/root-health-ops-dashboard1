@@ -5,9 +5,8 @@
   "sheets": [{
     "name": "Leads",
     "record_type": "b2b_lead",
-    "id_header": null,
-    "pending": ["Existing ingestion source_record_id rule/header and any prefix must be verified. No ID column was supplied; do not substitute Email or a row number."],
-    "fields": { "entity": "Organisation", "company": "Organisation", "person": "Person" },
+    "id_rule": "rootOpsStableLeadId_",
+    "fields": { "entity": "Organisation", "company": "Organisation", "person": "Person", "source_url": "Source URL" },
     "state": {
       "email": "Email",
       "Status": "Status",
