@@ -5,6 +5,9 @@ export const outreachStages = [
   "day3_dm",
   "day10_insight",
   "day17_followup",
+  "week5_view",
+  "week6_relevance",
+  "week7_close",
   "parked",
 ] as const;
 
@@ -12,15 +15,20 @@ export type OutreachStage = typeof outreachStages[number];
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
+const WEEKLY_FOLLOW_UP_STAGES = new Set([
+  "day3_dm",
+  "day10_insight",
+  "day17_followup",
+  "week5_view",
+  "week6_relevance",
+  "week7_close",
+]);
+
 export function growthFollowUpDueAt(target: {
   stage?: string | null;
   last_action_at?: string | null;
 }) {
-  if (
-    !["day3_dm", "day10_insight", "day17_followup"].includes(
-      target.stage || ""
-    )
-  ) {
+  if (!WEEKLY_FOLLOW_UP_STAGES.has(target.stage || "")) {
     return null;
   }
 
@@ -45,26 +53,18 @@ export function isGrowthTargetDue(
     .trim()
     .toLowerCase();
 
-  // Once somebody has genuinely responded, the silent-contact
-  // sequence must stop. The conversation now needs its own next step.
-  if (
-    replyStatus &&
-    replyStatus !== "no_reply"
-  ) {
+  // A genuine reply stops the silent relationship sequence.
+  if (replyStatus && replyStatus !== "no_reply") {
     return false;
   }
 
-  // A brand-new contact is available for its first reviewed touch.
   if (target.stage === "connection") {
     return true;
   }
 
   const dueAt = growthFollowUpDueAt(target);
 
-  return (
-    dueAt !== null &&
-    now >= Date.parse(dueAt)
-  );
+  return dueAt !== null && now >= Date.parse(dueAt);
 }
 
 export function nextGrowthStage(
@@ -80,6 +80,18 @@ export function nextGrowthStage(
 
   if (stage === "day10_insight") {
     return "day17_followup";
+  }
+
+  if (stage === "day17_followup") {
+    return "week5_view";
+  }
+
+  if (stage === "week5_view") {
+    return "week6_relevance";
+  }
+
+  if (stage === "week6_relevance") {
+    return "week7_close";
   }
 
   return "parked";
@@ -112,6 +124,20 @@ export function contextualOutreachDraft(
 
   if (target.stage === "day17_followup") {
     return `Hi ${first}, one thing I've been thinking about lately is how often workplace wellbeing gets treated separately from how work is actually designed. I suspect that's where some of the real answers are found.`;
+  }
+
+  if (target.stage === "week5_view") {
+    return `Hi ${first}, I'd be interested in your take on something when you have a minute — do you think organisations are getting better at wellbeing, or just better at talking about it?`;
+  }
+
+  if (target.stage === "week6_relevance") {
+    const business = profile.business.name || "Root";
+
+    return `Hi ${first}, this is actually part of what we've been working on at ${business} — trying to make workplace wellbeing more practical without turning it into another corporate exercise. Happy to tell you more if it's ever useful.`;
+  }
+
+  if (target.stage === "week7_close") {
+    return `Hi ${first}, I'll stop haunting your messages after this one 😆 If there's ever a useful reason for us to talk properly, the door's open.`;
   }
 
   return "";
