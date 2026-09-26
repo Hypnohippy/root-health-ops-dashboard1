@@ -275,9 +275,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ok: true,
-        postedId: init.publishId,
+        publishId: init.publishId,
+        postedId: status.ok && status.details?.error?.code === "ok" && status.details?.data?.status === "PUBLISH_COMPLETE" ? init.publishId : null,
+        published: status.ok && status.details?.error?.code === "ok" && status.details?.data?.status === "PUBLISH_COMPLETE",
+        manualCompletionRequired: !(status.ok && status.details?.error?.code === "ok" && status.details?.data?.status === "PUBLISH_COMPLETE"),
         mode: "video",
-        note: "TikTok returns a publish_id quickly. Processing/publishing is async and depends on account/app approval.",
+        note: "Upload accepted. Unless publication is confirmed, open the TikTok inbox to finish editing and publishing; do not upload again.",
         statusCheck: status.details,
       },
       { status: 200 }
