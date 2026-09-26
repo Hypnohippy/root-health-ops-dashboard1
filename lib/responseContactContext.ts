@@ -1,8 +1,10 @@
 import type { GenerationProfile } from "@/lib/tenantGeneration";
 import type { ResponseLifecycle } from "@/lib/responseLifecycle";
+import type { SocialCommentOpportunity } from "@/lib/socialCommentOpportunity";
 
 export type InteractionType = "linkedin_connection_first_message" | "linkedin_followup" | "linkedin_reply" | "email_reply" | "social_reply" | "nurture" | "warm_opportunity" | "first_message" | "followup" | "relationship_message" | "no_action";
 export type ResponseContactContext = {
+  socialOpportunity?: SocialCommentOpportunity;
   interactionType: InteractionType;
   messageType: string;
   name: string | null;

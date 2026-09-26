@@ -69,7 +69,7 @@ async function upsertInboxItems(rows: any[]) {
 
   const { error } = await supabaseAdmin
     .from("inbox_items")
-    .upsert(rows, { onConflict: "organisation_id,platform,external_id" });
+    .upsert(rows, { onConflict: "organisation_id,platform,external_id", ignoreDuplicates: true });
 
   if (error) throw new Error(error.message);
   return { upserted: rows.length };
@@ -216,7 +216,7 @@ async function pullFacebook(organisationId: string, pageId: string, storedToken:
         text,
         permalink,
         created_at_platform: createdAt,
-        raw: c,
+        raw: { ...c, _rootops_source: "official_comment_pull" },
       });
     }
   }
@@ -292,7 +292,7 @@ async function pullInstagram(organisationId: string, igUserId: string, token: st
         text,
         permalink,
         created_at_platform: createdAt,
-        raw: c,
+        raw: { ...c, _rootops_source: "official_comment_pull" },
       });
     }
   }

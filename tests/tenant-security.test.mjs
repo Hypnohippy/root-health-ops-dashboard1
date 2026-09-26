@@ -165,7 +165,7 @@ test("mutating routes deny a foreign tenant before database writes or provider c
   for (const path of ["social/quick-blast", "social/dispatch", "social/schedule", "social/scheduled/import", "social/scheduled/update", "social/scheduled/delete", "scheduled/update", "scheduled/cancel", "schedule/update", "publish/now", "linkedin/post", "tiktok/post", "tiktok/status", "oauth/threads/manual-save", "oauth/linkedin/finish", "oauth/facebook/save-page", "oauth/facebook/connect-page", "responses/reply"]) {
     const file = `app/api/${path}/route.ts`;
     const source = fs.readFileSync(file, "utf8");
-    const mocks = { "next/server": responseMock, "@/lib/tenantAuth": auth };
+    const mocks = { "next/server": responseMock, "@/lib/tenantAuth": auth, "@/lib/responseContactContext.server": {}, "@/lib/organisationProfile.server": {}, "@/lib/socialCommentOpportunity": {} };
     for (const [, name] of source.matchAll(/from "([^"]*supabaseAdmin)"/g)) mocks[name] = { supabaseAdmin: db };
     const result = await load(file, mocks).POST(req);
     assert.equal(result.status, 403, path);

@@ -116,6 +116,8 @@ function aiFixture(state, { changed = false, missing = false } = {}) {
     "@/lib/tenantRoute.server": { withTenantRoute: handler => req => handler(req, { organisationId: A, profile: {}, messages: [] }) },
     "@/lib/responseContactContext.server": { getResponseContactContext: async tenant => { assert.equal(tenant, A); reads++; if (missing) throw Error("unavailable"); return reads > 1 && changed ? { ...contact, lifecycle: { ...state, currentStage: "lost", canDraft: false } } : contact; } },
     "@/lib/responseContactContext": context,
+    "@/lib/socialCommentOpportunity": { publicReplyRules: "", safePublicDraft: () => true, socialCommentOpportunity: () => null },
+    "@/lib/connectionHealth": { connectionState: () => "not_connected" },
   }, { process: { env: { OPENAI_API_KEY: "fixture" } }, fetch: async (_url, options) => { prompts.push(JSON.parse(options.body)); return { ok: true, json: async () => ({ choices: [{ message: { content: "Current-stage message" } }] }) }; } });
   return { prompts, run: (extra = {}) => api.POST({ json: async () => ({ context: "responses_lifecycle_draft_v1", inboxItemId: ID, ...extra }) }) };
 }
@@ -169,6 +171,8 @@ test("server list and drafting context return the same advanced lifecycle across
       "@/lib/contactLifecycle": lifecycle,
       "@/lib/responseLifecycle": presentation,
       "@/lib/responseContactContext": context,
+    "@/lib/socialCommentOpportunity": { publicReplyRules: "", safePublicDraft: () => true, socialCommentOpportunity: () => null },
+    "@/lib/connectionHealth": { connectionState: () => "not_connected" },
       "@/lib/supabaseAdmin": { supabaseAdmin: { from: () => { throw Error("Unexpected extra table read"); } } },
     };
     const server = load("lib/responseContactContext.server.ts", dependencies);
