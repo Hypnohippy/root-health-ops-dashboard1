@@ -6,7 +6,16 @@ const date = (v: unknown) => typeof v === "string" && Number.isFinite(Date.parse
 const text = (v: unknown) => typeof v === "string" && v.trim() ? v.trim() : null;
 const commercial = new Set<LifecycleStage>(["meeting", "converted", "lost"]);
 const protectedStages = new Set<LifecycleStage>([...commercial, "engaged", "needs_reply", "nurture", "dismissed", "no_reply_needed"]);
-const cadence = ["connection", "day3_dm", "day10_insight", "day17_followup", "parked"];
+const cadence = [
+  "connection",
+  "day3_dm",
+  "day10_insight",
+  "day17_followup",
+  "week5_view",
+  "week6_relevance",
+  "week7_close",
+  "parked",
+];
 const humanClasses = new Set(["human_positive", "human_neutral", "human_negative", "question"]);
 const automaticClasses = new Set(["auto_acknowledgement", "waiting_for_human", "out_of_office"]);
 function conflictingProfiles(row: LifecycleRow) {
