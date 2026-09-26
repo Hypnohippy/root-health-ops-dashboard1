@@ -915,6 +915,11 @@ export async function POST(req: NextRequest) {
     const results: any[] = [];
 
     for (const p of platforms) {
+      // A TikTok handoff may share a batch with already completed channels.
+      if (meta.tiktok_inbox_upload?.completedPlatforms?.includes(p)) {
+        results.push({ platform: p, ok: true, reused: true, userMessage: "Previously completed in this batch; not sent again." });
+        continue;
+      }
       // THREADS
       if (p === "threads") {
         const acct = await loadSocialAccount(organisationId, "threads");
@@ -1126,6 +1131,10 @@ export async function POST(req: NextRequest) {
 
       // TIKTOK
       if (p === "tiktok") {
+        if (meta.tiktok_inbox_upload?.publishId) {
+          results.push({ platform: "tiktok", ok: meta.tiktok_inbox_upload.published === true, manualCompletionRequired: meta.tiktok_inbox_upload.published !== true, details: meta.tiktok_inbox_upload, error: meta.tiktok_inbox_upload.published === true ? null : "TikTok upload already accepted. Check the TikTok inbox and complete publication manually; no duplicate upload was made." });
+          continue;
+        }
         if (!videoUrl) {
           results.push({
             platform: "tiktok",
@@ -1146,14 +1155,16 @@ export async function POST(req: NextRequest) {
 
         results.push({
           platform: "tiktok",
-          ok: tk.ok,
+          ok: tk.ok && tk.json?.published === true,
+          manualCompletionRequired: tk.ok && tk.json?.published !== true,
           status: tk.status,
           details: tk.json,
-          error: tk.ok ? null : tk.error || "TikTok couldn’t publish this.",
-          userMessage: tk.ok
+          error: tk.ok && tk.json?.published === true ? null : tk.ok ? "TikTok upload accepted; finish publication in the TikTok inbox. No publication is confirmed." : tk.error || "TikTok couldn’t upload this.",
+          userMessage: tk.ok && tk.json?.published === true
             ? "Posted to TikTok."
-            : tk.error || "TikTok couldn’t publish this.",
+            : tk.ok ? "Upload accepted — manual completion required in TikTok." : tk.error || "TikTok couldn’t upload this.",
         });
+        if (tk.ok && tk.json?.publishId) meta.tiktok_inbox_upload = { publishId: tk.json.publishId, published: tk.json.published === true, acceptedAt: new Date().toISOString() };
         continue;
       }
 
@@ -1193,6 +1204,10 @@ export async function POST(req: NextRequest) {
         attempted: results.length,
       },
     };
+    if (meta.tiktok_inbox_upload?.publishId) nextMeta.tiktok_inbox_upload = {
+      ...meta.tiktok_inbox_upload,
+      completedPlatforms: [...new Set([...(meta.tiktok_inbox_upload.completedPlatforms || []), ...results.filter(r => r.ok).map(r => r.platform)])],
+    };
 
     const updatePayload: any = {
       error_info: {
@@ -1215,6 +1230,7 @@ export async function POST(req: NextRequest) {
       updatePayload.posted_at = nowIso;
     } else {
       updatePayload.status = "failed";
+      if (results.some(r => r.manualCompletionRequired)) updatePayload.posted_at = null;
     }
 
     const { error: upErr } = await supabaseAdmin

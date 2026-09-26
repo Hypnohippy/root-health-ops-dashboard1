@@ -6,25 +6,19 @@ import {
   capabilityLabels,
   channelCatalog,
   channelGroups,
-  type CapabilityState,
+  assessConnectionCapabilities,
   type ChannelDefinition,
 } from "@/lib/channelCapabilities";
 import { connectionHealthByPlatform, connectionSuccessMessage, type ConnectionHealth } from "@/lib/connectionUi";
 
 const statusStyle = {
-  Connected: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+  "Credential saved": "border-sky-400/30 bg-sky-400/10 text-sky-200",
+  "Configuration present": "border-sky-400/30 bg-sky-400/10 text-sky-200",
   Connect: "border-sky-400/30 bg-sky-400/10 text-sky-200",
   "Action required": "border-amber-400/30 bg-amber-400/10 text-amber-200",
-  "Awaiting provider approval": "border-violet-400/30 bg-violet-400/10 text-violet-200",
+  "Provider approval unverified": "border-violet-400/30 bg-violet-400/10 text-violet-200",
   "Available soon": "border-slate-600 bg-slate-800 text-slate-300",
 } as const;
-
-const capabilityStyle: Record<CapabilityState, string> = {
-  available: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
-  limited: "border-amber-400/25 bg-amber-400/10 text-amber-200",
-  planned: "border-slate-600 bg-slate-800 text-slate-300",
-  unavailable: "border-slate-700 bg-slate-900 text-slate-500",
-};
 
 function scopedUrl(path: string, organisationId: string | null) {
   if (!organisationId) return path;
@@ -33,11 +27,11 @@ function scopedUrl(path: string, organisationId: string | null) {
 }
 
 function displayStatus(channel: ChannelDefinition, health?: ConnectionHealth) {
-  if (channel.statusMode === "provider_approval") return "Awaiting provider approval" as const;
+  if (health?.state === "expired" || health?.state === "reconnect_required") return "Action required" as const;
+  if (channel.statusMode === "provider_approval") return "Provider approval unverified" as const;
   if (channel.statusMode === "available_soon") return "Available soon" as const;
   if (channel.id === "google") return "Action required" as const;
-  if (health?.state === "connected") return "Connected" as const;
-  if (health?.state === "expired" || health?.state === "reconnect_required") return "Action required" as const;
+  if (health?.state === "connected") return channel.id === "email" ? "Configuration present" as const : "Credential saved" as const;
   return channel.statusMode === "managed_setup" ? "Action required" as const : "Connect" as const;
 }
 
@@ -48,7 +42,8 @@ function ChannelCard({ channel, health, organisationId, onDisconnect }: {
   onDisconnect: (provider: string) => Promise<void>;
 }) {
   const status = displayStatus(channel, health);
-  const canConnect = Boolean(channel.connectPath) && health?.state !== "connected" && (status === "Connect" || status === "Action required");
+  const assessment = assessConnectionCapabilities(channel.id, health?.state || "not_connected");
+  const canConnect = Boolean(channel.connectPath) && health?.state !== "connected";
 
   return (
     <article className="rounded-2xl border border-slate-700 bg-slate-900/80 p-5 shadow-sm transition hover:border-slate-600">
@@ -60,15 +55,18 @@ function ChannelCard({ channel, health, organisationId, onDisconnect }: {
         <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyle[status]}`}>{status}</span>
       </div>
 
-      {health?.name && <p className="mt-3 text-xs text-slate-400">Connected as {health.name}</p>}
+      {health?.name && <p className="mt-3 text-xs text-slate-400">Saved identity: {health.name}</p>}
       {channel.note && <p className="mt-3 rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs leading-5 text-slate-300">{channel.note}</p>}
 
+      <p className="mt-3 text-xs text-amber-200">Operational verification: not verified. {assessment.reconnectRequired ? "Reconnect required." : "A saved credential is not proof of capability."}</p>
+      <p className="mt-2 text-xs text-slate-400">Provider approval: {assessment.providerApproval.replaceAll("_", " ")}</p>
+      <p className="mt-2 text-xs text-slate-400">Manual fallback: {assessment.manualFallback}</p>
       <details className="mt-4 rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2">
         <summary className="cursor-pointer text-xs font-semibold text-slate-300 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Capabilities</summary>
         <div className="mt-3 flex flex-wrap gap-2" aria-label={`${channel.name} capabilities`}>
           {capabilityLabels.map((label) => {
-            const capability = channel.capabilities[label] ?? "unavailable";
-            return <span key={label} className={`rounded-full border px-2 py-1 text-[11px] font-medium ${capabilityStyle[capability]}`}>{label}: {capability}</span>;
+            const capability = assessment.capabilities[label];
+            return <span key={label} title={capability.reason} className="rounded-xl border border-slate-700 px-3 py-2 text-xs text-slate-300"><b>{label}: {capability.state.replaceAll("_", " ")}</b><span className="mt-1 block text-slate-400">{capability.reason}</span></span>;
           })}
         </div>
       </details>
@@ -135,10 +133,10 @@ export default function ConnectPage() {
         </header>
 
         <section aria-labelledby="connected-channels">
-          <h2 id="connected-channels" className="text-xl font-semibold">Connected</h2>
-          <p className="mt-1 text-sm text-slate-400">Channels currently available to this workspace.</p>
+          <h2 id="connected-channels" className="text-xl font-semibold">Connected credentials / configuration</h2>
+          <p className="mt-1 text-sm text-slate-400">Saved credentials or configuration only. Operational capabilities are assessed separately below.</p>
           <div className="mt-4 grid gap-3 lg:grid-cols-2">{sections.connected.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} />)}</div>
-          {sections.connected.length === 0 && <p className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-400">No channels are connected yet.</p>}
+          {sections.connected.length === 0 && <p className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-400">No saved credentials or engine configuration are reported.</p>}
         </section>
 
         <section aria-labelledby="attention-channels">

@@ -29,7 +29,8 @@ test("dashboard exposes the permanent primary journeys in the requested order", 
 test("capability catalog tells the truth about implemented and provider-gated channels", () => {
   const { channelCatalog } = load("lib/channelCapabilities.ts");
   const channels = Object.fromEntries(channelCatalog.map((item) => [item.id, item]));
-  assert.equal(channels.facebook.capabilities.Reply, "available");
+  assert.equal(channels.facebook.capabilities.Reply, "limited");
+  assert.equal(channels.linkedin.capabilities["Pull responses"], "unavailable");
   assert.equal(channels.instagram.capabilities.Publish, "limited");
   assert.equal(channels.linkedin.capabilities.Reply, "unavailable");
   assert.equal(channels.threads.capabilities["Pull responses"], "unavailable");
@@ -62,7 +63,7 @@ test("connection health is indexed by server platform and connected channels res
 
 test("LinkedIn callback query produces a human-readable success message", () => {
   const { connectionSuccessMessage } = load("lib/connectionUi.ts");
-  assert.equal(connectionSuccessMessage(new URLSearchParams("provider=linkedin&connected=1")), "LinkedIn connected successfully.");
+  assert.equal(connectionSuccessMessage(new URLSearchParams("provider=linkedin&connected=1")), "LinkedIn credential saved. Operational capabilities remain unverified.");
 });
 
 test("Acquisition resolves the workspace and never asks for an organisation ID", () => {

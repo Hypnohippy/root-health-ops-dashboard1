@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { connectionHealth } from "@/lib/connectionHealth";
+import { assessConnectionCapabilities } from "@/lib/channelCapabilities";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
     const emailConnected = emailEngineConfigured(organisationId);
     const connections = connectionHealth(data || []).map(connection => connection.platform === "email"
       ? { ...connection, state: emailConnected ? "connected" : "not_connected", name: emailConnected ? "B2B Gmail engine" : null }
-      : connection);
+      : connection).map(connection => ({ ...connection, ...assessConnectionCapabilities(connection.platform, connection.state) }));
     return NextResponse.json({
       success: true, organisationId, connections,
       // Stored health cannot detect remote revocations before a provider call fails.

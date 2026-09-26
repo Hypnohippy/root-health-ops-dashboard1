@@ -218,6 +218,7 @@ test("connection-health API requires membership and only returns safe fields", a
     "next/server": responseMock, "@/lib/tenantAuth": auth,
     "@/lib/supabaseAdmin": { supabaseAdmin: { from: () => query } },
     "@/lib/connectionHealth": load("lib/connectionHealth.ts"),
+    "@/lib/channelCapabilities": load("lib/channelCapabilities.ts"),
   });
   const denied = await api.GET({ nextUrl: new URL("https://example.test?organisationId=org-b") });
   assert.equal(denied.status, 403);

@@ -1,0 +1,9 @@
+# Connection hardening
+
+Connect separates saved identity/credential (or managed engine configuration) from operational capabilities. Health remains tenant-scoped and read-only. Existing credential states are retained for compatibility; the health response adds per-capability assessments, reconnect/approval information, manual fallback and operationallyVerified=false.
+
+No trusted granted-scope or successful verification record currently exists in this health path. Implemented adapters therefore remain not verified, never available based only on a token. No new permissions, provider probes, adapters or sends are introduced. Facebook/Instagram comment permissions remain unverified; LinkedIn reading remains access-gated; Google identity cannot enable GBP; Gmail configuration cannot establish engine reachability or authorization.
+
+TikTok uses inbox upload. The response now separates publishId from postedId and only confirms publication when the provider returns PUBLISH_COMPLETE. Otherwise the existing non-dispatched failed status holds the scheduled item, with a manual-completion message and receipt in meta.tiktok_inbox_upload. This is incomplete publication, not a claim that the upload failed. A later retry reuses the upload receipt and previously completed channels in that batch. There is no new polling job or automatic repair; check the native TikTok inbox/status before completing manually. Existing receipts are not backfilled. Concurrent requests and a provider-success/database-write failure retain the existing publisher's limitations; this change is not a new transactional delivery engine.
+
+Provider approval remains unverified, and additional permissions still require platform review and human reconsent. Home, engine ingestion, Phase 4D and Daily Growth Plan are unchanged. No migration.
