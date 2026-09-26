@@ -18,14 +18,15 @@ export async function GET(req: NextRequest) {
     }
 
     // Pull from Supabase scheduled_posts (same table /api/social/schedule writes to)
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("scheduled_posts")
       .select(
         "id, organisation_id, message, platforms, image_url, scheduled_for, status, created_at, meta, sequence_id, series_part, series_total, error_info, posted_at"
       )
-      .eq("organisation_id", organisationId)
-      .order("scheduled_for", { ascending: true })
-      .limit(250);
+      .eq("organisation_id", organisationId);
+    const itemId = req.nextUrl.searchParams.get("itemId");
+    if (itemId) query = query.eq("id", itemId);
+    const { data, error } = await query.order("scheduled_for", { ascending: true }).limit(250);
 
     if (error) {
       console.error("[schedule/list] db error", error);

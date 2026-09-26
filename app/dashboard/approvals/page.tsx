@@ -175,14 +175,15 @@ export default function ApprovalsPage() {
   const [queryRaw, setQueryRaw] = useState("");
   const query = useDebouncedValue(queryRaw, 140);
 
-  const [tab, setTab] = useState<"pending" | "queued" | "all">("pending");
+  const [tab, setTab] = useState<"pending" | "queued" | "all">(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("itemId") ? "all" : "pending");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
   const [postNowPlatforms, setPostNowPlatforms] = useState<string[]>([]);
 
   const resolveOrg = async () => {
-    const res = await fetch("/api/social-accounts", {
+    const requested = new URLSearchParams(window.location.search).get("organisationId");
+    const res = await fetch(`/api/social-accounts${requested ? `?organisationId=${encodeURIComponent(requested)}` : ""}`, {
       method: "GET",
       cache: "no-store",
     });
@@ -210,8 +211,9 @@ export default function ApprovalsPage() {
     try {
       const org = organisationId || (await resolveOrg());
 
+      const itemId = new URLSearchParams(window.location.search).get("itemId");
       const res = await fetch(
-        `/api/schedule/list?organisationId=${encodeURIComponent(org)}`,
+        `/api/schedule/list?organisationId=${encodeURIComponent(org)}${itemId ? `&itemId=${encodeURIComponent(itemId)}` : ""}`,
         { cache: "no-store" }
       );
       const data: ApiListResp = await res.json().catch(() => ({}));
@@ -222,6 +224,7 @@ export default function ApprovalsPage() {
         );
 
       setRows(Array.isArray((data as any)?.items) ? (data as any).items : []);
+      if (itemId) setSelectedId(itemId);
     } catch (e: any) {
       setError(e?.message || "Could not load approvals queue.");
       setRows([]);

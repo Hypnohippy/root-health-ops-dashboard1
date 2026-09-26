@@ -10,9 +10,12 @@ export async function GET(req: Request) {
     const { organisationId } = await requireOrganisation(requested, false);
     const page = Number(params.get("page") || 0);
     const status = params.get("status");
+    const itemId = params.get("itemId");
+    if (itemId && !uuid.test(itemId)) return NextResponse.json({ error: "Invalid item." }, { status: 400 });
     if (!Number.isInteger(page) || page < 0 || page > 10000 || (status && !statuses.includes(status as typeof statuses[number]))) return NextResponse.json({ error: "Invalid filter." }, { status: 400 });
     let query = supabaseAdmin.from("acquisition_items").select("*, acquisition_item_events(id, action, previous_status, new_status, outcome, note, created_at, actor_user_id)", { count: "exact" }).eq("organisation_id", organisationId);
     if (status) query = query.eq("status", status);
+    if (itemId) query = query.eq("id", itemId);
     const { data, count, error } = await query.order("created_at", { ascending: false }).order("id").range(page * 25, page * 25 + 24);
     if (error) throw error;
     return NextResponse.json({ items: data, total: count, page });

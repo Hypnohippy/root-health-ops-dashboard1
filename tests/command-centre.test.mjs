@@ -26,7 +26,7 @@ test("Home loads tenant-scoped live counts and links to filtered work", () => {
   const home = fs.readFileSync("app/dashboard/page.tsx", "utf8");
   const api = fs.readFileSync("app/api/home/attention/route.ts", "utf8");
   assert.match(home, /api\/home\/attention/);
-  assert.match(home, /responses\?platform=linkedin&kind=connection_accepted&status=needs_reply/);
+  assert.match(home, /responses\?platform=linkedin&kind=connection_accepted&status=unread/);
   assert.match(home, /acquisition\?status=new/);
   assert.match(api, /requireOrganisation/);
   for (const table of ["acquisition_items", "inbox_items", "growth_targets", "scheduled_posts", "social_accounts"]) assert.match(api, new RegExp(table));
