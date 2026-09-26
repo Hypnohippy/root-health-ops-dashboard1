@@ -41,9 +41,9 @@ function ChannelCard({ channel, health, organisationId, onDisconnect }: {
   organisationId: string | null;
   onDisconnect: (provider: string) => Promise<void>;
 }) {
-  const status = displayStatus(channel, health);
-  const assessment = assessConnectionCapabilities(channel.id, health?.state || "not_connected");
-  const canConnect = Boolean(channel.connectPath) && health?.state !== "connected";
+  const assessment = assessConnectionCapabilities(channel.id, health?.state || "not_connected", health?.expiresAt);
+  const status = assessment.reconnectRequired ? "Action required" : displayStatus(channel, health);
+  const canConnect = Boolean(channel.connectPath) && (assessment.reconnectRequired || health?.state !== "connected");
 
   return (
     <article className="rounded-2xl border border-slate-700 bg-slate-900/80 p-5 shadow-sm transition hover:border-slate-600">
@@ -59,6 +59,7 @@ function ChannelCard({ channel, health, organisationId, onDisconnect }: {
       {channel.note && <p className="mt-3 rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs leading-5 text-slate-300">{channel.note}</p>}
 
       <p className="mt-3 text-xs text-amber-200">Operational verification: not verified. {assessment.reconnectRequired ? "Reconnect required." : "A saved credential is not proof of capability."}</p>
+      <p className="mt-2 text-xs text-slate-400">{assessment.expiryExplanation}</p>
       <p className="mt-2 text-xs text-slate-400">Provider approval: {assessment.providerApproval.replaceAll("_", " ")}</p>
       <p className="mt-2 text-xs text-slate-400">Manual fallback: {assessment.manualFallback}</p>
       <details className="mt-4 rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2">
@@ -72,7 +73,7 @@ function ChannelCard({ channel, health, organisationId, onDisconnect }: {
       </details>
 
       <div className="mt-4 flex gap-2">
-        {canConnect && <a href={scopedUrl(channel.connectPath!, organisationId)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300">{health?.state === "expired" || health?.state === "reconnect_required" || health?.state === "connected" ? "Reconnect" : "Connect"}</a>}
+        {canConnect && <a href={scopedUrl(channel.connectPath!, organisationId)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300">{assessment.reconnectRequired ? "Reconnect" : "Connect"}</a>}
         {health?.state === "connected" && channel.disconnectable && <button type="button" onClick={() => onDisconnect(channel.id)} className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-semibold text-slate-200 hover:border-rose-400 hover:text-rose-200">Disconnect</button>}
       </div>
     </article>

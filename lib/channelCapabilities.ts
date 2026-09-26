@@ -37,9 +37,12 @@ export type CapabilityHealthState = "not_verified" | "not_implemented" | "provid
 export type CapabilityAssessment = { state: CapabilityHealthState; reason: string };
 
 /** Read-only assessment. Credentials and requested scopes are never evidence of granted capability. */
-export function assessConnectionCapabilities(platform: string, credential: string) {
+export function assessConnectionCapabilities(platform: string, credential: string, expiresAt?: string | null, now = Date.now()) {
   const channel = channelCatalog.find(item => item.id === platform);
-  const reconnectRequired = credential === "expired" || credential === "reconnect_required";
+  const expiry = expiresAt ? Date.parse(expiresAt) : null;
+  const expiryStatus = platform === "email" ? "managed_by_engine" : credential === "not_connected" ? "not_applicable"
+    : expiry === null ? "unknown" : !Number.isFinite(expiry) ? "invalid" : expiry <= now ? "expired" : "recorded_future";
+  const reconnectRequired = credential === "expired" || credential === "reconnect_required" || expiryStatus === "invalid" || expiryStatus === "expired";
   const assess = (label: ChannelCapability): CapabilityAssessment => {
     const implemented = channel?.capabilities[label];
     if (!implemented || ["unavailable", "planned"].includes(implemented)) return {
@@ -56,6 +59,12 @@ export function assessConnectionCapabilities(platform: string, credential: strin
   return {
     credentialStatus: platform === "email" && credential === "connected" ? "configuration_present" : credential === "connected" ? "credential_present" : credential,
     operationallyVerified: false,
+    expiryStatus,
+    expiryExplanation: expiryStatus === "unknown" ? "Token expiry is unknown; this does not mean the credential never expires."
+      : expiryStatus === "recorded_future" ? "A future expiry is recorded; remote validity and permissions remain unverified."
+      : expiryStatus === "managed_by_engine" ? "Gmail token expiry is managed by the engine and is not verified by Ops."
+      : expiryStatus === "invalid" ? "Recorded token expiry is invalid. Reconnect required."
+      : expiryStatus === "expired" ? "Recorded token expiry has passed. Reconnect required." : "No credential expiry is available.",
     reconnectRequired,
     providerApproval: ["linkedin", "tiktok"].includes(platform) ? "required_for_extended_capabilities" : ["facebook", "instagram", "threads", "google"].includes(platform) ? "not_verified" : "not_applicable",
     manualFallback: platform === "email" ? "Review delivery in Gmail before completing manually; never repeat an uncertain send." : platform === "tiktok" ? "Open TikTok inbox to edit and publish the uploaded draft. Do not upload it again." : "Review the prepared draft and complete the action on the native platform when Ops capability is unavailable or unverified.",
