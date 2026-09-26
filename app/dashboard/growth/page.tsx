@@ -302,6 +302,13 @@ export default function GrowthPage() {
     alert("Copied ✅");
   }
 
+    const visibleFollowups = followups.filter(
+    (followup) =>
+      !outreachTargets.some(
+        (target) => String(target.id) === String(followup.id)
+      )
+  );
+  
   return (
     <div style={page}>
       <h1 style={title}>🚀 Daily Growth Cockpit</h1>
@@ -648,12 +655,12 @@ export default function GrowthPage() {
           <p style={muted}>
             Loading follow-ups...
           </p>
-        ) : followups.length === 0 ? (
+        ) : visibleFollowups.length === 0 ? (
           <p style={muted}>
             No follow-ups due today.
           </p>
         ) : (
-          followups.map((target: any) => (
+          visibleFollowups.map((target: any) => (
             <article key={target.id} style={targetCard}>
               <h3 style={{ margin: 0 }}>
                 {target.target_name}
