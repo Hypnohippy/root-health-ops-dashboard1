@@ -1,8 +1,10 @@
 import type { ConnectionCapabilityHealth } from "@/lib/channelCapabilities";
+import type { ProviderSetup } from "@/lib/providerSetup";
 export type ConnectionState = "connected" | "expired" | "reconnect_required" | "not_connected";
 
 export type ConnectionHealth = {
   platform: string;
+  setup?: ProviderSetup;
   state: ConnectionState;
   name: string | null;
   expiresAt: string | null;
