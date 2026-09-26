@@ -113,10 +113,7 @@ export const POST = withTenantRoute(
           .select(
             "id,target_name,company,role_title,linkedin_url,stage,status,lead_quality,notes,reply_status,reply_notes,deal_stage,created_at,last_action_at"
           )
-          .eq(
-            "organisation_id",
-            tenant.organisationId
-          )
+          .eq("organisation_id", tenant.organisationId)
           .eq("status", "active")
           .order("created_at", {
             ascending: false,
@@ -142,24 +139,18 @@ export const POST = withTenantRoute(
         )
         .slice(0, 10);
 
-      const outreachContext = dueTargets.map(
-        (target) => ({
-          id: target.id,
-          name: target.target_name || "",
-          company: target.company || "",
-          role: target.role_title || "",
-          stage: target.stage || "connection",
-          notes: target.notes || "",
-          replyStatus:
-            target.reply_status || "no_reply",
-          replyNotes:
-            target.reply_notes || "",
-          dealStage:
-            target.deal_stage || "lead",
-          linkedinUrl:
-            target.linkedin_url || "",
-        })
-      );
+      const outreachContext = dueTargets.map((target) => ({
+        id: target.id,
+        name: target.target_name || "",
+        company: target.company || "",
+        role: target.role_title || "",
+        stage: target.stage || "connection",
+        notes: target.notes || "",
+        replyStatus: target.reply_status || "no_reply",
+        replyNotes: target.reply_notes || "",
+        dealStage: target.deal_stage || "lead",
+        linkedinUrl: target.linkedin_url || "",
+      }));
 
       const prompt = `
 You are a world-class growth strategist creating a DAILY growth pack for the business described below.
@@ -268,21 +259,19 @@ CONTENT REQUIREMENTS:
 7. Create one SEO article title and useful outline.
 `;
 
-      const completion =
-        await openai.chat.completions.create({
-          model: "gpt-5.6-terra",
-          messages: [
-            ...tenant.messages,
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-        });
+      const completion = await openai.chat.completions.create({
+        model: "gpt-5.6-terra",
+        messages: [
+          ...tenant.messages,
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      });
 
       const text =
-        completion.choices[0].message
-          ?.content || "{}";
+        completion.choices[0].message?.content || "{}";
 
       let parsed: any;
 
@@ -301,9 +290,7 @@ CONTENT REQUIREMENTS:
       }
 
       if (
-        !Array.isArray(
-          parsed.linkedin_posts
-        ) ||
+        !Array.isArray(parsed.linkedin_posts) ||
         parsed.linkedin_posts.length !== 3
       ) {
         return NextResponse.json(
@@ -316,11 +303,7 @@ CONTENT REQUIREMENTS:
         );
       }
 
-      if (
-        !Array.isArray(
-          parsed.outreach_targets
-        )
-      ) {
+      if (!Array.isArray(parsed.outreach_targets)) {
         return NextResponse.json(
           {
             success: false,
@@ -345,8 +328,7 @@ CONTENT REQUIREMENTS:
       );
 
       if (
-        expectedIds.size !==
-          returnedIds.size ||
+        expectedIds.size !== returnedIds.size ||
         [...expectedIds].some(
           (id) => !returnedIds.has(id)
         )
@@ -372,15 +354,67 @@ CONTENT REQUIREMENTS:
         );
       }
 
+      const aiMessageByTargetId = new Map(
+        parsed.outreach_targets.map(
+          (target: any) => [
+            String(target?.id || ""),
+            String(target?.message || "").trim(),
+          ]
+        )
+      );
+
+      const enrichedOutreachTargets =
+        dueTargets.map((target) => ({
+          id: String(target.id),
+          name:
+            target.target_name || "",
+          company:
+            target.company || "",
+          role:
+            target.role_title || "",
+          linkedinUrl:
+            target.linkedin_url || "",
+          stage:
+            target.stage || "connection",
+          message:
+            aiMessageByTargetId.get(
+              String(target.id)
+            ) || "",
+        }));
+
+      const missingMessage =
+        enrichedOutreachTargets.find(
+          (target) => !target.message
+        );
+
+      if (missingMessage) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              `AI did not return a usable outreach message for ${missingMessage.name || "one target"}.`,
+          },
+          { status: 500 }
+        );
+      }
+
       const firstLinkedInPost =
-        parsed.linkedin_posts?.[0]?.copy ||
-        "";
+        parsed.linkedin_posts?.[0]?.copy || "";
 
       const connectionMessages =
-        parsed.outreach_targets.map(
-          (target: any) =>
-            target?.message || ""
+        enrichedOutreachTargets.map(
+          (target) => target.message
         );
+
+      const output = {
+        ...parsed,
+        outreach_targets:
+          enrichedOutreachTargets,
+        outreach_source:
+          "growth_targets",
+        outreach_target_count:
+          enrichedOutreachTargets.length,
+      };
 
       const { data, error } =
         await supabaseAdmin
@@ -400,13 +434,7 @@ CONTENT REQUIREMENTS:
               parsed.follow_up_message || "",
             seo_article:
               parsed.seo_article || {},
-            raw_output: {
-              ...parsed,
-              outreach_source:
-                "growth_targets",
-              outreach_target_count:
-                dueTargets.length,
-            },
+            raw_output: output,
             status: "generated",
           })
           .select("id")
@@ -425,11 +453,7 @@ CONTENT REQUIREMENTS:
       return NextResponse.json({
         success: true,
         id: data.id,
-        data: {
-          ...parsed,
-          outreach_target_count:
-            dueTargets.length,
-        },
+        data: output,
       });
     } catch (error: any) {
       return NextResponse.json(
