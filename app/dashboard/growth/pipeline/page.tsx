@@ -10,11 +10,12 @@ export default function GrowthPipelinePage() {
   const [callPrep, setCallPrep] = useState<Record<string, string>>({});
   const [loadingPrep, setLoadingPrep] = useState<string | null>(null);
   const [view, setView] = useState<"warm" | "meetings">("meetings");
+  const [targetId] = useState(() => typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("targetId"));
 
   async function loadPipeline() {
     setLoading(true);
 
-    const res = await tenantFetch("/api/growth/pipeline");
+    const res = await tenantFetch(`/api/growth/pipeline${targetId ? `?targetId=${encodeURIComponent(targetId)}` : ""}`);
     const json = await res.json();
 
     if (json.success) {
@@ -110,13 +111,13 @@ export default function GrowthPipelinePage() {
     alert("Copied ✅");
   }
 
-  const calls = targets.filter((t) => view === "warm"
+  const calls = targets.filter((t) => targetId ? t.id === targetId : view === "warm"
     ? ["positive", "interested", "engaged", "call_booked"].includes(t.reply_status || "") || ["engaged", "opportunity", "meeting"].includes(t.deal_stage || "")
     : t.reply_status === "call_booked" || ["meeting", "converted", "won"].includes(t.deal_stage || ""));
 
   return (
     <main style={page}>
-      <h1 style={title}>{view === "warm" ? "Active opportunities" : "📅 Meetings & outcomes"}</h1>
+      <h1 style={title}>{targetId ? "Contact record" : view === "warm" ? "Active opportunities" : "📅 Meetings & outcomes"}</h1>
 
       <p style={subtitle}>
         {view === "warm" ? "Keep warm replies and live opportunities moving." : "Prepare for booked calls, record outcomes, and set the next step."}

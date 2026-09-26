@@ -178,7 +178,7 @@ export default function ResponsesPage() {
   const [statusFilter, setStatusFilter] = useState<InboxStatus | "all">(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("status") as InboxStatus) || "all");
   const [kindFilter] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("kind") || "");
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("itemId"));
 
   const [replyDraft, setReplyDraft] = useState("");
   const [aiStatus, setAiStatus] = useState<string | null>(null);
@@ -221,7 +221,8 @@ export default function ResponsesPage() {
     try {
       const org = organisationId || (await resolveOrg());
 
-      const res = await fetch(`/api/responses/list?organisationId=${encodeURIComponent(org)}`, {
+      const itemId = new URLSearchParams(window.location.search).get("itemId");
+      const res = await fetch(`/api/responses/list?organisationId=${encodeURIComponent(org)}${itemId ? `&itemId=${encodeURIComponent(itemId)}` : ""}`, {
         method: "GET",
         cache: "no-store",
       });

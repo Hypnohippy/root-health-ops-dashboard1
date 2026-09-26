@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
       return okJson({ success: false, error: "Missing organisationId" }, 400);
     }
     const verified = await requireOrganisation(organisationId, false);
+    const itemId = url.searchParams.get("itemId");
 
     const limitRaw = Number(url.searchParams.get("limit") || 200);
     const limit = Math.max(1, Math.min(500, isNaN(limitRaw) ? 200 : limitRaw));
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
     const input = await readLifecycleInput(verified.organisationId);
     const lifecycles = responseLifecycleMap(verified.organisationId, input);
     const timestamp = (value: unknown) => typeof value === "string" ? Date.parse(value) || 0 : 0;
-    const data = input.inbox_items.filter(row => row.organisation_id === verified.organisationId)
+    const data = input.inbox_items.filter(row => row.organisation_id === verified.organisationId && (!itemId || row.id === itemId))
       .sort((a, b) => timestamp(b.created_at_platform || b.inserted_at) - timestamp(a.created_at_platform || a.inserted_at) || a.id.localeCompare(b.id)).slice(0, limit);
 
     const items = (data || []).map((r) => ({

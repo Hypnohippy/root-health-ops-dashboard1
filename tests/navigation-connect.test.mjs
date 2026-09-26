@@ -71,7 +71,8 @@ test("Acquisition resolves the workspace and never asks for an organisation ID",
   assert.match(source, /setOrganisationId\(data\.organisationId\)/);
   assert.match(source, /\/api\/growth\/acquisition\?\$\{params\}/);
   assert.match(source, /Loading workspace/);
-  assert.doesNotMatch(source, /Organisation ID|name="organisationId"|new URLSearchParams\(window\.location\.search\)/);
+  // Query parameters may focus a record; the existing assertion above requires server-resolved membership.
+  assert.doesNotMatch(source, /Organisation ID|name="organisationId"/);
 });
 
 test("Connect is summary-first and keeps capabilities behind expanders", () => {

@@ -3,32 +3,45 @@ import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { connectionHealth } from "@/lib/connectionHealth";
 import { growthAttentionCounts } from "@/lib/commandCentre";
+import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
+import { buildHomeControl } from "@/lib/homeControl";
+import type { LifecycleRow } from "@/lib/contactLifecycle";
+import { responseLifecycleMap } from "@/lib/responseLifecycle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+async function readAll(table: "scheduled_posts" | "social_accounts", columns: string, organisationId: string) {
+  const rows: LifecycleRow[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await supabaseAdmin.from(table).select(columns).eq("organisation_id", organisationId).order("id").range(offset, offset + 499);
+    if (error) throw error;
+    rows.push(...((data || []) as unknown as LifecycleRow[]));
+    if (!data || data.length < 500) return rows;
+  }
+}
 
 export async function GET(req: Request) {
   try {
     const requested = new URL(req.url).searchParams.get("organisationId");
     const { organisationId } = await requireOrganisation(requested, false);
-    const [acquisition, inbox, targets, scheduled, accounts] = await Promise.all([
-      supabaseAdmin.from("acquisition_items").select("id,status", { count:"exact" }).eq("organisation_id", organisationId).eq("status", "new").limit(20),
-      supabaseAdmin.from("inbox_items").select("id,platform,kind,status,response_state").eq("organisation_id", organisationId).order("inserted_at", { ascending:false }).limit(500),
-      supabaseAdmin.from("growth_targets").select("id,target_name,company,stage,status,last_action_at,reply_status,deal_stage").eq("organisation_id", organisationId),
-      supabaseAdmin.from("scheduled_posts").select("id,status,meta").eq("organisation_id", organisationId).limit(500),
-      supabaseAdmin.from("social_accounts").select("platform,is_active,page_access_token,token_expires_at,page_name").eq("organisation_id", organisationId),
+    // acquisition_items, inbox_items and growth_targets use the shared complete snapshot.
+    const [input, postRows, accountRows] = await Promise.all([
+      readLifecycleInput(organisationId),
+      readAll("scheduled_posts", "id,organisation_id,message,platforms,status,meta,error_info,scheduled_for,posted_at,created_at", organisationId),
+      readAll("social_accounts", "id,organisation_id,platform,is_active,page_access_token,token_expires_at,page_name", organisationId),
     ]);
-    const failure = [acquisition.error, inbox.error, targets.error, scheduled.error, accounts.error].find(Boolean);
-    if (failure) throw failure;
-    const inboxRows = inbox.data || [];
-    const targetRows = targets.data || [];
-    const growth = growthAttentionCounts(targetRows);
-    const connectionProblems = connectionHealth(accounts.data || []).filter(item => ["expired","reconnect_required"].includes(item.state)).length;
-    const approvals = (scheduled.data || []).filter(row => String((row.meta as {approvals?:{state?:unknown}} | null)?.approvals?.state || "").toLowerCase() === "pending" && !["posted","failed"].includes(String(row.status || "").toLowerCase())).length;
-    const linkedInConnections = inboxRows.filter(row => row.platform === "linkedin" && row.kind === "connection_accepted" && row.status === "needs_reply").length;
-    const replies = inboxRows.filter(row => row.status === "needs_reply" || row.response_state === "needs_reply").length;
-    return NextResponse.json({ success:true, organisationId, counts:{
-      newOpportunities: acquisition.count || 0, linkedInConnections, outreachReady: targetRows.filter(row => row.status === "active" && row.stage === "connection").length,
+    const inboxRows = input.inbox_items;
+    const targetRows = input.growth_targets;
+    const control = buildHomeControl(organisationId, { ...input, scheduled_posts: postRows, social_accounts: accountRows });
+    const growth = growthAttentionCounts(targetRows.map(row => ({ stage: String(row.stage || ""), status: String(row.status || ""), last_action_at: String(row.last_action_at || ""), reply_status: String(row.reply_status || ""), deal_stage: String(row.deal_stage || "") })));
+    const connectionProblems = connectionHealth(accountRows as unknown as Parameters<typeof connectionHealth>[0]).filter(item => ["expired","reconnect_required"].includes(item.state)).length;
+    const approvals = postRows.filter(row => String((row.meta as {approvals?:{state?:unknown}} | null)?.approvals?.state || "").toLowerCase() === "pending" && !["posted","failed"].includes(String(row.status || "").toLowerCase())).length;
+    const responses = responseLifecycleMap(organisationId, input);
+    const linkedInConnections = inboxRows.filter(row => responses.get(row.id)?.canMarkContacted).length;
+    const replies = inboxRows.filter(row => responses.get(row.id)?.actionItemId === row.id).length;
+    return NextResponse.json({ success:true, organisationId, control, counts:{
+      newOpportunities: input.acquisition_items.filter(row => row.status === "new").length, linkedInConnections, outreachReady: targetRows.filter(row => row.status === "active" && row.stage === "connection").length,
       repliesNeedingResponse: replies, followupsDue: growth.followupsDue, waiting: growth.waiting,
       warmOpportunities: growth.warmOpportunities, meetingsOrConversions: growth.meetingsOrConversions,
       contentApprovals: approvals, connectionProblems,
