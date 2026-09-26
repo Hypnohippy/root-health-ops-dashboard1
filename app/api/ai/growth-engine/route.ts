@@ -382,19 +382,21 @@ CONTENT REQUIREMENTS:
             ) || "",
         }));
 
-      for (const target of enrichedOutreachTargets) {
+     for (const target of enrichedOutreachTargets) {
   const firstName =
     target.name.trim().split(/\s+/)[0] || target.name;
+
+  const currentMessage = String(target.message || "").trim();
 
   if (
     target.stage === "connection" &&
     firstName &&
-    !target.message
+    !currentMessage
       .toLowerCase()
       .includes(firstName.toLowerCase())
   ) {
     target.message =
-      `Hi ${firstName} — ${target.message
+      `Hi ${firstName} — ${currentMessage
         .replace(/^hi\s+[^,–—-]+[,–—-]?\s*/i, "")
         .trim()}`;
   }
