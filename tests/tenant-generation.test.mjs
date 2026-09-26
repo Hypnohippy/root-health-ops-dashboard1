@@ -58,6 +58,7 @@ function fixture({ user = "user-a", memberships = [{ organisation_id: "org-a", r
   const mocks = { "next/server": response, "openai": OpenAI, "@/lib/tenantRoute.server": wrapper, "@/lib/tenantAuth": auth, "@/lib/supabaseAdmin": { supabaseAdmin: db }, "@/lib/usage": { getCurrentOrganisationPlan: async () => "team", getMonthlyUsageForOrganisation: async () => 0, getPlanLimit: () => 150, logUsageForOrganisation: async () => {} },
     "@/lib/responseContactContext.server": { getResponseContactContext: async () => null },
     "@/lib/responseContactContext": { responseDraftRules: () => [] },
+    "@/lib/socialCommentOpportunity": {},
     "@/lib/growthOutreach": load("lib/growthOutreach.ts"),
     "@/lib/contactLifecycle": load("lib/contactLifecycle.ts", { "@/lib/engineState": load("lib/engineState.ts"), "@/lib/growthOutreach": load("lib/growthOutreach.ts") }),
     "@/lib/lifecycleSnapshot.server": { readLifecycleInput: () => { throw Error("Unexpected lifecycle read"); } },

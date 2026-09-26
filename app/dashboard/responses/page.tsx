@@ -1,6 +1,7 @@
 // app/dashboard/responses/page.tsx
 "use client";
 
+import type { SocialCommentOpportunity } from "@/lib/socialCommentOpportunity";
 import ResponseLifecycleDetails from "./ResponseLifecycleDetails";
 import type { ResponseLifecycle } from "@/lib/responseLifecycle";
 import { tenantFetch } from "@/lib/tenantFetch";
@@ -57,6 +58,7 @@ type InboxItem = {
 };
 
 type ContactBriefing = {
+  socialOpportunity?: SocialCommentOpportunity;
   interactionType: string; messageType: string; name:string|null; role:string|null; company:string|null; sector:string|null;
   source:string; whyRelevant:string; relationship:string; latestEvent:string; whatWeKnow:string[]; history:string[];
   lifecycle?: ResponseLifecycle;
@@ -389,7 +391,7 @@ export default function ResponsesPage() {
   selectionRef.current = `${organisationId}:${selectedId}`;
 
   async function runAiSuggest() {
-    if (!selected?.lifecycle?.canDraft) return;
+    if (!selected?.lifecycle?.canDraft || (selected.kind === "comment" && !contactContext?.socialOpportunity?.eligible)) return;
     const selection = selectionRef.current;
     setAiStatus("Drafting for the current lifecycle…");
     setCopied(false);
@@ -428,7 +430,7 @@ export default function ResponsesPage() {
   };
 
   const sendReply = async () => {
-    if (!selected?.lifecycle?.canDraft) return;
+    if (!selected?.lifecycle?.canDraft || contactContext?.socialOpportunity?.route !== "approved_reply") return;
     const msg = (replyDraft || "").trim();
     if (!msg) {
       setAiStatus("Type or generate a reply first.");
@@ -547,6 +549,19 @@ export default function ResponsesPage() {
     setReplyDraft("");
     setAiStatus("Cleared draft.");
     setTimeout(() => setAiStatus(null), 1400);
+  };
+
+  const markPublicReplyComplete = async () => {
+    if (!selected || selected.kind !== "comment") return;
+    setAiStatus("Recording manual completion...");
+    try {
+      const response = await fetch("/api/responses/update-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId, id: selected.id, status: "replied" }) });
+      if (!response.ok) throw new Error("Unable to record manual completion.");
+      setContactContext(null);
+      setReplyDraft("");
+      await load();
+      setAiStatus("Manual public reply recorded. No message was sent by Ops.");
+    } catch (error) { setAiStatus(error instanceof Error ? error.message : "Unable to record completion."); }
   };
 
   const markContacted = async () => {
@@ -847,7 +862,7 @@ export default function ResponsesPage() {
                     ? "Edit and approve here. The existing B2B engine sends the exact approved text through Gmail."
                     : selected?.lifecycle?.canMarkContacted
                       ? "AI Suggest → edit → Copy or open LinkedIn. Nothing is sent automatically."
-                      : "AI draft → edit → Send reply (Facebook/Instagram)."}
+                      : "Assess the public conversation → prepare → review → Copy and open the source. No automatic replies."}
                 </div>
               </div>
 
@@ -912,6 +927,17 @@ export default function ResponsesPage() {
                     <div className="mt-3 text-sm whitespace-pre-wrap">{selected.text}</div>
                   {selected.platform === "email" ? <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-xs"><div><b>Sender:</b> {selected.senderEmail || selected.authorHandle || "Unknown"}</div><div><b>Subject:</b> {selected.subject || "(no subject)"}</div><div><b>Classification:</b> {(selected.emailClassification || "unclassified").replaceAll("_", " ")}</div><div><b>State:</b> {selected.lifecycle?.label || "State unavailable"}</div>{selected.emailDeliveryStatus ? <div><b>Delivery:</b> {selected.emailDeliveryStatus.replaceAll("_", " ")}</div> : null}{selected.outreachReference ? <div><b>Outreach:</b> {selected.outreachReference}</div> : null}{selected.emailThreadId ? <div><b>Thread:</b> {selected.emailThreadId}</div> : <div><b>Thread:</b> unavailable — engine will send safely without threading if supported</div>}</div> : null}
 
+                    {contactContext?.socialOpportunity && <section className="my-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-sm text-slate-200" aria-label="Public conversation opportunity">
+                      <h3 className="font-semibold">Public conversation opportunity</h3>
+                      <p>{contactContext.socialOpportunity.relevance} · {contactContext.socialOpportunity.opportunityType.replaceAll("_", " ")} · Risk: {contactContext.socialOpportunity.risk.replaceAll("_", " ")}</p>
+                      <p className="mt-2">Route: {contactContext.socialOpportunity.route.replaceAll("_", " ")} / {contactContext.socialOpportunity.fallbackKind.replaceAll("_", " ")}. {contactContext.socialOpportunity.reason}</p>
+                      <p className="mt-2">Profile evidence: {contactContext.socialOpportunity.evidence.matchedProfileTerms.join(", ") || "No explicit match"}</p>
+                      <p className="mt-2">{contactContext.socialOpportunity.platform} · {contactContext.socialOpportunity.account || "Account not recorded"}</p>
+                      <blockquote className="mt-2 whitespace-pre-wrap">{contactContext.socialOpportunity.conversation}</blockquote>
+                      {contactContext.socialOpportunity.parentContext && <details className="mt-2"><summary>Parent conversation / evidence</summary><p className="whitespace-pre-wrap">{contactContext.socialOpportunity.parentContext}</p></details>}
+                      {contactContext.socialOpportunity.sourceUrl && <a className="mt-2 inline-block text-emerald-300 underline" href={contactContext.socialOpportunity.sourceUrl} target="_blank" rel="noreferrer">Open public conversation</a>}
+                      {contactContext.socialOpportunity.eligible && <p className="mt-2 text-xs">Use AI Suggest, review the contextual draft, then Copy. Reply publicly only; never DM. After manual completion, mark the existing response replied so it is not prepared again.</p>}
+                    </section>}
                     {selected.permalink ? (
                       <div className="mt-3 flex flex-wrap gap-3 text-[11px]">
                         <a
@@ -931,7 +957,7 @@ export default function ResponsesPage() {
                     <button
                       type="button"
                       onClick={runAiSuggest}
-                      disabled={!selected.lifecycle?.canDraft}
+                      disabled={!selected.lifecycle?.canDraft || (selected.kind === "comment" && !contactContext?.socialOpportunity?.eligible)}
                       className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
                     >
                       {selected.lifecycle?.draftOnRequest ? "AI Suggest (on request)" : "AI Suggest"}
@@ -940,11 +966,12 @@ export default function ResponsesPage() {
                     {selected.platform !== "email" && !isLinkedInAcceptance(selected) && <button
                       type="button"
                       onClick={sendReply}
-                      disabled={sendingReply || !replyDraft.trim() || !selected.lifecycle?.canDraft}
+                      disabled={sendingReply || !replyDraft.trim() || !selected.lifecycle?.canDraft || contactContext?.socialOpportunity?.route !== "approved_reply"}
                       className="rounded-2xl bg-blue-500 px-4 py-3 text-sm font-semibold text-slate-50 hover:bg-blue-400 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
                       {sendingReply ? "Sending…" : "Send reply"}
                     </button>}
+                    {selected.kind === "comment" && selected.status !== "replied" && selected.status !== "archived" && <button type="button" onClick={() => void markPublicReplyComplete()} className="rounded-2xl border border-emerald-400/40 px-4 py-3 text-sm">Mark manually replied</button>}
                     {selected.lifecycle?.canMarkContacted ? <button type="button" onClick={() => void markContacted()} className="rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-400 transition">Mark Contacted</button> : null}
                   </div>
 

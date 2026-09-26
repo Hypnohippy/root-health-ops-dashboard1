@@ -3,6 +3,8 @@ import type { GenerationProfile } from "@/lib/tenantGeneration";
 import { buildContactLifecycle } from "@/lib/contactLifecycle";
 import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
 import { presentResponseLifecycle } from "@/lib/responseLifecycle";
+import { socialCommentOpportunity } from "@/lib/socialCommentOpportunity";
+import { connectionState, type HealthAccount } from "@/lib/connectionHealth";
 import { interactionTypeFor, messageTypeLabel, objectiveFor, plainSource, profileFit, type ResponseContactContext } from "@/lib/responseContactContext";
 
 const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;
@@ -15,6 +17,12 @@ export async function getResponseContactContext(organisationId: string, itemId: 
   if (!item) throw new Error("Response item not found.");
   const contact = buildContactLifecycle(organisationId, input).find(row => row.records.some(ref => ref.table === "inbox_items" && ref.id === itemId))!;
   const lifecycle = presentResponseLifecycle(contact, item);
+  let credentialState = "not_connected";
+  if (lifecycle.canDraft && item.kind === "comment" && ["facebook", "instagram"].includes(String(item.platform))) {
+    const { data: account, error } = await supabaseAdmin.from("social_accounts").select("platform,is_active,page_access_token,token_expires_at,page_name").eq("organisation_id", organisationId).eq("platform", item.platform).eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    if (error) throw error;
+    credentialState = connectionState(account as HealthAccount | undefined);
+  }
   const target = input.growth_targets.find(row => row.organisation_id === organisationId && contact.records.some(ref => ref.table === "growth_targets" && ref.id === row.id)) || null;
   const acquisition = input.acquisition_items.find(row => row.organisation_id === organisationId && contact.records.some(ref => ref.table === "acquisition_items" && ref.id === row.id)) || null;
   const { data: acquisitionEvents, error: eventError } = acquisition ? await supabaseAdmin.from("acquisition_item_events").select("action,new_status,outcome,note,created_at").eq("organisation_id", organisationId).eq("acquisition_item_id", acquisition.id).order("created_at", { ascending: false }).limit(10) : { data: [], error: null };
@@ -36,6 +44,7 @@ export async function getResponseContactContext(organisationId: string, itemId: 
   const known = [text(acquisition?.reason), text(acquisition?.signal), text(acquisition?.evidence), text(target?.notes), text(target?.reply_notes), text(item.outreach_reference)].filter(Boolean) as string[];
   const relevance = fit.length ? `Their recorded role or company context matches the saved target profile (${fit.join(", ")}).` : acquisition?.reason ? String(acquisition.reason) : `No explicit Growth Profile match is recorded${role || company ? "; the available role and company context is shown for human review" : " because role and company detail is incomplete"}.`;
   return {
+    socialOpportunity: socialCommentOpportunity(item, profile, lifecycle, credentialState, input.inbox_items, acquisition?.source_engine === "root_health_personal" && acquisition.source_url === item.permalink && metadata.engine_safety && typeof metadata.engine_safety === "object" ? metadata.engine_safety as Record<string, unknown> : {}),
     interactionType: type, messageType: messageTypeLabel(type), name: text(target?.target_name) || text(acquisition?.person) || text(item.author_name), role, company, sector,
     source: plainSource(text(acquisition?.source_engine || target?.source_type || item.source_engine), text(item.kind)), whyRelevant: relevance,
     relationship: lifecycle.label, latestEvent: text(item.text) || "No event text was recorded.", whatWeKnow: known.slice(0, 4), history,

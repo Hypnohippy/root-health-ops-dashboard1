@@ -2,6 +2,9 @@ import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/responses/reply/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { getResponseContactContext } from "@/lib/responseContactContext.server";
+import { getOrganisationGenerationProfile } from "@/lib/organisationProfile.server";
+import { safePublicDraft } from "@/lib/socialCommentOpportunity";
 
 export const runtime = "nodejs";
 
@@ -56,6 +59,12 @@ export async function POST(req: NextRequest) {
     if (!platform) return okJson({ success: false, error: "Missing platform" }, 400);
     if (!externalId) return okJson({ success: false, error: "Missing externalId (comment id)" }, 400);
     if (!message) return okJson({ success: false, error: "Reply message is empty" }, 400);
+
+    const { data: item, error: itemError } = await supabaseAdmin.from("inbox_items").select("id").eq("organisation_id", organisationId).eq("platform", platform).eq("external_id", externalId).maybeSingle();
+    if (itemError || !item) return okJson({ success: false, error: "Verified response item required." }, 404);
+    const profile = await getOrganisationGenerationProfile(organisationId);
+    const context = await getResponseContactContext(organisationId, item.id, profile);
+    if (context.socialOpportunity?.route !== "approved_reply" || !context.lifecycle?.canDraft || !safePublicDraft(message)) return okJson({ success: false, error: context.socialOpportunity?.reason || "Verified reply capability required. Use the public manual fallback." }, 409);
 
     const acct = await loadAccount(organisationId, platform);
     const token = acct?.page_access_token || null;
