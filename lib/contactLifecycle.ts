@@ -99,7 +99,19 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
     else if (["engaged", "opportunity"].includes(String(row.deal_stage)) || ["positive", "interested", "engaged"].includes(String(row.reply_status))) currentStage = "engaged";
     else if (stage === "parked" || status === "parked") currentStage = "nurture";
     else if (status === "waiting") currentStage = "waiting";
-    else if (status === "active") currentStage = stage === "connection" ? (date(row.last_action_at) ? "follow_up" : "outreach_ready") : ["day3_dm", "day10_insight", "day17_followup"].includes(stage || "") ? "follow_up" : "unknown";
+
+  else if (status === "active") currentStage = stage === "connection"
+  ? (date(row.last_action_at) ? "follow_up" : "outreach_ready")
+  : [
+      "day3_dm",
+      "day10_insight",
+      "day17_followup",
+      "week5_view",
+      "week6_relevance",
+      "week7_close",
+    ].includes(stage || "")
+    ? "follow_up"
+    : "unknown";
     const effectiveStage = stage === "connection" && date(row.last_action_at) ? nextGrowthStage(stage) : stage;
     nextAction = ({ outreach_ready: "connection", follow_up: effectiveStage, engaged: "review_engagement", meeting: "review_meeting", nurture: "review_nurture" } as Partial<Record<LifecycleStage, string>>)[currentStage] || null;
     if (currentStage === "follow_up") nextDueDate = growthFollowUpDueAt({ stage: effectiveStage, last_action_at: text(row.last_action_at) });
