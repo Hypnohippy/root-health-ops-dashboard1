@@ -219,6 +219,8 @@ test("connection-health API requires membership and only returns safe fields", a
     "@/lib/supabaseAdmin": { supabaseAdmin: { from: () => query } },
     "@/lib/connectionHealth": load("lib/connectionHealth.ts"),
     "@/lib/channelCapabilities": load("lib/channelCapabilities.ts"),
+    "@/lib/providerSetup": load("lib/providerSetup.ts", { "@/lib/channelCapabilities": load("lib/channelCapabilities.ts") }),
+    "@/lib/providerSetup.server": load("lib/providerSetup.server.ts"),
   });
   const denied = await api.GET({ nextUrl: new URL("https://example.test?organisationId=org-b") });
   assert.equal(denied.status, 403);

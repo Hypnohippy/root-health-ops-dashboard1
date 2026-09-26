@@ -4,6 +4,9 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { connectionHealth } from "@/lib/connectionHealth";
 import { assessConnectionCapabilities } from "@/lib/channelCapabilities";
 
+import { buildProviderSetup } from "@/lib/providerSetup";
+import { providerConfigured } from "@/lib/providerSetup.server";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -27,9 +30,9 @@ export async function GET(req: NextRequest) {
     const emailConnected = emailEngineConfigured(organisationId);
     const connections = connectionHealth(data || []).map(connection => connection.platform === "email"
       ? { ...connection, state: emailConnected ? "connected" : "not_connected", name: emailConnected ? "B2B Gmail engine" : null }
-      : connection).map(connection => ({ ...connection, ...assessConnectionCapabilities(connection.platform, connection.state, connection.expiresAt) }));
+      : connection).map(connection => ({ ...connection, ...assessConnectionCapabilities(connection.platform, connection.state, connection.expiresAt), setup: buildProviderSetup(connection.platform, connection.state, connection.platform === "email" ? emailConnected : providerConfigured(connection.platform, process.env, req.nextUrl.origin)) }));
     return NextResponse.json({
-      success: true, organisationId, connections,
+      success: true, organisationId, connections, checkedAt: new Date().toISOString(), checkType: "stored_configuration_and_capabilities",
       // Stored health cannot detect remote revocations before a provider call fails.
       source: "stored_credentials",
     }, { headers: { "Cache-Control": "private, no-store" } });
