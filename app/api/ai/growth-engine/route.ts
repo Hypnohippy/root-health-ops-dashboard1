@@ -382,6 +382,23 @@ CONTENT REQUIREMENTS:
             ) || "",
         }));
 
+      for (const target of enrichedOutreachTargets) {
+  const firstName =
+    target.name.trim().split(/\s+/)[0] || target.name;
+
+  if (
+    target.stage === "connection" &&
+    firstName &&
+    !target.message
+      .toLowerCase()
+      .includes(firstName.toLowerCase())
+  ) {
+    target.message =
+      `Hi ${firstName} — ${target.message
+        .replace(/^hi\s+[^,–—-]+[,–—-]?\s*/i, "")
+        .trim()}`;
+  }
+}
       const missingMessage =
         enrichedOutreachTargets.find(
           (target) => !target.message
