@@ -240,25 +240,50 @@ The first message must feel like the beginning of a relationship, not the beginn
 OUTREACH BY LIFECYCLE STAGE
 
 For stage "connection":
-- This is the lightest touch.
+- This is the first light relationship touch.
+- Give one plain-English reason for the connection so the recipient is not left thinking "and?"
+- The reason should come from the organisation's real area of work, not from flattering or reciting the recipient's profile.
 - No pitch.
 - No offer.
-- No Root Health explanation unless absolutely necessary.
+- No call booking.
+- No brochure.
+- No detailed Root Health explanation.
 - Do not tell the person what their own job is.
-- Do not manufacture a reason for connecting.
-- Be warm, short and human.
-- Acknowledge naturally that LinkedIn connection requests can feel transactional if appropriate.
-- The goal is simply to make accepting or replying feel comfortable.
+- Do not manufacture a personal reason for choosing them.
+- Be warm, short, spoken and human.
+- The message should sound like someone saying hello properly, not starting a sales sequence.
+- It is fine to lightly acknowledge the awkwardness of LinkedIn outreach.
+- Quiet confidence is better than clever copy.
 - Keep under 300 characters.
 - Do not say "thanks for accepting" because acceptance is not yet verified at this stage.
 
-Examples of the STYLE, not text to copy:
-"Hi Tom — I know LinkedIn can sometimes feel like one long queue of sales messages, so no ambush from me 😆 Thought I'd simply say hello."
+THE IDEAL STRUCTURE IS:
+1. First name.
+2. One simple sentence explaining roughly why you are connecting.
+3. A warm disarming sentence that makes clear there is no immediate pitch.
 
-"Hi Tom — no grand introduction or brochure attached 😆 Just thought it would be good to connect and say hello."
+THE TARGET FEEL IS:
+"Hi Tom, I spend most of my time around workplace wellbeing, stress and recovery, so there's a fair chance we'll have a few things to talk about. No brochure today 😆 just saying hello properly."
 
-Do not repeat these examples mechanically.
+This is the benchmark for warmth, clarity and confidence.
+Do not copy it mechanically.
+Vary the wording naturally across people.
 
+GOOD ALTERNATIVES SHOULD FEEL LIKE:
+- "Hi Tom, most of what I do sits around workplace wellbeing, stress and recovery, so I thought it made sense to say hello. No sales ambush from me 😆"
+- "Hi Tom, I spend a lot of my time thinking about how organisations handle stress, recovery and wellbeing. Thought I'd say hello properly rather than arrive with a pitch."
+- "Hi Tom, my work is mostly around workplace wellbeing and recovery, so we may well have a few things in common. No brochure attached 😆 just hello for now."
+
+DO NOT:
+- start with "I noticed"
+- start with "I came across"
+- compliment their background
+- repeat their job title back to them
+- explain their company to them
+- ask for a call
+- introduce the product in detail
+- sound mysterious about why you are contacting them
+- try too hard to be funny
 For stage "day3_dm":
 - Assume a connection request has already been sent, but do not claim they accepted unless the supplied context verifies that.
 - Warm first proper hello.
