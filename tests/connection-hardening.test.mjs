@@ -10,6 +10,19 @@ function load(file, deps = {}, globals = {}) {
   return mod.exports;
 }
 const caps = load("lib/channelCapabilities.ts");
+test("unknown and recorded expiry never establish operational validity", () => {
+  const now = Date.parse("2026-09-26T12:00:00Z");
+  for (const [expiry, expected, reconnect] of [[null, "unknown", false], ["invalid", "invalid", true], ["2026-09-25", "expired", true], ["2026-09-27", "recorded_future", false]]) {
+    const result = caps.assessConnectionCapabilities("facebook", "connected", expiry, now);
+    assert.equal(result.expiryStatus, expected);
+    assert.equal(result.reconnectRequired, reconnect);
+    assert.equal(result.operationallyVerified, false);
+    assert.equal(result.capabilities.Publish.state, reconnect ? "reconnect_required" : "not_verified");
+  }
+  assert.match(caps.assessConnectionCapabilities("facebook", "connected").expiryExplanation, /does not mean.*never expires/);
+  assert.equal(caps.assessConnectionCapabilities("email", "connected").expiryStatus, "managed_by_engine");
+  assert.equal(caps.assessConnectionCapabilities("facebook", "not_connected").expiryStatus, "not_applicable");
+});
 const health = load("lib/connectionHealth.ts");
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const server = { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200 }) } };
@@ -43,6 +56,7 @@ test("health API retains tenant authorization, with no provider calls or secret 
     assert.equal(result.status, allowed ? 200 : 403);
     if (!allowed) { assert.equal(reads, 0); continue; }
     assert.doesNotMatch(JSON.stringify(result), /PRIVATE-/);
+    assert.equal(result.body.connections.find(c => c.platform === "facebook").expiryStatus, "unknown");
     const email = result.body.connections.find(c => c.platform === "email");
     assert.equal(email.credentialStatus, "configuration_present"); assert.equal(email.operationallyVerified, false);
   }
