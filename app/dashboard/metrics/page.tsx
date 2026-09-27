@@ -16,7 +16,7 @@ type MetricsResponse = {
 
   kpis?: {
     totalItems: number;
-    repliesSent: number;
+    repliesSent: number | null;
     postsQueued: number;
     postsPosted: number;
     postsFailed: number;
@@ -329,7 +329,7 @@ export default function MetricsPage() {
   const derived = useMemo(() => {
     const kpis = json?.kpis || {
       totalItems: 0,
-      repliesSent: 0,
+      repliesSent: null,
       postsQueued: 0,
       postsPosted: 0,
       postsFailed: 0,
@@ -563,8 +563,8 @@ export default function MetricsPage() {
           <p className="text-2xl font-semibold">{derived.kpis.postsFailed}</p>
         </div>
         <div className="backdrop-blur-lg bg-white/5 border border-white/10 rounded-2xl p-4 shadow-xl">
-          <p className="text-xs uppercase text-slate-300 mb-1">Replies sent</p>
-          <p className="text-2xl font-semibold">{derived.kpis.repliesSent}</p>
+          <p className="text-xs uppercase text-slate-300 mb-1">Confirmed reply records</p>
+          <p className="text-2xl font-semibold">{derived.kpis.repliesSent ?? "Unavailable"}</p>
         </div>
       </section>
 

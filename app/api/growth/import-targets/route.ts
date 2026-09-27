@@ -1,28 +1,9 @@
 import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { importTargets } from "@/lib/targetImport.server";
+import { parseTargetCSV } from "@/lib/targetImport";
 
 export const runtime = "nodejs";
-
-function parseCSV(text: string) {
-  const rows = text
-    .replace(/\r/g, "")
-    .split("\n")
-    .filter((row) => row.trim().length > 0);
-
-  const headers = rows[0].split(",").map((h) => h.trim());
-
-  return rows.slice(1).map((row) => {
-    const values = row.split(",").map((v) => v.trim());
-    const obj: Record<string, string> = {};
-
-    headers.forEach((header, index) => {
-      obj[header] = values[index] || "";
-    });
-
-    return obj;
-  });
-}
 
 function pick(row: Record<string, any>, possibleNames: string[]) {
   const keys = Object.keys(row);
@@ -78,8 +59,9 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
       );
     }
 
+    if (file.size > 2_000_000) return NextResponse.json({ success: false, error: "CSV must be under 2 MB." }, { status: 400 });
     const text = await file.text();
-    const parsedRows = parseCSV(text);
+    const parsedRows = parseTargetCSV(text);
 
     const rows = parsedRows
       .map((row) => {
@@ -91,7 +73,8 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
           `${firstName} ${lastName}`.trim();
 
         return {
-  organisation_id: tenant.organisationId,
+  email: pick(row, ["Email", "Email address", "Work email"]),
+  source_type: "csv_import",
   target_name: targetName,
   company: pick(row, [
     "Company",
@@ -114,7 +97,7 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
     "Person LinkedIn URL",
     "Linkedin Url",
   ]),
-  notes: buildNotes(row),
+  notes: `CSV source: ${file.name}\n${buildNotes(row)}`,
   stage: "connection",
   status: "active",
   lead_quality: "unreviewed",
@@ -132,19 +115,9 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
       );
     }
 
-    const { error } = await supabaseAdmin.from("growth_targets").insert(rows);
-
-    if (error) {
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      imported: rows.length,
-    });
+    if (rows.length > 1000) return NextResponse.json({ success: false, error: "Import at most 1,000 rows at a time." }, { status: 400 });
+    const result = await importTargets(tenant.organisationId, rows);
+    return NextResponse.json({ success: true, ...result });
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error.message },

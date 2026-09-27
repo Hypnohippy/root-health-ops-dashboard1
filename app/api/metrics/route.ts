@@ -1,3 +1,4 @@
+import { readConfirmedReplyCount } from "@/lib/replyMetrics.server";
 import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/metrics/route.ts
 import { NextRequest, NextResponse } from "next/server";
@@ -18,7 +19,7 @@ type MetricsResponse = {
 
   kpis?: {
     totalItems: number;
-    repliesSent: number;
+    repliesSent: number | null;
     postsQueued: number;
     postsPosted: number;
     postsFailed: number;
@@ -375,7 +376,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const repliesSent = 0;
+    const repliesSent = q ? null : await readConfirmedReplyCount(organisationId, from, to);
 
     // ---------------------------
     // Campaign Coach (campaigns + variants + metrics rows)

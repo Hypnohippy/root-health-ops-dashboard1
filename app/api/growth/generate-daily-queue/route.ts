@@ -1,8 +1,7 @@
 import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { isGrowthTargetDue } from "@/lib/growthOutreach";
+import { readDueGrowthTargets } from "@/lib/growthDue.server";
 
 export const runtime = "nodejs";
 
@@ -12,18 +11,9 @@ const openai = new OpenAI({
 
 export const GET = withTenantRoute(async function GET(req: Request, tenant) {
   try {
-    const { data: targets, error } = await supabaseAdmin
-      .from("growth_targets")
-      .select("*").eq("organisation_id", tenant.organisationId)
-      .eq("status", "active")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-    }
+    const targets = await readDueGrowthTargets(tenant.organisationId);
 
     const dueTargets = (targets || [])
-  .filter(isGrowthTargetDue)
   .filter((t) =>
     !t.lead_quality ||
     t.lead_quality === "unreviewed" ||

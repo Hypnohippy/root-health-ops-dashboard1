@@ -13,7 +13,7 @@ function authFixture(user,role="owner"){
 for(const [route,method] of routes)test(`${route} ${method}: rejects unsigned and foreign tenants before data access`,async()=>{
  for(const [user,organisationId,status] of [[null,"A",401],["user","B",403]]){
  const auth=authFixture(user);const airtable=load("lib/legacyAirtable.server.ts",{"@/lib/tenantAuth":auth},{AIRTABLE_ORGANISATION_ID:"A"});
- const deps={"next/server":response,"@/lib/tenantAuth":auth,"@/lib/legacyAirtable.server":airtable,"@/lib/campaignOwnership.server":{requireOwnedCampaignVariant:()=>{throw Error("No ownership reads");}},"../../../lib/supabaseAdmin":{supabaseAdmin:{from(){throw Error("No data access");}}}};
+ const deps={"@/lib/replyMetrics.server":{readConfirmedReplyCount:()=>{throw Error("No metric reads");}},"next/server":response,"@/lib/tenantAuth":auth,"@/lib/legacyAirtable.server":airtable,"@/lib/campaignOwnership.server":{requireOwnedCampaignVariant:()=>{throw Error("No ownership reads");}},"../../../lib/supabaseAdmin":{supabaseAdmin:{from(){throw Error("No data access");}}}};
  const handler=load(`app/api/${route}/route.ts`,deps);
  const result=await handler[method]({url:`https://ops/api/${route}?organisationId=${organisationId}`,json:async()=>({organisationId,variantId:"v",campaignId:"c"})});assert.equal(result.status,status);
  }

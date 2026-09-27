@@ -15,11 +15,14 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
       );
     }
 
+    const value = deal_value == null || (typeof deal_value === "string" && !deal_value.trim()) ? null : Number(deal_value);
+    if (value !== null && (!Number.isFinite(value) || value < 0 || !["string", "number"].includes(typeof deal_value)))
+      return NextResponse.json({ success: false, error: "Deal value must be a non-negative amount or blank." }, { status: 400 });
     const { error } = await supabaseAdmin
       .from("growth_targets")
       .update({
         call_date: call_date || null,
-        deal_value: Number(deal_value || 1500),
+        deal_value: value,
         deal_stage: deal_stage || "lead",
       })
       .eq("id", id).eq("organisation_id", tenant.organisationId);

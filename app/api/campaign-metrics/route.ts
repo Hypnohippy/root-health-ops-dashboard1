@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing variantId." }, { status: 200 });
     }
 
-    await requireOwnedCampaignVariant(organisationId, variantId);
+    const ownedVariant = await requireOwnedCampaignVariant(organisationId, variantId);
 
     const ctr = safeNum(body.ctr);
     const cpl = safeNum(body.cpl);
@@ -112,6 +112,8 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("campaign_variant_metrics")
       .insert({
+        campaign_id: ownedVariant.campaign_id,
+        variant_id: ownedVariant.id,
         ctr,
         cpl,
         meta,

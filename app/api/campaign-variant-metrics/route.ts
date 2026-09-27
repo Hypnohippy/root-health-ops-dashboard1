@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
       source,
       period_start,
       period_end,
-      meta: body.meta && typeof body.meta === "object" ? body.meta : null,
+      meta: { ...(body.meta && typeof body.meta === "object" && !Array.isArray(body.meta) ? body.meta : {}), organisation_id: organisationId, variant_id: variantId },
       created_at: new Date().toISOString(),
     };
 
