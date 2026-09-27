@@ -39,6 +39,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (status === "replied") return NextResponse.json({ success: false, error: "Use manual takeover to record completion with evidence." }, { status: 409 });
+
     const { error } = await supabaseAdmin
       .from("inbox_items")
       .update({ status })

@@ -41,8 +41,8 @@ test("Phase 4G intake separates Responses, Acquisition and existing cadence with
   assert.doesNotMatch(ingest+promote,/sendMessage|api\.linkedin\.com|linkedin.*fetch\(/i);
 });
 
-test("mark-sent resolves the tenant-owned stage instead of trusting a client stage",()=>{
+test("legacy mark-sent refuses unversioned completion instead of advancing cadence",()=>{
   const source=fs.readFileSync("app/api/growth/mark-sent/route.ts","utf8");
-  assert.match(source,/select\("id,stage"\).*organisation_id/);
+  assert.match(source,/withTenantRoute/); assert.match(source,/status: 409/); assert.doesNotMatch(source,/\.update\(/);
   assert.doesNotMatch(source,/const \{ id, stage \} = await req\.json/);
 });

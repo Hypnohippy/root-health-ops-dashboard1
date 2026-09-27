@@ -14,7 +14,7 @@ function load(file, deps = {}) {
 }
 const engine = load("lib/engineState.ts"), outreach = load("lib/growthOutreach.ts"), health = load("lib/connectionHealth.ts");
 const lifecycle = load("lib/contactLifecycle.ts", { "@/lib/engineState": engine, "@/lib/growthOutreach": outreach });
-const home = load("lib/homeControl.ts", { "@/lib/contactLifecycle": lifecycle, "@/lib/connectionHealth": health });
+const home = load("lib/homeControl.ts", { "@/lib/contactLifecycle": lifecycle, "@/lib/connectionHealth": health, "@/lib/channelCapabilities": load("lib/channelCapabilities.ts") });
 const command = load("lib/commandCentre.ts", { "@/lib/growthOutreach": outreach });
 const responses = load("lib/responseLifecycle.ts", { "@/lib/contactLifecycle": lifecycle });
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -151,7 +151,7 @@ test("Home API authorizes before reads, pages all records and fails closed witho
 });
 
 test("Home renders operational detail and manual fallback while retaining existing cards and routes", () => {
-  const view = load("app/dashboard/ControlOverview.tsx", { "react": React, "react/jsx-runtime": jsx, "next/link": { default: props => jsx.jsx("a", props) }, "@/lib/homeControl": home });
+  const view = load("app/dashboard/ControlOverview.tsx", { "react": React, "react/jsx-runtime": jsx, "next/link": { default: props => jsx.jsx("a", props) }, "@/lib/homeControl": home, "@/lib/operationalGovernor": load("lib/operationalGovernor.ts", { "@/lib/contactLifecycle": lifecycle, "@/lib/growthOutreach": outreach }), "./components/ManualTakeover": { default: () => null } });
   const result = run({ inbox_items: [row("failed", { platform: "email", status: "needs_reply", email_delivery_status: "failed", email_reply_draft: "Prepared reply" })] });
   const markup = renderToStaticMarkup(jsx.jsx(view.ControlRecord, { item: result.items[0], expanded: true }));
   for (const text of ["Manual fallback", "Already completed", "Remaining", "Prepared reply", "Human needed because", "Source", "Owner"]) assert.ok(markup.includes(text), text);

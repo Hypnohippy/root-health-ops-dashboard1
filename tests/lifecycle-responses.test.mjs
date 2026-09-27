@@ -158,7 +158,7 @@ test("list and context share lifecycle projection, UI refreshes recorded actions
   assert.match(server, /presentResponseLifecycle\(contact, item\)/);
   assert.match(ui, /customerStatus = .*lifecycle\?\.label/);
   assert.match(ui, /selected.lifecycle\?\.canMarkContacted/);
-  assert.match(ui, /await load\(\);\s*setAiStatus\("Marked as contacted/);
+  assert.match(ui, /<ManualTakeover key=\{selected.id\}.*onComplete=\{async.*await load\(\)/);
   assert.doesNotMatch(ui, /draftReplyLocal|contactAwareFallback|setReplyDraft\(fallback\)|responses_linkedin_first_message/);
 });
 
