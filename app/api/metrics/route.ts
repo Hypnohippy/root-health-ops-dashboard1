@@ -1,3 +1,4 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/metrics/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
@@ -157,11 +158,6 @@ function formatMoney(n: number | null | undefined) {
   return `£${Math.round(n * 100) / 100}`;
 }
 
-async function getSingleTenantOrganisationId(): Promise<string | null> {
-  const { data, error } = await supabaseAdmin.from("organisations").select("id").limit(1);
-  if (error || !data || data.length === 0) return null;
-  return String((data as any)[0].id);
-}
 
 async function fetchScheduledPosts(orgId: string, limit = 800) {
   const fullSelect =
@@ -243,14 +239,7 @@ export async function GET(req: NextRequest) {
     const windowDays = Math.max(7, Math.min(90, Number(url.searchParams.get("windowDays") || "30")));
     const q = (url.searchParams.get("q") || "").trim();
 
-    const organisationId =
-      String(url.searchParams.get("organisationId") || "").trim() ||
-      (await getSingleTenantOrganisationId());
-
-    if (!organisationId) {
-      const out: MetricsResponse = { ok: false, error: "No organisation found for metrics." };
-      return NextResponse.json(out, { status: 200 });
-    }
+    const { organisationId } = await requireOrganisation(url.searchParams.get("organisationId"), false);
 
     const now = new Date();
 
@@ -671,6 +660,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(out, { status: 200 });
   } catch (err: any) {
+    const denied = accessErrorResponse(err); if (denied) return denied;
     console.error("[api/metrics] error", err);
     return NextResponse.json({ ok: false, error: err?.message || "Metrics API failed" }, { status: 200 });
   }

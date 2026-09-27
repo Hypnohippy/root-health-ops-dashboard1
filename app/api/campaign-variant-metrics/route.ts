@@ -1,21 +1,9 @@
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-async function getOrganisationId(): Promise<string | null> {
-  const forced = (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
-  if (forced) return forced;
-
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (error || !data || data.length === 0) return null;
-  return String((data as any)[0].id);
-}
 
 function toNumOrNull(v: any): number | null {
   if (v === null || v === undefined) return null;
@@ -42,10 +30,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    const organisationId = await getOrganisationId();
-    if (!organisationId) {
-      return NextResponse.json({ ok: false, error: "No organisation found." }, { status: 200 });
-    }
+    const { organisationId } = await requireOrganisation(body.organisationId, true);
 
     const campaignId = String(body.campaignId || "").trim();
     const variantId = String(body.variantId || "").trim();
@@ -56,7 +41,7 @@ export async function POST(req: NextRequest) {
     const { data: campaign, error: cErr } = await supabaseAdmin
       .from("campaigns")
       .select("id, organisation_id")
-      .eq("id", campaignId)
+      .eq("id", campaignId).eq("organisation_id", organisationId)
       .single();
 
     if (cErr || !campaign) {
@@ -71,7 +56,7 @@ export async function POST(req: NextRequest) {
     const { data: variant, error: vErr } = await supabaseAdmin
       .from("campaign_variants")
       .select("id, campaign_id")
-      .eq("id", variantId)
+      .eq("id", variantId).eq("campaign_id", campaignId)
       .single();
 
     if (vErr || !variant) {
@@ -125,6 +110,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, record: inserted }, { status: 200 });
   } catch (e: any) {
+    const denied = accessErrorResponse(e); if (denied) return denied;
     return NextResponse.json({ ok: false, error: e?.message || "Failed to log results." }, { status: 200 });
   }
 }

@@ -1,3 +1,5 @@
+import { requireAirtableOrganisation } from "@/lib/legacyAirtable.server";
+import { accessErrorResponse } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 
 async function createInTable(
@@ -25,6 +27,9 @@ async function createInTable(
 }
 
 export async function POST(req: NextRequest) {
+  try {
+  const body = await req.json();
+  await requireAirtableOrganisation(body.organisationId, true);
   const baseId = process.env.AIRTABLE_BASE_ID;
   const apiKey = process.env.AIRTABLE_API_KEY;
 
@@ -32,7 +37,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing Airtable env" }, { status: 500 });
   }
 
-  const body = await req.json();
   const { message_body, platform, direction, status } = body;
 
   const fields = {
@@ -77,4 +81,7 @@ export async function POST(req: NextRequest) {
     },
     { status: 500 }
   );
+  } catch (error) {
+    return accessErrorResponse(error) || NextResponse.json({ error: "Unable to log reply." }, { status: 503 });
+  }
 }

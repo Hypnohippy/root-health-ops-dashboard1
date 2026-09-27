@@ -1,3 +1,5 @@
+import { requireOwnedCampaignVariant } from "@/lib/campaignOwnership.server";
+import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/campaign-metrics/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
@@ -5,19 +7,6 @@ import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 export const runtime = "nodejs";
 
 // Single-tenant helper (matches your other routes)
-async function getOrganisationId(): Promise<string | null> {
-  const forced = (process.env.NEXT_PUBLIC_SINGLE_ORG_ID || "").trim();
-  if (forced) return forced;
-
-  const { data, error } = await supabaseAdmin
-    .from("organisations")
-    .select("id")
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (error || !data || data.length === 0) return null;
-  return String(data[0].id);
-}
 
 function safeNum(v: any): number | null {
   if (v === "" || v === null || v === undefined) return null;
@@ -33,13 +22,7 @@ function safeNum(v: any): number | null {
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const organisationId =
-      String(url.searchParams.get("organisationId") || "").trim() ||
-      (await getOrganisationId());
-
-    if (!organisationId) {
-      return NextResponse.json({ ok: false, error: "No organisation found." }, { status: 200 });
-    }
+    const { organisationId } = await requireOrganisation(url.searchParams.get("organisationId"), false);
 
     const variantId = String(url.searchParams.get("variantId") || "").trim();
     const q = String(url.searchParams.get("q") || "").trim().toLowerCase();
@@ -49,6 +32,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("campaign_variant_metrics")
       .select("id, ctr, cpl, meta, created_at")
+      .eq("meta->>organisation_id", organisationId)
       .order("created_at", { ascending: false })
       .limit(800);
 
@@ -83,6 +67,7 @@ export async function GET(req: NextRequest) {
       { status: 200 }
     );
   } catch (e: any) {
+    const denied = accessErrorResponse(e); if (denied) return denied;
     return NextResponse.json(
       { ok: false, error: e?.message || "Failed to load campaign metrics." },
       { status: 200 }
@@ -98,17 +83,14 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    const organisationId =
-      String(body.organisationId || "").trim() || (await getOrganisationId());
-
-    if (!organisationId) {
-      return NextResponse.json({ ok: false, error: "No organisation found." }, { status: 200 });
-    }
+    const { organisationId } = await requireOrganisation(body.organisationId, true);
 
     const variantId = String(body.variantId || "").trim();
     if (!variantId) {
       return NextResponse.json({ ok: false, error: "Missing variantId." }, { status: 200 });
     }
+
+    await requireOwnedCampaignVariant(organisationId, variantId);
 
     const ctr = safeNum(body.ctr);
     const cpl = safeNum(body.cpl);
@@ -146,6 +128,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, metric: data }, { status: 200 });
   } catch (e: any) {
+    const denied = accessErrorResponse(e); if (denied) return denied;
     return NextResponse.json(
       { ok: false, error: e?.message || "Failed to save metric." },
       { status: 200 }

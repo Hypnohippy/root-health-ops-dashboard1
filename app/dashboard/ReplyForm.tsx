@@ -17,6 +17,7 @@ export default function ReplyForm() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        organisationId: new URLSearchParams(window.location.search).get("organisationId"),
         message_body: messageBody,
         platform,
         direction,
