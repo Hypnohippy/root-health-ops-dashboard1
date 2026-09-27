@@ -1,4 +1,5 @@
 "use client";
+import ManualTakeover from "../components/ManualTakeover";
 
 import { tenantFetch } from "@/lib/tenantFetch";
 import LifecycleReconciliationControl from "./LifecycleReconciliationControl";
@@ -234,32 +235,6 @@ export default function GrowthPage() {
           : item
       )
     );
-  }
-
-  async function markSent(target: any) {
-    const res = await tenantFetch("/api/growth/mark-sent", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        id: target.id,
-        stage: target.stage,
-      }),
-    });
-
-    const json = await res.json();
-
-    if (!json.success) {
-      alert(json.error || "Could not update this target.");
-      return;
-    }
-
-    setQueue((previous) =>
-      previous.filter((item) => item.id !== target.id)
-    );
-
-    await loadFollowups();
   }
 
   async function updateReply(targetId: string) {
@@ -637,12 +612,7 @@ export default function GrowthPage() {
                 Copy Message
               </button>
 
-              <button
-                onClick={() => markSent(item)}
-                style={sentButton}
-              >
-                Mark Sent / Move Next
-              </button>
+              <ManualTakeover organisationId="" table="growth_targets" id={item.id} onComplete={async () => { setQueue(previous => previous.filter(row => row.id !== item.id)); await loadFollowups(); }} />
             </article>
           ))
         )}
@@ -704,12 +674,7 @@ export default function GrowthPage() {
                 Copy Message
               </button>
 
-              <button
-                onClick={() => markSent(target)}
-                style={sentButton}
-              >
-                Mark Sent / Move Next
-              </button>
+              <ManualTakeover organisationId="" table="growth_targets" id={target.id} onComplete={async () => { setQueue(previous => previous.filter(row => row.id !== target.id)); await loadFollowups(); }} />
 
               <div style={replyBox}>
                 <h4 style={{ marginTop: 0 }}>
@@ -1007,16 +972,6 @@ const copyButton: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const sentButton: React.CSSProperties = {
-  marginTop: 10,
-  padding: "7px 10px",
-  borderRadius: 8,
-  background: "#22c55e",
-  color: "#020617",
-  border: "none",
-  fontWeight: 800,
-  cursor: "pointer",
-};
 
 const replyBox: React.CSSProperties = {
   marginTop: 16,

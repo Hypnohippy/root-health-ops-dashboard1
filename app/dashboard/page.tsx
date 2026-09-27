@@ -46,7 +46,7 @@ export default function CommandCentre() {
     {error && <p role="alert" className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-red-100">{error}</p>}
     {!data && !error && <p role="status" className="rounded-2xl border border-white/10 bg-white/5 p-4 text-slate-300">Checking recorded activity and next steps…</p>}
     {data && <>
-      <ControlOverview control={data.control} />
+      <ControlOverview control={data.control} onComplete={() => setRefresh(n => n + 1)} />
       <details className="rounded-3xl border border-white/10 bg-white/[0.02] p-5"><summary className="cursor-pointer font-semibold">Workspace views · existing cards and drill-downs</summary><p className="mb-4 mt-2 text-xs text-slate-400">Source-specific counts remain separate. Open a workspace for its full workflow.</p>
         <section aria-label="Needs attention" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{cards.map(card => <Link key={card.key} href={scoped(card.href)} className={`group rounded-2xl border p-4 transition hover:-translate-y-0.5 hover:border-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400 ${tones[card.tone]}`}><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold text-white">{card.label}</h2><p className="mt-1 text-sm text-slate-300">{card.why}</p></div><span className="min-w-10 rounded-full bg-black/25 px-3 py-1 text-center text-lg font-semibold">{data.counts[card.key]}</span></div><p className="mt-4 text-sm font-semibold text-emerald-200 group-hover:text-emerald-100">View items →</p></Link>)}</section>
       </details>

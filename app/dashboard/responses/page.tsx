@@ -1,5 +1,6 @@
 // app/dashboard/responses/page.tsx
 "use client";
+import ManualTakeover from "../components/ManualTakeover";
 
 import type { SocialCommentOpportunity } from "@/lib/socialCommentOpportunity";
 import ResponseLifecycleDetails from "./ResponseLifecycleDetails";
@@ -551,32 +552,6 @@ export default function ResponsesPage() {
     setTimeout(() => setAiStatus(null), 1400);
   };
 
-  const markPublicReplyComplete = async () => {
-    if (!selected || selected.kind !== "comment") return;
-    setAiStatus("Recording manual completion...");
-    try {
-      const response = await fetch("/api/responses/update-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId, id: selected.id, status: "replied" }) });
-      if (!response.ok) throw new Error("Unable to record manual completion.");
-      setContactContext(null);
-      setReplyDraft("");
-      await load();
-      setAiStatus("Manual public reply recorded. No message was sent by Ops.");
-    } catch (error) { setAiStatus(error instanceof Error ? error.message : "Unable to record completion."); }
-  };
-
-  const markContacted = async () => {
-    if (!selected?.lifecycle?.canMarkContacted) return;
-    setAiStatus("Saving…");
-    try {
-      const org = organisationId || (await resolveOrg());
-      const response = await fetch("/api/responses/update-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: org, id: selected.id, status: "replied" }) });
-      if (!response.ok) throw new Error("Unable to mark this contact as contacted.");
-      setReplyDraft("");
-      await load();
-      setAiStatus("Marked as contacted. Lifecycle refreshed.");
-    } catch (error) { setAiStatus(error instanceof Error ? error.message : "Unable to mark this contact as contacted."); }
-  };
-
   const approveAndSendEmail = async () => {
     if (!selected || selected.platform !== "email" || !selected.lifecycle?.canDraft) return;
     const approvedBody = replyDraft.trim();
@@ -971,8 +946,8 @@ export default function ResponsesPage() {
                     >
                       {sendingReply ? "Sending…" : "Send reply"}
                     </button>}
-                    {selected.kind === "comment" && selected.status !== "replied" && selected.status !== "archived" && <button type="button" onClick={() => void markPublicReplyComplete()} className="rounded-2xl border border-emerald-400/40 px-4 py-3 text-sm">Mark manually replied</button>}
-                    {selected.lifecycle?.canMarkContacted ? <button type="button" onClick={() => void markContacted()} className="rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-400 transition">Mark Contacted</button> : null}
+                    {/* Mark Contacted and manual replies use the same verified completion receipt. */}
+                    {organisationId && (selected.kind === "comment" || selected.lifecycle?.canMarkContacted || selected.platform === "email") && <ManualTakeover key={selected.id} organisationId={organisationId} table="inbox_items" id={selected.id} onComplete={async () => { setContactContext(null); setReplyDraft(""); await load(); }} />}
                   </div>
 
                   {selected.platform === "email" ? <div className="grid grid-cols-2 gap-2">
