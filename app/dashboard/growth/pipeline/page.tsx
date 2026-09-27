@@ -144,7 +144,7 @@ export default function GrowthPipelinePage() {
             </p>
 
             <p style={green}>
-              Deal value: £{Number(target.deal_value || 1500).toLocaleString()}
+              Deal value: {target.deal_value == null ? "Unknown" : `£${Number(target.deal_value).toLocaleString()}`}
             </p>
 
             {target.call_date && (

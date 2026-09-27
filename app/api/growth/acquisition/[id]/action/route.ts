@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { uuid } from "@/lib/growthIngestion.server";
-import { AcquisitionWorkflowError, planAcquisitionAction, routeUrl } from "@/lib/acquisitionWorkflow";
+import { AcquisitionWorkflowError, planAcquisitionAction, routeUrl, acquisitionDestination } from "@/lib/acquisitionWorkflow";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -13,11 +13,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
     const { organisationId, userId } = await requireOrganisation(body.organisationId, true);
     const { data: item, error: readError } = await supabaseAdmin.from("acquisition_items")
-      .select("id, organisation_id, record_type, status")
+      .select("id, organisation_id, record_type, status, metadata")
       .eq("id", itemId).eq("organisation_id", organisationId).maybeSingle();
     if (readError) throw readError;
     if (!item) return NextResponse.json({ error: "Acquisition item not found." }, { status: 404 });
 
+    const handoff = item.metadata?.handoff;
+    if (handoff?.action === body.action && handoff.destination === acquisitionDestination(body.action) && handoff.idempotency_key) {
+      const { data: receipt, error: receiptError } = await supabaseAdmin.from("acquisition_item_events").select("id")
+        .eq("organisation_id", organisationId).eq("acquisition_item_id", itemId).eq("action", body.action).eq("idempotency_key", handoff.idempotency_key).maybeSingle();
+      if (receiptError) throw receiptError;
+      if (receipt) return NextResponse.json({ success: true, item, duplicate: true, destination: routeUrl(handoff.destination, organisationId, itemId) });
+    }
     const plan = planAcquisitionAction(item.record_type, item.status, body.action, body.outcome);
     const note = typeof body.note === "string" ? body.note.trim().slice(0, 2000) : null;
     const { data, error } = await supabaseAdmin.rpc("apply_acquisition_action", {

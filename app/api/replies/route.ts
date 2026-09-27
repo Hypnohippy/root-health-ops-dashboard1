@@ -1,3 +1,5 @@
+import { requireAirtableOrganisation } from "@/lib/legacyAirtable.server";
+import { accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/replies/route.ts
 import { NextResponse } from "next/server";
 
@@ -21,6 +23,7 @@ async function fetchFromTable(tableName: string, params: URLSearchParams) {
 
 export async function GET(req: Request) {
   try {
+    await requireAirtableOrganisation(new URL(req.url).searchParams.get("organisationId"), false);
     const { searchParams } = new URL(req.url);
     const params = new URLSearchParams({
       view: "Grid view",
@@ -61,6 +64,7 @@ export async function GET(req: Request) {
       { status: 500 }
     );
   } catch (err: any) {
+    const denied = accessErrorResponse(err); if (denied) return denied;
     return NextResponse.json(
       { error: "Unexpected error", detail: err?.message },
       { status: 500 }

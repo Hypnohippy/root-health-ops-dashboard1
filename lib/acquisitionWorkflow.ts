@@ -13,10 +13,10 @@ const allowedByType: Record<RecordType, AcquisitionAction[]> = {
 const allowedFrom: Record<AcquisitionAction, AcquisitionStatus[]> = {
   start_review: ["new"],
   accept: ["new", "reviewing", "nurture"], dismiss: ["new", "reviewing", "accepted", "nurture"],
-  prepare_outreach: ["accepted", "reviewing", "nurture"], route_outreach: ["accepted", "reviewing", "nurture"],
-  create_content_draft: ["accepted", "reviewing", "nurture"], route_campaign: ["accepted", "reviewing", "nurture"],
-  route_publishing: ["accepted", "reviewing", "nurture"], route_responses: ["accepted", "reviewing", "nurture"],
-  mark_actioned: ["accepted", "reviewing", "nurture"], nurture: ["reviewing", "accepted", "actioned", "engaged"],
+  prepare_outreach: ["accepted", "reviewing", "nurture", "actioned"], route_outreach: ["accepted", "reviewing", "nurture", "actioned"],
+  create_content_draft: ["accepted", "reviewing", "nurture", "actioned"], route_campaign: ["accepted", "reviewing", "nurture", "actioned"],
+  route_publishing: ["accepted", "reviewing", "nurture", "actioned"], route_responses: ["accepted", "reviewing", "nurture", "actioned"],
+  mark_actioned: [], nurture: ["reviewing", "accepted", "actioned", "engaged"],
   mark_engaged: ["actioned", "nurture"], mark_converted: ["actioned", "engaged", "nurture"], mark_lost: ["reviewing", "accepted", "actioned", "engaged", "nurture"],
 };
 const destinations: Partial<Record<AcquisitionAction, string>> = {
@@ -51,3 +51,5 @@ export function routeUrl(destination: string | null, organisationId: string, ite
   const params = new URLSearchParams({ organisationId, acquisitionItemId: itemId });
   return `${destination}?${params.toString()}`;
 }
+
+export function acquisitionDestination(action: string) { return destinations[action as AcquisitionAction] || null; }

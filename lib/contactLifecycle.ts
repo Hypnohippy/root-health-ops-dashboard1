@@ -191,3 +191,10 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
     };
   });
 }
+
+/** Expose the same identity evidence for import conflict checks; no new identity scheme. */
+export function lifecycleIdentityKeys(table: LifecycleTable, row: LifecycleRow) {
+  const value = project(table, row);
+  return [value.linkedin ? `linkedin:${value.linkedin}` : null, value.email ? `email:${value.email}` : null,
+    value.fallback ? `person_org:${value.fallback}` : null].filter((key): key is string => !!key);
+}

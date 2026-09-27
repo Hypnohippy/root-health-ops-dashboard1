@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import AcquisitionHandoff from "./components/AcquisitionHandoff";
 import { usePathname } from "next/navigation";
 
 type DashboardLayoutProps = {
@@ -322,7 +323,7 @@ export default function ClientDashboardLayout({
         </div>
       </header>
 
-      <main className="flex-1 p-6">{children}</main>
+      <main className="flex-1 p-6"><AcquisitionHandoff key={pathname} />{children}</main>
 
       <footer className="border-t border-white/10 py-4 text-[12px] text-slate-400">
         <div className="mx-auto max-w-6xl px-4 flex flex-col md:flex-row items-center justify-between gap-2">

@@ -1,24 +1,16 @@
 import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { contextualOutreachDraft, isGrowthTargetDue } from "@/lib/growthOutreach";
+import { readDueGrowthTargets } from "@/lib/growthDue.server";
+import { contextualOutreachDraft } from "@/lib/growthOutreach";
 
 export const runtime = "nodejs";
 
 export const GET = withTenantRoute(async function GET(req: Request, tenant) {
-  const { data, error } = await supabaseAdmin
-    .from("growth_targets")
-    .select("*").eq("organisation_id", tenant.organisationId)
-    .eq("status", "active")
-    .order("created_at", { ascending: false });
+  const data = await readDueGrowthTargets(tenant.organisationId);
 
-  if (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
-
-  const due = (data || []).filter(isGrowthTargetDue).map((target) => ({
+  const due = data.map((target) => ({
     ...target,
-    suggested_message: contextualOutreachDraft(target, tenant.profile!),
+    suggested_message: contextualOutreachDraft({ target_name: String(target.target_name || ""), company: String(target.company || ""), role_title: String(target.role_title || ""), stage: String(target.stage || "") }, tenant.profile!),
   }));
 
   return NextResponse.json({ success: true, data: due });
