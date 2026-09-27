@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 function load(file, deps = {}, globals = {}) {
   const mod = { exports: {} };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText,
-    { module: mod, exports: mod.exports, URL, process: { env: {} }, require: name => { assert.ok(name in deps, name); return deps[name]; }, ...globals });
+    { module: mod, exports: mod.exports, URL, URLSearchParams, process: { env: {} }, require: name => { assert.ok(name in deps, name); return deps[name]; }, ...globals });
   return mod.exports;
 }
 const caps = load("lib/channelCapabilities.ts");
@@ -51,7 +51,7 @@ test("server readiness requires app credentials, callback configuration and OAut
 test("guide exposes plain next steps, manual completion limits and no secret entry", () => {
   const Guide = load("app/dashboard/connect/ProviderSetupGuide.tsx", { react: React, "react/jsx-runtime": jsx, "@/lib/providerSetup": setup }).default;
   const html = renderToStaticMarkup(React.createElement(Guide, { platform: "tiktok", health: { state: "connected", setup: setup.buildProviderSetup("tiktok", "connected", true) }, recheck: async () => {} }));
-  for (const label of ["Continue setup", "Already connected", "Open provider", "Recheck setup", "not a published video", "No secret is collected here"]) assert.ok(html.includes(label), label);
+  for (const label of ["Raw OAuth scopes", "Callback route", "Provider review status", "Operator/app configuration", "not a published video"]) assert.ok(html.includes(label), label);
   assert.doesNotMatch(html, /type="password"|<input/);
 });
 test("health recheck is tenant scoped, secret free and does not call providers", async () => {
@@ -62,4 +62,73 @@ test("health recheck is tenant scoped, secret free and does not call providers",
   assert.equal(reads, 2);
   assert.equal((await route.GET({ nextUrl: new URL("https://ops.example/?organisationId=tenant-b") })).status, 403);
   assert.equal(reads, 2);
+});
+
+const presentation = load("lib/connectionPresentation.ts", { "@/lib/channelCapabilities": caps, "@/lib/providerSetup": setup });
+const channel = id => caps.channelCatalog.find(c => c.id === id);
+const health = (id, state = "connected", configured = true) => ({ platform: id, state, name: "Example Business", expiresAt: null, setup: setup.buildProviderSetup(id, state, configured) });
+const view = (id, h = health(id)) => presentation.connectionPresentation(channel(id), h);
+test("customer connection and reconnect are offered only when Root configuration is ready", () => {
+ for (const id of ["facebook", "instagram", "linkedin", "threads", "tiktok"]) {
+  assert.equal(view(id,health(id,"not_connected")).action,"connect");
+  assert.equal(view(id,health(id,"expired")).action,"reconnect");
+  for (const configured of [false,null]) for (const state of ["connected","not_connected","expired"]) {
+   const result=view(id,health(id,state,configured));assert.equal(result.owner,"root");assert.equal(result.action,"none");
+  }
+ }
+});
+test("Root approval and missing capabilities never send customers to fix operator permissions", () => {
+ for (const id of ["facebook","instagram","linkedin","threads","tiktok","google","email"]) {
+  const h=health(id);const current=view(id,h);assert.equal(current.owner,"root");assert.equal(current.action,"none");
+  for(const state of ["provider_approval_required","business_verification_required","developer_registration_required","credentials_required","paid_account_required"]){
+   h.setup={...h.setup,state};const result=view(id,h);assert.equal(result.owner,"root");assert.equal(result.action,"none");
+  }
+ }
+ const pending=health("facebook");pending.setup.state="provider_approval_required";
+ assert.equal(view("facebook",pending).status,"Waiting for provider approval");
+ assert.match(view("facebook",pending).next,/timing is controlled by the provider/);
+ assert.doesNotMatch(view("facebook").next,/waiting for.*approval/i);
+});
+test("connected account never implies fully usable capabilities when verification is absent", () => {
+ for(const id of ["facebook","instagram","linkedin","threads","tiktok","email"]){
+  const h=health(id);h.operationallyVerified=true; // an isolated flag is not a capability grant
+  const result=view(id,h);assert.equal(result.assessment.operationallyVerified,false);assert.match(result.summary,/checking/);
+ }
+ assert.match(view("google").summary,/cannot publish/);
+ assert.match(view("linkedin").summary,/Messages and invitations remain manual/);
+ assert.match(view("tiktok").fallback,/Do not upload it again/);
+ assert.match(view("email").fallback,/Never repeat an uncertain send/);
+});
+test("default card is plain language; all support diagnostics and secondary actions are inside Advanced", () => {
+ const Guide=load("app/dashboard/connect/ProviderSetupGuide.tsx",{react:React,"react/jsx-runtime":jsx,"@/lib/providerSetup":setup}).default;
+ const Card=load("app/dashboard/connect/ChannelCard.tsx",{react:React,"react/jsx-runtime":jsx,"@/lib/channelCapabilities":caps,"@/lib/connectionPresentation":presentation,"./ProviderSetupGuide":Guide}).default;
+ for(const id of ["facebook","instagram","linkedin","threads","tiktok","google","email"]){
+  const html=renderToStaticMarkup(React.createElement(Card,{channel:channel(id),health:health(id),organisationId:"tenant-a",onDisconnect:async()=>{},recheck:async()=>{}}));
+  const collapsed=html.split('<details')[0],advanced=html.slice(html.indexOf('<details'));
+  assert.doesNotMatch(collapsed,/OAuth|callback|adapter|token|pages_manage|credential/i);
+  assert.equal((collapsed.match(/<button/g)||[]).length,1);
+  assert.match(advanced,/Advanced technical details/);assert.match(advanced,/Raw OAuth scopes/);assert.match(advanced,/Callback route/);assert.match(advanced,/Token expiry/);
+  assert.doesNotMatch(html,/href="https:\/\/(www\.)?(facebook|instagram|linkedin|threads|tiktok)\./);
+ }
+});
+test("guidance uses existing authorisation routes and explains account selection and return",()=>{
+ for(const id of ["facebook","instagram","linkedin","threads","tiktok"]){
+  const result=view(id,health(id,"not_connected"));assert.match(channel(id).connectPath,/^\/api\//);
+  assert.match(result.steps.join(' '),/Sign in/);assert.match(result.steps.join(' '),/return to Ops/i);
+  assert.match(result.steps.join(' '),/Approve the access/);
+ }
+ assert.match(view("instagram").steps[0],/Facebook/);
+ assert.equal(view("youtube",health("youtube","not_connected",null)).status,"Not supported yet");
+});
+
+test("guided primary action keeps tenant and provider selection on the existing internal flow",()=>{
+ const Guide=load("app/dashboard/connect/ProviderSetupGuide.tsx",{react:React,"react/jsx-runtime":jsx,"@/lib/providerSetup":setup}).default;
+ for(const id of ['facebook','instagram','linkedin','threads','tiktok']) {
+  let hook=0;
+  const react={...React,useState:initial=>[hook++===0?true:initial,()=>{}]};
+  const Card=load("app/dashboard/connect/ChannelCard.tsx",{react,"react/jsx-runtime":jsx,"@/lib/channelCapabilities":caps,"@/lib/connectionPresentation":presentation,"./ProviderSetupGuide":Guide}).default;
+  const html=renderToStaticMarkup(React.createElement(Card,{channel:channel(id),health:health(id,'not_connected'),organisationId:'tenant-a',onDisconnect:async()=>{},recheck:async()=>{}}));
+  assert.match(html,/Continue to authorisation/);assert.match(html,/organisationId=tenant-a/);assert.match(html,/Finish connection setup/);
+  assert.doesNotMatch(html,/href="https:/);assert.match(html,/return to Ops/i);
+ }
 });
