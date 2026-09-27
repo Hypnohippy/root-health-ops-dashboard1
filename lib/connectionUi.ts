@@ -26,6 +26,6 @@ const providerNames: Record<string, string> = {
 export function connectionSuccessMessage(params: URLSearchParams) {
   if (params.get("connected") !== "1") return "";
   const provider = params.get("provider")?.trim().toLowerCase();
-  if (!provider) return "Credential saved. Operational capabilities remain unverified.";
-  return `${providerNames[provider] || provider.replace(/\b\w/g, (letter) => letter.toUpperCase())} credential saved. Operational capabilities remain unverified.`;
+  if (!provider) return "Account connected. Check the card below to see what Ops can do next.";
+  return `${providerNames[provider] || provider.replace(/\b\w/g, (letter) => letter.toUpperCase())} account connected. Check the card below to see what Ops can do next.`;
 }

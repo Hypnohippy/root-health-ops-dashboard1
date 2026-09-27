@@ -46,7 +46,7 @@ test("Connect uses organisation-scoped health and does not invent setup links", 
   const source = fs.readFileSync("app/dashboard/connect/page.tsx", "utf8");
   assert.match(source, /\/api\/social\/connection-health/);
   assert.match(source, /channelCatalog/);
-  assert.match(source, /Available soon/);
+  assert.match(source, /Available \/ Coming soon/);
   assert.doesNotMatch(source, /href=["']#["']/);
   assert.doesNotMatch(source, /localStorage/);
 });
@@ -63,7 +63,7 @@ test("connection health is indexed by server platform and connected channels res
 
 test("LinkedIn callback query produces a human-readable success message", () => {
   const { connectionSuccessMessage } = load("lib/connectionUi.ts");
-  assert.equal(connectionSuccessMessage(new URLSearchParams("provider=linkedin&connected=1")), "LinkedIn credential saved. Operational capabilities remain unverified.");
+  assert.equal(connectionSuccessMessage(new URLSearchParams("provider=linkedin&connected=1")), "LinkedIn account connected. Check the card below to see what Ops can do next.");
 });
 
 test("Acquisition resolves the workspace and never asks for an organisation ID", () => {
@@ -78,7 +78,7 @@ test("Acquisition resolves the workspace and never asks for an organisation ID",
 
 test("Connect is summary-first and keeps capabilities behind expanders", () => {
   const source = fs.readFileSync("app/dashboard/connect/page.tsx", "utf8");
-  for (const heading of ["Connected", "Needs attention", "Available / Coming soon", "Capabilities"]) assert.match(source, new RegExp(heading.replace("/", "\\/")));
+  for (const heading of ["Connected", "Needs attention", "Available / Coming soon"]) assert.match(source, new RegExp(heading.replace("/", "\\/")));
   assert.match(source, /<details className=/);
   assert.match(source, /sections\.future/);
   assert.doesNotMatch(source, /channelCatalog\.filter\(\(channel\) => channel\.group === group\)\.map/);

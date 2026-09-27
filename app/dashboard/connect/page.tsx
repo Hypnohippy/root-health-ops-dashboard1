@@ -1,88 +1,18 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import ProviderSetupGuide from "./ProviderSetupGuide";
+import ChannelCard from "./ChannelCard";
 import BrandGrowthProfileEditor from "../components/BrandGrowthProfileEditor";
 import {
-  capabilityLabels,
   channelCatalog,
   channelGroups,
-  assessConnectionCapabilities,
-  type ChannelDefinition,
 } from "@/lib/channelCapabilities";
 import { connectionHealthByPlatform, connectionSuccessMessage, type ConnectionHealth } from "@/lib/connectionUi";
 
-const statusStyle = {
-  "Credential saved": "border-sky-400/30 bg-sky-400/10 text-sky-200",
-  "Configuration present": "border-sky-400/30 bg-sky-400/10 text-sky-200",
-  Connect: "border-sky-400/30 bg-sky-400/10 text-sky-200",
-  "Action required": "border-amber-400/30 bg-amber-400/10 text-amber-200",
-  "Provider approval unverified": "border-violet-400/30 bg-violet-400/10 text-violet-200",
-  "Available soon": "border-slate-600 bg-slate-800 text-slate-300",
-} as const;
-
 function scopedUrl(path: string, organisationId: string | null) {
   if (!organisationId) return path;
-  const separator = path.includes("?") ? "&" : "?";
-  return `${path}${separator}organisationId=${encodeURIComponent(organisationId)}`;
+  return `${path}${path.includes("?") ? "&" : "?"}organisationId=${encodeURIComponent(organisationId)}`;
 }
-
-function displayStatus(channel: ChannelDefinition, health?: ConnectionHealth) {
-  if (health?.state === "expired" || health?.state === "reconnect_required") return "Action required" as const;
-  if (channel.statusMode === "provider_approval") return "Provider approval unverified" as const;
-  if (channel.statusMode === "available_soon") return "Available soon" as const;
-  if (channel.id === "google") return "Action required" as const;
-  if (health?.state === "connected") return channel.id === "email" ? "Configuration present" as const : "Credential saved" as const;
-  return channel.statusMode === "managed_setup" ? "Action required" as const : "Connect" as const;
-}
-
-function ChannelCard({ channel, health, organisationId, onDisconnect, recheck }: {
-  channel: ChannelDefinition;
-  health?: ConnectionHealth;
-  organisationId: string | null;
-  onDisconnect: (provider: string) => Promise<void>;
-  recheck: () => Promise<void>;
-}) {
-  const assessment = assessConnectionCapabilities(channel.id, health?.state || "not_connected", health?.expiresAt);
-  const status = assessment.reconnectRequired ? "Action required" : displayStatus(channel, health);
-  const canConnect = Boolean(channel.connectPath) && health?.setup?.canConnect === true;
-
-  return (
-    <article className="rounded-2xl border border-slate-700 bg-slate-900/80 p-5 shadow-sm transition hover:border-slate-600">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold text-white">{channel.name}</h3>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-300">{channel.description}</p>
-        </div>
-        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyle[status]}`}>{status}</span>
-      </div>
-
-      {health?.name && <p className="mt-3 text-xs text-slate-400">Saved identity: {health.name}</p>}
-      {channel.note && <p className="mt-3 rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs leading-5 text-slate-300">{channel.note}</p>}
-
-      <p className="mt-3 text-xs text-amber-200">Operational verification: not verified. {assessment.reconnectRequired ? "Reconnect required." : "A saved credential is not proof of capability."}</p>
-      <p className="mt-2 text-xs text-slate-400">{assessment.expiryExplanation}</p>
-      <p className="mt-2 text-xs text-slate-400">Provider approval: {assessment.providerApproval.replaceAll("_", " ")}</p>
-      <p className="mt-2 text-xs text-slate-400">Manual fallback: {assessment.manualFallback}</p>
-      <details className="mt-4 rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2">
-        <summary className="cursor-pointer text-xs font-semibold text-slate-300 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Capabilities</summary>
-        <div className="mt-3 flex flex-wrap gap-2" aria-label={`${channel.name} capabilities`}>
-          {capabilityLabels.map((label) => {
-            const capability = assessment.capabilities[label];
-            return <span key={label} title={capability.reason} className="rounded-xl border border-slate-700 px-3 py-2 text-xs text-slate-300"><b>{label}: {capability.state.replaceAll("_", " ")}</b><span className="mt-1 block text-slate-400">{capability.reason}</span></span>;
-          })}
-        </div>
-      </details>
-
-      <ProviderSetupGuide platform={channel.id} health={health} recheck={recheck} />
-      <div className="mt-4 flex gap-2">
-        {canConnect && <a href={scopedUrl(channel.connectPath!, organisationId)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300">{channel.id === "google" ? "Connect identity only" : assessment.reconnectRequired || health?.state === "connected" ? "Reconnect" : "Connect"}</a>}
-        {health?.state === "connected" && channel.disconnectable && <button type="button" onClick={() => onDisconnect(channel.id)} className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-semibold text-slate-200 hover:border-rose-400 hover:text-rose-200">Disconnect</button>}
-      </div>
-    </article>
-  );
-}
-
 export default function ConnectPage() {
   const [health, setHealth] = useState<ConnectionHealth[]>([]);
   const [message, setMessage] = useState("");
@@ -91,7 +21,7 @@ export default function ConnectPage() {
   const healthByProvider = useMemo(() => connectionHealthByPlatform(health), [health]);
   const sections = useMemo(() => {
     const current = channelCatalog.filter((channel) => channel.statusMode !== "available_soon");
-    const connected = current.filter((channel) => channel.id !== "google" && healthByProvider.get(channel.id)?.state === "connected");
+    const connected = current.filter((channel) => healthByProvider.get(channel.id)?.state === "connected");
     const needsAttention = current.filter((channel) => !connected.includes(channel));
     const future = channelCatalog.filter((channel) => channel.statusMode === "available_soon");
     return { connected, needsAttention, future };
@@ -141,21 +71,21 @@ export default function ConnectPage() {
         <header>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Connections</p>
           <h1 className="mt-2 text-3xl font-bold">Connect the channels your growth system uses</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">See what each connection can do today, what needs attention and what is planned. Provider credentials stay on the server.</p>
-          {checkedAt && <p className="mt-3 text-xs text-slate-400">Saved-state check: {new Date(checkedAt).toLocaleString()}. No remote delivery test performed.</p>}
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">See what is connected, what Ops can do and whether you need to take a next step.</p>
+          {checkedAt && <p className="mt-3 text-xs text-slate-400">Last checked: {new Date(checkedAt).toLocaleString()}. Sending and publishing are not tested by this check.</p>}
           {message && <p role="status" className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</p>}
         </header>
 
         <section aria-labelledby="connected-channels">
-          <h2 id="connected-channels" className="text-xl font-semibold">Connected credentials / configuration</h2>
-          <p className="mt-1 text-sm text-slate-400">Saved credentials or configuration only. Operational capabilities are assessed separately below.</p>
+          <h2 id="connected-channels" className="text-xl font-semibold">Connected accounts</h2>
+          <p className="mt-1 text-sm text-slate-400">Each card explains what is available and what still needs checking.</p>
           <div className="mt-4 grid gap-3 lg:grid-cols-2">{sections.connected.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} recheck={loadHealth} />)}</div>
-          {sections.connected.length === 0 && <p className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-400">No saved credentials or engine configuration are reported.</p>}
+          {sections.connected.length === 0 && <p className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-400">No connected accounts are reported yet.</p>}
         </section>
 
         <section aria-labelledby="attention-channels">
           <h2 id="attention-channels" className="text-xl font-semibold">Needs attention</h2>
-          <p className="mt-1 text-sm text-slate-400">Connect, reconnect or review provider setup.</p>
+          <p className="mt-1 text-sm text-slate-400">See whether setup needs your attention or help from Root.</p>
           <div className="mt-4 grid gap-3 lg:grid-cols-2">{sections.needsAttention.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} recheck={loadHealth} />)}</div>
         </section>
 
@@ -172,7 +102,7 @@ export default function ConnectPage() {
           <div className="mt-5"><BrandGrowthProfileEditor /></div>
         </details>
 
-        <p className="border-t border-slate-800 pt-5 text-xs leading-5 text-slate-400">OAuth and managed server connections are shown from their current organisation-scoped state. Customers are never asked to paste organisation IDs, webhook URLs or provider secrets into this page.</p>
+        <p className="border-t border-slate-800 pt-5 text-xs leading-5 text-slate-400">Your connections belong to this organisation. Root handles the technical setup; you will never need to paste passwords or secret keys here.</p>
       </div>
     </main>
   );
