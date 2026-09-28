@@ -1,5 +1,6 @@
 // app/dashboard/responses/page.tsx
 "use client";
+import { safeLinkedInFirstMessage } from "@/lib/responseContactContext";
 import ManualTakeover from "../components/ManualTakeover";
 
 import type { SocialCommentOpportunity } from "@/lib/socialCommentOpportunity";
@@ -534,6 +535,16 @@ export default function ResponsesPage() {
   };
 
   const loadSavedDraft = (d: SavedDraft) => {
+    if (isLinkedInAcceptance(selected)) {
+      if (!selected?.lifecycle?.canMarkContacted) {
+        setAiStatus("Use AI Suggest for the current lifecycle stage instead of loading an old connection draft.");
+        return;
+      }
+      if (!contactContext || !safeLinkedInFirstMessage(d.text, contactContext)) {
+        setAiStatus("This saved draft needs refreshing. Use AI Suggest for a human first message based on current context. The original is preserved.");
+        return;
+      }
+    }
     setReplyDraft(d.text);
     setShowSaved(false);
     setAiStatus("Loaded saved draft.");

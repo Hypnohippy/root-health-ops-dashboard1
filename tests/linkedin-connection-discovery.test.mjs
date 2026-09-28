@@ -88,7 +88,9 @@ test("builds an Acquisition candidate with stable provenance and customer-facing
 
 test("accepted-contact output is a human-review draft and never sends LinkedIn messages", () => {
   const draft = discovery.acceptedConnectionDraft(parsed.accepted);
-  assert.match(draft, /Director of People/);
+  assert.match(draft, /Example Care Group/);
+  assert.ok(draft.length < 300);
+  assert.doesNotMatch(draft, /most important|caught my attention|\?/);
   assert.doesNotMatch(draft, /Thanks for connecting/i);
   const source = fs.readFileSync("lib/linkedinConnectionDiscovery.ts", "utf8");
   assert.doesNotMatch(source, /fetch\(|axios|linkedin.*POST|sendMessage/i);

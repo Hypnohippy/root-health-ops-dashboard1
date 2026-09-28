@@ -28,8 +28,9 @@ export async function getResponseContactContext(organisationId: string, itemId: 
   const { data: acquisitionEvents, error: eventError } = acquisition ? await supabaseAdmin.from("acquisition_item_events").select("action,new_status,outcome,note,created_at").eq("organisation_id", organisationId).eq("acquisition_item_id", acquisition.id).order("created_at", { ascending: false }).limit(10) : { data: [], error: null };
   if (eventError) throw eventError;
   const metadata = acquisition?.metadata && typeof acquisition.metadata === "object" ? acquisition.metadata as Record<string,unknown> : {};
-  const role = text(target?.role_title) || text(metadata.headline) || text(item.author_handle) || text(item.post_text);
-  const company = text(target?.company) || text(acquisition?.company) || text(metadata.company) || companyFromHeadline(role || "");
+  const raw = item.raw && typeof item.raw === "object" ? item.raw as Record<string, unknown> : {};
+  const role = text(target?.role_title) || text(metadata.headline) || text(raw.headline) || text(item.author_handle) || text(item.post_text);
+  const company = text(target?.company) || text(acquisition?.company) || text(metadata.company) || text(raw.company) || companyFromHeadline(role || "");
   const sector = text(metadata.sector);
   const fit = profileFit(role || "", company || "", profile);
   const type = interactionTypeFor(item, lifecycle);

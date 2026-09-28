@@ -50,7 +50,7 @@ export function objectiveFor(type: InteractionType, hasSignal: boolean) {
   if (type === "relationship_message") return "Continue the established relationship on explicit human request, respecting recorded replies and commercial progress. Do not draft an unanswered-outreach follow-up.";
   if (type === "followup") return "Prepare the next scheduled follow-up using recorded history; never introduce the contact as new.";
   if (type === "first_message") return "Open a relevant first conversation using only recorded facts.";
-  if (type === "linkedin_connection_first_message") return "Acknowledge the connection and open a relevant, low-friction conversation without a hard pitch.";
+  if (type === "linkedin_connection_first_message") return "Say hello properly to an existing connection using verified context; save questions and calls to action for later stages.";
   if (type === "linkedin_followup") return "Continue the relationship with a useful, specific follow-up based on the known context.";
   if (type === "linkedin_reply") return "Respond directly to what they said and move the conversation forward naturally.";
   if (type === "email_reply") return "Answer the email directly and agree a clear next step only where appropriate.";
@@ -76,11 +76,26 @@ export function responseDraftRules(context: ResponseContactContext) {
   if (context.interactionType === "relationship_message") return [...common, "Respect their recorded reply and the advanced relationship. Do not assume they failed to respond or send a first-contact opener."];
   if (context.interactionType === "followup") return [...common, "Draft only the scheduled next-stage message; this is not a reply to the old event."];
   if (context.interactionType === "first_message") return [...common, "Open the first conversation without inventing prior dialogue."];
-  if (context.interactionType === "linkedin_connection_first_message") return [...common, "This is the first outbound LinkedIn message after the person accepted a connection request; it is not a reply.", "Acknowledge the connection naturally, keep it short and human, avoid a hard pitch, and open a relevant low-friction conversation.", "Never imply prior dialogue and never say ‘glad to help’, ‘thanks for getting in touch’, or ‘following up on our conversation’." ];
+  if (context.interactionType === "linkedin_connection_first_message") return [...common, "This is the first outbound LinkedIn message after the person accepted a connection request; it is not a reply.", "Existing connection, not a connection request. Day 1: say hello properly; avoid a hard pitch. Day 3: soft relevant question. Day 10: useful insight and soft CTA. Day 17: light nudge. Do not do later-stage jobs now.", "Under 300 characters. Plain spoken English, reflective and lightly informal. No emojis, pitch, product explanation, meeting/demo ask, discovery question, networking cliche, fake enthusiasm, flattery or profile/resume recital.", "Use verified company, role/remit or specific recorded context naturally when available, so the message cannot be sent unchanged to 50 people. Never invent shared interests, sender experience, familiarity or context. With sparse facts, use an honest brief hello rather than fabricating specificity.", "Never use: great to connect here; I'd love to hear your thoughts; what's top of mind; I noticed; I came across; I love what you're doing; current wellbeing challenges; caught my attention; most important in your remit. No marketing language or HR jargon.", "Tone example only, not a template: Hi Shelley, good to connect. I thought I'd say hello properly. Where verified context exists, ground the hello in that context without reciting their profile.", "Never imply prior dialogue and never say ‘glad to help’, ‘thanks for getting in touch’, or ‘following up on our conversation’." ];
   if (context.interactionType === "linkedin_followup") return [...common, "This is a later LinkedIn follow-up. Continue from the recorded relationship stage rather than writing a first-connection opener."];
   if (context.interactionType === "email_reply") return [...common, "Reply directly to the inbound email and preserve its thread context."];
   if (context.interactionType === "social_reply") return [...common, "Write a concise public response to the actual comment or reply."];
   if (context.interactionType === "nurture") return [...common, "This is a gentle re-engagement; do not pretend the relationship is new."];
   if (context.interactionType === "warm_opportunity") return [...common, "There is recorded interest or a commercial stage. Build on it without exaggerating what is known."];
   return [...common, "Respond directly to the latest LinkedIn message and respect the recorded history."];
+}
+
+// Quality gate for Day 1 only; later lifecycle stages have different intent.
+export function safeLinkedInFirstMessage(draft: string, context?: { company?: string | null; role?: string | null }) {
+  const text = draft.trim();
+  if (!text || text.length > 300 || /[?]|\p{Extended_Pictographic}/u.test(text)) return false;
+  if (/great to connect|love to hear your thoughts|top of mind|i noticed|i came across|love what you.re doing|current wellbeing challenges|caught my attention|most important in your remit|\b(demo|meeting|book a call|our product|our platform|connect with you|connection request)\b/i.test(text)) return false;
+  const company = context?.company?.trim();
+  const role = context?.role?.trim();
+  if (company && !text.toLowerCase().includes(company.toLowerCase())) return false;
+  if (!company && role) {
+    const terms = role.toLowerCase().match(/[a-z]{3,}/g)?.filter(t => !['the','and','with','for'].includes(t)) || [];
+    if (terms.length && !terms.some(t => text.toLowerCase().includes(t))) return false;
+  }
+  return true;
 }
