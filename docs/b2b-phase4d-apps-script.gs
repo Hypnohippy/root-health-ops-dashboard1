@@ -488,6 +488,16 @@ function processLinkedInAcceptanceIntake_(query, maxThreads, applyLabel) {
         imported += Number(result.acceptedConnectionsRecorded || 0);
         duplicates += Number(result.acceptedConnectionsDuplicate || 0);
         candidates += Number(result.candidatesInserted || 0);
+        if (props.getProperty('OPS_LINKEDIN_INTAKE_DIAGNOSTICS') === 'true') {
+          (result.duplicateDiagnostics || []).forEach(function(item) {
+            Logger.log('LINKEDIN ACCEPTANCE DUPLICATE: ' + JSON.stringify({
+              gmailMessageId: String(message.getId()), candidateName: item.candidateName,
+              canonicalIdentity: item.canonicalIdentity, matchedRecordId: item.matchedRecordId,
+              matchedRecordType: item.matchedRecordType, reason: item.reason,
+              storedIdentity: item.storedIdentity, canonicalPermalink: item.canonicalPermalink
+            }));
+          });
+        }
       } catch (error) {
         threadSucceeded = false; failed++;
         Logger.log('LINKEDIN ACCEPTANCE INTAKE FAILED: ' + phase4DSafeError_(error));
@@ -513,6 +523,7 @@ function sendLinkedInAcceptanceToOps_(message, organisationId, secret) {
   const payload = {
     organisation_id: organisationId,
     source_engine: LINKEDIN_ACCEPTANCE_SOURCE_ENGINE_,
+    diagnostics: PropertiesService.getScriptProperties().getProperty('OPS_LINKEDIN_INTAKE_DIAGNOSTICS') === 'true',
     subject: String(message.getSubject() || ''),
     sender: String(message.getFrom() || ''),
     html: String(message.getBody() || ''),

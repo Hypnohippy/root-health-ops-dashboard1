@@ -110,6 +110,20 @@ export function linkedinAcceptanceSourceRecordId(profileUrl: string) {
   return `linkedin-acceptance-${createHash("sha256").update(canonicalLinkedInAcceptanceProfile(profileUrl)).digest("hex").slice(0, 32)}`;
 }
 
+export type AcceptanceExistingRecord = { id: string; platform: string; kind: string; linkedin_identity: string | null; permalink: string | null };
+
+export function linkedInAcceptanceDuplicate(contact: LinkedInContact, records: AcceptanceExistingRecord[]) {
+  const identity = canonicalLinkedInAcceptanceProfile(contact.profileUrl);
+  const matched = records.find(record => record.platform === "linkedin" && record.kind === "connection_accepted" &&
+    (record.linkedin_identity === identity || canonicalLinkedInAcceptanceProfile(record.permalink || "") === identity));
+  return matched ? {
+    candidateName: contact.name, canonicalIdentity: identity, matchedRecordId: matched.id,
+    matchedRecordType: `${matched.platform}/${matched.kind}`,
+    reason: matched.linkedin_identity === identity ? "existing_acceptance_linkedin_identity" : "existing_acceptance_permalink",
+    storedIdentity: matched.linkedin_identity, canonicalPermalink: canonicalLinkedInAcceptanceProfile(matched.permalink || ""),
+  } : null;
+}
+
 export function linkedinNetworkSourceRecordId(acceptedProfileUrl: string, suggestedProfileUrl: string) {
   const digest = createHash("sha256").update([canonicalLinkedInAcceptanceProfile(acceptedProfileUrl), canonicalLinkedInAcceptanceProfile(suggestedProfileUrl)].join("|")).digest("hex").slice(0, 32);
   return `linkedin-network-${digest}`;
