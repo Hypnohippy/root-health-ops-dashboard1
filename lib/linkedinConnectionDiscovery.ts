@@ -128,9 +128,11 @@ export function uniqueLinkedInSuggestions(acceptance: LinkedInAcceptance, existi
 }
 
 export function acceptedConnectionDraft(contact: LinkedInContact) {
-  const firstName = contact.name.split(/\s+/)[0];
-  const context = contact.headline ? `Your work as ${contact.headline}` : "Your work";
-  return `Hi ${firstName} — ${context} caught my attention. I’d be interested to hear what is most important in your remit at the moment.`;
+  const firstName = contact.name.trim().split(/\s+/)[0];
+  const company = contact.company?.trim();
+  // Do not manufacture a remit, sender expertise or a discovery question.
+  const detail = company && company.length < 100 ? ` I wanted to say hello to you at ${company} properly.` : " I thought I'd say hello properly.";
+  return `Hi ${firstName}, good to connect.${detail}`;
 }
 
 export function buildLinkedInCandidateRecord(acceptance: LinkedInAcceptance, candidate: LinkedInContact): LinkedInCandidateRecord {
