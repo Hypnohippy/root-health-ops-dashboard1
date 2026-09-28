@@ -63,22 +63,40 @@ test("Shelley's generic opener and Day 3 discovery questions are rejected", () =
     "Hi Shelley, thanks for connecting. Book a call about our platform at Acme.",
     "Hi Shelley, what is most important in your remit at Acme.",
     "Hi Shelley, good to connect. What's changing at Acme?",
+    "Hi Shelley, great to connect here.",
+    "Hi Shelley, I'd love to hear your thoughts.",
+    "Hi Shelley, what's top of mind?",
+    "Hi Shelley, I noticed your team.",
+    "Hi Shelley, let me share our pitch.",
+    "Hi Shelley, let me show you a demo.",
+    "Hi Shelley, let's have a quick call.",
+    "Hi Shelley, we help teams improve wellbeing.",
+    "Hi Shelley, what are your team's priorities?",
   ]) assert.equal(context.safeLinkedInFirstMessage(draft, {company:'Acme'}), false);
-  assert.equal(context.safeLinkedInFirstMessage('Hi Shelley, good to connect. I thought I would say hello properly.', {company:'Acme'}), false);
+});
+
+test("Day 1 accepts human hellos without literal company or role matches", () => {
+  const hello = "Hi Shelley, good to connect. I thought I’d say hello properly.";
+  assert.equal(context.safeLinkedInFirstMessage(hello, {company:'Acme', role:'HR director'}), true);
+  assert.equal(context.safeLinkedInFirstMessage(hello, {role:'HR director'}), true);
   assert.equal(context.safeLinkedInFirstMessage('Hi Shelley, good to connect. I wanted to say hello to you at Acme properly.', {company:'Acme'}), true);
   assert.equal(context.safeLinkedInFirstMessage('Hi Shelley, good to connect. Your work in workforce planning is a useful point of overlap, so I thought I would say hello properly.', {role:'Workforce planning'}), true);
+  assert.equal(context.safeLinkedInFirstMessage('Hi Shelley, good to connect. A hello to a fellow people leader.', {company:'Acme', role:'HR director'}), true);
   assert.equal(context.safeLinkedInFirstMessage('Hi Shelley, good to connect. I thought I would say hello properly.'), true);
   assert.equal(context.safeLinkedInFirstMessage('a'.repeat(301)), false);
+  assert.equal(context.safeLinkedInFirstMessage('a'.repeat(300)), false);
+  assert.equal(context.safeLinkedInFirstMessage('a'.repeat(299)), true);
+  assert.equal(context.safeLinkedInFirstMessage('   '), false);
 });
 
 test('active root-coach endpoint rejects bad model output and returns grounded editable copy', async()=>{
  const briefing={interactionType:'linkedin_connection_first_message',messageType:'First message after connection',company:'Acme',role:'HR director',name:'Shelley',objective:'Say hello',lifecycle:{canDraft:true,currentStage:'outreach_ready'}};
- for(const [draft,status] of [["Hi Shelley, great to connect here! What's top of mind at Acme?",409],['Hi Shelley, good to connect. I wanted to say hello to you at Acme properly.',200]]) {
+ for(const [draft,status] of [["Hi Shelley, great to connect here! What's top of mind at Acme?",409],['Hi Shelley, good to connect. I wanted to say hello to you at Acme properly.',200],["Hi Shelley, good to connect. I thought I’d say hello properly.",200],['Hi Shelley, good to connect. A hello to a fellow people leader.',200]]) {
   const mod={exports:{}};let prompt='';
   const deps={'@/lib/tenantRoute.server':{withTenantRoute:fn=>req=>fn(req,{organisationId:'review',profile:{},messages:[]})},'next/server':{NextResponse:{json:(body,o={})=>({body,status:o.status||200})}},'@/lib/responseContactContext.server':{getResponseContactContext:async(org)=>{assert.equal(org,'review');return briefing;}},'@/lib/responseContactContext':context,'@/lib/socialCommentOpportunity':{}};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/ai/root-coach/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,require:n=>{assert.ok(n in deps,n);return deps[n];},process:{env:{OPENAI_API_KEY:'test'}},console,fetch:async(url,opts)=>{assert.equal(url,'https://api.openai.com/v1/chat/completions');prompt=opts.body;return {ok:true,json:async()=>({choices:[{message:{content:draft}}]})};}});
   const result=await mod.exports.POST({json:async()=>({inboxItemId:'11111111-1111-1111-1111-111111111111'})});
-  assert.equal(result.status,status);assert.match(prompt,/Day 1/);assert.match(prompt,/Acme/);assert.match(prompt,/No emojis/);
+  assert.equal(result.status,status);assert.match(prompt,/Day 1/);assert.match(prompt,/Acme/);assert.match(prompt,/No emojis/);assert.match(prompt,/Exact company names and role words are optional/);
   if(status===200)assert.equal(result.body.coachMessage,draft);else assert.equal(result.body.coachMessage,undefined);
  }
 });
