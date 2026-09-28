@@ -1,3 +1,5 @@
+import { requireNewOrganisationUser } from "@/lib/organisationOnboarding";
+import { accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/ensure-organisation/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -11,7 +13,9 @@ const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId, name } = await req.json();
+    const { userId: claimedUserId, name } = await req.json();
+
+    const userId = await requireNewOrganisationUser(claimedUserId);
 
     if (!userId) {
       return NextResponse.json(
@@ -83,6 +87,8 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("ensure-organisation error", err);
     return NextResponse.json(
       { error: "Server error", details: err?.message },

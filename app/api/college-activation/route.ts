@@ -1,3 +1,5 @@
+import { requireNewOrganisationUser } from "@/lib/organisationOnboarding";
+import { accessErrorResponse } from "@/lib/tenantAuth";
 // app/api/college-activation/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
@@ -8,7 +10,7 @@ export async function POST(req: NextRequest) {
 
     const {
       code,
-      userId,
+      userId: claimedUserId,
       userEmail,
       organisationName,
     }: {
@@ -17,6 +19,8 @@ export async function POST(req: NextRequest) {
       userEmail?: string;
       organisationName?: string;
     } = body;
+
+    const userId = await requireNewOrganisationUser(claimedUserId);
 
     if (!code || typeof code !== "string" || !code.trim()) {
       return NextResponse.json(
@@ -215,6 +219,8 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("[college-activation] Unexpected error", err);
     return NextResponse.json(
       {

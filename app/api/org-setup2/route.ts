@@ -1,12 +1,11 @@
 // app/api/org-setup2/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getCurrentUserId } from "@/lib/supabaseServer";
+import { requireOnboardingIdentity } from "@/lib/organisationOnboarding";
+import { AccessError, accessErrorResponse } from "@/lib/tenantAuth";
 import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
-
-const FALLBACK_OWNER_ID = "e83aeab8-69bf-4405-b34f-c13c6fa4bfd5";
 
 function slugify(input: string): string {
   return input
@@ -25,6 +24,8 @@ function safeFileName(input: string): string {
 
 export async function POST(req: NextRequest) {
   try {
+    const { userId: ownerId, membership } = await requireOnboardingIdentity();
+    if (membership && membership.role !== "owner") throw new AccessError("Only the workspace owner can repeat onboarding.");
     const form = await req.formData();
 
     const orgName = safeString(form.get("orgName"));
@@ -49,24 +50,6 @@ export async function POST(req: NextRequest) {
 
     if (!baseSlug) {
       baseSlug = randomUUID().slice(0, 8);
-    }
-
-    let ownerId = FALLBACK_OWNER_ID;
-    try {
-      const userId = await getCurrentUserId();
-      if (userId) ownerId = userId;
-    } catch {
-      // fallback is fine
-    }
-
-    if (!ownerId || ownerId === "REPLACE_WITH_YOUR_SUPABASE_USER_ID") {
-      return NextResponse.json(
-        {
-          error:
-            "Server not configured with an owner_id. Please update FALLBACK_OWNER_ID in app/api/org-setup2/route.ts.",
-        },
-        { status: 500 }
-      );
     }
 
     let logoUrl = "";
@@ -103,15 +86,7 @@ export async function POST(req: NextRequest) {
       logoUrl = String(publicUrlResult?.data?.publicUrl || "").trim();
     }
 
-       const { data: existingMember } = await supabaseAdmin
-      .from("organisation_members")
-      .select("organisation_id")
-      .eq("user_id", ownerId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const existingOrgId = String(existingMember?.organisation_id || "").trim();
+    const existingOrgId = membership?.organisation_id;
 
     let currentSlug = baseSlug;
     let org: any = null;
@@ -123,7 +98,6 @@ export async function POST(req: NextRequest) {
         .update({
           name: orgName,
           slug: currentSlug,
-          owner_id: ownerId,
           brand_name: orgName,
           brand_primary_color: primaryColor,
           brand_secondary_color: secondaryColor,
@@ -189,27 +163,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { error: memberError } = await supabaseAdmin
-      .from("organisation_members")
-      .upsert(
-        {
-          organisation_id: orgId,
-          user_id: ownerId,
-          role: "owner",
-        },
-        { onConflict: "organisation_id,user_id" }
-      );
+    if (!existingOrgId) {
+      const { error: memberError } = await supabaseAdmin
+        .from("organisation_members")
+        .insert(
+          {
+            organisation_id: orgId,
+            user_id: ownerId,
+            role: "owner",
+          }
+        );
 
-    if (memberError) {
-      console.error("[org-setup2] organisation_members upsert error", memberError);
-      return NextResponse.json(
-        {
-          error: `Organisation saved but failed to create membership: ${
-            (memberError as any).message ?? String(memberError)
-          }`,
-        },
-        { status: 500 }
-      );
+      if (memberError) {
+        console.error("[org-setup2] organisation_members upsert error", memberError);
+        return NextResponse.json(
+          {
+            error: `Organisation saved but failed to create membership: ${
+              (memberError as any).message ?? String(memberError)
+            }`,
+          },
+          { status: 500 }
+        );
+      }
     }
     return NextResponse.json(
       {
@@ -227,6 +202,8 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("[org-setup2] unexpected error", err);
     return NextResponse.json(
       {
