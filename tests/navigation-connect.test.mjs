@@ -44,7 +44,7 @@ test("capability catalog tells the truth about implemented and provider-gated ch
 
 test("Connect uses organisation-scoped health and does not invent setup links", () => {
   const source = fs.readFileSync("app/dashboard/connect/page.tsx", "utf8");
-  assert.match(source, /\/api\/social\/connection-health/);
+  assert.match(source, /fetchConnectionHealth/);
   assert.match(source, /channelCatalog/);
   assert.match(source, /Available \/ Coming soon/);
   assert.doesNotMatch(source, /href=["']#["']/);

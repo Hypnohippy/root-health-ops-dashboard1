@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { capabilityLabels, type ChannelDefinition } from "@/lib/channelCapabilities";
 import { connectionPresentation } from "@/lib/connectionPresentation";
 import type { ConnectionHealth } from "@/lib/connectionUi";
@@ -10,11 +10,20 @@ export default function ChannelCard({ channel, health, organisationId, onDisconn
 }) {
   const view = connectionPresentation(channel, health);
   const [guiding, setGuiding] = useState(false), [busy, setBusy] = useState(false), [result, setResult] = useState("");
+  const inFlight = useRef(false);
   async function check() {
-    setBusy(true);
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true); setResult("");
     try { await recheck(); setResult("Connection information updated. This check does not test sending or publishing."); }
     catch { setResult("Could not check the connection. The information shown may be out of date."); }
-    finally { setBusy(false); }
+    finally { inFlight.current = false; setBusy(false); }
+  }
+  async function disconnect() {
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true); setResult("");
+    try { await onDisconnect(channel.id); setResult(`${channel.name} disconnected from Ops.`); }
+    catch (error) { setResult(error instanceof Error ? error.message : "Could not disconnect. Please try again."); }
+    finally { inFlight.current = false; setBusy(false); }
   }
   const url = channel.connectPath ? `${channel.connectPath}${channel.connectPath.includes("?") ? "&" : "?"}${new URLSearchParams(organisationId ? { organisationId } : {})}` : "";
   return <article className="rounded-2xl border border-slate-700 bg-slate-900/80 p-5 shadow-sm">
@@ -29,7 +38,7 @@ export default function ChannelCard({ channel, health, organisationId, onDisconn
       <p className="font-semibold">Before opening {channel.id === "instagram" ? "Facebook" : channel.name}</p>
       <ol className="my-3 list-decimal space-y-2 pl-5">{view.steps.map(step => <li key={step}>{step}</li>)}</ol>
       <a className="inline-block rounded-lg bg-emerald-400 px-3 py-2 font-semibold text-slate-950" href={url}>Continue to authorisation</a>
-      <button className="ml-3 underline" onClick={() => setGuiding(false)}>Cancel</button>
+      <button type="button" className="ml-3 underline" onClick={() => setGuiding(false)}>Cancel</button>
     </section> : <button type="button" disabled={busy || view.action === "none"} onClick={() => view.action === "check" ? void check() : setGuiding(true)} className="mt-4 rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:bg-slate-800 disabled:text-slate-400">{busy ? "Checking…" : view.label}</button>}
     <p className="mt-3 text-xs leading-5 text-slate-400">{view.fallback}</p>
     {result && <p role="status" className="mt-3 text-sm text-amber-200">{result}</p>}
@@ -41,8 +50,8 @@ export default function ChannelCard({ channel, health, organisationId, onDisconn
         {capabilityLabels.map(label => <p key={label}><b>{label}: {view.assessment.capabilities[label].state}</b> — {view.assessment.capabilities[label].reason}</p>)}
       </div>
       <ProviderSetupGuide platform={channel.id} health={health} />
-      <div className="mt-4 flex gap-4 text-xs text-slate-300"><button disabled={busy} onClick={() => void check()} className="underline">Check connection</button>
-        {health?.state === "connected" && channel.disconnectable && <button onClick={() => void onDisconnect(channel.id)} className="underline">Disconnect</button>}
+      <div className="mt-4 flex gap-4 text-xs text-slate-300"><button type="button" disabled={busy} onClick={() => void check()} className="underline disabled:opacity-50">{busy ? "Working…" : "Check connection"}</button>
+        {health && health.state !== "not_connected" && channel.disconnectable && <button type="button" disabled={busy} onClick={() => void disconnect()} className="underline disabled:opacity-50">{busy ? "Working…" : "Disconnect"}</button>}
       </div>
     </details>
   </article>;

@@ -151,7 +151,7 @@ test("connection health distinguishes states and never serializes tokens", () =>
   assert.equal(health.connectionState({ ...account, token_expires_at: "2000-01-01" }), "expired");
   assert.equal(health.connectionState({ ...account, token_expires_at: "bad" }), "reconnect_required");
   assert.equal(health.connectionState({ ...account, page_access_token: null }), "reconnect_required");
-  assert.equal(health.connectionState({ ...account, is_active: false }), "reconnect_required");
+  assert.equal(health.connectionState({ ...account, is_active: false }), "not_connected");
   assert.equal(JSON.stringify(health.connectionHealth([account])).includes("secret-token"), false);
 });
 test("mutating routes deny a foreign tenant before database writes or provider calls", async () => {

@@ -9,6 +9,7 @@ export type HealthAccount = {
 
 export function connectionState(account?: HealthAccount, now = Date.now()): ConnectionState {
   if (!account) return "not_connected";
+  if (account.is_active === false) return "not_connected";
   if (!account.is_active || !account.page_access_token?.trim()) return "reconnect_required";
   if (account.token_expires_at) {
     const expiry = Date.parse(account.token_expires_at);
