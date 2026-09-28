@@ -33,6 +33,19 @@ test("email intake uses stable message dedupe and preserves thread/outreach refe
  assert.equal(rows[0].proposed_response,"Thanks — we will wait for your colleague.");assert.equal(rows[0].email_reply_draft,rows[0].proposed_response);
 });
 
+test("Gmail bridge safe probe authenticates but never reaches the database",async()=>{
+ const helper=load("lib/growthIngestion.server.ts",{}, {GROWTH_INGESTION_KEYS:JSON.stringify([{organisation_id:A,secret:"s".repeat(40),source_engines:["root_health_b2b"]}])});
+ const response={NextResponse:{json:(body,o={})=>({body,status:o.status||200})}};
+ let databaseCalls=0;
+ const route=load("app/api/responses/email/ingest/route.ts",{"next/server":response,"@/lib/supabaseAdmin":{supabaseAdmin:{from(){databaseCalls++;throw Error("probe must not touch database");}}},"@/lib/growthIngestion.server":helper,"@/lib/emailResponse":classifier});
+ for(const valid of [true,false]){
+  const result=await route.POST(new Request("https://ops/api/responses/email/ingest",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${valid?"s".repeat(40):"wrong"}`},body:JSON.stringify({organisation_id:A,source_engine:"root_health_b2b",records:[{}]})}));
+  assert.equal(result.status,valid?400:403);
+  if(valid)assert.equal(result.body.error,"Invalid email response field.");
+ }
+ assert.equal(databaseCalls,0);
+});
+
 test("engine dispatch sends edited and unedited drafts exactly as approved and tolerates missing Gmail refs",async()=>{
  const sent=[];const env={B2B_ENGINE_ENDPOINTS:JSON.stringify([{organisation_id:A,source_engine:"root_health_b2b",url:"https://engine.example/send",secret:"x".repeat(40)}])};
  const dispatch=load("lib/emailEngineDispatch.server.ts",{},env,{fetch:async(_url,init)=>{sent.push(JSON.parse(init.body));return new Response(JSON.stringify({accepted:true,idempotency_key:sent.at(-1).idempotency_key}),{status:202,headers:{"content-type":"application/json"}});}});
