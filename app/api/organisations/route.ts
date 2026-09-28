@@ -1,10 +1,14 @@
+import { requireNewOrganisationUser } from "@/lib/organisationOnboarding";
+import { accessErrorResponse } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { userId, name, brandName } = body;
+    const { userId: claimedUserId, name, brandName } = body;
+
+    const userId = await requireNewOrganisationUser(claimedUserId);
 
     if (!userId || !name) {
       return NextResponse.json(
@@ -55,6 +59,8 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (err: any) {
+    const denied = accessErrorResponse(err);
+    if (denied) return denied;
     console.error("Organisation POST error", err);
     return NextResponse.json(
       { error: "Server error", details: err?.message },
