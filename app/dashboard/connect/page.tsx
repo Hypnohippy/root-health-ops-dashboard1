@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ChannelCard from "./ChannelCard";
+import { fetchConnectionHealth, disconnectConnection } from "@/lib/connectionActions";
 import BrandGrowthProfileEditor from "../components/BrandGrowthProfileEditor";
 import {
   channelCatalog,
@@ -9,11 +10,8 @@ import {
 } from "@/lib/channelCapabilities";
 import { connectionHealthByPlatform, connectionSuccessMessage, type ConnectionHealth } from "@/lib/connectionUi";
 
-function scopedUrl(path: string, organisationId: string | null) {
-  if (!organisationId) return path;
-  return `${path}${path.includes("?") ? "&" : "?"}organisationId=${encodeURIComponent(organisationId)}`;
-}
 export default function ConnectPage() {
+  const healthRequest = useRef(0);
   const [health, setHealth] = useState<ConnectionHealth[]>([]);
   const [message, setMessage] = useState("");
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
@@ -28,43 +26,50 @@ export default function ConnectPage() {
   }, [healthByProvider]);
 
   async function loadHealth() {
-    const response = await fetch(scopedUrl("/api/social/connection-health", organisationId), { cache: "no-store" });
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error || "Could not load connections.");
-    setHealth(body.connections || []);
-    setCheckedAt(body.checkedAt || null);
+    const request = ++healthRequest.current;
+    const body = await fetchConnectionHealth(organisationId);
+    if (request !== healthRequest.current) return;
+    setHealth(body.connections);
+    setCheckedAt(body.checkedAt);
+  }
+
+  async function recheck() {
+    try {
+      await loadHealth();
+      setMessage("Connection information updated. This checks saved connection details, not sending or publishing access.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not check connections. Please try again.");
+      throw error;
+    }
   }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    fetch(scopedUrl("/api/social/connection-health", organisationId), { cache: "no-store" }).then(async (response) => {
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Could not load connections.");
-      setHealth(body.connections || []);
-      setCheckedAt(body.checkedAt || null);
+    void loadHealth().then(() => {
       const successMessage = connectionSuccessMessage(params);
       if (successMessage) setMessage(successMessage);
       if (params.get("error")) setMessage("That connection could not be completed. Please try again.");
-    }).catch(() => setMessage("Connection status is temporarily unavailable."));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }).catch(() => setMessage("Connection status is temporarily unavailable. Use Check connection to retry."));
+    return () => { healthRequest.current++; };
+  }, [organisationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const returned = () => { void loadHealth().catch(() => setMessage("Recheck failed. Previous connection data may be stale.")); };
+    const returned = () => { void loadHealth().catch(() => setMessage("Could not refresh connections. Use Check connection to retry.")); };
     window.addEventListener("focus", returned);
     return () => window.removeEventListener("focus", returned);
   }, [organisationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function disconnect(provider: string) {
-    const response = await fetch("/api/social-accounts", {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider, organisationId }),
-    });
-    if (!response.ok) return setMessage("Could not disconnect that channel.");
-    setMessage(`${provider} disconnected.`);
-    await loadHealth();
+    healthRequest.current++;
+    await disconnectConnection(provider, organisationId);
+    healthRequest.current++;
+    setHealth(previous => previous.map(connection => connection.platform === provider
+      ? { ...connection, state: "not_connected", name: null, expiresAt: null, setup: undefined } : connection));
+    const name = channelCatalog.find(channel => channel.id === provider)?.name || provider;
+    setMessage(`${name} disconnected from Ops.`);
+    try { await loadHealth(); }
+    catch { setMessage(`${name} disconnected from Ops. The remaining connection information could not be refreshed; check again.`); }
   }
-
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-white sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-8">
@@ -79,21 +84,21 @@ export default function ConnectPage() {
         <section aria-labelledby="connected-channels">
           <h2 id="connected-channels" className="text-xl font-semibold">Connected accounts</h2>
           <p className="mt-1 text-sm text-slate-400">Each card explains what is available and what still needs checking.</p>
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">{sections.connected.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} recheck={loadHealth} />)}</div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">{sections.connected.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} recheck={recheck} />)}</div>
           {sections.connected.length === 0 && <p className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-400">No connected accounts are reported yet.</p>}
         </section>
 
         <section aria-labelledby="attention-channels">
           <h2 id="attention-channels" className="text-xl font-semibold">Needs attention</h2>
           <p className="mt-1 text-sm text-slate-400">See whether setup needs your attention or help from Root.</p>
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">{sections.needsAttention.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} recheck={loadHealth} />)}</div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">{sections.needsAttention.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} recheck={recheck} />)}</div>
         </section>
 
         <details className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
           <summary className="cursor-pointer text-lg font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Available / Coming soon <span className="ml-2 text-sm font-normal text-slate-400">{sections.future.length} planned channels</span></summary>
           <div className="mt-4 space-y-6">{channelGroups.map((group) => {
             const channels = sections.future.filter((channel) => channel.group === group);
-            return channels.length ? <section key={group}><h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">{group}</h3><div className="grid gap-3 lg:grid-cols-2">{channels.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} recheck={loadHealth} />)}</div></section> : null;
+            return channels.length ? <section key={group}><h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">{group}</h3><div className="grid gap-3 lg:grid-cols-2">{channels.map((channel) => <ChannelCard key={channel.id} channel={channel} health={healthByProvider.get(channel.id)} organisationId={organisationId} onDisconnect={disconnect} recheck={recheck} />)}</div></section> : null;
           })}</div>
         </details>
 

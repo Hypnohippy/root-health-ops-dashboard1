@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 function load(file, deps = {}, globals = {}) {
   const mod = { exports: {} };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText,
-    { module: mod, exports: mod.exports, URL, URLSearchParams, process: { env: {} }, require: name => { assert.ok(name in deps, name); return deps[name]; }, ...globals });
+    { module: mod, exports: mod.exports, URL, URLSearchParams, Error, process: { env: {} }, require: name => { assert.ok(name in deps, name); return deps[name]; }, ...globals });
   return mod.exports;
 }
 const caps = load("lib/channelCapabilities.ts");
@@ -130,5 +130,47 @@ test("guided primary action keeps tenant and provider selection on the existing 
   const html=renderToStaticMarkup(React.createElement(Card,{channel:channel(id),health:health(id,'not_connected'),organisationId:'tenant-a',onDisconnect:async()=>{},recheck:async()=>{}}));
   assert.match(html,/Continue to authorisation/);assert.match(html,/organisationId=tenant-a/);assert.match(html,/Finish connection setup/);
   assert.doesNotMatch(html,/href="https:/);assert.match(html,/return to Ops/i);
+ }
+});
+
+test("connection requests use the API platform contract and tenant query; failures reject",async()=>{
+ for(const id of ['facebook','instagram','linkedin','threads','tiktok','google']){
+  const calls=[];
+  const actions=load('lib/connectionActions.ts',{}, {AbortSignal,fetch:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({success:true,connections:[],checkedAt:'now'})};}});
+  await actions.disconnectConnection(id,'tenant-a');await actions.fetchConnectionHealth('tenant-a');
+  assert.equal(calls[0].url,'/api/social-accounts?organisationId=tenant-a');assert.equal(JSON.parse(calls[0].options.body).platform,id);assert.equal(calls[0].options.method,'DELETE');
+  assert.equal(calls[1].url,'/api/social/connection-health?organisationId=tenant-a');assert.equal(calls[1].options.cache,'no-store');assert.ok(calls[1].options.signal);
+ }
+ for(const response of [{ok:false,json:async()=>({error:'Not authorised'})},{ok:true,json:async()=>({success:false,error:'Rejected'})},{ok:true,json:async()=>null}]){
+  const actions=load('lib/connectionActions.ts',{}, {AbortSignal,fetch:async()=>response});
+  await assert.rejects(actions.disconnectConnection('facebook',null));await assert.rejects(actions.fetchConnectionHealth(null));
+ }
+});
+
+test("actual card handlers check and disconnect every supported account, prevent duplicate clicks and show errors",async()=>{
+ const descendants=node=>!node||typeof node!=='object'?[]:[node,...React.Children.toArray(node.props?.children).flatMap(descendants)];
+ for(const id of ['facebook','instagram','linkedin','threads','tiktok','google'])for(const fail of [false,true]){
+  let checks=0,disconnects=0;const writes=[];let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const react={...React,useState:initial=>[initial,value=>writes.push(value)],useRef:()=>({current:false})};
+  const Card=load('app/dashboard/connect/ChannelCard.tsx',{react,'react/jsx-runtime':jsx,'@/lib/channelCapabilities':caps,'@/lib/connectionPresentation':presentation,'./ProviderSetupGuide':()=>null}).default;
+  const tree=Card({channel:channel(id),health:health(id,'expired'),organisationId:'tenant-a',recheck:async()=>{checks++;await gate;if(fail)throw Error('Offline');},onDisconnect:async provider=>{assert.equal(provider,id);disconnects++;if(fail)throw Error('Disconnect denied');}});
+  const buttons=descendants(tree).filter(n=>n.type==='button');
+  const check=buttons.find(n=>n.props.children==='Check connection');const disconnect=buttons.find(n=>n.props.children==='Disconnect');assert.ok(check&&disconnect);
+  check.props.onClick();check.props.onClick();disconnect.props.onClick();assert.equal(checks,1);assert.equal(disconnects,0);
+  release();await new Promise(resolve=>setTimeout(resolve,0));assert.ok(writes.some(v=>typeof v==='string'&&v.includes(fail?'Could not check':'information updated')));
+  disconnect.props.onClick();await new Promise(resolve=>setTimeout(resolve,0));assert.equal(disconnects,1);assert.ok(writes.some(v=>typeof v==='string'&&v.includes(fail?'Disconnect denied':'disconnected from Ops')));
+ }
+});
+
+test("disconnect client works with actual DELETE handler and clears only the selected tenant/platform",async()=>{
+ for(const allowed of [false,true]){
+  const filters={};let patch,auth;
+  const q={update(value){patch=value;return q;},eq(key,value){filters[key]=value;return q;},then(resolve){return Promise.resolve({error:null}).then(resolve);}};
+  const api=load('app/api/social-accounts/route.ts',{'next/server':{NextResponse:{json:(body,options={})=>({ok:(options.status||200)<400,json:async()=>body})}},'../../../lib/supabaseAdmin':{supabaseAdmin:{from:()=>q}},'@/lib/tenantAuth':{requireOrganisation:async(org,write)=>{auth={org,write};if(!allowed)throw Error('denied');return {organisationId:org};},accessErrorResponse:()=>({ok:false,json:async()=>({error:'denied'})})}});
+  const actions=load('lib/connectionActions.ts',{}, {AbortSignal,fetch:async(url,options)=>api.DELETE({nextUrl:new URL(url,'https://ops.example'),json:async()=>JSON.parse(options.body)})});
+  if(allowed){await actions.disconnectConnection('instagram','tenant-a');assert.equal(filters.organisation_id,'tenant-a');assert.equal(filters.platform,'instagram');assert.equal(patch.is_active,false);assert.equal(patch.page_access_token,null);}
+  else{await assert.rejects(actions.disconnectConnection('instagram','tenant-a'));assert.equal(patch,undefined);}
+  assert.equal(auth.org,'tenant-a');assert.equal(auth.write,true);
  }
 });
