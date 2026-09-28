@@ -42,7 +42,8 @@ test('bootstrap resolves only authorised membership and performs no assignment',
  assert.equal((await handler.POST({json:async()=>({organisationId:'review'})})).body.role,'manager');
 });
 test('legacy org-setup delegates to guarded onboarding; no default tenant or membership upsert remains',()=>{
- assert.match(fs.readFileSync('app/api/org-setup/route.ts','utf8'),/export \{ POST, runtime \} from "..\/org-setup2\/route"/);
+ assert.match(fs.readFileSync('app/api/org-setup/route.ts','utf8'),/export \{ POST \} from "..\/org-setup2\/route"/);
+ assert.match(fs.readFileSync('app/api/org-setup/route.ts','utf8'), /export const runtime = "nodejs";/);
  for(const path of ['app/api/org-setup2/route.ts','app/api/onboarding/bootstrap/route.ts']) assert.doesNotMatch(fs.readFileSync(path,'utf8'),/FALLBACK_OWNER_ID|SINGLE_ORG_ID|\.upsert\(/);
 });
 test('new customer receives membership only in newly created workspace; owner repeat does not rewrite membership',async()=>{
