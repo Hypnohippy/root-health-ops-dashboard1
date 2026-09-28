@@ -5,6 +5,7 @@ import { authorizeIngestion, IngestionError, readIngestionBody, uuid } from "@/l
 import { normaliseProfile, toGenerationProfile } from "@/lib/brandGrowthProfile";
 import { acceptedConnectionDraft, buildLinkedInCandidateRecord, canonicalLinkedInAcceptanceProfile, linkedinAcceptanceSourceRecordId, parseLinkedInAcceptanceEmail, qualifiesForBuyerTargeting, uniqueLinkedInSuggestions } from "@/lib/linkedinConnectionDiscovery";
 import { canonicalLinkedInProfile } from "@/lib/growthOutreach";
+import { linkedInAcceptanceDuplicate } from "@/lib/linkedinConnectionDiscovery";
 
 export const runtime = "nodejs";
 const clean = (value: unknown, max: number, required = false) => {
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
       supabaseAdmin.from("organisation_profiles").select("profile").eq("organisation_id", organisationId).maybeSingle(),
       supabaseAdmin.from("acquisition_items").select("source_record_id,source_url,source_engine").eq("organisation_id", organisationId),
       supabaseAdmin.from("growth_targets").select("linkedin_url,linkedin_identity").eq("organisation_id", organisationId),
-      supabaseAdmin.from("inbox_items").select("permalink,linkedin_identity").eq("organisation_id", organisationId).eq("platform", "linkedin").eq("kind", "connection_accepted"),
+      supabaseAdmin.from("inbox_items").select("id,platform,kind,permalink,linkedin_identity").eq("organisation_id", organisationId).eq("platform", "linkedin").eq("kind", "connection_accepted"),
     ]);
     if (profileError || acquisitionError || targetError || responseReadError) throw profileError || acquisitionError || targetError || responseReadError;
     const profile = toGenerationProfile(normaliseProfile(storedProfile?.profile));
@@ -45,8 +46,8 @@ export async function POST(req: Request) {
       .filter(candidate => qualifiesForBuyerTargeting(candidate, { audience: profile.customers.audience, priorityServices: profile.offer.priorityServices, customerProblems: profile.customers.problems, geography: profile.business.geography }).relevant)
       .map(candidate => ({ ...buildLinkedInCandidateRecord(parsed, candidate), organisation_id: organisationId, status: "new" }));
 
-    const existingResponseIdentities = new Set((existingResponses || []).flatMap(item => [item.linkedin_identity || "", canonicalLinkedInAcceptanceProfile(item.permalink || "")]).filter(Boolean));
-    const acceptedRows = parsed.acceptedConnections.filter(contact => !existingResponseIdentities.has(canonicalLinkedInAcceptanceProfile(contact.profileUrl))).map(contact => {
+    const decisions = parsed.acceptedConnections.map(contact => ({ contact, duplicate: linkedInAcceptanceDuplicate(contact, existingResponses || []) }));
+    const acceptedRows = decisions.filter(item => !item.duplicate).map(({ contact }) => {
       const identity = canonicalLinkedInAcceptanceProfile(contact.profileUrl);
       const sourceRecordId = linkedinAcceptanceSourceRecordId(contact.profileUrl);
       return {
@@ -59,11 +60,29 @@ export async function POST(req: Request) {
         proposed_response: acceptedConnectionDraft(contact), response_state: "needs_reply", email_message_id: `${parsed.gmailMessageId}:${sourceRecordId}`, source_engine: sourceEngine,
       };
     });
-    const { data: responses, error: responseError } = acceptedRows.length ? await supabaseAdmin.from("inbox_items").upsert(acceptedRows, { onConflict: "organisation_id,linkedin_identity", ignoreDuplicates: true }).select("id") : { data: [], error: null };
+    const { data: responses, error: responseError } = acceptedRows.length ? await supabaseAdmin.from("inbox_items").upsert(acceptedRows, { onConflict: "organisation_id,linkedin_identity", ignoreDuplicates: true }).select("id,linkedin_identity") : { data: [], error: null };
     if (responseError) throw responseError;
+    const duplicateDiagnostics = decisions.flatMap(item => item.duplicate ? [item.duplicate] : []);
+    if (body.diagnostics === true) {
+      const insertedIdentities = new Set((responses || []).map(item => item.linkedin_identity));
+      const conflicts = acceptedRows.filter(row => !insertedIdentities.has(row.linkedin_identity));
+      if (conflicts.length) {
+        // The unique index also covers inbox kinds outside the preflight query.
+        const { data: blockers, error } = await supabaseAdmin.from("inbox_items").select("id,platform,kind,linkedin_identity,permalink")
+          .eq("organisation_id", organisationId).in("linkedin_identity", conflicts.map(row => row.linkedin_identity));
+        if (error) throw error;
+        for (const row of conflicts) {
+          const blocker = (blockers || []).find(item => item.linkedin_identity === row.linkedin_identity);
+          duplicateDiagnostics.push({ candidateName: row.author_name, canonicalIdentity: row.linkedin_identity,
+            matchedRecordId: blocker?.id || "unresolved", matchedRecordType: blocker ? `${blocker.platform}/${blocker.kind}` : "unresolved",
+            reason: blocker ? "database_linkedin_identity_conflict" : "database_conflict_record_no_longer_visible",
+            storedIdentity: blocker?.linkedin_identity || null, canonicalPermalink: canonicalLinkedInAcceptanceProfile(blocker?.permalink || "") });
+        }
+      }
+    }
     const { data: inserted, error: insertError } = suggestions.length ? await supabaseAdmin.from("acquisition_items").upsert(suggestions, { onConflict: "organisation_id,source_engine,source_record_id", ignoreDuplicates: true }).select("id") : { data: [], error: null };
     if (insertError) throw insertError;
-    return NextResponse.json({ success: true, sourceFormat: parsed.sourceFormat, acceptedConnectionsDetected: parsed.acceptedConnections.length, acceptedConnectionsRecorded: responses?.length || 0, acceptedConnectionsDuplicate: parsed.acceptedConnections.length - (responses?.length || 0), candidatesInserted: inserted?.length || 0, candidatesFilteredOrDuplicate: parsed.suggestions.length - (inserted?.length || 0) });
+    return NextResponse.json({ success: true, sourceFormat: parsed.sourceFormat, acceptedConnectionsDetected: parsed.acceptedConnections.length, acceptedConnectionsRecorded: responses?.length || 0, acceptedConnectionsDuplicate: parsed.acceptedConnections.length - (responses?.length || 0), candidatesInserted: inserted?.length || 0, candidatesFilteredOrDuplicate: parsed.suggestions.length - (inserted?.length || 0), ...(body.diagnostics === true ? { duplicateDiagnostics } : {}) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof IngestionError ? error.message : "Unable to import LinkedIn acceptance." }, { status: error instanceof IngestionError ? error.status : 503 });
   }

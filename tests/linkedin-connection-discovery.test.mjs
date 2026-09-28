@@ -6,15 +6,97 @@ import { createRequire } from "node:module";
 import ts from "typescript";
 
 const nodeRequire = createRequire(import.meta.url);
-function load(file) {
+function load(file, mocks = {}) {
   const mod = { exports: {} };
   const output = ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
-  vm.runInNewContext(output, { module: mod, exports: mod.exports, require: nodeRequire, URLSearchParams, Date }, { filename: file });
+  vm.runInNewContext(output, { module: mod, exports: mod.exports, require: name => mocks[name] || nodeRequire(name), URL, URLSearchParams, Date }, { filename: file });
   return mod.exports;
 }
 const discovery = load("lib/linkedinConnectionDiscovery.ts");
 const html = fs.readFileSync("tests/fixtures/linkedin-acceptance.html", "utf8");
 const parsed = discovery.parseLinkedInAcceptanceEmail({ subject: "Nick Fahy accepted your invitation", sender: "invitations@e.linkedin.com", html, gmailMessageId: "gmail-123", discoveredAt: "2026-09-24T12:00:00.000Z" });
+
+test("new identities remain eligible while true acceptance duplicates report their blocking record", () => {
+  const record = { id: "existing-1", platform: "linkedin", kind: "connection_accepted", linkedin_identity: "linkedin.com/in/nick-fahy", permalink: "https://www.linkedin.com/in/nick-fahy?trk=old" };
+  assert.equal(discovery.linkedInAcceptanceDuplicate({ ...parsed.accepted, profileUrl: "https://linkedin.com/in/nick-fahy-2" }, [record]), null);
+  const duplicate = discovery.linkedInAcceptanceDuplicate(parsed.accepted, [record]);
+  assert.equal(duplicate.matchedRecordId, "existing-1");
+  assert.equal(duplicate.matchedRecordType, "linkedin/connection_accepted");
+  assert.equal(duplicate.reason, "existing_acceptance_linkedin_identity");
+  assert.equal(duplicate.candidateName, "Nick Fahy");
+  assert.equal(duplicate.canonicalIdentity, "linkedin.com/in/nick-fahy");
+});
+
+test("legacy permalink matches and conflicting stored identities are visible in diagnostics", () => {
+  const record = { id: "legacy-1", platform: "linkedin", kind: "connection_accepted", linkedin_identity: "linkedin.com/in/different-person", permalink: parsed.accepted.profileUrl };
+  const duplicate = discovery.linkedInAcceptanceDuplicate(parsed.accepted, [record]);
+  assert.equal(duplicate.reason, "existing_acceptance_permalink");
+  assert.notEqual(duplicate.storedIdentity, duplicate.canonicalPermalink);
+  assert.equal(discovery.linkedInAcceptanceDuplicate(parsed.accepted, [{ ...record, kind: "comment" }]), null);
+});
+
+test("similar names and identical companies never collapse different LinkedIn profiles", () => {
+  const record = { id: "person-1", platform: "linkedin", kind: "connection_accepted", linkedin_identity: "linkedin.com/in/alex-smith", permalink: "https://linkedin.com/in/alex-smith" };
+  const candidate = { ...parsed.accepted, name: "Alex Smith", company: "Same Company", profileUrl: "https://linkedin.com/in/alex-smith-2?trk=email" };
+  assert.equal(discovery.linkedInAcceptanceDuplicate(candidate, [record]), null);
+  assert.notEqual(discovery.linkedinAcceptanceSourceRecordId(candidate.profileUrl), discovery.linkedinAcceptanceSourceRecordId(record.permalink));
+});
+
+test("intake imports new people, blocks retries and diagnoses database conflicts within the tenant", async () => {
+  const organisationId = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1";
+  const stored = [];
+  const db = { from(table) {
+    const filters = [];
+    let pending = null;
+    const query = {
+      select() { return query; },
+      eq(key, value) { filters.push(row => row[key] === value); return query; },
+      in(key, values) { filters.push(row => values.includes(row[key])); return query; },
+      maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+      upsert(rows, options) { assert.equal(options.onConflict, "organisation_id,linkedin_identity"); pending = rows; return query; },
+      then(resolve, reject) {
+        return Promise.resolve().then(() => {
+          if (table !== "inbox_items") return { data: [], error: null };
+          if (!pending) return { data: stored.filter(row => filters.every(filter => filter(row))), error: null };
+          const data = [];
+          for (const row of pending) {
+            if (!stored.some(item => item.organisation_id === row.organisation_id && item.linkedin_identity === row.linkedin_identity)) { stored.push(row); data.push(row); }
+          }
+          return { data, error: null };
+        }).then(resolve, reject);
+      },
+    };
+    return query;
+  } };
+  class IngestionError extends Error {}
+  const route = load("app/api/growth/linkedin-connections/ingest/route.ts", {
+    "next/server": { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200 }) } },
+    "@/lib/supabaseAdmin": { supabaseAdmin: db },
+    "@/lib/growthIngestion.server": { IngestionError, uuid: /^[a-f0-9-]{36}$/, readIngestionBody: req => req.json(), authorizeIngestion() {} },
+    "@/lib/brandGrowthProfile": { normaliseProfile: value => value, toGenerationProfile: () => ({ customers: {}, offer: {}, business: {} }) },
+    "@/lib/growthOutreach": { canonicalLinkedInProfile: discovery.canonicalLinkedInAcceptanceProfile },
+    "@/lib/linkedinConnectionDiscovery": discovery,
+  });
+  const run = (diagnostics = true) => route.POST(new Request("https://ops.test/ingest", { method: "POST", body: JSON.stringify({
+    organisation_id: organisationId, source_engine: "root_health_b2b", subject: "Your connections", sender: "invitations@linkedin.com",
+    html: digestHtml(2).replaceAll("Accepted Person 2", "Accepted Person 1"), gmail_message_id: "digest-1", diagnostics,
+  }) }));
+  const first = await run();
+  assert.equal(first.status, 200);
+  assert.equal(first.body.acceptedConnectionsRecorded, 2);
+  const retry = await run();
+  assert.equal(retry.body.acceptedConnectionsRecorded, 0);
+  assert.equal(retry.body.duplicateDiagnostics.length, 2);
+  assert.equal(retry.body.duplicateDiagnostics[0].matchedRecordId, stored[0].id);
+  stored[0].kind = "comment";
+  const conflict = await run();
+  const diagnostic = conflict.body.duplicateDiagnostics.find(item => item.reason === "database_linkedin_identity_conflict");
+  assert.equal(diagnostic.matchedRecordId, stored[0].id);
+  assert.equal(diagnostic.matchedRecordType, "linkedin/comment");
+  assert.equal((await run(false)).body.duplicateDiagnostics, undefined);
+  stored.forEach(row => { row.organisation_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"; });
+  assert.equal((await run()).body.acceptedConnectionsRecorded, 2);
+});
 
 test("extracts the accepted contact, role, profile and direct message link", () => {
   assert.equal(parsed.acceptedConnections.length, 1);
