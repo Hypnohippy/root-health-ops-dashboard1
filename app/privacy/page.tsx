@@ -299,7 +299,7 @@ export default function PrivacyPage() {
             </p>
 
             <p className="mt-3 font-semibold text-emerald-300">
-              support@roothealth.app
+              enquiries@roothealth.app
             </p>
 
             <p className="mt-3">
@@ -357,7 +357,7 @@ export default function PrivacyPage() {
             </p>
 
             <p className="mt-3">
-              Requests can be sent to support@roothealth.app. We may need to
+              Requests can be sent to enquiries@roothealth.app. We may need to
               verify the identity of the requester before acting on a request.
             </p>
           </section>
@@ -390,7 +390,7 @@ export default function PrivacyPage() {
             </p>
 
             <p className="mt-3 font-semibold text-emerald-300">
-              support@roothealth.app
+              enquiries@roothealth.app
             </p>
           </section>
 
