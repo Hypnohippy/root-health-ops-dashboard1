@@ -171,17 +171,41 @@ export default function SignInPage() {
             </div>
           ) : null}
 
-          <div className="flex items-center justify-between text-sm pt-1">
-            <Link
-              href="/get-started"
-              className="text-slate-300 hover:text-slate-100"
-            >
-              Create account
-            </Link>
-            <Link href="/" className="text-slate-300 hover:text-slate-100">
-              Back to home
-            </Link>
-          </div>
+          <div className="space-y-4 pt-1">
+  <div className="flex items-center justify-between text-sm">
+    <Link
+      href="/get-started"
+      className="text-slate-300 hover:text-slate-100"
+    >
+      Create account
+    </Link>
+
+    <Link href="/" className="text-slate-300 hover:text-slate-100">
+      Back to home
+    </Link>
+  </div>
+
+  <div className="border-t border-slate-700 pt-4 text-center text-xs text-slate-400">
+    <span>By using Root Health Ops you agree to our </span>
+
+    <Link
+      href="/terms"
+      className="text-emerald-300 hover:text-emerald-200"
+    >
+      Terms of Service
+    </Link>
+
+    <span> and </span>
+
+    <Link
+      href="/privacy"
+      className="text-emerald-300 hover:text-emerald-200"
+    >
+      Privacy Policy
+    </Link>
+    <span>.</span>
+  </div>
+</div>
         </form>
       </div>
     </main>
