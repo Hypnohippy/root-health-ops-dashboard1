@@ -124,8 +124,10 @@ export default function TermsPage() {
 
           <h2 className="text-lg font-semibold mt-6">13) Contact</h2>
           <p>
-            For support or legal questions, contact us via the support channel provided in the app.
-          </p>
+  For support, privacy, legal or account questions, contact us at
+  {" "}
+  <strong>enquiries@roothealth.app</strong>.
+</p>
         </section>
       </div>
     </main>
