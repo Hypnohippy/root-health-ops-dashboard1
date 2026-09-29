@@ -50,21 +50,43 @@ export default function TermsPage() {
             </li>
           </ul>
 
-          <h2 className="text-lg font-semibold mt-6">4) Connected social accounts</h2>
-          <p>
-            The Service may allow you to connect third-party accounts (e.g., Meta, LinkedIn, TikTok,
-            Threads). You authorise us to access and use those connections only to provide the Service
-            features you choose (e.g., publishing content you submit).
-          </p>
-          <ul className="list-disc pl-5 space-y-2">
-            <li>
-              Third-party platforms have their own rules. Your use of them is governed by their terms.
-            </li>
-            <li>
-              Platform permissions may change or require review/approval. We cannot guarantee ongoing
-              availability of any third-party feature.
-            </li>
-          </ul>
+         <h2 className="text-lg font-semibold mt-6">4) Connected third-party services</h2>
+
+<p>
+  The Service may allow you to connect third-party accounts and services, including Meta,
+  Instagram, LinkedIn, TikTok, Threads, Google and other supported providers.
+</p>
+
+<p>
+  By connecting a provider, you authorise Root Health Ops to use the permissions granted by
+  that provider only to deliver the features you choose to use, such as identifying the
+  connected account, preparing content, uploading content, publishing supported content,
+  checking connection status, or retrieving supported account information.
+</p>
+
+<ul className="list-disc pl-5 space-y-2">
+  <li>
+    Third-party platforms operate under their own terms, privacy policies, technical rules,
+    quotas, account requirements and permission systems.
+  </li>
+  <li>
+    Some features may require separate provider approval, app review, business verification
+    or additional permissions before they become available.
+  </li>
+  <li>
+    Provider limits, outages, expired permissions, revoked access or platform policy changes
+    may temporarily restrict an individual feature without affecting the rest of Root Health
+    Ops.
+  </li>
+  <li>
+    Root Health Ops does not guarantee that every provider feature will remain continuously
+    available or that a provider will approve every requested permission.
+  </li>
+  <li>
+    Where a provider requires the user to complete an action in its own app or website,
+    Root Health Ops will identify that step rather than treating it as a completed action.
+  </li>
+</ul>
 
           <h2 className="text-lg font-semibold mt-6">5) Acceptable use</h2>
           <p>You agree not to use the Service to:</p>
