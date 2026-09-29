@@ -1,15 +1,29 @@
 /* Add as a separate file in the existing Root Health Lead Engine. No trigger installer.
  * Call runOpsGmailReplyIntake() after scheduledConversationEngine's existing try/catch.
  */
-function opsGmailReplyConfig_() {
+function opsGmailReplyConfig_(verifyAliases) {
   const props = PropertiesService.getScriptProperties();
   const organisationId = String(props.getProperty('OPS_ORGANISATION_ID') || '').trim();
   const secret = String(props.getProperty('OPS_INGESTION_SECRET') || '').trim();
   if (organisationId !== '78fa2ac8-e7b6-4b9b-9604-035723ece6b1' || secret.length < 32) throw new Error('OPS_REPLY_CONFIG');
-  const ownAddresses = [Session.getEffectiveUser().getEmail()].concat(GmailApp.getAliases())
-    .map(function(value) { return String(value || '').trim().toLowerCase(); }).filter(Boolean);
+  let account;
+  let ownAddresses;
+  if (verifyAliases === true) {
+    account = String(Gmail.Users.getProfile('me').emailAddress || '').trim().toLowerCase();
+    if (!account || opsGmailReplyAddresses_(account)[0] !== account) throw new Error('OPS_REPLY_ACCOUNT');
+    ownAddresses = [account].concat(GmailApp.getAliases())
+      .map(function(value) { return String(value || '').trim().toLowerCase(); }).filter(Boolean);
+  } else {
+    const verified = JSON.parse(props.getProperty('OPS_GMAIL_REPLY_VERIFIED_IDENTITY') || 'null');
+    if (!verified || verified.version !== 2 || verified.mailbox !== 'enquiries@roothealth.app' || verified.organisationId !== organisationId ||
+        typeof verified.account !== 'string' || opsGmailReplyAddresses_(verified.account)[0] !== verified.account ||
+        !Array.isArray(verified.ownAddresses) || !verified.ownAddresses.every(function(value) { return typeof value === 'string' && value.length > 0; }) ||
+        verified.ownAddresses.indexOf(verified.account) === -1) throw new Error('OPS_REPLY_VERIFICATION_REQUIRED');
+    account = verified.account;
+    ownAddresses = verified.ownAddresses;
+  }
   if (ownAddresses.indexOf('enquiries@roothealth.app') === -1) throw new Error('OPS_REPLY_MAILBOX');
-  return { organisationId: organisationId, secret: secret, ownAddresses: ownAddresses };
+  return { organisationId: organisationId, secret: secret, account: account, ownAddresses: ownAddresses };
 }
 
 function opsGmailReplyPost_(config, records) {
@@ -21,19 +35,27 @@ function opsGmailReplyPost_(config, records) {
   });
 }
 
-/* No mail is read/sent, no rows inserted, no properties/triggers changed.
+/* No mail is read/sent, no rows inserted, no triggers changed.
+ * Refreshes the account/org-bound alias snapshot only after both checks pass.
  * A nonempty records array reaches auth, then fails required message-field validation.
  */
 function testOpsGmailReplyIntakeSafe() {
   const result = { ok: false, configuration: false, receiverAuthenticated: false };
   try {
-    const config = opsGmailReplyConfig_();
+    const props = PropertiesService.getScriptProperties();
+    props.deleteProperty('OPS_GMAIL_REPLY_VERIFIED_IDENTITY');
+    const config = opsGmailReplyConfig_(true);
     result.configuration = true;
     const response = opsGmailReplyPost_(config, [{}]);
     result.httpStatus = response.getResponseCode();
     const body = JSON.parse(response.getContentText());
     result.receiverAuthenticated = result.httpStatus === 400 && body.error === 'Invalid email response field.';
-    result.ok = result.receiverAuthenticated;
+    if (result.receiverAuthenticated) {
+      props.setProperty('OPS_GMAIL_REPLY_VERIFIED_IDENTITY', JSON.stringify({
+        version: 2, organisationId: config.organisationId, mailbox: 'enquiries@roothealth.app', account: config.account, ownAddresses: config.ownAddresses
+      }));
+      result.ok = true;
+    }
   } catch (error) { /* Never log provider exceptions or response bodies. */ }
   Logger.log('OPS GMAIL REPLY SAFE TEST: ' + JSON.stringify(result));
   return result;
