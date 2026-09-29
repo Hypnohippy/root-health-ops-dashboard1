@@ -58,7 +58,11 @@ export default function HomePage() {
       <header className="sticky top-0 z-20 border-b border-white/10 bg-black/30 backdrop-blur-xl">
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <Link href="/" className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-xl bg-emerald-400/80 shadow-lg shadow-emerald-500/40" />
+            <img
+  src="/root-health-ops-logo.png"
+  alt="Root Health Ops"
+  className="h-8 w-8 rounded-xl object-cover"
+/>
             <div className="flex flex-col leading-tight">
               <span className="text-sm font-semibold text-slate-50">
                 Root Health Ops
