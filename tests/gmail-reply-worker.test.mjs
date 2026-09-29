@@ -12,8 +12,10 @@ function message(overrides = {}) {
 }
 function harness(messages, responseFactory, properties = {}, threadOverrides = {}) {
   const calls = [], logs = [], stored = new Set();
+  const props = { OPS_GMAIL_REPLY_INTAKE_ENABLED: "true", OPS_ORGANISATION_ID: "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", OPS_INGESTION_SECRET: "s".repeat(40),
+    OPS_GMAIL_REPLY_VERIFIED_IDENTITY: JSON.stringify({ version: 1, organisationId: "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", account: "operator@example.com", ownAddresses: ["operator@example.com", "enquiries@roothealth.app", "other-alias@example.com"] }), ...properties };
   const ctx = {
-    PropertiesService: { getScriptProperties: () => ({ getProperty: key => ({ OPS_GMAIL_REPLY_INTAKE_ENABLED: "true", OPS_ORGANISATION_ID: "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", OPS_INGESTION_SECRET: "s".repeat(40), ...properties })[key] }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: key => props[key], setProperty: (key, value) => { props[key] = value; }, deleteProperty: key => { delete props[key]; } }) },
     Session: { getEffectiveUser: () => ({ getEmail: () => "operator@example.com" }) },
     GmailApp: { getAliases: () => ["enquiries@roothealth.app"], search(query, start, count) {
       assert.equal(query, "to:enquiries@roothealth.app newer_than:14d -in:spam -in:trash");
@@ -33,7 +35,7 @@ function harness(messages, responseFactory, properties = {}, threadOverrides = {
     } },
   };
   vm.createContext(ctx); vm.runInContext(source, ctx);
-  return { ctx, calls, logs };
+  return { ctx, calls, logs, props };
 }
 
 test("forwards genuine replies with original IDs and trusts receiver dedupe on repeat runs", () => {
@@ -47,9 +49,62 @@ test("forwards genuine replies with original IDs and trusts receiver dedupe on r
   assert.doesNotMatch(logs.join("\n"), /Could you send pricing|buyer@example|ssssssss/);
 });
 
+test("production intake never calls aliases, including for self-mail exclusion", () => {
+  const { ctx, calls } = harness([
+    message(), message({ getId: () => "self-1", getFrom: () => "operator@example.com" }),
+    message({ getId: () => "self-2", getFrom: () => "enquiries@roothealth.app" }),
+    message({ getId: () => "self-3", getFrom: () => "other-alias@example.com" }),
+  ]);
+  let aliasCalls = 0;
+  ctx.GmailApp.getAliases = () => { aliasCalls++; throw Error("premium gmail quota"); };
+  const result = ctx.runOpsGmailReplyIntake();
+  assert.equal(result.ok, true);
+  assert.equal(result.forwarded, 1);
+  assert.equal(result.skipped, 3);
+  assert.equal(calls.length, 1);
+  assert.equal(aliasCalls, 0);
+});
+
+test("safe test verifies Root mailbox live and stores all addresses without secrets", () => {
+  const { ctx, props } = harness([], () => ({ getResponseCode: () => 400, getContentText: () => '{"error":"Invalid email response field."}' }));
+  let aliasCalls = 0;
+  ctx.GmailApp.getAliases = () => { aliasCalls++; return ["enquiries@roothealth.app", "second@example.com"]; };
+  assert.equal(ctx.testOpsGmailReplyIntakeSafe().ok, true);
+  assert.equal(aliasCalls, 1);
+  const verified = JSON.parse(props.OPS_GMAIL_REPLY_VERIFIED_IDENTITY);
+  assert.deepEqual(verified.ownAddresses, ["operator@example.com", "enquiries@roothealth.app", "second@example.com"]);
+  assert.equal(verified.account, "operator@example.com");
+  assert.equal(verified.organisationId, props.OPS_ORGANISATION_ID);
+  assert.doesNotMatch(props.OPS_GMAIL_REPLY_VERIFIED_IDENTITY, /ssssssss|secret/i);
+  ctx.GmailApp.getAliases = () => ["second@example.com"];
+  assert.equal(ctx.testOpsGmailReplyIntakeSafe().ok, false);
+  assert.equal(props.OPS_GMAIL_REPLY_VERIFIED_IDENTITY, undefined);
+});
+
+test("missing, malformed or wrong-account/org verification fails before Gmail work", () => {
+  for (const cached of [undefined, "not-json", "null", JSON.stringify({ version: 1, account: "other@example.com" }),
+    JSON.stringify({ version: 1, account: "operator@example.com", organisationId: "other-org", ownAddresses: ["operator@example.com", "enquiries@roothealth.app"] })]) {
+    const { ctx, calls } = harness([], null, { OPS_GMAIL_REPLY_VERIFIED_IDENTITY: cached });
+    let gmailCalls = 0;
+    ctx.GmailApp = new Proxy({}, { get() { gmailCalls++; throw Error("must fail before Gmail"); } });
+    assert.equal(ctx.runOpsGmailReplyIntake().ok, false);
+    assert.equal(gmailCalls, 0);
+    assert.equal(calls.length, 0);
+  }
+});
+
+test("failed receiver or alias verification invalidates previous cached identity", () => {
+  for (const quotaFailure of [false, true]) {
+    const { ctx, props } = harness([], () => ({ getResponseCode: () => 403, getContentText: () => '{}' }));
+    if (quotaFailure) ctx.GmailApp.getAliases = () => { throw Error("premium gmail quota"); };
+    assert.equal(ctx.testOpsGmailReplyIntakeSafe().ok, false);
+    assert.equal(props.OPS_GMAIL_REPLY_VERIFIED_IDENTITY, undefined);
+  }
+});
+
 test("skips own mail, drafts, old mail, foreign recipients and notifications without reply evidence", () => {
   const variants = [
-    { getFrom: () => "enquiries@roothealth.app" }, { getFrom: () => "operator@example.com" },
+    { getFrom: () => "enquiries@roothealth.app" }, { getFrom: () => "operator@example.com" }, { getFrom: () => "other-alias@example.com" },
     { isDraft: () => true }, { isInTrash: () => true },
     { getDate: () => new Date("2000-01-01") }, { getTo: () => "other@example.com" }, { getHeader: () => "" }, { getHeader: () => "not a message ID" },
   ];
@@ -112,7 +167,7 @@ test("mailbox and thread read failures return failure counts without throwing in
 });
 
 test("documented hook preserves original call order and contains bridge failure", () => {
-  const deployment = fs.readFileSync("docs/gmail-reply-worker-findings.md", "utf8").match(/```js\n([\s\S]*?)```/)[1];
+  const deployment = fs.readFileSync("docs/gmail-reply-worker-findings.md", "utf8").match(/```js\r?\n([\s\S]*?)```/)[1];
   const { ctx } = harness([], null, { OPS_INGESTION_SECRET: "" });
   const calls = [];
   const names = ["rebuildFollowUpQueueFromGmail", "classifyInboundReplies", "sendWarmReplyActions", "processNotNowReentries_", "sendDueRootFollowUps"];
