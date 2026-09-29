@@ -13,10 +13,11 @@ function message(overrides = {}) {
 function harness(messages, responseFactory, properties = {}, threadOverrides = {}) {
   const calls = [], logs = [], stored = new Set();
   const props = { OPS_GMAIL_REPLY_INTAKE_ENABLED: "true", OPS_ORGANISATION_ID: "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", OPS_INGESTION_SECRET: "s".repeat(40),
-    OPS_GMAIL_REPLY_VERIFIED_IDENTITY: JSON.stringify({ version: 1, organisationId: "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", account: "operator@example.com", ownAddresses: ["operator@example.com", "enquiries@roothealth.app", "other-alias@example.com"] }), ...properties };
+    OPS_GMAIL_REPLY_VERIFIED_IDENTITY: JSON.stringify({ version: 2, mailbox: "enquiries@roothealth.app", organisationId: "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", account: "operator@example.com", ownAddresses: ["operator@example.com", "enquiries@roothealth.app", "other-alias@example.com"] }), ...properties };
   const ctx = {
     PropertiesService: { getScriptProperties: () => ({ getProperty: key => props[key], setProperty: (key, value) => { props[key] = value; }, deleteProperty: key => { delete props[key]; } }) },
     Session: { getEffectiveUser: () => ({ getEmail: () => "operator@example.com" }) },
+    Gmail: { Users: { getProfile: () => ({ emailAddress: "operator@example.com" }) } },
     GmailApp: { getAliases: () => ["enquiries@roothealth.app"], search(query, start, count) {
       assert.equal(query, "to:enquiries@roothealth.app newer_than:14d -in:spam -in:trash");
       assert.equal(start, 0); assert.equal(count, 50);
@@ -49,7 +50,7 @@ test("forwards genuine replies with original IDs and trusts receiver dedupe on r
   assert.doesNotMatch(logs.join("\n"), /Could you send pricing|buyer@example|ssssssss/);
 });
 
-test("production intake never calls aliases, including for self-mail exclusion", () => {
+test("production intake works when aliases and effective-user email both throw", () => {
   const { ctx, calls } = harness([
     message(), message({ getId: () => "self-1", getFrom: () => "operator@example.com" }),
     message({ getId: () => "self-2", getFrom: () => "enquiries@roothealth.app" }),
@@ -57,17 +58,22 @@ test("production intake never calls aliases, including for self-mail exclusion",
   ]);
   let aliasCalls = 0;
   ctx.GmailApp.getAliases = () => { aliasCalls++; throw Error("premium gmail quota"); };
+  let sessionCalls = 0;
+  ctx.Session.getEffectiveUser = () => ({ getEmail() { sessionCalls++; throw Error("effective user unavailable"); } });
+  ctx.Gmail.Users.getProfile = () => { throw Error("production must not read live profile"); };
   const result = ctx.runOpsGmailReplyIntake();
   assert.equal(result.ok, true);
   assert.equal(result.forwarded, 1);
   assert.equal(result.skipped, 3);
   assert.equal(calls.length, 1);
   assert.equal(aliasCalls, 0);
+  assert.equal(sessionCalls, 0);
 });
 
 test("safe test verifies Root mailbox live and stores all addresses without secrets", () => {
   const { ctx, props } = harness([], () => ({ getResponseCode: () => 400, getContentText: () => '{"error":"Invalid email response field."}' }));
   let aliasCalls = 0;
+  ctx.Session.getEffectiveUser = () => { throw Error("Session unavailable even during safe test"); };
   ctx.GmailApp.getAliases = () => { aliasCalls++; return ["enquiries@roothealth.app", "second@example.com"]; };
   assert.equal(ctx.testOpsGmailReplyIntakeSafe().ok, true);
   assert.equal(aliasCalls, 1);
@@ -81,9 +87,10 @@ test("safe test verifies Root mailbox live and stores all addresses without secr
   assert.equal(props.OPS_GMAIL_REPLY_VERIFIED_IDENTITY, undefined);
 });
 
-test("missing, malformed or wrong-account/org verification fails before Gmail work", () => {
+test("missing, malformed or wrong-mailbox/org verification fails before Gmail work", () => {
+  const valid = JSON.parse(harness([]).props.OPS_GMAIL_REPLY_VERIFIED_IDENTITY);
   for (const cached of [undefined, "not-json", "null", JSON.stringify({ version: 1, account: "other@example.com" }),
-    JSON.stringify({ version: 1, account: "operator@example.com", organisationId: "other-org", ownAddresses: ["operator@example.com", "enquiries@roothealth.app"] })]) {
+    ...[{ organisationId: "other-org" }, { mailbox: "other@example.com" }, { ownAddresses: ["operator@example.com"] }, { ownAddresses: ["enquiries@roothealth.app"] }].map(change => JSON.stringify({ ...valid, ...change }))]) {
     const { ctx, calls } = harness([], null, { OPS_GMAIL_REPLY_VERIFIED_IDENTITY: cached });
     let gmailCalls = 0;
     ctx.GmailApp = new Proxy({}, { get() { gmailCalls++; throw Error("must fail before Gmail"); } });
