@@ -211,6 +211,9 @@ export default function ResponsesPage() {
   // Saved drafts
   const [savedDrafts, setSavedDrafts] = useState<SavedDraft[]>([]);
   const [showSaved, setShowSaved] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showFollowUpPicker, setShowFollowUpPicker] = useState(false);
+  const [followUpDate, setFollowUpDate] = useState("");
 
   // Prevent jump-to-top on select
   const listScrollYRef = useRef<number>(0);
@@ -608,26 +611,106 @@ if (kindFilter && it.kind !== kindFilter) return false;
     finally { setEmailActionBusy(false); }
   };
 
-  const applyEmailAction = async (action: string) => {
-    if (!selected || selected.platform !== "email") return;
-    let followUpAt: string | null = null;
-    if (action === "set_follow_up") {
-      followUpAt = window.prompt("Follow-up date (YYYY-MM-DD):");
-      if (!followUpAt) return;
+  const applyEmailAction = async (
+  action: string,
+  suppliedFollowUpAt: string | null = null
+) => {
+  if (!selected || selected.platform !== "email") return;
+
+  if (action === "set_follow_up" && !suppliedFollowUpAt) {
+    setFollowUpDate("");
+    setShowFollowUpPicker(true);
+    return;
+  }
+
+  setEmailActionBusy(true);
+  setError(null);
+
+  try {
+    const org = organisationId || (await resolveOrg());
+
+    const res = await fetch(
+      `/api/responses/email/${encodeURIComponent(selected.id)}/action`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId: org,
+          action,
+          followUpAt: suppliedFollowUpAt,
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      }
+    );
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data?.error || "Could not update email response."
+      );
     }
-    setEmailActionBusy(true); setError(null);
-    try {
-      const org = organisationId || (await resolveOrg());
-      const res = await fetch(`/api/responses/email/${encodeURIComponent(selected.id)}/action`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organisationId: org, action, followUpAt, idempotencyKey: crypto.randomUUID() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Could not update email response.");
-      setAiStatus("Email response updated."); await load();
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not update email response."); }
-    finally { setEmailActionBusy(false); }
-  };
+
+    setAiStatus("Email response updated.");
+    setShowFollowUpPicker(false);
+    setFollowUpDate("");
+    await load();
+  } catch (e) {
+    setError(
+      e instanceof Error
+        ? e.message
+        : "Could not update email response."
+    );
+  } finally {
+    setEmailActionBusy(false);
+  }
+};
+
+const deleteSelectedResponse = async () => {
+  if (!selected) return;
+
+  setEmailActionBusy(true);
+  setError(null);
+
+  try {
+    const org = organisationId || (await resolveOrg());
+
+    const res = await fetch(
+      `/api/responses/${encodeURIComponent(selected.id)}/delete`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organisationId: org,
+          confirm: "DELETE",
+        }),
+      }
+    );
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(
+        data?.error || "Could not delete response."
+      );
+    }
+
+    setShowDeleteConfirm(false);
+    setSelectedId(null);
+    setReplyDraft("");
+    setContactContext(null);
+    setAiStatus("Response permanently deleted.");
+    await load();
+  } catch (e) {
+    setError(
+      e instanceof Error
+        ? e.message
+        : "Could not delete response."
+    );
+  } finally {
+    setEmailActionBusy(false);
+  }
+};
 
   const savedForSelected = useMemo(() => {
     if (!selected) return [];
@@ -993,11 +1076,59 @@ if (kindFilter && it.kind !== kindFilter) return false;
                     {organisationId && (selected.kind === "comment" || selected.lifecycle?.canMarkContacted || selected.platform === "email") && <ManualTakeover key={selected.id} organisationId={organisationId} table="inbox_items" id={selected.id} onComplete={async () => { setContactContext(null); setReplyDraft(""); await load(); }} />}
                   </div>
 
-                  {selected.platform === "email" ? <div className="grid grid-cols-2 gap-2">
-                    <button type="button" disabled={emailActionBusy || !replyDraft.trim() || !selected.lifecycle?.canDraft || selected.emailDeliveryStatus === "sent"} onClick={() => void approveAndSendEmail()} className="col-span-2 rounded-2xl bg-violet-500 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">{emailActionBusy ? "Working…" : selected.emailDeliveryStatus === "sent" ? "Sent" : "Approve & Send"}</button>
-                    {[["mark_no_reply","No reply needed"],["set_follow_up","Set follow-up"],["nurture","Nurture"],["closed_lost","Closed / lost"],["engaged","Engaged"],["converted","Converted"]].map(([id,label]) => <button key={id} type="button" disabled={emailActionBusy || ["converted", "lost", "dismissed"].includes(selected.lifecycle?.currentStage || "unknown")} onClick={() => void applyEmailAction(id)} className="rounded-2xl border border-violet-300/30 bg-violet-300/10 px-3 py-2 text-xs font-semibold disabled:opacity-50">{label}</button>)}
-                  </div> : null}
+                  {selected.platform === "email" ? (
+  <div className="grid grid-cols-2 gap-2">
+    <button
+      type="button"
+      disabled={
+        emailActionBusy ||
+        !replyDraft.trim() ||
+        !selected.lifecycle?.canDraft ||
+        selected.emailDeliveryStatus === "sent"
+      }
+      onClick={() => void approveAndSendEmail()}
+      className="col-span-2 rounded-2xl bg-violet-500 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {emailActionBusy
+        ? "Working…"
+        : selected.emailDeliveryStatus === "sent"
+        ? "Sent"
+        : "Approve & Send"}
+    </button>
 
+    {[
+      ["mark_no_reply", "No reply needed"],
+      ["set_follow_up", "Set follow-up"],
+      ["nurture", "Nurture"],
+      ["closed_lost", "Closed / lost"],
+      ["engaged", "Engaged"],
+      ["converted", "Converted"],
+    ].map(([id, label]) => (
+      <button
+        key={id}
+        type="button"
+        disabled={
+          emailActionBusy ||
+          ["converted", "lost", "dismissed"].includes(
+            selected.lifecycle?.currentStage || "unknown"
+          )
+        }
+        onClick={() => void applyEmailAction(id)}
+        className="rounded-2xl border border-violet-300/30 bg-violet-300/10 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+      >
+        {label}
+      </button>
+    ))}
+
+    <button
+      type="button"
+      onClick={() => setShowDeleteConfirm(true)}
+      className="col-span-2 mt-2 rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-200 hover:bg-red-500/20"
+    >
+      Delete permanently
+    </button>
+  </div>
+) : null}
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -1062,7 +1193,93 @@ if (kindFilter && it.kind !== kindFilter) return false;
           </div>
         </div>
       </div>
+{showFollowUpPicker && selected && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+    <div className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-[0_30px_100px_rgba(0,0,0,0.6)]">
+      <h2 className="text-lg font-semibold">
+        Set follow-up
+      </h2>
 
+      <p className="mt-2 text-sm text-slate-400">
+        Choose when this conversation should come back for attention.
+      </p>
+
+      <input
+        type="date"
+        value={followUpDate}
+        onChange={(e) => setFollowUpDate(e.target.value)}
+        className="mt-5 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100 outline-none"
+      />
+
+      <div className="mt-6 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            setShowFollowUpPicker(false);
+            setFollowUpDate("");
+          }}
+          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          disabled={!followUpDate || emailActionBusy}
+          onClick={() =>
+            void applyEmailAction(
+              "set_follow_up",
+              followUpDate
+            )
+          }
+          className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
+        >
+          Save follow-up
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{showDeleteConfirm && selected && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+    <div className="w-full max-w-md rounded-3xl border border-red-400/20 bg-slate-950 p-6 shadow-[0_30px_100px_rgba(0,0,0,0.6)]">
+      <h2 className="text-lg font-semibold text-red-200">
+        Delete response permanently?
+      </h2>
+
+      <p className="mt-3 text-sm text-slate-300">
+        This should only be used for junk, test records or accidental imports.
+        Genuine conversations should normally be kept as archived history.
+      </p>
+
+      <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-slate-400">
+        {selected.subject || selected.authorName || selected.authorHandle || "Selected response"}
+      </div>
+
+      <div className="mt-6 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={() => setShowDeleteConfirm(false)}
+          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          disabled={emailActionBusy}
+          onClick={() => void deleteSelectedResponse()}
+          className="rounded-2xl bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-400 disabled:opacity-50"
+        >
+          {emailActionBusy
+            ? "Deleting…"
+            : "Delete permanently"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
       {showSaved && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm">
           <div className="mx-auto mt-10 w-[95%] max-w-3xl rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-[0_30px_100px_rgba(0,0,0,0.6)]">
