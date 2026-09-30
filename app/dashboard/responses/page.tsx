@@ -21,6 +21,7 @@ type InboxPlatform =
   | "unknown";
 
 type InboxStatus = "unread" | "needs_reply" | "replied" | "archived" | "unknown";
+type InboxStatusFilter = InboxStatus | "all" | "active";
 
 type InboxItem = {
   id: string;
@@ -179,7 +180,24 @@ export default function ResponsesPage() {
 
   const [query, setQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("platform") as InboxPlatform) || "all");
-  const [statusFilter, setStatusFilter] = useState<InboxStatus | "all">(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("status") as InboxStatus) || "all");
+  const [statusFilter, setStatusFilter] = useState<InboxStatusFilter>(() => {
+  if (typeof window === "undefined") return "active";
+
+  const requested = new URLSearchParams(window.location.search).get("status");
+
+  if (
+    requested === "all" ||
+    requested === "active" ||
+    requested === "unread" ||
+    requested === "needs_reply" ||
+    requested === "replied" ||
+    requested === "archived"
+  ) {
+    return requested;
+  }
+
+  return "active";
+});
   const [kindFilter] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("kind") || "");
 
   const [selectedId, setSelectedId] = useState<string | null>(() => typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("itemId"));
@@ -296,8 +314,19 @@ export default function ResponsesPage() {
     const q = query.trim().toLowerCase();
     return items.filter((it) => {
       if (platformFilter !== "all" && it.platform !== platformFilter) return false;
-      if (statusFilter !== "all" && responseFilterStatus(it) !== statusFilter) return false;
-      if (kindFilter && it.kind !== kindFilter) return false;
+
+const itemStatus = responseFilterStatus(it);
+
+if (statusFilter === "active" && itemStatus === "archived") return false;
+if (
+  statusFilter !== "all" &&
+  statusFilter !== "active" &&
+  itemStatus !== statusFilter
+) {
+  return false;
+}
+
+if (kindFilter && it.kind !== kindFilter) return false;
       if (!q) return true;
 
       const hay = [
@@ -709,10 +738,13 @@ export default function ResponsesPage() {
               <select
                 className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as InboxStatus | "all")}
+                onChange={(e) => setStatusFilter(e.target.value as InboxStatusFilter)}
               >
                 <option className="bg-slate-950 text-slate-100" value="all">
                   All statuses
+                </option>
+                <option className="bg-slate-950 text-slate-100" value="active">
+                  Active
                 </option>
                 <option className="bg-slate-950 text-slate-100" value="unread">
                   First message opportunities
