@@ -1145,7 +1145,103 @@ const deleteSelectedResponse = async () => {
 
                     <div className="mt-3 text-sm whitespace-pre-wrap">{selected.text}</div>
                   {selected.platform === "email" ? <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-xs"><div><b>Sender:</b> {selected.senderEmail || selected.authorHandle || "Unknown"}</div><div><b>Subject:</b> {selected.subject || "(no subject)"}</div><div><b>Classification:</b> {(selected.emailClassification || "unclassified").replaceAll("_", " ")}</div><div><b>State:</b> {selected.lifecycle?.label || "State unavailable"}</div>{selected.emailDeliveryStatus ? <div><b>Delivery:</b> {selected.emailDeliveryStatus.replaceAll("_", " ")}</div> : null}{selected.outreachReference ? <div><b>Outreach:</b> {selected.outreachReference}</div> : null}{selected.emailThreadId ? <div><b>Thread:</b> {selected.emailThreadId}</div> : <div><b>Thread:</b> unavailable — engine will send safely without threading if supported</div>}</div> : null}
+                    {selected.platform === "email" ? (
+  <section
+    className="mt-4 rounded-2xl border border-white/10 bg-slate-950/50 p-4"
+    aria-label="Email conversation"
+  >
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <h3 className="text-sm font-semibold text-white">
+          Conversation
+        </h3>
+        <p className="mt-1 text-xs text-slate-400">
+          Complete email history stored in Ops, oldest first.
+        </p>
+      </div>
 
+      {!conversationLoading && conversationMessages.length > 0 ? (
+        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300">
+          {conversationMessages.length}{" "}
+          {conversationMessages.length === 1 ? "message" : "messages"}
+        </span>
+      ) : null}
+    </div>
+
+    {conversationLoading ? (
+      <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
+        Loading conversation…
+      </div>
+    ) : conversationError ? (
+      <div className="mt-4 rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
+        {conversationError}
+      </div>
+    ) : conversationMessages.length === 0 ? (
+      <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
+        No conversation history has been stored for this email yet.
+      </div>
+    ) : (
+      <div className="mt-4 space-y-3">
+        {conversationMessages.map((message) => {
+          const outbound =
+            message.direction === "outbound";
+
+          return (
+            <article
+              key={message.id}
+              className={[
+                "rounded-2xl border p-4",
+                outbound
+                  ? "ml-6 border-violet-300/20 bg-violet-400/10"
+                  : "mr-6 border-emerald-300/20 bg-emerald-400/10",
+              ].join(" ")}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="text-xs font-semibold text-white">
+                    {outbound ? "Root Health" : message.sender_email || "Incoming email"}
+                  </div>
+
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    {outbound ? (
+                      <>
+                        To: {message.recipient_email || "Unknown recipient"}
+                      </>
+                    ) : (
+                      <>
+                        From: {message.sender_email || "Unknown sender"}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-300">
+                    {outbound ? "Sent" : "Received"}
+                  </div>
+
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    {safeDate(message.sent_at)}
+                  </div>
+                </div>
+              </div>
+
+              {message.subject ? (
+                <div className="mt-3 text-xs text-slate-300">
+                  <b>Subject:</b> {message.subject}
+                </div>
+              ) : null}
+
+              <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-100">
+                {message.body}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    )}
+  </section>
+) : null}
                     {contactContext?.socialOpportunity && <section className="my-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-sm text-slate-200" aria-label="Public conversation opportunity">
                       <h3 className="font-semibold">Public conversation opportunity</h3>
                       <p>{contactContext.socialOpportunity.relevance} · {contactContext.socialOpportunity.opportunityType.replaceAll("_", " ")} · Risk: {contactContext.socialOpportunity.risk.replaceAll("_", " ")}</p>
