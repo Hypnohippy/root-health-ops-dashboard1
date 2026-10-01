@@ -415,13 +415,19 @@ if (kindFilter && it.kind !== kindFilter) return false;
   }, [selectedId, organisationId, items]);
 
   // restore scroll after selection to prevent “skippy”
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (listScrollYRef.current > 0) {
-      requestAnimationFrame(() => {
-        window.scrollTo({ top: listScrollYRef.current });
+useEffect(() => {
+  if (typeof window === "undefined") return;
+
+  if (listScrollYRef.current > 0) {
+    requestAnimationFrame(() => {
+      window.scrollTo({
+        top: listScrollYRef.current,
       });
-      useEffect(() => {
+    });
+  }
+}, [selectedId]);
+
+useEffect(() => {
   const selectedItem =
     items.find(
       (candidate) =>
@@ -491,6 +497,7 @@ if (kindFilter && it.kind !== kindFilter) return false;
       }
 
       setConversationMessages([]);
+
       setConversationError(
         error instanceof Error
           ? error.message
@@ -503,16 +510,14 @@ if (kindFilter && it.kind !== kindFilter) return false;
       }
     });
 
-  return () =>
+  return () => {
     controller.abort();
+  };
 }, [
   selectedId,
   organisationId,
   items,
 ]);
-    }
-  }, [selectedId]);
-
   const Pill = ({
     children,
     tone = "neutral",
