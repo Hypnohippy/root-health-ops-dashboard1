@@ -60,6 +60,27 @@ type InboxItem = {
   emailSentAt?: string | null;
 };
 
+type ConversationMessage = {
+  id: string;
+  gmail_thread_id: string;
+  gmail_message_id: string;
+  direction: "inbound" | "outbound";
+  sender_email?: string | null;
+  recipient_email?: string | null;
+  subject: string;
+  body: string;
+  sent_at: string;
+  source: "gmail_engine" | "ops";
+  inbox_item_id?: string | null;
+};
+
+type ConversationResponse = {
+  success: boolean;
+  threadId?: string | null;
+  messages?: ConversationMessage[];
+  note?: string;
+  error?: string;
+};
 type ContactBriefing = {
   socialOpportunity?: SocialCommentOpportunity;
   interactionType: string; messageType: string; name:string|null; role:string|null; company:string|null; sector:string|null;
@@ -207,6 +228,14 @@ export default function ResponsesPage() {
   const [copied, setCopied] = useState(false);
   const [contactContext, setContactContext] = useState<ContactBriefing | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
+  const [conversationMessages, setConversationMessages] =
+  useState<ConversationMessage[]>([]);
+
+const [conversationLoading, setConversationLoading] =
+  useState(false);
+
+const [conversationError, setConversationError] =
+  useState<string | null>(null);
 
   // Saved drafts
   const [savedDrafts, setSavedDrafts] = useState<SavedDraft[]>([]);
@@ -392,6 +421,95 @@ if (kindFilter && it.kind !== kindFilter) return false;
       requestAnimationFrame(() => {
         window.scrollTo({ top: listScrollYRef.current });
       });
+      useEffect(() => {
+  const selectedItem =
+    items.find(
+      (candidate) =>
+        candidate.id === selectedId
+    );
+
+  if (
+    !selectedId ||
+    !organisationId ||
+    selectedItem?.platform !== "email"
+  ) {
+    setConversationMessages([]);
+    setConversationError(null);
+    setConversationLoading(false);
+    return;
+  }
+
+  const controller =
+    new AbortController();
+
+  setConversationLoading(true);
+  setConversationError(null);
+
+  fetch(
+    `/api/responses/email/${encodeURIComponent(
+      selectedId
+    )}/conversation?organisationId=${encodeURIComponent(
+      organisationId
+    )}`,
+    {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    }
+  )
+    .then(async (response) => {
+      const data: ConversationResponse =
+        await response
+          .json()
+          .catch(() => ({
+            success: false,
+          }));
+
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      if (
+        !response.ok ||
+        data.success === false
+      ) {
+        throw new Error(
+          data.error ||
+            "Could not load conversation."
+        );
+      }
+
+      setConversationMessages(
+        Array.isArray(data.messages)
+          ? data.messages
+          : []
+      );
+    })
+    .catch((error) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      setConversationMessages([]);
+      setConversationError(
+        error instanceof Error
+          ? error.message
+          : "Could not load conversation."
+      );
+    })
+    .finally(() => {
+      if (!controller.signal.aborted) {
+        setConversationLoading(false);
+      }
+    });
+
+  return () =>
+    controller.abort();
+}, [
+  selectedId,
+  organisationId,
+  items,
+]);
     }
   }, [selectedId]);
 
