@@ -56,15 +56,8 @@ export async function GET(
     } = await supabaseAdmin
       .from("inbox_items")
       .select(
-        [
-          "id",
-          "platform",
-          "email_thread_id",
-          "email_sent_thread_id",
-          "sender_email",
-          "email_subject",
-        ].join(",")
-      )
+  "id,platform,email_thread_id,email_sent_thread_id,sender_email,email_subject"
+)
       .eq(
         "organisation_id",
         organisationId
@@ -123,20 +116,8 @@ export async function GET(
         "email_conversation_messages"
       )
       .select(
-        [
-          "id",
-          "gmail_thread_id",
-          "gmail_message_id",
-          "direction",
-          "sender_email",
-          "recipient_email",
-          "subject",
-          "body",
-          "sent_at",
-          "source",
-          "inbox_item_id",
-        ].join(",")
-      )
+  "id,gmail_thread_id,gmail_message_id,direction,sender_email,recipient_email,subject,body,sent_at,source,inbox_item_id"
+)
       .eq(
         "organisation_id",
         organisationId
