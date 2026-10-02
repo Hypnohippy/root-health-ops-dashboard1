@@ -34,18 +34,134 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     await supabaseAdmin.from("inbox_items").update({ email_reply_draft: approvedBody, approved_response: approvedBody, email_delivery_status: "dispatching", response_updated_at: new Date().toISOString() }).eq("id", id).eq("organisation_id", organisationId);
     await supabaseAdmin.from("email_send_events").upsert({ organisation_id: organisationId, inbox_item_id: id, send_request_id: sendRequest.id, event_type: "approved", actor_user_id: userId, details: { body_length: approvedBody.length } }, { onConflict: "send_request_id,event_type", ignoreDuplicates: true });
     try {
-      await dispatchApprovedEmail({ organisation_id: organisationId, response_item_id: id, send_request_id: sendRequest.id, source_engine: item.source_engine,
-        gmail_thread_id: item.email_thread_id || null, gmail_message_id: item.email_message_id || null, in_reply_to: item.in_reply_to || null,
-        recipient: item.sender_email, subject: item.email_subject || "", approved_body: approvedBody, idempotency_key: sendRequest.id });
-      await supabaseAdmin.from("email_send_requests").update({ status: "accepted", updated_at: new Date().toISOString() }).eq("id", sendRequest.id).eq("organisation_id", organisationId);
-      await supabaseAdmin.from("inbox_items").update({ email_delivery_status: "approved", response_updated_at: new Date().toISOString() }).eq("id", id).eq("organisation_id", organisationId);
-      await supabaseAdmin.from("email_send_events").upsert({ organisation_id: organisationId, inbox_item_id: id, send_request_id: sendRequest.id, event_type: "accepted", actor_user_id: userId }, { onConflict: "send_request_id,event_type", ignoreDuplicates: true });
-      return NextResponse.json({ success: true, status: "accepted", sendRequestId: sendRequest.id }, { status: 202 });
-    } catch {
-      await supabaseAdmin.from("email_send_requests").update({ status: "failed", engine_error: "Engine dispatch failed", updated_at: new Date().toISOString() }).eq("id", sendRequest.id).eq("organisation_id", organisationId);
-      await supabaseAdmin.from("inbox_items").update({ email_delivery_status: "failed", response_updated_at: new Date().toISOString() }).eq("id", id).eq("organisation_id", organisationId);
-      await supabaseAdmin.from("email_send_events").upsert({ organisation_id: organisationId, inbox_item_id: id, send_request_id: sendRequest.id, event_type: "failed", actor_user_id: userId, details: { retryable: true } }, { onConflict: "send_request_id,event_type", ignoreDuplicates: true });
-      return NextResponse.json({ error: "The B2B engine could not accept the email. It remains unsent and can be retried." }, { status: 502 });
+      await dispatchApprovedEmail({
+        organisation_id: organisationId,
+        response_item_id: id,
+        send_request_id: sendRequest.id,
+        source_engine: item.source_engine,
+        gmail_thread_id: item.email_thread_id || null,
+        gmail_message_id: item.email_message_id || null,
+        in_reply_to: item.in_reply_to || null,
+        recipient: item.sender_email,
+        subject: item.email_subject || "",
+        approved_body: approvedBody,
+        idempotency_key: sendRequest.id,
+      });
+
+      /*
+       * The engine can send and acknowledge very quickly.
+       * Only mark this request "accepted" if it is STILL
+       * waiting in "dispatching".
+       *
+       * If Gmail already acknowledged it as sent, leave
+       * the sent state untouched.
+       */
+      const {
+        data: acceptedRequest,
+        error: acceptedError,
+      } = await supabaseAdmin
+        .from("email_send_requests")
+        .update({
+          status: "accepted",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", sendRequest.id)
+        .eq("organisation_id", organisationId)
+        .eq("status", "dispatching")
+        .select("status")
+        .maybeSingle();
+
+      if (acceptedError) {
+        throw acceptedError;
+      }
+
+      if (acceptedRequest) {
+        const {
+          error: inboxAcceptedError,
+        } = await supabaseAdmin
+          .from("inbox_items")
+          .update({
+            email_delivery_status: "approved",
+            response_updated_at: new Date().toISOString(),
+          })
+          .eq("id", id)
+          .eq("organisation_id", organisationId)
+          .eq("email_delivery_status", "dispatching");
+
+        if (inboxAcceptedError) {
+          throw inboxAcceptedError;
+        }
+
+        await supabaseAdmin
+          .from("email_send_events")
+          .upsert(
+            {
+              organisation_id: organisationId,
+              inbox_item_id: id,
+              send_request_id: sendRequest.id,
+              event_type: "accepted",
+              actor_user_id: userId,
+            },
+            {
+              onConflict: "send_request_id,event_type",
+              ignoreDuplicates: true,
+            }
+          );
+
+        return NextResponse.json(
+          {
+            success: true,
+            status: "accepted",
+            sendRequestId: sendRequest.id,
+          },
+          { status: 202 }
+        );
+      }
+
+      /*
+       * No row was updated, so the acknowledgement beat
+       * us back. Read the true final state and report it.
+       */
+      const {
+        data: currentRequest,
+        error: currentError,
+      } = await supabaseAdmin
+        .from("email_send_requests")
+        .select("status")
+        .eq("id", sendRequest.id)
+        .eq("organisation_id", organisationId)
+        .maybeSingle();
+
+      if (currentError) {
+        throw currentError;
+      }
+
+      if (currentRequest?.status === "sent") {
+        return NextResponse.json({
+          success: true,
+          status: "sent",
+          sendRequestId: sendRequest.id,
+        });
+      }
+
+      if (currentRequest?.status === "failed") {
+        return NextResponse.json(
+          {
+            error:
+              "Gmail reported that the email failed to send.",
+          },
+          { status: 502 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          status: currentRequest?.status || "accepted",
+          sendRequestId: sendRequest.id,
+        },
+        { status: 202 }
+      );
     }
   } catch (error) { return accessErrorResponse(error) || NextResponse.json({ error: "Unable to approve email sending." }, { status: 503 }); }
 }
