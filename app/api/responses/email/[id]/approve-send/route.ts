@@ -154,7 +154,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         );
       }
 
-      return NextResponse.json(
+            return NextResponse.json(
         {
           success: true,
           status: currentRequest?.status || "accepted",
@@ -162,6 +162,91 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         },
         { status: 202 }
       );
+
+    } catch {
+      /*
+       * Before marking anything failed, check whether
+       * Gmail already acknowledged the message as sent.
+       */
+      const {
+        data: currentRequest,
+      } = await supabaseAdmin
+        .from("email_send_requests")
+        .select("status")
+        .eq("id", sendRequest.id)
+        .eq("organisation_id", organisationId)
+        .maybeSingle();
+
+      if (currentRequest?.status === "sent") {
+        return NextResponse.json({
+          success: true,
+          status: "sent",
+          sendRequestId: sendRequest.id,
+        });
+      }
+
+      await supabaseAdmin
+        .from("email_send_requests")
+        .update({
+          status: "failed",
+          engine_error: "Engine dispatch failed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", sendRequest.id)
+        .eq("organisation_id", organisationId)
+        .in("status", [
+          "dispatching",
+          "accepted",
+        ]);
+
+      await supabaseAdmin
+        .from("inbox_items")
+        .update({
+          email_delivery_status: "failed",
+          response_updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .eq("organisation_id", organisationId)
+        .neq("email_delivery_status", "sent");
+
+      await supabaseAdmin
+        .from("email_send_events")
+        .upsert(
+          {
+            organisation_id: organisationId,
+            inbox_item_id: id,
+            send_request_id: sendRequest.id,
+            event_type: "failed",
+            actor_user_id: userId,
+            details: {
+              retryable: true,
+            },
+          },
+          {
+            onConflict: "send_request_id,event_type",
+            ignoreDuplicates: true,
+          }
+        );
+
+      return NextResponse.json(
+        {
+          error:
+            "The B2B engine could not accept the email. It remains unsent and can be retried.",
+        },
+        { status: 502 }
+      );
     }
-  } catch (error) { return accessErrorResponse(error) || NextResponse.json({ error: "Unable to approve email sending." }, { status: 503 }); }
+
+  } catch (error) {
+    return (
+      accessErrorResponse(error) ||
+      NextResponse.json(
+        {
+          error:
+            "Unable to approve email sending.",
+        },
+        { status: 503 }
+      )
+    );
+  }
 }
