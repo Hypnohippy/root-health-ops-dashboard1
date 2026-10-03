@@ -91,6 +91,17 @@ test("Day 1 accepts human hellos without literal company or role matches", () =>
 
 const jamesFiller = 'Hi James, thanks for connecting. Just wanted to say hello and look forward to staying in touch.';
 const jamesNatural = 'Hi James, good to connect. I work around workplace wellbeing and stress, so there’s probably some overlap in the things we both see day to day. Thought I’d say hello properly.';
+const jamesCorporate = 'Hi James, I work in workplace wellbeing, focusing on stress and resilience. Given your role, I thought it made sense to reach out and say hello.';
+const jamesSpoken = 'Hi James, good to connect. I spend a lot of my time around stress and wellbeing at work, so I thought I’d say hello properly.';
+const jamesContextual = 'Hi James, good to connect. There’s probably a bit of overlap between the work you’re doing and the stuff I’m involved with around workplace stress, so I thought I’d say hello properly.';
+
+test('Day 1 rejects consultancy introductions and accepts both spoken James examples', () => {
+  assert.equal(context.safeLinkedInFirstMessage(jamesCorporate), false);
+  for (const draft of [jamesSpoken, jamesContextual]) assert.equal(context.safeLinkedInFirstMessage(draft, {company:'Acme'}), true);
+  for (const phrase of ['Given your role', 'I work in workplace wellbeing', 'focusing on stress', 'reach out', 'made sense to reach out', 'given your experience', 'given your background', 'there may be synergies', 'areas of overlap', 'stress, resilience and wellbeing', 'wellbeing, stress, and resilience']) {
+    assert.equal(context.safeLinkedInFirstMessage(`Hi James, ${phrase}.`), false, phrase);
+  }
+});
 
 test('Day 1 rejects networking filler while accepting natural sender-side context', () => {
   assert.equal(context.safeLinkedInFirstMessage(jamesFiller), false);
@@ -102,13 +113,14 @@ test('Day 1 rejects networking filler while accepting natural sender-side contex
 
 test('active root-coach endpoint rejects bad model output and returns grounded editable copy', async()=>{
  const briefing={interactionType:'linkedin_connection_first_message',messageType:'First message after connection',company:'Acme',role:'HR director',name:'Shelley',objective:'Say hello',lifecycle:{canDraft:true,currentStage:'outreach_ready'}};
- for(const [draft,status] of [[jamesFiller,409],[jamesNatural,200],["Hi Shelley, great to connect here! What's top of mind at Acme?",409],['Hi Shelley, good to connect. I wanted to say hello to you at Acme properly.',200],["Hi Shelley, good to connect. I thought I’d say hello properly.",200],['Hi Shelley, good to connect. A hello to a fellow people leader.',200]]) {
+ for(const [draft,status] of [[jamesCorporate,409],[jamesSpoken,200],[jamesContextual,200],[jamesFiller,409],[jamesNatural,200],["Hi Shelley, great to connect here! What's top of mind at Acme?",409],['Hi Shelley, good to connect. I wanted to say hello to you at Acme properly.',200],["Hi Shelley, good to connect. I thought I’d say hello properly.",200],['Hi Shelley, good to connect. A hello to a fellow people leader.',200]]) {
   const mod={exports:{}};let prompt='';
   const deps={'@/lib/tenantRoute.server':{withTenantRoute:fn=>req=>fn(req,{organisationId:'review',profile:{},messages:[]})},'next/server':{NextResponse:{json:(body,o={})=>({body,status:o.status||200})}},'@/lib/responseContactContext.server':{getResponseContactContext:async(org)=>{assert.equal(org,'review');return briefing;}},'@/lib/responseContactContext':context,'@/lib/socialCommentOpportunity':{}};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/ai/root-coach/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,require:n=>{assert.ok(n in deps,n);return deps[n];},process:{env:{OPENAI_API_KEY:'test'}},console,fetch:async(url,opts)=>{assert.equal(url,'https://api.openai.com/v1/chat/completions');prompt=opts.body;return {ok:true,json:async()=>({choices:[{message:{content:draft}}]})};}});
   const result=await mod.exports.POST({json:async()=>({inboxItemId:'11111111-1111-1111-1111-111111111111'})});
   assert.equal(result.status,status);assert.match(prompt,/Day 1/);assert.match(prompt,/Acme/);assert.match(prompt,/No emojis/);assert.match(prompt,/Exact company names and role words are optional/);
   assert.match(prompt,/prefer natural sender-side context/);assert.match(prompt,/only when supported by the supplied sender profile/);assert.match(prompt,/Never use networking filler/);
+  assert.match(prompt,/Use contractions and normal spoken English/);assert.match(prompt,/Only with genuine recipient context/);assert.match(prompt,/Never use corporate introductions/);
   if(status===200)assert.equal(result.body.coachMessage,draft);else assert.equal(result.body.coachMessage,undefined);
  }
 });
