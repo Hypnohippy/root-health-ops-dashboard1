@@ -20,6 +20,55 @@ const response={NextResponse:{json:(body,opts={})=>({body,status:opts.status||20
 const record={source_engine:"b2b",source_record_id:"stable-1",record_type:"b2b_lead",company:"Example",source_url:"https://example.com/evidence",evidence:"Source excerpt",reason:"Relevant signal",suggested_action:"Review manually"};
 const req=(body,token=secret)=>new Request("https://ops.example/api/growth/ingest",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify(body)});
 
+test("queue composes strictly validated type, status and item filters with tenant scope, history and pagination",async()=>{
+  const rows=[A,B].flatMap(organisation_id=>helper.recordTypes.flatMap((record_type,t)=>Array.from({length:30},(_,i)=>({
+    id:`00000000-0000-4000-8000-${String(t*30+i).padStart(12,"0")}`,organisation_id,record_type,
+    status:i%2?"engaged":"new",created_at:String(i).padStart(2,"0"),acquisition_item_events:[{id:"event"}],
+  }))));
+  let reads=0;
+  const admin={from(table){
+    reads++;assert.equal(table,"acquisition_items");const filters={},orders=[];let bounds;
+    const query={
+      select(columns,options){assert.ok(columns.includes("acquisition_item_events("));assert.equal(options.count,"exact");return query;},
+      eq(key,value){filters[key]=value;return query;},
+      order(key,options){orders.push([key,options]);return query;},
+      range(start,end){bounds=[start,end];return query;},
+      then(resolve){
+        assert.equal(filters.organisation_id,A);
+        assert.equal(JSON.stringify(orders),JSON.stringify([["created_at",{ascending:false}],["id",undefined]]));
+        const matched=rows.filter(row=>Object.entries(filters).every(([key,value])=>row[key]===value))
+          .sort((a,b)=>b.created_at.localeCompare(a.created_at)||a.id.localeCompare(b.id));
+        return Promise.resolve({data:matched.slice(bounds[0],bounds[1]+1),count:matched.length,error:null}).then(resolve);
+      },
+    };return query;
+  }};
+  const route=load("app/api/growth/acquisition/route.ts",{"next/server":response,"@/lib/growthIngestion.server":helper,
+    "@/lib/supabaseAdmin":{supabaseAdmin:admin},"@/lib/tenantAuth":{
+      requireOrganisation:async(id,write)=>{assert.equal(id,A);assert.equal(write,false);return {organisationId:A};},
+      accessErrorResponse:()=>null,
+    }});
+  const get=query=>route.GET(new Request(`https://ops.example/api/growth/acquisition?organisationId=${A}&${query}`));
+  const all=await get("");
+  assert.equal(all.status,200);assert.equal(all.body.total,120);
+  assert.equal(new Set(all.body.items.map(row=>row.record_type)).size,4);
+  for(const type of helper.recordTypes){
+    const result=await get(`record_type=${type}`);
+    assert.equal(result.status,200);assert.equal(result.body.total,30);assert.equal(result.body.items.length,25);
+    assert.ok(result.body.items.every(row=>row.record_type===type&&row.organisation_id===A&&row.acquisition_item_events.length===1));
+    const next=await get(`record_type=${type}&page=1`);
+    assert.equal(next.body.items.length,5);assert.equal(next.body.page,1);assert.equal(next.body.total,30);
+    const combined=await get(`record_type=${type}&status=engaged`);
+    assert.equal(combined.body.total,15);assert.ok(combined.body.items.every(row=>row.status==="engaged"&&row.record_type===type));
+    const item=result.body.items[0];
+    assert.equal((await get(`itemId=${item.id}`)).body.total,1);
+    assert.equal((await get(`record_type=${type}&itemId=${item.id}`)).body.total,1);
+    assert.equal((await get(`record_type=${type}&status=new&itemId=${item.id}`)).body.total,0);
+  }
+  for(const type of ["","personal","PERSONAL_OPPORTUNITY","unknown","personal_opportunity,partner_opportunity"]){
+    const before=reads;assert.equal((await get(`record_type=${encodeURIComponent(type)}`)).status,400);assert.equal(reads,before);
+  }
+});
+
 test("ingestion rejects missing/foreign organisation, wrong secrets, sources and configuration before writes", async()=>{
   for(const [body,token,status] of [
     [{records:[record]},secret,400], [{organisation_id:B,records:[record]},secret,403],

@@ -9,14 +9,42 @@ const nodeRequire = createRequire(import.meta.url);
 const A = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ITEM_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", ITEM_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc";
 const USER = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-function load(file, mocks={}) {
+function load(file, mocks={}, globals={}) {
   const mod={exports:{}};
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText, {
-    module:mod,exports:mod.exports,require:name=>name in mocks?mocks[name]:nodeRequire(name),URL,URLSearchParams,Request,Response,Headers,Buffer,console,process:{env:{}},
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,jsx:ts.JsxEmit.ReactJSX}}).outputText, {
+    module:mod,exports:mod.exports,require:name=>name in mocks?mocks[name]:nodeRequire(name),URL,URLSearchParams,Request,Response,Headers,Buffer,console,process:{env:{}},...globals,
   },{filename:file}); return mod.exports;
 }
 const workflow=load("lib/acquisitionWorkflow.ts");
 const response={NextResponse:{json:(body,opts={})=>({body,status:opts.status||200})}};
+
+test("queue type and status controls restore and preserve URL filters while clearing item focus and page",()=>{
+  let location=new URL(`https://ops.example/dashboard/growth/acquisition?organisationId=${A}&record_type=personal_opportunity&status=new&itemId=${ITEM_A}&page=2`);
+  const state=[];let index=0;
+  const react={
+    useState(initial){const key=index++;if(!(key in state))state[key]=typeof initial==="function"?initial():initial;return [state[key],value=>{state[key]=typeof value==="function"?value(state[key]):value;}];},
+    useEffect(){},useCallback:fn=>fn,
+  };
+  const Page=load("app/dashboard/growth/acquisition/page.tsx",{react,"@/lib/acquisitionWorkflow":workflow},{
+    window:{get location(){return location;},history:{state:{keep:true},replaceState(saved,unused,url){assert.equal(saved.keep,true);location=new URL(url);}}},
+  }).default;
+  const render=()=>{index=0;return Page();};
+  const find=(tree,type)=>{const result=[];function walk(node){if(Array.isArray(node)){node.forEach(walk);return;}if(!node||typeof node!=="object")return;if(node.type===type)result.push(node);walk(node.props?.children);}walk(tree);return result;};
+  render();state[1]=A;state[6]=2;
+  let selects=find(render(),"select");
+  assert.equal(selects[0].props.value,"personal_opportunity");assert.equal(selects[1].props.value,"new");
+  assert.deepEqual(find(selects[0],"option").map(option=>option.props.value),["","b2b_lead","personal_opportunity","partner_opportunity","social_opportunity"]);
+  selects[0].props.onChange({target:{value:"partner_opportunity"}});
+  assert.equal(state[6],0);assert.equal(state[12],null);
+  assert.equal(location.searchParams.get("record_type"),"partner_opportunity");
+  assert.equal(location.searchParams.get("status"),"new");assert.equal(location.searchParams.get("organisationId"),A);
+  assert.equal(location.searchParams.has("itemId"),false);assert.equal(location.searchParams.has("page"),false);
+  selects=find(render(),"select");assert.equal(selects[0].props.value,"partner_opportunity");
+  selects[1].props.onChange({target:{value:"engaged"}});
+  assert.equal(location.searchParams.get("record_type"),"partner_opportunity");assert.equal(location.searchParams.get("status"),"engaged");
+  find(render(),"select")[0].props.onChange({target:{value:""}});
+  assert.equal(location.searchParams.has("record_type"),false);assert.equal(location.searchParams.get("status"),"engaged");
+});
 
 test("each opportunity type exposes only its intended review workflow destinations",()=>{
   const cases = [
