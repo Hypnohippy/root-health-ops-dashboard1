@@ -10,7 +10,7 @@ const require=createRequire(import.meta.url);
 function load(file,mocks={},globals={}) {
   const mod={exports:{}};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,
-    {module:mod,exports:mod.exports,URL,URLSearchParams,Date,console,...globals,require:n=>n in mocks?mocks[n]:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});
+    {module:mod,exports:mod.exports,URL,URLSearchParams,Date,console,...globals,require:n=>n in mocks?mocks[n]:n==='./PartnerConversation'?{__esModule:true,default:()=>null}:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});
   return mod.exports;
 }
 const promotion=load('lib/acquisitionPromotion.server.ts',{'@/lib/supabaseAdmin':{}});
@@ -273,7 +273,8 @@ test('acquisition cards retain human New status and separately show projected so
     assert.equal(nodes(tree,'span').filter(n=>n.props.children==='New').length,2);
     const lines=nodes(tree,'p').filter(n=>Array.isArray(n.props.children)&&n.props.children[0]==='Source: ');
     assert.equal(lines.length,label?2:0);for(const line of lines)assert.equal(line.props.children[1],label);
-    assert.ok(nodes(tree,'button').some(n=>n.props.children==='Accept'));assert.ok(nodes(tree,'button').some(n=>n.props.children==='Dismiss'));
+    const legacy=!engine_state || engine_state.status==='nurture';
+    assert.equal(nodes(tree,'button').some(n=>n.props.children==='Accept'),legacy);assert.equal(nodes(tree,'button').some(n=>n.props.children==='Dismiss'),legacy);
     assert.equal(JSON.stringify(item),before);
   }
 });

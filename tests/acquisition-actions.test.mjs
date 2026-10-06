@@ -25,7 +25,8 @@ test("queue type and status controls restore and preserve URL filters while clea
     useState(initial){const key=index++;if(!(key in state))state[key]=typeof initial==="function"?initial():initial;return [state[key],value=>{state[key]=typeof value==="function"?value(state[key]):value;}];},
     useEffect(){},useCallback:fn=>fn,
   };
-  const Page=load("app/dashboard/growth/acquisition/page.tsx",{react,"@/lib/acquisitionWorkflow":workflow,"@/lib/engineState":load("lib/engineState.ts")},{
+  const engine=load("lib/engineState.ts");
+  const Page=load("app/dashboard/growth/acquisition/page.tsx",{react,"@/lib/acquisitionWorkflow":workflow,"@/lib/engineState":engine,"@/lib/partnerConversation":load("lib/partnerConversation.ts",{"@/lib/engineState":engine}),"./PartnerConversation":{__esModule:true,default:()=>null}},{
     window:{get location(){return location;},history:{state:{keep:true},replaceState(saved,unused,url){assert.equal(saved.keep,true);location=new URL(url);}}},
   }).default;
   const render=()=>{index=0;return Page();};
