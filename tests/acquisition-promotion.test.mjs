@@ -204,6 +204,35 @@ test('B2B ownership renders monitor-only for ready and follow-up; LinkedIn/manua
   }
 });
 
+test('B2B presentation explains ownership, next steps and links to recorded source status without manual controls',()=>{
+  const Manual=()=>null;
+  const Workspace=load('app/dashboard/growth/pipeline/OutreachWorkspace.tsx',{react:{useState:value=>[value,()=>{}]},'@/lib/tenantFetch':{},'../../components/ManualTakeover':{__esModule:true,default:Manual}}).default;
+  const cases=[
+    [undefined,'Owned by Root B2B engine - awaiting source status','View outreach status'],
+    [{status:'queued'},'Automated outreach queued','View outreach status'],
+    [{status:'scheduled'},'Automated outreach queued','View outreach status'],
+    [{status:'ready'},'Automated outreach queued','View outreach status'],
+    [{status:'sent'},'Outreach sent - waiting for response','View outreach status'],
+    [{status:'waiting'},'Waiting for response','View outreach status'],
+    [{follow_up_status:'due'},'Follow-up scheduled','View outreach status'],
+    [{follow_up_status:'scheduled'},'Follow-up scheduled','View outreach status'],
+    [{status:'replied'},'Reply requires attention','Open response'],
+    [{reply_state:'human_reply'},'Reply requires attention','Open response'],
+    [{status:'meeting_booked'},'Meeting booked','View outreach status'],
+    ...['failed','blocked','bounced'].map(status=>[{status},'Needs attention','Resolve issue']),
+  ];
+  for(const [engine_state,label,cta] of cases) {
+    const view=Workspace({target:{id:'target',organisation_id:A,target_name:'Business',source_type:'root_health_b2b',lifecycle:{currentStage:'outreach_ready'},acquisition:[{id:'source-item',source_engine:'root_health_b2b',engine_state}]},onComplete:async()=>{}});
+    assert.equal(nodes(view,'h3')[0].props.children,label);
+    const link=nodes(view,'a').find(n=>n.props.children===cta);assert.ok(link);
+    const url=new URL(link.props.href,'https://ops.test');assert.equal(url.pathname,'/dashboard/growth/acquisition');assert.equal(url.searchParams.get('itemId'),'source-item');assert.equal(url.searchParams.get('organisationId'),A);
+    const text=JSON.stringify(view);assert.match(text,/owns this contact/);assert.match(text,/Next:/);
+    if(cta==='View outreach status' && label!=='Meeting booked')assert.match(text,/No action is required from you right now/);
+    if(!engine_state){assert.match(text,/No send or schedule is confirmed/);assert.match(text,/Do not send outreach manually/);}
+    assert.equal(nodes(view,Manual).length,0);assert.equal(nodes(view,'button').length,0);
+  }
+});
+
 test('end-to-end: Accept and Start outreach traverse real routes and SQL into the actual target workspace',async()=>{
   const f=await fixture();try {
     const item=await f.item({status:'new',metadata:{...sample().metadata,prepared_outreach:'A prepared business message for review.'}});
