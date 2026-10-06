@@ -110,10 +110,16 @@ test('target pipeline fetch retains tenant scope and projects actual outreach an
   const id=randomUUID(),row={id,organisation_id:A,target_name:'Business',email:'a@example.test',stage:'connection',status:'active'};
   const filters=[];const q={select(){return q;},eq(k,v){filters.push([k,v]);return q;},order(){return q;},then(resolve){resolve({data:[row]});}};
   const api=load('app/api/growth/pipeline/route.ts',{'@/lib/supabaseAdmin':{supabaseAdmin:{from:()=>q}},'@/lib/tenantRoute.server':{withTenantRoute:fn=>req=>fn(req,{organisationId:A})},
-    '@/lib/lifecycleSnapshot.server':{readLifecycleInput:async org=>{assert.equal(org,A);return {growth_targets:[row],acquisition_items:[{...sample(),organisation_id:A,id:randomUUID(),metadata:{email:'a@example.test',handoff:{target_id:id}}}],inbox_items:[]};}},
+    '@/lib/lifecycleSnapshot.server':{readLifecycleInput:async org=>{assert.equal(org,A);return {growth_targets:[row],acquisition_items:[{...sample(),organisation_id:A,id:randomUUID(),metadata:{email:'a@example.test',handoff:{target_id:id}}}],inbox_items:[
+      {id:'linked-response',organisation_id:A,sender_email:'a@example.test',text:'Recorded reply',email_classification:'human_reply'},
+      {id:'foreign-response',organisation_id:B,sender_email:'a@example.test',text:'Foreign reply'},
+      {id:'unrelated-response',organisation_id:A,sender_email:'other@example.test',text:'Unrelated reply'},
+    ]};}},
     'next/server':{NextResponse:{json:(body,options)=>({body,status:options?.status||200})}}});
   const result=await api.GET({url:`https://ops.test/api/growth/pipeline?targetId=${id}`});
   assert.deepEqual(filters,[['organisation_id',A],['id',id]]);assert.equal(result.body.data[0].lifecycle.currentStage,'outreach_ready');assert.equal(result.body.data[0].acquisition.length,1);
+  assert.deepEqual(Array.from(result.body.data[0].responses,r=>r.id),['linked-response']);
+  assert.equal(result.body.data[0].responses[0].text,'Recorded reply');
 });
 test('successful handoff projection defers to outreach target, while waiting/source evidence and Personal safeguards survive',()=>{
   const id=randomUUID(),itemId=randomUUID(),email=sample().metadata.email;
@@ -208,7 +214,7 @@ test('B2B presentation explains ownership, next steps and links to recorded sour
   const Manual=()=>null;
   const Workspace=load('app/dashboard/growth/pipeline/OutreachWorkspace.tsx',{react:{useState:value=>[value,()=>{}]},'@/lib/tenantFetch':{},'../../components/ManualTakeover':{__esModule:true,default:Manual}}).default;
   const cases=[
-    [undefined,'Owned by Root B2B engine - awaiting source status','View outreach status'],
+    [undefined,'Awaiting source status','Back to Acquisition'],
     [{status:'queued'},'Automated outreach queued','View outreach status'],
     [{status:'scheduled'},'Automated outreach queued','View outreach status'],
     [{status:'ready'},'Automated outreach queued','View outreach status'],
@@ -218,19 +224,28 @@ test('B2B presentation explains ownership, next steps and links to recorded sour
     [{follow_up_status:'scheduled'},'Follow-up scheduled','View outreach status'],
     [{status:'replied'},'Reply requires attention','Open response'],
     [{reply_state:'human_reply'},'Reply requires attention','Open response'],
-    [{status:'meeting_booked'},'Meeting booked','View outreach status'],
-    ...['failed','blocked','bounced'].map(status=>[{status},'Needs attention','Resolve issue']),
+    [{status:'meeting_booked'},'Meeting booked','Open meeting'],
+    ...['failed','blocked','bounced'].map(status=>[{status},'Needs attention','Open response']),
   ];
   for(const [engine_state,label,cta] of cases) {
-    const view=Workspace({target:{id:'target',organisation_id:A,target_name:'Business',source_type:'root_health_b2b',lifecycle:{currentStage:'outreach_ready'},acquisition:[{id:'source-item',source_engine:'root_health_b2b',engine_state}]},onComplete:async()=>{}});
+    const view=Workspace({target:{id:'target',organisation_id:A,target_name:'Business',source_type:'root_health_b2b',lifecycle:{currentStage:'outreach_ready'},responses:[{id:'reply-id',text:'Recorded reply',email_classification:'human_reply'},{id:'failure-id',text:'Recorded bounce',email_classification:'bounce'}],acquisition:[{id:'source-item',source_engine:'root_health_b2b',engine_state}]},onComplete:async()=>{}});
     assert.equal(nodes(view,'h3')[0].props.children,label);
     const link=nodes(view,'a').find(n=>n.props.children===cta);assert.ok(link);
-    const url=new URL(link.props.href,'https://ops.test');assert.equal(url.pathname,'/dashboard/growth/acquisition');assert.equal(url.searchParams.get('itemId'),'source-item');assert.equal(url.searchParams.get('organisationId'),A);
+    if(cta==='View outreach status')assert.equal(link.props.href,'#source-outreach-status');
+    else if(cta==='Open meeting')assert.equal(link.props.href,'#source-meeting');
+    else if(cta!=='Back to Acquisition') {
+      const url=new URL(link.props.href,'https://ops.test');assert.equal(url.pathname,'/dashboard/responses');assert.equal(url.searchParams.get('itemId'),label==='Needs attention'?'failure-id':'reply-id');assert.equal(url.searchParams.get('organisationId'),A);
+    }
     const text=JSON.stringify(view);assert.match(text,/owns this contact/);assert.match(text,/Next:/);
     if(cta==='View outreach status' && label!=='Meeting booked')assert.match(text,/No action is required from you right now/);
     if(!engine_state){assert.match(text,/No send or schedule is confirmed/);assert.match(text,/Do not send outreach manually/);}
     assert.equal(nodes(view,Manual).length,0);assert.equal(nodes(view,'button').length,0);
+    for(const question of ['What has happened?','What happens next?','Do I need to do anything?'])assert.ok(nodes(view,'h4').some(n=>n.props.children===question));
   }
+  const missing=Workspace({target:{id:'target',organisation_id:A,target_name:'Business',source_type:'root_health_b2b',acquisition:[{id:'source',source_engine:'root_health_b2b',engine_state:{status:'failed'}}]},onComplete:async()=>{}});
+  assert.match(JSON.stringify(missing),/does not currently expose a verified repair action/);assert.equal(nodes(missing,'a').some(n=>n.props.children==='Resolve issue'),false);
+  assert.equal(nodes(missing,'a').find(n=>n.props.children==='View source evidence').props.href,'#source-evidence-source');
+  assert.equal(nodes(missing,'details').find(n=>n.props.id==='source-evidence-source').props.open,true);
 });
 
 test('end-to-end: Accept and Start outreach traverse real routes and SQL into the actual target workspace',async()=>{

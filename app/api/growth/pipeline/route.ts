@@ -29,7 +29,9 @@ export const GET = withTenantRoute(async function GET(req: Request, tenant) {
       const lifecycle = buildContactLifecycle(tenant.organisationId, input).find(c => c.records.some(r => r.table === "growth_targets" && r.id === targetId));
       const acquisition = input.acquisition_items.filter(a => a.organisation_id === tenant.organisationId &&
         (a.id === data[0].acquisition_item_id || (a.metadata as { handoff?: { target_id?: string } })?.handoff?.target_id === targetId));
-      return NextResponse.json({ success: true, data: data.map(t => ({ ...t, lifecycle, acquisition })) });
+      const responses = input.inbox_items.filter(r => r.organisation_id === tenant.organisationId && lifecycle?.records.some(ref => ref.table === "inbox_items" && ref.id === r.id))
+        .map(r => ({ id: r.id, text: r.text, email_classification: r.email_classification, email_delivery_status: r.email_delivery_status, created_at: r.created_at_platform || r.inserted_at }));
+      return NextResponse.json({ success: true, data: data.map(t => ({ ...t, lifecycle, acquisition, responses })) });
     } catch {
       return NextResponse.json({ success: false, error: "Current contact evidence could not be loaded. Refresh before acting." }, { status: 503 });
     }

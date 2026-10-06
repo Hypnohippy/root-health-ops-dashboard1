@@ -8,6 +8,8 @@ import ManualTakeover from "../../components/ManualTakeover";
 export type OutreachTarget = {
   id: string; organisation_id: string; target_name: string; company?: string; role_title?: string;
   email?: string; linkedin_url?: string; notes?: string; suggested_message?: string; source_type?: string;
+  call_date?: string; call_notes?: string;
+  responses?: { id: string; text?: string; email_classification?: string; email_delivery_status?: string; created_at?: string }[];
   lifecycle?: { currentStage: string; nextAction?: string; nextDueDate?: string; lastAction?: { action: string; at?: string }; actionRecord?: { table: string; id: string } };
   acquisition?: { id: string; evidence?: string; source_engine?: string; source_record_id?: string; engine_state?: unknown; metadata?: Record<string, unknown> }[];
 };
@@ -26,20 +28,24 @@ function b2bPresentation(target: OutreachTarget) {
       : projected?.stage === "waiting" ? "Waiting for response"
       : ["queued", "scheduled", "ready", "outreach_ready", "accepted"].includes(normal(state?.status)) ? "Automated outreach queued"
       : projected && ["converted", "lost", "nurture", "no_reply_needed"].includes(projected.stage) ? ({ converted: "Converted", lost: "Closed / lost", nurture: "Nurture", no_reply_needed: "No outreach action needed" } as Record<string, string>)[projected.stage]
-      : "Owned by Root B2B engine - awaiting source status";
-    return { source, label, issue, reply, priority: issue ? 4 : reply ? 3 : projected?.stage === "meeting" ? 2 : state ? 1 : 0 };
+      : "Awaiting source status";
+    return { source, state, label, issue, reply, priority: issue ? 4 : reply ? 3 : projected?.stage === "meeting" ? 2 : state ? 1 : 0 };
   }).sort((a, b) => b.priority - a.priority);
   const current = states[0];
-  const label = current?.label || "Owned by Root B2B engine - awaiting source status";
-  const awaiting = label.includes("awaiting source status");
+  const label = current?.label || "Awaiting source status";
+  const awaiting = label === "Awaiting source status";
   const review = current?.issue || current?.reply || label === "Meeting booked";
-  const href = `/dashboard/growth/acquisition?${new URLSearchParams({ organisationId: target.organisation_id, ...(current ? { itemId: current.source.id } : { record_type: "b2b_lead" }) })}`;
-  return { label, href, cta: current?.issue ? "Resolve issue" : current?.reply ? "Open response" : "View outreach status",
+  const responses = [...(target.responses || [])].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+  const response = responses.find(r => current?.issue ? ["bounce", "redirect"].includes(r.email_classification || "") || r.email_delivery_status === "failed" : !["bounce", "redirect", "auto_acknowledgement", "out_of_office"].includes(r.email_classification || "")) || responses[0];
+  const responseHref = response ? `/dashboard/responses?${new URLSearchParams({ organisationId: target.organisation_id, itemId: response.id })}` : null;
+  const href = current?.issue || current?.reply ? responseHref || `#source-evidence-${current.source.id}` : label === "Meeting booked" ? "#source-meeting" : "#source-outreach-status";
+  return { label, href, state: current?.state, response, issue: current?.issue, reply: current?.reply, awaiting,
+    cta: current?.issue || current?.reply ? responseHref ? "Open response" : "View source evidence" : label === "Meeting booked" ? "Open meeting" : "View outreach status",
     action: review ? "Review the recorded source evidence before taking any action." : "No action is required from you right now. Do not send outreach manually.",
-    next: current?.issue ? "Next: Check the recorded issue and resolve it through the existing source workflow. Do not retry a send without verifying its outcome."
+    next: current?.issue ? "Next: Review the recorded delivery, route or provider issue. Do not retry a send without verifying its outcome."
       : current?.reply ? "Next: Review the reply in the source evidence and continue through the existing source conversation workflow."
       : label === "Meeting booked" ? "Next: Review the recorded meeting details in the source workflow."
-      : awaiting ? "Next: Await the source engine's status update. No send or schedule is confirmed here."
+      : awaiting ? "Next: Root will update this record when outreach is queued, sent, replied to or blocked. No send or schedule is confirmed here."
       : ["Converted", "Closed / lost", "Nurture", "No outreach action needed"].includes(label) ? "Next: Review source status for any later change; no new outreach is implied."
       : "Next: Root's B2B engine continues outreach according to its source workflow. Replies or delivery issues will appear here when attention is required." };
 }
@@ -67,15 +73,26 @@ export default function OutreachWorkspace({ target, onComplete }: { target: Outr
     <h3 className="font-semibold text-emerald-200">{b2b?.label || labels[stage] || stage.replaceAll("_", " ")}</h3>
     {b2b ? <>
       <p>Automated outreach owned by Root B2B engine. Root&apos;s B2B engine owns this contact.</p>
-      <p>{b2b.action}</p><p>{b2b.next}</p>
-      <a className="block underline" href={b2b.href}>{b2b.cta}</a>
+      {!b2b.awaiting && b2b.href && <a className="block underline" href={b2b.href}>{b2b.cta}</a>}
+      <section id="source-outreach-status" aria-label="Source-owned outreach status" className="space-y-3">
+        <h4 className="font-semibold">What has happened?</h4>
+        <p>{b2b.awaiting ? "No send or schedule has been confirmed yet." : b2b.label}</p>
+        {b2b.state?.last_outbound_at && <p>Last outbound: {new Date(b2b.state.last_outbound_at).toLocaleString()}</p>}
+        {b2b.state?.next_follow_up_at && <p>Next follow-up: {new Date(b2b.state.next_follow_up_at).toLocaleString()}</p>}
+        {(b2b.reply || b2b.issue) && <p>{b2b.response?.text || `Recorded source state: ${b2b.state?.reply_state || b2b.state?.status || "Details not supplied"}`}</p>}
+        {(b2b.reply || b2b.issue) && !b2b.response && <p role="status">{b2b.issue ? "The source engine has recorded a delivery, route or provider issue. Ops does not currently expose a verified repair action for this source-engine failure." : "No linked response workflow is available in Ops yet."} Review source evidence only; no manual send or retry is authorised here.</p>}
+        {b2b.label === "Meeting booked" && <div id="source-meeting"><h4 className="font-semibold">Meeting details</h4><p>{target.call_date ? new Date(target.call_date).toLocaleString() : "Meeting time has not been supplied by the source."}</p>{target.call_notes && <p>{target.call_notes}</p>}</div>}
+        <h4 className="font-semibold">What happens next?</h4><p>{b2b.next}</p>
+        <h4 className="font-semibold">Do I need to do anything?</h4><p>{b2b.action}</p>
+        <a className="underline" href={`/dashboard/growth/acquisition?${new URLSearchParams({ organisationId: target.organisation_id })}`}>Back to Acquisition</a>
+      </section>
     </> : sourceOwned && <p>The next action is owned by the existing source workflow. Review its current evidence before taking over.</p>}
     {target.email && <p>Business email: <a href={`mailto:${target.email}`} className="underline">{target.email}</a></p>}
     {target.linkedin_url && /^https:\/\/(?:www\.)?linkedin\.com\/in\//i.test(target.linkedin_url) && <a className="block underline" href={target.linkedin_url} target="_blank" rel="noreferrer">Open LinkedIn profile</a>}
     {target.lifecycle?.lastAction && <p>Last action: {target.lifecycle.lastAction.action.replaceAll("_", " ")}{target.lifecycle.lastAction.at ? ` (${new Date(target.lifecycle.lastAction.at).toLocaleString()})` : ""}</p>}
     {target.lifecycle?.nextDueDate && <p>Next due: {new Date(target.lifecycle.nextDueDate).toLocaleString()}</p>}
     {target.notes && <p className="whitespace-pre-wrap">{target.notes}</p>}
-    {target.acquisition?.map(a => <details key={a.id}><summary>Acquisition evidence</summary>
+    {target.acquisition?.map(a => <details key={a.id} id={`source-evidence-${a.id}`} open={b2bOwned || undefined}><summary>Acquisition evidence</summary>
       <p className="whitespace-pre-wrap">{a.evidence}</p><p>{a.source_engine} · {a.source_record_id}</p>
       {b2bOwned && <pre className="whitespace-pre-wrap break-words">Source engine state: {a.engine_state ? JSON.stringify(a.engine_state, null, 2) : "Not recorded; engine ownership still applies."}</pre>}
       {typeof a.metadata?.email_verification === "string" && <p>Source email verification: {a.metadata.email_verification}</p>}
