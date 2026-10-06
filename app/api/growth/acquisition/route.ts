@@ -21,6 +21,21 @@ export async function GET(req: Request) {
     if (itemId) query = query.eq("id", itemId);
     const { data, count, error } = await query.order("created_at", { ascending: false }).order("id").range(page * 25, page * 25 + 24);
     if (error) throw error;
-    return NextResponse.json({ items: data, total: count, page });
+    const candidates = (data || []).filter(item => {
+      const handoff = item.metadata?.handoff;
+      return ["b2b_lead", "partner_opportunity"].includes(item.record_type) && ["prepare_outreach", "route_outreach"].includes(handoff?.action) &&
+        handoff.destination === "/dashboard/growth/pipeline" && uuid.test(handoff?.target_id || "") && item.acquisition_item_events?.some((event: { idempotency_key: string; action: string }) =>
+        event.idempotency_key === handoff.idempotency_key && event.action === handoff.action);
+    });
+    const linked = new Set<string>();
+    if (candidates.length) {
+      const { data: targets, error: targetError } = await supabaseAdmin.from("growth_targets").select("id")
+        .eq("organisation_id", organisationId).in("id", candidates.map(item => item.metadata.handoff.target_id));
+      if (targetError) throw targetError;
+      for (const target of targets || []) linked.add(target.id);
+    }
+    return NextResponse.json({ items: (data || []).map(item => ({ ...item,
+      outreachTargetId: candidates.includes(item) && linked.has(item.metadata.handoff.target_id) ? item.metadata.handoff.target_id : null,
+    })), total: count, page });
   } catch (error) { return accessErrorResponse(error) || NextResponse.json({ error: "Unable to load acquisition queue." }, { status: 503 }); }
 }

@@ -3,6 +3,7 @@ import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { uuid } from "@/lib/growthIngestion.server";
 import { AcquisitionWorkflowError, planAcquisitionAction, routeUrl, acquisitionDestination } from "@/lib/acquisitionWorkflow";
+import { promoteAcquisition } from "@/lib/acquisitionPromotion.server";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -12,6 +13,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: "Item, organisation and request key are required." }, { status: 400 });
     }
     const { organisationId, userId } = await requireOrganisation(body.organisationId, true);
+    if (["prepare_outreach", "route_outreach"].includes(body.action)) {
+      return NextResponse.json(await promoteAcquisition(organisationId, userId, itemId, body.idempotencyKey, body.action,
+        typeof body.note === "string" ? body.note.trim().slice(0, 2000) : null));
+    }
     const { data: item, error: readError } = await supabaseAdmin.from("acquisition_items")
       .select("id, organisation_id, record_type, status, metadata")
       .eq("id", itemId).eq("organisation_id", organisationId).maybeSingle();

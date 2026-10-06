@@ -37,7 +37,9 @@ test("Phase 4G intake separates Responses, Acquisition and existing cadence with
   const ingest=fs.readFileSync("app/api/growth/linkedin-connections/ingest/route.ts","utf8");
   const promote=fs.readFileSync("app/api/growth/acquisition/[id]/start-outreach/route.ts","utf8");
   assert.match(ingest,/from\("inbox_items"\)/);assert.match(ingest,/from\("acquisition_items"\)/);
-  assert.match(promote,/from\("growth_targets"\)/);assert.match(promote,/linkedin_identity/);
+  assert.match(promote,/promoteAcquisition/);
+  const transaction=fs.readFileSync("supabase/migrations/20261007100000_acquisition_target_promotion.sql","utf8");
+  assert.match(transaction,/insert into public.growth_targets/);assert.match(transaction,/linkedin_identity/);
   assert.doesNotMatch(ingest+promote,/sendMessage|api\.linkedin\.com|linkedin.*fetch\(/i);
 });
 
