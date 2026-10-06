@@ -36,7 +36,7 @@ function b2bPresentation(target: OutreachTarget) {
   const awaiting = label === "Awaiting source status";
   const review = current?.issue || current?.reply || label === "Meeting booked";
   const responses = [...(target.responses || [])].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-  const response = responses.find(r => current?.issue ? ["bounce", "redirect"].includes(r.email_classification || "") || r.email_delivery_status === "failed" : !["bounce", "redirect", "auto_acknowledgement", "out_of_office"].includes(r.email_classification || "")) || responses[0];
+  const response = responses.find(r => current?.issue ? ["bounce", "redirect"].includes(r.email_classification || "") || r.email_delivery_status === "failed" : current?.reply && ["human_positive", "human_neutral", "human_negative", "question"].includes(r.email_classification || ""));
   const responseHref = response ? `/dashboard/responses?${new URLSearchParams({ organisationId: target.organisation_id, itemId: response.id })}` : null;
   const href = current?.issue || current?.reply ? responseHref || `#source-evidence-${current.source.id}` : label === "Meeting booked" ? "#source-meeting" : "#source-outreach-status";
   return { label, href, state: current?.state, response, issue: current?.issue, reply: current?.reply, awaiting,
