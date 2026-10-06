@@ -121,12 +121,19 @@ test('successful handoff projection defers to outreach target, while waiting/sou
   const acquisition={...sample({status:'actioned'}),id:itemId,organisation_id:A,updated_at:'2026-10-05T00:00:00Z',metadata:{email,handoff:{target_id:id}}};
   const input={growth_targets:[target],acquisition_items:[acquisition],inbox_items:[]};
   const contact=lifecycle.buildContactLifecycle(A,input)[0];assert.equal(contact.currentStage,'outreach_ready');assert.equal(contact.actionRecord.id,id);
-  const governor=load('lib/operationalGovernor.ts');assert.equal(governor.planManualCompletion(A,input,'growth_targets',id).allowed,true);
+  const governor=load('lib/operationalGovernor.ts');assert.equal(governor.planManualCompletion(A,input,'growth_targets',id).allowed,false);
   acquisition.engine_state={status:'sent',last_outbound_at:'2026-10-05T12:00:00Z'};
   assert.equal(lifecycle.buildContactLifecycle(A,input)[0].currentStage,'waiting');
   assert.equal(governor.planManualCompletion(A,input,'growth_targets',id).allowed,false);
+  for(const [engine_state,expected] of [[{status:'replied'},'engaged'],[{status:'meeting_booked'},'meeting'],[{status:'sent',reply_state:'human_reply'},'needs_reply']]) {
+    acquisition.engine_state=engine_state;
+    assert.equal(lifecycle.buildContactLifecycle(A,input)[0].currentStage,expected);
+    assert.equal(governor.planManualCompletion(A,input,'growth_targets',id).allowed,false);
+  }
   delete acquisition.engine_state;acquisition.source_engine='root_health_personal';
   assert.equal(governor.planManualCompletion(A,input,'growth_targets',id).allowed,false);
+  acquisition.source_engine='linkedin_connection_network';
+  assert.equal(governor.planManualCompletion(A,input,'growth_targets',id).allowed,true);
 });
 test('both API entry points authorize before promotion and return real target-specific destinations',async()=>{
   const id=randomUUID(),targetId=randomUUID();let writes=0;
@@ -181,6 +188,22 @@ test('actual target page shows outreach-ready lead, not empty meetings; meeting 
   }
 });
 
+test('B2B ownership renders monitor-only for ready and follow-up; LinkedIn/manual controls survive',()=>{
+  const Manual=()=>null;
+  const Workspace=load('app/dashboard/growth/pipeline/OutreachWorkspace.tsx',{react:{useState:value=>[value,()=>{}]},'@/lib/tenantFetch':{},'../../components/ManualTakeover':{__esModule:true,default:Manual}}).default;
+  for(const stage of ['outreach_ready','follow_up']) for(const source of ['root_health_b2b','google_b2b_lead_engine']) {
+    for(const evidence of [{source_type:source},{acquisition:[{id:'a',source_engine:source,engine_state:{status:'ready'}}]},{acquisition:[{id:'a',metadata:{source}}]}]) {
+      const view=Workspace({target:{id:'target',organisation_id:A,target_name:'Business',suggested_message:'Source draft',lifecycle:{currentStage:stage},...evidence},onComplete:async()=>{}});
+      assert.match(JSON.stringify(view),/Automated outreach owned by Root B2B engine/);
+      assert.equal(nodes(view,Manual).length,0);assert.equal(nodes(view,'button').length,0);assert.equal(nodes(view,'textarea').length,0);
+      if(evidence.acquisition?.[0].engine_state)assert.match(JSON.stringify(view),/Source engine state/);
+    }
+    const view=Workspace({target:{id:'manual',organisation_id:A,target_name:'Alex',source_type:'linkedin_connection_network',linkedin_url:'https://linkedin.com/in/alex',lifecycle:{currentStage:stage}},onComplete:async()=>{}});
+    assert.equal(nodes(view,Manual).length,1);
+    assert.ok(nodes(view,'button').some(n=>n.props.children===(stage==='outreach_ready'?'Prepare first message':'Prepare follow-up')));
+  }
+});
+
 test('end-to-end: Accept and Start outreach traverse real routes and SQL into the actual target workspace',async()=>{
   const f=await fixture();try {
     const item=await f.item({status:'new',metadata:{...sample().metadata,prepared_outreach:'A prepared business message for review.'}});
@@ -228,8 +251,9 @@ test('end-to-end: Accept and Start outreach traverse real routes and SQL into th
     const Manual=()=>null;index=0;
     const Workspace=load('app/dashboard/growth/pipeline/OutreachWorkspace.tsx',{react,'@/lib/tenantFetch':{},'../../components/ManualTakeover':{__esModule:true,default:Manual}}).default;
     state.length=0;const view=Workspace({target,onComplete:async()=>{}});
-    assert.ok(nodes(view,'button').some(n=>n.props.children==='Prepare first message'));
-    assert.equal(nodes(view,'textarea')[0].props.value,item.metadata.prepared_outreach);assert.equal(nodes(view,Manual)[0].props.id,targetId);
+    assert.equal(nodes(view,'button').some(n=>n.props.children==='Prepare first message'),false);
+    assert.match(JSON.stringify(view),/Source prepared message \(monitor only\)/);assert.equal(nodes(view,Manual).length,0);
+    assert.match(JSON.stringify(view),/Automated outreach owned by Root B2B engine/);
     assert.doesNotMatch(JSON.stringify(view),/No calls booked yet/);
     assert.equal((await post({action:'prepare_outreach'})).body.targetId,targetId);
     assert.equal((await f.db.query('select count(*)::int n from acquisition_item_events')).rows[0].n,2);
