@@ -84,7 +84,7 @@ export function currentBuyingSignalScore(review:Pick<ManualReview,"verifiedFacts
   const hasGroundedSignal=review.verifiedFacts.some(f=>f.category==="signal");
   if(!hasGroundedSignal)return 0;
   const signal=(review.currentSignal||"").toLowerCase();
-  const explicitlyAbsent=/\bno qualifying\b|\bno current\b.*\bsignal\b|\bno\b.*\bbuying signal\b|\bnot evidence of\b.*\bbuying\b|\bdo not establish a reason to approach now\b|\bdoes not establish a reason to approach now\b|\bdo not show an open buying process\b/.test(signal);
+  const explicitlyAbsent=/\bno qualifying\b|\bno current\b.*\bsignal\b|\bno\b[^.]{0,120}\bcurrent\b[^.]{0,80}\bbuying signal\b|\bno\b.*\bbuying signal\b|\bnot evidence of\b.*\bbuying\b|\bdo not establish a reason to approach now\b|\bdoes not establish a reason to approach now\b|\bdo not show an open buying process\b/.test(signal);
   return explicitlyAbsent?0:10;
 }
 function sourceConfidence(sources:ManualSource[]):NonNullable<ManualReview["evidenceConfidence"]>{

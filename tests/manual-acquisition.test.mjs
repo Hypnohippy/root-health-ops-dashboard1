@@ -157,3 +157,13 @@ test('current buying signal score remains available for a genuinely grounded pos
   };
   assert.equal(research.currentBuyingSignalScore(review),10);
 });
+
+
+test('current buying signal score is zero for wording that says no verified current buying signal',()=>{
+  const research=load('lib/manualAcquisitionResearch.server.ts',{'@/lib/organisationProfile.server':{getOrganisationGenerationProfile:async()=>({})}});
+  const review={
+    verifiedFacts:[{claim:'KBR has current wellbeing activity.',category:'signal',sourceUrls:['https://kbr.com']}],
+    currentSignal:'Strong strategic alignment, but no verified current buying signal.'
+  };
+  assert.equal(research.currentBuyingSignalScore(review),0);
+});
