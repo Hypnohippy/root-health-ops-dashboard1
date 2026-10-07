@@ -3,7 +3,7 @@ import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { readIngestionBody, IngestionError, uuid } from "@/lib/growthIngestion.server";
 import { manualRecord, manualReview, parseManualInput } from "@/lib/manualAcquisition";
-import { researchManualOpportunity } from "@/lib/manualAcquisitionResearch.server";
+import { researchManualOpportunity, researchDecisionMakers } from "@/lib/manualAcquisitionResearch.server";
 
 export const runtime = "nodejs";
 export async function POST(req: Request) {
@@ -14,6 +14,11 @@ export async function POST(req: Request) {
     if (body.action === "review") {
       const input=parseManualInput(body.input), requestedResearch=body.requestedResearch===true;
       const review=requestedResearch ? await researchManualOpportunity(tenant.organisationId,input) : manualReview(input,false);
+      return NextResponse.json({ review }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (body.action === "people") {
+      const input=parseManualInput(body.input);
+      const review=await researchDecisionMakers(tenant.organisationId,input,body.review);
       return NextResponse.json({ review }, { headers: { "Cache-Control": "no-store" } });
     }
     if (body.action !== "create") throw new IngestionError("Invalid manual opportunity action.");
@@ -33,4 +38,4 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ success: true, id, duplicate: !data?.length, destination: `/dashboard/growth/acquisition?${new URLSearchParams({ organisationId: tenant.organisationId, itemId: id })}` });
   } catch (error) { return accessErrorResponse(error) || NextResponse.json({ error: error instanceof IngestionError ? error.message : "Unable to create opportunity. Retry the same submission; do not start another." }, { status: error instanceof IngestionError ? error.status : 503 }); }
-} 
+}

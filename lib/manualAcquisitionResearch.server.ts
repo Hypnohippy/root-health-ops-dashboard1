@@ -1,5 +1,5 @@
 import { getOrganisationGenerationProfile } from "@/lib/organisationProfile.server";
-import { manualReview, publicBusinessUrl, type ManualFact, type ManualInput, type ManualReview, type ManualSource } from "@/lib/manualAcquisition";
+import { manualReview, publicBusinessUrl, parseManualResearchReview, type ManualFact, type ManualInput, type ManualPersonCandidate, type ManualReview, type ManualSource } from "@/lib/manualAcquisition";
 
 const FREE_MAIL=new Set(["gmail.com","outlook.com","hotmail.com","yahoo.com","icloud.com","aol.com","proton.me","protonmail.com"]);
 const text=(v:unknown,max=2000)=>typeof v==="string"?v.trim().slice(0,max):"";
@@ -98,7 +98,7 @@ ${JSON.stringify(profile).slice(0,12000)}`;
   const categories=new Set(facts.map(f=>f.category)), official=publicSources.some(s=>s.sourceType==="official");
   const contrary=list(parsed.contraryEvidence,8), missing=list(parsed.missingEvidence,8);
   const requiredCategories: ManualFact["category"][]=["identity","fit","signal","route"];
-const deterministicReady=publicSources.length>=2&&official&&requiredCategories.every(c=>categories.has(c))&&!missing.length&&!contrary.some(v=>/do not approach|unsafe|conflict|wrong fit/i.test(v));
+  const deterministicReady=publicSources.length>=2&&official&&requiredCategories.every(c=>categories.has(c))&&!missing.length&&!contrary.some(v=>/do not approach|unsafe|conflict|wrong fit/i.test(v));
   const requestedDecision=String(parsed.decision);
   const decision:ManualReview["decision"]=requestedDecision==="hold"?"hold":deterministicReady?"ready":"needs_verification";
   const suggested=["b2b_lead","partner_opportunity","personal_opportunity","social_opportunity"].includes(String(parsed.suggestedType))?String(parsed.suggestedType):null;
@@ -106,4 +106,103 @@ const deterministicReady=publicSources.length>=2&&official&&requiredCategories.e
     summary:text(parsed.summary,2400),fit:text(parsed.fit,1600),currentSignal:text(parsed.currentSignal,1600),recommendedRoute:text(parsed.recommendedRoute,1600),
     contraryEvidence:contrary,missingEvidence:missing,decision,
     research:{status:"completed",message:decision==="ready"?"Research gate passed. Review the evidence before creating the opportunity.":decision==="hold"?"Research suggests holding this opportunity. Review the evidence before deciding.":"Research found a possible opportunity, but one or more decision-grade evidence checks are still missing.",searchedAt:new Date().toISOString(),searchCalls:2}};
+}
+
+export async function researchDecisionMakers(organisationId:string,input:ManualInput,currentReview:unknown):Promise<ManualReview>{
+  const base=parseManualResearchReview(currentReview,input);
+  if(!businessContext(input))return {...base,research:{...base.research,message:"Decision-maker research requires a company, public website, LinkedIn profile or business-domain email."}};
+  const key=process.env.OPENAI_API_KEY;if(!key)return {...base,research:{...base.research,message:"AI web research is not configured in Ops."}};
+  let profile:unknown={};
+  try{profile=await getOrganisationGenerationProfile(organisationId);}catch{}
+  const prompt=`Find PUBLIC PROFESSIONAL decision-maker candidates for a Root Health workplace wellbeing opportunity.
+
+Research only professional/business information. Do not seek private, health, family, political or other sensitive personal information. Do not infer personal email addresses or phone numbers.
+
+Organisation input:
+${JSON.stringify(input)}
+
+Existing opportunity research:
+${JSON.stringify(base).slice(0,16000)}
+
+Root Health context:
+${JSON.stringify(profile).slice(0,8000)}
+
+Find up to 8 CURRENT people whose public roles plausibly relate to buying, sponsoring, referring or owning workplace wellbeing in this organisation. It is useful to return several plausible roles rather than forcing a single winner.
+
+Prioritise:
+- Head/Director/VP of People or HR
+- Employee Wellbeing / Health & Wellbeing
+- Occupational Health
+- Benefits / Reward
+- People Experience / Employee Experience
+- Learning & Development / Organisational Development
+- senior HR business leadership
+- for partner organisations, Partnerships / Membership / Business Development where appropriate
+
+Classify each candidate:
+- operational_buyer: likely day-to-day owner/buyer
+- senior_sponsor: senior executive sponsor
+- adjacent: relevant but indirect
+- unknown
+
+Evidence rules:
+1. Never invent a person or role.
+2. Prefer current official organisation pages. LinkedIn/company/profile pages, conference bios and reputable professional sources may corroborate current roles.
+3. Each candidate must have at least one source URL from the web search.
+4. If a role may be stale, say so in relevance and do not overstate it.
+5. Do not guess contact details.
+6. If nobody is sufficiently verified, return an empty people array.
+
+Return JSON only:
+{
+  "people":[
+    {
+      "name":string,
+      "role":string,
+      "relevance":string,
+      "seniority":"operational_buyer"|"senior_sponsor"|"adjacent"|"unknown",
+      "sourceUrls":[string],
+      "publicProfileUrl":string|null
+    }
+  ],
+  "publicSources":[
+    {"url":string,"title":string,"sourceType":"official"|"reputable"|"other","publishedAt":string|null}
+  ]
+}`;
+  const response=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},body:JSON.stringify({
+    model:process.env.OPENAI_RESEARCH_MODEL||"gpt-6-luna",
+    tools:[{type:"web_search"}],tool_choice:"auto",max_tool_calls:2,max_output_tokens:2400,
+    include:["web_search_call.action.sources"],input:prompt
+  })});
+  if(!response.ok)return {...base,research:{...base.research,message:"Opportunity research is saved, but decision-maker search could not be completed."}};
+  const result=await response.json() as Record<string,unknown>,searched=searchSources(result);
+  let parsed:Record<string,unknown>;
+  try{parsed=JSON.parse(outputText(result));}catch{return {...base,research:{...base.research,message:"Opportunity research is saved, but decision-maker search returned an unreadable result."}};}
+  const extraSources:ManualSource[]=(Array.isArray(parsed.publicSources)?parsed.publicSources:[]).slice(0,16).flatMap(v=>{
+    if(!v||typeof v!=="object"||Array.isArray(v))return[];
+    const o=v as Record<string,unknown>,url=text(o.url,2048);if(!url||!searched.has(url))return[];
+    const sourceType=["official","reputable","other"].includes(String(o.sourceType))?String(o.sourceType) as ManualSource["sourceType"]:"other";
+    return [{url,title:text(o.title,500)||searched.get(url)!.title,sourceType,publishedAt:text(o.publishedAt,64)||null}];
+  });
+  const mergedSources=[...base.publicSources];
+  for(const source of extraSources)if(!mergedSources.some(existing=>existing.url===source.url))mergedSources.push(source);
+  const allowed=new Set(mergedSources.map(s=>s.url));
+  const people:ManualPersonCandidate[]=(Array.isArray(parsed.people)?parsed.people:[]).slice(0,8).flatMap(v=>{
+    if(!v||typeof v!=="object"||Array.isArray(v))return[];
+    const o=v as Record<string,unknown>,name=text(o.name,300),role=text(o.role,500),relevance=text(o.relevance,1200);
+    const sourceUrls=list(o.sourceUrls,6).filter(url=>allowed.has(url));
+    const seniority=["operational_buyer","senior_sponsor","adjacent","unknown"].includes(String(o.seniority))?String(o.seniority) as ManualPersonCandidate["seniority"]:"unknown";
+    const profile=text(o.publicProfileUrl,2048);let publicProfileUrl:string|null=null;
+    if(profile&&allowed.has(profile)){try{publicBusinessUrl(profile,true);publicProfileUrl=profile;}catch{}}
+    return name&&role&&sourceUrls.length?[{name,role,relevance,seniority,sourceUrls,publicProfileUrl}]:[];
+  });
+  const missing=(base.missingEvidence||[]).filter(item=>!/named professional|decision-maker|responsible for .*wellbeing|wellbeing purchasing/i.test(item));
+  if(!people.length)missing.push("No sufficiently verified named professional decision-maker was found in public sources.");
+  const verifiedFacts=[...base.verifiedFacts];
+  for(const person of people){
+    const claim=`${person.name} — ${person.role}`;
+    if(!verifiedFacts.some(f=>f.category==="role"&&f.claim===claim))verifiedFacts.push({claim,category:"role",sourceUrls:person.sourceUrls});
+  }
+  return {...base,verifiedFacts,publicSources:mergedSources.slice(0,20),people,missingEvidence:missing,
+    research:{...base.research,message:people.length?`Found ${people.length} public professional candidate${people.length===1?"":"s"}. Review roles and sources before choosing an approach.`:"No sufficiently verified named decision-maker was found. The opportunity research remains unchanged.",searchCalls:Math.min(4,(base.research.searchCalls||2)+2)}};
 }

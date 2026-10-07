@@ -16,6 +16,14 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
       const data=await res.json();if(!res.ok)throw Error(data.error||"Unable to review input.");setReview(data.review);setRequestedResearch(research);setRecordType("");setConfirmed(false);
     } catch(e){setError(e instanceof Error?e.message:"Unable to review input.");} finally{setBusy(false);}
   }
+  async function findPeople() {
+    if(!review)return;
+    setBusy(true);setError("");
+    try {
+      const res=await fetch("/api/growth/acquisition/manual",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({organisationId,action:"people",input:review.userProvided,review})});
+      const data=await res.json();if(!res.ok)throw Error(data.error||"Unable to search decision-makers.");setReview(data.review);
+    } catch(e){setError(e instanceof Error?e.message:"Unable to search decision-makers.");} finally{setBusy(false);}
+  }
   async function create() {
     setBusy(true);setError("");setAttempted(true);
     try {
@@ -46,6 +54,14 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
       {!!review.verifiedFacts.length&&<div><h4 className="font-semibold">What we verified</h4><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{review.verifiedFacts.map((fact,i)=><li key={i}>{fact.claim}</li>)}</ul></div>}
       {!!review.contraryEvidence?.length&&<div><h4 className="font-semibold">Why not to approach</h4><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{review.contraryEvidence.map((v,i)=><li key={i}>{v}</li>)}</ul></div>}
       {!!review.missingEvidence?.length&&<div><h4 className="font-semibold">Still missing</h4><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{review.missingEvidence.map((v,i)=><li key={i}>{v}</li>)}</ul></div>}
+      {requestedResearch&&<div className="space-y-3 rounded-lg border border-white/10 bg-white/[0.02] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-semibold">Decision-makers</h4><p className="text-sm text-slate-400">Find several publicly verified professional candidates; Ops will not guess contact details.</p></div><button type="button" disabled={busy} onClick={()=>void findPeople()} className="rounded border border-emerald-400/30 px-3 py-2">{busy?"Searching…":review.people?.length?"Search again":"Find decision-makers"}</button></div>
+        {!!review.people?.length&&<div className="grid gap-3 md:grid-cols-2">{review.people.map((person,i)=><article key={`${person.name}-${person.role}-${i}`} className="rounded border border-white/10 p-3">
+          <div className="font-semibold">{person.name}</div><div className="text-sm text-slate-300">{person.role}</div><div className="mt-1 text-xs uppercase tracking-wide text-slate-500">{person.seniority.replaceAll("_"," ")}</div>
+          <p className="mt-2 text-sm">{person.relevance}</p>
+          <div className="mt-2 flex flex-wrap gap-3 text-sm">{person.publicProfileUrl&&<a className="text-sky-300 underline" href={person.publicProfileUrl} target="_blank" rel="noopener noreferrer">Public profile</a>}{person.sourceUrls.map((url,j)=><a key={url} className="text-sky-300 underline" href={url} target="_blank" rel="noopener noreferrer">Source {j+1}</a>)}</div>
+        </article>)}</div>}
+      </div>}
       <div><h4 className="font-semibold">Sources</h4>{review.publicSources.length?<ul className="mt-1 space-y-1 text-sm">{review.publicSources.map((source,i)=><li key={i}><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-sky-300 underline">{source.title}</a> <span className="text-slate-400">· {source.sourceType}{source.publishedAt?` · ${source.publishedAt}`:""}</span></li>)}</ul>:<p className="text-sm text-slate-400">No public sources checked.</p>}</div>
       <label className="grid gap-1 text-sm">Confirm opportunity type<select value={recordType} disabled={attempted} onChange={e=>setRecordType(e.target.value)} className="rounded border border-white/20 bg-slate-900 p-2"><option value="">Choose a type</option><option value="b2b_lead">B2B lead</option><option value="partner_opportunity">Partner opportunity</option><option value="personal_opportunity">Personal public demand</option><option value="social_opportunity">Social/content opportunity</option></select></label>
       <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} disabled={attempted} onChange={e=>setConfirmed(e.target.checked)}/>I have reviewed the evidence. This is public business/professional context or non-personal public demand, not sensitive health targeting or a consumer prospect list.</label>
