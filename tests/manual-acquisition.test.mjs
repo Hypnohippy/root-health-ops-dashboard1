@@ -138,3 +138,22 @@ test('organisational change remains separate from current buying signal',()=>{
   assert.match(review.organisationalChange.relevance,/not evidence of buying intent/);
   assert.equal(review.currentSignal,'No wellbeing buying signal verified.');
 });
+
+
+test('current buying signal score is zero when evidence explicitly says there is no qualifying current signal',()=>{
+  const research=load('lib/manualAcquisitionResearch.server.ts',{'@/lib/organisationProfile.server':{getOrganisationGenerationProfile:async()=>({})}});
+  const review={
+    verifiedFacts:[{claim:'KBR public materials describe ongoing wellbeing programmes.',category:'signal',sourceUrls:['https://kbr.com']}],
+    currentSignal:'No qualifying current wellbeing-specific signal found. The materials reviewed do not establish a reason to approach now.'
+  };
+  assert.equal(research.currentBuyingSignalScore(review),0);
+});
+
+test('current buying signal score remains available for a genuinely grounded positive signal',()=>{
+  const research=load('lib/manualAcquisitionResearch.server.ts',{'@/lib/organisationProfile.server':{getOrganisationGenerationProfile:async()=>({})}});
+  const review={
+    verifiedFacts:[{claim:'A current procurement notice seeks a workplace wellbeing provider.',category:'signal',sourceUrls:['https://example.org/tender']}],
+    currentSignal:'Current procurement notice for workplace wellbeing support.'
+  };
+  assert.equal(research.currentBuyingSignalScore(review),10);
+});

@@ -21,6 +21,14 @@ function outputText(result:Record<string,unknown>){
   }
   return "";
 }
+function parseJsonObject(raw:string):Record<string,unknown>|null{
+  const trimmed=raw.trim();
+  const candidates=[trimmed,trimmed.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"")];
+  const first=trimmed.indexOf("{"),last=trimmed.lastIndexOf("}");
+  if(first>=0&&last>first)candidates.push(trimmed.slice(first,last+1));
+  for(const candidate of candidates){try{const parsed=JSON.parse(candidate);if(parsed&&typeof parsed==="object"&&!Array.isArray(parsed))return parsed as Record<string,unknown>;}catch{}}
+  return null;
+}
 function searchSources(value:unknown){
   const found=new Map<string,{url:string;title:string}>();
   function walk(v:unknown){
@@ -72,6 +80,13 @@ function personScore(p:{geography:ManualPersonCandidate["geography"];functionalF
   return Math.min(100,geo+fit+buy+senior);
 }
 function boundedScore(v:unknown,max:number){const n=Number(v);return Number.isFinite(n)?Math.max(0,Math.min(max,n)):0;}
+export function currentBuyingSignalScore(review:Pick<ManualReview,"verifiedFacts"|"currentSignal">){
+  const hasGroundedSignal=review.verifiedFacts.some(f=>f.category==="signal");
+  if(!hasGroundedSignal)return 0;
+  const signal=(review.currentSignal||"").toLowerCase();
+  const explicitlyAbsent=/\bno qualifying\b|\bno current\b.*\bsignal\b|\bno\b.*\bbuying signal\b|\bnot evidence of\b.*\bbuying\b|\bdo not establish a reason to approach now\b|\bdoes not establish a reason to approach now\b|\bdo not show an open buying process\b/.test(signal);
+  return explicitlyAbsent?0:10;
+}
 function sourceConfidence(sources:ManualSource[]):NonNullable<ManualReview["evidenceConfidence"]>{
   const official=sources.filter(s=>s.sourceType==="official").length,reputable=sources.filter(s=>s.sourceType==="reputable").length;
   return official>=2&&sources.length>=4?"high":official>=1&&(sources.length>=2||reputable>=1)?"medium":"low";
@@ -120,9 +135,10 @@ Root Health context: ${JSON.stringify(profile).slice(0,10000)}`;
   const response=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},body:JSON.stringify({
     model:process.env.OPENAI_RESEARCH_MODEL||"gpt-6-luna",tools:[{type:"web_search"}],tool_choice:"auto",max_tool_calls:4,max_output_tokens:3600,
     include:["web_search_call.action.sources"],input:prompt})});
-  if(!response.ok)return base;
-  const result=await response.json() as Record<string,unknown>,searched=searchSources(result);let parsed:Record<string,unknown>;
-  try{parsed=JSON.parse(outputText(result));}catch{return base;}
+  if(!response.ok)return {...base,research:{...base.research,message:`${base.research.message} Strategic second-pass research could not complete (HTTP ${response.status}); first-pass evidence was preserved.`}};
+  const result=await response.json() as Record<string,unknown>,searched=searchSources(result);
+  const parsed=parseJsonObject(outputText(result));
+  if(!parsed)return {...base,research:{...base.research,message:`${base.research.message} Strategic second-pass research returned unreadable JSON; first-pass evidence was preserved.`}};
   const extraSources=sourceList(parsed,searched,16),publicSources=[...base.publicSources];
   for(const s of extraSources)if(!publicSources.some(x=>x.url===s.url))publicSources.push(s);
   const allowed=new Set(publicSources.map(s=>s.url));
@@ -146,7 +162,7 @@ Root Health context: ${JSON.stringify(profile).slice(0,10000)}`;
   const strategic=boundedScore(alignmentScore*0.30,30);
   const problem=base.fit||verifiedFacts.some(f=>f.category==="fit")?25:0;
   const operational=text(parsed.operationalGap,2200)?20:0;
-  const signal=verifiedFacts.some(f=>f.category==="signal")?10:0;
+  const signal=currentBuyingSignalScore(base);
   const scoreBreakdown={strategicAlignment:strategic,problemRelevance:problem,operationalOpportunity:operational,decisionMakerQuality:0,currentSignal:signal};
   const opportunityScore=Object.values(scoreBreakdown).reduce((a,b)=>a+b,0);
   const changeRaw=parsed.organisationalChange&&typeof parsed.organisationalChange==="object"&&!Array.isArray(parsed.organisationalChange)?parsed.organisationalChange as Record<string,unknown>:{};
