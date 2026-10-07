@@ -3,7 +3,7 @@ import { IngestionError, parseIngestion, recordTypes, uuid } from "@/lib/growthI
 const fields = ["person", "company", "linkedin", "website", "email", "note"] as const;
 export type ManualInput = Record<typeof fields[number], string>;
 export type ManualSource = { url:string; title:string; sourceType:"official"|"reputable"|"other"; publishedAt:string|null };
-export type ManualFact = { claim:string; category:"identity"|"fit"|"signal"|"route"|"role"|"counterevidence"; sourceUrls:string[] };
+export type ManualFact = { claim:string; category:"identity"|"fit"|"signal"|"route"|"role"|"counterevidence"|"alignment"|"continuity"|"operational_gap"|"root_fit"; sourceUrls:string[] };
 export type ManualContactRoute = {
   directEmail?: string|null;
   emailStatus:"verified"|"inferred_pattern"|"not_found";
@@ -37,6 +37,16 @@ export type ManualReview = {
   summary?: string;
   fit?: string;
   currentSignal?: string;
+  strategicAlignment?: string;
+  strategicAlignmentScore?: number;
+  strategicContinuity?: { fromYear:number|null; toYear:number|null; summary:string; sourceUrls:string[] };
+  operationalGap?: string;
+  rootFit?: string;
+  researchQuestions?: string[];
+  evidenceConfidence?: "high"|"medium"|"low";
+  opportunityScore?: number;
+  scoreBreakdown?: { strategicAlignment:number; problemRelevance:number; operationalOpportunity:number; decisionMakerQuality:number; currentSignal:number };
+  outreachAngle?: string;
   recommendedRoute?: string;
   contraryEvidence?: string[];
   missingEvidence?: string[];
@@ -104,7 +114,7 @@ export function parseManualResearchReview(value: unknown, input: ManualInput): M
   const verifiedFacts = Array.isArray(raw.verifiedFacts) ? raw.verifiedFacts.slice(0,36).flatMap(fact=>{
     if(!fact || typeof fact!=="object" || Array.isArray(fact))return [];
     const f=fact as Record<string,unknown>, claim=short(f.claim,1200), category=String(f.category);
-    if(!claim || !["identity","fit","signal","route","role","counterevidence"].includes(category))return [];
+    if(!claim || !["identity","fit","signal","route","role","counterevidence","alignment","continuity","operational_gap","root_fit"].includes(category))return [];
     const sourceUrls=stringList(f.sourceUrls,6,2048).filter(url=>allowedUrls.has(url));
     return sourceUrls.length ? [{claim,category:category as ManualFact["category"],sourceUrls}] : [];
   }) : [];
@@ -126,6 +136,14 @@ export function parseManualResearchReview(value: unknown, input: ManualInput): M
   return {
     userProvided: input, verifiedFacts, publicSources:sources, aiSuggestions:stringList(raw.aiSuggestions,8,800), suggestedType,
     summary:short(raw.summary,2400), fit:short(raw.fit,1600), currentSignal:short(raw.currentSignal,1600),
+    strategicAlignment:short(raw.strategicAlignment,2400),
+    strategicAlignmentScore:Number.isFinite(Number(raw.strategicAlignmentScore))?Math.max(0,Math.min(100,Number(raw.strategicAlignmentScore))):undefined,
+    strategicContinuity:raw.strategicContinuity&&typeof raw.strategicContinuity==="object"&&!Array.isArray(raw.strategicContinuity)?(()=>{const v=raw.strategicContinuity as Record<string,unknown>,sourceUrls=stringList(v.sourceUrls,12,2048).filter(url=>allowedUrls.has(url));return {fromYear:Number.isFinite(Number(v.fromYear))?Number(v.fromYear):null,toYear:Number.isFinite(Number(v.toYear))?Number(v.toYear):null,summary:short(v.summary,1800),sourceUrls};})():undefined,
+    operationalGap:short(raw.operationalGap,2200), rootFit:short(raw.rootFit,2200), researchQuestions:stringList(raw.researchQuestions,10,500),
+    evidenceConfidence:["high","medium","low"].includes(String(raw.evidenceConfidence))?String(raw.evidenceConfidence) as ManualReview["evidenceConfidence"]:undefined,
+    opportunityScore:Number.isFinite(Number(raw.opportunityScore))?Math.max(0,Math.min(100,Number(raw.opportunityScore))):undefined,
+    scoreBreakdown:raw.scoreBreakdown&&typeof raw.scoreBreakdown==="object"&&!Array.isArray(raw.scoreBreakdown)?(()=>{const v=raw.scoreBreakdown as Record<string,unknown>;return {strategicAlignment:Math.max(0,Math.min(30,Number(v.strategicAlignment)||0)),problemRelevance:Math.max(0,Math.min(25,Number(v.problemRelevance)||0)),operationalOpportunity:Math.max(0,Math.min(20,Number(v.operationalOpportunity)||0)),decisionMakerQuality:Math.max(0,Math.min(15,Number(v.decisionMakerQuality)||0)),currentSignal:Math.max(0,Math.min(10,Number(v.currentSignal)||0))};})():undefined,
+    outreachAngle:short(raw.outreachAngle,1800),
     recommendedRoute:short(raw.recommendedRoute,1600), contraryEvidence:stringList(raw.contraryEvidence,8,1000),
     missingEvidence:stringList(raw.missingEvidence,8,1000), people, decision,
     research:{status:"completed",message:short(research.message,1200)||"Public research completed. Review the evidence before creating the opportunity.",searchedAt:short(research.searchedAt,64)||undefined,searchCalls:Number.isFinite(Number(research.searchCalls))?Math.min(8,Math.max(0,Number(research.searchCalls))):undefined},

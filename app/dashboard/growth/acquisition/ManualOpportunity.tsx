@@ -58,6 +58,18 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
         <div><dt className="font-semibold">Recommended route</dt><dd>{review.recommendedRoute||"Review context and verify identity before considering outreach."}</dd></div>
         <div><dt className="font-semibold">Suggested type</dt><dd>{review.suggestedType?.replaceAll("_"," ")||"No type suggested — choose below."}</dd></div>
       </dl>
+      {(review.strategicAlignment||review.operationalGap||review.rootFit)&&<div className="space-y-3 rounded-lg border border-emerald-400/20 bg-emerald-400/[0.03] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-semibold">Strategic opportunity</h4><p className="text-sm text-slate-400">Separates long-term fit from a current buying signal.</p></div><div className="flex gap-2 text-xs">{review.opportunityScore!==undefined&&<span className="rounded-full border border-white/10 px-2 py-1">Opportunity {Math.round(review.opportunityScore)}/100</span>}{review.evidenceConfidence&&<span className="rounded-full border border-white/10 px-2 py-1">{review.evidenceConfidence} evidence confidence</span>}</div></div>
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <div><dt className="font-semibold">Strategic alignment</dt><dd>{review.strategicAlignment||"Not established."}{review.strategicAlignmentScore!==undefined&&<span className="ml-2 text-slate-400">({Math.round(review.strategicAlignmentScore)}/100)</span>}</dd></div>
+          <div><dt className="font-semibold">Strategic continuity</dt><dd>{review.strategicContinuity?.summary||"Not established."}{(review.strategicContinuity?.fromYear||review.strategicContinuity?.toYear)&&<span className="ml-2 text-slate-400">({review.strategicContinuity.fromYear||"?"}–{review.strategicContinuity.toYear||"present"})</span>}</dd></div>
+          <div><dt className="font-semibold">Likely operational burden / gap</dt><dd>{review.operationalGap||"Not established."}</dd></div>
+          <div><dt className="font-semibold">Why Root fits</dt><dd>{review.rootFit||"Not established."}</dd></div>
+        </dl>
+        {review.scoreBreakdown&&<p className="text-xs text-slate-400">Score: alignment {Math.round(review.scoreBreakdown.strategicAlignment)}/30 · problem relevance {Math.round(review.scoreBreakdown.problemRelevance)}/25 · operational opportunity {Math.round(review.scoreBreakdown.operationalOpportunity)}/20 · decision-maker {Math.round(review.scoreBreakdown.decisionMakerQuality)}/15 · current signal {Math.round(review.scoreBreakdown.currentSignal)}/10</p>}
+        {review.outreachAngle&&<div><h5 className="font-semibold">Best outreach angle</h5><p className="mt-1 text-sm">{review.outreachAngle}</p></div>}
+        {!!review.researchQuestions?.length&&<div><h5 className="font-semibold">Questions that could still change the decision</h5><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{review.researchQuestions.map((q,i)=><li key={i}>{q}</li>)}</ul></div>}
+      </div>}
       {!!review.verifiedFacts.length&&<div><h4 className="font-semibold">What we verified</h4><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{review.verifiedFacts.map((fact,i)=><li key={i}>{fact.claim}</li>)}</ul></div>}
       {!!review.contraryEvidence?.length&&<div><h4 className="font-semibold">Why not to approach</h4><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{review.contraryEvidence.map((v,i)=><li key={i}>{v}</li>)}</ul></div>}
       {!!review.missingEvidence?.length&&<div><h4 className="font-semibold">Still missing</h4><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{review.missingEvidence.map((v,i)=><li key={i}>{v}</li>)}</ul></div>}

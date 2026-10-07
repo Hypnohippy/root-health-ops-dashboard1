@@ -75,3 +75,26 @@ test('manual form reviews sparse input, requires type confirmation and retries t
   assert.equal(requests[1].submissionId,key);assert.equal(requests[2].submissionId,key);assert.equal(requests[1].input.note,'Barnardo’s');assert.match(destination,/acquisition\?itemId=/);
   assert.doesNotMatch(JSON.stringify(requests),/approve-send|sendMail|growth_targets/);
 });
+
+
+test('strategic research fields survive parsing only when grounded to searched sources',()=>{
+  const input=helpers.parseManualInput({company:'KBR',website:'https://kbr.com'});
+  const review=helpers.parseManualResearchReview({
+    research:{status:'completed',message:'done',searchCalls:6},
+    publicSources:[{url:'https://kbr.com/report',title:'Report',sourceType:'official',publishedAt:'2026'}],
+    verifiedFacts:[{claim:'Long-running wellbeing measurement',category:'alignment',sourceUrls:['https://kbr.com/report']}],
+    strategicAlignment:'Strong historical and current alignment',
+    strategicAlignmentScore:92,
+    strategicContinuity:{fromYear:2020,toYear:2026,summary:'Programme continues across multiple years.',sourceUrls:['https://kbr.com/report','https://not-searched.example']},
+    operationalGap:'Implementation appears to depend on delegated human action.',
+    rootFit:'Root can target and monitor interventions.',
+    researchQuestions:['Who owns UK intervention procurement?'],
+    evidenceConfidence:'high',
+    opportunityScore:74,
+    scoreBreakdown:{strategicAlignment:28,problemRelevance:25,operationalOpportunity:20,decisionMakerQuality:0,currentSignal:1},
+    outreachAngle:'Do not sell generic wellbeing; position Root as the targeting and execution layer.',
+    decision:'needs_verification'
+  },input);
+  assert.equal(review.strategicAlignmentScore,92);assert.equal(review.strategicContinuity.fromYear,2020);assert.deepEqual(review.strategicContinuity.sourceUrls,['https://kbr.com/report']);
+  assert.equal(review.evidenceConfidence,'high');assert.equal(review.opportunityScore,74);assert.equal(review.verifiedFacts[0].category,'alignment');
+});
