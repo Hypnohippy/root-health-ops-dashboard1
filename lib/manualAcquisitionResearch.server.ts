@@ -81,11 +81,15 @@ function personScore(p:{geography:ManualPersonCandidate["geography"];functionalF
 }
 function boundedScore(v:unknown,max:number){const n=Number(v);return Number.isFinite(n)?Math.max(0,Math.min(max,n)):0;}
 export function currentBuyingSignalScore(review:Pick<ManualReview,"verifiedFacts"|"currentSignal">){
-  const hasGroundedSignal=review.verifiedFacts.some(f=>f.category==="signal");
-  if(!hasGroundedSignal)return 0;
+  const groundedSignals=review.verifiedFacts.filter(f=>f.category==="signal");
+  if(!groundedSignals.length)return 0;
   const signal=(review.currentSignal||"").toLowerCase();
-  const explicitlyAbsent=/\bno qualifying\b|\bno current\b.*\bsignal\b|\bno\b[^.]{0,120}\bcurrent\b[^.]{0,80}\bbuying signal\b|\bno\b.*\bbuying signal\b|\bnot evidence of\b.*\bbuying\b|\bdo not establish a reason to approach now\b|\bdoes not establish a reason to approach now\b|\bdo not show an open buying process\b/.test(signal);
-  return explicitlyAbsent?0:10;
+  const evidence=groundedSignals.map(f=>f.claim.toLowerCase()).join(" ");
+  const combined=`${signal} ${evidence}`;
+  const explicitlyAbsent=/\bno qualifying\b|\bno current\b.*\bsignal\b|\bno\b[^.]{0,120}\bcurrent\b[^.]{0,80}\bbuying signal\b|\bno\b.*\bbuying signal\b|\bnot evidence of\b.*\bbuying\b|\bnot a buying signal\b|\bnot a public request\b|\bdo not establish a reason to approach now\b|\bdoes not establish a reason to approach now\b|\bdo not show an open buying process\b|\bno public, current statement of need\b|\bno public current statement of need\b/.test(combined);
+  if(explicitlyAbsent)return 0;
+  const explicitBuying=/\b(procurement|tender|rfp|rfq|request for proposal|request for quotation|vendor search|provider search|seeking (?:an? )?(?:external )?(?:provider|partner|vendor)|inviting (?:bids|proposals)|open call|pilot request|budget approved|budget allocated)\b/.test(combined);
+  return explicitBuying?10:0;
 }
 function sourceConfidence(sources:ManualSource[]):NonNullable<ManualReview["evidenceConfidence"]>{
   const official=sources.filter(s=>s.sourceType==="official").length,reputable=sources.filter(s=>s.sourceType==="reputable").length;

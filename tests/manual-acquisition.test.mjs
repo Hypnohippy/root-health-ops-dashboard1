@@ -167,3 +167,22 @@ test('current buying signal score is zero for wording that says no verified curr
   };
   assert.equal(research.currentBuyingSignalScore(review),0);
 });
+
+
+test('current buying signal score is zero for organisational change without explicit buying intent',()=>{
+  const research=load('lib/manualAcquisitionResearch.server.ts',{'@/lib/organisationProfile.server':{getOrganisationGenerationProfile:async()=>({})}});
+  const review={
+    verifiedFacts:[{claim:'KBR announced a planned business separation that may affect workforce ownership.',category:'signal',sourceUrls:['https://kbr.com']}],
+    currentSignal:'A recent spin-off announcement is relevant context, but public sources reviewed do not show an open buying process or request for a wellbeing provider.'
+  };
+  assert.equal(research.currentBuyingSignalScore(review),0);
+});
+
+test('current buying signal score requires explicit external buying evidence',()=>{
+  const research=load('lib/manualAcquisitionResearch.server.ts',{'@/lib/organisationProfile.server':{getOrganisationGenerationProfile:async()=>({})}});
+  const review={
+    verifiedFacts:[{claim:'The organisation published a tender for an external workplace wellbeing provider.',category:'signal',sourceUrls:['https://example.org/tender']}],
+    currentSignal:'A current procurement notice seeks an external workplace wellbeing provider.'
+  };
+  assert.equal(research.currentBuyingSignalScore(review),10);
+});
