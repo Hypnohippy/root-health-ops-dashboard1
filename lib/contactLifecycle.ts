@@ -124,7 +124,7 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
     if (date(row.replied_at) && (!lastAction?.at || String(date(row.replied_at)) > lastAction.at)) lastAction = action(`reply:${text(row.reply_status) || "recorded"}`, row.replied_at);
   }
   return { table, row, linkedin, email, fallback, name, company, currentStage, lastAction, nextAction, nextDueDate,
-    channel: table === "growth_targets" ? "linkedin" : text(engine?.channel) || text(row.platform) || (linkedin ? "linkedin" : email ? "email" : null),
+    channel: table === "growth_targets" ? (linkedin ? "linkedin" : email ? "email" : "linkedin") : text(engine?.channel) || text(row.platform) || (linkedin ? "linkedin" : email ? "email" : null),
     source: text(row.source_engine) || text(row.source_type) || table,
     observedAt: latest(row.engine_observed_at, row.updated_at, row.response_updated_at, row.last_replied_at, row.last_action_at, row.replied_at, row.outcome_at, row.created_at_platform, row.created_at, row.inserted_at),
   };
@@ -143,6 +143,16 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
   if (!organisationId.trim()) throw new Error("Organisation is required.");
   const rows = (Object.keys(input) as LifecycleTable[]).flatMap(table => input[table]
     .filter(row => row.organisation_id === organisationId).map(row => project(table, row)));
+  // A successful promotion is preparation, not contact. The canonical target
+  // owns outreach; retain stronger source-engine evidence (waiting/replied etc.).
+  for (const p of rows) {
+    const linked = object(object(p.row.metadata).handoff).target_id;
+    if (p.table === "acquisition_items" && ["b2b_lead", "partner_opportunity"].includes(String(p.row.record_type)) && p.currentStage === "actioned" && linked &&
+      rows.some(t => t.table === "growth_targets" && t.row.id === linked &&
+        ((p.linkedin && p.linkedin === t.linkedin) || (p.email && p.email === t.email)))) {
+      p.currentStage = "outreach_ready"; p.nextAction = "prepare_outreach";
+    }
+  }
   const emails = new Map<string, Set<string>>();
   for (const p of rows) if (p.linkedin) addAlias(emails, p.email, `linkedin:${p.linkedin}`);
   const strongIdentity = (p: Projection) => p.linkedin ? `linkedin:${p.linkedin}` : p.email ? unique(emails.get(p.email)) || `email:${p.email}` : null;
@@ -173,7 +183,10 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
     const winner = members[0];
     // A pending reply is an action within a meeting relationship, not a stage
     // regression. Closed outcomes remain non-actionable.
-    const actionOwner = winner.currentStage === "meeting" ? members.find(p => p.currentStage === "needs_reply") || winner : winner;
+    const promotedTarget = winner.table === "acquisition_items" && winner.currentStage === "outreach_ready"
+      ? members.find(p => p.table === "growth_targets" && p.currentStage === "outreach_ready" &&
+        p.row.id === object(object(winner.row.metadata).handoff).target_id) : null;
+    const actionOwner = winner.currentStage === "meeting" ? members.find(p => p.currentStage === "needs_reply") || winner : promotedTarget || winner;
     const actions = members.flatMap(p => p.lastAction ? [p.lastAction] : []).sort((a, b) => compare(b.at || "", a.at || "") || compare(`${a.table}:${a.id}`, `${b.table}:${b.id}`));
     return { contactId: JSON.stringify([organisationId, identity]), identity, organisationId,
       name: members.find(p => p.name)?.name || null, company: members.find(p => p.company)?.company || null,

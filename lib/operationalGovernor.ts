@@ -9,6 +9,10 @@ export function governorDecision(item: Pick<ControlItem, "operationalState" | "h
     remainingAction: item.nextAction, mayAutoExecute: false as const };
 }
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+export function isB2BEngineOwned(target: { source_type?: unknown }, acquisition: { source_engine?: unknown; metadata?: unknown }[] = []) {
+  const owned = (source: unknown) => source === "root_health_b2b" || source === "google_b2b_lead_engine";
+  return owned(target.source_type) || acquisition.some(row => owned(row.source_engine) || owned(object(row.metadata).source));
+}
 export function planManualCompletion(organisationId: string, input: LifecycleInput, table: ManualTable, id: string) {
   const row = input[table].find(r => r.id === id && r.organisation_id === organisationId);
   if (!row) throw new Error("Record not found.");
@@ -18,6 +22,7 @@ export function planManualCompletion(organisationId: string, input: LifecycleInp
   const acquisition = input.acquisition_items.filter(r => r.organisation_id === organisationId && contact.records.some(ref => ref.table === "acquisition_items" && ref.id === r.id));
   // Never authorize new Personal contact using a receipt or a generic source label.
   if (acquisition.some(r => r.source_engine === "root_health_personal")) return blocked("Personal work must be verified in its source workflow; no generic manual completion override.");
+  if (table === "growth_targets" && isB2BEngineOwned({ source_type: row.source_type }, acquisition.map(r => ({ source_engine: r.source_engine, metadata: r.metadata })))) return blocked("Automated outreach is owned by Root B2B engine. Resolve exceptions in the source workflow; canonical promotion does not authorize manual outreach.");
   if (["converted", "lost", "dismissed", "nurture", "meeting", "no_reply_needed"].includes(contact.currentStage)) return blocked("The current lifecycle no longer permits this action. Review stronger evidence.");
   if (table === "growth_targets") {
     if (contact.actionRecord.table !== table || contact.actionRecord.id !== id || !["outreach_ready", "follow_up"].includes(contact.currentStage) || row.status !== "active" || (row.reply_status && row.reply_status !== "no_reply") || row.replied_at)

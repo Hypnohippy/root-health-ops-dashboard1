@@ -13,7 +13,7 @@ const allowedByType: Record<RecordType, AcquisitionAction[]> = {
 const allowedFrom: Record<AcquisitionAction, AcquisitionStatus[]> = {
   start_review: ["new"],
   accept: ["new", "reviewing", "nurture"], dismiss: ["new", "reviewing", "accepted", "nurture"],
-  prepare_outreach: ["accepted", "reviewing", "nurture", "actioned"], route_outreach: ["accepted", "reviewing", "nurture", "actioned"],
+  prepare_outreach: ["accepted", "nurture", "actioned"], route_outreach: ["accepted", "nurture", "actioned"],
   create_content_draft: ["accepted", "reviewing", "nurture", "actioned"], route_campaign: ["accepted", "reviewing", "nurture", "actioned"],
   route_publishing: ["accepted", "reviewing", "nurture", "actioned"], route_responses: ["accepted", "reviewing", "nurture", "actioned"],
   mark_actioned: [], nurture: ["reviewing", "accepted", "actioned", "engaged"],

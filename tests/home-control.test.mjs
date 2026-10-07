@@ -122,7 +122,7 @@ test("focused record list APIs authorize first and retain tenant filters", async
   assert.equal(result.body.items.length, 1); assert.equal(result.body.items[0].id, id); assert.doesNotMatch(JSON.stringify(result), /FOREIGN/);
   const filters = [];
   const query = { select() { return query; }, eq(key, value) { filters.push([key, value]); return query; }, order() { return query; }, then(resolve) { resolve({ data: [] }); } };
-  const pipeline = load("app/api/growth/pipeline/route.ts", { "next/server": server, "@/lib/tenantRoute.server": { withTenantRoute: handler => req => handler(req, { organisationId: A }) }, "@/lib/supabaseAdmin": { supabaseAdmin: { from: () => query } } });
+  const pipeline = load("app/api/growth/pipeline/route.ts", { "@/lib/contactLifecycle": lifecycle, "@/lib/lifecycleSnapshot.server": { readLifecycleInput: async () => empty() }, "next/server": server, "@/lib/tenantRoute.server": { withTenantRoute: handler => req => handler(req, { organisationId: A }) }, "@/lib/supabaseAdmin": { supabaseAdmin: { from: () => query } } });
   await pipeline.GET(new Request(`https://ops.example/api/growth/pipeline?targetId=${id}`));
   assert.deepEqual(filters, [["organisation_id", A], ["id", id]]);
 });

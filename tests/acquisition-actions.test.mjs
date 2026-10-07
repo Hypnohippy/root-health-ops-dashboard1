@@ -25,7 +25,8 @@ test("queue type and status controls restore and preserve URL filters while clea
     useState(initial){const key=index++;if(!(key in state))state[key]=typeof initial==="function"?initial():initial;return [state[key],value=>{state[key]=typeof value==="function"?value(state[key]):value;}];},
     useEffect(){},useCallback:fn=>fn,
   };
-  const Page=load("app/dashboard/growth/acquisition/page.tsx",{react,"@/lib/acquisitionWorkflow":workflow},{
+  const engine=load("lib/engineState.ts");
+  const Page=load("app/dashboard/growth/acquisition/page.tsx",{react,"@/lib/acquisitionWorkflow":workflow,"@/lib/engineState":engine,"@/lib/partnerConversation":load("lib/partnerConversation.ts",{"@/lib/engineState":engine}),"./PartnerConversation":{__esModule:true,default:()=>null},"./ManualOpportunity":{__esModule:true,default:()=>null}},{
     window:{get location(){return location;},history:{state:{keep:true},replaceState(saved,unused,url){assert.equal(saved.keep,true);location=new URL(url);}}},
   }).default;
   const render=()=>{index=0;return Page();};
@@ -84,7 +85,7 @@ test("action API enforces write membership, tenant-scoped lookup and does not ac
     };
     const item=mode==="foreign"?null:{id:ITEM_A,organisation_id:A,record_type:"b2b_lead",status:"new"};
     const db={from(table){const filters={};const query={select(){return query;},eq(k,v){filters[k]=v;return query;},async maybeSingle(){calls.push({kind:"read",table,filters});return {data:item,error:null};}};return query;},async rpc(name,args){calls.push({kind:"rpc",name,args});return {data:[{...item,status:"accepted"}],error:null};}};
-    const route=load("app/api/growth/acquisition/[id]/action/route.ts",{"next/server":response,"@/lib/tenantAuth":auth,"@/lib/supabaseAdmin":{supabaseAdmin:db},"@/lib/growthIngestion.server":{uuid:/^[0-9a-f-]{36}$/i},"@/lib/acquisitionWorkflow":workflow});
+    const route=load("app/api/growth/acquisition/[id]/action/route.ts",{"next/server":response,"@/lib/tenantAuth":auth,"@/lib/supabaseAdmin":{supabaseAdmin:db},"@/lib/growthIngestion.server":{uuid:/^[0-9a-f-]{36}$/i},"@/lib/acquisitionWorkflow":workflow,"@/lib/acquisitionPromotion.server":{promoteAcquisition:()=>{throw Error("Unexpected promotion during accept");}}});
     const request=new Request("https://ops.example/api/growth/acquisition/x/action",{method:"POST",headers:{"content-type":"application/json",authorization:"Bearer ingestion-secret"},body:JSON.stringify({organisationId:A,action:"accept",idempotencyKey:"dddddddd-dddd-4ddd-8ddd-dddddddddddd"})});
     const result=await route.POST(request,{params:Promise.resolve({id:ITEM_A})});
     assert.equal(result.status,mode==="anonymous"?401:mode==="viewer"?403:mode==="foreign"?404:200,mode);

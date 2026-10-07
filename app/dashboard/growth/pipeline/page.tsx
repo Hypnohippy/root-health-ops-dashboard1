@@ -2,33 +2,38 @@
 
 import { tenantFetch } from "@/lib/tenantFetch";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import OutreachWorkspace, { type OutreachTarget } from "./OutreachWorkspace";
+
+type PipelineTarget = OutreachTarget & { reply_status?: string; deal_stage?: string; deal_value?: number | null;
+  call_date?: string; call_outcome?: string; call_notes?: string; next_step?: string; next_step_date?: string };
 
 export default function GrowthPipelinePage() {
-  const [targets, setTargets] = useState<any[]>([]);
+  const [targets, setTargets] = useState<PipelineTarget[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [callPrep, setCallPrep] = useState<Record<string, string>>({});
   const [loadingPrep, setLoadingPrep] = useState<string | null>(null);
   const [view, setView] = useState<"warm" | "meetings">("meetings");
   const [targetId] = useState(() => typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("targetId"));
 
-  async function loadPipeline() {
+  const loadPipeline = useCallback(async () => {
     setLoading(true);
-
+    setError("");
+    try {
     const res = await tenantFetch(`/api/growth/pipeline${targetId ? `?targetId=${encodeURIComponent(targetId)}` : ""}`);
     const json = await res.json();
 
-    if (json.success) {
-      setTargets(json.data || []);
-    }
-
-    setLoading(false);
-  }
+    if (!res.ok || !json.success) throw Error(json.error || "Unable to load contacts.");
+    setTargets(json.data || []);
+    } catch (e) { setTargets([]); setError(e instanceof Error ? e.message : "Unable to load contacts."); }
+    finally { setLoading(false); }
+  }, [targetId]);
 
   useEffect(() => {
     setView(new URLSearchParams(window.location.search).get("view") === "warm" ? "warm" : "meetings");
     void loadPipeline();
-  }, []);
+  }, [loadPipeline]);
 
   async function generateCallPrep(targetId: string) {
     setLoadingPrep(targetId);
@@ -120,7 +125,7 @@ export default function GrowthPipelinePage() {
       <h1 style={title}>{targetId ? "Contact record" : view === "warm" ? "Active opportunities" : "📅 Meetings & outcomes"}</h1>
 
       <p style={subtitle}>
-        {view === "warm" ? "Keep warm replies and live opportunities moving." : "Prepare for booked calls, record outcomes, and set the next step."}
+        {targetId ? "Outreach workspace" : view === "warm" ? "Keep warm replies and live opportunities moving." : "Prepare for booked calls, record outcomes, and set the next step."}
       </p>
 
       <div style={{ marginTop: 16 }}>
@@ -129,10 +134,11 @@ export default function GrowthPipelinePage() {
         <a href="/dashboard/growth/tracker" style={button}>📊 Tracker</a>
       </div>
 
+      {error && <p role="alert">{error}</p>}
       {loading ? (
-        <p style={muted}>Loading calls...</p>
+        <p style={muted}>Loading contacts...</p>
       ) : calls.length === 0 ? (
-        <p style={muted}>No calls booked yet.</p>
+        <p style={muted}>{targetId ? "Contact unavailable in this workspace." : "No calls booked yet."}</p>
       ) : (
         calls.map((target) => (
           <article key={target.id} style={card}>
@@ -143,6 +149,9 @@ export default function GrowthPipelinePage() {
               {target.company || "Company not added"}
             </p>
 
+            {targetId && <OutreachWorkspace key={target.id} target={target} onComplete={loadPipeline} />}
+
+            {(!targetId || ["meeting", "converted"].includes(target.lifecycle?.currentStage || "") || target.reply_status === "call_booked" || ["meeting", "converted", "won"].includes(target.deal_stage || "")) && <>
             <p style={green}>
               Deal value: {target.deal_value == null ? "Unknown" : `£${Number(target.deal_value).toLocaleString()}`}
             </p>
@@ -229,6 +238,7 @@ export default function GrowthPipelinePage() {
                 Save Call Outcome
               </button>
             </section>
+            </>}
           </article>
         ))
       )}
@@ -238,6 +248,7 @@ export default function GrowthPipelinePage() {
 
 const page: React.CSSProperties = {
   padding: 24,
+  overflowWrap: "anywhere",
   color: "#ffffff",
   background: "#020617",
   minHeight: "100vh",
