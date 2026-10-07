@@ -227,11 +227,14 @@ Return JSON only:
 User-provided input: ${JSON.stringify(input)}
 Root Health context: ${JSON.stringify(profile).slice(0,12000)}`;
   const response=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},body:JSON.stringify({
-    model:process.env.OPENAI_RESEARCH_MODEL||"gpt-6-luna",tools:[{type:"web_search"}],tool_choice:"auto",max_tool_calls:2,max_output_tokens:2600,
+    model:process.env.OPENAI_RESEARCH_MODEL||"gpt-6-luna",tools:[{type:"web_search"}],tool_choice:"auto",max_tool_calls:2,max_output_tokens:4000,
     include:["web_search_call.action.sources"],input:prompt})});
-  if(!response.ok)return {...manualReview(input,true),research:{status:"unavailable",message:"Public research could not be completed. Nothing has been marked verified."}};
-  const result=await response.json() as Record<string,unknown>,searched=searchSources(result);let parsed:Record<string,unknown>;
-  try{parsed=JSON.parse(outputText(result));}catch{return {...manualReview(input,true),research:{status:"unavailable",message:"Public research returned an unreadable result. Nothing has been marked verified."}};}
+  if(!response.ok)return {...manualReview(input,true),research:{status:"unavailable",message:`Public research could not be completed (HTTP ${response.status}). Nothing has been marked verified.`}};
+  const result=await response.json() as Record<string,unknown>,searched=searchSources(result),rawFirstPass=outputText(result);
+  let parsed=parseJsonObject(rawFirstPass);
+  let firstPassRepaired=false;
+  if(!parsed){parsed=await repairResearchJson(key,rawFirstPass);firstPassRepaired=!!parsed;}
+  if(!parsed)return {...manualReview(input,true),research:{status:"unavailable",message:"Public research remained unreadable after one syntax-repair attempt. Nothing has been marked verified."}};
   const publicSources=sourceList(parsed,searched,12),allowed=new Set(publicSources.map(s=>s.url));
   const facts:ManualFact[]=(Array.isArray(parsed.verifiedFacts)?parsed.verifiedFacts:[]).slice(0,20).flatMap(v=>{
     if(!v||typeof v!=="object")return[];const o=v as Record<string,unknown>,claim=text(o.claim,1200),category=String(o.category),sourceUrls=list(o.sourceUrls,6).filter(u=>allowed.has(u));
@@ -244,7 +247,7 @@ Root Health context: ${JSON.stringify(profile).slice(0,12000)}`;
   const suggested=["b2b_lead","partner_opportunity","personal_opportunity","social_opportunity"].includes(String(parsed.suggestedType))?String(parsed.suggestedType):null;
   const firstPass:ManualReview={userProvided:input,verifiedFacts:facts,publicSources,aiSuggestions:list(parsed.aiSuggestions,8),suggestedType:suggested,summary:text(parsed.summary,2400),fit:text(parsed.fit,1600),
     currentSignal:text(parsed.currentSignal,1600),recommendedRoute:text(parsed.recommendedRoute,1600),contraryEvidence:contrary,missingEvidence:missing,decision,
-    research:{status:"completed",message:decision==="ready"?"Research gate passed. Review the evidence before creating the opportunity.":decision==="hold"?"Research suggests holding this opportunity. Review the evidence before deciding.":"Research found a possible opportunity, but one or more decision-grade evidence checks are still missing.",searchedAt:new Date().toISOString(),searchCalls:2}};
+    research:{status:"completed",message:(decision==="ready"?"Research gate passed. Review the evidence before creating the opportunity.":decision==="hold"?"Research suggests holding this opportunity. Review the evidence before deciding.":"Research found a possible opportunity, but one or more decision-grade evidence checks are still missing.")+(firstPassRepaired?" First-pass JSON syntax was repaired before validation.":""),searchedAt:new Date().toISOString(),searchCalls:2}};
   if(decision==="hold")return firstPass;
   return deepenOpportunityResearch(key,input,profile,firstPass);
 }
