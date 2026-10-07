@@ -4,6 +4,7 @@ import { planAcquisitionAction } from "@/lib/acquisitionWorkflow";
 import { projectEngineState, type EngineState } from "@/lib/engineState";
 import { partnerActivity, partnerActionVisible, partnerActionLabel } from "@/lib/partnerConversation";
 import PartnerConversation from "./PartnerConversation";
+import ManualOpportunity from "./ManualOpportunity";
 
 type Event = { id:string; action:string; previous_status:string; new_status:string; outcome:string|null; note:string|null; created_at:string };
 type Item = { id:string; outreachTargetId?:string|null; record_type:string; source_engine:string; engine_state:EngineState|null; source_record_id:string; source_url:string|null; evidence:string|null; entity:string|null; person:string|null; company:string|null; reason:string|null; signal:string|null; suggested_action:string|null; status:string; current_action:string|null; actioned_at:string|null; outcome:string|null; outcome_at:string|null; metadata:Record<string,unknown>; acquisition_item_events?:Event[] };
@@ -40,6 +41,7 @@ export default function AcquisitionQueue(){
    {workspaceLoading&&<p role="status" className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">Loading workspace…</p>}
    {workspaceError&&<p role="alert" className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{workspaceError}</p>}
    {organisationId&&<>
+    <ManualOpportunity key={organisationId} organisationId={organisationId}/>
     <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/95 px-4 py-3 shadow-xl backdrop-blur">
      <div className="flex flex-wrap items-center gap-3">
       <label className="flex items-center gap-2 text-sm font-medium text-slate-200">Type<select value={recordType} onChange={e=>{setItems([]);setTotal(0);setRecordType(e.target.value);setPage(0);setExpandedId(null);updateFilterUrl("record_type",e.target.value);}} className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none hover:border-white/20 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"><option value="">All</option><option value="b2b_lead">B2B</option><option value="personal_opportunity">Personal</option><option value="partner_opportunity">Partners</option><option value="social_opportunity">Social</option></select></label>

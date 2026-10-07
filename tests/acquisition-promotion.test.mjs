@@ -10,7 +10,7 @@ const require=createRequire(import.meta.url);
 function load(file,mocks={},globals={}) {
   const mod={exports:{}};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,
-    {module:mod,exports:mod.exports,URL,URLSearchParams,Date,console,...globals,require:n=>n in mocks?mocks[n]:n==='./PartnerConversation'?{__esModule:true,default:()=>null}:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});
+    {module:mod,exports:mod.exports,URL,URLSearchParams,Date,console,...globals,require:n=>n in mocks?mocks[n]:['./PartnerConversation','./ManualOpportunity'].includes(n)?{__esModule:true,default:()=>null}:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});
   return mod.exports;
 }
 const promotion=load('lib/acquisitionPromotion.server.ts',{'@/lib/supabaseAdmin':{}});
