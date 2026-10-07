@@ -9,6 +9,7 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
   const [open,setOpen]=useState(false),[input,setInput]=useState<ManualInput>(empty),[review,setReview]=useState<ManualReview|null>(null);
   const [recordType,setRecordType]=useState(""),[confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
   const [submissionId,setSubmissionId]=useState(""),[requestedResearch,setRequestedResearch]=useState(false),[attempted,setAttempted]=useState(false);
+  const [emailFormatHint]=useState("");
   async function requestReview(research:boolean) {
     setBusy(true);setError("");
     try {
@@ -17,12 +18,18 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
     } catch(e){setError(e instanceof Error?e.message:"Unable to review input.");} finally{setBusy(false);}
   }
   async function findPeople() {
-    if(!review)return;
-    setBusy(true);setError("");
+    if(!review)return;setBusy(true);setError("");
     try {
       const res=await fetch("/api/growth/acquisition/manual",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({organisationId,action:"people",input:review.userProvided,review})});
       const data=await res.json();if(!res.ok)throw Error(data.error||"Unable to search decision-makers.");setReview(data.review);
     } catch(e){setError(e instanceof Error?e.message:"Unable to search decision-makers.");} finally{setBusy(false);}
+  }
+  async function findContact(personName:string,personRole:string) {
+    if(!review)return;setBusy(true);setError("");
+    try {
+      const res=await fetch("/api/growth/acquisition/manual",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({organisationId,action:"contact",input:review.userProvided,review,personName,personRole,emailFormatHint})});
+      const data=await res.json();if(!res.ok)throw Error(data.error||"Unable to research contact route.");setReview(data.review);
+    } catch(e){setError(e instanceof Error?e.message:"Unable to research contact route.");} finally{setBusy(false);}
   }
   async function create() {
     setBusy(true);setError("");setAttempted(true);
@@ -55,11 +62,21 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
       {!!review.contraryEvidence?.length&&<div><h4 className="font-semibold">Why not to approach</h4><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{review.contraryEvidence.map((v,i)=><li key={i}>{v}</li>)}</ul></div>}
       {!!review.missingEvidence?.length&&<div><h4 className="font-semibold">Still missing</h4><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{review.missingEvidence.map((v,i)=><li key={i}>{v}</li>)}</ul></div>}
       {requestedResearch&&<div className="space-y-3 rounded-lg border border-white/10 bg-white/[0.02] p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-semibold">Decision-makers</h4><p className="text-sm text-slate-400">Find several publicly verified professional candidates; Ops will not guess contact details.</p></div><button type="button" disabled={busy} onClick={()=>void findPeople()} className="rounded border border-emerald-400/30 px-3 py-2">{busy?"Searching…":review.people?.length?"Search again":"Find decision-makers"}</button></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-semibold">Decision-makers</h4><p className="text-sm text-slate-400">Ranked by geography, functional ownership and buying proximity — not seniority alone.</p></div><button type="button" disabled={busy} onClick={()=>void findPeople()} className="rounded border border-emerald-400/30 px-3 py-2">{busy?"Searching…":review.people?.length?"Search again":"Find decision-makers"}</button></div>
+        Use placeholders, not somebody else&apos;s address. This is used only to infer a likely work email and is not saved as a verified address.
         {!!review.people?.length&&<div className="grid gap-3 md:grid-cols-2">{review.people.map((person,i)=><article key={`${person.name}-${person.role}-${i}`} className="rounded border border-white/10 p-3">
-          <div className="font-semibold">{person.name}</div><div className="text-sm text-slate-300">{person.role}</div><div className="mt-1 text-xs uppercase tracking-wide text-slate-500">{person.seniority.replaceAll("_"," ")}</div>
+          <div className="flex items-start justify-between gap-3"><div><div className="font-semibold">{person.name}</div><div className="text-sm text-slate-300">{person.role}</div></div><div className="rounded-full border border-white/10 px-2 py-1 text-xs">{person.score}/100</div></div>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs uppercase tracking-wide text-slate-500"><span>{person.geography.replaceAll("_"," ")}</span><span>· {person.functionalFit} fit</span><span>· {person.buyingProximity}</span><span>· {person.seniority.replaceAll("_"," ")}</span></div>
           <p className="mt-2 text-sm">{person.relevance}</p>
-          <div className="mt-2 flex flex-wrap gap-3 text-sm">{person.publicProfileUrl&&<a className="text-sky-300 underline" href={person.publicProfileUrl} target="_blank" rel="noopener noreferrer">Public profile</a>}{person.sourceUrls.map((url,j)=><a key={url} className="text-sky-300 underline" href={url} target="_blank" rel="noopener noreferrer">Source {j+1}</a>)}</div>
+          {person.contact&&<div className="mt-3 rounded border border-white/10 bg-black/10 p-3 text-sm">
+            {person.contact.emailStatus==="verified"&&person.contact.directEmail&&<p><strong>Verified work email:</strong> {person.contact.directEmail}</p>}
+            {person.contact.emailStatus==="inferred_pattern"&&person.contact.inferredEmail&&<p><strong>Likely work email:</strong> {person.contact.inferredEmail} <span className="text-slate-400">(inferred from supplied company format; not independently verified)</span></p>}
+            {person.contact.emailStatus==="not_found"&&<p><strong>Direct email:</strong> Not publicly verified</p>}
+            {person.contact.publicPhone&&<p><strong>Public business phone:</strong> {person.contact.publicPhone}</p>}
+            {person.contact.note&&<p className="mt-1 text-slate-300">{person.contact.note}</p>}
+            <div className="mt-2 flex flex-wrap gap-3">{person.contact.linkedinUrl&&<a className="text-sky-300 underline" href={person.contact.linkedinUrl} target="_blank" rel="noopener noreferrer">LinkedIn</a>}{person.contact.officialContactUrl&&<a className="text-sky-300 underline" href={person.contact.officialContactUrl} target="_blank" rel="noopener noreferrer">Official contact route</a>}</div>
+          </div>}
+          <div className="mt-3 flex flex-wrap gap-3 text-sm"><button type="button" disabled={busy} onClick={()=>void findContact(person.name,person.role)} className="rounded border border-emerald-400/30 px-2 py-1">{person.contact?"Research contact again":"Find contact route"}</button>{person.publicProfileUrl&&<a className="text-sky-300 underline" href={person.publicProfileUrl} target="_blank" rel="noopener noreferrer">Public profile</a>}{person.sourceUrls.map((url,j)=><a key={url} className="text-sky-300 underline" href={url} target="_blank" rel="noopener noreferrer">Source {j+1}</a>)}</div>
         </article>)}</div>}
       </div>}
       <div><h4 className="font-semibold">Sources</h4>{review.publicSources.length?<ul className="mt-1 space-y-1 text-sm">{review.publicSources.map((source,i)=><li key={i}><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-sky-300 underline">{source.title}</a> <span className="text-slate-400">· {source.sourceType}{source.publishedAt?` · ${source.publishedAt}`:""}</span></li>)}</ul>:<p className="text-sm text-slate-400">No public sources checked.</p>}</div>

@@ -3,7 +3,7 @@ import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { readIngestionBody, IngestionError, uuid } from "@/lib/growthIngestion.server";
 import { manualRecord, manualReview, parseManualInput } from "@/lib/manualAcquisition";
-import { researchManualOpportunity, researchDecisionMakers } from "@/lib/manualAcquisitionResearch.server";
+import { researchManualOpportunity, researchDecisionMakers, researchPersonContact } from "@/lib/manualAcquisitionResearch.server";
 
 export const runtime = "nodejs";
 export async function POST(req: Request) {
@@ -19,6 +19,13 @@ export async function POST(req: Request) {
     if (body.action === "people") {
       const input=parseManualInput(body.input);
       const review=await researchDecisionMakers(tenant.organisationId,input,body.review);
+      return NextResponse.json({ review }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (body.action === "contact") {
+      const input=parseManualInput(body.input),personName=String(body.personName||"").trim(),personRole=String(body.personRole||"").trim(),emailFormatHint=String(body.emailFormatHint||"").trim();
+      if(!personName||!personRole)throw new IngestionError("Choose a verified decision-maker first.");
+      if(emailFormatHint&&emailFormatHint.length>300)throw new IngestionError("Email format is too long.");
+      const review=await researchPersonContact(tenant.organisationId,input,body.review,personName,personRole,emailFormatHint);
       return NextResponse.json({ review }, { headers: { "Cache-Control": "no-store" } });
     }
     if (body.action !== "create") throw new IngestionError("Invalid manual opportunity action.");

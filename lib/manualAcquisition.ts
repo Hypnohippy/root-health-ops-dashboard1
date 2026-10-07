@@ -4,13 +4,29 @@ const fields = ["person", "company", "linkedin", "website", "email", "note"] as 
 export type ManualInput = Record<typeof fields[number], string>;
 export type ManualSource = { url:string; title:string; sourceType:"official"|"reputable"|"other"; publishedAt:string|null };
 export type ManualFact = { claim:string; category:"identity"|"fit"|"signal"|"route"|"role"|"counterevidence"; sourceUrls:string[] };
+export type ManualContactRoute = {
+  directEmail?: string|null;
+  emailStatus:"verified"|"inferred_pattern"|"not_found";
+  inferredEmail?: string|null;
+  emailConfidence?:"high"|"medium"|"low"|null;
+  publicPhone?: string|null;
+  officialContactUrl?: string|null;
+  linkedinUrl?: string|null;
+  note?: string|null;
+  sourceUrls:string[];
+};
 export type ManualPersonCandidate = {
   name:string;
   role:string;
   relevance:string;
   seniority:"operational_buyer"|"senior_sponsor"|"adjacent"|"unknown";
+  geography:"target_market"|"global"|"other"|"unknown";
+  functionalFit:"direct"|"strong"|"adjacent"|"unknown";
+  buyingProximity:"owner"|"buyer"|"sponsor"|"adjacent"|"unknown";
+  score:number;
   sourceUrls:string[];
   publicProfileUrl?:string|null;
+  contact?:ManualContactRoute|null;
 };
 export type ManualReview = {
   userProvided: ManualInput;
@@ -61,11 +77,23 @@ function short(value: unknown, max:number) { return typeof value === "string" ? 
 function stringList(value: unknown, maxItems=12, maxLength=1000) {
   return Array.isArray(value) ? value.filter(v=>typeof v==="string").slice(0,maxItems).map(v=>v.trim().slice(0,maxLength)).filter(Boolean) : [];
 }
+function contactRoute(value:unknown,allowedUrls:Set<string>):ManualContactRoute|null{
+  if(!value||typeof value!=="object"||Array.isArray(value))return null;
+  const c=value as Record<string,unknown>,status=String(c.emailStatus);
+  const emailStatus=["verified","inferred_pattern","not_found"].includes(status)?status as ManualContactRoute["emailStatus"]:"not_found";
+  const sourceUrls=stringList(c.sourceUrls,8,2048).filter(url=>allowedUrls.has(url));
+  const confidence=["high","medium","low"].includes(String(c.emailConfidence))?String(c.emailConfidence) as ManualContactRoute["emailConfidence"]:null;
+  return {
+    directEmail:short(c.directEmail,500)||null,emailStatus,inferredEmail:short(c.inferredEmail,500)||null,emailConfidence:confidence,
+    publicPhone:short(c.publicPhone,200)||null,officialContactUrl:short(c.officialContactUrl,2048)||null,
+    linkedinUrl:short(c.linkedinUrl,2048)||null,note:short(c.note,1200)||null,sourceUrls
+  };
+}
 export function parseManualResearchReview(value: unknown, input: ManualInput): ManualReview {
   if (!value || typeof value !== "object" || Array.isArray(value)) return manualReview(input, true);
   const raw=value as Record<string,unknown>, research=raw.research && typeof raw.research==="object" ? raw.research as Record<string,unknown> : {};
   if (research.status !== "completed") return manualReview(input, true);
-  const sources = Array.isArray(raw.publicSources) ? raw.publicSources.slice(0,20).flatMap(source=>{
+  const sources = Array.isArray(raw.publicSources) ? raw.publicSources.slice(0,24).flatMap(source=>{
     if (!source || typeof source!=="object" || Array.isArray(source)) return [];
     const s=source as Record<string,unknown>, url=short(s.url,2048); if(!url)return [];
     try { publicBusinessUrl(url); } catch { return []; }
@@ -73,7 +101,7 @@ export function parseManualResearchReview(value: unknown, input: ManualInput): M
     return [{url,title:short(s.title,500)||url,sourceType,publishedAt:short(s.publishedAt,64)||null}];
   }) : [];
   const allowedUrls=new Set(sources.map(s=>s.url));
-  const verifiedFacts = Array.isArray(raw.verifiedFacts) ? raw.verifiedFacts.slice(0,28).flatMap(fact=>{
+  const verifiedFacts = Array.isArray(raw.verifiedFacts) ? raw.verifiedFacts.slice(0,36).flatMap(fact=>{
     if(!fact || typeof fact!=="object" || Array.isArray(fact))return [];
     const f=fact as Record<string,unknown>, claim=short(f.claim,1200), category=String(f.category);
     if(!claim || !["identity","fit","signal","route","role","counterevidence"].includes(category))return [];
@@ -85,10 +113,14 @@ export function parseManualResearchReview(value: unknown, input: ManualInput): M
     const c=candidate as Record<string,unknown>, name=short(c.name,300), role=short(c.role,500), relevance=short(c.relevance,1200);
     const sourceUrls=stringList(c.sourceUrls,6,2048).filter(url=>allowedUrls.has(url));
     const seniority=["operational_buyer","senior_sponsor","adjacent","unknown"].includes(String(c.seniority))?String(c.seniority) as ManualPersonCandidate["seniority"]:"unknown";
+    const geography=["target_market","global","other","unknown"].includes(String(c.geography))?String(c.geography) as ManualPersonCandidate["geography"]:"unknown";
+    const functionalFit=["direct","strong","adjacent","unknown"].includes(String(c.functionalFit))?String(c.functionalFit) as ManualPersonCandidate["functionalFit"]:"unknown";
+    const buyingProximity=["owner","buyer","sponsor","adjacent","unknown"].includes(String(c.buyingProximity))?String(c.buyingProximity) as ManualPersonCandidate["buyingProximity"]:"unknown";
+    const score=Number.isFinite(Number(c.score))?Math.max(0,Math.min(100,Number(c.score))):0;
     const profile=short(c.publicProfileUrl,2048); let publicProfileUrl:string|null=null;
     if(profile&&allowedUrls.has(profile)){try{publicBusinessUrl(profile,true);publicProfileUrl=profile;}catch{}}
-    return name&&role&&sourceUrls.length?[{name,role,relevance,seniority,sourceUrls,publicProfileUrl}]:[];
-  }) : [];
+    return name&&role&&sourceUrls.length?[{name,role,relevance,seniority,geography,functionalFit,buyingProximity,score,sourceUrls,publicProfileUrl,contact:contactRoute(c.contact,allowedUrls)}]:[];
+  }).sort((a,b)=>b.score-a.score) : [];
   const decision=["ready","needs_verification","hold"].includes(String(raw.decision)) ? raw.decision as ManualReview["decision"] : "needs_verification";
   const suggestedType=recordTypes.includes(raw.suggestedType as typeof recordTypes[number]) ? String(raw.suggestedType) : null;
   return {
@@ -96,7 +128,7 @@ export function parseManualResearchReview(value: unknown, input: ManualInput): M
     summary:short(raw.summary,2400), fit:short(raw.fit,1600), currentSignal:short(raw.currentSignal,1600),
     recommendedRoute:short(raw.recommendedRoute,1600), contraryEvidence:stringList(raw.contraryEvidence,8,1000),
     missingEvidence:stringList(raw.missingEvidence,8,1000), people, decision,
-    research:{status:"completed",message:short(research.message,1200)||"Public research completed. Review the evidence before creating the opportunity.",searchedAt:short(research.searchedAt,64)||undefined,searchCalls:Number.isFinite(Number(research.searchCalls))?Math.min(4,Math.max(0,Number(research.searchCalls))):undefined},
+    research:{status:"completed",message:short(research.message,1200)||"Public research completed. Review the evidence before creating the opportunity.",searchedAt:short(research.searchedAt,64)||undefined,searchCalls:Number.isFinite(Number(research.searchCalls))?Math.min(8,Math.max(0,Number(research.searchCalls))):undefined},
   };
 }
 export function manualRecord(organisationId: string, actor: string, body: Record<string,unknown>) {
