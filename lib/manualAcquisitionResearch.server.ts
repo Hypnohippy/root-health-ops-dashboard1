@@ -1,5 +1,5 @@
 import { getOrganisationGenerationProfile } from "@/lib/organisationProfile.server";
-import { manualReview, publicBusinessUrl, parseManualResearchReview, type ManualContactRoute, type ManualFact, type ManualInput, type ManualPersonCandidate, type ManualReview, type ManualSource } from "@/lib/manualAcquisition";
+import { manualReview, publicBusinessUrl, parseManualResearchReview, type ManualContactRoute, type ManualFact, type ManualInput, type ManualPersonCandidate, type ManualPhoneRoute, type ManualReview, type ManualSource } from "@/lib/manualAcquisition";
 
 const FREE_MAIL=new Set(["gmail.com","outlook.com","hotmail.com","yahoo.com","icloud.com","aol.com","proton.me","protonmail.com"]);
 const text=(v:unknown,max=2000)=>typeof v==="string"?v.trim().slice(0,max):"";
@@ -90,8 +90,9 @@ Research:
 2. Continuity: if an older relevant source exists, trace whether the same philosophy/programme continued in later years through the present. Search later reports, surveys, official updates and sustainability/people material.
 3. Operational gap: what appears to happen AFTER a problem is identified? Look for evidence of delegated wellbeing responsibility, sourcing of interventions, training/content/programmes, local action plans or manual implementation. Clearly label reasonable inference as inference, not verified fact.
 4. Root fit: explain specifically what Root could add without duplicating what the organisation already has. Root can detect domain-level patterns across stress, sleep, recovery, energy, mood, focus and burnout; compartmentalise patterns; target interventions/programmes; preserve individual privacy while showing aggregate organisational patterns; and measure change longitudinally.
-5. Research questions: identify any remaining questions that would materially change whether this is a good opportunity.
-6. Outreach angle: state what NOT to sell them, what problem to discuss, and the most credible Root wedge.
+5. Organisational change: search for recent/active spin-offs, mergers, acquisitions, restructures, major business-unit separations or other structural changes that could alter workforce composition, programme ownership, budgets or procurement. Treat this as an ORGANISATIONAL-CHANGE SIGNAL, not a buying signal. Any commercial relevance must be explicitly labelled inference unless directly stated.
+6. Research questions: identify any remaining questions that would materially change whether this is a good opportunity.
+7. Outreach angle: state what NOT to sell them, what problem to discuss, and the most credible Root wedge.
 
 Evidence rules:
 - Prefer official/primary sources.
@@ -104,11 +105,12 @@ Return JSON only:
  "strategicAlignment":string,
  "strategicAlignmentScore":number,
  "strategicContinuity":{"fromYear":number|null,"toYear":number|null,"summary":string,"sourceUrls":[string]},
+ "organisationalChange":{"status":"active"|"recent"|"none_found"|"unknown","type":string,"summary":string,"relevance":string,"sourceUrls":[string]},
  "operationalGap":string,
  "rootFit":string,
  "researchQuestions":[string],
  "outreachAngle":string,
- "verifiedFacts":[{"claim":string,"category":"alignment"|"continuity"|"operational_gap"|"root_fit","sourceUrls":[string]}],
+ "verifiedFacts":[{"claim":string,"category":"alignment"|"continuity"|"operational_gap"|"root_fit"|"organisational_change","sourceUrls":[string]}],
  "publicSources":[{"url":string,"title":string,"sourceType":"official"|"reputable"|"other","publishedAt":string|null}]
 }
 
@@ -126,7 +128,7 @@ Root Health context: ${JSON.stringify(profile).slice(0,10000)}`;
   const allowed=new Set(publicSources.map(s=>s.url));
   const extraFacts:ManualFact[]=(Array.isArray(parsed.verifiedFacts)?parsed.verifiedFacts:[]).slice(0,20).flatMap(v=>{
     if(!v||typeof v!=="object"||Array.isArray(v))return[];const o=v as Record<string,unknown>,claim=text(o.claim,1200),category=String(o.category),sourceUrls=list(o.sourceUrls,8).filter(url=>allowed.has(url));
-    return claim&&sourceUrls.length&&["alignment","continuity","operational_gap","root_fit"].includes(category)?[{claim,category:category as ManualFact["category"],sourceUrls}]:[];
+    return claim&&sourceUrls.length&&["alignment","continuity","operational_gap","root_fit","organisational_change"].includes(category)?[{claim,category:category as ManualFact["category"],sourceUrls}]:[];
   });
   const verifiedFacts=[...base.verifiedFacts];
   for(const f of extraFacts)if(!verifiedFacts.some(x=>x.category===f.category&&x.claim===f.claim))verifiedFacts.push(f);
@@ -135,16 +137,25 @@ Root Health context: ${JSON.stringify(profile).slice(0,10000)}`;
   const sourceYears=publicSources.map(s=>yearFrom(s.publishedAt)).filter((v):v is number=>v!==null);
   const fromYear=Number.isFinite(Number(continuityRaw.fromYear))?Number(continuityRaw.fromYear):sourceYears.length?Math.min(...sourceYears):null;
   const toYear=Number.isFinite(Number(continuityRaw.toYear))?Number(continuityRaw.toYear):sourceYears.length?Math.max(...sourceYears):null;
-  const alignmentScore=Math.max(0,Math.min(100,Number(parsed.strategicAlignmentScore)||0));
+  const modelAlignment=Math.max(0,Math.min(100,Number(parsed.strategicAlignmentScore)||0));
+  const alignmentFacts=extraFacts.filter(f=>f.category==="alignment").length,continuityFacts=extraFacts.filter(f=>f.category==="continuity").length;
+  const officialCount=publicSources.filter(s=>s.sourceType==="official").length,span=fromYear&&toYear?Math.max(0,toYear-fromYear):0,currentYear=new Date().getUTCFullYear();
+  const newestYear=sourceYears.length?Math.max(...sourceYears):0;
+  const groundedAlignment=Math.min(100,(alignmentFacts?45:0)+(alignmentFacts>=2?15:0)+(continuityFacts?10:0)+(span>=3?15:0)+(officialCount>=2?10:0)+(newestYear>=currentYear-1?5:0));
+  const alignmentScore=Math.max(modelAlignment,groundedAlignment);
   const strategic=boundedScore(alignmentScore*0.30,30);
   const problem=base.fit||verifiedFacts.some(f=>f.category==="fit")?25:0;
   const operational=text(parsed.operationalGap,2200)?20:0;
   const signal=verifiedFacts.some(f=>f.category==="signal")?10:0;
   const scoreBreakdown={strategicAlignment:strategic,problemRelevance:problem,operationalOpportunity:operational,decisionMakerQuality:0,currentSignal:signal};
   const opportunityScore=Object.values(scoreBreakdown).reduce((a,b)=>a+b,0);
+  const changeRaw=parsed.organisationalChange&&typeof parsed.organisationalChange==="object"&&!Array.isArray(parsed.organisationalChange)?parsed.organisationalChange as Record<string,unknown>:{};
+  const changeStatus=["active","recent","none_found","unknown"].includes(String(changeRaw.status))?String(changeRaw.status) as NonNullable<ManualReview["organisationalChange"]>["status"]:"unknown";
+  const changeUrls=list(changeRaw.sourceUrls,12).filter(url=>allowed.has(url));
   return {...base,publicSources:publicSources.slice(0,24),verifiedFacts:verifiedFacts.slice(0,36),
     strategicAlignment:text(parsed.strategicAlignment,2400),strategicAlignmentScore:alignmentScore,
     strategicContinuity:{fromYear,toYear,summary:text(continuityRaw.summary,1800),sourceUrls:continuityUrls},
+    organisationalChange:{status:changeStatus,type:text(changeRaw.type,500),summary:text(changeRaw.summary,1800),relevance:text(changeRaw.relevance,1800),sourceUrls:changeUrls},
     operationalGap:text(parsed.operationalGap,2200),rootFit:text(parsed.rootFit,2200),researchQuestions:list(parsed.researchQuestions,10),
     outreachAngle:text(parsed.outreachAngle,1800),evidenceConfidence:sourceConfidence(publicSources),opportunityScore,scoreBreakdown,
     research:{...base.research,message:`${base.research.message} Strategic continuity and Root-fit research also completed.`,searchCalls:Math.min(8,(base.research.searchCalls||2)+4)}};
@@ -263,6 +274,11 @@ export async function researchPersonContact(organisationId:string,input:ManualIn
   const prompt=`Research PUBLIC PROFESSIONAL contact routes for this already-verified decision-maker.
 Do not seek private/personal contact information. Do not guess email addresses or phone numbers. A direct work email or public business phone may be returned only when a public professional source actually shows it.
 If no direct email is public, return null. Do not infer an email; the server handles a user-supplied company format separately.
+Determine the person's publicly evidenced WORK LOCATION where possible.
+For every phone number, classify the route: direct_person, local_office, regional_office, global_hq or unknown.
+Prefer a verified direct person line; otherwise prefer an office/switchboard matching the person's work location over a regional or global-HQ number.
+A global HQ switchboard is not a person-specific route merely because it can theoretically transfer calls.
+Only mark forwardingStatus "verified" when a public source explicitly says the number forwards/routes to the person or office. Otherwise use "not_verified" or "not_applicable". Never infer forwarding from country-code mismatch.
 Prefer official company sources, current professional profiles, conference bios, filings and reputable business sources.
 
 Organisation: ${JSON.stringify(input)}
@@ -271,7 +287,7 @@ Existing sources: ${JSON.stringify(base.publicSources).slice(0,10000)}
 Root Health context: ${JSON.stringify(profile).slice(0,5000)}
 
 Return JSON only:
-{"directEmail":string|null,"publicPhone":string|null,"officialContactUrl":string|null,"linkedinUrl":string|null,"note":string,"sourceUrls":[string],"publicSources":[{"url":string,"title":string,"sourceType":"official"|"reputable"|"other","publishedAt":string|null}]}`;
+{"directEmail":string|null,"personLocation":string|null,"phoneRoutes":[{"number":string,"routeType":"direct_person"|"local_office"|"regional_office"|"global_hq"|"unknown","location":string|null,"forwardingStatus":"verified"|"not_verified"|"not_applicable","note":string|null,"sourceUrls":[string]}],"officialContactUrl":string|null,"linkedinUrl":string|null,"note":string,"sourceUrls":[string],"publicSources":[{"url":string,"title":string,"sourceType":"official"|"reputable"|"other","publishedAt":string|null}]}`;
   const response=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},body:JSON.stringify({
     model:process.env.OPENAI_RESEARCH_MODEL||"gpt-6-luna",tools:[{type:"web_search"}],tool_choice:"auto",max_tool_calls:2,max_output_tokens:1800,
     include:["web_search_call.action.sources"],input:prompt})});
@@ -284,10 +300,23 @@ Return JSON only:
   let linkedinUrl:string|null=null,officialContactUrl:string|null=null;
   const li=text(parsed.linkedinUrl,2048);if(li&&allowed.has(li)){try{linkedinUrl=publicBusinessUrl(li,true);}catch{}}
   const contact=text(parsed.officialContactUrl,2048);if(contact&&allowed.has(contact)){try{officialContactUrl=publicBusinessUrl(contact);}catch{}}
-  const phone=text(parsed.publicPhone,200)||null;
+  const personLocation=text(parsed.personLocation,500)||null;
+  const routeRank={direct_person:100,local_office:80,regional_office:60,global_hq:30,unknown:10} as const;
+  const phoneRoutes:ManualPhoneRoute[]=(Array.isArray(parsed.phoneRoutes)?parsed.phoneRoutes:[]).slice(0,8).flatMap(v=>{
+    if(!v||typeof v!=="object"||Array.isArray(v))return[];
+    const o=v as Record<string,unknown>,number=text(o.number,200),routeTypeRaw=String(o.routeType),forwardingRaw=String(o.forwardingStatus);
+    const phoneSourceUrls=list(o.sourceUrls,6).filter(url=>allowed.has(url));if(!number||!phoneSourceUrls.length)return[];
+    const routeType=["direct_person","local_office","regional_office","global_hq","unknown"].includes(routeTypeRaw)?routeTypeRaw as NonNullable<ManualContactRoute["phoneRoutes"]>[number]["routeType"]:"unknown";
+    const location=text(o.location,500)||null;
+    const samePlace=!!(personLocation&&location)&&location.toLowerCase().split(/[,\s]+/).some(part=>part.length>3&&personLocation.toLowerCase().includes(part));
+    const geographyMatch:NonNullable<ManualContactRoute["phoneRoutes"]>[number]["geographyMatch"]=personLocation&&location?(samePlace?"matched":"mismatch"):"unknown";
+    const forwardingStatus=["verified","not_verified","not_applicable"].includes(forwardingRaw)?forwardingRaw as NonNullable<ManualContactRoute["phoneRoutes"]>[number]["forwardingStatus"]:"not_verified";
+    return [{number,routeType,location,geographyMatch,forwardingStatus,note:text(o.note,800)||null,sourceUrls:phoneSourceUrls}];
+  }).sort((a,b)=>(routeRank[b.routeType]+(b.geographyMatch==="matched"?20:b.geographyMatch==="mismatch"?-20:0))-(routeRank[a.routeType]+(a.geographyMatch==="matched"?20:a.geographyMatch==="mismatch"?-20:0)));
+  const phone=phoneRoutes[0]?.number||null;
   const inferred=!directEmail?inferWorkEmail(target.name,emailFormatHint,input):null;
   const route:ManualContactRoute={directEmail,emailStatus:directEmail?"verified":inferred?"inferred_pattern":"not_found",inferredEmail:inferred,
-    emailConfidence:directEmail?"high":inferred?"high":null,publicPhone:phone,officialContactUrl,linkedinUrl,note:text(parsed.note,1200)||null,sourceUrls};
+    emailConfidence:directEmail?"high":inferred?"high":null,personLocation,publicPhone:phone,phoneRoutes,officialContactUrl,linkedinUrl,note:text(parsed.note,1200)||null,sourceUrls};
   const people=(base.people||[]).map(p=>p.name===target.name&&p.role===target.role?{...p,contact:route}:p);
   const message=directEmail?`Verified a public work email for ${target.name}.`:inferred?`No public direct email was verified. A likely work email was generated from the company format you supplied and is clearly marked unverified.`:`No public direct email was verified for ${target.name}. The best public route found is shown below.`;
   return {...base,publicSources:mergedSources.slice(0,24),people,research:{...base.research,message,searchCalls:Math.min(8,(base.research.searchCalls||4)+2)}};

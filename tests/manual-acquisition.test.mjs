@@ -98,3 +98,43 @@ test('strategic research fields survive parsing only when grounded to searched s
   assert.equal(review.strategicAlignmentScore,92);assert.equal(review.strategicContinuity.fromYear,2020);assert.deepEqual(review.strategicContinuity.sourceUrls,['https://kbr.com/report']);
   assert.equal(review.evidenceConfidence,'high');assert.equal(review.opportunityScore,74);assert.equal(review.verifiedFacts[0].category,'alignment');
 });
+
+
+test('contact routes preserve geography and route type without inventing forwarding',()=>{
+  const input=helpers.parseManualInput({company:'KBR',website:'https://kbr.com'});
+  const review=helpers.parseManualResearchReview({
+    research:{status:'completed',message:'done'},
+    publicSources:[
+      {url:'https://kbr.com/leadership',title:'Leadership',sourceType:'official',publishedAt:'2026'},
+      {url:'https://kbr.com/contact',title:'Contact',sourceType:'official',publishedAt:'2026'}
+    ],
+    people:[{
+      name:'Jenni Myles',role:'Chief People Officer',relevance:'Sponsor',seniority:'senior_sponsor',geography:'global',functionalFit:'direct',buyingProximity:'sponsor',score:66,
+      sourceUrls:['https://kbr.com/leadership'],
+      contact:{emailStatus:'not_found',personLocation:'Leatherhead, UK',publicPhone:'+44 1372 865000',phoneRoutes:[
+        {number:'+44 1372 865000',routeType:'local_office',location:'Leatherhead, UK',geographyMatch:'matched',forwardingStatus:'not_verified',sourceUrls:['https://kbr.com/contact']},
+        {number:'+1 713 753 2000',routeType:'global_hq',location:'Houston, US',geographyMatch:'mismatch',forwardingStatus:'not_verified',sourceUrls:['https://kbr.com/contact']}
+      ],sourceUrls:['https://kbr.com/contact']}
+    }],
+    decision:'needs_verification'
+  },input);
+  assert.equal(review.people[0].contact.personLocation,'Leatherhead, UK');
+  assert.equal(review.people[0].contact.phoneRoutes[0].routeType,'local_office');
+  assert.equal(review.people[0].contact.phoneRoutes[0].forwardingStatus,'not_verified');
+  assert.equal(review.people[0].contact.phoneRoutes[1].routeType,'global_hq');
+});
+
+test('organisational change remains separate from current buying signal',()=>{
+  const input=helpers.parseManualInput({company:'KBR',website:'https://kbr.com'});
+  const review=helpers.parseManualResearchReview({
+    research:{status:'completed',message:'done'},
+    publicSources:[{url:'https://kbr.com/spinoff',title:'Spin-off',sourceType:'official',publishedAt:'2026'}],
+    verifiedFacts:[{claim:'Planned business separation',category:'organisational_change',sourceUrls:['https://kbr.com/spinoff']}],
+    organisationalChange:{status:'active',type:'spin-off',summary:'A business separation is under way.',relevance:'May alter programme ownership; this is not evidence of buying intent.',sourceUrls:['https://kbr.com/spinoff']},
+    currentSignal:'No wellbeing buying signal verified.',
+    decision:'needs_verification'
+  },input);
+  assert.equal(review.organisationalChange.status,'active');
+  assert.match(review.organisationalChange.relevance,/not evidence of buying intent/);
+  assert.equal(review.currentSignal,'No wellbeing buying signal verified.');
+});

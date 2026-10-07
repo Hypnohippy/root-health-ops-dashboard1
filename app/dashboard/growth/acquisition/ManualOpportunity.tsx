@@ -63,6 +63,7 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div><dt className="font-semibold">Strategic alignment</dt><dd>{review.strategicAlignment||"Not established."}{review.strategicAlignmentScore!==undefined&&<span className="ml-2 text-slate-400">({Math.round(review.strategicAlignmentScore)}/100)</span>}</dd></div>
           <div><dt className="font-semibold">Strategic continuity</dt><dd>{review.strategicContinuity?.summary||"Not established."}{(review.strategicContinuity?.fromYear||review.strategicContinuity?.toYear)&&<span className="ml-2 text-slate-400">({review.strategicContinuity.fromYear||"?"}–{review.strategicContinuity.toYear||"present"})</span>}</dd></div>
+          <div><dt className="font-semibold">Organisational change signal</dt><dd>{review.organisationalChange?.summary||"No material structural change established."}{review.organisationalChange?.type&&<span className="ml-2 text-slate-400">({review.organisationalChange.type})</span>}{review.organisationalChange?.relevance&&<p className="mt-1 text-slate-400">{review.organisationalChange.relevance}</p>}</dd></div>
           <div><dt className="font-semibold">Likely operational burden / gap</dt><dd>{review.operationalGap||"Not established."}</dd></div>
           <div><dt className="font-semibold">Why Root fits</dt><dd>{review.rootFit||"Not established."}</dd></div>
         </dl>
@@ -84,7 +85,9 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
             {person.contact.emailStatus==="verified"&&person.contact.directEmail&&<p><strong>Verified work email:</strong> {person.contact.directEmail}</p>}
             {person.contact.emailStatus==="inferred_pattern"&&person.contact.inferredEmail&&<p><strong>Likely work email:</strong> {person.contact.inferredEmail} <span className="text-slate-400">(inferred from supplied company format; not independently verified)</span></p>}
             {person.contact.emailStatus==="not_found"&&<p><strong>Direct email:</strong> Not publicly verified</p>}
-            {person.contact.publicPhone&&<p><strong>Public business phone:</strong> {person.contact.publicPhone}</p>}
+            {person.contact.personLocation&&<p><strong>Publicly evidenced work location:</strong> {person.contact.personLocation}</p>}
+            {!!person.contact.phoneRoutes?.length&&<div className="mt-2 space-y-1"><strong>Public phone routes:</strong>{person.contact.phoneRoutes.map((phone,j)=><p key={`${phone.number}-${j}`} className="ml-2"><span className="font-medium">{phone.number}</span> · {phone.routeType.replaceAll("_"," ")}{phone.location?` · ${phone.location}`:""} · {phone.geographyMatch==="matched"?"location match":phone.geographyMatch==="mismatch"?"location mismatch":"location unverified"}{phone.forwardingStatus==="verified"?" · forwarding verified":""}</p>)}</div>}
+            {!person.contact.phoneRoutes?.length&&person.contact.publicPhone&&<p><strong>Public business phone:</strong> {person.contact.publicPhone}</p>}
             {person.contact.note&&<p className="mt-1 text-slate-300">{person.contact.note}</p>}
             <div className="mt-2 flex flex-wrap gap-3">{person.contact.linkedinUrl&&<a className="text-sky-300 underline" href={person.contact.linkedinUrl} target="_blank" rel="noopener noreferrer">LinkedIn</a>}{person.contact.officialContactUrl&&<a className="text-sky-300 underline" href={person.contact.officialContactUrl} target="_blank" rel="noopener noreferrer">Official contact route</a>}</div>
           </div>}

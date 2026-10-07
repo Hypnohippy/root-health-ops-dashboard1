@@ -3,13 +3,24 @@ import { IngestionError, parseIngestion, recordTypes, uuid } from "@/lib/growthI
 const fields = ["person", "company", "linkedin", "website", "email", "note"] as const;
 export type ManualInput = Record<typeof fields[number], string>;
 export type ManualSource = { url:string; title:string; sourceType:"official"|"reputable"|"other"; publishedAt:string|null };
-export type ManualFact = { claim:string; category:"identity"|"fit"|"signal"|"route"|"role"|"counterevidence"|"alignment"|"continuity"|"operational_gap"|"root_fit"; sourceUrls:string[] };
+export type ManualFact = { claim:string; category:"identity"|"fit"|"signal"|"route"|"role"|"counterevidence"|"alignment"|"continuity"|"operational_gap"|"root_fit"|"organisational_change"; sourceUrls:string[] };
+export type ManualPhoneRoute = {
+  number:string;
+  routeType:"direct_person"|"local_office"|"regional_office"|"global_hq"|"unknown";
+  location?:string|null;
+  geographyMatch:"matched"|"mismatch"|"unknown";
+  forwardingStatus:"verified"|"not_verified"|"not_applicable";
+  note?:string|null;
+  sourceUrls:string[];
+};
 export type ManualContactRoute = {
   directEmail?: string|null;
   emailStatus:"verified"|"inferred_pattern"|"not_found";
   inferredEmail?: string|null;
   emailConfidence?:"high"|"medium"|"low"|null;
+  personLocation?:string|null;
   publicPhone?: string|null;
+  phoneRoutes?:ManualPhoneRoute[];
   officialContactUrl?: string|null;
   linkedinUrl?: string|null;
   note?: string|null;
@@ -40,6 +51,7 @@ export type ManualReview = {
   strategicAlignment?: string;
   strategicAlignmentScore?: number;
   strategicContinuity?: { fromYear:number|null; toYear:number|null; summary:string; sourceUrls:string[] };
+  organisationalChange?: { status:"active"|"recent"|"none_found"|"unknown"; type:string; summary:string; relevance:string; sourceUrls:string[] };
   operationalGap?: string;
   rootFit?: string;
   researchQuestions?: string[];
@@ -93,9 +105,22 @@ function contactRoute(value:unknown,allowedUrls:Set<string>):ManualContactRoute|
   const emailStatus=["verified","inferred_pattern","not_found"].includes(status)?status as ManualContactRoute["emailStatus"]:"not_found";
   const sourceUrls=stringList(c.sourceUrls,8,2048).filter(url=>allowedUrls.has(url));
   const confidence=["high","medium","low"].includes(String(c.emailConfidence))?String(c.emailConfidence) as ManualContactRoute["emailConfidence"]:null;
+  const phoneRoutes=Array.isArray(c.phoneRoutes)?c.phoneRoutes.slice(0,8).flatMap(v=>{
+    if(!v||typeof v!=="object"||Array.isArray(v))return[];
+    const p=v as Record<string,unknown>,number=short(p.number,200),routeType=String(p.routeType),geographyMatch=String(p.geographyMatch),forwardingStatus=String(p.forwardingStatus);
+    const phoneSourceUrls=stringList(p.sourceUrls,6,2048).filter(url=>allowedUrls.has(url));
+    if(!number||!phoneSourceUrls.length)return[];
+    return [{number,
+      routeType:["direct_person","local_office","regional_office","global_hq","unknown"].includes(routeType)?routeType as ManualPhoneRoute["routeType"]:"unknown",
+      location:short(p.location,500)||null,
+      geographyMatch:["matched","mismatch","unknown"].includes(geographyMatch)?geographyMatch as ManualPhoneRoute["geographyMatch"]:"unknown",
+      forwardingStatus:["verified","not_verified","not_applicable"].includes(forwardingStatus)?forwardingStatus as ManualPhoneRoute["forwardingStatus"]:"not_verified",
+      note:short(p.note,800)||null,sourceUrls:phoneSourceUrls}];
+  }):[];
   return {
     directEmail:short(c.directEmail,500)||null,emailStatus,inferredEmail:short(c.inferredEmail,500)||null,emailConfidence:confidence,
-    publicPhone:short(c.publicPhone,200)||null,officialContactUrl:short(c.officialContactUrl,2048)||null,
+    personLocation:short(c.personLocation,500)||null,publicPhone:short(c.publicPhone,200)||phoneRoutes[0]?.number||null,phoneRoutes,
+    officialContactUrl:short(c.officialContactUrl,2048)||null,
     linkedinUrl:short(c.linkedinUrl,2048)||null,note:short(c.note,1200)||null,sourceUrls
   };
 }
@@ -114,7 +139,7 @@ export function parseManualResearchReview(value: unknown, input: ManualInput): M
   const verifiedFacts = Array.isArray(raw.verifiedFacts) ? raw.verifiedFacts.slice(0,36).flatMap(fact=>{
     if(!fact || typeof fact!=="object" || Array.isArray(fact))return [];
     const f=fact as Record<string,unknown>, claim=short(f.claim,1200), category=String(f.category);
-    if(!claim || !["identity","fit","signal","route","role","counterevidence","alignment","continuity","operational_gap","root_fit"].includes(category))return [];
+    if(!claim || !["identity","fit","signal","route","role","counterevidence","alignment","continuity","operational_gap","root_fit","organisational_change"].includes(category))return [];
     const sourceUrls=stringList(f.sourceUrls,6,2048).filter(url=>allowedUrls.has(url));
     return sourceUrls.length ? [{claim,category:category as ManualFact["category"],sourceUrls}] : [];
   }) : [];
@@ -139,6 +164,7 @@ export function parseManualResearchReview(value: unknown, input: ManualInput): M
     strategicAlignment:short(raw.strategicAlignment,2400),
     strategicAlignmentScore:Number.isFinite(Number(raw.strategicAlignmentScore))?Math.max(0,Math.min(100,Number(raw.strategicAlignmentScore))):undefined,
     strategicContinuity:raw.strategicContinuity&&typeof raw.strategicContinuity==="object"&&!Array.isArray(raw.strategicContinuity)?(()=>{const v=raw.strategicContinuity as Record<string,unknown>,sourceUrls=stringList(v.sourceUrls,12,2048).filter(url=>allowedUrls.has(url));return {fromYear:Number.isFinite(Number(v.fromYear))?Number(v.fromYear):null,toYear:Number.isFinite(Number(v.toYear))?Number(v.toYear):null,summary:short(v.summary,1800),sourceUrls};})():undefined,
+    organisationalChange:raw.organisationalChange&&typeof raw.organisationalChange==="object"&&!Array.isArray(raw.organisationalChange)?(()=>{const v=raw.organisationalChange as Record<string,unknown>,status=String(v.status),sourceUrls=stringList(v.sourceUrls,12,2048).filter(url=>allowedUrls.has(url));return {status:["active","recent","none_found","unknown"].includes(status)?status as NonNullable<ManualReview["organisationalChange"]>["status"]:"unknown",type:short(v.type,500),summary:short(v.summary,1800),relevance:short(v.relevance,1800),sourceUrls};})():undefined,
     operationalGap:short(raw.operationalGap,2200), rootFit:short(raw.rootFit,2200), researchQuestions:stringList(raw.researchQuestions,10,500),
     evidenceConfidence:["high","medium","low"].includes(String(raw.evidenceConfidence))?String(raw.evidenceConfidence) as ManualReview["evidenceConfidence"]:undefined,
     opportunityScore:Number.isFinite(Number(raw.opportunityScore))?Math.max(0,Math.min(100,Number(raw.opportunityScore))):undefined,
