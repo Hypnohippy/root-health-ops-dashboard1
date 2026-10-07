@@ -92,6 +92,22 @@ function sourceConfidence(sources:ManualSource[]):NonNullable<ManualReview["evid
   return official>=2&&sources.length>=4?"high":official>=1&&(sources.length>=2||reputable>=1)?"medium":"low";
 }
 function yearFrom(value:string|null){const m=value?.match(/\b(20\d{2})\b/);return m?Number(m[1]):null;}
+async function repairResearchJson(key:string,raw:string){
+  if(!raw.trim())return null;
+  const repairPrompt=`Repair ONLY the JSON syntax in the text below.
+Do not add, remove, reinterpret or improve any factual claim.
+Do not invent sources, URLs, dates, people or programmes.
+Preserve the existing wording and values as closely as possible.
+Return one valid JSON object only, with no markdown fences or commentary.
+
+TEXT TO REPAIR:
+${raw.slice(0,30000)}`;
+  const response=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},body:JSON.stringify({
+    model:process.env.OPENAI_RESEARCH_MODEL||"gpt-6-luna",max_output_tokens:5000,input:repairPrompt})});
+  if(!response.ok)return null;
+  const result=await response.json() as Record<string,unknown>;
+  return parseJsonObject(outputText(result));
+}
 async function deepenOpportunityResearch(key:string,input:ManualInput,profile:unknown,base:ManualReview){
   const prompt=`You are the SECOND PASS of a Root Health commercial research process. The first pass has already established basic identity, fit, current signal and route.
 
@@ -133,12 +149,14 @@ Organisation/input: ${JSON.stringify(input)}
 First-pass research: ${JSON.stringify(base).slice(0,18000)}
 Root Health context: ${JSON.stringify(profile).slice(0,10000)}`;
   const response=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},body:JSON.stringify({
-    model:process.env.OPENAI_RESEARCH_MODEL||"gpt-6-luna",tools:[{type:"web_search"}],tool_choice:"auto",max_tool_calls:4,max_output_tokens:3600,
+    model:process.env.OPENAI_RESEARCH_MODEL||"gpt-6-luna",tools:[{type:"web_search"}],tool_choice:"auto",max_tool_calls:4,max_output_tokens:5200,
     include:["web_search_call.action.sources"],input:prompt})});
   if(!response.ok)return {...base,research:{...base.research,message:`${base.research.message} Strategic second-pass research could not complete (HTTP ${response.status}); first-pass evidence was preserved.`}};
-  const result=await response.json() as Record<string,unknown>,searched=searchSources(result);
-  const parsed=parseJsonObject(outputText(result));
-  if(!parsed)return {...base,research:{...base.research,message:`${base.research.message} Strategic second-pass research returned unreadable JSON; first-pass evidence was preserved.`}};
+  const result=await response.json() as Record<string,unknown>,searched=searchSources(result),rawStrategic=outputText(result);
+  let parsed=parseJsonObject(rawStrategic);
+  let repaired=false;
+  if(!parsed){parsed=await repairResearchJson(key,rawStrategic);repaired=!!parsed;}
+  if(!parsed)return {...base,research:{...base.research,message:`${base.research.message} Strategic second-pass research remained unreadable after one syntax-repair attempt; first-pass evidence was preserved.`}};
   const extraSources=sourceList(parsed,searched,16),publicSources=[...base.publicSources];
   for(const s of extraSources)if(!publicSources.some(x=>x.url===s.url))publicSources.push(s);
   const allowed=new Set(publicSources.map(s=>s.url));
@@ -174,7 +192,7 @@ Root Health context: ${JSON.stringify(profile).slice(0,10000)}`;
     organisationalChange:{status:changeStatus,type:text(changeRaw.type,500),summary:text(changeRaw.summary,1800),relevance:text(changeRaw.relevance,1800),sourceUrls:changeUrls},
     operationalGap:text(parsed.operationalGap,2200),rootFit:text(parsed.rootFit,2200),researchQuestions:list(parsed.researchQuestions,10),
     outreachAngle:text(parsed.outreachAngle,1800),evidenceConfidence:sourceConfidence(publicSources),opportunityScore,scoreBreakdown,
-    research:{...base.research,message:`${base.research.message} Strategic continuity and Root-fit research also completed.`,searchCalls:Math.min(8,(base.research.searchCalls||2)+4)}};
+    research:{...base.research,message:`${base.research.message} Strategic continuity and Root-fit research also completed.${repaired?" JSON syntax was repaired before validation.":""}`,searchCalls:Math.min(8,(base.research.searchCalls||2)+4)}};
 }
 
 export async function researchManualOpportunity(organisationId:string,input:ManualInput):Promise<ManualReview>{
