@@ -851,6 +851,7 @@ const deleteSelectedResponse = async () => {
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
+            <a className="mb-3 block text-sky-300 underline" href={`/dashboard/responses/linkedin${organisationId ? `?organisationId=${encodeURIComponent(organisationId)}` : ""}`}>LinkedIn Outreach Console — Work next 10</a>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
               Responses
             </h1>

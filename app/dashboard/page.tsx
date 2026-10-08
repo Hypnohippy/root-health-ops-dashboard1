@@ -8,7 +8,7 @@ type Counts={newOpportunities:number;linkedInConnections:number;outreachReady:nu
 type AttentionCard={key:keyof Counts;label:string;why:string;href:string;tone:string};
 const cards:AttentionCard[]=[
  {key:"repliesNeedingResponse",label:"Replies need you",why:"People are waiting for a human response.",href:"/dashboard/responses?status=needs_reply",tone:"violet"},
- {key:"linkedInConnections",label:"New LinkedIn connections",why:"Review the proposed first message.",href:"/dashboard/responses?platform=linkedin&kind=connection_accepted&status=unread",tone:"sky"},
+ {key:"linkedInConnections",label:"New LinkedIn connections",why:"Work through first messages and due follow-ups.",href:"/dashboard/responses/linkedin",tone:"sky"},
  {key:"followupsDue",label:"Follow-ups due today",why:"Continue outreach while the conversation is current.",href:"/dashboard/growth?view=due",tone:"amber"},
  {key:"newOpportunities",label:"New opportunities",why:"Qualify, accept or dismiss new discoveries.",href:"/dashboard/growth/acquisition?status=new",tone:"emerald"},
  {key:"outreachReady",label:"Outreach ready",why:"Approved contacts are ready for their first action.",href:"/dashboard/growth/followups?stage=connection",tone:"cyan"},
