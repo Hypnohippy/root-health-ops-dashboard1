@@ -1,3 +1,4 @@
+import { isOutreachSelfContact, emptyOutreachSelfIdentity, type OutreachSelfIdentity } from "@/lib/outreachSelfIdentity";
 import { buildContactLifecycle, lifecycleLinkedInIdentity, type LifecycleInput, type LifecycleRow } from "@/lib/contactLifecycle";
 import { planManualCompletion } from "@/lib/operationalGovernor";
 import { outreachStages } from "@/lib/growthOutreach";
@@ -24,12 +25,13 @@ export function linkedInDestination(rows: LifecycleRow[]) {
   }
   return null;
 }
-export function linkedInOutreachQueue(organisationId: string, input: LifecycleInput, now = Date.now(), view: OutreachView = "all", excluded: string[] = [], limit = 10) {
+export function linkedInOutreachQueue(organisationId: string, input: LifecycleInput, now = Date.now(), view: OutreachView = "all", excluded: string[] = [], limit = 10, self: OutreachSelfIdentity = emptyOutreachSelfIdentity()) {
   const contacts = buildContactLifecycle(organisationId, input, now);
   const index = new Map(Object.entries(input).flatMap(([table, rows]) => rows.filter(r => r.organisation_id === organisationId).map(r => [`${table}:${r.id}`, r] as const)));
   const items = contacts.flatMap(contact => {
     if (excluded.includes(contact.contactId) || contact.channel !== "linkedin" || !["outreach_ready", "follow_up"].includes(contact.currentStage)) return [];
     const refs = contact.records, rows = refs.map(ref => index.get(`${ref.table}:${ref.id}`)!);
+    if (isOutreachSelfContact(rows, self)) return [];
     const row = index.get(`${contact.actionRecord.table}:${contact.actionRecord.id}`)!;
     const first = contact.currentStage === "outreach_ready";
     // A weaker historical record must never authorise outreach over a reply or closure.
@@ -41,10 +43,10 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
     if (table !== "inbox_items" && table !== "growth_targets") return [];
     if (table === "inbox_items" && (!first || row.kind !== "connection_accepted")) return [];
     if (table === "growth_targets" && (!outreachStages.includes(String(row.stage) as typeof outreachStages[number]) || row.next_step || (row.lead_quality && !["valid", "unreviewed"].includes(String(row.lead_quality))))) return [];
-    if (!planManualCompletion(organisationId, input, table, row.id).allowed) return [];
     const acceptance = rows.filter(r => r.platform === "linkedin" && r.kind === "connection_accepted").sort((a,b) => String(a.id).localeCompare(String(b.id)))[0];
     // A growth prospect without recorded acceptance is not a first-message opportunity.
     if (first && (!acceptance || !contact.identity.startsWith("linkedin:"))) return [];
+    if (!planManualCompletion(organisationId, input, table, row.id).allowed) return [];
     const connectedAt = date(acceptance?.created_at_platform || acceptance?.inserted_at);
     const fresh = !!connectedAt && Date.parse(connectedAt) <= now && now - Date.parse(connectedAt) <= FRESH_CONNECTION_MS;
     const mode = first ? fresh ? "fresh" : "catchup" : "followups";

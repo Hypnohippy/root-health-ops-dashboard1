@@ -60,6 +60,7 @@ function fixture({ user = "user-a", memberships = [{ organisation_id: "org-a", r
     "@/lib/responseContactContext": { responseDraftRules: () => [] },
     "@/lib/socialCommentOpportunity": {},
     "@/lib/growthIngestion.server": { uuid: /^[0-9a-f-]{36}$/i },
+    "@/lib/outreachSelfIdentity.server": { readOutreachSelfIdentity: () => { throw Error("Unexpected identity read before authorization"); } },
     "@/lib/linkedinOutreach": {},
     "@/lib/manualCompletion.server": {},
     "@/lib/organisationProfile.server": profiles,

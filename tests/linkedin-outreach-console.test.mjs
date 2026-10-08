@@ -12,7 +12,9 @@ const growth=load("lib/growthOutreach.ts"), engine=load("lib/engineState.ts");
 const lifecycle=load("lib/contactLifecycle.ts",{"@/lib/growthOutreach":growth,"@/lib/engineState":engine});
 const governor=load("lib/operationalGovernor.ts",{"@/lib/growthOutreach":growth,"@/lib/contactLifecycle":lifecycle});
 const context=load("lib/responseContactContext.ts");
-const queue=load("lib/linkedinOutreach.ts",{"@/lib/contactLifecycle":lifecycle,"@/lib/operationalGovernor":governor,"@/lib/growthOutreach":growth,"@/lib/responseContactContext":context});
+const selfIdentity=load("lib/outreachSelfIdentity.ts",{"@/lib/contactLifecycle":lifecycle});
+const workbench=load("lib/linkedinWorkbench.ts");
+const queue=load("lib/linkedinOutreach.ts",{"@/lib/outreachSelfIdentity":selfIdentity,"@/lib/contactLifecycle":lifecycle,"@/lib/operationalGovernor":governor,"@/lib/growthOutreach":growth,"@/lib/responseContactContext":context});
 const clipboard=load("lib/linkedinClipboard.ts");
 const reconcile=load("lib/lifecycleReconciliation.ts",{"@/lib/growthOutreach":growth,"@/lib/contactLifecycle":lifecycle});
 const org="org-a",now=Date.parse("2026-10-08T12:00:00Z");
@@ -76,6 +78,7 @@ test("inbound attention remains visible alongside queue",()=>{
 test("console API revalidates due eligibility and revision, retries receipts and uses catch-up rules",async()=>{
  let data=input({inbox_items:[acceptance("a",{created_at_platform:"2020-01-01"})]}),rev="3",completionCalls=0,prompt="";
  const deps={
+  "@/lib/outreachSelfIdentity.server":{readOutreachSelfIdentity:async()=>selfIdentity.emptyOutreachSelfIdentity()},
   "next/server":{NextResponse:{json:(body,options={})=>({body,status:options.status||200})}},
   "@/lib/tenantRoute.server":{withTenantRoute:handler=>req=>handler(req,{organisationId:org,userId:"actor"})},
   "@/lib/supabaseAdmin":{supabaseAdmin:{from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{revision:rev}})})})})}},
@@ -99,4 +102,31 @@ test("legacy contacted connection stage cannot generate a fake first message as 
  assert.equal(work(input({growth_targets:[target({stage:"connection",last_action_at:"2020-01-01"})]})).items.length,0);
  const incomplete=input({inbox_items:[acceptance("a",{linkedin_identity:null})]});
  assert.equal(work(incomplete).items.length,0);assert.equal(work(incomplete).identityReviewNeeded,1);
+});
+
+test("self/owner/account identities are excluded before the ten-item limit, without hard-coded identities",()=>{
+ const cases=[{names:["Sender Example"],emails:[],linkedinProfiles:[],linkedinAccountIds:[]},{names:[],emails:["sender@example.test"],linkedinProfiles:[],linkedinAccountIds:[]},{names:[],emails:[],linkedinProfiles:["https://linkedin.com/in/sender"],linkedinAccountIds:[]},{names:[],emails:[],linkedinProfiles:[],linkedinAccountIds:["urn:li:person:123"]}];
+ const fields=[{target_name:"  SENDER   EXAMPLE "},{email:"Sender@Example.Test"},{linkedin_identity:"linkedin.com/in/sender"},{linkedin_member_id:"123"}];
+ for(let i=0;i<cases.length;i++){
+  const data=input({growth_targets:[target(fields[i])],inbox_items:[acceptance("other")]});
+  const actual=queue.linkedInOutreachQueue(org,data,now,"all",[],10,cases[i]);assert.equal(actual.items.length,1);assert.equal(actual.items[0].id,"other");
+ }
+ const self={names:["Our Organisation"],emails:["hello@example.test"],linkedinProfiles:[],linkedinAccountIds:[]};
+ assert.equal(queue.linkedInOutreachQueue(org,input({growth_targets:[target({target_name:"Our Organisation"})]}),now,"all",[],10,self).items.length,0);
+ assert.equal(queue.linkedInOutreachQueue(org,input({growth_targets:[target({company:"Our Organisation",email:"someone.else@example.test"})]}),now,"all",[],10,self).items.length,1);
+});
+test("self identity is read from this tenant's saved profile, connected account and verified owners only",async()=>{
+ const calls=[],userIds=[];
+ const api=load("lib/outreachSelfIdentity.server.ts",{
+  "@/lib/outreachSelfIdentity":selfIdentity,
+  "@/lib/organisationProfile.server":{getOrganisationProfile:async id=>{assert.equal(id,org);return {profile:{yourName:"Configured Sender",businessName:"Saved Business",contactEmail:"contact@example.test"},organisationName:"Tenant Business"};}},
+  "@/lib/supabaseAdmin":{supabaseAdmin:{from:table=>{const filters={};const q={select:columns=>{assert.ok(!/token|secret/.test(columns));return q;},eq:(k,v)=>{filters[k]=v;return q;},then:resolve=>{calls.push({table,filters});return Promise.resolve({data:table==="social_accounts"?[{page_name:"Connected Sender",page_id:"123"}]:[{user_id:"owner",role:"owner"},{user_id:"viewer",role:"viewer"}]}).then(resolve);}};return q;},auth:{admin:{getUserById:async id=>{userIds.push(id);return {data:{user:{email:`${id}@example.test`,user_metadata:{full_name:`Verified ${id}`,linkedin_url:"https://linkedin.com/in/verified"}}}};}}}}},
+ });
+ const self=await api.readOutreachSelfIdentity(org,"actor");assert.ok(self.names.includes("Configured Sender"));assert.ok(self.names.includes("Connected Sender"));assert.ok(self.names.includes("Verified owner"));assert.ok(self.names.includes("Saved Business"));assert.equal(userIds.includes("viewer"),false);assert.equal(userIds.length,2);assert.ok(calls.every(c=>c.filters.organisation_id===org));
+});
+test("batch selection/removal are presentation-only; send and skip choose the next row",()=>{
+ const data=input({inbox_items:Array.from({length:12},(_,i)=>acceptance(`batch-${i}`))}),before=JSON.stringify(data),batch=work(data).items;
+ assert.equal(batch.length,10);assert.equal(workbench.selectedBatchId(batch,batch[4].contactId),batch[4].contactId);
+ const after=workbench.removeBatchContact(batch,batch[4].contactId);assert.equal(after.items.length,9);assert.equal(after.selectedId,batch[5].contactId);assert.equal(JSON.stringify(data),before);
+ assert.equal(workbench.removeBatchContact([batch[0]],batch[0].contactId).selectedId,null);
 });

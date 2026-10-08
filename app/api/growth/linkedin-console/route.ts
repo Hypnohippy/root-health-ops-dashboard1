@@ -1,3 +1,4 @@
+import { readOutreachSelfIdentity } from "@/lib/outreachSelfIdentity.server";
 import { NextResponse } from "next/server";
 import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -23,18 +24,18 @@ export const GET = withTenantRoute(async (req, tenant) => {
   const q = new URL(req.url).searchParams;
   const view = q.get("view") || "all";
   if (!["all", "fresh", "catchup", "followups"].includes(view)) return NextResponse.json({ error: "Invalid view." }, { status: 400 });
-  const state = await snapshot(tenant.organisationId);
-  const queue = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), view as OutreachView, q.getAll("skip").slice(0,500));
+  const [state, self] = await Promise.all([snapshot(tenant.organisationId), readOutreachSelfIdentity(tenant.organisationId, tenant.userId)]);
+  const queue = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), view as OutreachView, q.getAll("skip").slice(0,500), 10, self);
   return NextResponse.json({ ...queue, revision: state.revision, organisationId: tenant.organisationId }, { headers: { "Cache-Control": "private, no-store" } });
 }, { write: true });
 export const POST = withTenantRoute(async (req, tenant) => {
   const body = await req.json();
   if (!["generate", "complete"].includes(body.action) || !["inbox_items", "growth_targets"].includes(body.table) || typeof body.id !== "string" || typeof body.revision !== "string") return NextResponse.json({ error: "Invalid action." }, { status: 400 });
-  const state = await snapshot(tenant.organisationId);
+  const [state, self] = await Promise.all([snapshot(tenant.organisationId), readOutreachSelfIdentity(tenant.organisationId, tenant.userId)]);
   const row = state.input[body.table as "inbox_items" | "growth_targets"].find(r => r.id === body.id);
   const receipt = row?.manual_completion as { key?: string; history?: { key?: string }[] } | undefined;
   const duplicate = body.action === "complete" && body.key && (receipt?.key === body.key || receipt?.history?.some(r => r.key === body.key));
-  const selected = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity).items.find(i => i.table === body.table && i.id === body.id);
+  const selected = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self).items.find(i => i.table === body.table && i.id === body.id);
   if (!duplicate && (!selected || state.revision !== body.revision)) return NextResponse.json({ error: "Queue state changed. Reload before taking action." }, { status: 409 });
   if (body.action === "complete") {
     if (!/^[0-9a-f-]{36}$/i.test(body.key || "") || body.confirmed !== true || typeof body.message !== "string" || !body.message.trim() || body.message.length > 50000 || typeof body.completedAt !== "string") return NextResponse.json({ error: "Confirm the actual manual send." }, { status: 400 });
