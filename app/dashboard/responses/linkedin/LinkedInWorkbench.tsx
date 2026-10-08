@@ -5,7 +5,7 @@ import { tenantFetch } from "@/lib/tenantFetch";
 import { selectedBatchId, removeBatchContact } from "@/lib/linkedinWorkbench";
 import type { LinkedInOutreachItem, OutreachView } from "@/lib/linkedinOutreach";
 
-type Queue = { identityReviewNeeded: number; unreconciledFollowups: number; items: LinkedInOutreachItem[]; revision: string; total: number; repliesNeedingAttention: number; organisationId: string };
+type Queue = { audit?: Record<string, unknown>[]; identityReviewNeeded: number; unreconciledFollowups: number; items: LinkedInOutreachItem[]; revision: string; total: number; repliesNeedingAttention: number; organisationId: string };
 const button = "rounded-lg border border-white/20 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-40";
 const when = (value: string | null) => value ? new Date(value).toLocaleString("en-GB") : "Not recorded";
 
@@ -134,7 +134,7 @@ export default function LinkedInConsole() {
     <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
       <span>{queue?.items.length || 0} in this batch · {queue?.total || 0} eligible</span>
       {queue && queue.repliesNeedingAttention > 0 && <span>{queue.repliesNeedingAttention} inbound replies need attention in Responses</span>}
-      <details><summary className="cursor-pointer">Queue diagnostics{queue && queue.identityReviewNeeded > 0 ? ` · ${queue.identityReviewNeeded} identity checks` : ""}</summary><div className="mt-2 max-w-2xl space-y-2 rounded border border-white/10 p-3"><p>{queue?.identityReviewNeeded || 0} first-message records need verified LinkedIn identity; {queue?.unreconciledFollowups || 0} legacy follow-ups need reconciliation. Valid contacts remain available.</p><a className="underline" href={`/dashboard/growth?organisationId=${encodeURIComponent(org)}`}>Review Growth reconciliation</a><p>Fresh means detected within seven days. Older or undated acceptances use catch-up wording. Only records captured in Ops appear; intake may miss connections.</p></div></details>
+      <details><summary className="cursor-pointer">Queue diagnostics{queue && queue.identityReviewNeeded > 0 ? ` · ${queue.identityReviewNeeded} identity checks` : ""}</summary><div className="mt-2 max-w-2xl space-y-2 rounded border border-white/10 p-3"><p>{queue?.identityReviewNeeded || 0} first-message records need verified LinkedIn identity; {queue?.unreconciledFollowups || 0} legacy follow-ups need reconciliation. Valid contacts remain available.</p><details><summary>Recorded evidence and exclusion audit</summary><pre className="max-h-96 overflow-auto whitespace-pre-wrap">{JSON.stringify(queue?.audit || [], null, 2)}</pre></details><a className="underline" href={`/dashboard/growth?organisationId=${encodeURIComponent(org)}`}>Review Growth reconciliation</a><p>Fresh means detected within seven days. Older or undated acceptances use catch-up wording. Only records captured in Ops appear; intake may miss connections.</p></div></details>
     </div>
     {error && <div role="alert" className="text-sm"><p>{error}</p><button className={button} onClick={() => void load()}>Reload safely</button></div>}
     {loading && <p role="status" className="text-xs text-slate-400">Checking current lifecycle…</p>}

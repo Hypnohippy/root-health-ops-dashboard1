@@ -28,29 +28,36 @@ export function linkedInDestination(rows: LifecycleRow[]) {
 export function linkedInOutreachQueue(organisationId: string, input: LifecycleInput, now = Date.now(), view: OutreachView = "all", excluded: string[] = [], limit = 10, self: OutreachSelfIdentity = emptyOutreachSelfIdentity()) {
   const contacts = buildContactLifecycle(organisationId, input, now);
   const index = new Map(Object.entries(input).flatMap(([table, rows]) => rows.filter(r => r.organisation_id === organisationId).map(r => [`${table}:${r.id}`, r] as const)));
+  const audit: Record<string, unknown>[] = [];
   const items = contacts.flatMap(contact => {
-    if (excluded.includes(contact.contactId) || contact.channel !== "linkedin" || !["outreach_ready", "follow_up"].includes(contact.currentStage)) return [];
+    if (contact.channel !== "linkedin") return [];
     const refs = contact.records, rows = refs.map(ref => index.get(`${ref.table}:${ref.id}`)!);
-    if (isOutreachSelfContact(rows, self)) return [];
+    const evidence = { name: contact.name, identity: contact.identity, currentStage: contact.currentStage, actionRecord: contact.actionRecord,
+      records: refs.map((ref, i) => { const r = rows[i], raw = object(r.raw); return { table: ref.table, id: r.id, kind: r.kind, platform: r.platform, status: r.status, response_state: r.response_state, stage: r.stage, source_engine: r.source_engine, source_type: r.source_type, source_record_id: r.source_record_id, created_at_platform: r.created_at_platform, inserted_at: r.inserted_at, contacted_at: r.contacted_at, last_replied_at: r.last_replied_at, last_action_at: r.last_action_at, last_reply_text: r.last_reply_text, replied_at: r.replied_at, reply_status: r.reply_status, deal_stage: r.deal_stage, canonicalIdentity: lifecycleLinkedInIdentity(r.linkedin_identity) || lifecycleLinkedInIdentity(r.linkedin_url) || lifecycleLinkedInIdentity(raw.profile_url) || lifecycleLinkedInIdentity(r.permalink), destination: linkedInDestination([r])?.split("?")[0] || null, rawSource: raw.source_engine, rawSourceType: raw.source_type, manualReceipt: { completed_at: object(r.manual_completion).completed_at, evidence: object(r.manual_completion).evidence }, hasManualReceipt: !!r.manual_completion, hasEngineState: !!r.engine_state }; }) };
+    const reject = (reason: string) => { audit.push({ ...evidence, eligibility: reason }); return []; };
+    if (excluded.includes(contact.contactId)) return reject("skipped in this batch");
+    if (!["outreach_ready", "follow_up"].includes(contact.currentStage)) return reject("stronger lifecycle stage");
+    if (isOutreachSelfContact(rows, self)) return reject("self identity");
     const row = index.get(`${contact.actionRecord.table}:${contact.actionRecord.id}`)!;
     const first = contact.currentStage === "outreach_ready";
     // A weaker historical record must never authorise outreach over a reply or closure.
-    if (refs.some(ref => ["needs_reply", "engaged", "meeting", "converted", "lost", "dismissed", "no_reply_needed", "nurture", "waiting"].includes(ref.stage))) return [];
-    if (rows.some(r => r.replied_at || (r.reply_status && r.reply_status !== "no_reply") || r.status === "archived" || (r.platform === "linkedin" && r.kind === "dm" && text(r.text)))) return [];
-    if (contact.engineEvidence.length || rows.some(r => r.engine_state || ["root_health_b2b", "google_b2b_lead_engine", "root_health_personal"].includes(String(r.source_engine || r.source_type)) || ["root_health_b2b", "google_b2b_lead_engine"].includes(String(object(r.metadata).source)))) return [];
-    if (!first && (contact.followUpStatus !== "due" || row.stage === "connection")) return [];
+    if (refs.some(ref => ["needs_reply", "engaged", "meeting", "converted", "lost", "dismissed", "no_reply_needed", "nurture", "waiting"].includes(ref.stage))) return reject("stronger reply/closure/waiting record");
+    if (rows.some(r => r.replied_at || (r.reply_status && r.reply_status !== "no_reply") || r.status === "archived" || (r.platform === "linkedin" && r.kind === "dm" && text(r.text)))) return reject("reply or archived record");
+    if (contact.engineEvidence.length || rows.some(r => r.engine_state || ["root_health_b2b", "google_b2b_lead_engine", "root_health_personal"].includes(String(r.source_engine || r.source_type)) || ["root_health_b2b", "google_b2b_lead_engine"].includes(String(object(r.metadata).source)))) return reject("source ownership");
+    if (!first && (contact.followUpStatus !== "due" || row.stage === "connection")) return reject("follow-up not due or connection stage");
     const table = contact.actionRecord.table;
-    if (table !== "inbox_items" && table !== "growth_targets") return [];
-    if (table === "inbox_items" && (!first || row.kind !== "connection_accepted")) return [];
-    if (table === "growth_targets" && (!outreachStages.includes(String(row.stage) as typeof outreachStages[number]) || row.next_step || (row.lead_quality && !["valid", "unreviewed"].includes(String(row.lead_quality))))) return [];
+    if (table !== "inbox_items" && table !== "growth_targets") return reject("unsupported action table");
+    if (table === "inbox_items" && (!first || row.kind !== "connection_accepted")) return reject("inbox action is not unsent acceptance");
+    if (table === "growth_targets" && (!outreachStages.includes(String(row.stage) as typeof outreachStages[number]) || row.next_step || (row.lead_quality && !["valid", "unreviewed"].includes(String(row.lead_quality))))) return reject("growth stage/next-step/quality exclusion");
     const acceptance = rows.filter(r => r.platform === "linkedin" && r.kind === "connection_accepted").sort((a,b) => String(a.id).localeCompare(String(b.id)))[0];
     // A growth prospect without recorded acceptance is not a first-message opportunity.
-    if (first && (!acceptance || !contact.identity.startsWith("linkedin:"))) return [];
-    if (!planManualCompletion(organisationId, input, table, row.id).allowed) return [];
+    if (first && (!acceptance || !contact.identity.startsWith("linkedin:"))) return reject("acceptance absent or canonical identity missing");
+    if (!planManualCompletion(organisationId, input, table, row.id).allowed) return reject("manual governor refused");
     const connectedAt = date(acceptance?.created_at_platform || acceptance?.inserted_at);
     const fresh = !!connectedAt && Date.parse(connectedAt) <= now && now - Date.parse(connectedAt) <= FRESH_CONNECTION_MS;
     const mode = first ? fresh ? "fresh" : "catchup" : "followups";
-    if (view !== "all" && view !== mode) return [];
+    if (view !== "all" && view !== mode) return reject("different view");
+    audit.push({ ...evidence, eligibility: "eligible" });
     const raw = object(acceptance?.raw), meta = { ...raw, ...object(raw.metadata) };
     const role = text(row.role_title) || text(meta.headline) || text(meta.role_title) || text(acceptance?.author_handle) || text(acceptance?.post_text);
     const highFit = /chief people|people director|hr director|head of (?:hr|people)|(?:workforce |workplace )?wellbeing|learning.*development|\bl&d\b|(?:director|chief|head).*(?:care|health)/i.test(role || "");
@@ -72,6 +79,6 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
       priority: first ? highFit ? 1 : 2 : 0 }];
   });
   items.sort((a,b) => a.priority - b.priority || (a.dueAt || a.connectedAt || "9999").localeCompare(b.dueAt || b.connectedAt || "9999") || a.contactId.localeCompare(b.contactId));
-  return { items: items.slice(0,limit), total: items.length, identityReviewNeeded: contacts.filter(c => c.channel === "linkedin" && c.currentStage === "outreach_ready" && !c.identity.startsWith("linkedin:")).length, unreconciledFollowups: contacts.filter(c => c.channel === "linkedin" && c.followUpStatus === "due" && c.actionRecord.table === "inbox_items" && !c.records.some(r => r.table === "growth_targets")).length, repliesNeedingAttention: contacts.filter(c => c.currentStage === "needs_reply" || c.nextAction === "reply").length };
+  return { audit, items: items.slice(0,limit), total: items.length, identityReviewNeeded: contacts.filter(c => c.channel === "linkedin" && c.currentStage === "outreach_ready" && !c.identity.startsWith("linkedin:")).length, unreconciledFollowups: contacts.filter(c => c.channel === "linkedin" && c.followUpStatus === "due" && c.actionRecord.table === "inbox_items" && !c.records.some(r => r.table === "growth_targets")).length, repliesNeedingAttention: contacts.filter(c => c.currentStage === "needs_reply" || c.nextAction === "reply").length };
 }
 export type LinkedInOutreachItem = ReturnType<typeof linkedInOutreachQueue>["items"][number];
