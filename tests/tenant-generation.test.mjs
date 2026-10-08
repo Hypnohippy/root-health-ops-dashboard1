@@ -60,6 +60,10 @@ function fixture({ user = "user-a", memberships = [{ organisation_id: "org-a", r
     "@/lib/responseContactContext": { responseDraftRules: () => [] },
     "@/lib/socialCommentOpportunity": {},
     "@/lib/growthIngestion.server": { uuid: /^[0-9a-f-]{36}$/i },
+    "@/lib/linkedinOutreach": {},
+    "@/lib/manualCompletion.server": {},
+    "@/lib/organisationProfile.server": profiles,
+    "@/lib/tenantGeneration": generation,
     "@/lib/acquisitionWorkflow": load("lib/acquisitionWorkflow.ts"),
     "@/lib/acquisitionPromotion.server": { promoteAcquisition: () => { throw Error("Unexpected acquisition promotion before authorization"); } },
     "@/lib/growthOutreach": load("lib/growthOutreach.ts"),
@@ -224,5 +228,17 @@ test("creative intent survives profile tone and route templates without mandator
     assert.equal(/EXACTLY ONE|INVITATION TO COMMENT|Variant 2: practical|Include hook, body/.test(all),false,name);
     if(body.tone) assert.ok(all.includes(body.tone));
     if(name==="story") assert.ok(f.llm[0].max_tokens>=3000);
+  }
+});
+
+test("LinkedIn console rejects anonymous, foreign, ambiguous and viewer access before queue or completion reads", async () => {
+  for (const [settings,body,status] of [[{user:null},{organisationId:"org-a"},401],[{},{organisationId:"org-b"},403],[{memberships:[{organisation_id:"org-a",role:"owner"},{organisation_id:"org-b",role:"owner"}]},{},400],[{memberships:[{organisation_id:"org-a",role:"viewer"}]},{organisationId:"org-a"},403]]) {
+    const f=fixture(settings),api=f.route("app/api/growth/linkedin-console/route.ts");
+    for(const method of ["GET","POST"]) {
+      const query=method==="GET" && body.organisationId ? "?organisationId="+body.organisationId : "";
+      assert.equal((await api[method](f.req(body,method,query))).status,status);
+      assert.equal(f.llm.length,0);
+      assert.equal(f.calls.some(c=>c.table!=="organisation_members"),false);
+    }
   }
 });
