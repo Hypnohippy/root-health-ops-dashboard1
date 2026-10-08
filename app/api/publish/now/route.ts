@@ -830,17 +830,17 @@ async function postToLinkedInViaInternal(
 
 async function postToTikTokViaInternal(
   req: NextRequest,
-  args: { organisationId: string; message: string; videoUrl: string }
+  args: { organisationId: string; postId: string; settings?: unknown }
 ) {
-  const origin = originFromReq(req);
+  const origin = req.nextUrl.origin;
 
   const res = await fetch(`${origin}/api/tiktok/post`, {
     method: "POST",
     headers: publishingHeaders(req),
     body: JSON.stringify({
       organisationId: args.organisationId,
-      message: args.message,
-      videoUrl: args.videoUrl,
+      postId: args.postId,
+      settings: args.settings,
     }),
     cache: "no-store",
   });
@@ -1129,42 +1129,14 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // TIKTOK
+      // TikTok owns the durable receipt; every repeated call is status-only.
       if (p === "tiktok") {
-        if (meta.tiktok_inbox_upload?.publishId) {
-          results.push({ platform: "tiktok", ok: meta.tiktok_inbox_upload.published === true, manualCompletionRequired: meta.tiktok_inbox_upload.published !== true, details: meta.tiktok_inbox_upload, error: meta.tiktok_inbox_upload.published === true ? null : "TikTok upload already accepted. Check the TikTok inbox and complete publication manually; no duplicate upload was made." });
-          continue;
-        }
-        if (!videoUrl) {
-          results.push({
-            platform: "tiktok",
-            ok: false,
-            status: 200,
-            error: "TikTok needs a video URL.",
-            userMessage:
-              "TikTok posts need an MP4/MOV/WEBM video. Add a video and try again.",
-          });
-          continue;
-        }
-
-        const tk = await postToTikTokViaInternal(req, {
-          organisationId,
-          message: rawMessage,
-          videoUrl,
-        });
-
-        results.push({
-          platform: "tiktok",
-          ok: tk.ok && tk.json?.published === true,
-          manualCompletionRequired: tk.ok && tk.json?.published !== true,
-          status: tk.status,
-          details: tk.json,
-          error: tk.ok && tk.json?.published === true ? null : tk.ok ? "TikTok upload accepted; finish publication in the TikTok inbox. No publication is confirmed." : tk.error || "TikTok couldn’t upload this.",
-          userMessage: tk.ok && tk.json?.published === true
-            ? "Posted to TikTok."
-            : tk.ok ? "Upload accepted — manual completion required in TikTok." : tk.error || "TikTok couldn’t upload this.",
-        });
-        if (tk.ok && tk.json?.publishId) meta.tiktok_inbox_upload = { publishId: tk.json.publishId, published: tk.json.published === true, acceptedAt: new Date().toISOString() };
+        const tk = await postToTikTokViaInternal(req, { organisationId, postId: id, settings: body.tiktok });
+        results.push({ platform: "tiktok", ok: tk.ok, published: tk.json?.published === true,
+          pending: tk.json?.pending === true, manualCompletionRequired: tk.json?.manualCompletionRequired === true,
+          publishId: tk.json?.publishId || null, postId: tk.json?.postId || null, postedId: tk.json?.postedId || null,
+          status: tk.status, details: tk.json, error: tk.ok ? null : tk.error,
+          userMessage: tk.json?.userMessage || tk.error || "TikTok status unavailable; do not upload again." });
         continue;
       }
 
@@ -1181,6 +1153,7 @@ export async function POST(req: NextRequest) {
     const skippedCount = results.filter((r) => r.skipped).length;
 
     const success = okCount > 0 && failCount === 0;
+    const pending = results.some(r => r.pending || r.manualCompletionRequired);
     const nowIso = new Date().toISOString();
 
     const firstFailure =
@@ -1194,8 +1167,11 @@ export async function POST(req: NextRequest) {
             "One or more platforms failed."
         ).trim();
 
+    // Provider routes may have persisted a receipt. Never overwrite it with the pre-upload snapshot.
+    const { data: latestPost, error: latestError } = await supabaseAdmin.from("scheduled_posts").select("meta").eq("id", id).eq("organisation_id", organisationId).maybeSingle();
+    if (latestError || !latestPost) throw Error("Could not read saved publish receipt. Refresh status; do not re-upload.");
     const nextMeta = {
-      ...((row as any).meta || {}),
+      ...(latestPost.meta || {}),
       last_publish_attempt_at: nowIso,
       last_publish_summary: {
         ok: okCount,
@@ -1225,11 +1201,11 @@ export async function POST(req: NextRequest) {
       meta: nextMeta,
     };
 
-    if (success) {
+    if (success && !pending) {
       updatePayload.status = "posted";
       updatePayload.posted_at = nowIso;
     } else {
-      updatePayload.status = "failed";
+      updatePayload.status = pending ? "pending" : "failed";
       if (results.some(r => r.manualCompletionRequired)) updatePayload.posted_at = null;
     }
 
@@ -1244,6 +1220,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success,
+          pending,
+          published: success && !pending,
           error: topError,
           warning: "Publish ran, but failed to update DB row status/error_info.",
           results,
@@ -1261,6 +1239,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success,
+        pending,
+        published: success && !pending,
         error: topError,
         results,
         summary: {

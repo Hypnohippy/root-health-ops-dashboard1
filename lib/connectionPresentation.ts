@@ -13,7 +13,7 @@ export function connectionPresentation(channel: ChannelDefinition, health?: Conn
     instagram: "Publishing access still needs checking. Reading and replying to comments needs additional Instagram permission that Root must arrange.",
     linkedin: "Publishing access still needs checking. Reading responses is not available in Ops. Messages and invitations remain manual.",
     threads: "Publishing access still needs checking. Reading and replying to comments is not supported in Ops yet.",
-    tiktok: "Ops supports sending a video draft to TikTok, but access still needs checking. You must finish publishing in your TikTok inbox. An upload is not a published video.",
+    tiktok: "Direct Post access still needs checking against TikTok’s latest account settings. Older connections may need reconnecting. TikTok can limit who sees your posts until the app is approved. Draft upload remains an explicit fallback.",
     google: "Only your Google account is linked. Ops cannot publish posts or read and reply to reviews yet.",
     email: "Email setup is recorded, but sending and receiving still need checking by Root. Every reply sent from Ops needs your approval.",
   };
@@ -40,7 +40,7 @@ export function connectionPresentation(channel: ChannelDefinition, health?: Conn
     summary: !health ? "What Ops can do is not known yet." : connected ? limitations[channel.id] || "This channel is not supported in Ops yet." : "Ops cannot use this connection yet.",
     next, steps: [...steps, "Approve the access requested on the authorisation screen. Do not change developer or app-review settings.", "You should return to Ops automatically. If not, return here and check the connection. Connecting does not guarantee provider approval for every feature."],
     label: action === "connect" ? "Connect" : action === "reconnect" ? "Reconnect" : action === "check" ? "Check connection" : "Nothing to do",
-    fallback: channel.id === "tiktok" ? "After a successful upload, finish the existing draft in your TikTok inbox. Do not upload it again."
+    fallback: channel.id === "tiktok" ? "Direct Post processing needs a status refresh, not another upload. Only when you explicitly choose draft upload must you finish the existing draft in TikTok inbox. Do not upload it again."
       : channel.id === "email" ? "Before sending manually in Gmail, check whether the message already went out. Never repeat an uncertain send."
       : channel.id === "google" ? "Use Google Business Profile directly for posts and reviews."
       : "Where a prepared reply or draft is available in Ops, open its source, copy the text and finish manually. No message is sent from this page.",

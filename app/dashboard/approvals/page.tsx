@@ -680,9 +680,10 @@ export default function ApprovalsPage() {
                         </div>
                       </div>
 
+                      {postNowPlatforms.includes("tiktok") && <a className="block text-sm underline" href={`/dashboard/publishing/tiktok?organisationId=${encodeURIComponent(organisationId || "")}&postId=${encodeURIComponent(selected.id)}`}>Review TikTok privacy and post settings</a>}
                       <button
                         type="button"
-                        disabled={disabled}
+                        disabled={disabled || postNowPlatforms.includes("tiktok")}
                         onClick={postNow}
                         className="w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition disabled:opacity-60"
                       >

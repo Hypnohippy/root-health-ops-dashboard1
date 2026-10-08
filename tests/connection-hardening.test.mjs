@@ -37,7 +37,7 @@ test("credential presence cannot establish a supported channel's operational cap
   assert.equal(caps.assessConnectionCapabilities("linkedin", "connected").capabilities["Pull responses"].state, "provider_approval_required");
   assert.equal(caps.assessConnectionCapabilities("google", "connected").capabilities.Publish.state, "not_implemented");
   assert.equal(caps.assessConnectionCapabilities("email", "connected").credentialStatus, "configuration_present");
-  assert.equal(caps.assessConnectionCapabilities("tiktok", "connected").capabilities.Publish.state, "manual_completion_required");
+  assert.equal(caps.assessConnectionCapabilities("tiktok", "connected").capabilities.Publish.state, "not_verified");
 });
 test("expired credentials require reconnect while unsupported adapters stay unavailable", () => {
   for (const state of ["expired", "reconnect_required"]) {
@@ -61,32 +61,17 @@ test("health API retains tenant authorization, with no provider calls or secret 
     assert.equal(email.credentialStatus, "configuration_present"); assert.equal(email.operationallyVerified, false);
   }
 });
-test("TikTok inbox upload cannot mark a scheduled item posted and a retry reuses the receipt", async () => {
-  let uploads = 0, saved;
-  const row = { id: "post", organisation_id: A, message: "Draft", platforms: ["tiktok"], status: "scheduled", meta: { video_url: "https://media.example/video.mp4" } };
-  const q = { select() { return q; }, eq(k, v) { if (k === "organisation_id") assert.equal(v, A); return q; }, maybeSingle: async () => ({ data: row }), update(value) { saved = value; return q; }, then(resolve) { Object.assign(row, saved); resolve({ error: null }); } };
-  const route = load("app/api/publish/now/route.ts", { "next/server": server, "../../../../lib/supabaseAdmin": { supabaseAdmin: { from: () => q } }, "@/lib/tenantAuth": { requirePublishingOrganisation: async () => ({ organisationId: A }), accessErrorResponse: () => null, publishingHeaders: () => ({}) } }, { fetch: async url => { assert.match(url, /\/api\/tiktok\/post$/); uploads++; return { ok: true, status: 200, json: async () => ({ ok: true, publishId: "upload-123", published: false, manualCompletionRequired: true }) }; } });
-  const req = { url: `https://ops.example/api/publish/now?organisationId=${A}`, nextUrl: new URL("https://ops.example"), json: async () => ({ id: "post", platforms: ["tiktok"] }) };
-  const first = await route.POST(req);
-  assert.equal(first.body.success, false); assert.equal(saved.status, "failed"); assert.equal(saved.posted_at, null);
-  assert.equal(saved.meta.tiktok_inbox_upload.publishId, "upload-123"); assert.equal(first.body.results[0].manualCompletionRequired, true);
-  row.meta.tiktok_inbox_upload.completedPlatforms = ["facebook"];
-  const retry = { ...req, json: async () => ({ id: "post", platforms: ["facebook", "tiktok"] }) };
-  await route.POST(retry); assert.equal(uploads, 1); assert.match(saved.error_info.error, /no duplicate upload/);
+test("TikTok outcomes distinguish explicit inbox handoff from Direct Post processing", () => {
+  const model = load("lib/tiktokPosting.ts");
+  const draft = model.tikTokOutcome({status:"SEND_TO_USER_INBOX"},"draft");
+  assert.equal(draft.published,false); assert.equal(draft.manualCompletionRequired,true);
+  const direct = model.tikTokOutcome({status:"PROCESSING_UPLOAD"},"direct");
+  assert.equal(direct.published,false); assert.equal(direct.manualCompletionRequired,false); assert.equal(direct.pending,true);
 });
 
-test("TikTok reports publication only on a confirmed provider completion status", async () => {
-  for (const providerStatus of ["SEND_TO_USER_INBOX", "PROCESSING_UPLOAD", "FAILED", "PUBLISH_COMPLETE"]) {
-    const q = { select() { return q; }, eq(k, v) { if (k === "organisation_id") assert.equal(v, A); return q; }, limit() { return q; }, maybeSingle: async () => ({ data: { page_access_token: "TOKEN", meta: {} } }) };
-    const route = load("app/api/tiktok/post/route.ts", { "next/server": server, "../../../../lib/supabaseAdmin": { supabaseAdmin: { from: () => q } }, "@/lib/tenantAuth": { requirePublishingOrganisation: async () => ({ organisationId: A }), accessErrorResponse: () => null } }, { fetch: async url => {
-      if (url === "https://media.example/video.mp4") return { ok: true, headers: { get: () => "video/mp4" }, arrayBuffer: async () => new ArrayBuffer(4) };
-      if (url.endsWith("/inbox/video/init/")) return { ok: true, status: 200, json: async () => ({ data: { publish_id: "upload-id", upload_url: "https://upload.example" } }) };
-      if (url === "https://upload.example") return { ok: true, status: 200 };
-      assert.ok(url.endsWith("/status/fetch/")); return { ok: true, status: 200, json: async () => ({ error: { code: "ok" }, data: { status: providerStatus } }) };
-    } });
-    const response = await route.POST({ json: async () => ({ organisationId: A, message: "Caption", videoUrl: "https://media.example/video.mp4" }) });
-    assert.equal(response.body.published, providerStatus === "PUBLISH_COMPLETE");
-    assert.equal(response.body.postedId, providerStatus === "PUBLISH_COMPLETE" ? "upload-id" : null);
-    assert.equal(response.body.publishId, "upload-id");
-  }
+test("TikTok publish ID never substitutes for an actual provider post ID", () => {
+  const model = load("lib/tiktokPosting.ts");
+  const complete = model.tikTokOutcome({status:"PUBLISH_COMPLETE"},"direct");
+  assert.equal(complete.published,true); assert.equal(complete.postedId,null);
+  assert.equal(model.tikTokOutcome({status:"PUBLISH_COMPLETE",publicaly_available_post_id:["actual-post"]},"direct").postedId,"actual-post");
 });
