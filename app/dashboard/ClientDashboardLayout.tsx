@@ -41,6 +41,7 @@ export default function ClientDashboardLayout({
   const [supportError, setSupportError] = useState<string | null>(null);
   const [orgId, setOrgId] = useState<string>("");
   const [navCounts, setNavCounts] = useState<{acquisition?:number;responses?:number;today?:number}>({});
+  const [founderAccess, setFounderAccess] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -50,6 +51,13 @@ export default function ClientDashboardLayout({
         const current = await workspace.json();
         if (!workspace.ok || !current.organisationId) return;
         if (active) setOrgId(current.organisationId);
+        try {
+          const founder = await fetch(`/api/founder-intelligence/access?organisationId=${encodeURIComponent(current.organisationId)}`, { cache: "no-store" });
+          const founderData = await founder.json().catch(() => ({}));
+          if (active) setFounderAccess(founder.ok && founderData?.allowed === true);
+        } catch {
+          if (active) setFounderAccess(false);
+        }
         const response = await fetch(`/api/home/attention?organisationId=${encodeURIComponent(current.organisationId)}`, { cache: "no-store" });
         const data = await response.json();
         if (active && response.ok && data.counts) setNavCounts({ acquisition: data.counts.newOpportunities, responses: data.counts.repliesNeedingResponse, today: data.counts.followupsDue });
@@ -196,6 +204,14 @@ export default function ClientDashboardLayout({
       match: (p) => p.startsWith("/dashboard/connect"),
     },
   ];
+
+  if (founderAccess) {
+    primaryNav.splice(1, 0, {
+      label: "Founder",
+      href: "/dashboard/founder-intelligence",
+      match: (p) => p.startsWith("/dashboard/founder-intelligence"),
+    });
+  }
 
   const activePrimary = primaryNav.find((item) => item.match(pathname))?.label || "Home";
 
