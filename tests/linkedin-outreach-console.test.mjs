@@ -21,17 +21,19 @@ const org="org-a",now=Date.parse("2026-10-08T12:00:00Z");
 const input=(parts={})=>({inbox_items:[],growth_targets:[],acquisition_items:[],...parts});
 const acceptance=(id="a",fields={})=>({id,organisation_id:org,platform:"linkedin",kind:"connection_accepted",author_name:"Sarah",linkedin_identity:`linkedin.com/in/${id}`,status:"needs_reply",response_state:"needs_reply",created_at_platform:"2026-10-07",...fields});
 const target=(fields={})=>({id:"target",organisation_id:org,linkedin_identity:"linkedin.com/in/a",target_name:"Sarah",stage:"day3_dm",status:"active",last_action_at:"2026-09-01",...fields});
+const receipt=(at="2026-09-01",message="Hi Sarah, here is the wellbeing resource we discussed.")=>({key:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",actor:"verified-operator",completed_at:at,evidence:"Operator confirmed actual LinkedIn message sent",message});
+const followup=(fields={},acceptedFields={})=>input({inbox_items:[acceptance("a",{created_at_platform:"2026-08-01",...acceptedFields})],growth_targets:[target({manual_completion:receipt(fields.last_action_at || "2026-09-01"),...fields})]});
 const work=(data,view="all")=>queue.linkedInOutreachQueue(org,data,now,view);
-test("fresh first message, old catch-up and undated connection share one projection",()=>{
+test("fresh and older accepted connections qualify; unknown acceptance timing needs reconciliation",()=>{
  const data=input({inbox_items:[acceptance(),acceptance("old",{created_at_platform:"2026-06-01"}),acceptance("unknown",{created_at_platform:null})]});
- assert.equal(work(data).items.length,3);assert.equal(work(data,"fresh").items.length,1);assert.equal(work(data,"catchup").items.length,2);
+ assert.equal(work(data).items.length,2);assert.equal(work(data,"fresh").items.length,1);assert.equal(work(data,"catchup").items.length,1);
  assert.equal(work(data,"catchup").items[0].context.interactionType,"linkedin_connection_first_message");
  assert.equal(work(input({growth_targets:[target({stage:"connection",last_action_at:null})]})).items.length,0);
 });
 test("only due followups enter queue; weekly canonical rule, no missing-date guesses",()=>{
- for(const fields of [{last_action_at:"2026-10-07"},{last_action_at:null},{status:"waiting"},{stage:"parked"}]) assert.equal(work(input({growth_targets:[target(fields)]})).items.length,0);
- assert.equal(work(input({growth_targets:[target()]}),"followups").items[0].stage,"day3_dm");
- assert.equal(work(input({growth_targets:[target({last_action_at:"2026-10-01T12:00:00Z"})]})).items.length,1);
+ for(const fields of [{last_action_at:"2026-10-07"},{last_action_at:null},{status:"waiting"},{stage:"parked"}]) assert.equal(work(followup(fields)).items.length,0);
+ assert.equal(work(followup(),"followups").items[0].stage,"day3_dm");
+ assert.equal(work(followup({last_action_at:"2026-10-01T12:00:00Z"})).items.length,1);
 });
 test("human replies, engagement, commercial closure, dismissal and source ownership override outbound",()=>{
  for(const fields of [{reply_status:"positive"},{replied_at:"2026-10-07"},{deal_stage:"converted"},{deal_stage:"lost"},{deal_stage:"meeting"}]) assert.equal(work(input({growth_targets:[target(fields)]})).items.length,0);
@@ -44,7 +46,7 @@ test("human replies, engagement, commercial closure, dismissal and source owners
 });
 test("limit ten, stable ordering, overdue cadence outranks high-fit fresh connections; tenant isolation",()=>{
  const rows=Array.from({length:20},(_,i)=>acceptance(`person-${i}`,{raw:{headline:i===5?"Chief People Officer":"Consultant"}}));
- const data=input({inbox_items:[...rows,acceptance("foreign",{organisation_id:"org-b"})],growth_targets:[target()]});
+ const data=followup();data.inbox_items.push(...rows,acceptance("foreign",{organisation_id:"org-b"}));
  const a=work(data);assert.equal(a.items.length,10);assert.equal(a.total,21);assert.equal(a.items[0].id,"target");assert.equal(a.items[1].id,"person-5");assert.match(a.items[1].reason,/recorded role/);
  const b=work({...data,inbox_items:[...data.inbox_items].reverse()});assert.equal(JSON.stringify(a.items.map(i=>i.id)),JSON.stringify(b.items.map(i=>i.id)));
  assert.ok(!a.items.some(i=>i.id==="foreign"));
@@ -96,6 +98,11 @@ test("console API revalidates due eligibility and revision, retries receipts and
  data.inbox_items[0].response_state="engaged";assert.equal((await api.POST(req({...base,action:"complete",confirmed:true,key:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",message:"Hello",completedAt:"2026-01-01"}))).status,409);assert.equal(completionCalls,0);
  data.inbox_items[0].manual_completion={key:"cccccccc-cccc-4ccc-8ccc-cccccccccccc"};rev="4";
  const retry=await api.POST(req({...base,action:"complete",confirmed:true,key:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",message:"Hello",completedAt:"2026-01-01"}));assert.equal(retry.body.duplicate,true);assert.equal(completionCalls,1);
+ data=followup();
+ const fbase={id:"target",table:"growth_targets",revision:"4"};
+ assert.equal((await api.POST(req({...fbase,action:"generate"}))).status,200);assert.ok(prompt.includes(receipt().message));assert.match(prompt,/lifecycle stage is never provider truth/);assert.doesNotMatch(prompt,/unified current lifecycle is authoritative/);
+ data.growth_targets[0].manual_completion=null;assert.equal((await api.POST(req({...fbase,action:"generate"}))).status,409);
+ assert.equal((await api.POST(req({...fbase,action:"complete",confirmed:true,key:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",message:"Do not send",completedAt:"2026-10-08"}))).status,409);assert.equal(completionCalls,1);
 });
 
 test("legacy contacted connection stage cannot generate a fake first message as followup",()=>{
@@ -113,7 +120,7 @@ test("self/owner/account identities are excluded before the ten-item limit, with
  }
  const self={names:["Our Organisation"],emails:["hello@example.test"],linkedinProfiles:[],linkedinAccountIds:[]};
  assert.equal(queue.linkedInOutreachQueue(org,input({growth_targets:[target({target_name:"Our Organisation"})]}),now,"all",[],10,self).items.length,0);
- assert.equal(queue.linkedInOutreachQueue(org,input({growth_targets:[target({company:"Our Organisation",email:"someone.else@example.test"})]}),now,"all",[],10,self).items.length,1);
+ assert.equal(queue.linkedInOutreachQueue(org,followup({company:"Our Organisation",email:"someone.else@example.test"}),now,"all",[],10,self).items.length,1);
 });
 test("self identity is read from this tenant's saved profile, connected account and verified owners only",async()=>{
  const calls=[],userIds=[];
@@ -129,4 +136,39 @@ test("batch selection/removal are presentation-only; send and skip choose the ne
  assert.equal(batch.length,10);assert.equal(workbench.selectedBatchId(batch,batch[4].contactId),batch[4].contactId);
  const after=workbench.removeBatchContact(batch,batch[4].contactId);assert.equal(after.items.length,9);assert.equal(after.selectedId,batch[5].contactId);assert.equal(JSON.stringify(data),before);
  assert.equal(workbench.removeBatchContact([batch[0]],batch[0].contactId).selectedId,null);
+});
+
+
+test("live acceptance importer provenance does not confer ownership of outbound work",()=>{
+ const names=["Beverley Deans","Eric Misewe","Jamie Aspinall","Miriam Berramou","Neil","Tom","James Lockwood","James Duncan","Tara","Alenka Taylor"];
+ const data=input({inbox_items:names.map((name,i)=>acceptance("verified-"+i,{author_name:name,source_engine:"root_health_b2b",raw:{source_engine:"root_health_b2b",source_type:"linkedin_connection_accepted"},created_at_platform:i<8?"2026-10-07":"2026-09-30"}))});
+ assert.equal(work(data).total,10);assert.equal(work(data,"fresh").total,8);assert.equal(work(data,"catchup").total,2);
+ // Ownership of an actual acquisition workflow still blocks taking over its action.
+ data.acquisition_items.push({id:"owned",organisation_id:org,linkedin_identity:"linkedin.com/in/verified-0",source_engine:"root_health_b2b",status:"accepted"});
+ assert.equal(work(data).total,9);
+});
+test("stage, timestamp and profile are never accepted-connection evidence",()=>{
+ const legacy=input({growth_targets:[target()]});assert.equal(work(legacy).total,0);assert.equal(work(legacy).audit[0].eligibility,"connection state unverified");
+ const data=followup({manual_completion:receipt()});assert.equal(work(data).total,1);
+ for(const connection_status of ["pending","2nd-degree","disconnected"]) { const pending=followup({connection_status});assert.equal(work(pending).total,0);assert.equal(work(pending).audit[0].eligibility,"connection state unverified"); }
+ const mismatch=followup({}, {linkedin_identity:"linkedin.com/in/somebody-else"});assert.equal(work(mismatch,"followups").total,0);
+});
+test("confirmed prior send, actual text and cadence timestamp must all agree",()=>{
+ for(const manual_completion of [null,receipt("2026-09-01",""),{...receipt(),actor:null},{...receipt(),completed_at:"2027-01-01"}]){
+  const data=followup({manual_completion,last_reply_text:"Unconfirmed text alone is not history"});assert.equal(work(data).total,0);assert.equal(work(data).audit[0].eligibility,"outbound history incomplete");
+ }
+ const data=followup();const item=work(data).items[0];assert.equal(item.previousOutbound.message,receipt().message);assert.equal(item.previousOutbound.sentAt,"2026-09-01T00:00:00.000Z");assert.match(JSON.stringify(item.context.history),/Actual previous outbound message/);
+ assert.equal(work(followup({manual_completion:receipt("2026-08-20")})).audit[0].eligibility,"conflicting lifecycle: cadence timestamp differs from confirmed send");
+ const legacy=followup({manual_completion:null},{status:"replied",contacted_at:"2026-09-01",last_replied_at:"2026-09-01",last_reply_text:"Actual old first message"});assert.equal(work(legacy).total,1);
+ for(const fields of [{reply_status:"positive"},{replied_at:"2026-10-01"},{deal_stage:"meeting"},{deal_stage:"won"},{deal_stage:"lost"},{status:"parked"}]) assert.equal(work(followup(fields)).total,0);
+});
+test("missing destination and ambiguous identities remain diagnostic, never normal work",()=>{
+ const a=acceptance("a",{linkedin_identity:null,permalink:null,linkedin_message_url:null});const data=input({inbox_items:[a]});assert.equal(work(data).total,0);assert.ok(work(data).audit[0].defects.includes("destination missing"));
+ const conflict=input({inbox_items:[acceptance("a",{permalink:"https://linkedin.com/in/other"})]});assert.equal(work(conflict).total,0);assert.ok(work(conflict).audit[0].defects.includes("ambiguous identity"));
+ const profile=work(input({inbox_items:[acceptance()]})).items[0];assert.equal(profile.destinationKind,"profile");
+ const messaging=work(input({inbox_items:[acceptance("a",{linkedin_message_url:"https://www.linkedin.com/comm/messaging/compose/?connId=a"})]})).items[0];assert.equal(messaging.destinationKind,"messaging");
+ assert.equal(queue.linkedInDestination([acceptance("a",{linkedin_message_url:"https://linkedin.com/messaging/"})]),"https://linkedin.com/in/a");
+});
+test("foreign acceptance cannot authorise this tenant's followup or appear in evidence",()=>{
+ const data=followup({}, {organisation_id:"org-b"});const actual=work(data);assert.equal(actual.total,0);assert.ok(actual.audit.every(c=>c.records.every(r=>r.table!=="inbox_items")));
 });

@@ -52,3 +52,15 @@ test("large legacy and inbound counts leave the valid batch selectable",()=>{
  assert.match(html,/80 identity checks/);assert.match(html,/23.*inbound replies/);assert.match(html,/Person 9/);assert.doesNotMatch(html,/<details open/);
  const list=nodes(tree).find(n=>n.type===f.BatchList);assert.equal(list.props.items.length,10);assert.equal(list.props.disabled,false);
 });
+
+
+test("profile fallback is labelled explicitly; missing destination disables opening",()=>{
+ const f=componentFixture();const profileProps=props(f);profileProps.item={...profileProps.item,destinationKind:"profile"};
+ assert.match(renderToStaticMarkup(f.ContactCard(profileProps)),/Open profile.*use Message/);
+ const g=componentFixture();const noDestination=props(g);noDestination.item={...noDestination.item,destination:null};
+ const tree=g.ContactCard(noDestination);assert.equal(nodes(tree).find(n=>n.type==="button" && text(n)==="Open & Copy").props.disabled,true);
+});
+test("valid follow-up shows exact actual prior message, time, source and next draft",()=>{
+ const f=componentFixture(),p=props(f);p.item={...p.item,previousOutbound:{message:"The actual words sent last time.",sentAt:"2026-09-01T09:00:00Z",source:"manual completion receipt",table:"growth_targets",id:"source-id"}};
+ const html=renderToStaticMarkup(f.ContactCard(p));assert.match(html,/Previous message/);assert.match(html,/The actual words sent last time/);assert.match(html,/Sent:/);assert.match(html,/manual completion receipt/);assert.match(html,/source-id/);assert.match(html,/Next draft/);
+});
