@@ -166,6 +166,7 @@ test("mutating routes deny a foreign tenant before database writes or provider c
     const file = `app/api/${path}/route.ts`;
     const source = fs.readFileSync(file, "utf8");
     const mocks = { "next/server": responseMock, "@/lib/tenantAuth": auth, "@/lib/responseContactContext.server": {}, "@/lib/organisationProfile.server": {}, "@/lib/socialCommentOpportunity": {} };
+    mocks["@/lib/tiktokPosting.server"] = { TikTokError: Error, publishTikTokPost: () => { throw new Error("Unexpected TikTok business access"); }, refreshTikTokPost: () => { throw new Error("Unexpected TikTok business access"); } };
     for (const [, name] of source.matchAll(/from "([^"]*supabaseAdmin)"/g)) mocks[name] = { supabaseAdmin: db };
     const result = await load(file, mocks).POST(req);
     assert.equal(result.status, 403, path);
