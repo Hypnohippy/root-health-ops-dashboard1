@@ -5,7 +5,7 @@ import vm from "node:vm";
 import ts from "typescript";
 function load(file, deps = {}, globals = {}) {
  const mod={exports:{}};
- vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{...globals,module:mod,exports:mod.exports,URL,URLSearchParams,require:n=>{assert.ok(n in deps,n);return deps[n];}});
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{...globals,module:mod,exports:mod.exports,URL,URLSearchParams,AbortSignal,require:n=>{assert.ok(n in deps,n);return deps[n];}});
  return mod.exports;
 }
 const growth=load("lib/growthOutreach.ts"), engine=load("lib/engineState.ts");
@@ -78,7 +78,7 @@ test("inbound attention remains visible alongside queue",()=>{
 });
 
 test("console API revalidates due eligibility and revision, retries receipts and uses catch-up rules",async()=>{
- let data=input({inbox_items:[acceptance("a",{created_at_platform:"2020-01-01"})]}),rev="3",completionCalls=0,prompt="";
+ let data=input({inbox_items:[acceptance("a",{created_at_platform:"2020-01-01"})]}),rev="3",completionCalls=0,prompt="", replies=[], providerStatus=200, providerThrows=false, providerCalls=0;
  const deps={
   "@/lib/outreachSelfIdentity.server":{readOutreachSelfIdentity:async()=>selfIdentity.emptyOutreachSelfIdentity()},
   "next/server":{NextResponse:{json:(body,options={})=>({body,status:options.status||200})}},
@@ -90,7 +90,7 @@ test("console API revalidates due eligibility and revision, retries receipts and
   "@/lib/tenantGeneration":{generationMessages:()=>[]},
   "@/lib/manualCompletion.server":{completeManualAction:async(o,a,r)=>{completionCalls++;assert.equal(o,org);assert.equal(a,"actor");assert.equal(r.completedAt,"2026-01-01");return {duplicate:!!data.inbox_items[0].manual_completion};}},
  };
- const api=load("app/api/growth/linkedin-console/route.ts",deps,{process:{env:{OPENAI_API_KEY:"fixture"}},fetch:async(url,options)=>{prompt=JSON.parse(options.body).messages.at(-1).content;return {ok:true,json:async()=>({choices:[{message:{content:"Hi Sarah, we connected a while ago and I realised I hadn't said hello properly."}}]})};}});
+ const api=load("app/api/growth/linkedin-console/route.ts",deps,{process:{env:{OPENAI_API_KEY:"fixture"}},fetch:async(url,options)=>{providerCalls++; if(providerThrows) throw Error("upstream unavailable"); prompt=JSON.parse(options.body).messages.at(-1).content;return {ok:providerStatus===200,json:async()=>({choices:[{message:{content:replies.shift() || "Hi Sarah, we connected a while ago and I realised I hadn't said hello properly."}}]})};}});
  const req=body=>({json:async()=>body});
  const base={id:"a",table:"inbox_items",revision:"3"};
  const generated=await api.POST(req({...base,action:"generate"}));assert.equal(generated.status,200);assert.match(prompt,/older or undated connection/);assert.match(prompt,/Do not say good to connect/);
@@ -101,6 +101,13 @@ test("console API revalidates due eligibility and revision, retries receipts and
  data=followup();
  const fbase={id:"target",table:"growth_targets",revision:"4"};
  assert.equal((await api.POST(req({...fbase,action:"generate"}))).status,200);assert.ok(prompt.includes(receipt().message));assert.match(prompt,/lifecycle stage is never provider truth/);assert.doesNotMatch(prompt,/unified current lifecycle is authoritative/);
+ replies=["x".repeat(350), "Hi Sarah, good to connect. Thought I'd say hello properly."];
+ data=input({inbox_items:[acceptance()]}); const fresh={id:"a",table:"inbox_items",revision:"4",action:"generate"};
+ const beforeCalls=providerCalls;assert.equal((await api.POST(req(fresh))).status,200);assert.equal(providerCalls-beforeCalls,2);assert.match(prompt,/failed validation/);
+ replies=["x".repeat(350),"x".repeat(350)];assert.equal((await api.POST(req(fresh))).status,409);
+ providerStatus=503;assert.equal((await api.POST(req(fresh))).status,503);providerStatus=200;
+ providerThrows=true;assert.equal((await api.POST(req(fresh))).status,503);providerThrows=false;
+ data=followup();
  data.growth_targets[0].manual_completion=null;assert.equal((await api.POST(req({...fbase,action:"generate"}))).status,409);
  assert.equal((await api.POST(req({...fbase,action:"complete",confirmed:true,key:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",message:"Do not send",completedAt:"2026-10-08"}))).status,409);assert.equal(completionCalls,1);
 });

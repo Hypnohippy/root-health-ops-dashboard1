@@ -14,7 +14,7 @@ function componentFixture(state = []) {
  const helpers={exports:{}}; vm.runInNewContext(ts.transpileModule(fs.readFileSync("lib/linkedinWorkbench.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:helpers,exports:helpers.exports});
  const react={useState:v=>{const at=hookIndex++;return [at in state?state[at]:v,()=>{}];},useRef:v=>({current:v}),useEffect:()=>{},useCallback:fn=>fn};
  const deps={"react":react,"react/jsx-runtime":jsx,"@/lib/tenantFetch":{tenantFetch:async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return {ok:true,json:async()=>({success:true,reconciliationErrors:[]})};}},"@/lib/linkedinWorkbench":helpers.exports,"@/lib/linkedinClipboard":{openAndCopyLinkedIn:async(text,url,browser)=>{browser.open(url);await browser.copy(text);return "Copied";}}};
- vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:mod,exports:mod.exports,require:id=>{assert.ok(id in deps,id);return deps[id];},window:{open:(...args)=>opened.push(args)},navigator:{clipboard:{writeText:async text=>calls.push({copied:text})}},crypto:{randomUUID:()=>"cccccccc-cccc-4ccc-8ccc-cccccccccccc"},URLSearchParams});
+ vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:mod,exports:mod.exports,require:id=>{assert.ok(id in deps,id);return deps[id];},AbortController,setTimeout,clearTimeout,window:{open:(...args)=>{opened.push(args);return {opener:{},location:{replace:url=>opened.push([url])}};}},navigator:{clipboard:{writeText:async text=>calls.push({copied:text})}},crypto:{randomUUID:()=>"cccccccc-cccc-4ccc-8ccc-cccccccccccc"},URLSearchParams});
  return {...mod.exports,calls,opened,next,selected};
 }
 function nodes(node) { if(Array.isArray(node))return node.flatMap(nodes);if(!node || typeof node!=="object")return [];return [node,...nodes(node.props?.children)]; }
@@ -39,7 +39,7 @@ test("explicit mark sent records the current contact and removes it through the 
 });
 test("LinkedIn opens separately, copies edited text and never navigates this console or completes a send",async()=>{
  const f=componentFixture(),tree=f.ContactCard(props(f));await nodes(tree).find(n=>n.type==="button"&&text(n)==="Open & Copy").props.onClick();await new Promise(resolve=>setTimeout(resolve,0));
- assert.deepEqual(f.opened,[["https://linkedin.com/in/recorded","_blank","noopener,noreferrer"]]);assert.deepEqual(f.calls,[{copied:"Current edited draft"}]);assert.equal(f.next.length,0);
+ assert.deepEqual(f.opened,[["about:blank","_blank"],["https://linkedin.com/in/recorded"]]);assert.deepEqual(f.calls,[{copied:"Current edited draft"}]);assert.equal(f.next.length,0);
 });
 test("warnings are compact diagnostics; Responses is an explicit back link, never automatic routing",()=>{
  assert.match(source,/<details><summary[^>]*>Queue diagnostics/);assert.match(source,/inbound replies need attention in Responses/);assert.doesNotMatch(source,/open Responses first|window\.location|router\.(?:push|replace)|location\.href/);

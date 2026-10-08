@@ -19,28 +19,48 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
   const textarea = useRef<HTMLTextAreaElement>(null);
   const generation = useRef(0);
   const locked = useRef(false);
-  const post = useCallback(async (body: Record<string, unknown>) => {
-    const res = await tenantFetch("/api/growth/linkedin-console", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: queue.organisationId, table: item.table, id: item.id, revision: queue.revision, ...body }) });
+  const generationRequest = useRef<AbortController | null>(null);
+  const post = useCallback(async (body: Record<string, unknown>, signal?: AbortSignal) => {
+    const res = await tenantFetch("/api/growth/linkedin-console", { signal, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: queue.organisationId, table: item.table, id: item.id, revision: queue.revision, ...body }) });
     const data = await res.json();
     if (!res.ok) throw Error(data.error || "Action could not be confirmed. Reload safely.");
     return data;
   }, [item.id, item.table, queue.organisationId, queue.revision]);
   const generate = useCallback(async () => {
+    generationRequest.current?.abort();
+    const controller = new AbortController();
+    generationRequest.current = controller;
     const token = ++generation.current;
+    const timeout = setTimeout(() => {
+      if (token !== generation.current) return;
+      generation.current++; controller.abort(); setBusy("");
+      setNotice("Draft generation timed out. Retry Refresh draft or type your message below.");
+    }, 45000);
+    controller.signal.addEventListener("abort", () => clearTimeout(timeout), { once: true });
     setBusy("generate"); setNotice("");
     try {
-      const data = await post({ action: "generate" });
+      const data = await post({ action: "generate" }, controller.signal);
+      if (typeof data.message !== "string" || !data.message.trim()) throw Error("No draft was returned. Retry or type your message below.");
       if (token === generation.current) { currentDraft.current = data.message; setMessage(data.message); onDraft(data.message); }
     } catch (e) { if (token === generation.current) setNotice(e instanceof Error ? e.message : "Generation failed; write a message below."); }
-    finally { if (token === generation.current) setBusy(""); }
+    finally { clearTimeout(timeout); if (token === generation.current) { generationRequest.current = null; setBusy(""); } }
   }, [post, onDraft]);
-  useEffect(() => { if (!suspended && !currentDraft.current && !receipt.current) void generate(); const counter = generation; return () => { counter.current++; }; }, [generate, suspended]);
+  useEffect(() => {
+    setBusy(current => current === "generate" ? "" : current);
+    if (!suspended && !currentDraft.current && !receipt.current) void generate();
+    const counter = generation, request = generationRequest;
+    return () => { counter.current++; request.current?.abort(); };
+  }, [generate, suspended]);
   useEffect(() => { onWorking(busy === "complete" || uncertain); return () => onWorking(false); }, [busy, uncertain, onWorking]);
   async function copy(open: boolean) {
     setNotice("");
     try {
       if (open) setNotice(await openAndCopyLinkedIn(message, item.destination, {
-        open: url => { window.open(url, "_blank", "noopener,noreferrer"); },
+        open: url => {
+          const tab = window.open("about:blank", "_blank");
+          if (!tab) return false;
+          tab.opener = null; tab.location.replace(url); return true;
+        },
         copy: value => navigator.clipboard.writeText(value),
       }));
       else { await navigator.clipboard.writeText(message); setNotice("Message copied."); }
@@ -75,7 +95,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
     <div className="min-h-0 space-y-4 overflow-y-auto p-4 lg:flex-1">
       {item.previousOutbound && <section aria-label="Confirmed previous outbound" className="rounded border border-white/15 p-3 text-sm"><h3 className="font-semibold">Previous message</h3><blockquote className="mt-2 whitespace-pre-wrap">{item.previousOutbound.message}</blockquote><p className="mt-2 text-slate-400">Sent: {when(item.previousOutbound.sentAt)} · {item.previousOutbound.source} · {item.previousOutbound.table}:{item.previousOutbound.id}</p><p>Current stage: {item.stage.replaceAll("_", " ")}</p></section>}
       <label className="block text-sm font-medium" htmlFor="linkedin-message">{item.previousOutbound ? "Next draft" : "Message"} for {item.name}</label>
-      <textarea id="linkedin-message" ref={textarea} value={message} disabled={suspended || busy === "complete" || uncertain} onChange={e => { generation.current++; setBusy(""); currentDraft.current = e.target.value; setMessage(e.target.value); onDraft(e.target.value); }} className="min-h-32 w-full resize-y rounded-lg border border-white/20 bg-slate-950 p-3 text-sm leading-relaxed" />
+      <textarea id="linkedin-message" ref={textarea} value={message} disabled={suspended || busy === "complete" || uncertain} onChange={e => { generation.current++; generationRequest.current?.abort(); setBusy(""); currentDraft.current = e.target.value; setMessage(e.target.value); onDraft(e.target.value); }} className="min-h-32 w-full resize-y rounded-lg border border-white/20 bg-slate-950 p-3 text-sm leading-relaxed" />
       <div className="flex flex-wrap gap-2"><button className={button} disabled={suspended || !!busy || uncertain} onClick={() => void generate()}>{busy === "generate" ? "Preparing draft…" : "Refresh draft"}</button><button className={button} disabled={suspended || busy === "complete" || !message.trim()} onClick={() => void copy(false)}>Copy message</button></div>
       {notice && <p role="status" className="rounded-lg border border-amber-300/30 p-3 text-sm">{notice}</p>}
       {uncertain && <button className={button} onClick={() => void onReload()}>Reload current state safely</button>}
