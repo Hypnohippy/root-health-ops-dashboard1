@@ -3,6 +3,7 @@ export type FounderIntelligenceLane = typeof founderIntelligenceLanes[number];
 export type FounderSource = { url:string; title:string; sourceType:"official"|"reputable"|"other"; publishedAt:string|null };
 export type FounderContact = { name:string; role:string; why:string; confidence:"high"|"medium"|"low"; rank:number; contactType:"primary"|"secondary"|"sponsor"|"specialist"; directEmail:string|null; emailStatus:"verified"|"not_found"; linkedinUrl:string|null; officialContactUrl:string|null; publicPhone:string|null; location:string|null; sourceUrls:string[] };
 export type FounderOrganisationRoute = { generalEmail:string|null; publicPhone:string|null; officialContactUrl:string|null; note:string|null; sourceUrls:string[] };
+export type FounderEmailDraft = { subject:string; body:string };
 export type FounderDiscoveryItem = { name:string; website:string|null; country:string|null; fitScore:number; why:string; audience:string; partnershipMechanism:string; evidenceSummary:string; sourceUrls:string[] };
 export type FounderDeepResearch = {
   name:string; website:string|null; lane:FounderIntelligenceLane; score:number; strategicFitScore:number; channelReadinessScore:number; evidenceConfidence:"high"|"medium"|"low";
