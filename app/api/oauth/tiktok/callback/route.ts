@@ -103,7 +103,7 @@ async function upsertTikTokSocialAccount(args: {
   // 2) find newest existing row (if any)
   const { data: existing, error: existingError } = await supabaseAdmin
     .from("social_accounts")
-    .select("id, created_at, updated_at")
+    .select("id, created_at, updated_at, meta")
     .eq("organisation_id", organisationId)
     .eq("platform", "tiktok")
     .order("updated_at", { ascending: false, nullsFirst: false })
@@ -128,6 +128,9 @@ async function upsertTikTokSocialAccount(args: {
 
   // meta is useful, but if your table ever didn’t have it, we’ll fail gracefully
   const metaPayload = {
+    ...(existing?.meta || {}),
+    scopes: args.rawToken?.scope || args.rawToken?.data?.scope ? String(args.rawToken?.scope || args.rawToken?.data?.scope).split(/[,\s]+/).filter(Boolean) : null,
+    raw_refresh: null,
     refresh_token: args.refreshToken || null,
     raw_token: args.rawToken || null,
     raw_user: args.rawUser || null,
@@ -215,7 +218,7 @@ export async function GET(req: NextRequest) {
     // 1) Exchange code -> token
     const tokenRes = await exchangeCodeForToken(code);
     if (!tokenRes.ok) {
-      console.error("[tiktok/callback] token exchange failed", tokenRes.json);
+      console.error("[tiktok/callback] token exchange failed", tokenRes.status);
       back.searchParams.set("error", "tiktok_token_exchange_failed");
       back.searchParams.set(
         "error_description",

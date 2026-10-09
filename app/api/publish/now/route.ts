@@ -832,7 +832,7 @@ async function postToTikTokViaInternal(
   req: NextRequest,
   args: { organisationId: string; message: string; videoUrl: string }
 ) {
-  const origin = originFromReq(req);
+  const origin = req.nextUrl.origin;
 
   const res = await fetch(`${origin}/api/tiktok/post`, {
     method: "POST",
