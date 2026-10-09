@@ -113,13 +113,13 @@ test("creator/post/status routes deny cross-tenant access before any service cal
 });
 
 test("normal queue and scheduled dispatcher preserve explicit Direct Post and draft settings on Preview", async()=>{
- for(const mode of ["direct","draft"]){
+ for(const [mode,endpoint] of ["direct","draft"].flatMap(mode=>["dispatch","quick-blast"].map(endpoint=>[mode,endpoint]))){
   let stored, providerBody, destination;
   const choice={...settings,mode};
   const db={from:()=>{let inserting=false,claim=false;const q={insert(v){stored={id:"queued-post",...v};inserting=true;return q;},update(v){claim=v.status==="pending";return q;},select(){return q;},eq(){return q;},in(){return q;},lte(){return q;},order(){return q;},limit(){return q;},single:async()=>({data:{id:stored.id}}),maybeSingle:async()=>({data:claim?stored:null}),then(resolve){return Promise.resolve({data:[{id:stored.id}]}).then(resolve);}};return q;}};
   const response={NextResponse:{json:(body,options={})=>({body,status:options.status||200})}};
   const globals={process:{env:{CRON_SECRET:"test-secret",NEXT_PUBLIC_APP_URL:"https://production.invalid"}},console,fetch:async(target,init)=>{destination=target;providerBody=JSON.parse(init.body);return new Response(JSON.stringify({success:true,results:[{platform:"tiktok",ok:true,pending:true,manualCompletionRequired:mode==="draft"}]}));}};
-  const queue=load("app/api/social/dispatch/route.ts",{"next/server":response,"../../../../lib/supabaseAdmin":{supabaseAdmin:db},"@/lib/tenantAuth":{requireOrganisation:async()=>({organisationId:org}),accessErrorResponse:()=>null}},{...globals,process:{env:{}}});
+  const queue=load(`app/api/social/${endpoint}/route.ts`,{"next/server":response,"../../../../lib/supabaseAdmin":{supabaseAdmin:db},"@/lib/tenantAuth":{requireOrganisation:async()=>({organisationId:org}),requireOwnedRecord:async()=>{},accessErrorResponse:()=>null}},{...globals,process:{env:{}}});
   await queue.POST({url:"https://preview.example/api/social/dispatch",json:async()=>({message:"Reviewed",platforms:["tiktok"],videoUrl:url,tiktok:choice})});
   assert.equal(stored.meta.tiktok.mode,mode);assert.equal(stored.meta.tiktok.privacyLevel,"SELF_ONLY");
   const dispatcher=load("app/api/social/dispatch-scheduled/route.ts",{"next/server":response,"../../../../lib/supabaseAdmin":{supabaseAdmin:db},"@/lib/tenantAuth":{requireOwnedRecord:async()=>{}}},globals);
