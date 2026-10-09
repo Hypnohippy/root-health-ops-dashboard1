@@ -21,6 +21,10 @@ declare
   v_item public.acquisition_items%rowtype;
   v_destination text;
   v_personal boolean;
+  v_url_parts text[];
+  v_host text;
+  v_path text;
+  v_direct_discussion boolean;
 begin
   select * into v_item from public.acquisition_items
     where id = p_item_id and organisation_id = p_organisation_id for update;
@@ -35,8 +39,27 @@ begin
 
   v_personal := coalesce(p_action in ('personal_responded','personal_engaged','personal_capacity_check','personal_signup','personal_subscriber'),false);
   if v_personal then
+    -- Parse authority separately from path/query: credentials, spoofed hosts and
+    -- non-default ports cannot qualify, nor can a post-shaped query parameter.
+    v_url_parts := regexp_match(v_item.source_url,
+      '^https://([A-Za-z0-9.-]+)(:443)?(/[^?#[:space:]\\]*)([?][^#[:space:]\\]*)?(#[^[:space:]\\]*)?$', 'i');
+    v_host := regexp_replace(lower(v_url_parts[1]), '^(www|m)[.]', '');
+    v_path := v_url_parts[3];
+    v_direct_discussion := coalesce(case
+      when v_host in ('reddit.com','old.reddit.com','new.reddit.com') then v_path ~ '/comments/[^/]+'
+      when v_host = 'facebook.com' then v_path ~ '/(posts|videos|reel)/[^/]+'
+        or (v_path ~ '/(permalink|story)[.]php$' and v_url_parts[4] ~ '[?&]story_fbid=[^&#]+')
+      when v_host = 'instagram.com' then v_path ~ '^/(p|reel)/[^/]+'
+      when v_host in ('threads.net','threads.com') then v_path ~ '/post/[^/]+'
+      when v_host in ('x.com','twitter.com') then v_path ~ '/status/[^/]+'
+      when v_host = 'linkedin.com' then v_path ~ '/posts/[^/]+|/feed/update/urn:li:'
+      when v_host = 'tiktok.com' then v_path ~ '/video/[^/]+'
+      else false end, false);
     if v_item.source_engine <> 'root_health_personal' or v_item.record_type not in ('personal_opportunity','social_opportunity')
-      or nullif(v_item.source_record_id,'') is null or v_item.source_url is null or v_item.source_url not like 'https://%'
+      or nullif(v_item.source_record_id,'') is null or not v_direct_discussion
+      or concat_ws(' ', v_item.metadata->>'lane', v_item.metadata->>'opportunity_type',
+        v_item.metadata->>'content_type', v_item.metadata->>'sheet_tab',
+        v_item.engine_state->>'opportunity_type') ~* 'search.?demand|article|blog|partner|referr'
       or v_item.metadata->'engine_safety'->'public_context' is distinct from 'true'::jsonb
       or v_item.metadata->'engine_safety'->'consumer_outreach' is distinct from 'false'::jsonb
       or v_item.metadata->'engine_safety'->'health_targeting' is distinct from 'false'::jsonb
