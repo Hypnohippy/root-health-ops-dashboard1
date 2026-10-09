@@ -112,7 +112,7 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
       name: contact.name, company: contact.company, role, sector: null, source: contact.source, whyRelevant: reason,
       relationship: contact.currentStage, latestEvent: text(acceptance?.text) || "Recorded LinkedIn outreach",
       whatWeKnow: [text(row.notes)].filter((v): v is string => !!v),
-      history: [...(previousOutbound ? ["Actual previous outbound message: " + previousOutbound.message, "Confirmed sent at " + previousOutbound.sentAt + " via " + previousOutbound.source + " (" + previousOutbound.table + ":" + previousOutbound.id + ")."] : []), connectedAt ? `Connection acceptance detected on ${connectedAt}.` : "Connection acceptance timing unknown."],
+      history: [...(previousOutbound ? [(previousOutbound.contentKind === "conversation_history_pasted" ? "Exact pasted conversation audit trail (multiple messages/UI text; no individual dates inferred): " : "Actual previous outbound message: ") + previousOutbound.message, (previousOutbound.contentKind === "conversation_history_pasted" ? "Earliest user-verified outbound date only: " : "Confirmed sent at ") + previousOutbound.sentAt + " via " + previousOutbound.source + " (" + previousOutbound.table + ":" + previousOutbound.id + ")."] : []), connectedAt ? `Connection acceptance detected on ${connectedAt}.` : "Connection acceptance timing unknown."],
       lastAction: contact.lastAction ? JSON.stringify(contact.lastAction) : null, currentStage: stage,
       buyingSignal: "unknown", buyingSignalLabel: "No buying signal inferred.", objective: objectiveFor(first ? "linkedin_connection_first_message" : "linkedin_followup", false),
     };
