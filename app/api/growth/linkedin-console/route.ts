@@ -1,3 +1,4 @@
+import { reconcileLinkedInSend } from "@/lib/linkedinSendReconciliation.server";
 import { cadenceIntent } from "@/lib/growthOutreach";
 import { readOutreachSelfIdentity } from "@/lib/outreachSelfIdentity.server";
 import { NextResponse } from "next/server";
@@ -8,7 +9,6 @@ import { linkedInOutreachQueue, type OutreachView } from "@/lib/linkedinOutreach
 import { responseDraftRules, safeLinkedInFirstMessage } from "@/lib/responseContactContext";
 import { getOrganisationGenerationProfile } from "@/lib/organisationProfile.server";
 import { generationMessages } from "@/lib/tenantGeneration";
-import { completeManualAction } from "@/lib/manualCompletion.server";
 
 export const runtime = "nodejs";
 async function revision(org: string) {
@@ -31,18 +31,15 @@ export const GET = withTenantRoute(async (req, tenant) => {
 }, { write: true });
 export const POST = withTenantRoute(async (req, tenant) => {
   const body = await req.json();
-  if (!["generate", "complete"].includes(body.action) || !["inbox_items", "growth_targets"].includes(body.table) || typeof body.id !== "string" || typeof body.revision !== "string") return NextResponse.json({ error: "Invalid action." }, { status: 400 });
-  const [state, self] = await Promise.all([snapshot(tenant.organisationId), readOutreachSelfIdentity(tenant.organisationId, tenant.userId)]);
-  const row = state.input[body.table as "inbox_items" | "growth_targets"].find(r => r.id === body.id);
-  const receipt = row?.manual_completion as { key?: string; history?: { key?: string }[] } | undefined;
-  const duplicate = body.action === "complete" && body.key && (receipt?.key === body.key || receipt?.history?.some(r => r.key === body.key));
-  const selected = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self).items.find(i => i.table === body.table && i.id === body.id);
-  if (!duplicate && (!selected || state.revision !== body.revision)) return NextResponse.json({ error: "Queue state changed. Reload before taking action." }, { status: 409 });
-  if (body.action === "complete") {
-    if (!/^[0-9a-f-]{36}$/i.test(body.key || "") || body.confirmed !== true || typeof body.message !== "string" || !body.message.trim() || body.message.length > 50000 || typeof body.completedAt !== "string") return NextResponse.json({ error: "Confirm the actual manual send." }, { status: 400 });
-    const result = await completeManualAction(tenant.organisationId, tenant.userId, { table: body.table, id: body.id, revision: body.revision, key: body.key, completedAt: body.completedAt, evidence: "User explicitly confirmed sending this message manually in LinkedIn via Mark sent & next.", message: body.message });
-    return NextResponse.json({ success: true, ...result });
+  if (["record_send", "classify_send"].includes(body.action)) {
+    try { return NextResponse.json({ success: true, ...await reconcileLinkedInSend(tenant.organisationId, tenant.userId, body) }); }
+    catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Confirmation failed." }, { status: 409 }); }
   }
+  if (body.action === "complete") return NextResponse.json({ error: "Reload the console and choose Sent now or Already sent previously." }, { status: 409 });
+  if (body.action !== "generate" || !["inbox_items", "growth_targets"].includes(body.table) || typeof body.id !== "string" || typeof body.revision !== "string") return NextResponse.json({ error: "Invalid action." }, { status: 400 });
+  const [state, self] = await Promise.all([snapshot(tenant.organisationId), readOutreachSelfIdentity(tenant.organisationId, tenant.userId)]);
+  const selected = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self).items.find(i => i.table === body.table && i.id === body.id);
+  if (!selected || state.revision !== body.revision) return NextResponse.json({ error: "Queue state changed. Reload before taking action." }, { status: 409 });
   const current = selected!;
   const key = process.env.OPENAI_API_KEY;
   if (!key) return NextResponse.json({ error: "Message generation is unavailable. You can write a message below." }, { status: 503 });

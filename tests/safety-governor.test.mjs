@@ -10,7 +10,8 @@ function load(file, deps = {}) {
  {module:mod,exports:mod.exports,URL,URLSearchParams,require:name=>{assert.ok(name in deps, `Unexpected dependency/send path ${name}`);return deps[name];}});
  return mod.exports;
 }
-const outreach=load("lib/growthOutreach.ts"), engine=load("lib/engineState.ts");
+const sendEvidence=load("lib/linkedinSendEvidence.ts");
+const outreach=load("lib/growthOutreach.ts",{"@/lib/linkedinSendEvidence":sendEvidence}), engine=load("lib/engineState.ts");
 const lifecycle=load("lib/contactLifecycle.ts",{"@/lib/growthOutreach":outreach,"@/lib/engineState":engine});
 const governor=load("lib/operationalGovernor.ts",{"@/lib/growthOutreach":outreach,"@/lib/contactLifecycle":lifecycle});
 const reconciliation=load("lib/lifecycleReconciliation.ts",{"@/lib/growthOutreach":outreach,"@/lib/contactLifecycle":lifecycle});
@@ -157,4 +158,24 @@ test("absolute cadence migration preserves first-send anchor and history, backfi
  saved=(await db.query(`select * from growth_targets where id='${T}'`)).rows[0];assert.equal(saved.status,"parked");assert.equal(saved.manual_completion.stage,"day42_close");assert.equal(saved.manual_completion.history[0].message,"Original hello");assert.equal(saved.first_outbound_at.toISOString(),first.toISOString());assert.equal(saved.last_reply_text,"I will leave it there");
  await assert.rejects(db.query("select backfill_linkedin_cadence($1,$2,$3)",[A,await revision(db),JSON.stringify(repairs)]),/cadence_evidence_changed/);
  } catch(error) { throw new Error(JSON.stringify({message:error.message,detail:error.detail,where:error.where})); } finally {await db.close();}
+});
+
+test("real SQL: reconciliation appends immutable receipts, stores two clocks, blocks duplicates and preserves unknown state",async()=>{
+ const db=await database();
+ try {
+  await db.exec(fs.readFileSync("supabase/migrations/20261009100000_linkedin_absolute_cadence.sql","utf8"));
+  await db.exec(fs.readFileSync("supabase/migrations/20261009120000_linkedin_external_send_evidence.sql","utf8"));
+  await db.query(`insert into growth_targets(id,organisation_id,stage,status,linkedin_identity) values($1,$2,'connection','active','linkedin.com/in/test')`,[T,A]);
+  const run=async(key,details,org=A)=>{const rev=(await db.query(`select revision from lifecycle_revisions where organisation_id=$1`,[org])).rows[0]?.revision||0;return (await db.query(`select record_linkedin_send_evidence($1,$2,'growth_targets',$3,$4,$5,$6::jsonb) as result`,[org,A,T,rev,key,JSON.stringify(details)])).rows[0].result;};
+  const base={message:"  Exact message\n",source:"Manually confirmed LinkedIn send",timezone:"Europe/London",precision:"time",sentStage:"connection"};
+  const first=await run(K,{...base,choice:"now",correction:false});assert.ok(first.sentAt);assert.ok(first.confirmedAt);
+  let row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];const original=row.manual_completion;
+  assert.equal(original.sent_at,original.confirmed_at);assert.equal(original.message,base.message);
+  const unknown=await run(K2,{...base,choice:"unknown",correction:true,source:"Manually reconciled from LinkedIn history"});assert.equal(unknown.sentAt,null);
+  row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(row.manual_completion.historical_send_date_status,"unknown");assert.equal(row.first_outbound_at,null);assert.equal(row.stage,"day3_followup");const {history: ignoredHistory,...originalWithoutHistory}=original;assert.deepEqual(row.manual_completion.history[0],originalWithoutHistory);
+  const retry=await run(K2,{...base,choice:"unknown",correction:true});assert.equal(retry.duplicate,true);assert.equal((await db.query(`select manual_completion from growth_targets where id=$1`,[T])).rows[0].manual_completion.history.length,1);
+  const old="2026-08-01T12:34:56.000Z";await run("99999999-9999-4999-8999-999999999999",{...base,choice:"historical",sentAt:old,correction:true});
+  row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(new Date(row.first_outbound_at).toISOString(),old);assert.notEqual(row.manual_completion.sent_at,row.manual_completion.confirmed_at);assert.equal(row.manual_completion.history.length,2);assert.equal(row.manual_completion.history[0].key,K);
+  await assert.rejects(run("88888888-8888-4888-8888-888888888888",{...base,choice:"now",correction:false},B),/record_not_found/);
+ } finally {await db.close();}
 });

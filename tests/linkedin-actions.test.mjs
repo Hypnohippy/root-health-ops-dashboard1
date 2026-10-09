@@ -17,7 +17,7 @@ const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve
 const response=(status,message="Hello from the verified sender.")=>({ok:status===200,json:async()=>status===200?{message}:{error:`Generation failed (${status}). Type or retry.`}});
 async function fixture({request, timer=false, popup=true, copyFailure=false}={}) {
  const calls=[],copies=[],opened=[],requests=[];let deadline;
- const deps={react:React,"react/jsx-runtime":jsx,"@/lib/linkedinWorkbench":helpers,"@/lib/linkedinClipboard":clipboard,"@/lib/tenantFetch":{tenantFetch:(url,init)=>{requests.push(init);calls.push(JSON.parse(init.body));return request ? request(init) : Promise.resolve(response(200));}}};
+ const deps={"./LinkedInHistoricalSend":{default:()=>null},react:React,"react/jsx-runtime":jsx,"@/lib/linkedinWorkbench":helpers,"@/lib/linkedinClipboard":clipboard,"@/lib/tenantFetch":{tenantFetch:(url,init)=>{requests.push(init);calls.push(JSON.parse(init.body));return request ? request(init) : Promise.resolve(response(200));}}};
  const {ContactCard}=load("app/dashboard/responses/linkedin/LinkedInWorkbench.tsx",deps,{AbortController,clearTimeout:timer?()=>{}:clearTimeout,setTimeout:timer?fn=>{deadline=fn;return 1;}:setTimeout,crypto:{randomUUID:()=>"receipt"},window:{open:(url,target)=>{opened.push([url,target]);return popup?{opener:{},location:{replace:url=>opened.push([url])}}:null;}},navigator:{clipboard:{writeText:async text=>{if(copyFailure)throw Error("clipboard denied");copies.push(text);}}}});
  const props={item:{contactId:"a",id:"a",table:"inbox_items",name:"Tara",stage:"connection",mode:"fresh",reason:"Accepted",lifecycle:"outreach_ready",destination:"https://www.linkedin.com/messaging/thread/123/"},queue:{organisationId:"tenant",revision:"3"},initialMessage:"",onDraft:()=>{},onNext:async()=>{},onReload:async()=>{},onWorking:()=>{},suspended:false};
  let renderer;await act(async()=>{renderer=create(React.createElement(ContactCard,props));});
@@ -31,8 +31,8 @@ for(const status of [200,409,503,500]) test(`real React generation ${status} cle
  await act(async()=>pending.resolve(response(status)));
  assert.equal(f.button("Refresh draft").props.disabled,false);
  assert.equal(f.renderer.root.findByType("article").props["aria-busy"],false);
- if(status===200)assert.equal(f.button("Mark sent & next").props.disabled,false);
- else {assert.match(f.status(),/Generation failed/);assert.equal(f.button("Mark sent & next").props.disabled,true);}
+ if(status===200)assert.equal(f.button("Sent now & next").props.disabled,false);
+ else {assert.match(f.status(),/Generation failed/);assert.equal(f.button("Sent now & next").props.disabled,true);}
  await f.unmount();
 });
 test("network rejection clears busy; edited manual text opens and copies current text without lifecycle POST",async()=>{
@@ -71,4 +71,18 @@ test("changing contact aborts stale generation and never overwrites the new cont
 });
 test("throwing popup cannot suppress clipboard",async()=>{
  const copied=[];assert.match(await clipboard.openAndCopyLinkedIn("current","https://linkedin.com/in/a",{open:()=>{throw Error("blocked");},copy:async text=>copied.push(text)}),/Copied.*could not open/);assert.deepEqual(copied,["current"]);
+});
+
+test("historical form requires explicit confirmation and records unknown date without sending",async()=>{
+ const evidence=load("lib/linkedinSendEvidence.ts",{});
+ const {default:Historical}=load("app/dashboard/responses/linkedin/LinkedInHistoricalSend.tsx",{react:React,"react/jsx-runtime":jsx,"@/lib/linkedinSendEvidence":evidence},{crypto:{randomUUID:()=>"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}});
+ const saved=[];let renderer;await act(async()=>{renderer=create(React.createElement(Historical,{message:"  Exact historical message\n",onCancel:()=>{},onConfirm:async body=>saved.push(body)}));});
+ const button=()=>renderer.root.findAllByType("button").find(n=>n.children.join("")==="Confirm previously sent");
+ assert.equal(button().props.disabled,true);
+ await act(async()=>renderer.root.findByType("select").props.onChange({target:{value:"unknown"}}));
+ await act(async()=>renderer.root.findAllByType("input").find(n=>n.props.type==="checkbox").props.onChange({target:{checked:true}}));
+ assert.equal(button().props.disabled,false);
+ await act(async()=>button().props.onClick());
+ assert.equal(saved.length,1);assert.equal(saved[0].sentAt,null);assert.equal(saved[0].sendChoice,"unknown");assert.equal(saved[0].message,"  Exact historical message\n");assert.equal(saved[0].confirmed,true);
+ await act(async()=>renderer.unmount());
 });

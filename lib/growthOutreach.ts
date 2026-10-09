@@ -1,16 +1,13 @@
+import { firstSendEvidence } from "@/lib/linkedinSendEvidence";
 import type { GenerationProfile } from "@/lib/tenantGeneration";
 export const outreachStages = ["connection", "day3_followup", "day7_parity", "day14_insight", "day28_relevance", "day42_close", "parked"] as const;
 export type OutreachStage = typeof outreachStages[number];
 export const cadenceDays: Record<string, number> = { connection: 0, day3_followup: 3, day7_parity: 7, day14_insight: 14, day28_relevance: 28, day42_close: 42 };
 export const legacyCadenceStages: Record<string, OutreachStage> = { day3_dm: "day3_followup", day10_insight: "day7_parity", day17_followup: "day14_insight", week5_view: "day28_relevance", week6_relevance: "day28_relevance", week7_close: "day42_close" };
-const validDate = (v: unknown) => typeof v === "string" && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : null;
 type CadenceTarget = { stage?: string | null; last_action_at?: string | null; first_outbound_at?: unknown; manual_completion?: unknown; reply_status?: string | null; replied_at?: unknown; status?: unknown; deal_stage?: unknown };
 export function firstConfirmedOutboundAt(target: CadenceTarget) {
-  if (validDate(target.first_outbound_at)) return validDate(target.first_outbound_at);
-  const receipt = target.manual_completion as { completed_at?: unknown; stage?: unknown; history?: { completed_at?: unknown; stage?: unknown }[] } | undefined;
-  const first = [receipt, ...(receipt?.history || [])].filter(r => r?.stage === "connection").map(r => validDate(r?.completed_at)).filter((d): d is string => !!d).sort()[0];
-  // Legacy connection/day3 position can prove the first send; later last_action_at cannot.
-  return first || null;
+  return firstSendEvidence(target.manual_completion).sentAt;
+
 }
 export function growthFollowUpDueAt(target: CadenceTarget) {
   const stage = legacyCadenceStages[target.stage || ""] || target.stage || "";
@@ -19,7 +16,7 @@ export function growthFollowUpDueAt(target: CadenceTarget) {
 }
 export function isGrowthTargetDue(target: CadenceTarget, now = Date.now()) {
   if (target.replied_at || (target.reply_status && target.reply_status !== "no_reply") || ["parked", "nurture", "lost", "closed", "converted"].includes(String(target.status)) || ["meeting", "lost", "closed", "converted", "won", "nurture", "engaged", "opportunity"].includes(String(target.deal_stage))) return false;
-  if (target.stage === "connection") return !firstConfirmedOutboundAt(target);
+  if (target.stage === "connection") return !firstSendEvidence(target.manual_completion).receipt && !target.last_action_at;
   const due = growthFollowUpDueAt(target); return due !== null && now >= Date.parse(due);
 }
 export function nextGrowthStage(stage: string): OutreachStage {
