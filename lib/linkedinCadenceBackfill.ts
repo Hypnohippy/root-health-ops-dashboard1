@@ -1,6 +1,6 @@
 import { buildContactLifecycle, type LifecycleInput } from "@/lib/contactLifecycle";
 import { linkedInRecordedEvidence } from "@/lib/linkedinOutreach";
-import { firstSendEvidence, externalSentAt, sendReceipts, record } from "@/lib/linkedinSendEvidence";
+import { cadenceEvidence, externalSentAt, sendReceipts, record } from "@/lib/linkedinSendEvidence";
 import { cadenceDays, elapsedCadenceStage, nextGrowthStage, outreachStages } from "@/lib/growthOutreach";
 export const cadenceLabels = { waiting_day3: "Waiting for Day 3", day3_followup: "Day 3 follow-up due", day7_parity: "Day 7 conversation due", day14_insight: "Day 14 insight due", day28_relevance: "Day 28 relevance due", day42_close: "Day 42 final message due", parked: "Parked" };
 export const exclusionLabels = { replies: "Genuine reply recorded", stronger_states: "Stronger lifecycle state", historical_unknown: "Historical send date unknown", actual_send_unverified: "Actual send date unverified", never_contacted: "Never contacted — verified acceptance, no confirmed send", no_identity: "No verified LinkedIn identity or acceptance; no send evidence", no_identity_date_only: "No verified LinkedIn identity or acceptance; date-only marks", no_acceptance_date_only: "LinkedIn identity but no verified acceptance; date-only marks", no_acceptance: "No verified connection acceptance", date_only: "Verified acceptance but only a date; message/receipt missing", ownership: "Owned by another workflow", ambiguity: "Ambiguous or conflicting identity/connection", incomplete_receipt: "Incomplete receipt: message, actor, key or evidence missing", ineligible: "Inactive, ambiguous target or explicit next step" };
@@ -28,9 +28,9 @@ export function planLinkedInCadenceBackfill(org: string, input: LifecycleInput, 
   const targets = projected.growth_targets.filter(r => targetIds.has(r.id) && r.organisation_id === org);
   if (targets.length > 1) { excluded.ineligible++; continue; }
   let target = targets[0];
-  if (rows.some(r=>r.linkedin_previously_contacted) && !rows.some(r=>r.manual_completion)) { excluded.actual_send_unverified++; continue; }
-  const receiptRow = target?.manual_completion ? target : evidence.acceptance;
-  const first = firstSendEvidence(receiptRow.manual_completion, now);
+  if (rows.some(r=>r.linkedin_previously_contacted) && !rows.some(r=>r.manual_completion||r.linkedin_cadence_anchor)) { excluded.actual_send_unverified++; continue; }
+  const receiptRow = target?.manual_completion || target?.linkedin_cadence_anchor ? target : evidence.acceptance;
+  const first = cadenceEvidence(receiptRow, now);
   if (first.status !== "verified") {
    if (first.receipt) {
     excluded[first.status === "unknown" ? "historical_unknown" : "actual_send_unverified"]++;

@@ -47,7 +47,7 @@ export function linkedInRecordedEvidence(rows: LifecycleRow[], identity: string,
   for (const row of matching) {
     const table = row.kind === "connection_accepted" ? "inbox_items" : row.stage ? "growth_targets" : null;
     if (!table) continue;
-    const savedReceipt = object(row.manual_completion);
+    const savedReceipt = object(firstSendEvidence(row.manual_completion,now).status === "verified" ? row.manual_completion : row.linkedin_cadence_anchor || row.manual_completion);
     const receipts = sendReceipts(savedReceipt);
     if (receipts.length) hasConfirmedSend = true;
     const firstEvidence = firstSendEvidence(savedReceipt, now);
@@ -94,7 +94,7 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
     if (first && (truth.hasConfirmedSend || rows.some(r => r.linkedin_previously_contacted || r.contacted_at || r.last_replied_at || r.last_action_at || r.manual_completion || r.status === "replied"))) return reject("conflicting lifecycle: prior contact prevents first message");
     if (!first && (!truth.hasConfirmedSend || !previousOutbound)) return reject("outbound history incomplete");
     if (!first && (contact.followUpStatus !== "due" || row.stage === "connection")) return reject("follow-up not due or connection stage");
-    if (!first && date(row.last_action_at) !== previousOutbound?.sentAt) return reject("conflicting lifecycle: cadence timestamp differs from confirmed send");
+    if (!first && !(firstSendEvidence(row.manual_completion,now).status !== "verified" && firstSendEvidence(row.linkedin_cadence_anchor,now).status === "verified") && date(row.last_action_at) !== previousOutbound?.sentAt) return reject("conflicting lifecycle: cadence timestamp differs from confirmed send");
     if (!date(acceptance.created_at_platform || acceptance.inserted_at) || Date.parse(String(acceptance.created_at_platform || acceptance.inserted_at)) > now) return reject("acceptance timing unverified");
     if (!planManualCompletion(organisationId, input, table, row.id).allowed) return reject("manual governor refused");
     const connectedAt = date(acceptance?.created_at_platform || acceptance?.inserted_at);

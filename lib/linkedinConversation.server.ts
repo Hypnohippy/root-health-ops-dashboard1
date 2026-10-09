@@ -2,7 +2,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
 import { buildContactLifecycle } from "@/lib/contactLifecycle";
 import { record } from "@/lib/linkedinSendEvidence";
-import { validateConversationMessage, chronologicalMessages } from "@/lib/linkedinConversation";
+import { validateConversationMessage, validateConversationHistory, chronologicalMessages } from "@/lib/linkedinConversation";
 async function conversationSnapshotOnce(org: string, contactId?: string) {
  const {data: version,error: versionError}=await supabaseAdmin.from("lifecycle_revisions").select("revision").eq("organisation_id",org).maybeSingle();
  if(versionError) throw versionError;
@@ -29,12 +29,13 @@ export async function conversationSnapshot(org: string, contactId?: string) {
  throw Error("Conversation changed; reload.");
 }
 export async function appendConversation(org: string, actor: string, body: Record<string,unknown>) {
- const details=validateConversationMessage(body);
+ const isSnapshot=body.kind==="snapshot";
+ const details=isSnapshot?validateConversationHistory(body):validateConversationMessage(body);
  if(typeof body.contactId!=="string" || typeof body.revision!=="string") throw Error("Select the LinkedIn contact.");
  const state=await conversationSnapshot(org,body.contactId);
  if([...state.messages.dated,...state.messages.undated].some(r=>r.receipt_key===body.key))return {duplicate:true};
  if(!state.contact || state.revision!==body.revision) throw Error("Contact state changed. Reload before appending.");
- const {data,error}=await supabaseAdmin.rpc("append_linkedin_conversation_message",{p_organisation_id:org,p_actor:actor,p_identity:state.contact.identity.slice(9),p_revision:body.revision,p_key:body.key,p_details:details,p_refs:state.contact.records});
+ const {data,error}=await supabaseAdmin.rpc(isSnapshot?"append_linkedin_conversation_snapshot":"append_linkedin_conversation_message",{p_organisation_id:org,p_actor:actor,p_identity:state.contact.identity.slice(9),p_revision:body.revision,p_key:body.key,p_details:details,p_refs:state.contact.records});
  if(error) throw Error("Conversation entry could not be recorded. Reload and retry with the same key. The conversation schema must be deployed separately; do not resend the LinkedIn message.");
  return data;
 }

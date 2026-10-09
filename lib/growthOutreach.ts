@@ -1,12 +1,12 @@
-import { firstSendEvidence } from "@/lib/linkedinSendEvidence";
+import { firstSendEvidence, cadenceEvidence } from "@/lib/linkedinSendEvidence";
 import type { GenerationProfile } from "@/lib/tenantGeneration";
 export const outreachStages = ["connection", "day3_followup", "day7_parity", "day14_insight", "day28_relevance", "day42_close", "parked"] as const;
 export type OutreachStage = typeof outreachStages[number];
 export const cadenceDays: Record<string, number> = { connection: 0, day3_followup: 3, day7_parity: 7, day14_insight: 14, day28_relevance: 28, day42_close: 42 };
 export const legacyCadenceStages: Record<string, OutreachStage> = { day3_dm: "day3_followup", day10_insight: "day7_parity", day17_followup: "day14_insight", week5_view: "day28_relevance", week6_relevance: "day28_relevance", week7_close: "day42_close" };
-type CadenceTarget = { linkedin_conversation_active?: unknown; linkedin_previously_contacted?: unknown; stage?: string | null; last_action_at?: string | null; first_outbound_at?: unknown; manual_completion?: unknown; reply_status?: string | null; replied_at?: unknown; status?: unknown; deal_stage?: unknown };
+type CadenceTarget = { linkedin_cadence_anchor?: unknown; linkedin_conversation_active?: unknown; linkedin_previously_contacted?: unknown; stage?: string | null; last_action_at?: string | null; first_outbound_at?: unknown; manual_completion?: unknown; reply_status?: string | null; replied_at?: unknown; status?: unknown; deal_stage?: unknown };
 export function firstConfirmedOutboundAt(target: CadenceTarget) {
-  return firstSendEvidence(target.manual_completion).sentAt;
+  return cadenceEvidence(target).sentAt;
 
 }
 export function growthFollowUpDueAt(target: CadenceTarget) {

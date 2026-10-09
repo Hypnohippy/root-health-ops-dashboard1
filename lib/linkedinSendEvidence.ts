@@ -61,3 +61,11 @@ export function localSendDate(date: string, time: string, timezone: string) {
   if (formatter.format(new Date(guess)).replace(" ", "T") !== local) throw Error("That local time does not exist in this timezone. Check the date/time.");
   return new Date(guess).toISOString();
 }
+
+export function cadenceEvidence(row: object,now=Date.now()) {
+ const fields=record(row);
+ const original=firstSendEvidence(fields.manual_completion,now);
+ if(original.status==="verified")return original;
+ const anchor=firstSendEvidence(fields.linkedin_cadence_anchor,now);
+ return anchor.status==="verified"?anchor:original;
+}
