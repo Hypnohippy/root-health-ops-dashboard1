@@ -204,12 +204,12 @@ export async function GET(req: NextRequest) {
 
       try {
         const publishRes = await fetch(
-          `${origin}/api/publish/now?organisationId=${encodeURIComponent(organisationId)}`,
+          `${platforms.includes("tiktok") ? req.nextUrl.origin : origin}/api/publish/now?organisationId=${encodeURIComponent(organisationId)}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${CRON_SECRET}` },
             cache: "no-store",
-            body: JSON.stringify({ id, platforms }),
+            body: JSON.stringify({ id, platforms, ...(platforms.includes("tiktok") ? { tiktok: claimed.meta?.tiktok } : {}) }),
           }
         );
 

@@ -58,7 +58,7 @@ async function runOnce(req: NextRequest, opts: { organisationId?: string; limit?
   // Pull queued items due now
   const { data: items, error: readErr } = await supabaseAdmin
     .from("scheduled_posts")
-    .select("id, organisation_id, platforms, scheduled_for, status")
+    .select("id, organisation_id, platforms, scheduled_for, status, meta")
     .eq("organisation_id", organisationId)
     .eq("status", "queued")
     .lte("scheduled_for", nowIso)
@@ -114,12 +114,13 @@ async function runOnce(req: NextRequest, opts: { organisationId?: string; limit?
 
       // ✅ REAL mode: call your real publisher
       // /api/publish/now writes dispatch results into the scheduled_posts row
-      const pubRes = await fetch(`${origin}/api/publish/now?organisationId=${encodeURIComponent(organisationId)}`, {
+      const pubRes = await fetch(`${platforms.includes("tiktok") ? req.nextUrl.origin : origin}/api/publish/now?organisationId=${encodeURIComponent(organisationId)}`, {
         method: "POST",
         headers: publishingHeaders(req),
         cache: "no-store",
         body: JSON.stringify({
           id,
+          ...(platforms.includes("tiktok") ? { tiktok: (row as any).meta?.tiktok } : {}),
           platforms: platforms.length ? platforms : ["linkedin"], // fallback just in case
         }),
       });

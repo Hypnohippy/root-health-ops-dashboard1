@@ -908,6 +908,15 @@ export async function POST(req: NextRequest) {
     const rawImageUrl = String((row as any).image_url || "").trim();
     const meta = (row as any).meta || {};
     const rawVideoUrl = String(meta?.video_url || "").trim();
+    // Persist the explicit reviewed choice for dispatcher/status retries. Never infer draft mode.
+    if (platforms.includes("tiktok") && body.tiktok && !meta.tiktok_post && !meta.tiktok_inbox_upload) {
+      const { data: savedSettings, error: settingsError } = await supabaseAdmin.from("scheduled_posts")
+        .update({ meta: { ...meta, tiktok: body.tiktok } }).eq("id", id).eq("organisation_id", organisationId)
+        .eq("meta", JSON.stringify(meta)).select("id").maybeSingle();
+      if (settingsError || !savedSettings) return NextResponse.json({ success: false, error: "Could not save reviewed TikTok settings." }, { status: 503 });
+      meta.tiktok = body.tiktok;
+    }
+
 
     const imageUrl = rawImageUrl && isLikelyImageUrl(rawImageUrl) ? rawImageUrl : "";
     const videoUrl = rawVideoUrl && isLikelyVideoUrl(rawVideoUrl) ? rawVideoUrl : "";
@@ -1131,8 +1140,8 @@ export async function POST(req: NextRequest) {
 
       // TikTok owns the durable receipt; every repeated call is status-only.
       if (p === "tiktok") {
-        const tk = await postToTikTokViaInternal(req, { organisationId, postId: id, settings: body.tiktok });
-        results.push({ platform: "tiktok", ok: tk.ok, published: tk.json?.published === true,
+        const tk = await postToTikTokViaInternal(req, { organisationId, postId: id, settings: body.tiktok ?? meta.tiktok });
+        results.push({ platform: "tiktok", mode: tk.json?.mode || (body.tiktok ?? meta.tiktok)?.mode, ok: tk.ok, published: tk.json?.published === true,
           pending: tk.json?.pending === true, manualCompletionRequired: tk.json?.manualCompletionRequired === true,
           publishId: tk.json?.publishId || null, postId: tk.json?.postId || null, postedId: tk.json?.postedId || null,
           status: tk.status, details: tk.json, error: tk.ok ? null : tk.error,

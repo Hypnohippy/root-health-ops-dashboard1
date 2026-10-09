@@ -98,16 +98,32 @@ test("MP4 duration comes from bytes, malformed or unknown metadata fails closed"
 
 test("publish/now reports Direct Post completion/pending/failure truthfully and retains durable receipt",async()=>{
  for(const status of ["PUBLISH_COMPLETE","PROCESSING_UPLOAD","FAILED"]){
-  const f=fixture({status});
+  const f=fixture({status}); f.post.meta.tiktok=settings;
   const route=load("app/api/publish/now/route.ts",{"next/server":{NextResponse:{json:(body,options={})=>({body,status:options.status||200})}},"../../../../lib/supabaseAdmin":{supabaseAdmin:f.db},"@/lib/tenantAuth":{requirePublishingOrganisation:async()=>({organisationId:org}),publishingHeaders:()=>({}),accessErrorResponse:()=>null}},{process:{env:{NEXT_PUBLIC_APP_URL:"https://production.invalid"}},fetch:async(target,init)=>{
-   assert.match(target,/^https:\/\/preview.example\/api\/tiktok\/post$/);const body=JSON.parse(init.body);assert.equal(body.postId,"post");return new Response(JSON.stringify(await f.service.publishTikTokPost(body.organisationId,body.postId,body.settings)));
+   assert.match(target,/^https:\/\/preview.example\/api\/tiktok\/post$/);const body=JSON.parse(init.body);assert.equal(body.postId,"post");assert.equal(body.settings.mode,"direct");return new Response(JSON.stringify(await f.service.publishTikTokPost(body.organisationId,body.postId,body.settings)));
   }});
-  const result=await route.POST({url:`https://preview.example/api/publish/now?organisationId=${org}`,nextUrl:new URL("https://preview.example"),json:async()=>({id:"post",platforms:["tiktok"],tiktok:settings})});
+  const result=await route.POST({url:`https://preview.example/api/publish/now?organisationId=${org}`,nextUrl:new URL("https://preview.example"),json:async()=>({id:"post",platforms:["tiktok"]})});
   assert.equal(result.body.results[0].published,status==="PUBLISH_COMPLETE");assert.equal(result.body.results[0].manualCompletionRequired,false);assert.equal(result.body.pending,status==="PROCESSING_UPLOAD");assert.equal(f.post.status,status==="PUBLISH_COMPLETE"?"posted":status==="FAILED"?"failed":"pending");assert.equal(f.post.meta.tiktok_post.publishId,"publish-fixture");assert.doesNotMatch(JSON.stringify(result),/SECRET|finish.*inbox/);
  }
 });
 test("creator/post/status routes deny cross-tenant access before any service call",async()=>{
  for(const path of ["creator-info","post","status"]){let calls=0;const route=load(`app/api/tiktok/${path}/route.ts`,{"next/server":{NextResponse:{json:(body,options={})=>({body,status:options.status||200})}},"@/lib/tenantAuth":{requireOrganisation:async()=>{throw Error("denied");},requirePublishingOrganisation:async()=>{throw Error("denied");},accessErrorResponse:error=>error.message==="denied"?{status:403}:null},"@/lib/supabaseAdmin":{supabaseAdmin:{}},"@/lib/tiktokPosting.server":{TikTokError:Error,getTikTokCreator:()=>calls++,publishTikTokPost:()=>calls++,refreshTikTokPost:()=>calls++}});
  const req={nextUrl:new URL("https://ops.example?organisationId=foreign"),json:async()=>({organisationId:"foreign",postId:"post",settings})};assert.equal((await (path==="creator-info"?route.GET(req):route.POST(req))).status,403);assert.equal(calls,0);
+ }
+});
+
+test("normal queue and scheduled dispatcher preserve explicit Direct Post and draft settings on Preview", async()=>{
+ for(const mode of ["direct","draft"]){
+  let stored, providerBody, destination;
+  const choice={...settings,mode};
+  const db={from:()=>{let inserting=false,claim=false;const q={insert(v){stored={id:"queued-post",...v};inserting=true;return q;},update(v){claim=v.status==="pending";return q;},select(){return q;},eq(){return q;},in(){return q;},lte(){return q;},order(){return q;},limit(){return q;},single:async()=>({data:{id:stored.id}}),maybeSingle:async()=>({data:claim?stored:null}),then(resolve){return Promise.resolve({data:[{id:stored.id}]}).then(resolve);}};return q;}};
+  const response={NextResponse:{json:(body,options={})=>({body,status:options.status||200})}};
+  const globals={process:{env:{CRON_SECRET:"test-secret",NEXT_PUBLIC_APP_URL:"https://production.invalid"}},console,fetch:async(target,init)=>{destination=target;providerBody=JSON.parse(init.body);return new Response(JSON.stringify({success:true,results:[{platform:"tiktok",ok:true,pending:true,manualCompletionRequired:mode==="draft"}]}));}};
+  const queue=load("app/api/social/dispatch/route.ts",{"next/server":response,"../../../../lib/supabaseAdmin":{supabaseAdmin:db},"@/lib/tenantAuth":{requireOrganisation:async()=>({organisationId:org}),accessErrorResponse:()=>null}},{...globals,process:{env:{}}});
+  await queue.POST({url:"https://preview.example/api/social/dispatch",json:async()=>({message:"Reviewed",platforms:["tiktok"],videoUrl:url,tiktok:choice})});
+  assert.equal(stored.meta.tiktok.mode,mode);assert.equal(stored.meta.tiktok.privacyLevel,"SELF_ONLY");
+  const dispatcher=load("app/api/social/dispatch-scheduled/route.ts",{"next/server":response,"../../../../lib/supabaseAdmin":{supabaseAdmin:db},"@/lib/tenantAuth":{requireOwnedRecord:async()=>{}}},globals);
+  await dispatcher.GET({url:"https://preview.example/api/social/dispatch-scheduled",nextUrl:new URL("https://preview.example/api/social/dispatch-scheduled"),headers:new Headers({authorization:"Bearer test-secret"})});
+  assert.match(destination,/^https:\/\/preview.example\/api\/publish\/now/);assert.equal(providerBody.tiktok.mode,mode);assert.deepEqual(providerBody.tiktok,choice);
  }
 });

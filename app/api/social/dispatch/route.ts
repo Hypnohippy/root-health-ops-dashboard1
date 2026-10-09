@@ -107,6 +107,8 @@ export async function POST(req: NextRequest) {
         source: "quick_blast",
         created_at: nowIso,
         ...(videoUrl ? { video_url: videoUrl } : {}),
+        ...(platforms.includes("tiktok") && body.tiktok ? { tiktok: body.tiktok } : {}),
+        ...(platforms.includes("tiktok") && body.tiktok ? { tiktok: body.tiktok } : {}),
       },
     };
 
@@ -134,7 +136,7 @@ export async function POST(req: NextRequest) {
 
     if (CRON_SECRET) {
       try {
-        const origin = originFromReq(req);
+        const origin = platforms.includes("tiktok") ? new URL(req.url).origin : originFromReq(req);
         const dispatchUrl = `${origin}/api/social/dispatch-scheduled?organisationId=${encodeURIComponent(organisationId)}`;
 
         const res = await fetch(dispatchUrl, {
