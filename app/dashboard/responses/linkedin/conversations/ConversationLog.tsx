@@ -7,15 +7,17 @@ type Entry=Record<string,unknown>;
 export default function ConversationLog({organisationId,revision,contacts,selectedId,schemaAvailable,messages}:{organisationId:string;revision:string;contacts:{id:string;name:string}[];selectedId:string;schemaAvailable:boolean;messages:{dated:Entry[];undated:Entry[]}}){
  const router=useRouter();const [direction,setDirection]=useState("inbound"),[message,setMessage]=useState(""),[dateKnown,setDateKnown]=useState(false),[date,setDate]=useState(""),[time,setTime]=useState(""),[timezone,setTimezone]=useState("Europe/London"),[confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
  const [thread,setThread]=useState("");const [containsReply,setContainsReply]=useState(false);const [earliestDate,setEarliestDate]=useState("");const [earliestTime,setEarliestTime]=useState("");const [earliestConfirmed,setEarliestConfirmed]=useState(false);
+ const [saveStatus,setSaveStatus]=useState<"idle"|"saving"|"saved"|"unavailable"|"failed">("idle");
+ const savingSnapshot=useRef(false);
  const snapshotPending=useRef<Record<string,unknown>|null>(null);
- async function saveSnapshot(){setBusy(true);setError("");try{
-  if(!schemaAvailable)throw Error("Saving requires the unapplied conversation storage migrations. Your pasted text is kept in this editor; no data was written.");
+ async function saveSnapshot(){if(savingSnapshot.current)return;savingSnapshot.current=true;setBusy(true);setError("");setSaveStatus("saving");try{
+  if(!schemaAvailable){setSaveStatus("unavailable");return;}
   if(!selectedId||!thread.trim())throw Error("Select a contact and paste the conversation.");
   if(earliestDate&&!earliestConfirmed)throw Error("Confirm the earliest outbound date or leave it blank.");
   snapshotPending.current||={kind:"snapshot",contactId:selectedId,key:crypto.randomUUID(),message:thread,containsInboundReply:containsReply,earliestOutboundAt:earliestDate?localSendDate(earliestDate,earliestTime,timezone):null,earliestOutboundConfirmed:earliestConfirmed,timeKnown:!!earliestTime,timezone};
-  const response=await tenantFetch("/api/growth/linkedin-conversation",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...snapshotPending.current,revision,organisationId})});const result=await response.json();if(!response.ok)throw Error(result.error||"Save failed.");
-  snapshotPending.current=null;setThread("");setContainsReply(false);setEarliestDate("");setEarliestTime("");setEarliestConfirmed(false);router.refresh();
- }catch(e){setError(e instanceof Error?e.message:"Save failed. Your pasted text is preserved.");}finally{setBusy(false);}}
+  const response=await tenantFetch("/api/growth/linkedin-conversation",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...snapshotPending.current,revision,organisationId})});const result=await response.json();if(!response.ok||result.success!==true)throw Error(result.error||"The server did not confirm the save.");
+  setSaveStatus("saved");snapshotPending.current=null;setThread("");setContainsReply(false);setEarliestDate("");setEarliestTime("");setEarliestConfirmed(false);router.refresh();
+ }catch(e){setSaveStatus("failed");setError(e instanceof Error?e.message:"Save was not confirmed.");}finally{savingSnapshot.current=false;setBusy(false);}}
  const pending=useRef<Record<string,unknown>|null>(null);
  async function append(){setBusy(true);setError("");try{
   if(!schemaAvailable)throw Error("Saving requires the conversation storage migrations. Your message is preserved.");
@@ -34,6 +36,7 @@ export default function ConversationLog({organisationId,revision,contacts,select
  {earliestDate&&<><label className="block">Timezone <input className="bg-slate-900 p-2" value={timezone} disabled={busy||!!snapshotPending.current} onChange={e=>{setTimezone(e.target.value);setEarliestConfirmed(false);snapshotPending.current=null;}} /></label><label className="block"><input type="checkbox" checked={earliestConfirmed} disabled={busy||!!snapshotPending.current} onChange={e=>{setEarliestConfirmed(e.target.checked);snapshotPending.current=null;}} /> I verified this earliest outbound date in LinkedIn.</label></>}
  {!schemaAvailable&&<p role="status">Storage migrations are pending. Pasting and editing work; Save will explain the storage limitation and keep your text.</p>}
  <button className="rounded border p-2" disabled={busy||!selectedId||!thread.trim()} onClick={()=>void saveSnapshot()}>{busy?"Saving…":"Save conversation history"}</button>
+ {saveStatus!=="idle"&&<p role={saveStatus==="failed"||saveStatus==="unavailable"?"alert":"status"} aria-live="polite" className={`rounded border p-3 text-base font-semibold ${saveStatus==="saved"?"border-emerald-400 bg-emerald-950 text-emerald-100":saveStatus==="saving"?"border-blue-400 bg-blue-950 text-blue-100":"border-amber-400 bg-amber-950 text-amber-100"}`}>{saveStatus==="saving"?"Saving…":saveStatus==="saved"?"Conversation saved":saveStatus==="unavailable"?"Not saved — conversation storage is not enabled yet. Your text has been retained.":"Save failed — nothing was lost. Please retry."}</p>}
  </section>
  {error&&<p role="alert">{error}</p>}
  <details><summary>Add one new message</summary>

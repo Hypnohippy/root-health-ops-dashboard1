@@ -105,7 +105,7 @@ test("full-thread editor works with pending schema and keeps exact pasted text o
  const button=()=>renderer.root.findAllByType("button").find(n=>n.children.join("")==="Save conversation history");
  const text="  LinkedIn UI\nPerson 09:42\nHello 👋\nReply\n  ";assert.equal(textarea().props.disabled,false);
  await act(async()=>textarea().props.onChange({target:{value:text}}));assert.equal(button().props.disabled,false);
- await act(async()=>button().props.onClick());assert.equal(textarea().props.value,text);assert.equal(button().props.disabled,false);assert.equal(calls.length,0);assert.match(renderer.root.findByProps({role:"alert"}).children.join(""),/no data was written/);
+ await act(async()=>button().props.onClick());assert.equal(textarea().props.value,text);assert.equal(button().props.disabled,false);assert.equal(calls.length,0);assert.match(renderer.root.findByProps({role:"alert"}).children.join(""),/Not saved — conversation storage is not enabled yet. Your text has been retained./);
  assert.equal(renderer.root.findByType("summary").children.join(""),"Add one new message");await act(async()=>renderer.unmount());
 });
 
@@ -117,4 +117,18 @@ test("full-thread Save submits one exact unparsed snapshot and explicit reply co
  await act(async()=>renderer.root.findAllByType("input").find(n=>n.props.type==="checkbox").props.onChange({target:{checked:true}}));
  await act(async()=>renderer.root.findAllByType("button").find(n=>n.children.join("")==="Save conversation history").props.onClick());
  assert.equal(calls.length,1);assert.equal(calls[0].kind,"snapshot");assert.equal(calls[0].message,text);assert.equal(calls[0].containsInboundReply,true);assert.equal(calls[0].earliestOutboundAt,null);assert.equal(calls[0].direction,undefined);await act(async()=>renderer.unmount());
+});
+
+test("snapshot Save shows progress, blocks repeated clicks, and clears text only after explicit success",async()=>{
+ for(const outcome of ["success","error","unconfirmed"]){
+ const waiting=deferred();let calls=0;const {default:Log}=load("app/dashboard/responses/linkedin/conversations/ConversationLog.tsx",{react:React,"react/jsx-runtime":jsx,"@/lib/linkedinSendEvidence":load("lib/linkedinSendEvidence.ts",{}),"next/navigation":{useRouter:()=>({refresh:()=>{},push:()=>{}})},"@/lib/tenantFetch":{tenantFetch:()=>{calls++;return waiting.promise;}}},{crypto:{randomUUID:()=>"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}});
+ let renderer;await act(async()=>{renderer=create(React.createElement(Log,{organisationId:"tenant",revision:"3",contacts:[{id:"contact",name:"Person"}],selectedId:"contact",schemaAvailable:true,messages:{dated:[],undated:[]}}));});
+ const textarea=()=>renderer.root.findAllByType("textarea").find(n=>n.props["aria-label"]);const button=()=>renderer.root.findAllByType("button").find(n=>["Save conversation history","Saving…"].includes(n.children.join("")));const text=" Exact thread 👋\n";
+ await act(async()=>textarea().props.onChange({target:{value:text}}));const click=button().props.onClick;
+ await act(async()=>{click();click();});assert.equal(calls,1);assert.equal(button().props.disabled,true);assert.equal(textarea().props.value,text);assert.ok(renderer.root.findAll(n=>n.props.role==="status").some(n=>n.children.join("")==="Saving…"));
+ await act(async()=>waiting.resolve({ok:outcome!=="error",json:async()=>outcome==="success"?{success:true}:outcome==="error"?{error:"Server failed"}:{}}));
+ if(outcome==="success"){assert.equal(textarea().props.value,"");assert.ok(renderer.root.findAll(n=>n.props.role==="status").some(n=>n.children.join("")==="Conversation saved"));}
+ else{assert.equal(textarea().props.value,text);assert.equal(button().props.disabled,false);assert.ok(renderer.root.findAll(n=>n.props.role==="alert").some(n=>n.children.join("")==="Save failed — nothing was lost. Please retry."));}
+ await act(async()=>renderer.unmount());
+ }
 });
