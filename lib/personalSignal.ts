@@ -1,13 +1,13 @@
 import { safePublicDraft } from "@/lib/socialCommentOpportunity";
 import { AcquisitionWorkflowError } from "@/lib/acquisitionWorkflow";
-export type PersonalSignalItem = {source_engine:string;record_type:string;source_record_id?:string;source_url:string|null;status:string;metadata:Record<string,unknown>;reason?:string|null;signal?:string|null;evidence?:string|null;acquisition_item_events?:{action:string;created_at:string;previous_status?:string;new_status?:string;note?:string|null;outcome?:string|null}[]};
+export type PersonalSignalItem = {source_engine:string;record_type:string;source_record_id?:string;source_url:string|null;status:string;metadata:Record<string,unknown>;reason?:string|null;signal?:string|null;engine_state?:{opportunity_type?:string|null}|null;evidence?:string|null;acquisition_item_events?:{action:string;created_at:string;previous_status?:string;new_status?:string;note?:string|null;outcome?:string|null}[]};
 const exactText=(v:unknown)=>typeof v==="string"&&v.trim()?v:null;
 const object=(v:unknown):Record<string,unknown>=>v&&typeof v==="object"&&!Array.isArray(v)?v as Record<string,unknown>:{};
 export function personalSignal(item:PersonalSignalItem){
  if(item.source_engine!=="root_health_personal"||!["personal_opportunity","social_opportunity"].includes(item.record_type)||!item.source_record_id)return null;
  const m=item.metadata||{},s=object(m.engine_safety);
  if(s.public_context!==true||s.consumer_outreach!==false||s.health_targeting!==false||s.verified_direct_discussion!==true)return null;
- if(/search.?demand|article|blog|partner|referr/i.test(String(m.lane||"")+" "+String(m.opportunity_type||"")+" "+String(m.content_type||"")+" "+String(m.sheet_tab||"")))return null;
+ if(/search.?demand|article|blog|partner|referr/i.test(String(m.lane||"")+" "+String(m.opportunity_type||"")+" "+String(m.content_type||"")+" "+String(m.sheet_tab||"")+" "+String(item.engine_state?.opportunity_type||"")))return null;
  let url:URL;try{url=new URL(item.source_url||"");}catch{return null;}
  if(url.protocol!=="https:"||url.username||url.password||url.port)return null;
  const host=url.hostname.toLowerCase().replace(/^(www|m)\./,"");
@@ -16,7 +16,7 @@ export function personalSignal(item:PersonalSignalItem){
  const context=item.reason||item.signal||item.evidence||"";
  const theme=String(m.theme||item.signal||"");
  if(!platform||!original||!/fatigue|exhaust|stress|burnout|sleep|switch off|overwhelm|focus|brain fog|motivation|recover|diet|routine|craving|run down|wellbeing/i.test(theme+" "+context+" "+original))return null;
- const reply=exactText(m.prepared_reply)||exactText(m.reply_draft)||exactText(m.prepared_draft);
+ const reply=exactText(m.prepared_reply)||exactText(m.reply_draft)||(m.draft_kind==="public_reply"?exactText(m.prepared_draft):null);
  return {platform,theme:theme||"Personal wellbeing",context,original,reply:reply&&safePublicDraft(reply)?reply:null,url:url.href};
 }
 export const personalSignalActions=["personal_responded","personal_engaged","personal_capacity_check","personal_signup","personal_subscriber"] as const;
