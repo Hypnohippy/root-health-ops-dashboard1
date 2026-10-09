@@ -4,6 +4,8 @@ import { planAcquisitionAction } from "@/lib/acquisitionWorkflow";
 import { projectEngineState, type EngineState } from "@/lib/engineState";
 import { partnerActivity, partnerActionVisible, partnerActionLabel } from "@/lib/partnerConversation";
 import PartnerConversation from "./PartnerConversation";
+import { personalSignal } from "@/lib/personalSignal";
+import PersonalSignalCard from "./PersonalSignalCard";
 import ManualOpportunity from "./ManualOpportunity";
 
 type Event = { id:string; action:string; previous_status:string; new_status:string; outcome:string|null; note:string|null; created_at:string };
@@ -51,6 +53,8 @@ export default function AcquisitionQueue(){
     </div>
     {loading&&<p role="status" className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">Loading opportunities…</p>}{error&&<p role="alert" className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}{!loading&&!error&&items.length===0&&<p className="rounded-xl border border-white/10 bg-white/5 p-5 text-sm text-slate-300">No imported opportunities for this filter.</p>}
     <div className="space-y-2">{items.map(item=>{
+     const signalCard=personalSignal(item);
+     if(signalCard)return <PersonalSignalCard key={item.id} item={item} signal={signalCard} organisationId={organisationId} onSaved={()=>load()} onDismiss={()=>void act(item,{id:"dismiss",label:"Dismiss"})}/>;
      const engineProjection=item.engine_state?projectEngineState(item.engine_state):null;
      const partner=partnerActivity(item.record_type,item.engine_state);
      const sourceStateLabel=engineProjection?[title(engineProjection.stage),...(engineProjection.operationalState!==engineProjection.stage?[title(engineProjection.operationalState)]:[])].join(" · "):null;
