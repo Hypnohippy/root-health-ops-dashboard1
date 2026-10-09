@@ -240,6 +240,7 @@ export default function ClientDashboardLayout({
         { label: "Pipeline", href: "/dashboard/growth/pipeline" },
         { label: "Import", href: "/dashboard/growth/import" },
         { label: "Tracker", href: "/dashboard/growth/tracker" },
+        { label: "Cadence", href: "/dashboard/growth/cadence-report" },
       ];
     }
 
