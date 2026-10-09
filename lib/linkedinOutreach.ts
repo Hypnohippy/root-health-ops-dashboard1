@@ -1,3 +1,4 @@
+import { externalSentAt, sendReceipts, firstSendEvidence } from "@/lib/linkedinSendEvidence";
 import { isOutreachSelfContact, emptyOutreachSelfIdentity, type OutreachSelfIdentity } from "@/lib/outreachSelfIdentity";
 import { buildContactLifecycle, lifecycleLinkedInIdentity, type LifecycleInput, type LifecycleRow } from "@/lib/contactLifecycle";
 import { planManualCompletion } from "@/lib/operationalGovernor";
@@ -29,7 +30,7 @@ export function linkedInDestination(rows: LifecycleRow[]) {
   for (const row of rows) { const identity = profiles(row)[0]; if (identity) return "https://" + identity; }
   return null;
 }
-export type LinkedInOutboundHistory = { message: string; sentAt: string; table: "inbox_items" | "growth_targets"; id: string; source: "manual completion receipt" | "recorded acceptance message sent" };
+export type LinkedInOutboundHistory = { contentKind?: string; message: string; sentAt: string; table: "inbox_items" | "growth_targets"; id: string; source: "manual completion receipt" | "recorded acceptance message sent" };
 export function linkedInRecordedEvidence(rows: LifecycleRow[], identity: string, now = Date.now()) {
   const canonical = identity.startsWith("linkedin:") ? identity.slice(9) : null;
   const matching = rows.filter(r => canonical && profiles(r).length === 1 && profiles(r)[0] === canonical);
@@ -46,16 +47,16 @@ export function linkedInRecordedEvidence(rows: LifecycleRow[], identity: string,
   for (const row of matching) {
     const table = row.kind === "connection_accepted" ? "inbox_items" : row.stage ? "growth_targets" : null;
     if (!table) continue;
-    const receipt = object(row.manual_completion);
-    const sentAt = date(receipt.completed_at);
-    if (text(receipt.key) && text(receipt.actor) && text(receipt.evidence) && sentAt && Date.parse(sentAt) <= now) {
-      hasConfirmedSend = true;
-      const message = text(receipt.message);
-      if (message) history.push({ message, sentAt, table, id: row.id, source: "manual completion receipt" });
-    } else if (table === "inbox_items" && row.status === "replied" && date(row.contacted_at) && date(row.last_replied_at) === date(row.contacted_at) && Date.parse(String(row.contacted_at)) <= now) {
-      hasConfirmedSend = true;
-      const message = text(row.last_reply_text);
-      if (message) history.push({ message, sentAt: date(row.contacted_at)!, table, id: row.id, source: "recorded acceptance message sent" });
+    const savedReceipt = object(firstSendEvidence(row.manual_completion,now).status === "verified" ? row.manual_completion : row.linkedin_cadence_anchor || row.manual_completion);
+    const receipts = sendReceipts(savedReceipt);
+    if (receipts.length) hasConfirmedSend = true;
+    const firstEvidence = firstSendEvidence(savedReceipt, now);
+    if (firstEvidence.status !== "verified") continue;
+    for (const receipt of receipts) {
+      if (receipt.correction_type === "first_send_classification" || receipt === firstEvidence.receipt || receipt.stage !== "connection" && receipt.stage) {
+        const sentAt = externalSentAt(receipt, now);
+        if (sentAt) history.push({ contentKind: typeof receipt.content_kind === "string" ? receipt.content_kind : undefined, message: String(receipt.message), sentAt, table, id: row.id, source: "manual completion receipt" });
+      }
     }
   }
   history.sort((a,b) => b.sentAt.localeCompare(a.sentAt));
@@ -79,9 +80,8 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
     const first = contact.currentStage === "outreach_ready";
     // A weaker historical record must never authorise outreach over a reply or closure.
     if (refs.some(ref => ["needs_reply", "engaged", "meeting", "converted", "lost", "dismissed", "no_reply_needed", "nurture", "waiting"].includes(ref.stage) && !(ref.table === "inbox_items" && index.get(`${ref.table}:${ref.id}`)?.kind === "connection_accepted" && !first && truth.hasConfirmedSend && ref.stage === "waiting"))) return reject("stronger reply/closure/waiting record");
-    if (rows.some(r => r.replied_at || (r.reply_status && r.reply_status !== "no_reply") || r.status === "archived" || (r.platform === "linkedin" && r.kind === "dm" && text(r.text)))) return reject("reply or archived record");
+    if (rows.some(r => r.linkedin_conversation_active || r.replied_at || (r.reply_status && r.reply_status !== "no_reply") || r.status === "archived" || (r.platform === "linkedin" && r.kind === "dm" && text(r.text)))) return reject("reply or archived record");
     if (contact.engineEvidence.length || rows.some(r => !(r.platform === "linkedin" && r.kind === "connection_accepted") && (r.engine_state || ["root_health_b2b", "google_b2b_lead_engine", "root_health_personal"].includes(String(r.source_engine || r.source_type)) || ["root_health_b2b", "google_b2b_lead_engine"].includes(String(object(r.metadata).source))))) return reject("source ownership");
-    if (!first && (contact.followUpStatus !== "due" || row.stage === "connection")) return reject("follow-up not due or connection stage");
     const table = contact.actionRecord.table;
     if (table !== "inbox_items" && table !== "growth_targets") return reject("unsupported action table");
     if (table === "inbox_items" && (!first || row.kind !== "connection_accepted")) return reject("inbox action is not unsent acceptance");
@@ -91,9 +91,10 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
     if (truth.ambiguous) return reject("ambiguous identity");
     if (!truth.destination) return reject("destination missing");
     const previousOutbound = truth.previousOutbound;
-    if (first && (truth.hasConfirmedSend || rows.some(r => r.contacted_at || r.last_replied_at || r.last_action_at || r.manual_completion || r.status === "replied"))) return reject("conflicting lifecycle: prior contact prevents first message");
+    if (first && (truth.hasConfirmedSend || rows.some(r => r.linkedin_previously_contacted || r.contacted_at || r.last_replied_at || r.last_action_at || r.manual_completion || r.status === "replied"))) return reject("conflicting lifecycle: prior contact prevents first message");
     if (!first && (!truth.hasConfirmedSend || !previousOutbound)) return reject("outbound history incomplete");
-    if (!first && date(row.last_action_at) !== previousOutbound?.sentAt) return reject("conflicting lifecycle: cadence timestamp differs from confirmed send");
+    if (!first && (contact.followUpStatus !== "due" || row.stage === "connection")) return reject("follow-up not due or connection stage");
+    if (!first && !(firstSendEvidence(row.manual_completion,now).status !== "verified" && firstSendEvidence(row.linkedin_cadence_anchor,now).status === "verified") && date(row.last_action_at) !== previousOutbound?.sentAt) return reject("conflicting lifecycle: cadence timestamp differs from confirmed send");
     if (!date(acceptance.created_at_platform || acceptance.inserted_at) || Date.parse(String(acceptance.created_at_platform || acceptance.inserted_at)) > now) return reject("acceptance timing unverified");
     if (!planManualCompletion(organisationId, input, table, row.id).allowed) return reject("manual governor refused");
     const connectedAt = date(acceptance?.created_at_platform || acceptance?.inserted_at);
@@ -111,7 +112,7 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
       name: contact.name, company: contact.company, role, sector: null, source: contact.source, whyRelevant: reason,
       relationship: contact.currentStage, latestEvent: text(acceptance?.text) || "Recorded LinkedIn outreach",
       whatWeKnow: [text(row.notes)].filter((v): v is string => !!v),
-      history: [...(previousOutbound ? ["Actual previous outbound message: " + previousOutbound.message, "Confirmed sent at " + previousOutbound.sentAt + " via " + previousOutbound.source + " (" + previousOutbound.table + ":" + previousOutbound.id + ")."] : []), connectedAt ? `Connection acceptance detected on ${connectedAt}.` : "Connection acceptance timing unknown."],
+      history: [...(previousOutbound ? [(previousOutbound.contentKind === "conversation_history_pasted" ? "Exact pasted conversation audit trail (multiple messages/UI text; no individual dates inferred): " : "Actual previous outbound message: ") + previousOutbound.message, (previousOutbound.contentKind === "conversation_history_pasted" ? "Earliest user-verified outbound date only: " : "Confirmed sent at ") + previousOutbound.sentAt + " via " + previousOutbound.source + " (" + previousOutbound.table + ":" + previousOutbound.id + ")."] : []), connectedAt ? `Connection acceptance detected on ${connectedAt}.` : "Connection acceptance timing unknown."],
       lastAction: contact.lastAction ? JSON.stringify(contact.lastAction) : null, currentStage: stage,
       buyingSignal: "unknown", buyingSignalLabel: "No buying signal inferred.", objective: objectiveFor(first ? "linkedin_connection_first_message" : "linkedin_followup", false),
     };

@@ -8,12 +8,11 @@ const commercial = new Set<LifecycleStage>(["meeting", "converted", "lost"]);
 const protectedStages = new Set<LifecycleStage>([...commercial, "engaged", "needs_reply", "nurture", "dismissed", "no_reply_needed"]);
 const cadence = [
   "connection",
-  "day3_dm",
-  "day10_insight",
-  "day17_followup",
-  "week5_view",
-  "week6_relevance",
-  "week7_close",
+  "day3_followup",
+  "day7_parity",
+  "day14_insight",
+  "day28_relevance",
+  "day42_close",
   "parked",
 ];
 const humanClasses = new Set(["human_positive", "human_neutral", "human_negative", "question"]);

@@ -1,4 +1,5 @@
 "use client";
+import LinkedInHistoricalSend from "./LinkedInHistoricalSend";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openAndCopyLinkedIn } from "@/lib/linkedinClipboard";
 import { tenantFetch } from "@/lib/tenantFetch";
@@ -13,6 +14,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
   const [message, setMessage] = useState(initialMessage);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const [historical, setHistorical] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const receipt = useRef<{ key: string; completedAt: string; message: string; revision: string } | null>(null);
   const currentDraft = useRef(initialMessage);
@@ -74,7 +76,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
     locked.current = true; setBusy("complete"); setNotice("");
     receipt.current ||= { key: crypto.randomUUID(), completedAt: new Date().toISOString(), message, revision: queue.revision };
     try {
-      const data = await post({ action: "complete", confirmed: true, ...receipt.current });
+      const data = await post({ action: "record_send", sendChoice: "now", confirmed: true, ...receipt.current });
       if (data.reconciliationErrors?.length) {
         setNotice("Send recorded, but reconciliation needs attention. Reload safely before continuing; do not send again.");
         setUncertain(true);
@@ -87,19 +89,27 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
       <div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="text-xl font-semibold">{item.name}</h2><p className="text-sm">{item.role || "Role not recorded"}</p><p className="text-sm text-slate-300">{item.company || "Company not recorded"}</p></div><span className="rounded bg-emerald-900 px-2 py-1 text-xs">{item.mode === "catchup" ? "Catch-up" : item.mode === "fresh" ? "Fresh" : "Follow-up"} · {item.stage.replaceAll("_", " ")}</span></div>
       <p className="text-sm text-emerald-200">{item.reason}</p>
       <div className="flex flex-wrap gap-2" role="toolbar" aria-label={`Outreach actions for ${item.name}`}>
-        <button className={`${button} bg-sky-800`} disabled={suspended || !!busy || !message.trim() || !item.destination || uncertain} onClick={() => void copy(true)}>{item.destinationKind === "profile" ? "Open profile & Copy — use Message" : "Open & Copy"}</button>
-        <button className={`${button} bg-emerald-800`} disabled={suspended || !!busy || !message.trim()} onClick={() => void complete()}>{uncertain ? "Retry confirmation safely" : "Mark sent & next"}</button>
-        <button className={button} disabled={suspended || busy === "complete" || uncertain} onClick={() => void onNext(item.contactId, false)}>Skip</button>
+        <button className={`${button} bg-sky-800`} disabled={suspended || historical || !!busy || !message.trim() || !item.destination || uncertain} onClick={() => void copy(true)}>{item.destinationKind === "profile" ? "Open profile & Copy — use Message" : "Open & Copy"}</button>
+        <button className={`${button} bg-emerald-800`} disabled={suspended || historical || !!busy || !message.trim()} onClick={() => void complete()}>{uncertain ? "Retry confirmation safely" : "Sent now & next"}</button>
+        <button className={button} disabled={suspended || !!busy || uncertain || !message.trim()} onClick={() => setHistorical(true)}>Already sent previously</button>
+        <button className={button} disabled={suspended || historical || busy === "complete" || uncertain} onClick={() => void onNext(item.contactId, false)}>Skip</button>
       </div>
     </header>
     <div className="min-h-0 space-y-4 overflow-y-auto p-4 lg:flex-1">
-      {item.previousOutbound && <section aria-label="Confirmed previous outbound" className="rounded border border-white/15 p-3 text-sm"><h3 className="font-semibold">Previous message</h3><blockquote className="mt-2 whitespace-pre-wrap">{item.previousOutbound.message}</blockquote><p className="mt-2 text-slate-400">Sent: {when(item.previousOutbound.sentAt)} · {item.previousOutbound.source} · {item.previousOutbound.table}:{item.previousOutbound.id}</p><p>Current stage: {item.stage.replaceAll("_", " ")}</p></section>}
+      {historical && <LinkedInHistoricalSend message={message} onCancel={() => setHistorical(false)} onConfirm={async body => {
+        if (locked.current) throw Error("A confirmation is already in progress.");
+        locked.current = true; setBusy("complete");
+        try { await post({ action: "record_send", ...body }); await onNext(item.contactId, true); }
+        catch (error) { setUncertain(true); throw error; }
+        finally { locked.current = false; setBusy(""); }
+      }} />}
+      {item.previousOutbound && <section aria-label="Confirmed previous outbound" className="rounded border border-white/15 p-3 text-sm"><h3 className="font-semibold">{item.previousOutbound.contentKind === "conversation_history_pasted" ? "Conversation history pasted" : "Previous message"}</h3><blockquote className="mt-2 whitespace-pre-wrap">{item.previousOutbound.message}</blockquote><p className="mt-2 text-slate-400">{item.previousOutbound.contentKind === "conversation_history_pasted" ? "Earliest verified outbound:" : "Sent:"} {when(item.previousOutbound.sentAt)} · {item.previousOutbound.source} · {item.previousOutbound.table}:{item.previousOutbound.id}</p><p>Current stage: {item.stage.replaceAll("_", " ")}</p></section>}
       <label className="block text-sm font-medium" htmlFor="linkedin-message">{item.previousOutbound ? "Next draft" : "Message"} for {item.name}</label>
-      <textarea id="linkedin-message" ref={textarea} value={message} disabled={suspended || busy === "complete" || uncertain} onChange={e => { generation.current++; generationRequest.current?.abort(); setBusy(""); currentDraft.current = e.target.value; setMessage(e.target.value); onDraft(e.target.value); }} className="min-h-32 w-full resize-y rounded-lg border border-white/20 bg-slate-950 p-3 text-sm leading-relaxed" />
-      <div className="flex flex-wrap gap-2"><button className={button} disabled={suspended || !!busy || uncertain} onClick={() => void generate()}>{busy === "generate" ? "Preparing draft…" : "Refresh draft"}</button><button className={button} disabled={suspended || busy === "complete" || !message.trim()} onClick={() => void copy(false)}>Copy message</button></div>
+      <textarea id="linkedin-message" ref={textarea} value={message} disabled={suspended || historical || busy === "complete" || uncertain} onChange={e => { generation.current++; generationRequest.current?.abort(); setBusy(""); currentDraft.current = e.target.value; setMessage(e.target.value); onDraft(e.target.value); }} className="min-h-32 w-full resize-y rounded-lg border border-white/20 bg-slate-950 p-3 text-sm leading-relaxed" />
+      <div className="flex flex-wrap gap-2"><button className={button} disabled={suspended || historical || !!busy || uncertain} onClick={() => void generate()}>{busy === "generate" ? "Preparing draft…" : "Refresh draft"}</button><button className={button} disabled={suspended || busy === "complete" || !message.trim()} onClick={() => void copy(false)}>Copy message</button></div>
       {notice && <p role="status" className="rounded-lg border border-amber-300/30 p-3 text-sm">{notice}</p>}
       {uncertain && <button className={button} onClick={() => void onReload()}>Reload current state safely</button>}
-      <p className="text-xs text-slate-400">Paste and send manually in the separate LinkedIn tab. Mark sent confirms the actual send and advances the existing cadence.</p>
+      <p className="text-xs text-slate-400">Paste and send manually in the separate LinkedIn tab. Sent now confirms a message you just sent. Use Already sent previously to reconcile LinkedIn history.</p>
       {item.destination ? <a className="block text-sm underline text-sky-300" href={item.destination} target="_blank" rel="noreferrer">{item.destinationKind === "profile" ? "Open profile — use Message" : "Open recorded LinkedIn messaging destination"}</a> : <p className="text-sm">Destination missing — this contact requires reconciliation.</p>}
       <details className="text-sm"><summary className="cursor-pointer text-slate-300">Recorded dates and activity</summary><dl className="mt-3 grid gap-3 sm:grid-cols-2"><div><dt className="text-slate-400">Connection detected / accepted</dt><dd>{when(item.connectedAt)}</dd></div><div><dt className="text-slate-400">Lifecycle / action</dt><dd>{item.lifecycle.replaceAll("_", " ")} / {item.stage.replaceAll("_", " ")}</dd></div><div><dt className="text-slate-400">Due</dt><dd>{item.dueAt ? when(item.dueAt) : "First message available now"}</dd></div><div><dt className="text-slate-400">Last action</dt><dd>{item.lastAction ? `${item.lastAction.action.replaceAll("_", " ")} — ${when(item.lastAction.at)}` : "None recorded"}</dd></div></dl></details>
     </div>
@@ -150,7 +160,7 @@ export default function LinkedInConsole() {
   const inbox = `/dashboard/responses${org ? `?organisationId=${encodeURIComponent(org)}` : ""}`;
   function newBatch(includeSkipped = false) { if (includeSkipped) skipped.current = []; batchIds.current = null; void load(); }
   return <main className="mx-auto max-w-7xl space-y-4 p-4 py-5 text-slate-100">
-    <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-semibold">LinkedIn Outreach Console</h1><a href={inbox} className="text-sm underline text-sky-300">Back to Responses inbox</a></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-semibold">LinkedIn Outreach Console</h1><a href={inbox} className="text-sm underline text-sky-300">Back to Responses inbox</a><a className="ml-4 text-sm underline" href={`/dashboard/responses/linkedin/conversations?organisationId=${encodeURIComponent(org)}`}>Log a LinkedIn conversation</a></div>
     <nav aria-label="Queue views" className="flex flex-wrap gap-2">{([ ["all","Work next 10"], ["fresh","Fresh"], ["catchup","Catch-up"], ["followups","Follow-ups due"] ] as const).map(([value,label]) => <button key={value} aria-pressed={view === value} disabled={loading || working} className={`${button} ${view === value ? "bg-emerald-900" : ""}`} onClick={() => { if (view === value) newBatch(); else setView(value); }}>{label}</button>)}</nav>
     <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
       <span>{queue?.items.length || 0} in this batch · {queue?.total || 0} eligible</span>

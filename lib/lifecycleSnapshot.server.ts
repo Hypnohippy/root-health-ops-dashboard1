@@ -1,3 +1,4 @@
+import { planLinkedInCadenceBackfill } from "@/lib/linkedinCadenceBackfill";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { LifecycleInput, LifecycleRow, LifecycleTable } from "@/lib/contactLifecycle";
 
@@ -12,9 +13,10 @@ async function readSource(table: LifecycleTable, organisationId: string) {
   }
 }
 
-export async function readLifecycleInput(organisationId: string): Promise<LifecycleInput> {
+export async function readLifecycleInput(organisationId: string, projectCadence = true): Promise<LifecycleInput> {
   const [acquisition_items, inbox_items, growth_targets] = await Promise.all([
     readSource("acquisition_items", organisationId), readSource("inbox_items", organisationId), readSource("growth_targets", organisationId),
   ]);
-  return { acquisition_items, inbox_items, growth_targets };
+  const input = { acquisition_items, inbox_items, growth_targets };
+  return projectCadence ? planLinkedInCadenceBackfill(organisationId,input).projected : input;
 }

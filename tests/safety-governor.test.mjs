@@ -10,7 +10,8 @@ function load(file, deps = {}) {
  {module:mod,exports:mod.exports,URL,URLSearchParams,require:name=>{assert.ok(name in deps, `Unexpected dependency/send path ${name}`);return deps[name];}});
  return mod.exports;
 }
-const outreach=load("lib/growthOutreach.ts"), engine=load("lib/engineState.ts");
+const sendEvidence=load("lib/linkedinSendEvidence.ts");
+const outreach=load("lib/growthOutreach.ts",{"@/lib/linkedinSendEvidence":sendEvidence}), engine=load("lib/engineState.ts");
 const lifecycle=load("lib/contactLifecycle.ts",{"@/lib/growthOutreach":outreach,"@/lib/engineState":engine});
 const governor=load("lib/operationalGovernor.ts",{"@/lib/growthOutreach":outreach,"@/lib/contactLifecycle":lifecycle});
 const reconciliation=load("lib/lifecycleReconciliation.ts",{"@/lib/growthOutreach":outreach,"@/lib/contactLifecycle":lifecycle});
@@ -18,7 +19,7 @@ const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbb
 const input=(parts={})=>({acquisition_items:[],inbox_items:[],growth_targets:[],...parts});
 const row=(fields={})=>({id:ID,organisation_id:A,linkedin_identity:"linkedin.com/in/test",...fields});
 const acceptance=()=>row({platform:"linkedin",kind:"connection_accepted",author_name:"Test",status:"needs_reply",response_state:"needs_reply"});
-const target=()=>row({id:T,target_name:"Test",stage:"day3_dm",status:"active",last_action_at:"2020-01-01"});
+const target=()=>row({id:T,target_name:"Test",stage:"day3_followup",status:"active",last_action_at:"2020-01-01"});
 
 test("governor exposes five states and never confuses intentional human work with failure",()=>{
  for(const state of ["running","scheduled","waiting","completed","blocked"])assert.equal(governor.governorDecision({operationalState:state}).state,state);
@@ -30,7 +31,7 @@ test("manual LinkedIn completion uses existing lifecycle and reconciliation; rep
  const data=input({inbox_items:[acceptance()]});const p=governor.planManualCompletion(A,data,"inbox_items",ID);assert.equal(p.allowed,true);
  Object.assign(data.inbox_items[0],p.patch,{last_replied_at:"2026-01-01",contacted_at:"2026-01-01",manual_completion:{key:K}});
  assert.equal(governor.planManualCompletion(A,data,"inbox_items",ID).allowed,false);
- const repairs=reconciliation.planLifecycleReconciliation(A,data).repairs;assert.ok(repairs.some(r=>r.table==="growth_targets"&&r.patch.stage==="day3_dm"));
+ const repairs=reconciliation.planLifecycleReconciliation(A,data).repairs;assert.ok(repairs.some(r=>r.table==="growth_targets"&&r.patch.stage==="day3_followup"));
 });
 test("human reply suppresses pending followup; commercial evidence and Personal gates stay closed",()=>{
  const data=input({growth_targets:[target()],inbox_items:[row({platform:"email",kind:"email_reply",response_state:"needs_reply",email_classification:"question",created_at_platform:"2026-01-01"})]});
@@ -89,12 +90,12 @@ test("real SQL: in-flight email cannot be declared complete; manual social survi
 test("real SQL: manual followup advances once, old receipt keys survive later completion, source regression blocked",async()=>{
  const db=await database();try{
  await db.exec(`insert into growth_targets(id,organisation_id,stage,status) values('${T}','${A}','connection','active')`);
- const rev=await revision(db);await complete(db,"growth_targets",T,{stage:"day3_dm",status:"active"},K,rev);
- assert.equal((await complete(db,"growth_targets",T,{stage:"day3_dm",status:"active"},K,rev)).rows[0].receipt.duplicate,true);
+ const rev=await revision(db);await complete(db,"growth_targets",T,{stage:"day3_followup",status:"active"},K,rev);
+ assert.equal((await complete(db,"growth_targets",T,{stage:"day3_followup",status:"active"},K,rev)).rows[0].receipt.duplicate,true);
  await assert.rejects(db.exec(`update growth_targets set stage='connection' where id='${T}'`),/manual_completion_prevents_cadence_regression/);
- await complete(db,"growth_targets",T,{stage:"day10_insight",status:"active"},K2);
- assert.equal((await complete(db,"growth_targets",T,{stage:"day3_dm",status:"active"},K,rev)).rows[0].receipt.duplicate,true);
- assert.equal((await db.query(`select stage from growth_targets where id='${T}'`)).rows[0].stage,"day10_insight");
+ await complete(db,"growth_targets",T,{stage:"day7_parity",status:"active"},K2);
+ assert.equal((await complete(db,"growth_targets",T,{stage:"day3_followup",status:"active"},K,rev)).rows[0].receipt.duplicate,true);
+ assert.equal((await db.query(`select stage from growth_targets where id='${T}'`)).rows[0].stage,"day7_parity");
  await db.exec(`update growth_targets set stage='parked',status='parked',reply_status='engaged' where id='${T}'`);
  }finally{await db.close();}
 });
@@ -140,3 +141,60 @@ test("real SQL: LinkedIn receipt preserves actual action time for the existing c
  const item=(await db.query(`select contacted_at,last_replied_at from inbox_items where id='${ID}'`)).rows[0];assert.equal(new Date(item.contacted_at).toISOString(),"2026-01-01T00:00:00.000Z");assert.equal(item.contacted_at.getTime?.()||item.contacted_at,item.last_replied_at.getTime?.()||item.last_replied_at);
  }finally{await db.close();}
 });
+
+
+test("absolute cadence migration preserves first-send anchor and history, backfills without invented sends",async()=>{
+ const db=await database();
+ try {
+ await db.exec(fs.readFileSync("supabase/migrations/20261009100000_linkedin_absolute_cadence.sql","utf8"));
+ await db.exec(`insert into growth_targets(id,organisation_id,target_name,stage,status) values('${T}','${A}','Person','connection','active');`);
+ await complete(db,"growth_targets",T,{stage:"day3_followup",status:"active",last_reply_text:"Original hello"});
+ let saved=(await db.query(`select * from growth_targets where id='${T}'`)).rows[0];
+ assert.equal(saved.manual_completion.stage,"connection");assert.equal(saved.first_outbound_text,"Original hello");const first=saved.first_outbound_at;
+ const repairs=[{id:T,patch:{stage:"day42_close",status:"active",first_outbound_at:first,first_outbound_text:"Original hello"}}];
+ await db.query("select backfill_linkedin_cadence($1,$2,$3)",[A,await revision(db),JSON.stringify(repairs)]);
+ saved=(await db.query(`select * from growth_targets where id='${T}'`)).rows[0];assert.equal(saved.stage,"day42_close");assert.equal(saved.manual_completion.message,"Original hello");assert.equal(saved.manual_completion.history.length,0);assert.equal(saved.first_outbound_at.toISOString(),first.toISOString());
+ await complete(db,"growth_targets",T,{stage:"parked",status:"parked",last_reply_text:"I will leave it there"},K2);
+ saved=(await db.query(`select * from growth_targets where id='${T}'`)).rows[0];assert.equal(saved.status,"parked");assert.equal(saved.manual_completion.stage,"day42_close");assert.equal(saved.manual_completion.history[0].message,"Original hello");assert.equal(saved.first_outbound_at.toISOString(),first.toISOString());assert.equal(saved.last_reply_text,"I will leave it there");
+ await assert.rejects(db.query("select backfill_linkedin_cadence($1,$2,$3)",[A,await revision(db),JSON.stringify(repairs)]),/cadence_evidence_changed/);
+ } catch(error) { throw new Error(JSON.stringify({message:error.message,detail:error.detail,where:error.where})); } finally {await db.close();}
+});
+
+test("real SQL: reconciliation appends immutable receipts, stores two clocks, blocks duplicates and preserves unknown state",async()=>{
+ const db=await database();
+ try {
+  await db.exec(fs.readFileSync("supabase/migrations/20261009100000_linkedin_absolute_cadence.sql","utf8"));
+  await db.exec(fs.readFileSync("supabase/migrations/20261009120000_linkedin_external_send_evidence.sql","utf8"));
+  await db.query(`insert into growth_targets(id,organisation_id,stage,status,linkedin_identity) values($1,$2,'connection','active','linkedin.com/in/test')`,[T,A]);
+  const run=async(key,details,org=A)=>{const rev=(await db.query(`select revision from lifecycle_revisions where organisation_id=$1`,[org])).rows[0]?.revision||0;return (await db.query(`select record_linkedin_send_evidence($1,$2,'growth_targets',$3,$4,$5,$6::jsonb) as result`,[org,A,T,rev,key,JSON.stringify(details)])).rows[0].result;};
+  const base={message:"  Exact message\n",source:"Manually confirmed LinkedIn send",timezone:"Europe/London",precision:"time",sentStage:"connection"};
+  const first=await run(K,{...base,choice:"now",correction:false});assert.ok(first.sentAt);assert.ok(first.confirmedAt);
+  let row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];const original=row.manual_completion;
+  assert.equal(original.sent_at,original.confirmed_at);assert.equal(original.message,base.message);
+  const unknown=await run(K2,{...base,choice:"conversation",status:"unknown",correction:true,source:"Manually reconciled from LinkedIn history"});assert.equal(unknown.sentAt,null);
+  row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(row.manual_completion.content_kind,"conversation_history_pasted");assert.equal(row.manual_completion.message,base.message);assert.equal(row.manual_completion.historical_send_date_status,"unknown");assert.equal(row.first_outbound_at,null);assert.equal(row.stage,"day3_followup");const {history: ignoredHistory,...originalWithoutHistory}=original;assert.deepEqual(row.manual_completion.history[0],originalWithoutHistory);
+  const retry=await run(K2,{...base,choice:"unknown",correction:true});assert.equal(retry.duplicate,true);assert.equal((await db.query(`select manual_completion from growth_targets where id=$1`,[T])).rows[0].manual_completion.history.length,1);
+  const old="2026-08-01T12:34:56.000Z";await run("99999999-9999-4999-8999-999999999999",{...base,choice:"conversation",status:"verified",earliestOutboundConfirmed:true,sentAt:old,correction:true});
+  row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(new Date(row.first_outbound_at).toISOString(),old);assert.notEqual(row.manual_completion.sent_at,row.manual_completion.confirmed_at);assert.equal(row.manual_completion.history.length,2);assert.equal(row.manual_completion.history[0].key,K);
+  await assert.rejects(run("88888888-8888-4888-8888-888888888888",{...base,choice:"now",correction:false},B),/record_not_found/);
+ } finally {await db.close();}
+});
+
+test("real SQL: append-only conversation messages atomically suspend cadence without replacing receipts",async()=>{const db=await database();try{
+ await db.exec(fs.readFileSync("supabase/migrations/20261009140000_linkedin_conversation_log.sql","utf8"));
+ const original={key:K,message:"Existing pasted audit trail\nView profile",actor:A,evidence:"Original receipt",completed_at:"2026-10-01"};
+ await db.query(`insert into growth_targets(id,organisation_id,stage,status,manual_completion)values($1,$2,'day3_followup','active',$3::jsonb)`,[T,A,JSON.stringify(original)]);
+ const refs=[{table:"growth_targets",id:T}];
+ const run=async(key,direction,message,at=null,org=A)=>{const rev=(await db.query(`select revision from lifecycle_revisions where organisation_id=$1`,[org])).rows[0]?.revision||0;return(await db.query(`select append_linkedin_conversation_message($1,$2,'linkedin.com/in/test',$3,$4,$5::jsonb,$6::jsonb) as result`,[org,A,rev,key,JSON.stringify({direction,message,messageAt:at,precision:at?"time":"unknown",timezone:at?"Europe/London":null}),JSON.stringify(refs)])).rows[0].result;};
+ await run(K,"outbound","  Earlier outbound\n", "2026-09-01T12:00:00Z");
+ let target=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(target.linkedin_conversation_active,false);assert.equal(target.linkedin_previously_contacted,true);
+ await run(K2,"inbound","Exact inbound reply\nToday\n");
+ target=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(target.linkedin_conversation_active,true);assert.deepEqual(target.manual_completion,original);assert.equal(target.stage,"day3_followup");assert.equal(target.replied_at,null);
+ const messages=(await db.query(`select * from linkedin_conversation_messages order by confirmed_at`)).rows;assert.equal(messages.length,2);assert.equal(messages[0].message,"  Earlier outbound\n");assert.equal(messages[1].message,"Exact inbound reply\nToday\n");assert.equal(messages[1].message_at,null);assert.equal(messages[1].actor,A);assert.equal(messages[1].source,"manually reconciled from LinkedIn conversation");
+ assert.equal((await run(K2,"inbound","Exact inbound reply\nToday\n")).duplicate,true);assert.equal((await db.query(`select count(*) as n from linkedin_conversation_messages`)).rows[0].n,2);
+ await assert.rejects(db.query(`update linkedin_conversation_messages set message='overwrite'`),/append_only/);
+ await assert.rejects(db.query(`delete from linkedin_conversation_messages`),/append_only/);
+ await assert.rejects(run("99999999-9999-4999-8999-999999999999","inbound","Foreign",null,B),/foreign_or_missing/);
+ }finally{await db.close();}});
+
+test("real SQL: full-thread snapshots preserve receipt/history and atomically activate inbound conversation",async()=>{const db=await database();try{await db.exec(fs.readFileSync("supabase/migrations/20261009140000_linkedin_conversation_log.sql","utf8"));await db.exec(fs.readFileSync("supabase/migrations/20261009160000_linkedin_conversation_snapshots.sql","utf8"));const original={key:K,message:"Old audit",actor:A,evidence:"Original"};await db.query(`insert into growth_targets(id,organisation_id,stage,status,manual_completion)values($1,$2,'day3_followup','active',$3::jsonb)`,[T,A,JSON.stringify(original)]);const rev=(await db.query(`select revision from lifecycle_revisions where organisation_id=$1`,[A])).rows[0].revision;const thread="  Name\nToday\n👏 👍\nView profile\nMultiple messages\n";const args=[A,A,rev,K2,JSON.stringify({message:thread,containsInboundReply:true,earliestOutboundAt:"2026-09-01T12:00:00Z",timezone:"Europe/London",precision:"time"}),JSON.stringify([{table:"growth_targets",id:T}])];const call=()=>db.query(`select append_linkedin_conversation_snapshot($1,$2,'linkedin.com/in/test',$3,$4,$5::jsonb,$6::jsonb) as result`,args);await call();const target=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(target.linkedin_conversation_active,true);assert.deepEqual(target.manual_completion,original);assert.equal(target.linkedin_cadence_anchor.content_kind,"conversation_history_pasted");const entries=(await db.query(`select * from linkedin_conversation_messages`)).rows;assert.equal(entries.length,1);assert.equal(entries[0].direction,"snapshot");assert.equal(entries[0].message,thread);assert.equal(entries[0].message_at,null);assert.equal(entries[0].contains_inbound_reply,true);assert.equal((await call()).rows[0].result.duplicate,true);}finally{await db.close();}});

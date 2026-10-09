@@ -1,57 +1,10 @@
+import { readDueGrowthTargets } from "@/lib/growthDue.server";
+import { outreachStages } from "@/lib/growthOutreach";
 import { requireOrganisation } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
 
 export const runtime = "nodejs";
-
-function daysSince(date: string | null) {
-  if (!date) return 999;
-  return (Date.now() - new Date(date).getTime()) / (1000 * 60 * 60 * 24);
-}
-
-function isDue(target: any) {
-  const days = daysSince(target.last_action_at);
-
-  if (target.stage === "connection") return true;
-  if (target.stage === "day3_dm") return days >= 3;
-  if (target.stage === "day10_insight") return days >= 7;
-  if (target.stage === "day17_followup") return days >= 7;
-
-  return false;
-}
-
-function firstName(name: string) {
-  return name.split(" ")[0];
-}
-
-function getMessage(target: any) {
-  const name = firstName(target.target_name || "there");
-
-  if (target.stage === "connection") {
-    return `Hi ${name}, I noticed your work in ${target.role_title || "your field"}. Would be good to connect.`;
-  }
-
-  if (target.stage === "day3_dm") {
-    return `Thanks for connecting, ${name}. Quick question — what is your main business priority at the moment?`;
-  }
-
-  if (target.stage === "day10_insight") {
-    return `Hi ${name}, what would make the biggest practical difference for your team right now?`;
-  }
-
-  if (target.stage === "day17_followup") {
-    return `Just wanted to follow up, ${name}. Would it be useful to continue our conversation?`;
-  }
-
-  return "";
-}
-
-function nextStage(stage: string) {
-  if (stage === "connection") return "day3_dm";
-  if (stage === "day3_dm") return "day10_insight";
-  if (stage === "day10_insight") return "day17_followup";
-  return "parked";
-}
 
 function qualityLabel(value: string | null) {
   if (value === "valid") return "Valid lead ✅";
@@ -65,17 +18,9 @@ function qualityLabel(value: string | null) {
 export default async function FollowUpsPage({ searchParams }: { searchParams: Promise<{ organisationId?: string; stage?: string }> }) {
   const params = await searchParams;
   const { organisationId } = await requireOrganisation(params.organisationId, false);
-  const requestedStage = ["connection", "day3_dm", "day10_insight", "day17_followup", "parked"].includes(params.stage || "") ? params.stage : null;
-  let query = supabaseAdmin
-    .from("growth_targets")
-    .select("*").eq("organisation_id", organisationId)
-    .eq("status", "active")
-    .order("created_at", { ascending: false });
-  if (requestedStage) query = query.eq("stage", requestedStage);
-  const { data } = await query;
-
-  const targets = data || [];
-  const due = targets.filter(isDue);
+  const requestedStage = (outreachStages as readonly string[]).includes(params.stage || "") ? params.stage : null;
+  const targets = await readDueGrowthTargets(organisationId);
+  const due = requestedStage ? targets.filter(target=>target.stage===requestedStage) : targets;
 
   async function addTarget(formData: FormData) {
     "use server";
@@ -92,21 +37,6 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
       status: "active",
       lead_quality: "unreviewed",
     });
-
-    revalidatePath("/dashboard/growth/followups");
-  }
-
-  async function advanceTarget(id: string, stage: string) {
-    "use server";
-    const verified = await requireOrganisation(organisationId);
-
-    await supabaseAdmin
-      .from("growth_targets")
-      .update({
-        stage: nextStage(stage),
-        last_action_at: new Date().toISOString(),
-      })
-      .eq("id", id).eq("organisation_id", verified.organisationId);
 
     revalidatePath("/dashboard/growth/followups");
   }
@@ -233,12 +163,7 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
 
               {(t.lead_quality === "valid" || t.lead_quality === "unreviewed" || !t.lead_quality) && (
                 <>
-                  <h4 style={smallTitle}>Suggested Message</h4>
-                  <div style={msg}>{getMessage(t)}</div>
-
-                  <form action={advanceTarget.bind(null, t.id, t.stage)}>
-                    <button style={greenButton}>Mark Sent / Move Next</button>
-                  </form>
+                  <a href={`/dashboard/responses/linkedin?organisationId=${encodeURIComponent(organisationId)}&view=followups`} style={greenButton}>Review message and confirm actual send in LinkedIn outreach</a>
                 </>
               )}
 
@@ -395,16 +320,6 @@ const qualityBox: React.CSSProperties = {
   borderRadius: 12,
   background: "#020617",
   border: "1px solid #334155",
-};
-
-const msg: React.CSSProperties = {
-  marginTop: 10,
-  background: "#020617",
-  padding: 12,
-  borderRadius: 8,
-  border: "1px solid #334155",
-  whiteSpace: "pre-wrap",
-  lineHeight: 1.6,
 };
 
 const warningBox: React.CSSProperties = {

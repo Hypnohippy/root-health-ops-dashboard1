@@ -12,7 +12,7 @@ test("LinkedIn acceptance is classified as a first outbound message with plain c
   assert.equal(type,"linkedin_connection_first_message");
   assert.equal(context.messageTypeLabel(type),"First message after connection");
   assert.equal(context.plainSource(null,"connection_accepted"),"LinkedIn connection acceptance email");
-  assert.doesNotMatch(context.messageTypeLabel(type),/connection_accepted|day3_dm|linkedin_connection_network/);
+  assert.doesNotMatch(context.messageTypeLabel(type),/connection_accepted|day3_followup|linkedin_connection_network/);
 });
 
 test("first-message rules prohibit fake prior dialogue and aggressive pitching",()=>{
@@ -107,7 +107,7 @@ test('active root-coach endpoint rejects bad model output and returns grounded e
   const deps={'@/lib/tenantRoute.server':{withTenantRoute:fn=>req=>fn(req,{organisationId:'review',profile:{},messages:[]})},'next/server':{NextResponse:{json:(body,o={})=>({body,status:o.status||200})}},'@/lib/responseContactContext.server':{getResponseContactContext:async(org)=>{assert.equal(org,'review');return briefing;}},'@/lib/responseContactContext':context,'@/lib/socialCommentOpportunity':{}};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/ai/root-coach/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,require:n=>{assert.ok(n in deps,n);return deps[n];},process:{env:{OPENAI_API_KEY:'test'}},console,fetch:async(url,opts)=>{assert.equal(url,'https://api.openai.com/v1/chat/completions');prompt=opts.body;return {ok:true,json:async()=>({choices:[{message:{content:draft}}]})};}});
   const result=await mod.exports.POST({json:async()=>({inboxItemId:'11111111-1111-1111-1111-111111111111'})});
-  assert.equal(result.status,status);assert.match(prompt,/Day 1/);assert.match(prompt,/Acme/);assert.match(prompt,/No emojis/);assert.match(prompt,/Exact company names and role words are optional/);
+  assert.equal(result.status,status);assert.match(prompt,/Day 0/);assert.match(prompt,/Acme/);assert.match(prompt,/No emojis/);assert.match(prompt,/Exact company names and role words are optional/);
   assert.match(prompt,/prefer natural sender-side context/);assert.match(prompt,/only when supported by the supplied sender profile/);assert.match(prompt,/Never use networking filler/);
   if(status===200)assert.equal(result.body.coachMessage,draft);else assert.equal(result.body.coachMessage,undefined);
  }

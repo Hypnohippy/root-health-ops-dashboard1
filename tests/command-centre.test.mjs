@@ -15,7 +15,7 @@ test("command centre classifies due, waiting and commercial outcomes without com
   const { growthAttentionCounts } = load("lib/commandCentre.ts");
   const counts = growthAttentionCounts([
     { stage: "connection", status: "active" },
-    { stage: "day3_dm", status: "active", last_action_at: "2026-09-23T12:00:00Z" },
+    { stage: "day3_followup", status: "active", last_action_at: "2026-09-23T12:00:00Z" },
     { stage: "parked", status: "active", reply_status: "interested" },
     { stage: "parked", status: "active", deal_stage: "won" },
   ], Date.parse("2026-09-24T12:00:00Z"));

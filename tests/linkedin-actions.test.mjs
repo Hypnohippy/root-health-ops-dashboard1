@@ -17,7 +17,7 @@ const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve
 const response=(status,message="Hello from the verified sender.")=>({ok:status===200,json:async()=>status===200?{message}:{error:`Generation failed (${status}). Type or retry.`}});
 async function fixture({request, timer=false, popup=true, copyFailure=false}={}) {
  const calls=[],copies=[],opened=[],requests=[];let deadline;
- const deps={react:React,"react/jsx-runtime":jsx,"@/lib/linkedinWorkbench":helpers,"@/lib/linkedinClipboard":clipboard,"@/lib/tenantFetch":{tenantFetch:(url,init)=>{requests.push(init);calls.push(JSON.parse(init.body));return request ? request(init) : Promise.resolve(response(200));}}};
+ const deps={"./LinkedInHistoricalSend":{default:()=>null},react:React,"react/jsx-runtime":jsx,"@/lib/linkedinWorkbench":helpers,"@/lib/linkedinClipboard":clipboard,"@/lib/tenantFetch":{tenantFetch:(url,init)=>{requests.push(init);calls.push(JSON.parse(init.body));return request ? request(init) : Promise.resolve(response(200));}}};
  const {ContactCard}=load("app/dashboard/responses/linkedin/LinkedInWorkbench.tsx",deps,{AbortController,clearTimeout:timer?()=>{}:clearTimeout,setTimeout:timer?fn=>{deadline=fn;return 1;}:setTimeout,crypto:{randomUUID:()=>"receipt"},window:{open:(url,target)=>{opened.push([url,target]);return popup?{opener:{},location:{replace:url=>opened.push([url])}}:null;}},navigator:{clipboard:{writeText:async text=>{if(copyFailure)throw Error("clipboard denied");copies.push(text);}}}});
  const props={item:{contactId:"a",id:"a",table:"inbox_items",name:"Tara",stage:"connection",mode:"fresh",reason:"Accepted",lifecycle:"outreach_ready",destination:"https://www.linkedin.com/messaging/thread/123/"},queue:{organisationId:"tenant",revision:"3"},initialMessage:"",onDraft:()=>{},onNext:async()=>{},onReload:async()=>{},onWorking:()=>{},suspended:false};
  let renderer;await act(async()=>{renderer=create(React.createElement(ContactCard,props));});
@@ -31,8 +31,8 @@ for(const status of [200,409,503,500]) test(`real React generation ${status} cle
  await act(async()=>pending.resolve(response(status)));
  assert.equal(f.button("Refresh draft").props.disabled,false);
  assert.equal(f.renderer.root.findByType("article").props["aria-busy"],false);
- if(status===200)assert.equal(f.button("Mark sent & next").props.disabled,false);
- else {assert.match(f.status(),/Generation failed/);assert.equal(f.button("Mark sent & next").props.disabled,true);}
+ if(status===200)assert.equal(f.button("Sent now & next").props.disabled,false);
+ else {assert.match(f.status(),/Generation failed/);assert.equal(f.button("Sent now & next").props.disabled,true);}
  await f.unmount();
 });
 test("network rejection clears busy; edited manual text opens and copies current text without lifecycle POST",async()=>{
@@ -71,4 +71,64 @@ test("changing contact aborts stale generation and never overwrites the new cont
 });
 test("throwing popup cannot suppress clipboard",async()=>{
  const copied=[];assert.match(await clipboard.openAndCopyLinkedIn("current","https://linkedin.com/in/a",{open:()=>{throw Error("blocked");},copy:async text=>copied.push(text)}),/Copied.*could not open/);assert.deepEqual(copied,["current"]);
+});
+
+test("historical form requires explicit confirmation and records unknown date without sending",async()=>{
+ const evidence=load("lib/linkedinSendEvidence.ts",{});
+ const {default:Historical}=load("app/dashboard/responses/linkedin/LinkedInHistoricalSend.tsx",{react:React,"react/jsx-runtime":jsx,"@/lib/linkedinSendEvidence":evidence},{crypto:{randomUUID:()=>"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}});
+ const saved=[];let renderer;await act(async()=>{renderer=create(React.createElement(Historical,{message:"  Exact historical message\n",onCancel:()=>{},onConfirm:async body=>saved.push(body)}));});
+ const button=()=>renderer.root.findAllByType("button").find(n=>n.children.join("")==="Confirm previously sent");
+ assert.equal(button().props.disabled,true);
+ await act(async()=>renderer.root.findByType("select").props.onChange({target:{value:"unknown"}}));
+ await act(async()=>renderer.root.findAllByType("input").find(n=>n.props.type==="checkbox").props.onChange({target:{checked:true}}));
+ assert.equal(button().props.disabled,false);
+ await act(async()=>button().props.onClick());
+ assert.equal(saved.length,1);assert.equal(saved[0].sentAt,null);assert.equal(saved[0].sendChoice,"unknown");assert.equal(saved[0].message,"  Exact historical message\n");assert.equal(saved[0].confirmed,true);
+ await act(async()=>renderer.unmount());
+});
+
+test("conversation log appends an independent inbound entry and leaves existing messages intact",async()=>{const calls=[],refreshes=[];const dates=load("lib/linkedinSendEvidence.ts",{});const {default:Log}=load("app/dashboard/responses/linkedin/conversations/ConversationLog.tsx",{react:React,"react/jsx-runtime":jsx,"@/lib/linkedinSendEvidence":dates,"next/navigation":{useRouter:()=>({refresh:()=>refreshes.push(true),push:()=>{}})},"@/lib/tenantFetch":{tenantFetch:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return {ok:true,json:async()=>({success:true})};}}},{crypto:{randomUUID:()=>"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}});
+ const messages={dated:[{id:"old",message:"Earlier outbound text",direction:"outbound",message_at:"2026-09-01",confirmed_at:"2026-10-01",actor:"actor",source:"manually reconciled from LinkedIn conversation",timezone:"Europe/London",time_precision:"date"}],undated:[]};const before=JSON.stringify(messages);let renderer;
+ await act(async()=>{renderer=create(React.createElement(Log,{organisationId:"tenant",revision:"3",contacts:[{id:"contact",name:"Person"}],selectedId:"contact",schemaAvailable:true,messages}));});
+ await act(async()=>renderer.root.findAllByType("textarea").find(n=>!n.props["aria-label"]).props.onChange({target:{value:"  Exact inbound reply\n"}}));
+ await act(async()=>renderer.root.findAllByType("input").find(n=>n.props.type==="checkbox"&&n.props.checked===false&&n.props.onChange).props.onChange({target:{checked:false}}));
+ const boxes=renderer.root.findAllByType("input").filter(n=>n.props.type==="checkbox");await act(async()=>boxes.at(-1).props.onChange({target:{checked:true}}));
+ await act(async()=>renderer.root.findAllByType("button").find(n=>n.children.join("")==="Append message").props.onClick());
+ assert.equal(calls.length,1);assert.equal(calls[0].body.direction,"inbound");assert.equal(calls[0].body.message,"  Exact inbound reply\n");assert.equal(calls[0].body.messageAt,null);assert.equal(calls[0].body.contactId,"contact");assert.equal(JSON.stringify(messages),before);assert.equal(renderer.root.findAllByType("blockquote")[0].children.join(""),"Earlier outbound text");assert.equal(refreshes.length,1);
+ await act(async()=>renderer.unmount());
+});
+
+test("full-thread editor works with pending schema and keeps exact pasted text on Save",async()=>{
+ const calls=[];const {default:Log}=load("app/dashboard/responses/linkedin/conversations/ConversationLog.tsx",{react:React,"react/jsx-runtime":jsx,"@/lib/linkedinSendEvidence":load("lib/linkedinSendEvidence.ts",{}),"next/navigation":{useRouter:()=>({refresh:()=>{},push:()=>{}})},"@/lib/tenantFetch":{tenantFetch:()=>{calls.push(true);throw Error("Unexpected request");}}});
+ let renderer;await act(async()=>{renderer=create(React.createElement(Log,{organisationId:"tenant",revision:"3",contacts:[{id:"contact",name:"Person"}],selectedId:"contact",schemaAvailable:false,messages:{dated:[],undated:[]}}));});
+ const textarea=()=>renderer.root.findAllByType("textarea").find(n=>n.props["aria-label"]==="Full LinkedIn conversation");
+ const button=()=>renderer.root.findAllByType("button").find(n=>n.children.join("")==="Save conversation history");
+ const text="  LinkedIn UI\nPerson 09:42\nHello 👋\nReply\n  ";assert.equal(textarea().props.disabled,false);
+ await act(async()=>textarea().props.onChange({target:{value:text}}));assert.equal(button().props.disabled,false);
+ await act(async()=>button().props.onClick());assert.equal(textarea().props.value,text);assert.equal(button().props.disabled,false);assert.equal(calls.length,0);assert.match(renderer.root.findByProps({role:"alert"}).children.join(""),/Not saved — conversation storage is not enabled yet. Your text has been retained./);
+ assert.equal(renderer.root.findByType("summary").children.join(""),"Add one new message");await act(async()=>renderer.unmount());
+});
+
+test("full-thread Save submits one exact unparsed snapshot and explicit reply confirmation",async()=>{
+ const calls=[];const {default:Log}=load("app/dashboard/responses/linkedin/conversations/ConversationLog.tsx",{react:React,"react/jsx-runtime":jsx,"@/lib/linkedinSendEvidence":load("lib/linkedinSendEvidence.ts",{}),"next/navigation":{useRouter:()=>({refresh:()=>{},push:()=>{}})},"@/lib/tenantFetch":{tenantFetch:async(url,init)=>{calls.push(JSON.parse(init.body));return {ok:true,json:async()=>({success:true})};}}},{crypto:{randomUUID:()=>"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}});
+ let renderer;await act(async()=>{renderer=create(React.createElement(Log,{organisationId:"tenant",revision:"3",contacts:[{id:"contact",name:"Person"}],selectedId:"contact",schemaAvailable:true,messages:{dated:[],undated:[]}}));});
+ const text="Person\nYesterday\nHello 👋\nSender\nReply\n";
+ await act(async()=>renderer.root.findAllByType("textarea").find(n=>n.props["aria-label"]).props.onChange({target:{value:text}}));
+ await act(async()=>renderer.root.findAllByType("input").find(n=>n.props.type==="checkbox").props.onChange({target:{checked:true}}));
+ await act(async()=>renderer.root.findAllByType("button").find(n=>n.children.join("")==="Save conversation history").props.onClick());
+ assert.equal(calls.length,1);assert.equal(calls[0].kind,"snapshot");assert.equal(calls[0].message,text);assert.equal(calls[0].containsInboundReply,true);assert.equal(calls[0].earliestOutboundAt,null);assert.equal(calls[0].direction,undefined);await act(async()=>renderer.unmount());
+});
+
+test("snapshot Save shows progress, blocks repeated clicks, and clears text only after explicit success",async()=>{
+ for(const outcome of ["success","error","unconfirmed"]){
+ const waiting=deferred();let calls=0;const {default:Log}=load("app/dashboard/responses/linkedin/conversations/ConversationLog.tsx",{react:React,"react/jsx-runtime":jsx,"@/lib/linkedinSendEvidence":load("lib/linkedinSendEvidence.ts",{}),"next/navigation":{useRouter:()=>({refresh:()=>{},push:()=>{}})},"@/lib/tenantFetch":{tenantFetch:()=>{calls++;return waiting.promise;}}},{crypto:{randomUUID:()=>"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}});
+ let renderer;await act(async()=>{renderer=create(React.createElement(Log,{organisationId:"tenant",revision:"3",contacts:[{id:"contact",name:"Person"}],selectedId:"contact",schemaAvailable:true,messages:{dated:[],undated:[]}}));});
+ const textarea=()=>renderer.root.findAllByType("textarea").find(n=>n.props["aria-label"]);const button=()=>renderer.root.findAllByType("button").find(n=>["Save conversation history","Saving…"].includes(n.children.join("")));const text=" Exact thread 👋\n";
+ await act(async()=>textarea().props.onChange({target:{value:text}}));const click=button().props.onClick;
+ await act(async()=>{click();click();});assert.equal(calls,1);assert.equal(button().props.disabled,true);assert.equal(textarea().props.value,text);assert.ok(renderer.root.findAll(n=>n.props.role==="status").some(n=>n.children.join("")==="Saving…"));
+ await act(async()=>waiting.resolve({ok:outcome!=="error",json:async()=>outcome==="success"?{success:true}:outcome==="error"?{error:"Server failed"}:{}}));
+ if(outcome==="success"){assert.equal(textarea().props.value,"");assert.ok(renderer.root.findAll(n=>n.props.role==="status").some(n=>n.children.join("")==="Conversation saved"));}
+ else{assert.equal(textarea().props.value,text);assert.equal(button().props.disabled,false);assert.ok(renderer.root.findAll(n=>n.props.role==="alert").some(n=>n.children.join("")==="Save failed — nothing was lost. Please retry."));}
+ await act(async()=>renderer.unmount());
+ }
 });

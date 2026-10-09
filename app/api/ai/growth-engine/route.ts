@@ -1,8 +1,9 @@
+import { cadenceIntent } from "@/lib/growthOutreach";
 import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { isGrowthTargetDue } from "@/lib/growthOutreach";
+import { readDueGrowthTargets } from "@/lib/growthDue.server";
 
 export const runtime = "nodejs";
 
@@ -107,30 +108,7 @@ export const POST = withTenantRoute(
         );
       }
 
-      const { data: targets, error: targetsError } =
-        await supabaseAdmin
-          .from("growth_targets")
-          .select(
-            "id,target_name,company,role_title,linkedin_url,stage,status,lead_quality,notes,reply_status,reply_notes,deal_stage,created_at,last_action_at"
-          )
-          .eq("organisation_id", tenant.organisationId)
-          .eq("status", "active")
-          .order("created_at", {
-            ascending: false,
-          });
-
-      if (targetsError) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: targetsError.message,
-          },
-          { status: 500 }
-        );
-      }
-
-      const dueTargets = (targets || [])
-        .filter(isGrowthTargetDue)
+      const dueTargets = (await readDueGrowthTargets(tenant.organisationId))
         .filter(
           (target) =>
             !target.lead_quality ||
@@ -141,11 +119,13 @@ export const POST = withTenantRoute(
 
       const outreachContext = dueTargets.map((target) => ({
         id: target.id,
-        name: target.target_name || "",
+        name: String(target.target_name || ""),
         company: target.company || "",
         role: target.role_title || "",
         stage: target.stage || "connection",
         notes: target.notes || "",
+        previousOutbound: (target.manual_completion as {message?: string})?.message || target.last_reply_text || null,
+        intent: cadenceIntent(String(target.stage || "connection")),
         replyStatus: target.reply_status || "no_reply",
         replyNotes: target.reply_notes || "",
         dealStage: target.deal_stage || "lead",
@@ -239,150 +219,7 @@ The first message must feel like the beginning of a relationship, not the beginn
 
 OUTREACH BY LIFECYCLE STAGE
 
-For stage "connection":
-- This is the first light relationship touch.
-- Give one plain-English reason for the connection so the recipient is not left thinking "and?"
-- The reason should come from the organisation's real area of work, not from flattering or reciting the recipient's profile.
-- No pitch.
-- No offer.
-- No call booking.
-- No brochure.
-- No detailed Root Health explanation.
-- Do not tell the person what their own job is.
-- Do not manufacture a personal reason for choosing them.
-- Be warm, short, spoken and human.
-- The message should sound like someone saying hello properly, not starting a sales sequence.
-- It is fine to lightly acknowledge the awkwardness of LinkedIn outreach.
-- Quiet confidence is better than clever copy.
-- Keep under 300 characters.
-- Do not say "thanks for accepting" because acceptance is not yet verified at this stage.
-
-THE IDEAL STRUCTURE IS:
-1. First name.
-2. One simple sentence explaining roughly why you are connecting.
-3. A warm disarming sentence that makes clear there is no immediate pitch.
-
-THE TARGET FEEL IS:
-"Hi Tom, I spend most of my time around workplace wellbeing, stress and recovery, so there's a fair chance we'll have a few things to talk about. No brochure today 😆 just saying hello properly."
-
-This is the benchmark for warmth, clarity and confidence.
-Do not copy it mechanically.
-Vary the wording naturally across people.
-
-GOOD ALTERNATIVES SHOULD FEEL LIKE:
-- "Hi Tom, most of what I do sits around workplace wellbeing, stress and recovery, so I thought it made sense to say hello. No sales ambush from me 😆"
-- "Hi Tom, I spend a lot of my time thinking about how organisations handle stress, recovery and wellbeing. Thought I'd say hello properly rather than arrive with a pitch."
-- "Hi Tom, my work is mostly around workplace wellbeing and recovery, so we may well have a few things in common. No brochure attached 😆 just hello for now."
-
-DO NOT:
-- start with "I noticed"
-- start with "I came across"
-- compliment their background
-- repeat their job title back to them
-- explain their company to them
-- ask for a call
-- introduce the product in detail
-- sound mysterious about why you are contacting them
-- try too hard to be funny
-For stage "day3_dm":
-- Assume a connection request has already been sent, but do not claim they accepted unless the supplied context verifies that.
-- Warm first proper hello.
-- No pitch.
-- No CV recital.
-- No attempt to impress them with research.
-- If acceptance is explicitly verified in supplied context, thanking them is natural.
-- If acceptance is not verified, simply say hello.
-- The message should sound as though a confident human typed it personally.
-- It may gently disarm the expectation of a sales pitch.
-
-Preferred style when acceptance IS verified:
-"Hi Tom, thanks for accepting. I promise I'm not going to celebrate the connection by immediately sending you a brochure 😆 I'm here because I like good conversations with good people. Let's leave the sales bit for another day."
-
-Do not copy this exact wording for everyone. Preserve the spirit and vary naturally.
-
-For stage "day10_insight":
-- If there has been no response, become a little lighter rather than more sales-focused.
-- The aim is to put a small smile on a serious person's face.
-- Never guilt them for not replying.
-- Never say "just following up".
-- Never say "bumping this".
-- Never mention that they failed to respond.
-- Do not introduce a pitch simply because this is a later message.
-- A small piece of dry or self-deprecating humour is welcome.
-- Keep it natural and brief.
-
-Style examples:
-"Hi Tom, keeping my promise — still no brochure 😆 Hope the week's treating you kindly."
-
-"Hi Tom, thought I'd say hello again before LinkedIn turns us into two people who connected once and never actually spoke 😆"
-
-Do not reuse these phrases repeatedly across different people.
-
-For stage "day17_followup":
-- Relevance may now enter the conversation naturally.
-- Use verified context only.
-- Mention at most one relevant aspect of their role, company or remit.
-- Do not recite multiple job responsibilities.
-- Do not flatter.
-- Do not pitch aggressively.
-- Ask for a view or thought only when it sounds natural.
-- Root Health may now be mentioned softly if there is a genuine connection between the subject and the recipient.
-
-Good style:
-"Hi Tom, one thing I've been spending a lot of time on is how organisations deal with stress and recovery without turning wellbeing into another box to tick. Given your experience around HR and organisational change, I'd be interested in your take."
-
-Again, do not copy this mechanically.
-
-For a final or parked message:
-- Leave gracefully.
-- No guilt.
-- No false urgency.
-- No "last chance".
-- No calendar link dumped into the message.
-- A little humour is acceptable.
-- Leave the door open.
-
-Style:
-"Hi Tom, I'll stop haunting your inbox after this one 😆 If there's ever a useful overlap between what you're doing and what we're building at Root, the door's open."
-
-PERSONALISATION
-- Use the recipient's first name naturally.
-- Use company, role or notes only when they genuinely improve the conversation.
-- Never use profile information merely to prove that research was done.
-- One specific verified detail is better than five.
-- If little verified information exists, write a good human message without pretending otherwise.
-- Never invent a company, role, relationship, interest, post, opinion or personal fact.
-- Never infer health information about the recipient.
-- Never make clinical claims.
-- Never turn a health-related clue into unsolicited personal-health targeting.
-
-VARIETY
-- Do not give all recipients the same sentence structure.
-- Rotate naturally between:
-  - warm/simple
-  - dry humour
-  - lightly cheeky
-  - straightforward
-  - sincere
-- Avoid creating a new recognisable AI template.
-- If names could be swapped between two messages without either sounding different, the personalisation is too weak when verified context exists.
-- However, never invent context purely to make messages different.
-
-BUSINESS FACTS
-- Use real supplied business facts only.
-- Use actual supplied target names.
-- NEVER output placeholders.
-- NEVER output bracketed placeholder text such as [Name], [topic], [field], [audience], [offer], [problem], [organisation], [specific point], or anything similar.
-- Do not invent founder experiences.
-- Do not invent customer results, testimonials, statistics, certifications or product features.
-- No hype.
-- No cringe.
-- Avoid repetitive marketing formulas.
-
-LINKEDIN CONTENT
-- LinkedIn posts must be complete publishable drafts, not templates.
-- Create three genuinely different creative directions.
-- Do not make all three posts versions of the same argument.
+For each outreach target, follow its supplied stage intent, actual previousOutbound text and the current organisation Growth Profile. Never repeat the first message, invent a past send or use another organisation's messaging. No follow-up without recorded outbound text.
 
 OUTPUT
 - Return valid JSON only.
@@ -544,7 +381,7 @@ CONTENT REQUIREMENTS:
         dueTargets.map((target) => ({
           id: String(target.id),
           name:
-            target.target_name || "",
+            String(target.target_name || ""),
           company:
             target.company || "",
           role:

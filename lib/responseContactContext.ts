@@ -25,7 +25,7 @@ export type ResponseContactContext = {
   lifecycle?: ResponseLifecycle;
 };
 
-export const plainStage = (stage?: string | null) => ({ connection: "Ready for a first message", day3_dm: "Follow-up due today", day10_insight: "Useful insight follow-up", day17_followup: "Final follow-up", parked: "Nurture / re-engagement" } as Record<string,string>)[stage || ""] || null;
+export const plainStage = (stage?: string | null) => ({ connection: "Ready for a first message", day3_followup: "Follow-up due today", day7_parity: "Explore parity and relevance", day14_insight: "Useful insight", day28_relevance: "Clearer relevance", day42_close: "Close the loop", parked: "Parked" } as Record<string,string>)[stage || ""] || null;
 export const plainSource = (source?: string | null, kind?: string | null) => source === "linkedin_connection_network" ? "Suggested through a LinkedIn connection’s network" : kind === "connection_accepted" ? "LinkedIn connection acceptance email" : source === "root_health_b2b" ? "Existing B2B outreach" : source ? "Existing outreach activity" : "Response inbox";
 
 export function interactionTypeFor(item: Record<string, unknown>, lifecycle?: ResponseLifecycle): InteractionType {
@@ -77,11 +77,11 @@ export function responseDraftRules(context: ResponseContactContext) {
   if (context.interactionType === "followup") return [...common, "Draft only the scheduled next-stage message; this is not a reply to the old event."];
   if (context.interactionType === "first_message") return [...common, "Open the first conversation without inventing prior dialogue."];
   if (context.interactionType === "linkedin_connection_first_message") return [...common,
-    "This is the first outbound LinkedIn message after the person accepted a connection request; it is not a reply. Day 1 is a human hello, not discovery or a later-stage follow-up.",
+    "This is the first outbound LinkedIn message after the person accepted a connection request; it is not a reply. Day 0 is a human hello, not discovery or a later-stage follow-up.",
     "Under 300 characters. Plain spoken English, warm, conversational and lightly informal: one person saying hello with a genuine reason for connecting, not networking copy. No emojis, pitch, product explanation, question, meeting/demo/call ask, fake enthusiasm, flattery or profile/resume recital.",
     "Prefer verified company, role/remit or recorded context when it fits naturally. Exact company names and role words are optional. Do not recite their profile or force a detail into the message.",
-    "When contact-specific context is sparse, prefer natural sender-side context from the supplied organisation Growth Profile: briefly say the area you work around and, where supported, a tentative reason for overlap. Describe your work, not a service offering or benefits. Never invent sender experience, shared interests, familiarity or facts about the recipient. If neither side has verified context, use an honest brief hello without filler.",
-    "Tone example only, not a template or evidence about any sender: Hi James, good to connect. I work around workplace wellbeing and stress, so there's probably some overlap in the things we both see day to day. Thought I'd say hello properly. Use that work area only when supported by the supplied sender profile; keep any overlap tentative and grounded. Vary the wording naturally.",
+    "When contact-specific context is sparse, prefer natural sender-side context from the supplied organisation Growth Profile: briefly say the area you work around and, where supported, a tentative reason for overlap. Describe sender work only when supported by the supplied sender profile, not a service offering or benefits. Never invent sender experience, shared interests, familiarity or facts about the recipient. If neither side has verified context, use an honest brief hello without filler.",
+
     "Never use networking filler: thanks for connecting; just wanted to say hello; look forward to staying in touch; stay in touch; pleasure to connect; thanks for the connection; hope you're well. Do not pad the message with a polite stock closing.",
     "Never use: great to connect here; I'd love to hear your thoughts; what's top of mind; I noticed; I came across; I love what you're doing; current wellbeing challenges; caught my attention; most important in your remit. No marketing language or HR jargon.",
     "Never imply prior dialogue and never say ‘glad to help’, ‘thanks for getting in touch’, or ‘following up on our conversation’."
@@ -94,7 +94,7 @@ export function responseDraftRules(context: ResponseContactContext) {
   return [...common, "Respond directly to the latest LinkedIn message and respect the recorded history."];
 }
 
-// Quality gate for Day 1 only; later lifecycle stages have different intent.
+// Quality gate for Day 0 only; later lifecycle stages have different intent.
 export function safeLinkedInFirstMessage(draft: string, _context?: { company?: string | null; role?: string | null }) {
   const text = draft.trim();
   if (!text || text.length >= 300 || /[?]|\p{Extended_Pictographic}/u.test(text)) return false;

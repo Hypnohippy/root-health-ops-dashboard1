@@ -61,7 +61,7 @@ test("Mark Contacted advances once and uses the existing three-day follow-up dat
 
 test("human reply cancels pending follow-up without sending and preserves engagement", () => {
   for (const platform of ["linkedin", "email"]) {
-    const data = input({ inbox_items: [row(ID, { platform, kind: platform === "linkedin" ? "dm" : "email_reply", text: "Please tell me more", email_classification: "question", response_state: "needs_reply", created_at_platform: "2026-09-25", follow_up_at: "2026-09-28" })], growth_targets: [target({ stage: "day3_dm", last_action_at: "2026-09-24" })] });
+    const data = input({ inbox_items: [row(ID, { platform, kind: platform === "linkedin" ? "dm" : "email_reply", text: "Please tell me more", email_classification: "question", response_state: "needs_reply", created_at_platform: "2026-09-25", follow_up_at: "2026-09-28" })], growth_targets: [target({ stage: "day3_followup", last_action_at: "2026-09-24" })] });
     const updated = apply(data, plan(data).repairs);
     assert.equal(updated.growth_targets[0].status, "parked");
     assert.equal(updated.growth_targets[0].reply_status, "engaged");
@@ -73,7 +73,7 @@ test("human reply cancels pending follow-up without sending and preserves engage
 
 test("automatic acknowledgements stay waiting and cannot overwrite a human reply", () => {
   const ack = row(ID, { platform: "email", kind: "email_reply", email_classification: "auto_acknowledgement", response_state: "needs_reply", follow_up_at: "2026-09-28" });
-  const data = input({ inbox_items: [ack], growth_targets: [target({ stage: "day3_dm", last_action_at: "2026-09-24" })] });
+  const data = input({ inbox_items: [ack], growth_targets: [target({ stage: "day3_followup", last_action_at: "2026-09-24" })] });
   const updated = apply(data, plan(data).repairs);
   assert.equal(updated.growth_targets[0].status, "waiting");
   assert.equal(updated.growth_targets[0].reply_status, undefined);
@@ -91,12 +91,12 @@ test("automatic acknowledgements stay waiting and cannot overwrite a human reply
 });
 
 test("sequence completion repairs parked status but elapsed time never implies a send", () => {
-  const data = input({ growth_targets: [target({ stage: outreach.nextGrowthStage("day17_followup"), status: "active" })] });
+  const data = input({ growth_targets: [target({ stage: outreach.nextGrowthStage("day14_insight"), status: "active" })] });
   const updated = apply(data, plan(data).repairs);
   assert.equal(updated.growth_targets[0].status, "parked");
   assert.equal(model.buildContactLifecycle(A, updated)[0].currentStage, "nurture");
   assert.equal(plan(updated).repairs.length, 0);
-  assert.equal(plan(input({ growth_targets: [target({ stage: "day17_followup", last_action_at: "2020-01-01" })] })).repairs.length, 0);
+  assert.equal(plan(input({ growth_targets: [target({ stage: "day14_insight", last_action_at: "2020-01-01" })] })).repairs.length, 0);
 });
 
 test("commercial, engaged and nurture stages never regress to contacted or outreach ready", () => {
@@ -151,7 +151,7 @@ test("migration applies atomically, rejects stale/replayed work and enforces ten
     assert.equal((await db.query("select status from growth_targets")).rows[0].status, "active");
     assert.equal((await db.query("select revision from lifecycle_revisions where organisation_id=$1", [A])).rows[0].revision, 1);
     await db.query("update growth_targets set deal_stage='converted' where id=$1", [id]);
-    assert.equal((await run(A, 1, [{ table: "growth_targets", id, patch: { stage: "day3_dm" } }])).rows[0].result.stale, true);
+    assert.equal((await run(A, 1, [{ table: "growth_targets", id, patch: { stage: "day3_followup" } }])).rows[0].result.stale, true);
     await assert.rejects(run(A, 2, [{ table: "growth_targets", id, patch: { organisation_id: B } }]), /invalid_growth_patch/);
     await db.exec("set role authenticated");
     await assert.rejects(run(A, 2, []), /permission denied/);

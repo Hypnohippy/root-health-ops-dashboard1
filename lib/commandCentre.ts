@@ -14,12 +14,11 @@ export function growthAttentionCounts(targets: GrowthTarget[], now = Date.now())
 export function plainGrowthStage(stage?: string | null) {
   return ({
     connection: "First hello",
-    day3_dm: "Light check-in",
-    day10_insight: "Build familiarity",
-    day17_followup: "Share a useful thought",
-    week5_view: "Ask their view",
-    week6_relevance: "Introduce Root relevance",
-    week7_close: "Graceful close",
+    day3_followup: "First follow-up (Day 3)",
+    day7_parity: "Explore parity and relevance",
+    day14_insight: "Share a useful thought",
+    day28_relevance: "Explain relevant work",
+    day42_close: "Close the loop (Day 42)",
     parked: "Long-term nurture",
   } as Record<string, string>)[stage || ""] || "Next action";
 }

@@ -13,7 +13,7 @@ function componentFixture(state = []) {
  let hookIndex=0;
  const helpers={exports:{}}; vm.runInNewContext(ts.transpileModule(fs.readFileSync("lib/linkedinWorkbench.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:helpers,exports:helpers.exports});
  const react={useState:v=>{const at=hookIndex++;return [at in state?state[at]:v,()=>{}];},useRef:v=>({current:v}),useEffect:()=>{},useCallback:fn=>fn};
- const deps={"react":react,"react/jsx-runtime":jsx,"@/lib/tenantFetch":{tenantFetch:async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return {ok:true,json:async()=>({success:true,reconciliationErrors:[]})};}},"@/lib/linkedinWorkbench":helpers.exports,"@/lib/linkedinClipboard":{openAndCopyLinkedIn:async(text,url,browser)=>{browser.open(url);await browser.copy(text);return "Copied";}}};
+ const deps={"./LinkedInHistoricalSend":{default:()=>null},"react":react,"react/jsx-runtime":jsx,"@/lib/tenantFetch":{tenantFetch:async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return {ok:true,json:async()=>({success:true,reconciliationErrors:[]})};}},"@/lib/linkedinWorkbench":helpers.exports,"@/lib/linkedinClipboard":{openAndCopyLinkedIn:async(text,url,browser)=>{browser.open(url);await browser.copy(text);return "Copied";}}};
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:mod,exports:mod.exports,require:id=>{assert.ok(id in deps,id);return deps[id];},AbortController,setTimeout,clearTimeout,window:{open:(...args)=>{opened.push(args);return {opener:{},location:{replace:url=>opened.push([url])}};}},navigator:{clipboard:{writeText:async text=>calls.push({copied:text})}},crypto:{randomUUID:()=>"cccccccc-cccc-4ccc-8ccc-cccccccccccc"},URLSearchParams});
  return {...mod.exports,calls,opened,next,selected};
 }
@@ -28,14 +28,14 @@ test("all ten batch rows render selectable with clear selected identity and cont
 });
 test("selected identity and action toolbar remain above the independently scrolling message",()=>{
  const f=componentFixture(),tree=f.ContactCard(props(f)),html=renderToStaticMarkup(tree);
- assert.match(html,/Outreach actions for Person 1/);assert.match(html,/sticky top-0/);assert.match(html,/overflow-y-auto/);assert.ok(html.indexOf("Mark sent")<html.indexOf("textarea"));assert.match(html,/Message for Person 1/);assert.match(html,/Company 1/);
+ assert.match(html,/Outreach actions for Person 1/);assert.match(html,/sticky top-0/);assert.match(html,/overflow-y-auto/);assert.ok(html.indexOf("Sent now")<html.indexOf("textarea"));assert.match(html,/Message for Person 1/);assert.match(html,/Company 1/);
 });
 test("skip stays in console and moves selection without any completion request",async()=>{
  const f=componentFixture(),tree=f.ContactCard(props(f));const skip=nodes(tree).find(n=>n.type==="button"&&text(n)==="Skip");await skip.props.onClick();assert.deepEqual(f.next,[["contact-1",false]]);assert.equal(f.calls.length,0);
 });
 test("explicit mark sent records the current contact and removes it through the same next-selection callback",async()=>{
- const f=componentFixture(),tree=f.ContactCard(props(f));await nodes(tree).find(n=>n.type==="button"&&text(n)==="Mark sent & next").props.onClick();await new Promise(resolve=>setTimeout(resolve,0));
- assert.equal(f.calls.length,1);assert.equal(f.calls[0].body.action,"complete");assert.equal(f.calls[0].body.message,"Current edited draft");assert.deepEqual(f.next,[["contact-1",true]]);assert.equal(f.opened.length,0);
+ const f=componentFixture(),tree=f.ContactCard(props(f));await nodes(tree).find(n=>n.type==="button"&&text(n)==="Sent now & next").props.onClick();await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(f.calls.length,1);assert.equal(f.calls[0].body.action,"record_send");assert.equal(f.calls[0].body.message,"Current edited draft");assert.deepEqual(f.next,[["contact-1",true]]);assert.equal(f.opened.length,0);
 });
 test("LinkedIn opens separately, copies edited text and never navigates this console or completes a send",async()=>{
  const f=componentFixture(),tree=f.ContactCard(props(f));await nodes(tree).find(n=>n.type==="button"&&text(n)==="Open & Copy").props.onClick();await new Promise(resolve=>setTimeout(resolve,0));
