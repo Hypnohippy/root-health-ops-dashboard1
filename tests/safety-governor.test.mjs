@@ -18,7 +18,7 @@ const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbb
 const input=(parts={})=>({acquisition_items:[],inbox_items:[],growth_targets:[],...parts});
 const row=(fields={})=>({id:ID,organisation_id:A,linkedin_identity:"linkedin.com/in/test",...fields});
 const acceptance=()=>row({platform:"linkedin",kind:"connection_accepted",author_name:"Test",status:"needs_reply",response_state:"needs_reply"});
-const target=()=>row({id:T,target_name:"Test",stage:"day3_dm",status:"active",last_action_at:"2020-01-01"});
+const target=()=>row({id:T,target_name:"Test",stage:"day3_followup",status:"active",last_action_at:"2020-01-01"});
 
 test("governor exposes five states and never confuses intentional human work with failure",()=>{
  for(const state of ["running","scheduled","waiting","completed","blocked"])assert.equal(governor.governorDecision({operationalState:state}).state,state);
@@ -30,7 +30,7 @@ test("manual LinkedIn completion uses existing lifecycle and reconciliation; rep
  const data=input({inbox_items:[acceptance()]});const p=governor.planManualCompletion(A,data,"inbox_items",ID);assert.equal(p.allowed,true);
  Object.assign(data.inbox_items[0],p.patch,{last_replied_at:"2026-01-01",contacted_at:"2026-01-01",manual_completion:{key:K}});
  assert.equal(governor.planManualCompletion(A,data,"inbox_items",ID).allowed,false);
- const repairs=reconciliation.planLifecycleReconciliation(A,data).repairs;assert.ok(repairs.some(r=>r.table==="growth_targets"&&r.patch.stage==="day3_dm"));
+ const repairs=reconciliation.planLifecycleReconciliation(A,data).repairs;assert.ok(repairs.some(r=>r.table==="growth_targets"&&r.patch.stage==="day3_followup"));
 });
 test("human reply suppresses pending followup; commercial evidence and Personal gates stay closed",()=>{
  const data=input({growth_targets:[target()],inbox_items:[row({platform:"email",kind:"email_reply",response_state:"needs_reply",email_classification:"question",created_at_platform:"2026-01-01"})]});
@@ -89,12 +89,12 @@ test("real SQL: in-flight email cannot be declared complete; manual social survi
 test("real SQL: manual followup advances once, old receipt keys survive later completion, source regression blocked",async()=>{
  const db=await database();try{
  await db.exec(`insert into growth_targets(id,organisation_id,stage,status) values('${T}','${A}','connection','active')`);
- const rev=await revision(db);await complete(db,"growth_targets",T,{stage:"day3_dm",status:"active"},K,rev);
- assert.equal((await complete(db,"growth_targets",T,{stage:"day3_dm",status:"active"},K,rev)).rows[0].receipt.duplicate,true);
+ const rev=await revision(db);await complete(db,"growth_targets",T,{stage:"day3_followup",status:"active"},K,rev);
+ assert.equal((await complete(db,"growth_targets",T,{stage:"day3_followup",status:"active"},K,rev)).rows[0].receipt.duplicate,true);
  await assert.rejects(db.exec(`update growth_targets set stage='connection' where id='${T}'`),/manual_completion_prevents_cadence_regression/);
- await complete(db,"growth_targets",T,{stage:"day10_insight",status:"active"},K2);
- assert.equal((await complete(db,"growth_targets",T,{stage:"day3_dm",status:"active"},K,rev)).rows[0].receipt.duplicate,true);
- assert.equal((await db.query(`select stage from growth_targets where id='${T}'`)).rows[0].stage,"day10_insight");
+ await complete(db,"growth_targets",T,{stage:"day7_parity",status:"active"},K2);
+ assert.equal((await complete(db,"growth_targets",T,{stage:"day3_followup",status:"active"},K,rev)).rows[0].receipt.duplicate,true);
+ assert.equal((await db.query(`select stage from growth_targets where id='${T}'`)).rows[0].stage,"day7_parity");
  await db.exec(`update growth_targets set stage='parked',status='parked',reply_status='engaged' where id='${T}'`);
  }finally{await db.close();}
 });
@@ -139,4 +139,22 @@ test("real SQL: LinkedIn receipt preserves actual action time for the existing c
  await complete(db,"inbox_items",ID,{...inboxPatch,response_state:"waiting_for_human"});
  const item=(await db.query(`select contacted_at,last_replied_at from inbox_items where id='${ID}'`)).rows[0];assert.equal(new Date(item.contacted_at).toISOString(),"2026-01-01T00:00:00.000Z");assert.equal(item.contacted_at.getTime?.()||item.contacted_at,item.last_replied_at.getTime?.()||item.last_replied_at);
  }finally{await db.close();}
+});
+
+
+test("absolute cadence migration preserves first-send anchor and history, backfills without invented sends",async()=>{
+ const db=await database();
+ try {
+ await db.exec(fs.readFileSync("supabase/migrations/20261009100000_linkedin_absolute_cadence.sql","utf8"));
+ await db.exec(`insert into growth_targets(id,organisation_id,target_name,stage,status) values('${T}','${A}','Person','connection','active');`);
+ await complete(db,"growth_targets",T,{stage:"day3_followup",status:"active",last_reply_text:"Original hello"});
+ let saved=(await db.query(`select * from growth_targets where id='${T}'`)).rows[0];
+ assert.equal(saved.manual_completion.stage,"connection");assert.equal(saved.first_outbound_text,"Original hello");const first=saved.first_outbound_at;
+ const repairs=[{id:T,patch:{stage:"day42_close",status:"active",first_outbound_at:first,first_outbound_text:"Original hello"}}];
+ await db.query("select backfill_linkedin_cadence($1,$2,$3)",[A,await revision(db),JSON.stringify(repairs)]);
+ saved=(await db.query(`select * from growth_targets where id='${T}'`)).rows[0];assert.equal(saved.stage,"day42_close");assert.equal(saved.manual_completion.message,"Original hello");assert.equal(saved.manual_completion.history.length,0);assert.equal(saved.first_outbound_at.toISOString(),first.toISOString());
+ await complete(db,"growth_targets",T,{stage:"parked",status:"parked",last_reply_text:"I will leave it there"},K2);
+ saved=(await db.query(`select * from growth_targets where id='${T}'`)).rows[0];assert.equal(saved.status,"parked");assert.equal(saved.manual_completion.stage,"day42_close");assert.equal(saved.manual_completion.history[0].message,"Original hello");assert.equal(saved.first_outbound_at.toISOString(),first.toISOString());assert.equal(saved.last_reply_text,"I will leave it there");
+ await assert.rejects(db.query("select backfill_linkedin_cadence($1,$2,$3)",[A,await revision(db),JSON.stringify(repairs)]),/cadence_evidence_changed/);
+ } catch(error) { throw new Error(JSON.stringify({message:error.message,detail:error.detail,where:error.where})); } finally {await db.close();}
 });

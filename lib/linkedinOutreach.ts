@@ -46,7 +46,8 @@ export function linkedInRecordedEvidence(rows: LifecycleRow[], identity: string,
   for (const row of matching) {
     const table = row.kind === "connection_accepted" ? "inbox_items" : row.stage ? "growth_targets" : null;
     if (!table) continue;
-    const receipt = object(row.manual_completion);
+    const savedReceipt = object(row.manual_completion);
+    for (const receipt of [savedReceipt, ...(Array.isArray(savedReceipt.history) ? savedReceipt.history.map(object) : [])]) {
     const sentAt = date(receipt.completed_at);
     if (text(receipt.key) && text(receipt.actor) && text(receipt.evidence) && sentAt && Date.parse(sentAt) <= now) {
       hasConfirmedSend = true;
@@ -58,6 +59,7 @@ export function linkedInRecordedEvidence(rows: LifecycleRow[], identity: string,
       if (message) history.push({ message, sentAt: date(row.contacted_at)!, table, id: row.id, source: "recorded acceptance message sent" });
     }
   }
+    }
   history.sort((a,b) => b.sentAt.localeCompare(a.sentAt));
   return { acceptance, contradictory, ambiguous, matching, hasConfirmedSend, previousOutbound: history[0] || null, destination: linkedInDestination(matching) };
 }

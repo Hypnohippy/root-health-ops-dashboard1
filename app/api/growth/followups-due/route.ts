@@ -10,7 +10,7 @@ export const GET = withTenantRoute(async function GET(req: Request, tenant) {
 
   const due = data.map((target) => ({
     ...target,
-    suggested_message: contextualOutreachDraft({ target_name: String(target.target_name || ""), company: String(target.company || ""), role_title: String(target.role_title || ""), stage: String(target.stage || "") }, tenant.profile!),
+    suggested_message: contextualOutreachDraft({ target_name: String(target.target_name || ""), company: String(target.company || ""), role_title: String(target.role_title || ""), stage: String(target.stage || ""), previous_outbound_text: String((target.manual_completion as {message?: string})?.message || target.last_reply_text || "") }, tenant.profile!),
   }));
 
   return NextResponse.json({ success: true, data: due });

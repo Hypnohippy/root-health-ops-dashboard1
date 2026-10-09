@@ -20,8 +20,8 @@ const reconcile=load("lib/lifecycleReconciliation.ts",{"@/lib/growthOutreach":gr
 const org="org-a",now=Date.parse("2026-10-08T12:00:00Z");
 const input=(parts={})=>({inbox_items:[],growth_targets:[],acquisition_items:[],...parts});
 const acceptance=(id="a",fields={})=>({id,organisation_id:org,platform:"linkedin",kind:"connection_accepted",author_name:"Sarah",linkedin_identity:`linkedin.com/in/${id}`,status:"needs_reply",response_state:"needs_reply",created_at_platform:"2026-10-07",...fields});
-const target=(fields={})=>({id:"target",organisation_id:org,linkedin_identity:"linkedin.com/in/a",target_name:"Sarah",stage:"day3_dm",status:"active",last_action_at:"2026-09-01",...fields});
-const receipt=(at="2026-09-01",message="Hi Sarah, here is the wellbeing resource we discussed.")=>({key:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",actor:"verified-operator",completed_at:at,evidence:"Operator confirmed actual LinkedIn message sent",message});
+const target=(fields={})=>({id:"target",organisation_id:org,linkedin_identity:"linkedin.com/in/a",target_name:"Sarah",stage:"day3_followup",status:"active",first_outbound_at:"2026-09-01",last_action_at:"2026-09-01",...fields});
+const receipt=(at="2026-09-01",message="Hi Sarah, here is the wellbeing resource we discussed.")=>({key:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",actor:"verified-operator",completed_at:at,evidence:"Operator confirmed actual LinkedIn message sent",stage:"connection",message});
 const followup=(fields={},acceptedFields={})=>input({inbox_items:[acceptance("a",{created_at_platform:"2026-08-01",...acceptedFields})],growth_targets:[target({manual_completion:receipt(fields.last_action_at || "2026-09-01"),...fields})]});
 const work=(data,view="all")=>queue.linkedInOutreachQueue(org,data,now,view);
 test("fresh and older accepted connections qualify; unknown acceptance timing needs reconciliation",()=>{
@@ -30,9 +30,9 @@ test("fresh and older accepted connections qualify; unknown acceptance timing ne
  assert.equal(work(data,"catchup").items[0].context.interactionType,"linkedin_connection_first_message");
  assert.equal(work(input({growth_targets:[target({stage:"connection",last_action_at:null})]})).items.length,0);
 });
-test("only due followups enter queue; weekly canonical rule, no missing-date guesses",()=>{
- for(const fields of [{last_action_at:"2026-10-07"},{last_action_at:null},{status:"waiting"},{stage:"parked"}]) assert.equal(work(followup(fields)).items.length,0);
- assert.equal(work(followup(),"followups").items[0].stage,"day3_dm");
+test("only due followups enter queue; absolute canonical rule, no missing-date guesses",()=>{
+ for(const fields of [{first_outbound_at:"2026-10-07",last_action_at:"2026-10-07"},{first_outbound_at:null,last_action_at:null},{status:"waiting"},{stage:"parked"}]) assert.equal(work(followup(fields)).items.length,0);
+ assert.equal(work(followup(),"followups").items[0].stage,"day3_followup");
  assert.equal(work(followup({last_action_at:"2026-10-01T12:00:00Z"})).items.length,1);
 });
 test("human replies, engagement, commercial closure, dismissal and source ownership override outbound",()=>{
@@ -69,9 +69,9 @@ test("first completion reuses reconciliation and existing target without resetti
  const data=input({inbox_items:[acceptance()]});const p=governor.planManualCompletion(org,data,"inbox_items","a");assert.equal(p.allowed,true);
  Object.assign(data.inbox_items[0],p.patch,{last_replied_at:"2026-10-08",contacted_at:"2026-10-08",manual_completion:{key:"receipt"}});
  assert.equal(governor.planManualCompletion(org,data,"inbox_items","a").allowed,false);
- assert.equal(reconcile.planLifecycleReconciliation(org,data).repairs.find(r=>r.id===null).patch.stage,"day3_dm");
- data.growth_targets=[target({stage:"day17_followup"})];assert.ok(!reconcile.planLifecycleReconciliation(org,data).repairs.some(r=>r.id===null || r.patch.stage==="connection" || r.patch.stage==="day3_dm"));
- const later=input({growth_targets:[target({stage:"day17_followup"})]});assert.equal(governor.planManualCompletion(org,later,"growth_targets","target").patch.stage,"week5_view");
+ assert.equal(reconcile.planLifecycleReconciliation(org,data).repairs.find(r=>r.id===null).patch.stage,"day3_followup");
+ data.growth_targets=[target({stage:"day14_insight"})];assert.ok(!reconcile.planLifecycleReconciliation(org,data).repairs.some(r=>r.id===null || r.patch.stage==="connection" || r.patch.stage==="day3_followup"));
+ const later=input({growth_targets:[target({stage:"day14_insight"})]});assert.equal(governor.planManualCompletion(org,later,"growth_targets","target").patch.stage,"day28_relevance");
 });
 test("inbound attention remains visible alongside queue",()=>{
  const data=input({inbox_items:[acceptance(),{id:"human",organisation_id:org,platform:"email",kind:"email_reply",status:"needs_reply",sender_email:"different@example.com"}]});assert.equal(work(data).repliesNeedingAttention,1);assert.equal(work(data).items.length,1);
@@ -87,7 +87,7 @@ test("console API revalidates due eligibility and revision, retries receipts and
   "@/lib/lifecycleSnapshot.server":{readLifecycleInput:async()=>data},
   "@/lib/linkedinOutreach":queue,"@/lib/responseContactContext":context,
   "@/lib/organisationProfile.server":{getOrganisationGenerationProfile:async()=>({})},
-  "@/lib/tenantGeneration":{generationMessages:()=>[]},
+  "@/lib/tenantGeneration":{generationMessages:()=>[]},"@/lib/growthOutreach":growth,
   "@/lib/manualCompletion.server":{completeManualAction:async(o,a,r)=>{completionCalls++;assert.equal(o,org);assert.equal(a,"actor");assert.equal(r.completedAt,"2026-01-01");return {duplicate:!!data.inbox_items[0].manual_completion};}},
  };
  const api=load("app/api/growth/linkedin-console/route.ts",deps,{process:{env:{OPENAI_API_KEY:"fixture"}},fetch:async(url,options)=>{providerCalls++; if(providerThrows) throw Error("upstream unavailable"); prompt=JSON.parse(options.body).messages.at(-1).content;return {ok:providerStatus===200,json:async()=>({choices:[{message:{content:replies.shift() || "Hi Sarah, we connected a while ago and I realised I hadn't said hello properly."}}]})};}});

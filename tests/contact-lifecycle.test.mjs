@@ -26,7 +26,7 @@ test("all three sources resolve to one contact by LinkedIn then email then perso
   const input = {
     acquisition_items: [row("a", { person: " Jane Doe ", company: "ACME  LTD", source_url: "https://linkedin.com/comm/in/Jane", metadata: { email: "Jane@Example.com" }, status: "accepted" })],
     inbox_items: [row("i", { sender_email: " jane@example.com ", platform: "email", response_state: "needs_reply" })],
-    growth_targets: [row("g", { target_name: "jane doe", company: "Acme Ltd", status: "active", stage: "day3_dm", last_action_at: "2026-09-20T10:00:00Z" })],
+    growth_targets: [row("g", { target_name: "jane doe", company: "Acme Ltd", status: "active", stage: "day3_followup", last_action_at: "2026-09-20T10:00:00Z" })],
   };
   const original = JSON.stringify(input);
   const [contact] = build(input);
@@ -60,13 +60,13 @@ test("acquisition and response state mappings are exhaustive", () => {
 });
 
 test("growth mapping derives only existing cadence and honours explicit next steps", () => {
-  for (const [stage, expected] of [["day3_dm", "2026-09-23"], ["day10_insight", "2026-09-27"], ["day17_followup", "2026-09-27"]]) {
+  for (const [stage, expected] of [["day3_followup", "2026-09-23"], ["day7_parity", "2026-09-27"], ["day14_insight", "2026-09-27"]]) {
     const [contact] = build({ growth_targets: [row("g", { stage, status: "active", last_action_at: "2026-09-20T00:00:00Z" })] });
     assert.equal(contact.currentStage, "follow_up");
     assert.equal(contact.nextAction, stage);
     assert.equal(contact.nextDueDate, `${expected}T00:00:00.000Z`);
   }
-  for (const fields of [{}, { last_action_at: "invalid" }]) assert.equal(build({ growth_targets: [row("g", { stage: "day3_dm", status: "active", ...fields })] })[0].nextDueDate, null);
+  for (const fields of [{}, { last_action_at: "invalid" }]) assert.equal(build({ growth_targets: [row("g", { stage: "day3_followup", status: "active", ...fields })] })[0].nextDueDate, null);
   for (const [fields, expected] of [[{ stage: "connection", status: "active" }, "outreach_ready"], [{ stage: "parked" }, "nurture"], [{ reply_status: "positive" }, "engaged"], [{ deal_stage: "opportunity" }, "engaged"], [{ reply_status: "call_booked" }, "meeting"], [{ deal_stage: "won" }, "converted"], [{ call_outcome: "lost" }, "lost"], [{ stage: "future_state" }, "unknown"]]) assert.equal(build({ growth_targets: [row("g", fields)] })[0].currentStage, expected);
   const [contact] = build({ growth_targets: [row("g", { deal_stage: "meeting", next_step: "Send proposal", next_step_date: "2026-09-30", call_date: "2026-09-24" })] });
   assert.equal(contact.nextAction, "Send proposal");
@@ -107,6 +107,7 @@ test("GET authenticates, scopes and pages every read; failures never return part
       return query;
     } } },
   };
+  dependencies["@/lib/linkedinCadenceBackfill"] = {planLinkedInCadenceBackfill:(_org,input)=>({projected:input})};
   dependencies["@/lib/lifecycleSnapshot.server"] = load("lib/lifecycleSnapshot.server.ts", dependencies);
   const route = load("app/api/growth/lifecycle/route.ts", dependencies);
   const result = await route.GET({});

@@ -1,4 +1,4 @@
-import { growthFollowUpDueAt, nextGrowthStage } from "@/lib/growthOutreach";
+import { growthFollowUpDueAt, nextGrowthStage, legacyCadenceStages } from "@/lib/growthOutreach";
 import { projectEngineState, type EngineState } from "@/lib/engineState";
 
 /** Read-only projection. No persisted identity, workflow transitions or sending. */
@@ -73,7 +73,7 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
     const sentAt = latest(row.last_replied_at, row.email_sent_at, row.contacted_at);
     if (!terminal && row.kind === "connection_accepted" && (status === "replied" || sentAt)) {
       currentStage = "waiting";
-      nextDueDate = growthFollowUpDueAt({ stage: "day3_dm", last_action_at: sentAt });
+      nextDueDate = growthFollowUpDueAt({ stage: "day3_followup", first_outbound_at: sentAt });
       if (nextDueDate) currentStage = "follow_up";
     } else if (!terminal && row.platform === "email" && ["auto_acknowledgement", "waiting_for_human", "out_of_office"].includes(String(row.email_classification)) && state !== "engaged") {
       currentStage = "waiting";
@@ -82,7 +82,7 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
     } else if (!terminal && row.platform !== "email" && status === "replied") currentStage = "engaged";
     nextAction = ({ needs_reply: "reply", outreach_ready: "first_message", follow_up: "follow_up", nurture: "review_nurture", engaged: "review_engagement" } as Partial<Record<LifecycleStage, string>>)[currentStage] || null;
     if (currentStage === "follow_up") nextDueDate = nextDueDate || date(row.follow_up_at);
-    if (row.kind === "connection_accepted" && currentStage === "follow_up") nextAction = "day3_dm";
+    if (row.kind === "connection_accepted" && currentStage === "follow_up") nextAction = "day3_followup";
     if (date(row.last_replied_at)) lastAction = action("reply_sent", row.last_replied_at);
     if (date(row.response_updated_at) && (!lastAction?.at || String(date(row.response_updated_at)) > lastAction.at)) {
       // This is an observed state, not evidence that a draft was sent.
@@ -92,7 +92,7 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
     if (row.kind === "connection_accepted" && status === "replied" && !lastAction) lastAction = action("marked_contacted", null);
     if (date(row.email_sent_at) && (!lastAction?.at || String(date(row.email_sent_at)) >= lastAction.at)) lastAction = action("reply_sent", row.email_sent_at);
   } else {
-    const stage = text(row.stage);
+    const stage = legacyCadenceStages[text(row.stage) || ""] || text(row.stage);
     if (row.deal_stage === "won" || row.deal_stage === "converted" || row.call_outcome === "won") currentStage = "converted";
     else if (row.deal_stage === "lost" || row.call_outcome === "lost" || status === "lost" || row.reply_status === "not_interested") currentStage = "lost";
     else if (row.deal_stage === "meeting" || row.reply_status === "call_booked") currentStage = "meeting";
@@ -103,18 +103,17 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
   else if (status === "active") currentStage = stage === "connection"
   ? (date(row.last_action_at) ? "follow_up" : "outreach_ready")
   : [
-      "day3_dm",
-      "day10_insight",
-      "day17_followup",
-      "week5_view",
-      "week6_relevance",
-      "week7_close",
+      "day3_followup",
+      "day7_parity",
+      "day14_insight",
+      "day28_relevance",
+      "day42_close",
     ].includes(stage || "")
     ? "follow_up"
     : "unknown";
     const effectiveStage = stage === "connection" && date(row.last_action_at) ? nextGrowthStage(stage) : stage;
     nextAction = ({ outreach_ready: "connection", follow_up: effectiveStage, engaged: "review_engagement", meeting: "review_meeting", nurture: "review_nurture" } as Partial<Record<LifecycleStage, string>>)[currentStage] || null;
-    if (currentStage === "follow_up") nextDueDate = growthFollowUpDueAt({ stage: effectiveStage, last_action_at: text(row.last_action_at) });
+    if (currentStage === "follow_up") nextDueDate = growthFollowUpDueAt({ stage: effectiveStage, first_outbound_at: row.first_outbound_at, manual_completion: row.manual_completion, last_action_at: text(row.last_action_at) });
     if (currentStage === "meeting") nextDueDate = date(row.call_date);
     if (!["converted", "lost", "unknown"].includes(currentStage) && text(row.next_step)) {
       nextAction = text(row.next_step);

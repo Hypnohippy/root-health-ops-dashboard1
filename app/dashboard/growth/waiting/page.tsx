@@ -1,24 +1,11 @@
+import { growthFollowUpDueAt } from "@/lib/growthOutreach";
 import { requireOrganisation } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function nextDueDate(target: any) {
-  if (!target.last_action_at) return "Not contacted yet";
-
-  const base = new Date(target.last_action_at);
-
-  if (target.stage === "day3_dm") {
-    base.setDate(base.getDate() + 3);
-  } else if (target.stage === "day10_insight") {
-    base.setDate(base.getDate() + 7);
-  } else if (target.stage === "day17_followup") {
-    base.setDate(base.getDate() + 7);
-  } else {
-    return "No next step";
-  }
-
-  return base.toLocaleString("en-GB");
+function nextDueDate(target: Parameters<typeof growthFollowUpDueAt>[0]) {
+  const due = growthFollowUpDueAt(target); return due ? new Date(due).toLocaleString("en-GB") : "Confirmed first-send evidence required";
 }
 
 export default async function WaitingPage({ searchParams }: { searchParams: Promise<{ organisationId?: string }> }) {

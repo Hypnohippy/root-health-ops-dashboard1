@@ -12,7 +12,7 @@ const csv=load("lib/targetImport.ts",{"@/lib/contactLifecycle":lifecycle});
 const metrics=load("lib/replyMetrics.server.ts",{"@/lib/supabaseAdmin":{}});
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",ID="cccccccc-cccc-4ccc-8ccc-cccccccccccc",KEY="dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const input=(changes={})=>({acquisition_items:[],inbox_items:[],growth_targets:[],...changes});
-const target=(changes={})=>({id:ID,organisation_id:A,target_name:"Jane Doe",company:"Example",email:"jane@example.com",stage:"day3_dm",status:"active",last_action_at:"2020-01-01",...changes});
+const target=(changes={})=>({id:ID,organisation_id:A,target_name:"Jane Doe",company:"Example",email:"jane@example.com",stage:"day3_followup",status:"active",first_outbound_at:"2020-01-01",last_action_at:"2020-01-01",...changes});
 test("Growth uses current lifecycle: meeting/converted/lost/engaged/nurture suppress prompts",()=>{
  for(const deal_stage of ["meeting","converted","lost","engaged"]){assert.equal(due.lifecycleDueTargets(A,input({growth_targets:[target({deal_stage})]})).length,0);}
  assert.equal(due.lifecycleDueTargets(A,input({growth_targets:[target({stage:"parked"})]})).length,0);
