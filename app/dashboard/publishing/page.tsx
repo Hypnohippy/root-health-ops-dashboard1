@@ -704,10 +704,6 @@ export default function DashboardHomePage() {
   }
 
   async function sendQuickBlastNow() {
-    if (selected.includes("tiktok")) {
-      setResult({ success: false, error: "TikTok requires a creator-settings review. Open Post to TikTok, choose privacy and confirm the upload. Send other channels separately." });
-      return;
-    }
     setSending(true);
     setResult(null);
 
@@ -1332,7 +1328,6 @@ export default function DashboardHomePage() {
               <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
                 {organisation?.brand_name || organisation?.name || "Dashboard"}
               </h1>
-            <a className="block mt-3 text-sm underline" href={`/dashboard/publishing/tiktok${organisationId ? `?organisationId=${encodeURIComponent(organisationId)}` : ""}`}>Post to TikTok — review creator settings</a>
 
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 A calm, premium cockpit for social momentum. Send fast. Recover cleanly. Keep going.

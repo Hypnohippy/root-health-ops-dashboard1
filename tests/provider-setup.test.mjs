@@ -35,7 +35,7 @@ test("configuration, credentials and permissions are distinct and unknown is nev
     assert.match(setup.buildProviderSetup(c, "expired", true).connected, /reconnect/);
   }
   assert.equal(setup.buildProviderSetup("google", "connected", true).state, "manual_only");
-  assert.equal(setup.buildProviderSetup("tiktok", "connected", true).state, "permissions_incomplete");
+  assert.equal(setup.buildProviderSetup("tiktok", "connected", true).state, "manual_only");
   assert.equal(setup.buildProviderSetup("email", "connected", true).canConnect, false);
 });
 test("server readiness requires app credentials, callback configuration and OAuth state signing", () => {
@@ -51,7 +51,7 @@ test("server readiness requires app credentials, callback configuration and OAut
 test("guide exposes plain next steps, manual completion limits and no secret entry", () => {
   const Guide = load("app/dashboard/connect/ProviderSetupGuide.tsx", { react: React, "react/jsx-runtime": jsx, "@/lib/providerSetup": setup }).default;
   const html = renderToStaticMarkup(React.createElement(Guide, { platform: "tiktok", health: { state: "connected", setup: setup.buildProviderSetup("tiktok", "connected", true) }, recheck: async () => {} }));
-  for (const label of ["Raw OAuth scopes", "Callback route", "Provider review status", "Operator/app configuration", "Direct Post depends"]) assert.ok(html.includes(label), label);
+  for (const label of ["Raw OAuth scopes", "Callback route", "Provider review status", "Operator/app configuration", "not a published video"]) assert.ok(html.includes(label), label);
   assert.doesNotMatch(html, /type="password"|<input/);
 });
 test("health recheck is tenant scoped, secret free and does not call providers", async () => {
