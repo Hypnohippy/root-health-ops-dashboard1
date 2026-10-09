@@ -160,7 +160,7 @@ export default function LinkedInConsole() {
   const inbox = `/dashboard/responses${org ? `?organisationId=${encodeURIComponent(org)}` : ""}`;
   function newBatch(includeSkipped = false) { if (includeSkipped) skipped.current = []; batchIds.current = null; void load(); }
   return <main className="mx-auto max-w-7xl space-y-4 p-4 py-5 text-slate-100">
-    <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-semibold">LinkedIn Outreach Console</h1><a href={inbox} className="text-sm underline text-sky-300">Back to Responses inbox</a></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-semibold">LinkedIn Outreach Console</h1><a href={inbox} className="text-sm underline text-sky-300">Back to Responses inbox</a><a className="ml-4 text-sm underline" href={`/dashboard/responses/linkedin/conversations?organisationId=${encodeURIComponent(org)}`}>Log a LinkedIn conversation</a></div>
     <nav aria-label="Queue views" className="flex flex-wrap gap-2">{([ ["all","Work next 10"], ["fresh","Fresh"], ["catchup","Catch-up"], ["followups","Follow-ups due"] ] as const).map(([value,label]) => <button key={value} aria-pressed={view === value} disabled={loading || working} className={`${button} ${view === value ? "bg-emerald-900" : ""}`} onClick={() => { if (view === value) newBatch(); else setView(value); }}>{label}</button>)}</nav>
     <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
       <span>{queue?.items.length || 0} in this batch · {queue?.total || 0} eligible</span>

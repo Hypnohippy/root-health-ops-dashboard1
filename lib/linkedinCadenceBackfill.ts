@@ -14,7 +14,7 @@ export function planLinkedInCadenceBackfill(org: string, input: LifecycleInput, 
  for (const contact of buildContactLifecycle(org, input, now)) {
   if (contact.channel !== "linkedin") continue;
   const rows = contact.records.map(ref => input[ref.table].find(r => r.id === ref.id && r.organisation_id === org)!);
-  if (rows.some(r => r.replied_at || r.reply_status && r.reply_status !== "no_reply" || r.platform === "linkedin" && r.kind === "dm" && r.text)) { excluded.replies++; continue; }
+  if (rows.some(r => r.linkedin_conversation_active || r.replied_at || r.reply_status && r.reply_status !== "no_reply" || r.platform === "linkedin" && r.kind === "dm" && r.text)) { excluded.replies++; continue; }
   if (rows.some(r => ["closed", "lost", "nurture", "converted", "archived"].includes(String(r.status)) || ["meeting", "lost", "closed", "converted", "won", "nurture", "engaged", "opportunity"].includes(String(r.deal_stage))) || ["meeting", "nurture", "lost", "converted", "dismissed", "no_reply_needed", "engaged", "needs_reply"].includes(contact.currentStage)) { excluded.stronger_states++; continue; }
   // Match the console: acceptance importer provenance is not workflow ownership.
   if (contact.engineEvidence.length || rows.some(r => !(r.platform === "linkedin" && r.kind === "connection_accepted") && (r.engine_state || ["root_health_b2b", "google_b2b_lead_engine", "root_health_personal"].includes(String(r.source_engine || r.source_type)) || ["root_health_b2b", "google_b2b_lead_engine"].includes(String(record(r.metadata).source))))) { excluded.ownership++; continue; }
@@ -28,6 +28,7 @@ export function planLinkedInCadenceBackfill(org: string, input: LifecycleInput, 
   const targets = projected.growth_targets.filter(r => targetIds.has(r.id) && r.organisation_id === org);
   if (targets.length > 1) { excluded.ineligible++; continue; }
   let target = targets[0];
+  if (rows.some(r=>r.linkedin_previously_contacted) && !rows.some(r=>r.manual_completion)) { excluded.actual_send_unverified++; continue; }
   const receiptRow = target?.manual_completion ? target : evidence.acceptance;
   const first = firstSendEvidence(receiptRow.manual_completion, now);
   if (first.status !== "verified") {

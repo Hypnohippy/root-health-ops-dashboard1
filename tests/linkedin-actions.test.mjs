@@ -86,3 +86,14 @@ test("historical form requires explicit confirmation and records unknown date wi
  assert.equal(saved.length,1);assert.equal(saved[0].sentAt,null);assert.equal(saved[0].sendChoice,"unknown");assert.equal(saved[0].message,"  Exact historical message\n");assert.equal(saved[0].confirmed,true);
  await act(async()=>renderer.unmount());
 });
+
+test("conversation log appends an independent inbound entry and leaves existing messages intact",async()=>{const calls=[],refreshes=[];const dates=load("lib/linkedinSendEvidence.ts",{});const {default:Log}=load("app/dashboard/responses/linkedin/conversations/ConversationLog.tsx",{react:React,"react/jsx-runtime":jsx,"@/lib/linkedinSendEvidence":dates,"next/navigation":{useRouter:()=>({refresh:()=>refreshes.push(true),push:()=>{}})},"@/lib/tenantFetch":{tenantFetch:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return {ok:true,json:async()=>({success:true})};}}},{crypto:{randomUUID:()=>"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}});
+ const messages={dated:[{id:"old",message:"Earlier outbound text",direction:"outbound",message_at:"2026-09-01",confirmed_at:"2026-10-01",actor:"actor",source:"manually reconciled from LinkedIn conversation",timezone:"Europe/London",time_precision:"date"}],undated:[]};const before=JSON.stringify(messages);let renderer;
+ await act(async()=>{renderer=create(React.createElement(Log,{organisationId:"tenant",revision:"3",contacts:[{id:"contact",name:"Person"}],selectedId:"contact",schemaAvailable:true,messages}));});
+ await act(async()=>renderer.root.findByType("textarea").props.onChange({target:{value:"  Exact inbound reply\n"}}));
+ await act(async()=>renderer.root.findAllByType("input").find(n=>n.props.type==="checkbox"&&n.props.checked===false&&n.props.onChange).props.onChange({target:{checked:false}}));
+ const boxes=renderer.root.findAllByType("input").filter(n=>n.props.type==="checkbox");await act(async()=>boxes.at(-1).props.onChange({target:{checked:true}}));
+ await act(async()=>renderer.root.findAllByType("button").find(n=>n.children.join("")==="Append message").props.onClick());
+ assert.equal(calls.length,1);assert.equal(calls[0].body.direction,"inbound");assert.equal(calls[0].body.message,"  Exact inbound reply\n");assert.equal(calls[0].body.messageAt,null);assert.equal(calls[0].body.contactId,"contact");assert.equal(JSON.stringify(messages),before);assert.equal(renderer.root.findAllByType("blockquote")[0].children.join(""),"Earlier outbound text");assert.equal(refreshes.length,1);
+ await act(async()=>renderer.unmount());
+});

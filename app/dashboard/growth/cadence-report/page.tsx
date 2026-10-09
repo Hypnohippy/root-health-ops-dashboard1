@@ -7,6 +7,7 @@ export default async function Report({ searchParams }: { searchParams: Promise<{
  const { organisationId } = await requireOrganisation((await searchParams).organisationId, false);
  const report = await readLinkedInCadenceReport(organisationId);
  return <main className="space-y-4 p-6"><h1 className="text-2xl font-semibold">LinkedIn cadence report</h1>
+ <a className="block underline" href={`/dashboard/responses/linkedin/conversations?organisationId=${encodeURIComponent(organisationId)}`}>Log a LinkedIn conversation</a>
  <p>Read-only snapshot as of {report.asOf}. Loading this report makes no database changes or sends.</p>
  <h2 className="text-xl font-semibold">Verified send date — current cadence</h2>
  <table><tbody>{Object.entries(cadenceLabels).map(([key, label]) => <tr key={key}><th className="pr-8 text-left">{label}</th><td>{report.counts[key as keyof typeof report.counts]}</td></tr>)}</tbody></table>

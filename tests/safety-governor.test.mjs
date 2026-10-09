@@ -179,3 +179,20 @@ test("real SQL: reconciliation appends immutable receipts, stores two clocks, bl
   await assert.rejects(run("88888888-8888-4888-8888-888888888888",{...base,choice:"now",correction:false},B),/record_not_found/);
  } finally {await db.close();}
 });
+
+test("real SQL: append-only conversation messages atomically suspend cadence without replacing receipts",async()=>{const db=await database();try{
+ await db.exec(fs.readFileSync("supabase/migrations/20261009140000_linkedin_conversation_log.sql","utf8"));
+ const original={key:K,message:"Existing pasted audit trail\nView profile",actor:A,evidence:"Original receipt",completed_at:"2026-10-01"};
+ await db.query(`insert into growth_targets(id,organisation_id,stage,status,manual_completion)values($1,$2,'day3_followup','active',$3::jsonb)`,[T,A,JSON.stringify(original)]);
+ const refs=[{table:"growth_targets",id:T}];
+ const run=async(key,direction,message,at=null,org=A)=>{const rev=(await db.query(`select revision from lifecycle_revisions where organisation_id=$1`,[org])).rows[0]?.revision||0;return(await db.query(`select append_linkedin_conversation_message($1,$2,'linkedin.com/in/test',$3,$4,$5::jsonb,$6::jsonb) as result`,[org,A,rev,key,JSON.stringify({direction,message,messageAt:at,precision:at?"time":"unknown",timezone:at?"Europe/London":null}),JSON.stringify(refs)])).rows[0].result;};
+ await run(K,"outbound","  Earlier outbound\n", "2026-09-01T12:00:00Z");
+ let target=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(target.linkedin_conversation_active,false);assert.equal(target.linkedin_previously_contacted,true);
+ await run(K2,"inbound","Exact inbound reply\nToday\n");
+ target=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(target.linkedin_conversation_active,true);assert.deepEqual(target.manual_completion,original);assert.equal(target.stage,"day3_followup");assert.equal(target.replied_at,null);
+ const messages=(await db.query(`select * from linkedin_conversation_messages order by confirmed_at`)).rows;assert.equal(messages.length,2);assert.equal(messages[0].message,"  Earlier outbound\n");assert.equal(messages[1].message,"Exact inbound reply\nToday\n");assert.equal(messages[1].message_at,null);assert.equal(messages[1].actor,A);assert.equal(messages[1].source,"manually reconciled from LinkedIn conversation");
+ assert.equal((await run(K2,"inbound","Exact inbound reply\nToday\n")).duplicate,true);assert.equal((await db.query(`select count(*) as n from linkedin_conversation_messages`)).rows[0].n,2);
+ await assert.rejects(db.query(`update linkedin_conversation_messages set message='overwrite'`),/append_only/);
+ await assert.rejects(db.query(`delete from linkedin_conversation_messages`),/append_only/);
+ await assert.rejects(run("99999999-9999-4999-8999-999999999999","inbound","Foreign",null,B),/foreign_or_missing/);
+ }finally{await db.close();}});

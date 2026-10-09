@@ -122,6 +122,9 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
     if (date(row.last_action_at)) lastAction = action("outreach_marked_sent", row.last_action_at);
     if (date(row.replied_at) && (!lastAction?.at || String(date(row.replied_at)) > lastAction.at)) lastAction = action(`reply:${text(row.reply_status) || "recorded"}`, row.replied_at);
   }
+  if (row.linkedin_conversation_active && !["closed", "lost", "converted", "archived", "dismissed", "nurture"].includes(status || "") && !["meeting", "lost", "converted", "dismissed", "no_reply_needed"].includes(currentStage) && !(currentStage === "nurture" && status !== "parked" && row.stage !== "parked")) {
+    currentStage="engaged"; nextAction="review_engagement"; nextDueDate=null;
+  }
   return { table, row, linkedin, email, fallback, name, company, currentStage, lastAction, nextAction, nextDueDate,
     channel: table === "growth_targets" ? (linkedin ? "linkedin" : email ? "email" : "linkedin") : text(engine?.channel) || text(row.platform) || (linkedin ? "linkedin" : email ? "email" : null),
     source: text(row.source_engine) || text(row.source_type) || table,

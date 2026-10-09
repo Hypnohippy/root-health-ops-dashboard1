@@ -80,7 +80,7 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
     const first = contact.currentStage === "outreach_ready";
     // A weaker historical record must never authorise outreach over a reply or closure.
     if (refs.some(ref => ["needs_reply", "engaged", "meeting", "converted", "lost", "dismissed", "no_reply_needed", "nurture", "waiting"].includes(ref.stage) && !(ref.table === "inbox_items" && index.get(`${ref.table}:${ref.id}`)?.kind === "connection_accepted" && !first && truth.hasConfirmedSend && ref.stage === "waiting"))) return reject("stronger reply/closure/waiting record");
-    if (rows.some(r => r.replied_at || (r.reply_status && r.reply_status !== "no_reply") || r.status === "archived" || (r.platform === "linkedin" && r.kind === "dm" && text(r.text)))) return reject("reply or archived record");
+    if (rows.some(r => r.linkedin_conversation_active || r.replied_at || (r.reply_status && r.reply_status !== "no_reply") || r.status === "archived" || (r.platform === "linkedin" && r.kind === "dm" && text(r.text)))) return reject("reply or archived record");
     if (contact.engineEvidence.length || rows.some(r => !(r.platform === "linkedin" && r.kind === "connection_accepted") && (r.engine_state || ["root_health_b2b", "google_b2b_lead_engine", "root_health_personal"].includes(String(r.source_engine || r.source_type)) || ["root_health_b2b", "google_b2b_lead_engine"].includes(String(object(r.metadata).source))))) return reject("source ownership");
     const table = contact.actionRecord.table;
     if (table !== "inbox_items" && table !== "growth_targets") return reject("unsupported action table");
@@ -91,7 +91,7 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
     if (truth.ambiguous) return reject("ambiguous identity");
     if (!truth.destination) return reject("destination missing");
     const previousOutbound = truth.previousOutbound;
-    if (first && (truth.hasConfirmedSend || rows.some(r => r.contacted_at || r.last_replied_at || r.last_action_at || r.manual_completion || r.status === "replied"))) return reject("conflicting lifecycle: prior contact prevents first message");
+    if (first && (truth.hasConfirmedSend || rows.some(r => r.linkedin_previously_contacted || r.contacted_at || r.last_replied_at || r.last_action_at || r.manual_completion || r.status === "replied"))) return reject("conflicting lifecycle: prior contact prevents first message");
     if (!first && (!truth.hasConfirmedSend || !previousOutbound)) return reject("outbound history incomplete");
     if (!first && (contact.followUpStatus !== "due" || row.stage === "connection")) return reject("follow-up not due or connection stage");
     if (!first && date(row.last_action_at) !== previousOutbound?.sentAt) return reject("conflicting lifecycle: cadence timestamp differs from confirmed send");
