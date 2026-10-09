@@ -25,11 +25,15 @@ export function firstSendEvidence(value: unknown, now = Date.now()) {
   if (!first && receipts.length) return { receipt: receipts[0], sentAt: null, status: "unverified" };
   return { receipt: first, sentAt: externalSentAt(first, now), status: first?.historical_send_date_status === "unknown" ? "unknown" : externalSentAt(first, now) ? "verified" : receipts.length ? "unverified" : "none" };
 }
-export type SendChoice = "now" | "today" | "historical" | "unknown";
+export type SendChoice = "now" | "today" | "historical" | "unknown" | "conversation";
 export function validateSendInput(body: Record<string, unknown>, now = Date.now()) {
   if (body.confirmed !== true || !nonempty(body.message) || String(body.message).length > 50000 || !/^[0-9a-f-]{36}$/i.test(String(body.key || ""))) throw Error("Confirm the exact LinkedIn message and send details.");
   const choice = body.sendChoice as SendChoice;
-  if (!["now", "today", "historical", "unknown"].includes(choice)) throw Error("Choose how this message was sent.");
+  if (!["now", "today", "historical", "unknown", "conversation"].includes(choice)) throw Error("Choose how this message was sent.");
+  const conversation = choice === "conversation";
+  if (conversation && typeof body.dateKnown !== "boolean") throw Error("Confirm whether the earliest outbound send date is known.");
+  const unknown = choice === "unknown" || conversation && body.dateKnown === false;
+  if (conversation && !unknown && body.earliestOutboundConfirmed !== true) throw Error("Explicitly confirm the earliest outbound send date from LinkedIn history.");
   const confirmedAt = new Date(now).toISOString();
   let sentAt: string | null = null;
   if (choice === "now") {
@@ -37,14 +41,14 @@ export function validateSendInput(body: Record<string, unknown>, now = Date.now(
     if (!Number.isFinite(at) || at > now) throw Error("The send time must be valid and cannot be in the future.");
     sentAt = new Date(at).toISOString();
   }
-  else if (choice !== "unknown") {
+  else if (!unknown) {
     if (!nonempty(body.sentAt) || !/(Z|[+-]\d{2}:\d{2})$/.test(String(body.sentAt)) || !nonempty(body.timezone)) throw Error("Provide the actual LinkedIn send date and timezone.");
     try { new Intl.DateTimeFormat("en", { timeZone: String(body.timezone) }).format(); } catch { throw Error("Choose a valid timezone."); }
     const at = Date.parse(String(body.sentAt));
     if (!Number.isFinite(at) || at > now) throw Error("The actual send date must be valid and cannot be in the future.");
     sentAt = new Date(at).toISOString();
   }
-  return { sentAt, confirmedAt, message: String(body.message), choice, timezone: choice === "now" ? "UTC" : String(body.timezone || ""), precision: choice === "unknown" ? "unknown" : body.timeKnown === false ? "date" : "time", status: choice === "unknown" ? "unknown" : "verified", source: choice === "now" ? "Manually confirmed LinkedIn send" : "Manually reconciled from LinkedIn history" };
+  return { sentAt, confirmedAt, message: String(body.message), choice, timezone: choice === "now" ? "UTC" : String(body.timezone || ""), contentKind: conversation ? "conversation_history_pasted" : "single_outbound_message", earliestOutboundConfirmed: conversation && !unknown, precision: unknown ? "unknown" : body.timeKnown === false ? "date" : "time", status: unknown ? "unknown" : "verified", source: choice === "now" ? "Manually confirmed LinkedIn send" : "Manually reconciled from LinkedIn history" };
 }
 /** Date-only evidence uses the start of the selected local day, explicitly labelled date precision. */
 export function localSendDate(date: string, time: string, timezone: string) {

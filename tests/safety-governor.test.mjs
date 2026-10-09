@@ -171,10 +171,10 @@ test("real SQL: reconciliation appends immutable receipts, stores two clocks, bl
   const first=await run(K,{...base,choice:"now",correction:false});assert.ok(first.sentAt);assert.ok(first.confirmedAt);
   let row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];const original=row.manual_completion;
   assert.equal(original.sent_at,original.confirmed_at);assert.equal(original.message,base.message);
-  const unknown=await run(K2,{...base,choice:"unknown",correction:true,source:"Manually reconciled from LinkedIn history"});assert.equal(unknown.sentAt,null);
-  row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(row.manual_completion.historical_send_date_status,"unknown");assert.equal(row.first_outbound_at,null);assert.equal(row.stage,"day3_followup");const {history: ignoredHistory,...originalWithoutHistory}=original;assert.deepEqual(row.manual_completion.history[0],originalWithoutHistory);
+  const unknown=await run(K2,{...base,choice:"conversation",status:"unknown",correction:true,source:"Manually reconciled from LinkedIn history"});assert.equal(unknown.sentAt,null);
+  row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(row.manual_completion.content_kind,"conversation_history_pasted");assert.equal(row.manual_completion.message,base.message);assert.equal(row.manual_completion.historical_send_date_status,"unknown");assert.equal(row.first_outbound_at,null);assert.equal(row.stage,"day3_followup");const {history: ignoredHistory,...originalWithoutHistory}=original;assert.deepEqual(row.manual_completion.history[0],originalWithoutHistory);
   const retry=await run(K2,{...base,choice:"unknown",correction:true});assert.equal(retry.duplicate,true);assert.equal((await db.query(`select manual_completion from growth_targets where id=$1`,[T])).rows[0].manual_completion.history.length,1);
-  const old="2026-08-01T12:34:56.000Z";await run("99999999-9999-4999-8999-999999999999",{...base,choice:"historical",sentAt:old,correction:true});
+  const old="2026-08-01T12:34:56.000Z";await run("99999999-9999-4999-8999-999999999999",{...base,choice:"conversation",status:"verified",earliestOutboundConfirmed:true,sentAt:old,correction:true});
   row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(new Date(row.first_outbound_at).toISOString(),old);assert.notEqual(row.manual_completion.sent_at,row.manual_completion.confirmed_at);assert.equal(row.manual_completion.history.length,2);assert.equal(row.manual_completion.history[0].key,K);
   await assert.rejects(run("88888888-8888-4888-8888-888888888888",{...base,choice:"now",correction:false},B),/record_not_found/);
  } finally {await db.close();}

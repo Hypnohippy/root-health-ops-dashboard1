@@ -30,7 +30,7 @@ export function linkedInDestination(rows: LifecycleRow[]) {
   for (const row of rows) { const identity = profiles(row)[0]; if (identity) return "https://" + identity; }
   return null;
 }
-export type LinkedInOutboundHistory = { message: string; sentAt: string; table: "inbox_items" | "growth_targets"; id: string; source: "manual completion receipt" | "recorded acceptance message sent" };
+export type LinkedInOutboundHistory = { contentKind?: string; message: string; sentAt: string; table: "inbox_items" | "growth_targets"; id: string; source: "manual completion receipt" | "recorded acceptance message sent" };
 export function linkedInRecordedEvidence(rows: LifecycleRow[], identity: string, now = Date.now()) {
   const canonical = identity.startsWith("linkedin:") ? identity.slice(9) : null;
   const matching = rows.filter(r => canonical && profiles(r).length === 1 && profiles(r)[0] === canonical);
@@ -55,7 +55,7 @@ export function linkedInRecordedEvidence(rows: LifecycleRow[], identity: string,
     for (const receipt of receipts) {
       if (receipt.correction_type === "first_send_classification" || receipt === firstEvidence.receipt || receipt.stage !== "connection" && receipt.stage) {
         const sentAt = externalSentAt(receipt, now);
-        if (sentAt) history.push({ message: String(receipt.message), sentAt, table, id: row.id, source: "manual completion receipt" });
+        if (sentAt) history.push({ contentKind: typeof receipt.content_kind === "string" ? receipt.content_kind : undefined, message: String(receipt.message), sentAt, table, id: row.id, source: "manual completion receipt" });
       }
     }
   }

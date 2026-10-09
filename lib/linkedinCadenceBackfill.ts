@@ -9,7 +9,7 @@ export function planLinkedInCadenceBackfill(org: string, input: LifecycleInput, 
  const moves = { ...counts };
  const excluded = Object.fromEntries(Object.keys(exclusionLabels).map(k => [k, 0])) as Record<keyof typeof exclusionLabels, number>;
  const repairs: { id: string | null; patch: Record<string, unknown> }[] = [];
- const review: { name: string; table: "growth_targets" | "inbox_items"; id: string; message: string; confirmedAt: string | null; status: string }[] = [];
+ const review: { contentKind?: string; name: string; table: "growth_targets" | "inbox_items"; id: string; message: string; confirmedAt: string | null; status: string }[] = [];
  const projected: LifecycleInput = { ...input, growth_targets: input.growth_targets.map(r => ({ ...r })) };
  for (const contact of buildContactLifecycle(org, input, now)) {
   if (contact.channel !== "linkedin") continue;
@@ -35,7 +35,7 @@ export function planLinkedInCadenceBackfill(org: string, input: LifecycleInput, 
     excluded[first.status === "unknown" ? "historical_unknown" : "actual_send_unverified"]++;
     const receipt = record(receiptRow.manual_completion);
     // Only original first-step receipts are eligible for first-send classification.
-    if ((receipt.stage === "connection" || !receipt.stage && (!Array.isArray(receipt.history) || !receipt.history.length)) && (!target || ["day3_dm", "day3_followup", "connection"].includes(String(target.stage)))) review.push({ name: contact.name || "LinkedIn contact", table: receiptRow === target ? "growth_targets" : "inbox_items", id: receiptRow.id, message: String(first.receipt.message), confirmedAt: typeof receipt.confirmed_at === "string" ? receipt.confirmed_at : typeof receipt.completed_at === "string" ? receipt.completed_at : null, status: first.status });
+    if ((receipt.stage === "connection" || !receipt.stage && (!Array.isArray(receipt.history) || !receipt.history.length)) && (!target || ["day3_dm", "day3_followup", "connection"].includes(String(target.stage)))) review.push({ contentKind: typeof receipt.content_kind === "string" ? receipt.content_kind : undefined, name: contact.name || "LinkedIn contact", table: receiptRow === target ? "growth_targets" : "inbox_items", id: receiptRow.id, message: String(first.receipt.message), confirmedAt: typeof receipt.confirmed_at === "string" ? receipt.confirmed_at : typeof receipt.completed_at === "string" ? receipt.completed_at : null, status: first.status });
    } else excluded[receiptRow.manual_completion ? "incomplete_receipt" : dated ? "date_only" : "never_contacted"]++;
    continue;
   }
