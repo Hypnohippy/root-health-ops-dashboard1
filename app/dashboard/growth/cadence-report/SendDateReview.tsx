@@ -10,7 +10,7 @@ export default function SendDateReview({ items, organisationId, revision }: { it
  return <section className="mt-6 space-y-4"><h2 className="text-xl font-semibold">Review previous sends</h2>
  <p>These records preserve the confirmed message, but do not establish its external LinkedIn send date. No cadence is scheduled until the date is verified. Confirming a classification saves an auditable correction.</p>
  {items.map(item => <article key={item.table + item.id} className="rounded border border-white/20 p-4">
- <h3>{item.name} — {item.status === "unknown" ? "Historical send date unknown" : "Actual send date unverified"}</h3>
+ <h3>{item.name} â€” {item.status === "unknown" ? "Historical send date unknown" : "Actual send date unverified"}</h3>
  <p>Ops confirmation: {item.confirmedAt ? new Date(item.confirmedAt).toLocaleString("en-GB", { timeZone: "Europe/London" }) + " Europe/London" : "Not recorded"}</p>
  <blockquote className="my-3 whitespace-pre-wrap">{item.message}</blockquote>
  {selected === item.id ? <LinkedInHistoricalSend review confirmedAt={item.confirmedAt} message={item.message} onCancel={() => setSelected(null)} onConfirm={async body => {

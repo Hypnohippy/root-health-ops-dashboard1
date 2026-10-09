@@ -8,7 +8,7 @@ export default async function Report({ searchParams }: { searchParams: Promise<{
  const report = await readLinkedInCadenceReport(organisationId);
  return <main className="space-y-4 p-6"><h1 className="text-2xl font-semibold">LinkedIn cadence report</h1>
  <p>Read-only snapshot as of {report.asOf}. Loading this report makes no database changes or sends.</p>
- <h2 className="text-xl font-semibold">Verified send date — current cadence</h2>
+ <h2 className="text-xl font-semibold">Verified send date â€” current cadence</h2>
  <table><tbody>{Object.entries(cadenceLabels).map(([key, label]) => <tr key={key}><th className="pr-8 text-left">{label}</th><td>{report.counts[key as keyof typeof report.counts]}</td></tr>)}</tbody></table>
  <h2 className="text-xl font-semibold">Contacts excluded from cadence timing</h2>
  <table><tbody>{Object.entries(exclusionLabels).filter(([key]) => report.excluded[key as keyof typeof report.excluded] || ["replies", "stronger_states", "historical_unknown", "actual_send_unverified"].includes(key)).map(([key, label]) => <tr key={key}><th className="pr-8 text-left">{label}</th><td>{report.excluded[key as keyof typeof report.excluded]}</td></tr>)}</tbody></table>

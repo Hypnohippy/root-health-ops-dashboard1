@@ -24,8 +24,8 @@ export default function LinkedInHistoricalSend({ message, review = false, confir
   <p>Record what happened in LinkedIn. This action does not send a message.</p>
   <fieldset disabled={busy || !!pending.current} className="space-y-3">
    <label className="block">Classification <select value={choice} onChange={e => setChoice(e.target.value)} className="bg-slate-900 p-2">
-    {review && <option value="today">Sent today — on the original confirmation day</option>}
-    <option value="historical">Sent previously — date known</option><option value="unknown">Sent previously — date unknown</option>
+    {review && <option value="today">Sent today â€” on the original confirmation day</option>}
+    <option value="historical">Sent previously â€” date known</option><option value="unknown">Sent previously â€” date unknown</option>
    </select></label>
    {choice !== "unknown" && <><label className="block">Actual LinkedIn send date <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="bg-slate-900 p-2" /></label>
    <label className="block">Actual send time, if known <input type="time" value={time} onChange={e => setTime(e.target.value)} className="bg-slate-900 p-2" /></label>
@@ -35,7 +35,7 @@ export default function LinkedInHistoricalSend({ message, review = false, confir
    <label className="block"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} /> I confirm this exact message was already sent in LinkedIn and these historical details are accurate.</label>
   </fieldset>
   {error && <p role="alert">{error}</p>}
-  <button disabled={busy || !confirmed || !message.trim()} onClick={() => void submit()} className="rounded border px-3 py-2">{busy ? "Recording…" : pending.current ? "Retry confirmation safely" : "Confirm previously sent"}</button>
+  <button disabled={busy || !confirmed || !message.trim()} onClick={() => void submit()} className="rounded border px-3 py-2">{busy ? "Recordingâ€¦" : pending.current ? "Retry confirmation safely" : "Confirm previously sent"}</button>
   <button disabled={busy} onClick={onCancel} className="ml-3 rounded border px-3 py-2">Close</button>
  </section>;
 }
