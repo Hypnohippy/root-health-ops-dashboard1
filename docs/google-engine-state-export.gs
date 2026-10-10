@@ -9,6 +9,42 @@ function opsStableB2BSourceId_(organisation, email, sourceUrl) {
     .map(function(byte) { return ('0' + (byte & 255).toString(16)).slice(-2); }).join('');
 }
 
+// Apps Script has no browser URL API. Keep this fail-closed host/path guard in
+// parity with personalSignal() and the Personal acquisition RPC. Never fetch or
+// resolve grounding redirects; query parameters cannot supply a post path.
+function opsDirectSocialDiscussion_(value) {
+  var parts = String(value == null ? '' : value).match(/^https:\/\/([A-Za-z0-9.-]+)(:443)?(\/[^?#\s\\]*)(\?[^#\s\\]*)?(#[^\s\\]*)?$/i);
+  if (!parts) return false;
+  var host = parts[1].toLowerCase().replace(/^(www|m)\./, '');
+  var path = parts[3];
+  if (['reddit.com', 'old.reddit.com', 'new.reddit.com'].indexOf(host) >= 0) return /\/comments\/[^/]+/.test(path);
+  if (host === 'facebook.com') return /\/(posts|videos|reel)\/[^/]+/.test(path) || (/\/(permalink|story)\.php$/.test(path) && /[?&]story_fbid=[^&#]+/.test(parts[4] || ''));
+  if (host === 'instagram.com') return /^\/(p|reel)\/[^/]+/.test(path);
+  if (['threads.net', 'threads.com'].indexOf(host) >= 0) return /\/post\/[^/]+/.test(path);
+  if (['x.com', 'twitter.com'].indexOf(host) >= 0) return /\/status\/[^/]+/.test(path);
+  if (host === 'linkedin.com') return /\/posts\/[^/]+|\/feed\/update\/urn:li:/.test(path);
+  if (host === 'tiktok.com') return /\/video\/[^/]+/.test(path);
+  return false;
+}
+function opsExplicitSocialBoolean_(value) {
+  if (value === true || value === false) return value;
+  if (String(value).toLowerCase() === 'true') return true;
+  if (String(value).toLowerCase() === 'false') return false;
+  return null;
+}
+function opsVerifiedSocialRow_(read, mapping) {
+  var id = read(mapping.id_header);
+  return id != null && String(id).trim() !== '' &&
+    opsDirectSocialDiscussion_(read(mapping.fields.source_url)) &&
+    String(read(mapping.metadata.original_post)).trim() !== '' &&
+    String(read(mapping.metadata.prepared_reply)).trim() !== '' &&
+    !/search.?demand|article|blog|partner|referr/i.test(String(read(mapping.state.opportunity_type))) &&
+    opsExplicitSocialBoolean_(read(mapping.safety.public_context)) === true &&
+    opsExplicitSocialBoolean_(read(mapping.safety.consumer_outreach)) === false &&
+    opsExplicitSocialBoolean_(read(mapping.safety.health_targeting)) === false &&
+    opsExplicitSocialBoolean_(read(mapping.safety.verified_direct_discussion)) === true;
+}
+
 function opsExportEngineState() {
   var properties = PropertiesService.getScriptProperties();
   var config = JSON.parse(properties.getProperty('OPS_STATE_SYNC_CONFIG') || '{}');
@@ -38,6 +74,8 @@ function opsExportEngineState() {
     if (hashId && (config.source_engine !== 'root_health_b2b' || mapping.id_prefix || mapping.id_header)) throw new Error('B2B ID rule cannot be combined with another identity format.');
     var required = (hashId ? ['Organisation', 'Email', 'Source URL'] : [mapping.id_header]).concat(Object.values(mapping.fields || {}), Object.values(mapping.state || {}), Object.values(mapping.safety || {}), Object.values(mapping.metadata || {})).flat();
     if ((!hashId && !mapping.id_header) || required.some(function(header) { return headers.indexOf(header) < 0 || headers.indexOf(header) !== headers.lastIndexOf(header); })) throw new Error('Missing or duplicate mapped source header.');
+    var socialQueue = config.source_engine === 'root_health_personal' && mapping.name === 'Social Queue';
+    var skippedSocialRows = 0;
     rows.slice(1).forEach(function(row) {
       if (row.every(function(value) { return value === ''; })) return;
       // Ordered fallbacks use the first populated verified column, never guessed headers.
@@ -49,6 +87,9 @@ function opsExportEngineState() {
         }
         return '';
       }
+      // Legacy rows are not evidence. Skip before identity/safety conversion so
+      // one unverified Social row cannot abort verified rows or other queues.
+      if (socialQueue && !opsVerifiedSocialRow_(read, mapping)) { skippedSocialRows++; return; }
       if (hashId && !read('Organisation') && !read('Email') && !read('Source URL')) throw new Error('Source record has no stable identity evidence.');
       var id = hashId ? opsStableB2BSourceId_(read('Organisation'), read('Email'), read('Source URL')) : read(mapping.id_header);
       if (id === '' || id == null) throw new Error('Source record has no stable identifier.');
@@ -76,6 +117,7 @@ function opsExportEngineState() {
       }
       records.push(record);
     });
+    if (socialQueue && skippedSocialRows) pending.push({ sheet: mapping.name, skipped_unverified_rows: skippedSocialRows });
   });
   // Validate the entire local export before the first request; never infer stable IDs.
   var seen = Object.create(null);

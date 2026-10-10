@@ -4,7 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import { PGlite } from "@electric-sql/pglite";
-function load(file,deps={},globals={}){const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Date,...globals,require:n=>{assert.ok(n in deps,`Unexpected dependency: ${n}`);return deps[n];}});return mod.exports;}
+function load(file,deps={},globals={}){const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Date,...globals,require:n=>{if(!(n in deps)&&n.startsWith('@/lib/'))return load(n.replace('@/','')+'.ts',deps,globals);assert.ok(n in deps,`Unexpected dependency: ${n}`);return deps[n];}});return mod.exports;}
 const outreach=load("lib/growthOutreach.ts"), engine=load("lib/engineState.ts");
 const lifecycle=load("lib/contactLifecycle.ts",{"@/lib/growthOutreach":outreach,"@/lib/engineState":engine});
 const due=load("lib/growthDue.server.ts",{"@/lib/contactLifecycle":lifecycle,"@/lib/growthOutreach":outreach,"@/lib/lifecycleSnapshot.server":{}});
@@ -65,7 +65,7 @@ test("Personal capacity check and signup start stay distinct from conversion",()
  const state={status:null,reply_state:null,approval_state:null,next_action:null,next_follow_up_at:null,follow_up_status:null,last_inbound_at:null,last_outbound_at:null,last_follow_up_at:null};
  for(const status of ["capacity_check_completed","signup_started"]){assert.equal(engine.projectEngineState({...state,status,conversions:"10"}).stage,"actioned");}
  assert.equal(engine.projectEngineState({...state,status:"signup_complete"}).stage,"converted");
- const config=JSON.parse(fs.readFileSync("docs/google-engine-state-personal.config.json","utf8"));assert.ok(config.sheets.every(s=>s.pending?.length));
+ const config=JSON.parse(fs.readFileSync("docs/google-engine-state-personal.config.json","utf8"));assert.ok(config.sheets.filter(s=>s.name!=='Social Queue').every(s=>s.pending?.length));assert.equal(config.sheets.find(s=>s.name==='Social Queue').pending,undefined);
 });
 async function database(){const db=new PGlite();await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
 create table organisations(id uuid primary key);insert into organisations values('${A}'),('${B}');

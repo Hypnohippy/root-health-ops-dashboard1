@@ -41,11 +41,10 @@
     { "name": "Acquisition Queue", "pending": ["Headers verified live; no stable ID column or verified existing composite ID rule. Queue row is not an identity. Personal safety evidence also unresolved."] },
     {
       "name": "Social Queue", "record_type": "social_opportunity", "id_header": "Social ID",
-      "pending": ["State/provenance headers verified live. REACTIVE mode and LOW/SENSITIVE risk do not explicitly prove public_context, verified_direct_discussion, consumer_outreach=false or health_targeting=false."],
       "fields": { "source_url": "Source URL", "evidence": "Context / Question", "signal": "Theme" },
       "state": { "status": "Status", "channel": "Platform", "opportunity_type": "Mode", "last_outbound_at": "Published at" },
-      "metadata": { "queue_row_reference": "Queue row", "risk": "Risk", "generated_at": "Generated", "clicks": "Clicks", "capacity_checks": "Capacity Checks", "destination": "Destination" },
-      "safety": {}
+      "metadata": { "queue_row_reference": "Queue row", "risk": "Risk", "generated_at": "Generated", "clicks": "Clicks", "capacity_checks": "Capacity Checks", "destination": "Destination", "original_post": "Original Post", "prepared_reply": "Prepared Reply" },
+      "safety": { "public_context": "Public Context", "consumer_outreach": "Consumer Outreach", "health_targeting": "Health Targeting", "verified_direct_discussion": "Verified Direct Discussion" }
     },
     { "name": "Search Demand", "pending": ["Headers verified live; no stable ID or verified existing composite rule. Search phrase/Theme are mutable; no row-number identity. Personal safety evidence unresolved."] },
     { "name": "Funnel Events", "pending": ["Live rows define funnel rules (Event/Trigger/Required prior state/Next state), not contact event occurrences. No stable occurrence ID or contact linkage; must not create conversions from rule definitions."] },
