@@ -12,6 +12,7 @@ type Projection = {
   fallback: string | null; name: string | null; company: string | null;
   currentStage: LifecycleStage; lastAction: Action | null; nextAction: string | null;
   nextDueDate: string | null; channel: string | null; source: string; observedAt: string | null;
+  handledEmailHistory?: boolean;
 };
 const text = (value: unknown): string | null => typeof value === "string" && value.trim() ? value.trim() : null;
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -145,6 +146,23 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
   if (!organisationId.trim()) throw new Error("Organisation is required.");
   const rows = (Object.keys(input) as LifecycleTable[]).flatMap(table => input[table]
     .filter(row => row.organisation_id === organisationId).map(row => project(table, row)));
+  // Only a verified delivery in the exact Gmail thread can handle earlier inbox
+  // events. Confirmation/state timestamps and sender/subject aliases are not send evidence.
+  const sentByThread = new Map<string, string>();
+  for (const p of rows) {
+    const thread = text(p.row.email_thread_id), sentAt = date(p.row.email_sent_at);
+    if (p.table !== "inbox_items" || p.row.platform !== "email" || !thread || p.row.email_delivery_status !== "sent" || !sentAt) continue;
+    if (!sentByThread.has(thread) || sentAt > sentByThread.get(thread)!) sentByThread.set(thread, sentAt);
+  }
+  for (const p of rows) {
+    const thread = text(p.row.email_thread_id);
+    const inboundAt = date(p.row.created_at_platform) || date(p.row.inserted_at);
+    const sentAt = thread ? sentByThread.get(thread) : null;
+    if (p.table === "inbox_items" && p.row.platform === "email" && p.currentStage === "needs_reply" &&
+      !["bounce", "redirect"].includes(String(p.row.email_classification)) && inboundAt && sentAt && inboundAt <= sentAt) {
+      p.currentStage = "no_reply_needed"; p.nextAction = null; p.nextDueDate = null; p.handledEmailHistory = true;
+    }
+  }
   // A successful promotion is preparation, not contact. The canonical target
   // owns outreach; retain stronger source-engine evidence (waiting/replied etc.).
   for (const p of rows) {
@@ -196,7 +214,7 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
       nextDueDate: actionOwner.nextDueDate, channel: actionOwner.channel, source: winner.source,
       actionRecord: { table: actionOwner.table, id: actionOwner.row.id },
       followUpStatus: winner.currentStage === "follow_up" ? (winner.nextDueDate ? (Date.parse(winner.nextDueDate) <= now ? "due" : "waiting") : ["due", "follow_up_due"].includes(String(object(winner.row.engine_state).follow_up_status)) ? "due" : null) : null,
-      records: members.map(p => ({ table: p.table, id: p.row.id, stage: p.currentStage, source: p.source })),
+      records: members.map(p => ({ table: p.table, id: p.row.id, stage: p.currentStage, source: p.source, handledEmailHistory: p.handledEmailHistory || false })),
       engineEvidence: members.filter(p => p.table === "acquisition_items" && p.row.engine_state).map(p => ({
         sourceEngine: p.row.source_engine, sourceRecordId: p.row.source_record_id, observedAt: p.row.engine_observed_at,
         state: p.row.engine_state, operationalState: projectEngineState(p.row.engine_state as EngineState).operationalState,
