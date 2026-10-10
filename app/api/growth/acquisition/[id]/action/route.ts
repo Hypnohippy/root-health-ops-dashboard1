@@ -3,7 +3,7 @@ import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { uuid } from "@/lib/growthIngestion.server";
 import { AcquisitionWorkflowError, planAcquisitionAction, routeUrl, acquisitionDestination } from "@/lib/acquisitionWorkflow";
-import { personalSignalActions, planPersonalSignalAction } from "@/lib/personalSignal";
+import { personalSignalActions, planPersonalSignalAction, personalSocialActionAllowed } from "@/lib/personalSignal";
 import { promoteAcquisition } from "@/lib/acquisitionPromotion.server";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -24,6 +24,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (readError) throw readError;
     if (!item) return NextResponse.json({ error: "Acquisition item not found." }, { status: 404 });
 
+    if (!personalSocialActionAllowed(item,body.action)) throw new AcquisitionWorkflowError("Content Signals cannot be used for personal response or engagement actions.");
     const handoff = item.metadata?.handoff;
     if (handoff?.action === body.action && handoff.destination === acquisitionDestination(body.action) && handoff.idempotency_key) {
       const { data: receipt, error: receiptError } = await supabaseAdmin.from("acquisition_item_events").select("id")

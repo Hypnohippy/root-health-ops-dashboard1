@@ -32,12 +32,27 @@ function opsExplicitSocialBoolean_(value) {
   if (String(value).toLowerCase() === 'false') return false;
   return null;
 }
+function opsSocialActionEvidence_(notes) {
+  var match=String(notes||'').match(/(?:^|\|\s*)Social action:\s*([^\s|]+)/);
+  try{return match?JSON.parse(decodeURIComponent(match[1])):{};}catch(_){return {};}
+}
+function opsSocialActionType_(url, requested, evidence) {
+  if(!opsDirectSocialDiscussion_(url))return null;
+  var host=String(url).match(/^https:\/\/([^/:]+)/i)[1].toLowerCase().replace(/^(www|m)\./,'');
+  if(['reddit.com','old.reddit.com','new.reddit.com'].indexOf(host)>=0||requested==='CONTENT_SIGNAL')return 'CONTENT_SIGNAL';
+  if(host==='linkedin.com')return 'PUBLIC_RESPONSE';
+  return requested==='PUBLIC_RESPONSE'&&evidence&&evidence.publicEngagementSurfaceVerified===true&&typeof evidence.publicEngagementSurfaceEvidence==='string'&&evidence.publicEngagementSurfaceEvidence.trim()?'PUBLIC_RESPONSE':'CONTENT_SIGNAL';
+}
 function opsVerifiedSocialRow_(read, mapping) {
   var id = read(mapping.id_header);
+  var actionEvidence=opsSocialActionEvidence_(read('Notes'));
+  var type=opsSocialActionType_(read(mapping.fields.source_url),String(read(mapping.state.opportunity_type)),actionEvidence);
+  var complete=type==='PUBLIC_RESPONSE'?String(read(mapping.metadata.prepared_reply)).trim()!=='' : typeof actionEvidence.contentAngle==='string'&&!!actionEvidence.contentAngle.trim()&&typeof actionEvidence.assetType==='string'&&!!actionEvidence.assetType.trim();
   return id != null && String(id).trim() !== '' &&
     opsDirectSocialDiscussion_(read(mapping.fields.source_url)) &&
     String(read(mapping.metadata.original_post)).trim() !== '' &&
-    String(read(mapping.metadata.prepared_reply)).trim() !== '' &&
+    complete &&
+    !/suicid|self[- ]harm|kill myself|end my life|immediate danger/i.test(String(read(mapping.metadata.original_post))) &&
     !/search.?demand|article|blog|partner|referr/i.test(String(read(mapping.state.opportunity_type))) &&
     opsExplicitSocialBoolean_(read(mapping.safety.public_context)) === true &&
     opsExplicitSocialBoolean_(read(mapping.safety.consumer_outreach)) === false &&
@@ -105,6 +120,21 @@ function opsExportEngineState() {
         var value = read(mapping.metadata[field]);
         record.metadata[field] = value === '' ? null : value instanceof Date ? value.toISOString() : String(value);
       });
+      if (socialQueue) {
+        var socialAction=opsSocialActionEvidence_(read('Notes'));
+        var actionType=opsSocialActionType_(record.source_url,record.state.opportunity_type,socialAction);
+        record.metadata.action_type=actionType;
+        record.metadata.source_platform=record.state.channel;
+        record.metadata.public_engagement_surface_verified=socialAction.publicEngagementSurfaceVerified===true;
+        record.metadata.public_engagement_surface_evidence=socialAction.publicEngagementSurfaceEvidence||null;
+        if(actionType==='CONTENT_SIGNAL') {
+          record.record_type='personal_opportunity';delete record.metadata.prepared_reply;
+          record.metadata.content_angle=socialAction.contentAngle;
+          record.metadata.content_asset_type=socialAction.assetType;
+          record.metadata.content_cta=socialAction.cta||null;
+          record.metadata.content_relevance=socialAction.relevance||null;
+        }
+      }
       if (config.source_engine === 'root_health_personal') {
         record.safety = {};
         Object.keys(mapping.safety || {}).forEach(function(field) {

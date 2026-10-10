@@ -10,12 +10,12 @@ import * as jsx from 'react/jsx-runtime';
 import {create,act} from 'react-test-renderer';
 import {PGlite} from '@electric-sql/pglite';
 const require=createRequire(import.meta.url);globalThis.IS_REACT_ACT_ENVIRONMENT=true;
-function load(file,mocks={},globals={}){const module={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,{module,exports:module.exports,URL,URLSearchParams,Date,AbortController,console,...globals,require:n=>n in mocks?mocks[n]:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):n==='./PersonalSignalCard'?load(path.join(path.dirname(file),'PersonalSignalCard.tsx'),mocks,globals):require(n)});return module.exports;}
+function load(file,mocks={},globals={}){const loadedModule={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,{module:loadedModule,exports:loadedModule.exports,URL,URLSearchParams,Date,AbortController,console,...globals,require:n=>n in mocks?mocks[n]:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):n==='./PersonalSignalCard'?load(path.join(path.dirname(file),'PersonalSignalCard.tsx'),mocks,globals):require(n)});return loadedModule.exports;}
 const workflow=load('lib/acquisitionWorkflow.ts');
 const helpers=load('lib/personalSignal.ts',{'@/lib/acquisitionWorkflow':workflow});
 const org='78fa2ac8-e7b6-4b9b-9604-035723ece6b1',id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',actor='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const sample=(more={})=>({id,source_engine:'root_health_personal',source_record_id:'social:verified-123',record_type:'social_opportunity',status:'new',source_url:'https://www.reddit.com/r/productivity/comments/abc123/how_to_switch_off/',reason:'Public discussion asking about routines and switching off.',signal:'Stress / sleep',metadata:{engine_safety:{public_context:true,consumer_outreach:false,health_targeting:false,verified_direct_discussion:true},original_post:'  I struggle to switch off after work. How do you relax? 👋\n',prepared_reply:'What helps you draw a boundary between the workday and your evening?'},acquisition_item_events:[],...more});
-test('verified Personal Signal uses exact original text and public response, with no invented post from evidence',()=>{const item=sample(),signal=helpers.personalSignal(item);assert.equal(signal.platform,'Reddit');assert.equal(signal.original,item.metadata.original_post);assert.equal(signal.reply,item.metadata.prepared_reply);assert.equal(helpers.personalSignal(sample({metadata:{...item.metadata,original_post:null},evidence:'generic research'})),null);});
+const sample=(more={})=>({id,source_engine:'root_health_personal',source_record_id:'social:verified-123',record_type:'social_opportunity',status:'new',source_url:'https://www.linkedin.com/posts/root-discussion-123',reason:'Public discussion asking about routines and switching off.',signal:'Stress / sleep',metadata:{engine_safety:{public_context:true,consumer_outreach:false,health_targeting:false,verified_direct_discussion:true},original_post:'  I struggle to switch off after work. How do you relax? 👋\n',prepared_reply:'What helps you draw a boundary between the workday and your evening?'},acquisition_item_events:[],...more});
+test('verified Personal Signal uses exact original text and public response, with no invented post from evidence',()=>{const item=sample(),signal=helpers.personalSignal(item);assert.equal(signal.platform,'LinkedIn');assert.equal(signal.original,item.metadata.original_post);assert.equal(signal.reply,item.metadata.prepared_reply);assert.equal(helpers.personalSignal(sample({metadata:{...item.metadata,original_post:null},evidence:'generic research'})),null);});
 test('normal, Partner, search-demand/article and unsafe/unverified source records do not qualify',()=>{
  for(const item of [sample({source_engine:'other'}),sample({record_type:'partner_opportunity'}),sample({record_type:'b2b_lead'}),sample({source_url:'https://www.reddit.com/search/?q=stress'}),sample({source_url:'https://example.com/posts/stress'}),sample({source_url:'http://reddit.com/r/test/comments/id'}),sample({metadata:{...sample().metadata,lane:'Search Demand'}}),sample({metadata:{...sample().metadata,opportunity_type:'article'}}),sample({engine_state:{opportunity_type:'search_demand'}}),sample({engine_state:{opportunity_type:'article'}}),sample({metadata:{...sample().metadata,engine_safety:{...sample().metadata.engine_safety,verified_direct_discussion:false}}}),sample({metadata:{...sample().metadata,engine_safety:{...sample().metadata.engine_safety,consumer_outreach:true}}})])assert.equal(helpers.personalSignal(item),null);
 });
@@ -42,8 +42,9 @@ test('existing SQL RPC persists all Personal events with actor, status and audit
 });
 
 test('Personal action API requires tenant write access, verified evidence and explicit confirmation; retries do not duplicate events',async()=>{
- for(const scenario of ['success','unconfirmed','partner','unverified','foreign','duplicate']){
+ for(const scenario of ['success','unconfirmed','partner','unverified','foreign','duplicate','content']){
  const calls=[];let item=sample({organisation_id:org});if(scenario==='partner')item=sample({record_type:'partner_opportunity',organisation_id:org});if(scenario==='unverified')item=sample({metadata:{...sample().metadata,engine_safety:{}},organisation_id:org});if(scenario==='duplicate')item={...item,status:'actioned',acquisition_item_events:[{action:'personal_responded',created_at:'2026-10-09',idempotency_key:id}]};
+ if(scenario==='content')item={...item,source_url:'https://reddit.com/r/test/comments/id',metadata:{...item.metadata,action_type:'CONTENT_SIGNAL'}};
  const filters={};const db={from:()=>{const q={select:()=>q,eq:(k,v)=>{filters[k]=v;return q;},maybeSingle:async()=>({data:scenario==='foreign'?null:item})};return q;},rpc:async(name,args)=>{calls.push({name,args});return {data:[{...item,status:args.p_new_status}]};}};
  const route=load('app/api/growth/acquisition/[id]/action/route.ts',{'next/server':{NextResponse:{json:(body,opts={})=>({body,status:opts.status||200})}},'@/lib/tenantAuth':{requireOrganisation:async(o,write)=>{assert.equal(o,org);assert.equal(write,true);return {organisationId:org,userId:actor};},accessErrorResponse:()=>null},'@/lib/supabaseAdmin':{supabaseAdmin:db},'@/lib/growthIngestion.server':{uuid:/^[0-9a-f-]{36}$/i},'@/lib/acquisitionPromotion.server':{promoteAcquisition:()=>assert.fail('No outreach promotion')},'@/lib/acquisitionWorkflow':workflow,'@/lib/personalSignal':helpers});
  const result=await route.POST({json:async()=>({organisationId:org,idempotencyKey:id,action:'personal_responded',confirmed:scenario!=='unconfirmed'})},{params:Promise.resolve({id})});
@@ -74,4 +75,18 @@ test('service-role RPC independently rejects research provenance and non-discuss
  if(!accepted){assert.equal((await db.query('select status from acquisition_items where id=$1',[itemId])).rows[0].status,'new');assert.equal((await db.query('select count(*)::int as count from acquisition_item_events where acquisition_item_id=$1',[itemId])).rows[0].count,0);}
  }
  }finally{await db.close();}
+});
+
+test('platform routing never treats public availability as response permission',()=>{
+ const reddit=sample({source_url:'https://reddit.com/r/test/comments/id',metadata:{...sample().metadata,action_type:'PUBLIC_RESPONSE',content_angle:'Workday boundaries',content_asset_type:'LinkedIn post'}});
+ assert.equal(helpers.personalSignal(reddit),null);assert.equal(helpers.contentSignal(reddit).reply,null);assert.equal(helpers.contentSignal(reddit).original,reddit.metadata.original_post);
+ for(const action of ['route_responses','mark_engaged','mark_converted',...helpers.personalSignalActions])assert.equal(helpers.personalSocialActionAllowed(reddit,action),false);
+ assert.equal(helpers.personalSocialActionAllowed(reddit,'create_content_draft'),true);
+ assert.ok(helpers.personalSignal(sample()));
+ for(const url of ['https://facebook.com/user/posts/id','https://instagram.com/p/id','https://x.com/user/status/id','https://tiktok.com/@user/video/id','https://threads.net/@user/post/id']) {
+  const item=sample({source_url:url});assert.equal(helpers.personalSocialActionType(item),'CONTENT_SIGNAL');
+  assert.equal(helpers.personalSocialActionType({...item,metadata:{...item.metadata,action_type:'PUBLIC_RESPONSE',public_engagement_surface_verified:true}}),'CONTENT_SIGNAL');
+  assert.equal(helpers.personalSocialActionType({...item,metadata:{...item.metadata,action_type:'PUBLIC_RESPONSE',public_engagement_surface_verified:true,public_engagement_surface_evidence:'Owned Root public engagement surface confirmed'}}),'PUBLIC_RESPONSE');
+ }
+ assert.equal(helpers.contentSignal(sample({metadata:{...sample().metadata,action_type:'CONTENT_SIGNAL',original_post:'I want to kill myself'}})),null);
 });
