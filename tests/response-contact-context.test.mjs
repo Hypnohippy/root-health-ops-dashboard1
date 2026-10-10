@@ -45,7 +45,7 @@ test("Responses briefing and AI Suggest use the same server-enriched tenant cont
   const ai=fs.readFileSync("app/api/ai/root-coach/route.ts","utf8");
   assert.match(ui,/Why this contact matters/); assert.match(ui,/Message type:/); assert.match(ui,/inboxItemId: selected\.id/);
   assert.doesNotMatch(ui,/No linked contact history was found/);
-  assert.match(route,/requireOrganisation\(requested, false\)/); assert.match(server,/readLifecycleInput\(organisationId\)/); assert.match(server,/buildContactLifecycle\(organisationId, input\)/); assert.match(server,/presentResponseLifecycle\(contact, item\)/);
+  assert.match(route,/requireOrganisation\(requested, false\)/); assert.match(server,/readLifecycleInput\(organisationId\)/); assert.match(server,/buildContactLifecycle\(organisationId, input\)/); assert.match(server,/responseLifecycleMap\(organisationId, input\)\.get\(item\.id\)/);
   assert.match(ai,/getResponseContactContext\(tenant\.organisationId, inboxItemId/); assert.match(ai,/Drafting hierarchy: current unified lifecycle stage/);
 });
 

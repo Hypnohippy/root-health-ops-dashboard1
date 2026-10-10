@@ -12,7 +12,7 @@ function load(file, dependencies = {}, globals = {}) {
     { module: mod, exports: mod.exports, URL, require: name => { assert.ok(name in dependencies, `Unexpected dependency: ${name}`); return dependencies[name]; }, ...globals }, { filename: file });
   return mod.exports;
 }
-const outreach = load("lib/growthOutreach.ts");
+const outreach = load("lib/growthOutreach.ts", { "@/lib/linkedinSendEvidence": load("lib/linkedinSendEvidence.ts") });
 const lifecycle = load("lib/contactLifecycle.ts", { "@/lib/engineState": load("lib/engineState.ts"), "@/lib/growthOutreach": outreach });
 const presentation = load("lib/responseLifecycle.ts", { "@/lib/contactLifecycle": lifecycle });
 const context = load("lib/responseContactContext.ts");
@@ -21,16 +21,16 @@ const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", ID = "bbbbbbbb-bbbb-4bbb-8bbb-
 const NOW = Date.parse("2026-09-25T12:00:00Z");
 const base = { organisation_id: A, linkedin_identity: "linkedin.com/in/contact" };
 const item = (platform, fields = {}) => ({ ...base, id: ID, platform, kind: platform === "linkedin" ? "connection_accepted" : platform === "email" ? "email_reply" : "comment", status: "needs_reply", response_state: "needs_reply", author_name: "Contact", text: "Original event", created_at_platform: "2026-09-01", ...fields });
-const target = (fields = {}) => ({ ...base, id: "target", target_name: "Contact", status: "active", stage: "connection", ...fields });
+const target = (fields = {}) => ({ ...base, id: "target", target_name: "Contact", status: "active", stage: "connection", manual_completion: fields.last_action_at ? { key: "fixture", actor: "fixture", evidence: "confirmed", message: "Sent text", stage: "connection", sent_at: fields.last_action_at, confirmed_at: fields.last_action_at, historical_send_date_status: "verified" } : null, ...fields });
 const input = (inbox_items, growth_targets = [], acquisition_items = []) => ({ inbox_items, growth_targets, acquisition_items });
 const project = data => presentation.responseLifecycleMap(A, data, NOW).get(ID);
 
 test("LinkedIn acceptance reflects contacted, due, engaged, parked and commercial lifecycle", () => {
   assert.equal(project(input([item("linkedin")])).label, "First message opportunity");
   const contacted = project(input([item("linkedin", { status: "replied", contacted_at: "2026-09-24T12:00:00Z" })]));
-  assert.equal(contacted.label, "Contacted / follow-up scheduled");
-  assert.equal(contacted.canMarkContacted, false); assert.equal(contacted.draftOnRequest, true);
-  assert.equal(contacted.nextDueDate, "2026-09-27T12:00:00.000Z");
+  assert.equal(contacted.label, "Contacted / waiting");
+  assert.equal(contacted.canMarkContacted, false); assert.equal(contacted.draftOnRequest, false);
+  assert.equal(contacted.nextDueDate, null);
   for (const [fields, expected] of [
     [{ stage: "day3_dm", last_action_at: "2026-09-20" }, "Follow-up due"],
     [{ stage: "connection", last_action_at: "2026-09-24" }, "Contacted / follow-up scheduled"],
@@ -135,8 +135,8 @@ test("AI blocks terminal, waiting and obsolete events before provider calls and 
   const pending = project(input([item("linkedin", { status: "replied", contacted_at: "2026-09-24" })]));
   const f = aiFixture(pending);
   assert.equal((await f.run()).status, 409); assert.equal(f.prompts.length, 0);
-  assert.equal((await f.run({ requestedLifecycleDraft: true })).status, 200);
-  assert.match(JSON.stringify(f.prompts[0]), /unified current lifecycle is authoritative/i);
+  assert.equal((await f.run({ requestedLifecycleDraft: true })).status, 409);
+  assert.equal(f.prompts.length, 0);
 });
 
 test("AI uses verified current stage, rejects missing identity and discards a draft if state changes", async () => {
@@ -155,7 +155,7 @@ test("list and context share lifecycle projection, UI refreshes recorded actions
   const server = fs.readFileSync("lib/responseContactContext.server.ts", "utf8");
   const ui = fs.readFileSync("app/dashboard/responses/page.tsx", "utf8");
   assert.match(list, /responseLifecycleMap\(verified.organisationId, input\)/);
-  assert.match(server, /presentResponseLifecycle\(contact, item\)/);
+  assert.match(server, /responseLifecycleMap\(organisationId, input\)/);
   assert.match(ui, /customerStatus = .*lifecycle\?\.label/);
   assert.match(ui, /selected.lifecycle\?\.canMarkContacted/);
   assert.match(ui, /<ManualTakeover key=\{selected.id\}.*onComplete=\{async.*await load\(\)/);
@@ -187,4 +187,138 @@ test("server list and drafting context return the same advanced lifecycle across
     assert.equal(result.status, 200);
     assert.deepEqual(JSON.parse(JSON.stringify(result.body.items[0].lifecycle)), JSON.parse(JSON.stringify(briefing.lifecycle)));
   }
+});
+
+const threadedEmail = (id, at, fields = {}) => item("email", { id, linkedin_identity: null, sender_email: "chair@isma.org.uk", email_thread_id: "gmail-thread", created_at_platform: at, ...fields });
+const sentReply = () => threadedEmail("sent", "2026-10-09T09:00:00Z", { status: "replied", response_state: "engaged", email_delivery_status: "sent", email_sent_at: "2026-10-10T10:00:00Z" });
+
+test("ISMA-type successful thread reply handles all earlier questions without rewriting history", () => {
+  const old = [7, 8, 9].map(day => threadedEmail(`old-${day}`, `2026-10-0${day}T09:00:00Z`));
+  old.push(threadedEmail("equal", "2026-10-10T10:00:00Z"));
+  const data = input([...old, sentReply()]), before = JSON.stringify(data);
+  const contacts = lifecycle.buildContactLifecycle(A, data, NOW);
+  assert.equal(contacts[0].currentStage, "waiting");
+  const map = presentation.responseLifecycleMap(A, data, NOW);
+  for (const row of old) {
+    assert.equal(map.get(row.id).label, "No action due");
+    assert.equal(map.get(row.id).humanActionRequired, false);
+    assert.equal(map.get(row.id).canDraft, false);
+  }
+  assert.equal([...map.values()].filter(s => s.humanActionRequired).length, 0);
+  assert.equal(JSON.stringify(data), before);
+});
+
+test("new inbound after latest successful reply remains actionable; old events remain history", () => {
+  const old = threadedEmail("old", "2026-10-08"), fresh = threadedEmail("fresh", "2026-10-11");
+  const data = input([old, sentReply(), fresh]);
+  const map = presentation.responseLifecycleMap(A, data, NOW);
+  assert.equal(lifecycle.buildContactLifecycle(A, data, NOW)[0].currentStage, "needs_reply");
+  assert.equal(map.get("fresh").label, "Needs reply"); assert.equal(map.get("fresh").canDraft, true);
+  assert.equal(map.get("old").label, "No action due"); assert.equal(map.get("old").humanActionRequired, false);
+});
+
+test("thread suppression never guesses from sender, subject, missing IDs or invalid send evidence", () => {
+  for (const fields of [{ email_thread_id: "other" }, { email_thread_id: null }, { email_thread_id: "" }, { created_at_platform: "invalid", inserted_at: null }]) {
+    const data = input([threadedEmail("old", "2026-10-08", fields), sentReply()]);
+    assert.equal(presentation.responseLifecycleMap(A, data, NOW).get("old").label, "Needs reply");
+  }
+  for (const fields of [{ email_delivery_status: "failed" }, { email_delivery_status: null }, { email_sent_at: "invalid" }, { email_sent_at: null }]) {
+    const data = input([threadedEmail("old", "2026-10-08"), { ...sentReply(), ...fields }]);
+    assert.equal(presentation.responseLifecycleMap(A, data, NOW).get("old").label, "Needs reply");
+  }
+  const foreign = { ...sentReply(), organisation_id: "another-tenant" };
+  assert.equal(presentation.responseLifecycleMap(A, input([threadedEmail("old", "2026-10-08"), foreign]), NOW).get("old").label, "Needs reply");
+});
+
+test("thread handling preserves bounce, redirect, explicit follow-up and stronger relationship outcomes", () => {
+  for (const fields of [{ email_classification: "bounce", response_state: "closed_or_lost" }, { email_classification: "redirect" }, { response_state: "follow_up", follow_up_at: "2026-09-24" }]) {
+    const row = threadedEmail("special", "2026-10-08", fields);
+    const map = presentation.responseLifecycleMap(A, input([row, sentReply()]), NOW);
+    assert.equal(map.get("special").humanActionRequired, true);
+  }
+  for (const [fields, label] of [[{ deal_stage: "meeting" }, "Meeting"], [{ deal_stage: "converted" }, "Converted"], [{ deal_stage: "lost" }, "Closed / lost"], [{ stage: "parked" }, "Nurture"]]) {
+    const data = input([threadedEmail("old", "2026-10-08"), sentReply()], [target({ ...fields, linkedin_identity: null, email: "chair@isma.org.uk" })]);
+    const map = presentation.responseLifecycleMap(A, data, NOW);
+    assert.equal(map.get("old").label, label); assert.equal(map.get("old").humanActionRequired, false); assert.equal(map.get("old").canDraft, false);
+  }
+});
+
+test("latest verified send handles intervening inbound; list excludes handled history from Needs action", async () => {
+  const first = { ...sentReply(), id: "first", email_sent_at: "2026-10-08T10:00:00Z" };
+  const middle = threadedEmail("middle", "2026-10-09T09:00:00Z");
+  const data = input([first, middle, sentReply()]);
+  const list = load("app/api/responses/list/route.ts", {
+    "@/lib/lifecycleSnapshot.server": { readLifecycleInput: async () => data },
+    "@/lib/responseLifecycle": presentation,
+    "next/server": { NextResponse: { json: (body, options) => ({ body, ...options }) } },
+    "@/lib/tenantAuth": { requireOrganisation: async () => ({ organisationId: A }), accessErrorResponse: () => null },
+  });
+  const response = await list.GET({ url: `https://ops.example/api/responses/list?organisationId=${A}` });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.items.length, 3);
+  assert.equal(response.body.items.filter(row => row.lifecycle.humanActionRequired).length, 0);
+  assert.equal(response.body.items.find(row => row.id === "middle").lifecycle.label, "No action due");
+});
+
+test("same sender threads are independent in list, selected context and action counts", async () => {
+  const aOld = threadedEmail("a-old", "2026-10-07", { email_thread_id: "thread-A", response_updated_at: "2026-10-12" });
+  const aCurrent = threadedEmail("a-current", "2026-10-09", { email_thread_id: "thread-A" });
+  const bOld = threadedEmail("b-old", "2026-10-08");
+  const bSent = sentReply();
+  const data = input([aOld, aCurrent, bOld, bSent]);
+  assert.equal(lifecycle.buildContactLifecycle(A, data, NOW).length, 1); // CRM relationship retained.
+  assert.equal(lifecycle.buildContactLifecycle(A, data, NOW)[0].currentStage, "needs_reply");
+  const map = presentation.responseLifecycleMap(A, data, NOW);
+  assert.equal(map.get("sent").label, "Waiting");
+  assert.equal(map.get("sent").actionItemId, null);
+  assert.equal(map.get("sent").canDraft, false);
+  assert.equal(map.get("sent").humanActionRequired, false);
+  assert.equal(map.get("sent").lastAction.id, "sent");
+  assert.equal(map.get("b-old").label, "No action due");
+  assert.equal(map.get("a-old").label, "No action due");
+  assert.equal(map.get("a-current").label, "Needs reply");
+  assert.equal(map.get("a-current").actionItemId, "a-current");
+  assert.equal(map.get("a-current").canDraft, true);
+  assert.equal([...map.values()].filter(state => state.humanActionRequired).length, 1);
+
+  const dependencies = {
+    "@/lib/lifecycleSnapshot.server": { readLifecycleInput: async () => data },
+    "@/lib/contactLifecycle": lifecycle, "@/lib/responseLifecycle": presentation,
+    "@/lib/responseContactContext": context,
+    "@/lib/socialCommentOpportunity": { socialCommentOpportunity: () => null },
+    "@/lib/connectionHealth": { connectionState: () => "not_connected" },
+    "@/lib/supabaseAdmin": { supabaseAdmin: { from: () => { throw Error("Unexpected DB call"); } } },
+  };
+  const server = load("lib/responseContactContext.server.ts", dependencies);
+  const profile = { customers: { audience: "", problems: [] }, offer: { priorityServices: [] } };
+  const selected = await server.getResponseContactContext(A, "sent", profile);
+  assert.equal(selected.currentStage, "Waiting");
+  assert.equal(selected.lifecycle.humanActionRequired, false);
+  assert.equal(selected.lifecycle.actionItemId, null);
+  const list = load("app/api/responses/list/route.ts", { ...dependencies,
+    "next/server": { NextResponse: { json: (body, options) => ({ body, ...options }) } },
+    "@/lib/tenantAuth": { requireOrganisation: async () => ({ organisationId: A }), accessErrorResponse: () => null },
+  });
+  const result = await list.GET({ url: `https://ops.example/api/responses/list?organisationId=${A}` });
+  assert.equal(result.body.items.filter(row => row.lifecycle.humanActionRequired).length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.body.items.find(row => row.id === "sent").lifecycle)), JSON.parse(JSON.stringify(selected.lifecycle)));
+});
+
+test("new reply in answered thread has its own action owner without leaking other thread state", () => {
+  const data = input([threadedEmail("a", "2026-10-12", { email_thread_id: "thread-A" }), sentReply(),
+    threadedEmail("b-fresh", "2026-10-11"), threadedEmail("b-old", "2026-10-08", { response_state: "engaged", status: "replied" })]);
+  const map = presentation.responseLifecycleMap(A, data, NOW);
+  assert.equal(map.get("b-fresh").label, "Needs reply"); assert.equal(map.get("b-fresh").actionItemId, "b-fresh");
+  assert.equal(map.get("b-fresh").canDraft, true);
+  assert.equal(map.get("a").actionItemId, "a");
+  assert.equal(map.get("sent").humanActionRequired, false);
+  assert.equal(map.get("b-old").humanActionRequired, false);
+  assert.equal([...map.values()].filter(state => state.humanActionRequired).length, 2);
+});
+
+test("a Gmail thread spans participants but never subject or sender aliases", () => {
+  const data = input([threadedEmail("different-participant", "2026-10-08", { sender_email: "another@example.org" }), sentReply()]);
+  const map = presentation.responseLifecycleMap(A, data, NOW);
+  assert.equal(map.get("different-participant").label, "No action due");
+  assert.equal(map.get("different-participant").humanActionRequired, false);
 });
