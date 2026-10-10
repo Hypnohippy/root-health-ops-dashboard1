@@ -7,6 +7,8 @@ import { personalSignalActions, planPersonalSignalAction, personalSocialActionAl
 import { promoteAcquisition } from "@/lib/acquisitionPromotion.server";
 import { personalDistributionKind } from "@/lib/personalDistribution";
 import { routePersonalPublishing } from "@/lib/personalDistribution.server";
+import { readPersonalOpportunities } from "@/lib/personalAcquisition.server";
+import { safePublicDraft } from "@/lib/socialCommentOpportunity";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -26,6 +28,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (readError) throw readError;
     if (!item) return NextResponse.json({ error: "Acquisition item not found." }, { status: 404 });
 
+    if (body.personalPresentation === true) {
+      const group = (await readPersonalOpportunities(organisationId)).find(g => g.members.some(m => m.id === itemId));
+      if (!group || group.blocked || group.item.id !== itemId) throw new AcquisitionWorkflowError("This opportunity has changed or has conflicting completion evidence. Refresh and review its history.", 409);
+      if (body.action === "personal_responded" && (typeof body.message !== "string" || !safePublicDraft(body.message))) throw new AcquisitionWorkflowError("Review a safe response before confirming it was posted.");
+      if (body.brief !== undefined && (personalDistributionKind(item) !== "SEARCH_ASSET" || typeof body.brief !== "string" || !body.brief.trim() || body.brief.length > 12000)) throw new AcquisitionWorkflowError("A valid editorial brief is required.");
+    }
+
     if (!personalSocialActionAllowed(item,body.action)) throw new AcquisitionWorkflowError("Content Signals cannot be used for personal response or engagement actions.");
     if (personalDistributionKind(item) === "SOCIAL_CONTENT" && ["create_content_draft", "route_publishing"].includes(body.action)) {
       if (process.env.PERSONAL_DISTRIBUTION_ENABLED !== "true") return NextResponse.json({ error: "Personal publishing handoff is not enabled yet. Your draft has been retained." }, { status: 503 });
@@ -43,7 +52,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         if (error?.message?.includes("acquisition_item_changed")) throw new AcquisitionWorkflowError("This item changed. Refresh and try again.", 409);
         if (error) throw error;
       }
-      return NextResponse.json({ success: true, duplicate: Boolean(duplicate), scheduledPostId: publication.id,
+      let savedDraft: string | undefined;
+      if (body.personalPresentation === true) {
+        const result = await supabaseAdmin.from("scheduled_posts").select("message").eq("organisation_id", organisationId).eq("id", publication.id).maybeSingle();
+        if (result.error) throw result.error;
+        savedDraft = result.data?.message;
+      }
+      return NextResponse.json({ success: true, duplicate: Boolean(duplicate), scheduledPostId: publication.id, ...(savedDraft !== undefined ? { savedDraft } : {}),
         destination: `/dashboard/approvals?${new URLSearchParams({ organisationId })}` });
     }
     const handoff = item.metadata?.handoff;
@@ -60,7 +75,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (prior) return NextResponse.json({success:true,item,duplicate:true,destination:null});
     }
     const plan = personal ? planPersonalSignalAction(item, body.action, body.confirmed) : planAcquisitionAction(item.record_type, item.status, body.action, body.outcome);
-    const note = typeof body.note === "string" ? body.note.trim().slice(0, 2000) : null;
+    const note = body.personalPresentation === true && body.action === "personal_responded" ? `Manually confirmed public response:\n${body.message}` : typeof body.note === "string" ? body.note.trim().slice(0, 2000) : null;
     const { data, error } = await supabaseAdmin.rpc("apply_acquisition_action", {
       p_organisation_id: organisationId, p_item_id: itemId, p_actor_user_id: userId,
       p_expected_status: item.status, p_action: plan.action, p_new_status: plan.nextStatus,
@@ -75,7 +90,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const { data: savedBrief, error: briefError } = await supabaseAdmin.from("acquisition_items").update({ metadata: { ...updated.metadata,
         personal_distribution: { asset_type: "SEARCH_ASSET", campaign_id: `pa-${itemId}`, acquisition_id: itemId,
           source_engine: item.source_engine, source_record_id: item.source_record_id, manual_publication_required: true,
-          brief: `Educational article brief: ${item.signal || item.reason || "Review the verified search demand"}. Explain the topic in general terms, offer practical ideas without diagnosis or guarantees, and include the Root Capacity Check as an optional next step. Requires editorial review and manual website publication.`,
+          brief: body.personalPresentation === true && typeof body.brief === "string" ? body.brief : `Educational article brief: ${item.signal || item.reason || "Review the verified search demand"}. Explain the topic in general terms, offer practical ideas without diagnosis or guarantees, and include the Root Capacity Check as an optional next step. Requires editorial review and manual website publication.`,
           cta_url: `https://www.roothealth.app/capacity-check?${new URLSearchParams({ acquisition_id: itemId, utm_campaign: `pa-${itemId}`, utm_source: "root", utm_medium: "search" })}`,
         } } }).eq("organisation_id", organisationId).eq("id", itemId).eq("updated_at", updated.updated_at).select("id").maybeSingle();
       if (briefError) throw briefError;

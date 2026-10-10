@@ -12,7 +12,7 @@ const USER = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 function load(file, mocks={}, globals={}) {
   const mod={exports:{}};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,jsx:ts.JsxEmit.ReactJSX}}).outputText, {
-    module:mod,exports:mod.exports,require:name=>name in mocks?mocks[name]:["./PersonalSignalCard","./PersonalDistributionPanel"].includes(name)?{__esModule:true,default:()=>null}:name.startsWith("@/lib/")?load(name.replace("@/","")+".ts",mocks,globals):nodeRequire(name),URL,URLSearchParams,Request,Response,Headers,Buffer,console,process:{env:{}},...globals,
+    module:mod,exports:mod.exports,require:name=>name in mocks?mocks[name]:["./PersonalSignalCard","./PersonalDistributionPanel","./PersonalAcquisition"].includes(name)?{__esModule:true,default:()=>null}:name.startsWith("@/lib/")?load(name.replace("@/","")+".ts",mocks,globals):nodeRequire(name),URL,URLSearchParams,AbortSignal,Request,Response,Headers,Buffer,console,process:{env:{}},...globals,
   },{filename:file}); return mod.exports;
 }
 const workflow=load("lib/acquisitionWorkflow.ts");
@@ -119,7 +119,7 @@ test("queue UI offers prepared drafts but contains no send, publish or public-re
   for(const type of ["b2b_lead","personal_opportunity","partner_opportunity","social_opportunity"]) assert.ok(ui.includes(type));
   for(const key of ["prepared_outreach","outreach_draft","prepared_draft","content_draft","reply_draft"]) assert.ok(ui.includes(key));
   assert.equal(/fetch\([^\n]*(publish|reply|send)|\/api\/(quick-blast|publish|responses)/i.test(ui),false);
-  assert.ok(ui.includes("Nothing here sends, publishes or replies automatically."));
+  assert.ok(ui.includes("Nothing sends or publishes automatically."));
   assert.ok(ui.includes('min-h-[78px]'));
   assert.ok(ui.includes("expandedId===item.id"));
   assert.ok(ui.includes('bg-slate-950 text-slate-100'));
