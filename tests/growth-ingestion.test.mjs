@@ -27,16 +27,17 @@ test("queue composes strictly validated type, status and item filters with tenan
   }))));
   let reads=0;
   const admin={from(table){
-    reads++;assert.equal(table,"acquisition_items");const filters={},orders=[];let bounds;
+    reads++;assert.equal(table,"acquisition_items");const filters={},orders=[];let bounds;let personal=false;
     const query={
       select(columns,options){assert.ok(columns.includes("acquisition_item_events("));assert.equal(options.count,"exact");return query;},
       eq(key,value){filters[key]=value;return query;},
+      or(expression){assert.equal(expression,"record_type.eq.personal_opportunity,and(record_type.eq.social_opportunity,source_engine.eq.root_health_personal)");personal=true;return query;},
       order(key,options){orders.push([key,options]);return query;},
       range(start,end){bounds=[start,end];return query;},
       then(resolve){
         assert.equal(filters.organisation_id,A);
         assert.equal(JSON.stringify(orders),JSON.stringify([["created_at",{ascending:false}],["id",undefined]]));
-        const matched=rows.filter(row=>Object.entries(filters).every(([key,value])=>row[key]===value))
+        const matched=rows.filter(row=>Object.entries(filters).every(([key,value])=>row[key]===value)&&(!personal||row.record_type==="personal_opportunity"||(row.record_type==="social_opportunity"&&row.source_engine==="root_health_personal")))
           .sort((a,b)=>b.created_at.localeCompare(a.created_at)||a.id.localeCompare(b.id));
         return Promise.resolve({data:matched.slice(bounds[0],bounds[1]+1),count:matched.length,error:null}).then(resolve);
       },

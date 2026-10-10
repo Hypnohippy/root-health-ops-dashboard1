@@ -3,6 +3,7 @@ import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { uuid } from "@/lib/growthIngestion.server";
 import { AcquisitionWorkflowError, planAcquisitionAction, routeUrl, acquisitionDestination } from "@/lib/acquisitionWorkflow";
+import { personalSignalActions, planPersonalSignalAction, personalSocialActionAllowed } from "@/lib/personalSignal";
 import { promoteAcquisition } from "@/lib/acquisitionPromotion.server";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -18,11 +19,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         typeof body.note === "string" ? body.note.trim().slice(0, 2000) : null));
     }
     const { data: item, error: readError } = await supabaseAdmin.from("acquisition_items")
-      .select("id, organisation_id, record_type, status, metadata")
+      .select("id, organisation_id, record_type, status, metadata, source_engine, source_record_id, source_url, reason, signal, evidence, acquisition_item_events(action, created_at, idempotency_key)")
       .eq("id", itemId).eq("organisation_id", organisationId).maybeSingle();
     if (readError) throw readError;
     if (!item) return NextResponse.json({ error: "Acquisition item not found." }, { status: 404 });
 
+    if (!personalSocialActionAllowed(item,body.action)) throw new AcquisitionWorkflowError("Content Signals cannot be used for personal response or engagement actions.");
     const handoff = item.metadata?.handoff;
     if (handoff?.action === body.action && handoff.destination === acquisitionDestination(body.action) && handoff.idempotency_key) {
       const { data: receipt, error: receiptError } = await supabaseAdmin.from("acquisition_item_events").select("id")
@@ -30,14 +32,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (receiptError) throw receiptError;
       if (receipt) return NextResponse.json({ success: true, item, duplicate: true, destination: routeUrl(handoff.destination, organisationId, itemId) });
     }
-    const plan = planAcquisitionAction(item.record_type, item.status, body.action, body.outcome);
+    const personal = personalSignalActions.includes(body.action);
+    if (personal) {
+      const prior = item.acquisition_item_events?.find((event: {idempotency_key:string}) => event.idempotency_key === body.idempotencyKey);
+      if (prior && prior.action !== body.action) throw new AcquisitionWorkflowError("Request key was already used for another action.",409);
+      if (prior) return NextResponse.json({success:true,item,duplicate:true,destination:null});
+    }
+    const plan = personal ? planPersonalSignalAction(item, body.action, body.confirmed) : planAcquisitionAction(item.record_type, item.status, body.action, body.outcome);
     const note = typeof body.note === "string" ? body.note.trim().slice(0, 2000) : null;
     const { data, error } = await supabaseAdmin.rpc("apply_acquisition_action", {
       p_organisation_id: organisationId, p_item_id: itemId, p_actor_user_id: userId,
       p_expected_status: item.status, p_action: plan.action, p_new_status: plan.nextStatus,
       p_outcome: plan.outcome, p_note: note || null, p_idempotency_key: body.idempotencyKey,
-      p_marks_actioned: ["prepare_outreach", "route_outreach", "create_content_draft", "route_campaign", "route_publishing", "route_responses", "mark_actioned"].includes(plan.action),
+      p_marks_actioned: personal ? body.action === "personal_responded" : ["prepare_outreach", "route_outreach", "create_content_draft", "route_campaign", "route_publishing", "route_responses", "mark_actioned"].includes(plan.action),
     });
+    if (personal && error?.message?.includes("handoff_required")) return NextResponse.json({error:"Personal Signal confirmations are not enabled yet. No funnel change was saved."},{status:503});
     if (error?.message?.includes("acquisition_item_changed")) return NextResponse.json({ error: "This item changed. Refresh and try again." }, { status: 409 });
     if (error) throw error;
     return NextResponse.json({ success: true, item: data?.[0], destination: routeUrl(plan.destination, organisationId, itemId) });
