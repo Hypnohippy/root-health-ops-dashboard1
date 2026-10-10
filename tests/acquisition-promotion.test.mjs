@@ -10,7 +10,7 @@ const require=createRequire(import.meta.url);
 function load(file,mocks={},globals={}) {
   const mod={exports:{}};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,
-    {module:mod,exports:mod.exports,URL,URLSearchParams,Date,console,...globals,require:n=>n in mocks?mocks[n]:['./PartnerConversation','./ManualOpportunity','./PersonalSignalCard','./PersonalDistributionPanel'].includes(n)?{__esModule:true,default:()=>null}:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});
+    {module:mod,exports:mod.exports,URL,URLSearchParams,AbortSignal,Date,console,...globals,require:n=>n in mocks?mocks[n]:['./PartnerConversation','./ManualOpportunity','./PersonalSignalCard','./PersonalDistributionPanel','./PersonalAcquisition'].includes(n)?{__esModule:true,default:()=>null}:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});
   return mod.exports;
 }
 const promotion=load('lib/acquisitionPromotion.server.ts',{'@/lib/supabaseAdmin':{}});
@@ -163,7 +163,7 @@ test('queue has one Start outreach action, follows real target destination, and 
   const react={useState(initial){const i=index++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return [state[i],v=>state[i]=typeof v==='function'?v(state[i]):v];},useEffect(){},useCallback:fn=>fn};
   const item={...sample(),id,acquisition_item_events:[]};
   const url=`/dashboard/growth/pipeline?organisationId=${A}&targetId=${targetId}&acquisitionItemId=${id}`;
-  const Page=load('app/dashboard/growth/acquisition/page.tsx',{react},{crypto:{randomUUID},window:{location:{href:'https://ops.test/dashboard/growth/acquisition',search:'',assign:value=>destination=value}},fetch:async(path,options)=>{calls.push([path,options]);return {ok:true,json:async()=>options?.method==='POST'?{success:true,destination:url}:{items:[item],total:1}};}}).default;
+  const Page=load('app/dashboard/growth/acquisition/page.tsx',{react},{crypto:{randomUUID},window:{location:{href:'https://ops.test/dashboard/growth/acquisition?record_type=b2b_lead',search:'?record_type=b2b_lead',assign:value=>destination=value}},fetch:async(path,options)=>{calls.push([path,options]);return {ok:true,json:async()=>options?.method==='POST'?{success:true,destination:url}:{items:[item],total:1}};}}).default;
   const render=()=>{index=0;return Page();};render();state[1]=A;state[2]=false;state[4]=[item];state[7]=1;state[12]=id;
   const buttons=nodes(render(),'button').filter(n=>JSON.stringify(n.props.children).includes('outreach'));
   assert.equal(buttons.length,1);assert.equal(buttons[0].props.children,'Start outreach');buttons[0].props.onClick();
@@ -265,7 +265,7 @@ test('source response CTA requires matching issue or explicitly classified human
 test('acquisition cards retain human New status and separately show projected source state on desktop and mobile',()=>{
   const state=[];let index=0;
   const react={useState(initial){const i=index++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return [state[i],v=>state[i]=v];},useEffect(){},useCallback:fn=>fn};
-  const Page=load('app/dashboard/growth/acquisition/page.tsx',{react},{window:{location:{href:'https://ops.test/dashboard/growth/acquisition',search:''}}}).default;
+  const Page=load('app/dashboard/growth/acquisition/page.tsx',{react},{window:{location:{href:'https://ops.test/dashboard/growth/acquisition?record_type=b2b_lead',search:'?record_type=b2b_lead'}}}).default;
   const render=()=>{index=0;return Page();};render();state[1]=A;state[2]=false;
   for(const [engine_state,label] of [[{status:'sent'},'Waiting · Sent'],[{status:'replied'},'Engaged · Replied'],[{status:'human_reply_required'},'Needs Reply · Human Reply Required'],[{status:'nurture'},'Nurture'],[{status:'bounced'},'Waiting · Delivery Issue'],[null,null]]) {
     const item={...sample({status:'new',record_type:'partner_opportunity'}),id:'ukihca',entity:'UKIHCA',engine_state};state[4]=[item];state[7]=1;state[12]=item.id;
@@ -310,7 +310,7 @@ test('end-to-end: Accept and Start outreach traverse real routes and SQL into th
     const state=[];let index=0,destination;
     const react={useState(initial){const i=index++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return [state[i],v=>state[i]=typeof v==='function'?v(state[i]):v];},useEffect(){},useCallback:fn=>fn};
     let finished;const navigated=new Promise(resolve=>finished=resolve);
-    const Page=load('app/dashboard/growth/acquisition/page.tsx',{react},{crypto:{randomUUID},window:{location:{href:'https://ops.test/dashboard/growth/acquisition',search:'',assign:url=>{destination=url;finished();}}},
+    const Page=load('app/dashboard/growth/acquisition/page.tsx',{react},{crypto:{randomUUID},window:{location:{href:'https://ops.test/dashboard/growth/acquisition?record_type=b2b_lead',search:'?record_type=b2b_lead',assign:url=>{destination=url;finished();}}},
       fetch:async(_url,options)=>{const result=options?.method==='POST'?await post(JSON.parse(options.body)):await selected();return {ok:result.status===200,json:async()=>result.body};}}).default;
     const render=()=>{index=0;return Page();};render();state[1]=A;state[2]=false;state[4]=(await selected()).body.items;state[7]=1;state[12]=item.id;
     nodes(render(),'button').find(n=>n.props.children==='Start outreach').props.onClick();
