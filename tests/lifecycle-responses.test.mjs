@@ -155,7 +155,7 @@ test("list and context share lifecycle projection, UI refreshes recorded actions
   const server = fs.readFileSync("lib/responseContactContext.server.ts", "utf8");
   const ui = fs.readFileSync("app/dashboard/responses/page.tsx", "utf8");
   assert.match(list, /responseLifecycleMap\(verified.organisationId, input\)/);
-  assert.match(server, /presentResponseLifecycle\(contact, item\)/);
+  assert.match(server, /responseLifecycleMap\(organisationId, input\)/);
   assert.match(ui, /customerStatus = .*lifecycle\?\.label/);
   assert.match(ui, /selected.lifecycle\?\.canMarkContacted/);
   assert.match(ui, /<ManualTakeover key=\{selected.id\}.*onComplete=\{async.*await load\(\)/);
@@ -258,4 +258,67 @@ test("latest verified send handles intervening inbound; list excludes handled hi
   assert.equal(response.body.items.length, 3);
   assert.equal(response.body.items.filter(row => row.lifecycle.humanActionRequired).length, 0);
   assert.equal(response.body.items.find(row => row.id === "middle").lifecycle.label, "No action due");
+});
+
+test("same sender threads are independent in list, selected context and action counts", async () => {
+  const aOld = threadedEmail("a-old", "2026-10-07", { email_thread_id: "thread-A", response_updated_at: "2026-10-12" });
+  const aCurrent = threadedEmail("a-current", "2026-10-09", { email_thread_id: "thread-A" });
+  const bOld = threadedEmail("b-old", "2026-10-08");
+  const bSent = sentReply();
+  const data = input([aOld, aCurrent, bOld, bSent]);
+  assert.equal(lifecycle.buildContactLifecycle(A, data, NOW).length, 1); // CRM relationship retained.
+  assert.equal(lifecycle.buildContactLifecycle(A, data, NOW)[0].currentStage, "needs_reply");
+  const map = presentation.responseLifecycleMap(A, data, NOW);
+  assert.equal(map.get("sent").label, "Waiting");
+  assert.equal(map.get("sent").actionItemId, null);
+  assert.equal(map.get("sent").canDraft, false);
+  assert.equal(map.get("sent").humanActionRequired, false);
+  assert.equal(map.get("sent").lastAction.id, "sent");
+  assert.equal(map.get("b-old").label, "No action due");
+  assert.equal(map.get("a-old").label, "No action due");
+  assert.equal(map.get("a-current").label, "Needs reply");
+  assert.equal(map.get("a-current").actionItemId, "a-current");
+  assert.equal(map.get("a-current").canDraft, true);
+  assert.equal([...map.values()].filter(state => state.humanActionRequired).length, 1);
+
+  const dependencies = {
+    "@/lib/lifecycleSnapshot.server": { readLifecycleInput: async () => data },
+    "@/lib/contactLifecycle": lifecycle, "@/lib/responseLifecycle": presentation,
+    "@/lib/responseContactContext": context,
+    "@/lib/socialCommentOpportunity": { socialCommentOpportunity: () => null },
+    "@/lib/connectionHealth": { connectionState: () => "not_connected" },
+    "@/lib/supabaseAdmin": { supabaseAdmin: { from: () => { throw Error("Unexpected DB call"); } } },
+  };
+  const server = load("lib/responseContactContext.server.ts", dependencies);
+  const profile = { customers: { audience: "", problems: [] }, offer: { priorityServices: [] } };
+  const selected = await server.getResponseContactContext(A, "sent", profile);
+  assert.equal(selected.currentStage, "Waiting");
+  assert.equal(selected.lifecycle.humanActionRequired, false);
+  assert.equal(selected.lifecycle.actionItemId, null);
+  const list = load("app/api/responses/list/route.ts", { ...dependencies,
+    "next/server": { NextResponse: { json: (body, options) => ({ body, ...options }) } },
+    "@/lib/tenantAuth": { requireOrganisation: async () => ({ organisationId: A }), accessErrorResponse: () => null },
+  });
+  const result = await list.GET({ url: `https://ops.example/api/responses/list?organisationId=${A}` });
+  assert.equal(result.body.items.filter(row => row.lifecycle.humanActionRequired).length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.body.items.find(row => row.id === "sent").lifecycle)), JSON.parse(JSON.stringify(selected.lifecycle)));
+});
+
+test("new reply in answered thread has its own action owner without leaking other thread state", () => {
+  const data = input([threadedEmail("a", "2026-10-12", { email_thread_id: "thread-A" }), sentReply(),
+    threadedEmail("b-fresh", "2026-10-11"), threadedEmail("b-old", "2026-10-08", { response_state: "engaged", status: "replied" })]);
+  const map = presentation.responseLifecycleMap(A, data, NOW);
+  assert.equal(map.get("b-fresh").label, "Needs reply"); assert.equal(map.get("b-fresh").actionItemId, "b-fresh");
+  assert.equal(map.get("b-fresh").canDraft, true);
+  assert.equal(map.get("a").actionItemId, "a");
+  assert.equal(map.get("sent").humanActionRequired, false);
+  assert.equal(map.get("b-old").humanActionRequired, false);
+  assert.equal([...map.values()].filter(state => state.humanActionRequired).length, 2);
+});
+
+test("a Gmail thread spans participants but never subject or sender aliases", () => {
+  const data = input([threadedEmail("different-participant", "2026-10-08", { sender_email: "another@example.org" }), sentReply()]);
+  const map = presentation.responseLifecycleMap(A, data, NOW);
+  assert.equal(map.get("different-participant").label, "No action due");
+  assert.equal(map.get("different-participant").humanActionRequired, false);
 });

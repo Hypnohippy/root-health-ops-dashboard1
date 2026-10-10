@@ -142,7 +142,7 @@ function addAlias(index: Map<string, Set<string>>, alias: string | null, identit
 }
 const unique = (values?: Set<string>) => values?.size === 1 ? [...values][0] : null;
 
-export function buildContactLifecycle(organisationId: string, input: LifecycleInput, now = Date.now()) {
+export function buildContactLifecycle(organisationId: string, input: LifecycleInput, now = Date.now(), emailThreadPresentation = false) {
   if (!organisationId.trim()) throw new Error("Organisation is required.");
   const rows = (Object.keys(input) as LifecycleTable[]).flatMap(table => input[table]
     .filter(row => row.organisation_id === organisationId).map(row => project(table, row)));
@@ -158,7 +158,8 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
     const thread = text(p.row.email_thread_id);
     const inboundAt = date(p.row.created_at_platform) || date(p.row.inserted_at);
     const sentAt = thread ? sentByThread.get(thread) : null;
-    if (p.table === "inbox_items" && p.row.platform === "email" && p.currentStage === "needs_reply" &&
+    if (p.table === "inbox_items" && p.row.platform === "email" && (p.currentStage === "needs_reply" ||
+      emailThreadPresentation && ["engaged", "waiting"].includes(p.currentStage) && !(p.row.email_delivery_status === "sent" && date(p.row.email_sent_at) === sentAt)) &&
       !["bounce", "redirect"].includes(String(p.row.email_classification)) && inboundAt && sentAt && inboundAt <= sentAt) {
       p.currentStage = "no_reply_needed"; p.nextAction = null; p.nextDueDate = null; p.handledEmailHistory = true;
     }
@@ -183,7 +184,8 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
   }
   const groups = new Map<string, Projection[]>();
   for (const p of rows) {
-    const key = strongIdentity(p) || (p.fallback ? unique(names.get(p.fallback)) || `person_org:${p.fallback}` : `record:${rowKey(p)}`);
+    const key = emailThreadPresentation && p.table === "inbox_items" && p.row.platform === "email" && text(p.row.email_thread_id)
+      ? `email_thread:${text(p.row.email_thread_id)}` : strongIdentity(p) || (p.fallback ? unique(names.get(p.fallback)) || `person_org:${p.fallback}` : `record:${rowKey(p)}`);
     const group = groups.get(key) || [];
     group.push(p);
     groups.set(key, group);
@@ -199,6 +201,7 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
       }
     }
     members.sort((a, b) => lifecycleStagePriority[b.currentStage] - lifecycleStagePriority[a.currentStage]
+      || (emailThreadPresentation && a.currentStage === "needs_reply" && b.currentStage === "needs_reply" ? compare(date(b.row.created_at_platform) || date(b.row.inserted_at) || "", date(a.row.created_at_platform) || date(a.row.inserted_at) || "") : 0)
       || compare(b.observedAt || "", a.observedAt || "") || sourcePriority[b.table] - sourcePriority[a.table] || compare(rowKey(a), rowKey(b)));
     const winner = members[0];
     // A pending reply is an action within a meeting relationship, not a stage

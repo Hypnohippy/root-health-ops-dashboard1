@@ -2,7 +2,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { GenerationProfile } from "@/lib/tenantGeneration";
 import { buildContactLifecycle } from "@/lib/contactLifecycle";
 import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
-import { presentResponseLifecycle } from "@/lib/responseLifecycle";
+import { responseLifecycleMap } from "@/lib/responseLifecycle";
 import { socialCommentOpportunity } from "@/lib/socialCommentOpportunity";
 import { connectionState, type HealthAccount } from "@/lib/connectionHealth";
 import { interactionTypeFor, messageTypeLabel, objectiveFor, plainSource, profileFit, type ResponseContactContext } from "@/lib/responseContactContext";
@@ -16,7 +16,7 @@ export async function getResponseContactContext(organisationId: string, itemId: 
   const item = input.inbox_items.find(row => row.id === itemId && row.organisation_id === organisationId);
   if (!item) throw new Error("Response item not found.");
   const contact = buildContactLifecycle(organisationId, input).find(row => row.records.some(ref => ref.table === "inbox_items" && ref.id === itemId))!;
-  const lifecycle = presentResponseLifecycle(contact, item);
+  const lifecycle = responseLifecycleMap(organisationId, input).get(item.id)!;
   let credentialState = "not_connected";
   if (lifecycle.canDraft && item.kind === "comment" && ["facebook", "instagram"].includes(String(item.platform))) {
     const { data: account, error } = await supabaseAdmin.from("social_accounts").select("platform,is_active,page_access_token,token_expires_at,page_name").eq("organisation_id", organisationId).eq("platform", item.platform).eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle();
