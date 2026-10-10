@@ -12,7 +12,7 @@ const USER = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 function load(file, mocks={}, globals={}) {
   const mod={exports:{}};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,jsx:ts.JsxEmit.ReactJSX}}).outputText, {
-    module:mod,exports:mod.exports,require:name=>name in mocks?mocks[name]:name==="./PersonalSignalCard"?{__esModule:true,default:()=>null}:name.startsWith("@/lib/")?load(name.replace("@/","")+".ts",mocks,globals):nodeRequire(name),URL,URLSearchParams,Request,Response,Headers,Buffer,console,process:{env:{}},...globals,
+    module:mod,exports:mod.exports,require:name=>name in mocks?mocks[name]:["./PersonalSignalCard","./PersonalDistributionPanel"].includes(name)?{__esModule:true,default:()=>null}:name.startsWith("@/lib/")?load(name.replace("@/","")+".ts",mocks,globals):nodeRequire(name),URL,URLSearchParams,Request,Response,Headers,Buffer,console,process:{env:{}},...globals,
   },{filename:file}); return mod.exports;
 }
 const workflow=load("lib/acquisitionWorkflow.ts");

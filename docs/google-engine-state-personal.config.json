@@ -43,7 +43,7 @@
       "name": "Social Queue", "record_type": "social_opportunity", "id_header": "Social ID",
       "fields": { "source_url": "Source URL", "evidence": "Context / Question", "signal": "Theme" },
       "state": { "status": "Status", "channel": "Platform", "opportunity_type": "Mode", "last_outbound_at": "Published at" },
-      "metadata": { "queue_row_reference": "Queue row", "risk": "Risk", "generated_at": "Generated", "clicks": "Clicks", "capacity_checks": "Capacity Checks", "destination": "Destination", "original_post": "Original Post", "prepared_reply": "Prepared Reply" },
+      "metadata": { "queue_row_reference": "Queue row", "risk": "Risk", "generated_at": "Generated", "clicks": "Clicks", "capacity_checks": "Capacity Checks", "destination": "Destination", "original_post": "Original Post", "prepared_reply": "Prepared Reply", "content_draft": "Draft" },
       "safety": { "public_context": "Public Context", "consumer_outreach": "Consumer Outreach", "health_targeting": "Health Targeting", "verified_direct_discussion": "Verified Direct Discussion" }
     },
     { "name": "Search Demand", "pending": ["Headers verified live; no stable ID or verified existing composite rule. Search phrase/Theme are mutable; no row-number identity. Personal safety evidence unresolved."] },

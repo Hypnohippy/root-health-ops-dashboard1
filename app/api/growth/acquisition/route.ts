@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordTypes, statuses, uuid } from "@/lib/growthIngestion.server";
+import { personalPerformance } from "@/lib/personalDistribution.server";
 export async function GET(req: Request) {
   try {
     const params = new URL(req.url).searchParams;
@@ -35,7 +36,8 @@ export async function GET(req: Request) {
       if (targetError) throw targetError;
       for (const target of targets || []) linked.add(target.id);
     }
-    return NextResponse.json({ items: (data || []).map(item => ({ ...item,
+    const performance = await personalPerformance(supabaseAdmin, organisationId, data || []);
+    return NextResponse.json({ items: (data || []).map(item => ({ ...item, personalPerformance: performance[item.id] || null,
       outreachTargetId: candidates.includes(item) && linked.has(item.metadata.handoff.target_id) ? item.metadata.handoff.target_id : null,
     })), total: count, page });
   } catch (error) { return accessErrorResponse(error) || NextResponse.json({ error: "Unable to load acquisition queue." }, { status: 503 }); }
