@@ -7,8 +7,8 @@ import ts from "typescript";
 function load(file, dependencies = {}) {
   const mod = { exports: {} };
   const output = ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  vm.runInNewContext(output, { module: mod, exports: mod.exports, URL, require: name => {
-    if (!(name in dependencies)) throw new Error(`Unexpected dependency: ${name}`);
+  vm.runInNewContext(output, { module: mod, exports: mod.exports, URL, Date, require: name => {
+    if (!(name in dependencies)) { if(name.startsWith("@/lib/")) return load(name.replace("@/","")+".ts"); throw new Error(`Unexpected dependency: ${name}`); }
     return dependencies[name];
   } }, { filename: file });
   return mod.exports;
@@ -60,8 +60,8 @@ test("acquisition and response state mappings are exhaustive", () => {
 });
 
 test("growth mapping derives only existing cadence and honours explicit next steps", () => {
-  for (const [stage, expected] of [["day3_followup", "2026-09-23"], ["day7_parity", "2026-09-27"], ["day14_insight", "2026-09-27"]]) {
-    const [contact] = build({ growth_targets: [row("g", { stage, status: "active", last_action_at: "2026-09-20T00:00:00Z" })] });
+  for (const [stage, expected] of [["day3_followup", "2026-09-23"], ["day7_parity", "2026-09-27"], ["day14_insight", "2026-10-04"]]) {
+    const [contact] = build({ growth_targets: [row("g", { stage, status: "active", manual_completion: {key:"receipt",actor:"human",evidence:"Confirmed LinkedIn send",message:"Exact sent message",stage:"connection",sent_at:"2026-09-20T00:00:00Z",confirmed_at:"2026-09-20T00:00:00Z",historical_send_date_status:"verified"}, last_action_at: "2026-09-20T00:00:00Z" })] });
     assert.equal(contact.currentStage, "follow_up");
     assert.equal(contact.nextAction, stage);
     assert.equal(contact.nextDueDate, `${expected}T00:00:00.000Z`);

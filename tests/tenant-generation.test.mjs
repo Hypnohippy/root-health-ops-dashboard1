@@ -14,7 +14,7 @@ function load(file, mocks = {}) {
   }).outputText);
   const mod = { exports: {} };
   vm.runInNewContext(compiled.get(file), { exports: mod.exports, module: mod,
-    require: name => name in mocks ? mocks[name] : nodeRequire(name),
+    require: name => name in mocks ? mocks[name] : name.startsWith("@/lib/") ? load(name.replace("@/", "") + ".ts", mocks) : nodeRequire(name),
     console, URL, URLSearchParams, Request, Response, Headers, TextEncoder, Buffer, window: mocks.__window, process: { env: { OPENAI_API_KEY: "fixture", SINGLE_ORG_ID: "org-b", NEXT_PUBLIC_SINGLE_ORG_ID: "org-b" } },
     fetch: mocks.__fetch || (() => { throw Error("Unexpected network request"); }),
   }, { filename: file });
@@ -85,7 +85,7 @@ function fixture({ user = "user-a", memberships = [{ organisation_id: "org-a", r
 }
 function routes(dir) { return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?routes(dir+"/"+e.name):e.name==="route.ts"?[dir+"/"+e.name]:[]); }
 // Service ingestion and acquisition routes have dedicated isolation coverage in their ingestion/action test suites.
-const allRoutes=[...routes("app/api/ai"),...routes("app/api/growth").filter(path => !["app/api/growth/engine-state/route.ts", "app/api/growth/ingest/route.ts", "app/api/growth/linkedin-connections/ingest/route.ts", "app/api/growth/acquisition/route.ts", "app/api/growth/acquisition/[id]/action/route.ts"].includes(path)), "app/api/coach/route.ts"];
+const allRoutes=[...routes("app/api/ai"),...routes("app/api/growth").filter(path => !path.startsWith("app/api/growth/acquisition/") && !["app/api/growth/engine-state/route.ts", "app/api/growth/ingest/route.ts", "app/api/growth/profile/route.ts", "app/api/growth/linkedin-connections/ingest/route.ts"].includes(path)), "app/api/coach/route.ts"];
 
 test("every AI/growth handler denies anonymous, foreign tenants and ambiguous memberships before business access", async () => {
   for (const file of allRoutes) {

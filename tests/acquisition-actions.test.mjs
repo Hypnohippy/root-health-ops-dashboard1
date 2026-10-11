@@ -10,9 +10,10 @@ const A = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", B = "bbbbbbbb-bbbb-4bbb-8bbb-b
 const ITEM_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", ITEM_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc";
 const USER = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 function load(file, mocks={}, globals={}) {
+  mocks = {"@/lib/personalSourceHealth.server": {requirePersonalSource: async()=>{}}, ...mocks};
   const mod={exports:{}};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,jsx:ts.JsxEmit.ReactJSX}}).outputText, {
-    module:mod,exports:mod.exports,require:name=>name in mocks?mocks[name]:["./PersonalSignalCard","./PersonalDistributionPanel","./LinkedInConnectionOpportunity"].includes(name)?{__esModule:true,default:()=>null}:name.startsWith("@/lib/")?load(name.replace("@/","")+".ts",mocks,globals):nodeRequire(name),URL,URLSearchParams,Request,Response,Headers,Buffer,console,process:{env:{}},...globals,
+    module:mod,exports:mod.exports,require:name=>name in mocks?mocks[name]:["./PersonalSignalCard","./PersonalDistributionPanel","./PersonalAcquisition","./PersonalOpportunityCard","./LinkedInConnectionOpportunity"].includes(name)?{__esModule:true,default:()=>null}:name.startsWith("@/lib/")?load(name.replace("@/","")+".ts",mocks,globals):nodeRequire(name),URL,URLSearchParams,AbortSignal,Request,Response,Headers,Buffer,console,process:{env:{}},...globals,
   },{filename:file}); return mod.exports;
 }
 const workflow=load("lib/acquisitionWorkflow.ts");
@@ -119,7 +120,7 @@ test("queue UI offers prepared drafts but contains no send, publish or public-re
   for(const type of ["b2b_lead","personal_opportunity","partner_opportunity","social_opportunity"]) assert.ok(ui.includes(type));
   for(const key of ["prepared_outreach","outreach_draft","prepared_draft","content_draft","reply_draft"]) assert.ok(ui.includes(key));
   assert.equal(/fetch\([^\n]*(publish|reply|send)|\/api\/(quick-blast|publish|responses)/i.test(ui),false);
-  assert.ok(ui.includes("Nothing here sends, publishes or replies automatically."));
+  assert.ok(ui.includes("Nothing sends or publishes automatically."));
   assert.ok(ui.includes('min-h-[78px]'));
   assert.ok(ui.includes("expandedId===item.id"));
   assert.ok(ui.includes('bg-slate-950 text-slate-100'));

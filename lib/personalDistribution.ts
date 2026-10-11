@@ -1,8 +1,9 @@
 import { contentSignal, personalSignal, type PersonalSignalItem } from "@/lib/personalSignal";
+import { personalRedditSource } from "@/lib/personalOpportunityPolicy";
 
 export type PersonalDistribution = "SEARCH_ASSET" | "SOCIAL_CONTENT" | "PUBLIC_RESPONSE";
 export function personalDistributionKind(item: PersonalSignalItem): PersonalDistribution | null {
-  if (item.source_engine !== "root_health_personal") return null;
+  if (item.source_engine !== "root_health_personal" || personalRedditSource(item)) return null;
   if (personalSignal(item)) return "PUBLIC_RESPONSE";
   if (contentSignal(item)) return "SOCIAL_CONTENT";
   const m = item.metadata || {};

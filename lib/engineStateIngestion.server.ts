@@ -31,8 +31,7 @@ export function parseEngineStateBatch(value: unknown, now = Date.now()) {
       if (record.record_type === "social_opportunity") {
         const url = new URL(record.source_url);
         const host = url.hostname.toLowerCase().replace(/^www\./, "");
-        const direct = ((host === "reddit.com" || host.endsWith(".reddit.com")) && /\/comments\/[^/]+/.test(url.pathname)) ||
-          (["facebook.com", "instagram.com", "threads.net", "threads.com", "linkedin.com", "tiktok.com", "x.com", "twitter.com"].includes(host) && /\/(?:posts|p|post|status|video)\/[^/]+|\/feed\/update\/urn:li:/.test(url.pathname));
+        const direct = (["facebook.com", "instagram.com", "threads.net", "threads.com", "linkedin.com", "tiktok.com", "x.com", "twitter.com"].includes(host) && /\/(?:posts|p|post|status|video)\/[^/]+|\/feed\/update\/urn:li:/.test(url.pathname));
         if (safety.verified_direct_discussion !== true || !direct) throw new IngestionError("Social opportunities require a verified direct public discussion URL.");
       }
       record.metadata = { ...record.metadata, engine_safety: { public_context: true, consumer_outreach: false, health_targeting: false,
