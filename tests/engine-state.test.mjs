@@ -24,7 +24,7 @@ const record = (state = {}, fields = {}) => ({ source_engine: "root_health_b2b",
 const parse = r => parser.parseEngineStateBatch({ organisation_id: A, records: [r] }).records[0];
 const contact = r => lifecycle.buildContactLifecycle(A, { acquisition_items: [{ id: "acq", ...parse(r) }], inbox_items: [], growth_targets: [] }, Date.parse(observed))[0];
 const personal = (type, state = {}, extra = {}) => record({ Status: "new", opportunity_type: "search_demand", ...state }, {
-  source_engine: "root_health_personal", record_type: type, source_url: "https://www.reddit.com/r/example/comments/abc/discussion/",
+  source_engine: "root_health_personal", record_type: type, source_url: "https://www.linkedin.com/posts/abc-discussion/",
   safety: { public_context: true, consumer_outreach: false, health_targeting: false, verified_public_business: true, verified_direct_discussion: true }, ...extra });
 
 test("B2B sheet state maps into the existing lifecycle including due dates and source provenance", () => {
@@ -146,6 +146,7 @@ function runMappedExport(config, sheets) {
   vm.runInNewContext(fs.readFileSync("docs/google-engine-state-export.gs", "utf8"), sandbox);
   const results = sandbox.opsExportEngineState(); return { sent, reads, results };
 }
+const actionHeaders = config => {const a=config.sheets.find(s=>s.name==='Action Outputs');return a?[...new Set([a.id_header,...Object.values(a.fields),...Object.values(a.state),...Object.values(a.metadata),'Notes'].flat())]:[];};
 const liveConfig = engine => JSON.parse(fs.readFileSync(`docs/google-engine-state-${engine}.config.json`, "utf8"));
 
 test("verified live configurations identify exact spreadsheets and isolate only pending tabs/fields", () => {
@@ -157,9 +158,9 @@ test("verified live configurations identify exact spreadsheets and isolate only 
   assert.equal(personalConfig.sheets[0].id_prefix, undefined);
   const social = personalConfig.sheets.find(s => s.name === 'Social Queue');
   const socialHeaders = [...new Set([social.id_header, ...Object.values(social.fields), ...Object.values(social.state), ...Object.values(social.metadata), ...Object.values(social.safety)].flat())];
-  const pending = runMappedExport(personalConfig, { 'Social Queue': [socialHeaders] });
-  assert.equal(pending.sent.length, 0); assert.deepEqual(pending.reads, ["Social Queue"]);
-  assert.deepEqual(Array.from(pending.results, r => r.sheet), ["Partner Outreach", "Acquisition Queue", "Search Demand", "Funnel Events", "Action Outputs", "Leads"]);
+  const pending = runMappedExport(personalConfig, { 'Social Queue': [socialHeaders], 'Action Outputs': [actionHeaders(personalConfig)] });
+  assert.equal(pending.sent.length, 0); assert.deepEqual(pending.reads, ["Social Queue", "Action Outputs"]);
+  assert.deepEqual(Array.from(pending.results, r => r.sheet), ["Partner Outreach", "Acquisition Queue", "Search Demand", "Funnel Events", "Leads"]);
   b2b.sheets[0].pending = [];
   assert.throws(() => runMappedExport(b2b, { Leads: [["Email"], ["contact@example.com"]] }), /Missing or duplicate mapped source header/);
 });
@@ -191,9 +192,9 @@ test("Partner Outreach maps exact source IDs and state, preserves safety gates a
     "Contact name": "Person", "Role / Team": "Partners", Email: "person@example.com", "Contact page": "https://example.com/contact", "Email source URL": "",
     Verification: "uninterpreted source value", "Business context": "Public business partnership", "Draft subject": "PRIVATE DRAFT", "Draft body": "PRIVATE BODY", "Approval status": "pending",
     "Send status": "", "Sent at": "", "Reply status": "", "Reply at": "", "Referral link": "https://example.com/ref", Conversions: 2, Notes: "PRIVATE NOTES" };
-  const exportRow = () => runMappedExport(config, { "Partner Outreach": [Object.keys(values), Object.values(values)] });
+  const exportRow = () => runMappedExport(config, { "Partner Outreach": [Object.keys(values), Object.values(values)], "Action Outputs": [actionHeaders(config)] });
   const first = exportRow(), row = first.sent[0].records[0];
-  assert.equal(first.results.filter(r => r.pending).length, 5); assert.deepEqual(first.reads, ["Partner Outreach"]);
+  assert.equal(first.results.filter(r => r.pending).length, 4); assert.deepEqual(first.reads, ["Partner Outreach", "Action Outputs"]);
   assert.equal(row.source_record_id, "outreach-original-5"); assert.equal(row.metadata.queue_row_reference, "27");
   assert.equal(row.source_url, "https://example.com/contact"); assert.equal(row.state.approval_state, "pending");
   assert.equal(row.state.conversions, "2"); assert.doesNotMatch(JSON.stringify(row), /PRIVATE/);
@@ -208,38 +209,51 @@ test("Partner Outreach maps exact source IDs and state, preserves safety gates a
   assert.equal(contact(exportRow().sent[0].records[0]).currentStage, "needs_reply");
 });
 
-test("Action Outputs stays pending and preserves its existing mapping and no inferred safety", () => {
- const config=liveConfig('personal'),mapping=config.sheets.find(s=>s.name==='Action Outputs');assert.ok(mapping.pending.length);config.sheets=[mapping];mapping.pending=[];
- const headers=[...new Set([mapping.id_header,...Object.values(mapping.fields),...Object.values(mapping.state),...Object.values(mapping.metadata)].flat())];
- const values=Object.fromEntries(headers.map(h=>[h,'']));Object.assign(values,{'Action ID':'action-existing-4','Source URL':'https://example.com/article','Queue row':83,'Review status':'REVIEW','Action type':'CONTENT_BRIEF',Opportunity:'Public content opportunity',Lane:'Intent content'});
- const row=runMappedExport(config,{'Action Outputs':[Object.keys(values),Object.values(values)]}).sent[0].records[0];assert.equal(row.source_record_id,'action-existing-4');assert.equal(row.metadata.queue_row_reference,'83');assert.equal(row.state.approval_state,'REVIEW');assert.equal(row.safety.public_context,undefined);assert.throws(()=>parse(row),/Personal records require public context/);
+test("Action Outputs reads only explicit routed evidence and skips legacy records without inferring safety", () => {
+ const config=liveConfig('personal'),mapping=config.sheets.find(s=>s.name==='Action Outputs');assert.equal(mapping.routed_evidence,true);config.sheets=[mapping];
+ const headers=actionHeaders(config),values=Object.fromEntries(headers.map(h=>[h,'']));Object.assign(values,{'Action ID':'action-existing-4','Source URL':'https://example.com/article','Queue row':83,'Review status':'REVIEW','Action type':'CONTENT_BRIEF',Opportunity:'Public content opportunity',Lane:'Intent content'});
+ const result=runMappedExport(config,{'Action Outputs':[Object.keys(values),Object.values(values)]});assert.equal(result.sent.length,0);assert.equal(result.results[0].skipped_unverified_rows,1);
 });
 
-const socialValues=()=>({'Social ID':'social-new-direct-fixture','Source URL':'https://www.linkedin.com/posts/root-discussion-123','Context / Question':'Discussion about switching off','Theme':'Stress / sleep','Platform':'LinkedIn','Mode':'SOCIAL_CONTEXT','Status':'READY','Published at':'','Queue row':83,'Risk':'LOW','Generated':new Date('2026-10-10T10:00:00Z'),'Clicks':0,'Capacity Checks':0,'Destination':'public post','Draft':'A standalone content draft for editorial review.','Notes':'','Original Post':'  How do you switch off after work? 👋\nExact source text.','Prepared Reply':'What helps you draw a boundary at the end of the day?','Public Context':true,'Consumer Outreach':false,'Health Targeting':false,'Verified Direct Discussion':true});
+const socialValues=()=>({'Social ID':'social-new-direct-fixture','Source URL':'https://www.linkedin.com/posts/root-discussion-123','Context / Question':'Discussion about switching off','Theme':'Stress / sleep','Platform':'LinkedIn','Mode':'SOCIAL_CONTEXT','Status':'READY','Published at':'','Queue row':83,'Risk':'LOW','Generated':new Date('2026-10-10T10:00:00Z'),'Clicks':0,'Capacity Checks':0,'Destination':'public post','Draft':'A standalone content draft for editorial review.','Notes':'Social action: '+encodeURIComponent(JSON.stringify({actionType:'CONTENT_SIGNAL',contentAngle:'Workday boundaries',assetType:'LinkedIn post'})),'Original Post':'  How do you switch off after work? 👋\nExact source text.','Prepared Reply':'What helps you draw a boundary at the end of the day?','Public Context':true,'Consumer Outreach':false,'Health Targeting':false,'Verified Direct Discussion':true});
 function exportSocial(rows){const config=liveConfig('personal'),mapping=config.sheets.find(s=>s.name==='Social Queue');config.sheets=[mapping];const headers=Object.keys(socialValues());return runMappedExport(config,{'Social Queue':[headers,...rows.map(values=>headers.map(h=>values[h]??''))]});}
 test('Social Queue exact fields travel through exporter and existing ingestion into Personal Signal qualification',()=>{
  const values=socialValues(),row=exportSocial([values]).sent[0].records[0],parsed=parse(row);
- assert.equal(row.source_record_id,values['Social ID']);assert.equal(row.metadata.original_post,values['Original Post']);assert.equal(row.metadata.prepared_reply,values['Prepared Reply']);assert.equal(row.evidence,values['Context / Question']);assert.equal(row.signal,values.Theme);assert.equal(row.state.channel,values.Platform);assert.equal(row.state.opportunity_type,values.Mode);assert.equal(row.state.status,values.Status);
+ assert.equal(row.source_record_id,values['Social ID']);assert.equal(row.metadata.original_post,values['Original Post']);assert.equal(row.metadata.prepared_reply,undefined);assert.equal(row.evidence,values['Context / Question']);assert.equal(row.signal,values.Theme);assert.equal(row.state.channel,values.Platform);assert.equal(row.state.opportunity_type,values.Mode);assert.equal(row.state.status,values.Status);
  assert.equal(row.metadata.queue_row_reference,'83');assert.equal(row.metadata.risk,'LOW');assert.equal(row.metadata.generated_at,'2026-10-10T10:00:00.000Z');assert.equal(row.metadata.clicks,'0');assert.equal(row.metadata.capacity_checks,'0');assert.equal(row.metadata.destination,'public post');assert.equal(parsed.metadata.engine_safety.verified_direct_discussion,true);
- const signal=load('lib/personalSignal.ts').personalSignal(parsed);assert.ok(signal);assert.equal(signal.original,values['Original Post']);assert.equal(signal.reply,values['Prepared Reply']);
+ const signal=load('lib/personalSignal.ts').contentSignal(parsed);assert.ok(signal);assert.equal(signal.original,values['Original Post']);assert.equal(signal.reply,null);
  const dated={...values,'Published at':new Date('2026-10-10T11:00:00Z')};assert.equal(exportSocial([dated]).sent[0].records[0].state.last_outbound_at,'2026-10-10T11:00:00.000Z');
 });
 test('legacy/unverified Social rows skip without breaking verified export or borrowing context/risk/status',()=>{
- const valid=socialValues();const bad=[...['Social ID','Original Post','Prepared Reply'].map(h=>({...valid,[h]:''})),...['Public Context','Consumer Outreach','Health Targeting','Verified Direct Discussion'].flatMap(h=>['','LOW','REACTIVE','SENSITIVE',!valid[h]].map(value=>({...valid,[h]:value}))),...['https://vertexaisearch.cloud.google.com/grounding-api-redirect/old','https://example.com/article','https://reddit.com/search/?q=stress','https://reddit.com/?next=/comments/123','https://reddit.com.evil.test/comments/123','https://user@reddit.com/comments/123','https://reddit.com:8443/comments/123','http://x.com/user/status/123'].map(url=>({...valid,'Source URL':url})),...['Search Demand','article','blog','Partner','referrer'].map(Mode=>({...valid,Mode}))];
+ const valid=socialValues();const bad=[...['Social ID','Original Post','Notes'].map(h=>({...valid,[h]:''})),...['Public Context','Consumer Outreach','Health Targeting','Verified Direct Discussion'].flatMap(h=>['','LOW','REACTIVE','SENSITIVE',!valid[h]].map(value=>({...valid,[h]:value}))),...['https://reddit.com/r/test/comments/id','https://vertexaisearch.cloud.google.com/grounding-api-redirect/old','https://example.com/article','https://reddit.com/search/?q=stress','https://reddit.com/?next=/comments/123','https://reddit.com.evil.test/comments/123','https://user@reddit.com/comments/123','https://reddit.com:8443/comments/123','http://x.com/user/status/123'].map(url=>({...valid,'Source URL':url})),...['Search Demand','article','blog','Partner','referrer'].map(Mode=>({...valid,Mode}))];
  const result=exportSocial([...bad,valid]);assert.equal(result.sent.length,1);assert.equal(result.sent[0].records.length,1);assert.equal(result.results[0].skipped_unverified_rows,bad.length);assert.equal(result.sent[0].records[0].metadata.original_post,valid['Original Post']);
  assert.equal(exportSocial(bad).sent.length,0);
 });
 test('all supported direct social URL shapes qualify without following redirects',()=>{
- for(const url of ['https://old.reddit.com/r/test/comments/id/topic','https://m.facebook.com/user/posts/id','https://facebook.com/story.php?story_fbid=123&id=456','https://facebook.com/user/videos/id','https://facebook.com/reel/id','https://instagram.com/p/id','https://instagram.com/reel/id','https://threads.net/@user/post/id','https://threads.com/@user/post/id','https://x.com/user/status/id','https://twitter.com/user/status/id','https://linkedin.com/posts/user-id','https://linkedin.com/feed/update/urn:li:activity:123','https://tiktok.com/@user/video/id']){const Notes='Social action: '+encodeURIComponent(JSON.stringify({contentAngle:'Workday boundaries',assetType:'LinkedIn post',publicEngagementSurfaceVerified:true,publicEngagementSurfaceEvidence:'Verified owned surface'}));assert.equal(exportSocial([{...socialValues(),'Source URL':url,Mode:'PUBLIC_RESPONSE',Notes}]).sent[0].records[0].source_url,url);}
+ for(const url of ['https://m.facebook.com/user/posts/id','https://facebook.com/story.php?story_fbid=123&id=456','https://facebook.com/user/videos/id','https://facebook.com/reel/id','https://instagram.com/p/id','https://instagram.com/reel/id','https://threads.net/@user/post/id','https://threads.com/@user/post/id','https://x.com/user/status/id','https://twitter.com/user/status/id','https://linkedin.com/posts/user-id','https://linkedin.com/feed/update/urn:li:activity:123','https://tiktok.com/@user/video/id']){const Notes='Social action: '+encodeURIComponent(JSON.stringify({contentAngle:'Workday boundaries',assetType:'LinkedIn post',publicEngagementSurfaceVerified:true,publicEngagementSurfaceEvidence:'Verified owned surface'}));assert.equal(exportSocial([{...socialValues(),'Source URL':url,Mode:'PUBLIC_RESPONSE',Notes}]).sent[0].records[0].source_url,url);}
  const explicit={...socialValues(),'Public Context':'TRUE','Consumer Outreach':'false','Health Targeting':'FALSE','Verified Direct Discussion':'true'};assert.equal(exportSocial([explicit]).sent[0].records[0].safety.public_context,true);
 });
 
 test('Content Signal export keeps exact source and content suggestions but no person reply',()=>{
  const Notes='Social action: '+encodeURIComponent(JSON.stringify({actionType:'CONTENT_SIGNAL',contentAngle:'Workday boundaries',assetType:'short video',relevance:'Root content about routines',cta:'Explore general routines'}));
- const values={...socialValues(),'Source URL':'https://reddit.com/r/test/comments/id',Mode:'PUBLIC_RESPONSE',Notes,'Prepared Reply':''};
+ const values={...socialValues(),'Source URL':'https://x.com/user/status/id',Mode:'PUBLIC_RESPONSE',Notes,'Prepared Reply':''};
  const row=exportSocial([values]).sent[0].records[0];const parsed=parse(row);
  assert.equal(row.source_record_id,values['Social ID']);assert.equal(row.record_type,'personal_opportunity');assert.equal(row.metadata.action_type,'CONTENT_SIGNAL');assert.equal(row.metadata.prepared_reply,undefined);assert.equal(row.metadata.original_post,values['Original Post']);assert.equal(row.metadata.content_asset_type,'short video');assert.equal(row.metadata.content_draft,values.Draft);assert.equal(parsed.metadata.content_draft,values.Draft);
  const helpers=load('lib/personalSignal.ts');assert.equal(helpers.personalSignal(parsed),null);assert.equal(helpers.contentSignal(parsed).angle,'Workday boundaries');
  assert.equal(exportSocial([{...values,Notes:''}]).sent.length,0);
  assert.equal(exportSocial([{...values,'Original Post':'I want to kill myself'}]).sent.length,0);
+});
+
+
+test('verified article intelligence travels through routed Action Outputs, ingestion and existing brief action without becoming a prospect',()=>{
+ const config=liveConfig('personal'),mapping=config.sheets.find(s=>s.name==='Action Outputs');config.sheets=[mapping];
+ const e={type:'AUDIENCE_INTELLIGENCE',sourceUrl:'https://research.example/wellbeing-evidence',sourceText:'Verified public research about everyday stress and recovery.',publicContext:true,consumerOutreach:false,healthTargeting:false,relevance:'Audience-level wellbeing research',contentAngle:'Understanding recovery',assetType:'article brief',brief:'Editorial brief: explain recovery without diagnosis or promises.',verifiedAt:'2026-10-11T10:00:00Z'};
+ const values=Object.fromEntries(actionHeaders(config).map(h=>[h,'']));Object.assign(values,{'Action ID':'PA-R-'+ 'b'.repeat(32),'Source URL':e.sourceUrl,Opportunity:e.sourceText,Theme:'Stress / recovery',Lane:'Intent content','Action type':'SEARCH_ASSET','Draft / Brief':e.brief,'Review status':'REVIEW',Notes:'Routed evidence: '+encodeURIComponent(JSON.stringify(e))});
+ const row=runMappedExport(config,{'Action Outputs':[Object.keys(values),Object.values(values)]}).sent[0].records[0],parsed=parse(row);
+ assert.equal(parsed.record_type,'personal_opportunity');assert.equal(parsed.metadata.engine_safety.verified_direct_discussion,false);
+ assert.equal(parsed.person,null);assert.equal(parsed.metadata.first_party_interaction,undefined);
+ const distribution=load('lib/personalDistribution.ts'),policy=load('lib/personalOpportunityPolicy.ts'),presentation=load('lib/acquisitionPresentation.ts');
+ assert.equal(distribution.personalDistributionKind(parsed),'SEARCH_ASSET');assert.equal(policy.personalProspect(parsed),null);
+ assert.equal(policy.personalActionPermitted(parsed,'prepare_outreach'),false);
+ assert.equal(presentation.personalCategory(parsed),'content');
 });
