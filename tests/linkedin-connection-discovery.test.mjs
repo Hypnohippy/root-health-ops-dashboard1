@@ -12,7 +12,7 @@ function load(file, mocks = {}) {
   vm.runInNewContext(output, { module: mod, exports: mod.exports, require: name => mocks[name] || nodeRequire(name), URL, URLSearchParams, Date }, { filename: file });
   return mod.exports;
 }
-const discovery = load("lib/linkedinConnectionDiscovery.ts");
+const discovery = load("lib/linkedinConnectionDiscovery.ts", { "@/lib/linkedinCaptureProfile": load("lib/linkedinCaptureProfile.ts") });
 const html = fs.readFileSync("tests/fixtures/linkedin-acceptance.html", "utf8");
 const parsed = discovery.parseLinkedInAcceptanceEmail({ subject: "Nick Fahy accepted your invitation", sender: "invitations@e.linkedin.com", html, gmailMessageId: "gmail-123", discoveredAt: "2026-09-24T12:00:00.000Z" });
 
