@@ -3,6 +3,9 @@
 @@ -454 +454 @@
 -    laneType === 'Social/community intent' ? 'SOCIAL ACTION: Reddit is CONTENT_SIGNAL only; never prepare a reply to the individual. LinkedIn may be PUBLIC_RESPONSE after all existing safety checks. Other platforms including Threads are CONTENT_SIGNAL unless the source is explicitly verified as an owned/appropriate Root or David public-engagement surface. Public availability never implies permission. socialEvidence must include actionType (PUBLIC_RESPONSE or CONTENT_SIGNAL), exact originalPost, all four explicit safety booleans, contentAngle, assetType, relevance and optional non-personal cta for CONTENT_SIGNAL; preparedReply only for PUBLIC_RESPONSE. Never infer ownership. publicEngagementSurfaceVerified/publicEngagementSurfaceEvidence must be explicit if used. Urgent self-harm or immediate-danger content is safety/signposting only: return no acquisition opportunity. For each SOCIAL_CONTEXT opportunity include socialEvidence:{originalPost: EXACT public source text (not searchQuestion), preparedReply: safe contextual public reply ONLY for PUBLIC_RESPONSE without URLs/private outreach/medical claims, publicContext: explicit boolean, consumerOutreach: explicit boolean, healthTargeting: explicit boolean, verifiedDirectDiscussion: explicit boolean}. Use the actual final HTTPS direct discussion sourceUrl, never a grounding redirect. If source text or provenance cannot be verified, return no opportunity. Do not return personal identity.' : '',
 +    laneType === 'Social/community intent' ? 'SOCIAL ACTION: Discovered public discussions are CONTENT_SIGNAL demand intelligence only, never Personal prospects. Reddit is excluded. Never prepare a response to an individual or infer permission, ownership, contact identity or health profile. Require exact verified source text and all four explicit safety fields. Generate contentAngle, assetType, relevance and optional non-personal CTA. Urgent self-harm/immediate danger remains safety/signposting only; return no acquisition opportunity.' : '',
+@@ -572 +572 @@
+-      const platformCursor = Math.max(0, Number(props.getProperty('ROOT_PERSONAL_SOCIAL_PLATFORM_CURSOR_' + lane.rowNumber) || 0)) % 6;
++      const platformCursor = Math.max(0, Number(props.getProperty('ROOT_PERSONAL_SOCIAL_PLATFORM_CURSOR_' + lane.rowNumber) || 0)) % personalSocialFocusedQueries_(lane).length;
 @@ -579 +579 @@
 -    for (let platformIndex=0; platformIndex<6; platformIndex++) ordered.forEach(function(lane) {
 +    for (let platformIndex=0; platformIndex<5; platformIndex++) ordered.forEach(function(lane) {
@@ -10,35 +13,108 @@
 -  if (options && options.redditOnly) selectedPlans = selectedPlans.filter(function(plan){return plan.lane.queryTemplate.indexOf('site:reddit.com ')===0;});
 +  if (options && options.redditOnly) throw new Error('Reddit discovery is disabled. No rows written.');
 +  selectedPlans = selectedPlans.filter(function(plan){return personalNormalise_(plan.lane.lane)!=='social/community intent'||!/reddit\.com|redd\.it/i.test(String(plan.lane.queryTemplate||''));});
-@@ -4368 +4369 @@
+@@ -671 +672 @@
+-    if (meta.socialPlatformCursor !== undefined) props.setProperty('ROOT_PERSONAL_SOCIAL_PLATFORM_CURSOR_' + meta.lane.rowNumber, String((meta.socialPlatformCursor + 1) % 6));
++    if (meta.socialPlatformCursor !== undefined) props.setProperty('ROOT_PERSONAL_SOCIAL_PLATFORM_CURSOR_' + meta.lane.rowNumber, String((meta.socialPlatformCursor + 1) % personalSocialFocusedQueries_(meta.lane).length));
+@@ -1190,0 +1192,3 @@
++    // Discovered Social records use the verified Social Queue content path only.
++    // Never replay legacy public-response drafts or Reddit via Action Outputs.
++    if (personalNormalise_(lane) === 'social/community intent') return;
+@@ -4368 +4372 @@
 -const verifiedAction=verifiedEvidence&&opsSocialActionType_(sourceUrl,verifiedEvidence.actionType,verifiedEvidence);
 +const verifiedAction=verifiedEvidence&&personalDiscoveryActionType_(sourceUrl,verifiedEvidence.actionType,verifiedEvidence);
-@@ -4423 +4424 @@
+@@ -4423 +4427 @@
 -  if(evidence&&opsSocialActionType_(candidate.sourceUrl,evidence.actionType,evidence)==='CONTENT_SIGNAL')return [
 +  if(evidence&&personalDiscoveryActionType_(candidate.sourceUrl,evidence.actionType,evidence)==='CONTENT_SIGNAL')return [
-@@ -4540 +4541,5 @@
+@@ -4540 +4544,5 @@
 -function personalIsDirectPublicDiscussionUrl_(url) { return opsDirectSocialDiscussion_(url); }
 +function personalIsDirectPublicDiscussionUrl_(url) {
 +  if (/^https:\/\/(?:[^/]+\.)?(?:reddit\.com|redd\.it)(?:[/:?#]|$)/i.test(String(url||''))) return false;
 +  return opsDirectSocialDiscussion_(url);
 +}
 +function personalDiscoveryActionType_(url) { return personalIsDirectPublicDiscussionUrl_(url) ? 'CONTENT_SIGNAL' : null; }
-@@ -4579 +4584 @@
+@@ -4579 +4587 @@
 -            text: personalBuildSocialPrompt_(candidate, variants) + (options && options.oneReply ? (candidate.socialEvidence&&opsSocialActionType_(candidate.sourceUrl,candidate.socialEvidence.actionType,candidate.socialEvidence)==='CONTENT_SIGNAL'?'\nReturn exactly one standalone content item, never PUBLIC_REPLY.':'\nReturn exactly one PUBLIC_REPLY item.') : '')
 +            text: personalBuildSocialPrompt_(candidate, variants) + (options && options.oneReply ? (candidate.socialEvidence&&personalDiscoveryActionType_(candidate.sourceUrl,candidate.socialEvidence.actionType,candidate.socialEvidence)==='CONTENT_SIGNAL'?'\nReturn exactly one standalone content item, never PUBLIC_REPLY.':'\nReturn exactly one PUBLIC_REPLY item.') : '')
-@@ -4661 +4666 @@
+@@ -4661 +4669 @@
 -      const actionType=actionEvidence?opsSocialActionType_(candidate.sourceUrl,actionEvidence.actionType,actionEvidence):null;
 +      const actionType=actionEvidence?personalDiscoveryActionType_(candidate.sourceUrl,actionEvidence.actionType,actionEvidence):null;
-@@ -5807 +5812 @@
+@@ -5807 +5815 @@
 -  const actionType=opsSocialActionType_(sourceUrl,e&&e.actionType,e);
 +  const actionType=personalDiscoveryActionType_(sourceUrl,e&&e.actionType,e);
-@@ -5878 +5883 @@
+@@ -5857 +5865 @@
+-    metadata:{queue_row_reference:'Queue row',risk:'Risk',generated_at:'Generated',clicks:'Clicks',capacity_checks:'Capacity Checks',destination:'Destination',original_post:'Original Post',prepared_reply:'Prepared Reply'},
++    metadata:{queue_row_reference:'Queue row',risk:'Risk',generated_at:'Generated',clicks:'Clicks',capacity_checks:'Capacity Checks',destination:'Destination',original_post:'Original Post',prepared_reply:'Prepared Reply',content_draft:'Draft'},
+@@ -5873 +5881 @@
+-// Focused Social queries: platform priority is Reddit, LinkedIn, X, Facebook, Instagram, TikTok.
++// Focused Social queries: existing LinkedIn, X, Facebook, Instagram, TikTok only; Reddit excluded.
+@@ -5878 +5886 @@
 -  return ['reddit.com','linkedin.com/posts','x.com','facebook.com','instagram.com','tiktok.com'].map(function(site){return 'site:'+site+' "'+intent+'"';});
 +  return ['linkedin.com/posts','x.com','facebook.com','instagram.com','tiktok.com'].map(function(site){return 'site:'+site+' "'+intent+'"';});
-@@ -5888,0 +5894 @@
+@@ -5883 +5891,2 @@
+-    personalSafeOpsReply_(evidence.preparedReply) && evidence.publicContext===true &&
++    typeof evidence.contentAngle==='string' && !!evidence.contentAngle.trim() &&
++    typeof evidence.assetType==='string' && !!evidence.assetType.trim() && evidence.publicContext===true &&
+@@ -5888,0 +5898 @@
 +  throw new Error('Legacy Reddit-only test is disabled. No discovery or write performed.');
-@@ -5895,0 +5902 @@
+@@ -5895,0 +5906 @@
 +  throw new Error('Legacy Reddit-only test is disabled. No discovery or write performed.');
-@@ -5930 +5937 @@
+@@ -5930 +5941 @@
 -    'SOCIAL ACTION: Reddit is CONTENT_SIGNAL only; never prepare a reply to the individual. LinkedIn may be PUBLIC_RESPONSE after all existing safety checks. Other platforms including Threads are CONTENT_SIGNAL unless the source is explicitly verified as an owned/appropriate Root or David public-engagement surface. Public availability never implies permission. socialEvidence must include actionType (PUBLIC_RESPONSE or CONTENT_SIGNAL), exact originalPost, all four explicit safety booleans, contentAngle, assetType, relevance and optional non-personal cta for CONTENT_SIGNAL; preparedReply only for PUBLIC_RESPONSE. Never infer ownership. publicEngagementSurfaceVerified/publicEngagementSurfaceEvidence must be explicit if used. Urgent self-harm or immediate-danger content is safety/signposting only: return no acquisition opportunity.',
 +    'SOCIAL ACTION: Discovered public discussions are CONTENT_SIGNAL demand intelligence only, never Personal prospects. Reddit is excluded. Never prepare a response to an individual or infer permission, ownership, contact identity or health profile. Require exact verified source text and all four explicit safety fields. Generate contentAngle, assetType, relevance and optional non-personal CTA. Urgent self-harm/immediate danger remains safety/signposting only; return no acquisition opportunity.',
+@@ -5948,0 +5960,55 @@
++
++/** Manual read-only alignment evidence. No discovery, generation, source HTTP,
++ * Ops requests, sheet/property writes, trigger changes or outbound actions.
++ * Logs counts and configuration booleans only; never text, identities or secrets.
++ */
++function personalAuditAcquisitionAlignmentReadOnly() {
++  var props = PropertiesService.getScriptProperties();
++  var config = JSON.parse(props.getProperty('OPS_STATE_SYNC_CONFIG') || '{}');
++  var mapping = (config.sheets || []).filter(function(m) { return m.name === 'Social Queue'; })[0];
++  var sheet = personalSpreadsheet_().getSheetByName('Social Queue');
++  var values = sheet ? sheet.getDataRange().getValues() : [];
++  var headers = (values.shift() || []).map(function(v) { return String(v).trim(); });
++  var counts = { rows: 0, redditHistorical: 0, eligibleAudienceIntelligence: 0,
++    personalProspectsFromDiscovery: 0, skippedUnverified: 0, modes: {} };
++  values.forEach(function(row) {
++    if (row.every(function(v) { return v === ''; })) return;
++    counts.rows++;
++    function read(header) { var at = headers.indexOf(header); return at < 0 || row[at] == null ? '' : row[at]; }
++    var url = String(read('Source URL'));
++    var reddit = /^https:\/\/(?:[^/]+\.)?(?:reddit\.com|redd\.it)(?:[/:?#]|$)/i.test(url) || /^(?:reddit(?:\.com)?|redd\.it)$/i.test(String(read('Platform')));
++    if (reddit) counts.redditHistorical++;
++    var mode = String(read('Mode')); counts.modes[mode] = (counts.modes[mode] || 0) + 1;
++    if (mapping && opsVerifiedSocialRow_(read, mapping)) counts.eligibleAudienceIntelligence++;
++    else counts.skippedUnverified++;
++  });
++  var cfg = personalReadSettings_();
++  var socialLanes = personalReadSearchLanes_().filter(function(l) { return personalNormalise_(l.lane) === 'social/community intent'; });
++  var focused = socialLanes.reduce(function(all, lane) { return all.concat(personalSocialFocusedQueries_(lane)); }, []);
++  var candidates = personalReadSocialCandidates_();
++  var result = {
++    readOnly: true, searches: 0, generations: 0, sheetWrites: 0, opsExports: 0, outboundActions: 0,
++    configuration: {
++      personalEngine: config.source_engine === 'root_health_personal',
++      tenantMatches: config.organisation_id === '78fa2ac8-e7b6-4b9b-9604-035723ece6b1',
++      spreadsheetMatches: config.spreadsheet_id === '1ZfyIebRh6G8HkuJrM6cizPocd8oBh3Cu1u_Lh9M2UAM',
++      socialQueueOnly: !!mapping && config.sheets.length === 1,
++      draftMapped: !!mapping && mapping.metadata.content_draft === 'Draft',
++      syncSecretConfigured: (props.getProperty('OPS_STATE_SYNC_SECRET') || '').length >= 32,
++      braveConfigured: !!props.getProperty('BRAVE_SEARCH_API_KEY')
++    },
++    limits: { dailyCap: cfg.discoveryGroundedCallCapPerDay, maxBatches: cfg.discoveryMaxBatchesPerRun,
++      requestedPerBatch: cfg.discoveryRequestedPerBatch, socialVariants: cfg.socialVariantsPerSource },
++    activeSocialLanes: socialLanes.length, focusedQueries: focused.length,
++    redditFocusedQueries: focused.filter(function(q) { return /reddit\.com|redd\.it/i.test(q); }).length,
++    directRedditAccepted: personalIsDirectPublicDiscussionUrl_('https://www.reddit.com/r/example/comments/example/thread'),
++    discoveredLinkedInAction: personalDiscoveryActionType_('https://www.linkedin.com/posts/example-discussion'),
++    socialCandidates: candidates.length,
++    redditCandidates: candidates.filter(function(c) { return /reddit\.com|redd\.it/i.test(c.sourceUrl); }).length,
++    publicResponseCandidates: candidates.filter(function(c) { return personalDiscoveryActionType_(c.sourceUrl) === 'PUBLIC_RESPONSE'; }).length,
++    socialQueue: counts,
++    triggers: ScriptApp.getProjectTriggers().map(function(t) { return { handler: t.getHandlerFunction(), event: String(t.getEventType()) }; })
++  };
++  Logger.log(JSON.stringify(result));
++  return result;
++}

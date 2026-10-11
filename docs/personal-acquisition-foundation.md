@@ -37,11 +37,26 @@ are not deleted or rewritten by this projection.
 
 Reddit is historical-only. Personal ingestion, export, qualification, grouping,
 counts and action guards reject new/active Reddit use. The existing Google project
-must receive `personal-social-discovery-scope.patch` and the updated exporter before
-its live discovery/writer stops considering Reddit. This patch modifies existing
-functions only; no second engine or triggers. It is intentionally **not applied**
-under the no-Production-writes instruction. No discovery run is needed to apply
-these exclusions. Historical rows must remain untouched.
+received `personal-social-discovery-scope.patch` and the updated exporter on
+11 October 2026 under explicit authorisation. Saved live code was re-read and
+matched the installed files. This patch modifies existing functions only; no
+second engine or trigger changes. Historical rows remain untouched.
+
+The live read-only audit confirms zero Reddit queries/candidates, discovered
+LinkedIn classified as CONTENT_SIGNAL, the unchanged three partner triggers and
+unchanged discovery limits. The existing Social-only export mapping now also
+includes the saved Draft field. All 1,202 non-empty Social Queue rows are currently
+ineligible, including three historical Reddit rows. No qualifying non-Reddit
+record was manufactured. The controlled export skips these rows without a request
+to Ops; therefore positive live delivery remains **unproven**, rather than claimed
+from an empty export. Brave is not configured. No discovery widening, worksheet
+row edits, outbound actions or Ops database writes were performed.
+
+`personal-acquisition-readonly-audit.gs` supplies the manual aggregate-only audit
+installed in the existing Code.gs. It never searches, generates, writes, exports,
+logs original text/identities/secrets, or changes triggers. The legacy generic
+Action Outputs reader skips discovered Social rows: those use the existing verified
+Social Queue content path. Its Search Demand and partner branches are unchanged.
 
 Grouping still happens before pagination, by tenant, source and exact evidence.
 An actioned member owns its group; conflicting action evidence blocks another
