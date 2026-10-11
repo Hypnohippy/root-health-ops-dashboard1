@@ -52,3 +52,22 @@ function personalAuditAcquisitionAlignmentReadOnly() {
   Logger.log(JSON.stringify(result));
   return result;
 }
+
+/** One existing-cap Social query; no sheet rows, generation or Ops export.
+ * The existing engine records its normal API-usage counter. No limits change.
+ */
+function personalTestOneSocialDiscoveryReadOnly() {
+  var diagnostics = { queriesAttempted: 0, braveResults: 0, directRedditUrls: 0,
+    braveDirectUrls: 0, sourceChunks: 0, redirectChunks: 0, directSourceChunks: 0,
+    groundingSearchQueries: 0, modelOpportunities: 0, directUrls: 0, dateRejected: 0,
+    sourceHttpRejected: 0, sourceTextMismatch: 0, exactSourceTextVerified: 0,
+    safetyQualified: 0, duplicates: 0, duplicatePassed: 0, eligibleCandidates: 0 };
+  personalResearchOpportunities({ socialOnly: true, queryLimit: 1, writeFree: true, diagnostics: diagnostics });
+  var counts = {};
+  Object.keys(diagnostics).forEach(function(key) {
+    if (typeof diagnostics[key] === 'number') counts[key] = diagnostics[key];
+    if (key === 'sourceHttpStatuses') counts[key] = diagnostics[key];
+  });
+  Logger.log(JSON.stringify({ socialOnly: true, rowsWritten: 0, opsExports: 0, outboundActions: 0, diagnostics: counts }));
+  return counts;
+}

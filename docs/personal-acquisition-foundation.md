@@ -49,14 +49,24 @@ includes the saved Draft field. All 1,202 non-empty Social Queue rows are curren
 ineligible, including three historical Reddit rows. No qualifying non-Reddit
 record was manufactured. The controlled export skips these rows without a request
 to Ops; therefore positive live delivery remains **unproven**, rather than claimed
-from an empty export. Brave is not configured. No discovery widening, worksheet
-row edits, outbound actions or Ops database writes were performed.
+from an empty export. Brave was configured by the user subsequently on 11 October
+2026. One bounded Social-only write-free query completed: 1 query, 0 Brave results,
+0 direct URLs, 0 verified/safety-qualified candidates, and no queue rows or exports.
+There was no grounding fallback. No discovery widening, worksheet row edits,
+outbound actions or Ops database writes were performed.
 
 `personal-acquisition-readonly-audit.gs` supplies the manual aggregate-only audit
 installed in the existing Code.gs. It never searches, generates, writes, exports,
 logs original text/identities/secrets, or changes triggers. The legacy generic
 Action Outputs reader skips discovered Social rows: those use the existing verified
 Social Queue content path. Its Search Demand and partner branches are unchanged.
+
+The same file also contains `personalTestOneSocialDiscoveryReadOnly()`, a manual
+one-query wrapper over existing Social discovery. It preserves the existing daily
+cap, uses normal API usage accounting and changes no triggers. It cannot write
+queue rows or export to Ops. Its logs contain numeric stage counts only. This
+positive key/readiness test does not prove positive delivery when search returns
+no candidates.
 
 Grouping still happens before pagination, by tenant, source and exact evidence.
 An actioned member owns its group; conflicting action evidence blocks another

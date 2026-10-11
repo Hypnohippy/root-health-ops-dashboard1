@@ -57,3 +57,21 @@ test('live audit logs only aggregate evidence and performs no writes, discovery 
   assert.equal(result.sheetWrites, 0); assert.equal(result.opsExports, 0);
   assert.doesNotMatch(logs[0], /fixture-only|reddit\.com|sourceUrl|originalPost/);
 });
+
+test('controlled Social diagnostic performs one write-free query with no Reddit override or export', () => {
+  let calls = 0;
+  const logs = [];
+  const scope = { personalResearchOpportunities: options => {
+    calls++;
+    assert.equal(options.socialOnly, true); assert.equal(options.queryLimit, 1);
+    assert.equal(options.writeFree, true); assert.equal(options.redditOnly, undefined);
+    options.diagnostics.braveResults = 10;
+    options.diagnostics.queryTemplates = [{ query: 'untrusted-source-context' }];
+  }, Logger: { log: value => logs.push(value) } };
+  vm.runInNewContext(fs.readFileSync('docs/personal-acquisition-readonly-audit.gs', 'utf8'), scope);
+  const result = scope.personalTestOneSocialDiscoveryReadOnly();
+  assert.equal(calls, 1); assert.equal(result.braveResults, 10);
+  assert.equal(result.queryTemplates, undefined);
+  assert.doesNotMatch(logs[0], /untrusted-source-context/);
+  assert.match(logs[0], /"rowsWritten":0,"opsExports":0,"outboundActions":0/);
+});
