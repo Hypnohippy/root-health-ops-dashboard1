@@ -1,6 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { request } from "node:https";
+import { request, type RequestOptions } from "node:https";
 import { createHash } from "node:crypto";
 import type { PersonalSignalItem } from "@/lib/personalSignal";
 import { personalRedditSource } from "@/lib/personalOpportunityPolicy";
@@ -15,7 +15,8 @@ export function publicSourceAddress(address: string) {
     return !(address === "168.63.129.16" || a === 0 || a === 10 || a === 127 || a >= 224 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && (b === 168 || b === 0 || b === 2 || b === 88) || a === 100 && b >= 64 && b <= 127 || a === 198 && (b === 18 || b === 19 || b === 51 && c === 100) || a === 203 && b === 0 && c === 113);
   }
   // Only global-unicast IPv6; exclude transition, documentation and special use.
-  return isIP(address) === 6 && /^[23][0-9a-f]{3}:/i.test(address) && !/^2001:|^2002:|^3fff:/i.test(address);
+  const subnet = Number.parseInt(address.split(":")[1] || "", 16);
+  return isIP(address) === 6 && /^[23][0-9a-f]{3}:/i.test(address) && !/^2002:|^3fff:/i.test(address) && !(/^2001:/i.test(address) && (subnet <= 0x1ff || subnet === 0xdb8));
 }
 export function safePersonalSourceUrl(value: string) {
   const url = new URL(value);
@@ -30,7 +31,10 @@ async function resolveSource(host: string): Promise<Address[]> {
  * credentials, cookies, automatic redirects or unlimited response buffering. */
 async function getSource(url: URL, address: Address): Promise<Reply> {
   return new Promise((resolve, reject) => {
-    const req = request(url, { method: "GET", headers: { "User-Agent": "RootOps-SourceCheck/1.0", "Accept-Encoding": "identity" }, lookup: (_host, _options, cb) => cb(null, address.address, address.family) }, res => {
+    // Node supports autoSelectFamily through net.connect; older HTTPS type
+    // declarations omit it. Keep the single prevalidated address pinned.
+    const options: RequestOptions & { autoSelectFamily: boolean } = { method: "GET", autoSelectFamily: false, headers: { "User-Agent": "RootOps-SourceCheck/1.0", "Accept-Encoding": "identity" }, lookup: (_host, _options, cb) => cb(null, address.address, address.family) };
+    const req = request(url, options, res => {
       let bytes = 0; const chunks: Buffer[] = [];
       res.on("data", (chunk: Buffer) => { bytes += chunk.length; if (bytes > 262144) { req.destroy(Error("Source response limit.")); return; } chunks.push(chunk); });
       res.on("end", () => resolve({ status: res.statusCode || 0, location: res.headers.location, body: Buffer.concat(chunks).toString("utf8") }));

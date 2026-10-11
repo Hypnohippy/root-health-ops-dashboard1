@@ -3,13 +3,13 @@ import type { PersonalSignalItem } from "@/lib/personalSignal";
 const obj = (v: unknown): Record<string, unknown> => v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const text = (v: unknown) => typeof v === "string" && !!v.trim();
 /** Historical records are retained. This policy governs only active Personal use. */
-export function personalRedditSource(item: Pick<PersonalSignalItem, "source_engine" | "source_url" | "metadata">) {
+export function personalRedditSource(item: Pick<PersonalSignalItem, "source_engine" | "source_url" | "metadata"> & { engine_state?: { channel?: string | null } | null }) {
   if (item.source_engine !== "root_health_personal") return false;
   const m = item.metadata || {};
   for (const value of [item.source_url, m.source_url, m.original_source_url]) {
     try { const host = new URL(String(value)).hostname.toLowerCase(); if (host === "reddit.com" || host.endsWith(".reddit.com") || host === "redd.it") return true; } catch { /* no invented source */ }
   }
-  return [m.platform, m.source_platform, m.channel].some(v => typeof v === "string" && /^reddit$/i.test(v.trim()));
+  return [m.platform, m.source_platform, m.channel, item.engine_state?.channel].some(v => typeof v === "string" && /^reddit$/i.test(v.trim()));
 }
 
 /** Explicit tenant-scoped interaction evidence, never inferred from a public post,

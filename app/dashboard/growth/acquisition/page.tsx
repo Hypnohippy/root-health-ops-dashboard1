@@ -10,7 +10,8 @@ import ManualOpportunity from "./ManualOpportunity";
 import PersonalDistributionPanel from "./PersonalDistributionPanel";
 import { personalDistributionKind, type PersonalPerformance } from "@/lib/personalDistribution";
 import PersonalAcquisition from "./PersonalAcquisition";
-import { explicitTestRecord } from "@/lib/acquisitionPresentation";
+import { explicitTestRecord, groupPersonalOpportunities } from "@/lib/acquisitionPresentation";
+import PersonalOpportunityCard from "./PersonalOpportunityCard";
 
 type Event = { id:string; action:string; previous_status:string; new_status:string; outcome:string|null; note:string|null; created_at:string };
 type Item = { personalPerformance?:PersonalPerformance|null; id:string; outreachTargetId?:string|null; record_type:string; source_engine:string; engine_state:EngineState|null; source_record_id:string; source_url:string|null; evidence:string|null; entity:string|null; person:string|null; company:string|null; reason:string|null; signal:string|null; suggested_action:string|null; status:string; current_action:string|null; actioned_at:string|null; outcome:string|null; outcome_at:string|null; metadata:Record<string,unknown>; acquisition_item_events?:Event[] };
@@ -60,6 +61,11 @@ export default function AcquisitionQueue(){
     {loading&&<p role="status" className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">Loading opportunities…</p>}{error&&<p role="alert" className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}{!loading&&!error&&items.length===0&&<p className="rounded-xl border border-white/10 bg-white/5 p-5 text-sm text-slate-300">No imported opportunities for this filter.</p>}
     <div className="space-y-2">{items.map(item=>{
      if(explicitTestRecord(item))return null;
+     if(item.source_engine==="root_health_personal") {
+       const group=groupPersonalOpportunities([{...item,organisation_id:organisationId}])[0];
+       if(!group)return null;
+       return <PersonalOpportunityCard key={item.id} group={{...group,personalPerformance:item.personalPerformance||undefined}} organisationId={organisationId} onSaved={()=>load()}/>;
+     }
      const signalCard=personalSignal(item);const content=contentSignal(item);const distribution=personalDistributionKind(item);
      if(signalCard)return <PersonalSignalCard key={item.id} item={item} signal={signalCard} organisationId={organisationId} onSaved={()=>load()} onDismiss={()=>void act(item,{id:"dismiss",label:"Dismiss"})}/>;
      const engineProjection=item.engine_state?projectEngineState(item.engine_state):null;

@@ -10,10 +10,22 @@ import PartnerConversation from "./PartnerConversation";
 import type { PersonalSourceHealth } from "@/lib/personalSourceHealth.server";
 
 const button = "rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-semibold disabled:opacity-50";
-export default function PersonalOpportunityCard({ group, organisationId, onSaved }: { group: OpportunityGroup & { personalPerformance?: PersonalPerformance; savedDraft?: string | null; outreach?: { canStart: boolean; relationship: string; reason: string | null; route: string | null } }; organisationId: string; onSaved: () => Promise<void> }) {
+type Outreach = { canStart: boolean; relationship: string; reason: string | null; route: string | null };
+export default function PersonalOpportunityCard({ group, organisationId, onSaved }: { group: OpportunityGroup & { personalPerformance?: PersonalPerformance; savedDraft?: string | null; outreach?: Outreach }; organisationId: string; onSaved: () => Promise<void> }) {
   const { item } = group, provenance = opportunityProvenance(item), kind = personalDistributionKind(item), signal = personalSignal(item);
   const [mode, setMode] = useState(""), [notice, setNotice] = useState(""), [busy, setBusy] = useState(false);
   const [health, setHealth] = useState<PersonalSourceHealth | null>(null), [sourceError, setSourceError] = useState("");
+  const [loadedOutreach, setLoadedOutreach] = useState<Outreach | null>(null);
+  const outreach = group.outreach || loadedOutreach;
+  const hasOutreach = !!group.outreach;
+  useEffect(() => {
+    if (group.category !== "partners" || hasOutreach) return;
+    const controller = new AbortController();
+    void fetch(`/api/growth/acquisition/personal/outreach?${new URLSearchParams({ organisationId, itemId: item.id })}`, { signal: controller.signal, cache: "no-store" })
+      .then(async res => { const data = await res.json(); if (!res.ok) throw Error(data.error); if (!controller.signal.aborted) setLoadedOutreach(data); })
+      .catch(() => { if (!controller.signal.aborted) setLoadedOutreach(null); });
+    return () => controller.abort();
+  }, [organisationId, item.id, item.status, group.category, hasOutreach]);
   useEffect(() => {
     const controller = new AbortController(); setHealth(null); setSourceError("");
     void fetch(`/api/growth/acquisition/personal/source?${new URLSearchParams({ organisationId, itemId: item.id })}`, { signal: controller.signal, cache: "no-store" })
@@ -39,8 +51,9 @@ export default function PersonalOpportunityCard({ group, organisationId, onSaved
   const draft = group.savedDraft || (typeof item.metadata.content_draft === "string" ? item.metadata.content_draft : typeof item.metadata.content_angle === "string" ? item.metadata.content_angle : "");
   const brief = (item.metadata.personal_distribution as { brief?: string } | undefined)?.brief || `Educational article brief: ${item.signal || item.reason || "Review the source evidence"}. Explain the topic in general terms without diagnosis or guarantees. Requires editorial review and manual website publication.`;
   const hasSavedContent = !!group.personalPerformance?.publishing || !!(item.metadata.personal_distribution as { brief?: string } | undefined)?.brief;
+  const surfacedReason = group.category === "partners" ? "The engine identified a potential referral or distribution relationship. Review the recorded conversation and source evidence." : group.category === "people" ? "A recorded first-party interaction has an explicitly authorised next step. Review its source evidence." : "The engine surfaced topic or demand evidence for review. This is not a verified person to contact.";
   return <article className="space-y-4 rounded-2xl border border-white/10 bg-slate-900 p-5">
-    <header><p className="text-xs text-emerald-200">{group.category === "content" ? "Audience Intelligence" : group.category === "people" ? "Personal prospect" : group.category === "partners" ? "Partners & distribution" : "Audience evidence · needs source review"}</p><h2 className="text-lg font-semibold">{title}</h2><p className="text-sm text-slate-300">From {provenance.origin}</p><p className="mt-2">Why Root surfaced it: {provenance.reason}</p></header>
+    <header><p className="text-xs text-emerald-200">{group.category === "content" ? "Audience Intelligence" : group.category === "people" ? "Personal prospect" : group.category === "partners" ? "Partners & distribution" : "Audience evidence · needs source review"}</p><h2 className="text-lg font-semibold">{title}</h2><p className="text-sm text-slate-300">From {provenance.origin}</p><p className="mt-2">Why Root surfaced it: {surfacedReason}</p></header>
     <p role="status">{sourceError || health?.message || "Checking source…"}</p>
     {health && <p className="text-xs text-slate-400">Last checked: {new Date(health.checkedAt).toLocaleString()}</p>}
     {group.category === "content" && <p className="text-sm text-slate-300">Demand evidence for content and market research. This is not a person to contact.</p>}
@@ -50,9 +63,9 @@ export default function PersonalOpportunityCard({ group, organisationId, onSaved
     <div className="flex flex-wrap gap-2">
       {signal && <button className={button} disabled={!canChoose || !sourceUsable || busy} onClick={() => setMode("response")}>Prepare response</button>}
       {["SOCIAL_CONTENT", "SEARCH_ASSET"].includes(kind || "") && <button className={button} disabled={busy || !hasSavedContent && (!canChoose || !sourceUsable)} onClick={() => setMode("content")}>{hasSavedContent ? kind === "SEARCH_ASSET" ? "View saved brief" : "View saved draft" : "Create content"}</button>}
-      {group.category === "partners" && group.outreach?.relationship === "new" && <button className={button} disabled={!canChoose || !sourceUsable || !group.outreach.canStart || busy} onClick={() => setMode("outreach")}>Start outreach</button>}
-      {group.category === "partners" && ["contacted", "replied"].includes(group.outreach?.relationship || "") && <button className={button} disabled={busy} onClick={() => setMode("conversation")}>{group.outreach?.relationship === "replied" ? "View response / Continue conversation" : "View conversation / Follow up"}</button>}
-      {group.category === "partners" && group.outreach?.relationship === "completed" && <p>Completed · initial outreach is not available again.</p>}
+      {group.category === "partners" && outreach?.relationship === "new" && <button className={button} disabled={!canChoose || !sourceUsable || !outreach.canStart || busy} onClick={() => setMode("outreach")}>Start outreach</button>}
+      {group.category === "partners" && ["contacted", "replied"].includes(outreach?.relationship || "") && <button className={button} disabled={busy} onClick={() => setMode("conversation")}>{outreach?.relationship === "replied" ? "View response / Continue conversation" : "View conversation / Follow up"}</button>}
+      {group.category === "partners" && outreach?.relationship === "completed" && <p>Completed · initial outreach is not available again.</p>}
       {["new", "reviewing", "accepted", "actioned", "engaged"].includes(item.status) && <button className={button} disabled={!canChoose || busy || !!pending.current && pending.current.intent !== "nurture"} onClick={() => void act("nurture")}>Save for later</button>}
       {["new", "reviewing", "accepted", "nurture"].includes(item.status) && <button className={button} disabled={!canChoose || busy || !!pending.current && pending.current.intent !== "dismiss"} onClick={() => void act("dismiss")}>Dismiss</button>}
     </div>
@@ -61,6 +74,6 @@ export default function PersonalOpportunityCard({ group, organisationId, onSaved
     {mode === "outreach" && <><PersonalOutreachPanel key={item.id} organisationId={organisationId} itemId={item.id}/><PartnerConversation organisationId={organisationId} itemId={item.id}/></>}
     {mode === "conversation" && <PartnerConversation organisationId={organisationId} itemId={item.id}/>}
     {notice && <p role="status" aria-live="polite">{notice}</p>}
-    <details><summary className="cursor-pointer text-sm text-slate-300">Source evidence &amp; history{group.members.length > 1 ? ` · ${group.members.length} related outputs` : ""}</summary>{group.members.map(member => <section key={member.id} className="mt-3 space-y-2 rounded-xl border border-white/10 p-3 text-sm"><p>{member.source_engine} · {member.source_record_id} · {member.status}</p>{member.source_url && sourceUsable && member.source_url === item.source_url && <a className="underline" href={member.source_url} target="_blank" rel="noopener noreferrer">Open source ↗</a>}<p className="whitespace-pre-wrap">{typeof member.metadata.original_post === "string" ? member.metadata.original_post : member.evidence}</p><ol>{member.acquisition_item_events?.map((event, i) => <li key={i}>{event.created_at} · {event.action} · {event.note}</li>)}</ol></section>)}</details>
+    <details><summary className="cursor-pointer text-sm text-slate-300">Source evidence &amp; history{group.members.length > 1 ? ` · ${group.members.length} related outputs` : ""}</summary><p>Recorded discovery explanation (not independent verification): {provenance.reason}</p>{group.members.map(member => <section key={member.id} className="mt-3 space-y-2 rounded-xl border border-white/10 p-3 text-sm"><p>{member.source_engine} · {member.source_record_id} · {member.status}</p>{member.source_url && sourceUsable && member.source_url === item.source_url && <a className="underline" href={member.source_url} target="_blank" rel="noopener noreferrer">Open source ↗</a>}<p className="whitespace-pre-wrap">{typeof member.metadata.original_post === "string" ? member.metadata.original_post : member.evidence}</p><ol>{member.acquisition_item_events?.map((event, i) => <li key={i}>{event.created_at} · {event.action} · {event.note}</li>)}</ol></section>)}</details>
   </article>;
 }

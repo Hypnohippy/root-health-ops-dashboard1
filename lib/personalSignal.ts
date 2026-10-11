@@ -1,7 +1,7 @@
 import { safePublicDraft } from "@/lib/socialCommentOpportunity";
 import { AcquisitionWorkflowError } from "@/lib/acquisitionWorkflow";
 import { personalActionPermitted, personalProspect, personalRedditSource } from "@/lib/personalOpportunityPolicy";
-export type PersonalSignalItem = {source_engine:string;record_type:string;source_record_id?:string;source_url:string|null;status:string;metadata:Record<string,unknown>;reason?:string|null;signal?:string|null;engine_state?:{opportunity_type?:string|null}|null;evidence?:string|null;acquisition_item_events?:{action:string;created_at:string;previous_status?:string;new_status?:string;note?:string|null;outcome?:string|null}[]};
+export type PersonalSignalItem = {source_engine:string;record_type:string;source_record_id?:string;source_url:string|null;status:string;metadata:Record<string,unknown>;reason?:string|null;signal?:string|null;engine_state?:{opportunity_type?:string|null;channel?:string|null}|null;evidence?:string|null;acquisition_item_events?:{action:string;created_at:string;previous_status?:string;new_status?:string;note?:string|null;outcome?:string|null}[]};
 const exactText=(v:unknown)=>typeof v==="string"&&v.trim()?v:null;
 const object=(v:unknown):Record<string,unknown>=>v&&typeof v==="object"&&!Array.isArray(v)?v as Record<string,unknown>:{};
 function qualifiedDiscussion(item:PersonalSignalItem){

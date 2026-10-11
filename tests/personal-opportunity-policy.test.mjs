@@ -11,11 +11,11 @@ import { create, act } from 'react-test-renderer';
 const require = createRequire(import.meta.url);
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 function load(file, mocks = {}, globals = {}) {
-  const module = { exports: {} };
+  const loadedModule = { exports: {} };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText,
-    { module, exports: module.exports, URL, Buffer, Date, URLSearchParams, AbortController, AbortSignal, setTimeout, clearTimeout, console, ...globals,
+    { module: loadedModule, exports: loadedModule.exports, URL, Buffer, Date, URLSearchParams, AbortController, AbortSignal, setTimeout, clearTimeout, console, ...globals,
       require: n => n in mocks ? mocks[n] : n.startsWith('@/lib/') ? load(n.replace('@/', '') + '.ts', mocks, globals) : n.startsWith('./') ? load(path.join(path.dirname(file), n + '.tsx'), mocks, globals) : require(n) });
-  return module.exports;
+  return loadedModule.exports;
 }
 const org = '78fa2ac8-e7b6-4b9b-9604-035723ece6b1';
 const item = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', organisation_id: org, source_engine: 'root_health_personal', record_type: 'social_opportunity', source_record_id: 'SOC-123', source_url: 'https://linkedin.com/posts/discussion', status: 'new', signal: 'Switching off after work', metadata: { original_post: 'How do you switch off after work?', action_type: 'PUBLIC_RESPONSE', prepared_reply: 'What helps you unwind?', engine_safety: { public_context: true, consumer_outreach: false, health_targeting: false, verified_direct_discussion: true } } };
@@ -24,6 +24,43 @@ const prospect = () => ({ ...item, metadata: { ...item.metadata, first_party_int
 const policy = load('lib/personalOpportunityPolicy.ts');
 const presentation = load('lib/acquisitionPresentation.ts');
 const health = load('lib/personalSourceHealth.server.ts');
+
+test('pinned HTTPS source requests use single-address lookup without Node family-array mismatch', async () => {
+  const { EventEmitter } = require('node:events');
+  let pinned = false;
+  const service = load('lib/personalSourceHealth.server.ts', {
+    'node:dns/promises': { lookup: async () => [{ address: '93.184.216.34', family: 4 }] },
+    'node:https': { request: (_url, options, onResponse) => {
+      assert.equal(options.autoSelectFamily, false);
+      options.lookup('linkedin.com', { all: false }, (error, address, family) => {
+        assert.equal(error, null); assert.equal(address, '93.184.216.34'); assert.equal(family, 4); pinned = true;
+      });
+      const request = new EventEmitter();
+      request.destroy = error => request.emit('error', error);
+      request.end = () => {
+        const response = new EventEmitter(); response.statusCode = 200; response.headers = {};
+        onResponse(response); response.emit('data', Buffer.from(item.metadata.original_post)); response.emit('end'); request.emit('close');
+      };
+      return request;
+    } },
+  });
+  assert.equal((await service.inspectPersonalSource(item)).evidence, 'verified');
+  assert.equal(pinned, true);
+});
+
+test('source observation denies unauthorised tenants before database or external source access', async () => {
+  for (const status of [401, 403]) {
+    const denied = { status };
+    const route = load('app/api/growth/acquisition/personal/source/route.ts', {
+      'next/server': { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200 }) } },
+      '@/lib/tenantAuth': { requireOrganisation: async () => { throw denied; }, accessErrorResponse: error => ({ status: error.status }) },
+      '@/lib/growthIngestion.server': { uuid: /^[0-9a-f-]{36}$/i },
+      '@/lib/supabaseAdmin': { supabaseAdmin: { from: () => { throw Error('Unexpected database access'); } } },
+      '@/lib/personalSourceHealth.server': { checkPersonalSource: () => { throw Error('Unexpected external source access'); } },
+    });
+    assert.equal((await route.GET({ url: `https://ops.example/api/source?organisationId=${org}&itemId=${item.id}` })).status, status);
+  }
+});
 
 test('prospect requires a tenant-scoped verified interaction and independently authorised next step', () => {
   assert.ok(policy.personalProspect(prospect()));
@@ -40,9 +77,10 @@ test('Audience Intelligence cannot enter private outreach/pipeline or claim pers
 test('Reddit history is preserved, hidden before grouping/counts and blocked from every active action and ingestion', () => {
   const reddit = { ...item, source_url: 'https://old.reddit.com/r/jobs/comments/abc/topic' }, original = JSON.stringify(reddit);
   assert.equal(presentation.groupPersonalOpportunities([reddit]).length, 0);
+  assert.equal(presentation.groupPersonalOpportunities([{ ...item, engine_state: { channel: "Reddit" }, source_url: "https://example.com/legacy-evidence" }]).length, 0);
   for (const action of ['create_content_draft', 'route_publishing', 'accept', 'prepare_outreach', 'personal_responded']) assert.equal(policy.personalActionPermitted(reddit, action), false);
   const parser = load('lib/growthIngestion.server.ts');
-  const { organisation_id: _org, ...record } = reddit;
+  const record = { ...reddit }; delete record.organisation_id;
   assert.throws(() => parser.parseIngestion({ organisation_id: org, records: [record] }), /historical-only/);
   assert.equal(JSON.stringify(reddit), original);
   const exporter = {}; vm.runInNewContext(fs.readFileSync('docs/google-engine-state-export.gs', 'utf8'), exporter);
@@ -57,6 +95,7 @@ test('source checker refuses private/reserved addresses and credentials before r
   assert.equal(calls, 0);
   for (const address of ['10.1.2.3', '172.16.1.1', '192.168.1.2', '100.64.0.1', '224.0.0.1', '2001:db8::1']) assert.equal(health.publicSourceAddress(address), false);
   assert.equal(health.publicSourceAddress('8.8.8.8'), true);
+  assert.equal(health.publicSourceAddress('2001:4860:4860::8888'), true);
 });
 test('source checks protect mixed DNS/private redirects, reject dead pages and distinguish accessibility from exact evidence', async () => {
   const resolve = async () => [{ address: '8.8.8.8', family: 4 }]; let requests = 0;
