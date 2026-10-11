@@ -61,6 +61,21 @@ function opsVerifiedSocialRow_(read, mapping) {
     opsExplicitSocialBoolean_(read(mapping.safety.verified_direct_discussion)) === true;
 }
 
+
+// Explicit opt-in for newly verified routed Action Outputs only. Legacy rows remain pending.
+function opsRoutedActionEvidence_(read) {
+  var match=String(read('Notes')||'').match(/(?:^|\|\s*)Routed evidence:\s*([^\s|]+)/);
+  var e;try{e=match?JSON.parse(decodeURIComponent(match[1])):null;}catch(_){return null;}
+  if(!e||['AUDIENCE_INTELLIGENCE','PARTNERS_DISTRIBUTION'].indexOf(e.type)<0||e.sourceUrl!==read('Source URL')||!/^PA-R-[a-f0-9]{32}$/.test(String(read('Action ID'))))return null;
+  var parts=String(e.sourceUrl).match(/^https:\/\/([a-z0-9.-]+)(\/[^\s\\]*|)$/i);
+  if(!parts||/(^|\.)(reddit\.com|redd\.it|localhost|local|internal)$/.test(parts[1])||/vertex|grounding|googleusercontent/i.test(parts[1]))return null;
+  if(e.publicContext!==true||e.consumerOutreach!==false||e.healthTargeting!==false||typeof e.sourceText!=='string'||e.sourceText.trim().length<20||e.sourceText!==read('Opportunity')||!e.relevance||!isFinite(Date.parse(e.verifiedAt)))return null;
+  if(/suicid|self[- ]harm|kill myself|end my life|immediate danger/i.test(e.sourceText))return null;
+  if(e.type==='PARTNERS_DISTRIBUTION'&&(!e.organisation||!e.contactRoute||!e.nextStep||e.verifiedPublicBusiness!==true))return null;
+  if(e.type==='AUDIENCE_INTELLIGENCE'&&(!e.contentAngle||!e.assetType||!e.brief))return null;
+  return e;
+}
+
 function opsExportEngineState() {
   var properties = PropertiesService.getScriptProperties();
   var config = JSON.parse(properties.getProperty('OPS_STATE_SYNC_CONFIG') || '{}');
@@ -88,9 +103,10 @@ function opsExportEngineState() {
     var hashId = mapping.id_rule === 'rootOpsStableLeadId_';
     if (mapping.id_rule && !hashId) throw new Error('Unsupported source ID rule.');
     if (hashId && (config.source_engine !== 'root_health_b2b' || mapping.id_prefix || mapping.id_header)) throw new Error('B2B ID rule cannot be combined with another identity format.');
-    var required = (hashId ? ['Organisation', 'Email', 'Source URL'] : [mapping.id_header]).concat(Object.values(mapping.fields || {}), Object.values(mapping.state || {}), Object.values(mapping.safety || {}), Object.values(mapping.metadata || {})).flat();
+    var required = (hashId ? ['Organisation', 'Email', 'Source URL'] : [mapping.id_header]).concat(Object.values(mapping.fields || {}), Object.values(mapping.state || {}), Object.values(mapping.safety || {}), Object.values(mapping.metadata || {}), mapping.routed_evidence === true ? ['Notes'] : []).flat();
     if ((!hashId && !mapping.id_header) || required.some(function(header) { return headers.indexOf(header) < 0 || headers.indexOf(header) !== headers.lastIndexOf(header); })) throw new Error('Missing or duplicate mapped source header.');
     var socialQueue = config.source_engine === 'root_health_personal' && mapping.name === 'Social Queue';
+    var routedActions = config.source_engine === 'root_health_personal' && mapping.name === 'Action Outputs' && mapping.routed_evidence === true;
     var skippedSocialRows = 0;
     rows.slice(1).forEach(function(row) {
       if (row.every(function(value) { return value === ''; })) return;
@@ -106,6 +122,8 @@ function opsExportEngineState() {
       // Legacy rows are not evidence. Skip before identity/safety conversion so
       // one unverified Social row cannot abort verified rows or other queues.
       if (socialQueue && !opsVerifiedSocialRow_(read, mapping)) { skippedSocialRows++; return; }
+      var routed = routedActions ? opsRoutedActionEvidence_(read) : null;
+      if (routedActions && !routed) { skippedSocialRows++; return; }
       if (hashId && !read('Organisation') && !read('Email') && !read('Source URL')) throw new Error('Source record has no stable identity evidence.');
       var id = hashId ? opsStableB2BSourceId_(read('Organisation'), read('Email'), read('Source URL')) : read(mapping.id_header);
       if (id === '' || id == null) throw new Error('Source record has no stable identifier.');
@@ -146,9 +164,24 @@ function opsExportEngineState() {
           else throw new Error('Personal safety evidence must be an explicit boolean.');
         });
       }
+      if (routedActions) {
+        record.record_type=routed.type==='PARTNERS_DISTRIBUTION'?'partner_opportunity':'personal_opportunity';
+        record.reason=routed.relevance;record.suggested_action=routed.type==='PARTNERS_DISTRIBUTION'?'Review public business route':'Create content from verified audience intelligence';
+        record.metadata.source_verification={verified_at:routed.verifiedAt,source_url:routed.sourceUrl};
+        record.metadata.audience_intelligence=routed.type==='AUDIENCE_INTELLIGENCE';
+        record.metadata.content_angle=routed.contentAngle||null;record.metadata.content_asset_type=routed.assetType||null;
+        record.metadata.content_relevance=routed.relevance;record.metadata.content_draft=routed.brief||null;
+        if(routed.type==='PARTNERS_DISTRIBUTION'){
+          record.company=routed.organisation;record.entity=routed.organisation;record.person=routed.person||null;
+          record.metadata.contact_route=routed.contactRoute;record.metadata.website=routed.sourceUrl;
+          record.metadata.contact_page=/^https:/i.test(routed.contactRoute)?routed.contactRoute:null;
+          record.metadata.email=/^mailto:/i.test(routed.contactRoute)?routed.contactRoute.slice(7):null;
+        }
+        record.safety={public_context:true,consumer_outreach:false,health_targeting:false,verified_public_business:routed.verifiedPublicBusiness===true,verified_direct_discussion:false};
+      }
       records.push(record);
     });
-    if (socialQueue && skippedSocialRows) pending.push({ sheet: mapping.name, skipped_unverified_rows: skippedSocialRows });
+    if ((socialQueue || routedActions) && skippedSocialRows) pending.push({ sheet: mapping.name, skipped_unverified_rows: skippedSocialRows });
   });
   // Validate the entire local export before the first request; never infer stable IDs.
   var seen = Object.create(null);

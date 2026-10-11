@@ -153,3 +153,16 @@ test('partner cards show actual contacted/replied/completed state and dead-sourc
     await act(async () => renderer.unmount());
   }
 });
+
+
+test('Audience article action opens the imported editable brief without substituting generic copy or saving',async()=>{
+ const imported='Editorial brief: explain the verified public wellbeing evidence and its limits. Review all source dates before use.';
+ const audience={...item,evidence:'Verified public wellbeing research evidence.',record_type:'personal_opportunity',source_url:'https://research.example/article',metadata:{action_type:'SEARCH_ASSET',lane:'Intent content',content_draft:imported,engine_safety:{public_context:true,consumer_outreach:false,health_targeting:false}}};
+ let writes=0;
+ const Card=load('app/dashboard/growth/acquisition/PersonalOpportunityCard.tsx',{react:React,'react/jsx-runtime':jsx,'./PersonalDistributionPanel':{__esModule:true,default:p=>React.createElement('textarea',{value:p.brief,readOnly:true})}},{fetch:async(_url,options)=>{if(options?.method==='POST')writes++;return {ok:true,json:async()=>({accessibility:'accessible',evidence:'verified',checkedAt:new Date().toISOString(),message:'Source accessible · evidence checked'})};}}).default;
+ let renderer;await act(async()=>{renderer=create(React.createElement(Card,{group:{item:audience,members:[audience],category:'content',blocked:false},organisationId:org,onSaved:async()=>{}}));});
+ const createButton=renderer.root.findAllByType('button').find(b=>b.props.children==='Create content');assert.equal(createButton.props.disabled,false);
+ await act(async()=>createButton.props.onClick());assert.equal(renderer.root.findByType('textarea').props.value,imported);assert.equal(writes,0);
+ assert.equal(renderer.root.findAllByType('button').some(b=>b.props.children==='Prepare response'||b.props.children==='Start outreach'),false);
+ await act(async()=>renderer.unmount());
+});

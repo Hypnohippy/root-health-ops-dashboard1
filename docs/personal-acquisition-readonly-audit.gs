@@ -22,6 +22,13 @@ function personalAuditAcquisitionAlignmentReadOnly() {
     if (mapping && opsVerifiedSocialRow_(read, mapping)) counts.eligibleAudienceIntelligence++;
     else counts.skippedUnverified++;
   });
+  var actionMapping=(config.sheets||[]).filter(function(m){return m.name==='Action Outputs'&&m.routed_evidence===true;})[0];
+  var routedCounts={eligibleAudience:0,eligiblePartners:0,skippedUnverified:0};
+  if(actionMapping){
+    var actionRows=personalSpreadsheet_().getSheetByName('Action Outputs').getDataRange().getValues();
+    var actionHeaders=actionRows.shift();
+    actionRows.forEach(function(row){if(row.every(function(v){return v==='';}))return;var e=opsRoutedActionEvidence_(function(h){return row[actionHeaders.indexOf(h)]||'';});if(!e)routedCounts.skippedUnverified++;else if(e.type==='AUDIENCE_INTELLIGENCE')routedCounts.eligibleAudience++;else routedCounts.eligiblePartners++;});
+  }
   var cfg = personalReadSettings_();
   var socialLanes = personalReadSearchLanes_().filter(function(l) { return personalNormalise_(l.lane) === 'social/community intent'; });
   var focused = socialLanes.reduce(function(all, lane) { return all.concat(personalSocialFocusedQueries_(lane)); }, []);
@@ -33,6 +40,7 @@ function personalAuditAcquisitionAlignmentReadOnly() {
       tenantMatches: config.organisation_id === '78fa2ac8-e7b6-4b9b-9604-035723ece6b1',
       spreadsheetMatches: config.spreadsheet_id === '1ZfyIebRh6G8HkuJrM6cizPocd8oBh3Cu1u_Lh9M2UAM',
       socialQueueOnly: !!mapping && config.sheets.length === 1,
+      verifiedActionOutputsEnabled: !!actionMapping,
       draftMapped: !!mapping && mapping.metadata.content_draft === 'Draft',
       syncSecretConfigured: (props.getProperty('OPS_STATE_SYNC_SECRET') || '').length >= 32,
       braveConfigured: !!props.getProperty('BRAVE_SEARCH_API_KEY')
@@ -46,7 +54,7 @@ function personalAuditAcquisitionAlignmentReadOnly() {
     socialCandidates: candidates.length,
     redditCandidates: candidates.filter(function(c) { return /reddit\.com|redd\.it/i.test(c.sourceUrl); }).length,
     publicResponseCandidates: candidates.filter(function(c) { return personalDiscoveryActionType_(c.sourceUrl) === 'PUBLIC_RESPONSE'; }).length,
-    socialQueue: counts,
+    socialQueue: counts, routedActionOutputs: routedCounts,
     triggers: ScriptApp.getProjectTriggers().map(function(t) { return { handler: t.getHandlerFunction(), event: String(t.getEventType()) }; })
   };
   Logger.log(JSON.stringify(result));

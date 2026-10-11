@@ -146,6 +146,7 @@ function runMappedExport(config, sheets) {
   vm.runInNewContext(fs.readFileSync("docs/google-engine-state-export.gs", "utf8"), sandbox);
   const results = sandbox.opsExportEngineState(); return { sent, reads, results };
 }
+const actionHeaders = config => {const a=config.sheets.find(s=>s.name==='Action Outputs');return a?[...new Set([a.id_header,...Object.values(a.fields),...Object.values(a.state),...Object.values(a.metadata),'Notes'].flat())]:[];};
 const liveConfig = engine => JSON.parse(fs.readFileSync(`docs/google-engine-state-${engine}.config.json`, "utf8"));
 
 test("verified live configurations identify exact spreadsheets and isolate only pending tabs/fields", () => {
@@ -157,9 +158,9 @@ test("verified live configurations identify exact spreadsheets and isolate only 
   assert.equal(personalConfig.sheets[0].id_prefix, undefined);
   const social = personalConfig.sheets.find(s => s.name === 'Social Queue');
   const socialHeaders = [...new Set([social.id_header, ...Object.values(social.fields), ...Object.values(social.state), ...Object.values(social.metadata), ...Object.values(social.safety)].flat())];
-  const pending = runMappedExport(personalConfig, { 'Social Queue': [socialHeaders] });
-  assert.equal(pending.sent.length, 0); assert.deepEqual(pending.reads, ["Social Queue"]);
-  assert.deepEqual(Array.from(pending.results, r => r.sheet), ["Partner Outreach", "Acquisition Queue", "Search Demand", "Funnel Events", "Action Outputs", "Leads"]);
+  const pending = runMappedExport(personalConfig, { 'Social Queue': [socialHeaders], 'Action Outputs': [actionHeaders(personalConfig)] });
+  assert.equal(pending.sent.length, 0); assert.deepEqual(pending.reads, ["Social Queue", "Action Outputs"]);
+  assert.deepEqual(Array.from(pending.results, r => r.sheet), ["Partner Outreach", "Acquisition Queue", "Search Demand", "Funnel Events", "Leads"]);
   b2b.sheets[0].pending = [];
   assert.throws(() => runMappedExport(b2b, { Leads: [["Email"], ["contact@example.com"]] }), /Missing or duplicate mapped source header/);
 });
@@ -191,9 +192,9 @@ test("Partner Outreach maps exact source IDs and state, preserves safety gates a
     "Contact name": "Person", "Role / Team": "Partners", Email: "person@example.com", "Contact page": "https://example.com/contact", "Email source URL": "",
     Verification: "uninterpreted source value", "Business context": "Public business partnership", "Draft subject": "PRIVATE DRAFT", "Draft body": "PRIVATE BODY", "Approval status": "pending",
     "Send status": "", "Sent at": "", "Reply status": "", "Reply at": "", "Referral link": "https://example.com/ref", Conversions: 2, Notes: "PRIVATE NOTES" };
-  const exportRow = () => runMappedExport(config, { "Partner Outreach": [Object.keys(values), Object.values(values)] });
+  const exportRow = () => runMappedExport(config, { "Partner Outreach": [Object.keys(values), Object.values(values)], "Action Outputs": [actionHeaders(config)] });
   const first = exportRow(), row = first.sent[0].records[0];
-  assert.equal(first.results.filter(r => r.pending).length, 5); assert.deepEqual(first.reads, ["Partner Outreach"]);
+  assert.equal(first.results.filter(r => r.pending).length, 4); assert.deepEqual(first.reads, ["Partner Outreach", "Action Outputs"]);
   assert.equal(row.source_record_id, "outreach-original-5"); assert.equal(row.metadata.queue_row_reference, "27");
   assert.equal(row.source_url, "https://example.com/contact"); assert.equal(row.state.approval_state, "pending");
   assert.equal(row.state.conversions, "2"); assert.doesNotMatch(JSON.stringify(row), /PRIVATE/);
@@ -208,11 +209,10 @@ test("Partner Outreach maps exact source IDs and state, preserves safety gates a
   assert.equal(contact(exportRow().sent[0].records[0]).currentStage, "needs_reply");
 });
 
-test("Action Outputs stays pending and preserves its existing mapping and no inferred safety", () => {
- const config=liveConfig('personal'),mapping=config.sheets.find(s=>s.name==='Action Outputs');assert.ok(mapping.pending.length);config.sheets=[mapping];mapping.pending=[];
- const headers=[...new Set([mapping.id_header,...Object.values(mapping.fields),...Object.values(mapping.state),...Object.values(mapping.metadata)].flat())];
- const values=Object.fromEntries(headers.map(h=>[h,'']));Object.assign(values,{'Action ID':'action-existing-4','Source URL':'https://example.com/article','Queue row':83,'Review status':'REVIEW','Action type':'CONTENT_BRIEF',Opportunity:'Public content opportunity',Lane:'Intent content'});
- const row=runMappedExport(config,{'Action Outputs':[Object.keys(values),Object.values(values)]}).sent[0].records[0];assert.equal(row.source_record_id,'action-existing-4');assert.equal(row.metadata.queue_row_reference,'83');assert.equal(row.state.approval_state,'REVIEW');assert.equal(row.safety.public_context,undefined);assert.throws(()=>parse(row),/Personal records require public context/);
+test("Action Outputs reads only explicit routed evidence and skips legacy records without inferring safety", () => {
+ const config=liveConfig('personal'),mapping=config.sheets.find(s=>s.name==='Action Outputs');assert.equal(mapping.routed_evidence,true);config.sheets=[mapping];
+ const headers=actionHeaders(config),values=Object.fromEntries(headers.map(h=>[h,'']));Object.assign(values,{'Action ID':'action-existing-4','Source URL':'https://example.com/article','Queue row':83,'Review status':'REVIEW','Action type':'CONTENT_BRIEF',Opportunity:'Public content opportunity',Lane:'Intent content'});
+ const result=runMappedExport(config,{'Action Outputs':[Object.keys(values),Object.values(values)]});assert.equal(result.sent.length,0);assert.equal(result.results[0].skipped_unverified_rows,1);
 });
 
 const socialValues=()=>({'Social ID':'social-new-direct-fixture','Source URL':'https://www.linkedin.com/posts/root-discussion-123','Context / Question':'Discussion about switching off','Theme':'Stress / sleep','Platform':'LinkedIn','Mode':'SOCIAL_CONTEXT','Status':'READY','Published at':'','Queue row':83,'Risk':'LOW','Generated':new Date('2026-10-10T10:00:00Z'),'Clicks':0,'Capacity Checks':0,'Destination':'public post','Draft':'A standalone content draft for editorial review.','Notes':'Social action: '+encodeURIComponent(JSON.stringify({actionType:'CONTENT_SIGNAL',contentAngle:'Workday boundaries',assetType:'LinkedIn post'})),'Original Post':'  How do you switch off after work? 👋\nExact source text.','Prepared Reply':'What helps you draw a boundary at the end of the day?','Public Context':true,'Consumer Outreach':false,'Health Targeting':false,'Verified Direct Discussion':true});
@@ -242,4 +242,18 @@ test('Content Signal export keeps exact source and content suggestions but no pe
  const helpers=load('lib/personalSignal.ts');assert.equal(helpers.personalSignal(parsed),null);assert.equal(helpers.contentSignal(parsed).angle,'Workday boundaries');
  assert.equal(exportSocial([{...values,Notes:''}]).sent.length,0);
  assert.equal(exportSocial([{...values,'Original Post':'I want to kill myself'}]).sent.length,0);
+});
+
+
+test('verified article intelligence travels through routed Action Outputs, ingestion and existing brief action without becoming a prospect',()=>{
+ const config=liveConfig('personal'),mapping=config.sheets.find(s=>s.name==='Action Outputs');config.sheets=[mapping];
+ const e={type:'AUDIENCE_INTELLIGENCE',sourceUrl:'https://research.example/wellbeing-evidence',sourceText:'Verified public research about everyday stress and recovery.',publicContext:true,consumerOutreach:false,healthTargeting:false,relevance:'Audience-level wellbeing research',contentAngle:'Understanding recovery',assetType:'article brief',brief:'Editorial brief: explain recovery without diagnosis or promises.',verifiedAt:'2026-10-11T10:00:00Z'};
+ const values=Object.fromEntries(actionHeaders(config).map(h=>[h,'']));Object.assign(values,{'Action ID':'PA-R-'+ 'b'.repeat(32),'Source URL':e.sourceUrl,Opportunity:e.sourceText,Theme:'Stress / recovery',Lane:'Intent content','Action type':'SEARCH_ASSET','Draft / Brief':e.brief,'Review status':'REVIEW',Notes:'Routed evidence: '+encodeURIComponent(JSON.stringify(e))});
+ const row=runMappedExport(config,{'Action Outputs':[Object.keys(values),Object.values(values)]}).sent[0].records[0],parsed=parse(row);
+ assert.equal(parsed.record_type,'personal_opportunity');assert.equal(parsed.metadata.engine_safety.verified_direct_discussion,false);
+ assert.equal(parsed.person,null);assert.equal(parsed.metadata.first_party_interaction,undefined);
+ const distribution=load('lib/personalDistribution.ts'),policy=load('lib/personalOpportunityPolicy.ts'),presentation=load('lib/acquisitionPresentation.ts');
+ assert.equal(distribution.personalDistributionKind(parsed),'SEARCH_ASSET');assert.equal(policy.personalProspect(parsed),null);
+ assert.equal(policy.personalActionPermitted(parsed,'prepare_outreach'),false);
+ assert.equal(presentation.personalCategory(parsed),'content');
 });

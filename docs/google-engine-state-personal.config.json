@@ -49,12 +49,31 @@
     { "name": "Search Demand", "pending": ["Headers verified live; no stable ID or verified existing composite rule. Search phrase/Theme are mutable; no row-number identity. Personal safety evidence unresolved."] },
     { "name": "Funnel Events", "pending": ["Live rows define funnel rules (Event/Trigger/Required prior state/Next state), not contact event occurrences. No stable occurrence ID or contact linkage; must not create conversions from rule definitions."] },
     {
-      "name": "Action Outputs", "record_type": "personal_opportunity", "id_header": "Action ID",
-      "pending": ["State/provenance headers verified live. Lane/Action type/REVIEW do not explicitly establish public_context, consumer_outreach=false or health_targeting=false; partner actions also require verified public business evidence before any outreach."],
-      "fields": { "source_url": "Source URL", "evidence": "Opportunity", "signal": "Theme", "entity": "Target / Partner" },
-      "state": { "approval_state": "Review status", "opportunity_type": "Action type" },
-      "metadata": { "queue_row_reference": "Queue row", "lane": "Lane", "created_at": "Created", "approved_at": "Approved at", "actioned_at": "Actioned at", "destination": "Destination" },
-      "safety": {}
+      "name": "Action Outputs",
+      "record_type": "personal_opportunity",
+      "id_header": "Action ID",
+      "fields": {
+        "source_url": "Source URL",
+        "evidence": "Opportunity",
+        "signal": "Theme",
+        "entity": "Target / Partner"
+      },
+      "state": {
+        "approval_state": "Review status",
+        "opportunity_type": "Action type"
+      },
+      "metadata": {
+        "queue_row_reference": "Queue row",
+        "lane": "Lane",
+        "created_at": "Created",
+        "approved_at": "Approved at",
+        "actioned_at": "Actioned at",
+        "destination": "Destination",
+        "action_type": "Action type",
+        "content_draft": "Draft / Brief"
+      },
+      "safety": {},
+      "routed_evidence": true
     },
     { "name": "Leads", "pending": ["Headers verified live; External contact ID is unpopulated in the inspected sheet. Message ID is not a verified stable lead ID. Existing source ID rule and public-context eligibility unresolved; consumer consent is not public opportunity verification."] }
   ]
