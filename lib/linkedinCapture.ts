@@ -23,13 +23,14 @@ export function parseLinkedInRecommendations(input: { subject: string; sender: s
   const seen = new Set<string>();
   return anchors.flatMap((anchor, index) => {
     const profileUrl = verifiedLinkedInProfile(anchor[1].replace(/&amp;/g, "&"));
-    const name = text(anchor[2]);
-    if (!profileUrl || !name || /^(?:connect|follow|view profile|linkedin|message)$/i.test(name) || seen.has(profileUrl)) return [];
+    const blocks = [...anchor[2].matchAll(/<(?:h[1-6]|p)\b[^>]*>([\s\S]*?)<\/(?:h[1-6]|p)>/gi)].map(part => text(part[1])).filter(Boolean);
+    const name = blocks[0] || text(anchor[2]);
+    if (!profileUrl || !name || /^(?:connect|follow|view profile|linkedin|message)$|^Do you know\b/i.test(name) || seen.has(profileUrl)) return [];
     seen.add(profileUrl);
     const end = (anchor.index || 0) + anchor[0].length;
     const next = anchors.slice(index + 1).find(a => verifiedLinkedInProfile(a[1].replace(/&amp;/g, "&")) !== profileUrl && verifiedLinkedInProfile(a[1].replace(/&amp;/g, "&")));
-    const headline = text(html.slice(end, next?.index ?? html.length)).split(/\b(?:Connect|Follow|View profile|mutual connections?)\b/i)[0].trim().slice(0, 500);
-    const company = headline.match(/\bat\s+([^|·]+)/i)?.[1]?.trim() || "";
+    const headline = (blocks.slice(1).join(" ") || text(html.slice(end, next?.index ?? html.length))).split(/\b(?:Connect|Follow|View profile|\d+\s+mutual connections?|mutual connections?)\b/i)[0].trim().slice(0, 500);
+    const company = headline.match(/\bat\s+([^|·]+)/i)?.[1]?.trim() || (seen.size === 1 ? input.subject.match(/Someone at\s+(.+?)\s+you may know/i)?.[1]?.trim() : "") || "";
     return [{ name, headline, company, profileUrl, messageUrl: null, mutualConnections: null } satisfies LinkedInContact];
   });
 }

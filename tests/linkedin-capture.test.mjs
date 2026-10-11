@@ -19,6 +19,14 @@ const capture = load("lib/linkedinCapture.ts");
 const person = (i, role = "HR Director at Example Group") => `<section><a href="https://www.linkedin.com/comm/in/person-${i}?trk=email"><img alt="Person ${i}"></a><a href="https://www.linkedin.com/comm/in/person-${i}?trk=email">Person ${i}</a><p>${role}</p><a href="https://www.linkedin.com/messaging/compose/?connId=person-${i}">Message</a></section>`;
 const input = html => ({ subject: "See people’s connections, experience, and more", sender: "LinkedIn <invitations@linkedin.com>", html, gmailMessageId: "gmail-1", discoveredAt: "2026-10-11T10:00:00Z" });
 
+test("real recommendation layout separates question link, name, embedded role and primary subject company", () => {
+  const url = "https://www.linkedin.com/comm/in/person-1";
+  const html = `<a href="${url}">Do you know Alex?</a><a href="${url}"><img></a><a href="${url}"><h2>Alex Example</h2></a><p>HR Director | Chief People Officer</p><p>3 mutual connections</p><a href="${url}">View profile</a><a href="https://linkedin.com/in/person-2"><table><tr><td><p>Jamie Example</p></td></tr><tr><td><p>CEO at Example Trust</p></td></tr></table></a><p>2 mutual connections</p>`;
+  const people = capture.parseLinkedInRecommendations({ ...input(html), subject: "Someone at Example Homes you may know" });
+  assert.equal(people.length, 2); assert.equal(people[0].name, "Alex Example"); assert.equal(people[0].headline, "HR Director | Chief People Officer"); assert.equal(people[0].company, "Example Homes");
+  assert.equal(people[1].name, "Jamie Example"); assert.equal(people[1].headline, "CEO at Example Trust"); assert.equal(people[1].company, "Example Trust");
+});
+
 test("recommendation worker is bounded, skips old/acceptance messages, and never installs a trigger or sends", () => {
   const message = (subject, days = 0) => ({ getSubject: () => subject, getDate: () => new Date(Date.now() - days * 86400000), getFrom: () => "LinkedIn <invitations@linkedin.com>", getBody: () => person(1), getId: () => "mail" });
   let calls = 0;
