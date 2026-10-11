@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { personalRedditSource } from "@/lib/personalOpportunityPolicy";
 
 export const recordTypes = ["b2b_lead", "personal_opportunity", "partner_opportunity", "social_opportunity"] as const;
 export const ingestionStatuses = ["new", "reviewing", "accepted", "dismissed"] as const;
@@ -47,6 +48,8 @@ export function parseIngestion(value: unknown) {
       catch { throw new IngestionError("source_url must be an HTTP(S) URL without credentials."); }
     }
     const metadata = r.metadata === undefined ? {} : object(r.metadata);
+    if (personalRedditSource({ source_engine: String(r.source_engine), source_url: sourceUrl, metadata })) throw new IngestionError("Reddit is historical-only and cannot enter active Personal Acquisition.");
+    if (r.source_engine === "root_health_personal" && metadata.first_party_interaction !== undefined) throw new IngestionError("Discovery imports cannot assert a first-party interaction or contact permission.");
     if (JSON.stringify(metadata).length > 16000) throw new IngestionError("metadata is too large.");
     return {
       organisation_id: organisationId,

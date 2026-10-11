@@ -1,14 +1,15 @@
 import { personalDistributionKind } from "@/lib/personalDistribution";
 import type { PersonalSignalItem } from "@/lib/personalSignal";
+import { personalProspect, personalRedditSource } from "@/lib/personalOpportunityPolicy";
 
 export type PersonalOpportunity = PersonalSignalItem & { id: string; organisation_id: string; entity?: string | null; person?: string | null; company?: string | null; created_at?: string; suggested_action?: string | null };
 export type OpportunityGroup = { item: PersonalOpportunity; members: PersonalOpportunity[]; category: string; blocked: boolean };
 export const explicitTestRecord = (item: { metadata?: Record<string, unknown> }) => item.metadata?.test === true;
 export function personalCategory(item: PersonalOpportunity) {
-  if (item.source_engine !== "root_health_personal") return null;
+  if (item.source_engine !== "root_health_personal" || personalRedditSource(item)) return null;
   if (item.record_type === "partner_opportunity") return "partners";
   const kind = personalDistributionKind(item);
-  return kind === "PUBLIC_RESPONSE" ? "people" : kind === "SOCIAL_CONTENT" || kind === "SEARCH_ASSET" ? "content" : "review";
+  return personalProspect(item) ? "people" : kind === "SOCIAL_CONTENT" || kind === "SEARCH_ASSET" ? "content" : "review";
 }
 function sourceKey(item: PersonalOpportunity) {
   const kind = personalDistributionKind(item);

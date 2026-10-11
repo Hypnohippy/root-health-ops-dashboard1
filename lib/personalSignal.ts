@@ -1,9 +1,11 @@
 import { safePublicDraft } from "@/lib/socialCommentOpportunity";
 import { AcquisitionWorkflowError } from "@/lib/acquisitionWorkflow";
+import { personalActionPermitted, personalProspect, personalRedditSource } from "@/lib/personalOpportunityPolicy";
 export type PersonalSignalItem = {source_engine:string;record_type:string;source_record_id?:string;source_url:string|null;status:string;metadata:Record<string,unknown>;reason?:string|null;signal?:string|null;engine_state?:{opportunity_type?:string|null}|null;evidence?:string|null;acquisition_item_events?:{action:string;created_at:string;previous_status?:string;new_status?:string;note?:string|null;outcome?:string|null}[]};
 const exactText=(v:unknown)=>typeof v==="string"&&v.trim()?v:null;
 const object=(v:unknown):Record<string,unknown>=>v&&typeof v==="object"&&!Array.isArray(v)?v as Record<string,unknown>:{};
 function qualifiedDiscussion(item:PersonalSignalItem){
+ if(personalRedditSource(item))return null;
  if(item.source_engine!=="root_health_personal"||!["personal_opportunity","social_opportunity"].includes(item.record_type)||!item.source_record_id)return null;
  const m=item.metadata||{},s=object(m.engine_safety);
  if(s.public_context!==true||s.consumer_outreach!==false||s.health_targeting!==false||s.verified_direct_discussion!==true)return null;
@@ -23,9 +25,9 @@ function qualifiedDiscussion(item:PersonalSignalItem){
 export function personalSocialActionType(item:PersonalSignalItem){
  const evidence=qualifiedDiscussion(item);if(!evidence)return null;
  const m=item.metadata;
- if(evidence.platform==="Reddit"||m.action_type==="CONTENT_SIGNAL")return "CONTENT_SIGNAL";
- if(evidence.platform==="LinkedIn")return "PUBLIC_RESPONSE";
- return m.action_type==="PUBLIC_RESPONSE"&&m.public_engagement_surface_verified===true&&exactText(m.public_engagement_surface_evidence)?"PUBLIC_RESPONSE":"CONTENT_SIGNAL";
+ if(m.action_type==="CONTENT_SIGNAL"||!personalProspect(item))return "CONTENT_SIGNAL";
+ const prospect=personalProspect(item);
+ return m.action_type==="PUBLIC_RESPONSE"&&prospect?.nextStep==="public_reply"?"PUBLIC_RESPONSE":"CONTENT_SIGNAL";
 }
 export function personalSignal(item:PersonalSignalItem){return personalSocialActionType(item)==="PUBLIC_RESPONSE"?qualifiedDiscussion(item):null;}
 export function contentSignal(item:PersonalSignalItem){
@@ -34,6 +36,7 @@ export function contentSignal(item:PersonalSignalItem){
  return {...evidence,reply:null,angle:exactText(m.content_angle),assetType:exactText(m.content_asset_type),cta:exactText(m.content_cta),relevance:exactText(m.content_relevance)};
 }
 export function personalSocialActionAllowed(item:PersonalSignalItem,action:string){
+ if(!personalActionPermitted(item,action))return false;
  const content=item.source_engine==="root_health_personal"&&(item.metadata?.action_type==="CONTENT_SIGNAL"||personalSocialActionType(item)==="CONTENT_SIGNAL");
  return !content||!(["route_responses","prepare_outreach","route_outreach","mark_engaged","mark_converted",...personalSignalActions] as string[]).includes(action);
 }

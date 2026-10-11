@@ -1,0 +1,44 @@
+--- a/Code.gs
++++ b/Code.gs
+@@ -454 +454 @@
+-    laneType === 'Social/community intent' ? 'SOCIAL ACTION: Reddit is CONTENT_SIGNAL only; never prepare a reply to the individual. LinkedIn may be PUBLIC_RESPONSE after all existing safety checks. Other platforms including Threads are CONTENT_SIGNAL unless the source is explicitly verified as an owned/appropriate Root or David public-engagement surface. Public availability never implies permission. socialEvidence must include actionType (PUBLIC_RESPONSE or CONTENT_SIGNAL), exact originalPost, all four explicit safety booleans, contentAngle, assetType, relevance and optional non-personal cta for CONTENT_SIGNAL; preparedReply only for PUBLIC_RESPONSE. Never infer ownership. publicEngagementSurfaceVerified/publicEngagementSurfaceEvidence must be explicit if used. Urgent self-harm or immediate-danger content is safety/signposting only: return no acquisition opportunity. For each SOCIAL_CONTEXT opportunity include socialEvidence:{originalPost: EXACT public source text (not searchQuestion), preparedReply: safe contextual public reply ONLY for PUBLIC_RESPONSE without URLs/private outreach/medical claims, publicContext: explicit boolean, consumerOutreach: explicit boolean, healthTargeting: explicit boolean, verifiedDirectDiscussion: explicit boolean}. Use the actual final HTTPS direct discussion sourceUrl, never a grounding redirect. If source text or provenance cannot be verified, return no opportunity. Do not return personal identity.' : '',
++    laneType === 'Social/community intent' ? 'SOCIAL ACTION: Discovered public discussions are CONTENT_SIGNAL demand intelligence only, never Personal prospects. Reddit is excluded. Never prepare a response to an individual or infer permission, ownership, contact identity or health profile. Require exact verified source text and all four explicit safety fields. Generate contentAngle, assetType, relevance and optional non-personal CTA. Urgent self-harm/immediate danger remains safety/signposting only; return no acquisition opportunity.' : '',
+@@ -579 +579 @@
+-    for (let platformIndex=0; platformIndex<6; platformIndex++) ordered.forEach(function(lane) {
++    for (let platformIndex=0; platformIndex<5; platformIndex++) ordered.forEach(function(lane) {
+@@ -584 +584,2 @@
+-  if (options && options.redditOnly) selectedPlans = selectedPlans.filter(function(plan){return plan.lane.queryTemplate.indexOf('site:reddit.com ')===0;});
++  if (options && options.redditOnly) throw new Error('Reddit discovery is disabled. No rows written.');
++  selectedPlans = selectedPlans.filter(function(plan){return personalNormalise_(plan.lane.lane)!=='social/community intent'||!/reddit\.com|redd\.it/i.test(String(plan.lane.queryTemplate||''));});
+@@ -4368 +4369 @@
+-const verifiedAction=verifiedEvidence&&opsSocialActionType_(sourceUrl,verifiedEvidence.actionType,verifiedEvidence);
++const verifiedAction=verifiedEvidence&&personalDiscoveryActionType_(sourceUrl,verifiedEvidence.actionType,verifiedEvidence);
+@@ -4423 +4424 @@
+-  if(evidence&&opsSocialActionType_(candidate.sourceUrl,evidence.actionType,evidence)==='CONTENT_SIGNAL')return [
++  if(evidence&&personalDiscoveryActionType_(candidate.sourceUrl,evidence.actionType,evidence)==='CONTENT_SIGNAL')return [
+@@ -4540 +4541,5 @@
+-function personalIsDirectPublicDiscussionUrl_(url) { return opsDirectSocialDiscussion_(url); }
++function personalIsDirectPublicDiscussionUrl_(url) {
++  if (/^https:\/\/(?:[^/]+\.)?(?:reddit\.com|redd\.it)(?:[/:?#]|$)/i.test(String(url||''))) return false;
++  return opsDirectSocialDiscussion_(url);
++}
++function personalDiscoveryActionType_(url) { return personalIsDirectPublicDiscussionUrl_(url) ? 'CONTENT_SIGNAL' : null; }
+@@ -4579 +4584 @@
+-            text: personalBuildSocialPrompt_(candidate, variants) + (options && options.oneReply ? (candidate.socialEvidence&&opsSocialActionType_(candidate.sourceUrl,candidate.socialEvidence.actionType,candidate.socialEvidence)==='CONTENT_SIGNAL'?'\nReturn exactly one standalone content item, never PUBLIC_REPLY.':'\nReturn exactly one PUBLIC_REPLY item.') : '')
++            text: personalBuildSocialPrompt_(candidate, variants) + (options && options.oneReply ? (candidate.socialEvidence&&personalDiscoveryActionType_(candidate.sourceUrl,candidate.socialEvidence.actionType,candidate.socialEvidence)==='CONTENT_SIGNAL'?'\nReturn exactly one standalone content item, never PUBLIC_REPLY.':'\nReturn exactly one PUBLIC_REPLY item.') : '')
+@@ -4661 +4666 @@
+-      const actionType=actionEvidence?opsSocialActionType_(candidate.sourceUrl,actionEvidence.actionType,actionEvidence):null;
++      const actionType=actionEvidence?personalDiscoveryActionType_(candidate.sourceUrl,actionEvidence.actionType,actionEvidence):null;
+@@ -5807 +5812 @@
+-  const actionType=opsSocialActionType_(sourceUrl,e&&e.actionType,e);
++  const actionType=personalDiscoveryActionType_(sourceUrl,e&&e.actionType,e);
+@@ -5878 +5883 @@
+-  return ['reddit.com','linkedin.com/posts','x.com','facebook.com','instagram.com','tiktok.com'].map(function(site){return 'site:'+site+' "'+intent+'"';});
++  return ['linkedin.com/posts','x.com','facebook.com','instagram.com','tiktok.com'].map(function(site){return 'site:'+site+' "'+intent+'"';});
+@@ -5888,0 +5894 @@
++  throw new Error('Legacy Reddit-only test is disabled. No discovery or write performed.');
+@@ -5895,0 +5902 @@
++  throw new Error('Legacy Reddit-only test is disabled. No discovery or write performed.');
+@@ -5930 +5937 @@
+-    'SOCIAL ACTION: Reddit is CONTENT_SIGNAL only; never prepare a reply to the individual. LinkedIn may be PUBLIC_RESPONSE after all existing safety checks. Other platforms including Threads are CONTENT_SIGNAL unless the source is explicitly verified as an owned/appropriate Root or David public-engagement surface. Public availability never implies permission. socialEvidence must include actionType (PUBLIC_RESPONSE or CONTENT_SIGNAL), exact originalPost, all four explicit safety booleans, contentAngle, assetType, relevance and optional non-personal cta for CONTENT_SIGNAL; preparedReply only for PUBLIC_RESPONSE. Never infer ownership. publicEngagementSurfaceVerified/publicEngagementSurfaceEvidence must be explicit if used. Urgent self-harm or immediate-danger content is safety/signposting only: return no acquisition opportunity.',
++    'SOCIAL ACTION: Discovered public discussions are CONTENT_SIGNAL demand intelligence only, never Personal prospects. Reddit is excluded. Never prepare a response to an individual or infer permission, ownership, contact identity or health profile. Require exact verified source text and all four explicit safety fields. Generate contentAngle, assetType, relevance and optional non-personal CTA. Urgent self-harm/immediate danger remains safety/signposting only; return no acquisition opportunity.',

@@ -9,6 +9,7 @@ import { personalDistributionKind } from "@/lib/personalDistribution";
 import { routePersonalPublishing } from "@/lib/personalDistribution.server";
 import { readPersonalOpportunities } from "@/lib/personalAcquisition.server";
 import { safePublicDraft } from "@/lib/socialCommentOpportunity";
+import { requirePersonalSource } from "@/lib/personalSourceHealth.server";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -36,6 +37,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     if (!personalSocialActionAllowed(item,body.action)) throw new AcquisitionWorkflowError("Content Signals cannot be used for personal response or engagement actions.");
+    if (!["start_review", "accept", "nurture", "dismiss"].includes(body.action)) await requirePersonalSource(organisationId, item);
     if (personalDistributionKind(item) === "SOCIAL_CONTENT" && ["create_content_draft", "route_publishing"].includes(body.action)) {
       if (process.env.PERSONAL_DISTRIBUTION_ENABLED !== "true") return NextResponse.json({ error: "Personal publishing handoff is not enabled yet. Your draft has been retained." }, { status: 503 });
       const plan = planAcquisitionAction(item.record_type, item.status, body.action);

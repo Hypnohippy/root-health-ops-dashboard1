@@ -1,6 +1,10 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { lifecycleLinkedInIdentity } from "@/lib/contactLifecycle";
 import { AcquisitionWorkflowError } from "@/lib/acquisitionWorkflow";
+import { personalActionPermitted } from "@/lib/personalOpportunityPolicy";
+import { requirePersonalSource } from "@/lib/personalSourceHealth.server";
+import { readPersonalOutreach } from "@/lib/personalOutreach.server";
+import type { PersonalSignalItem } from "@/lib/personalSignal";
 
 const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;
 type Item = Record<string, unknown> & { metadata?: Record<string, unknown> };
@@ -35,6 +39,12 @@ export async function promoteAcquisition(organisationId: string, userId: string,
     .eq("organisation_id", organisationId).eq("id", itemId).maybeSingle();
   if (error) throw error;
   if (!item) throw new AcquisitionWorkflowError("Acquisition item not found.", 404);
+  if (item.source_engine === "root_health_personal") {
+    if (!personalActionPermitted(item as PersonalSignalItem, action) || item.record_type !== "partner_opportunity") throw new AcquisitionWorkflowError("Audience Intelligence cannot start private outreach or enter the contact pipeline.", 409);
+    const context = await readPersonalOutreach(organisationId, itemId);
+    if (!context.canStart) throw new AcquisitionWorkflowError(context.reason || "Initial outreach is not available.", 409);
+    await requirePersonalSource(organisationId, item as PersonalSignalItem);
+  }
   const target = acquisitionTarget(item);
   const { data, error: promotionError } = await supabaseAdmin.rpc("promote_acquisition_target", {
     p_organisation_id: organisationId, p_item_id: itemId, p_actor: userId,

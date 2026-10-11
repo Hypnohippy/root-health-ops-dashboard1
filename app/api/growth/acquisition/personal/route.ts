@@ -4,6 +4,8 @@ import { readPersonalOpportunities } from "@/lib/personalAcquisition.server";
 import { personalPerformance } from "@/lib/personalDistribution.server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { uuid } from "@/lib/growthIngestion.server";
+import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
+import { projectPersonalOutreach } from "@/lib/personalOutreach.server";
 
 export async function GET(req: Request) {
   try {
@@ -16,6 +18,7 @@ export async function GET(req: Request) {
     const stateOf = (status: string) => status === "nurture" ? "saved" : ["actioned", "engaged", "converted", "lost", "dismissed"].includes(status) ? "completed" : ["reviewing", "accepted"].includes(status) ? "progress" : "decide";
     const groups = all.filter(g => (!category || g.category === category) && (!state || stateOf(g.item.status) === state));
     const slice = groups.slice(page * 25, page * 25 + 25);
+    const lifecycle = slice.some(g => g.category === "partners") ? await readLifecycleInput(organisationId, false) : null;
     const performance = await personalPerformance(supabaseAdmin, organisationId, slice.flatMap(g => g.members));
     const publishingIds = slice.flatMap(g => performance[g.item.id]?.publishing?.id ? [performance[g.item.id].publishing!.id] : []);
     const savedDrafts: Record<string, string> = {};
@@ -24,7 +27,7 @@ export async function GET(req: Request) {
       if (error) throw error;
       for (const post of data || []) savedDrafts[post.id] = post.message || "";
     }
-    return NextResponse.json({ groups: slice.map(g => ({ ...g, savedDraft: savedDrafts[performance[g.item.id]?.publishing?.id || ""] || null, personalPerformance: performance[g.item.id] || null })), total: groups.length,
+    return NextResponse.json({ groups: slice.map(g => ({ ...g, outreach: lifecycle && g.category === "partners" ? (() => { const { canStart, relationship, reason, route } = projectPersonalOutreach(organisationId, g.item.id, lifecycle); return { canStart, relationship, reason, route }; })() : null, savedDraft: savedDrafts[performance[g.item.id]?.publishing?.id || ""] || null, personalPerformance: performance[g.item.id] || null })), total: groups.length,
       counts: { people: all.filter(g => g.category === "people").length, content: all.filter(g => g.category === "content").length, partners: all.filter(g => g.category === "partners").length, review: all.filter(g => g.category === "review").length } });
   } catch (error) { return accessErrorResponse(error) || NextResponse.json({ error: "Unable to load Personal opportunities." }, { status: 503 }); }
 }

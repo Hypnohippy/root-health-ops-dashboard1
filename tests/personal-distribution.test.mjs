@@ -12,6 +12,7 @@ import { create, act } from 'react-test-renderer';
 const require = createRequire(import.meta.url);
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 function load(file, mocks = {}, globals = {}) {
+  mocks = {"@/lib/personalSourceHealth.server": {requirePersonalSource: async()=>{}}, ...mocks};
   const module = { exports: {} };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,
     { module, exports: module.exports, URL, URLSearchParams, Buffer, AbortSignal, console, process: { env: {} }, ...globals,
@@ -19,14 +20,14 @@ function load(file, mocks = {}, globals = {}) {
   return module.exports;
 }
 const org='78fa2ac8-e7b6-4b9b-9604-035723ece6b1', id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', actor='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', key='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-const sample = (overrides={}) => ({ id,organisation_id:org,source_engine:'root_health_personal',source_record_id:'SOCIAL-fixture-verified',record_type:'social_opportunity',status:'accepted',source_url:'https://reddit.com/r/example/comments/verified/discussion',signal:'Switching off after work',evidence:'Verified public discussion',metadata:{action_type:'CONTENT_SIGNAL',original_post:'How do you switch off after a long day?',prepared_reply:'This must never become published content',content_angle:'An evening transition',content_draft:'A short pause can help separate work from the rest of the evening.',engine_safety:{public_context:true,consumer_outreach:false,health_targeting:false,verified_direct_discussion:true}},...overrides});
+const sample = (overrides={}) => ({ id,organisation_id:org,source_engine:'root_health_personal',source_record_id:'SOCIAL-fixture-verified',record_type:'social_opportunity',status:'accepted',source_url:'https://x.com/example/status/verified',signal:'Switching off after work',evidence:'Verified public discussion',metadata:{action_type:'CONTENT_SIGNAL',original_post:'How do you switch off after a long day?',prepared_reply:'This must never become published content',content_angle:'An evening transition',content_draft:'A short pause can help separate work from the rest of the evening.',engine_safety:{public_context:true,consumer_outreach:false,health_targeting:false,verified_direct_discussion:true}},...overrides});
 const workflow=load('lib/acquisitionWorkflow.ts'), distribution=load('lib/personalDistribution.ts'), server=load('lib/personalDistribution.server.ts');
 
-test('Content Signal routes to social content; Reddit never responds; qualified LinkedIn response remains unchanged',()=>{
+test('Public discussions route to audience content; Reddit is historical-only; LinkedIn public availability is not permission',()=>{
   const item=sample(); assert.equal(distribution.personalDistributionKind(item),'SOCIAL_CONTENT');
   assert.equal(distribution.personalDistributionKind({...item,metadata:{...item.metadata,action_type:'PUBLIC_RESPONSE'}}),'SOCIAL_CONTENT');
   const linkedin=sample({source_url:'https://linkedin.com/posts/discussion',metadata:{...item.metadata,action_type:'PUBLIC_RESPONSE'}});
-  assert.equal(distribution.personalDistributionKind(linkedin),'PUBLIC_RESPONSE'); assert.throws(()=>server.planPersonalPublishing(linkedin,{platform:'linkedin',message:'Content'},actor));
+  assert.equal(distribution.personalDistributionKind(linkedin),'SOCIAL_CONTENT'); assert.equal(server.planPersonalPublishing(linkedin,{platform:'linkedin',message:'Content'},actor).status,'pending'); assert.equal(distribution.personalDistributionKind(sample({source_url:'https://reddit.com/r/jobs/comments/abc/topic'})),null);
   assert.equal(distribution.personalDistributionKind(sample({record_type:'partner_opportunity'})),null);
   for(const flag of ['public_context','consumer_outreach','health_targeting','verified_direct_discussion']) assert.equal(distribution.personalDistributionKind(sample({metadata:{...item.metadata,engine_safety:{...item.metadata.engine_safety,[flag]:!item.metadata.engine_safety[flag]}}})),null);
 });

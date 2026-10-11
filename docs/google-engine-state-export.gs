@@ -17,7 +17,7 @@ function opsDirectSocialDiscussion_(value) {
   if (!parts) return false;
   var host = parts[1].toLowerCase().replace(/^(www|m)\./, '');
   var path = parts[3];
-  if (['reddit.com', 'old.reddit.com', 'new.reddit.com'].indexOf(host) >= 0) return /\/comments\/[^/]+/.test(path);
+  if (['reddit.com', 'old.reddit.com', 'new.reddit.com', 'redd.it'].indexOf(host) >= 0) return false;
   if (host === 'facebook.com') return /\/(posts|videos|reel)\/[^/]+/.test(path) || (/\/(permalink|story)\.php$/.test(path) && /[?&]story_fbid=[^&#]+/.test(parts[4] || ''));
   if (host === 'instagram.com') return /^\/(p|reel)\/[^/]+/.test(path);
   if (['threads.net', 'threads.com'].indexOf(host) >= 0) return /\/post\/[^/]+/.test(path);
@@ -39,9 +39,10 @@ function opsSocialActionEvidence_(notes) {
 function opsSocialActionType_(url, requested, evidence) {
   if(!opsDirectSocialDiscussion_(url))return null;
   var host=String(url).match(/^https:\/\/([^/:]+)/i)[1].toLowerCase().replace(/^(www|m)\./,'');
-  if(['reddit.com','old.reddit.com','new.reddit.com'].indexOf(host)>=0||requested==='CONTENT_SIGNAL')return 'CONTENT_SIGNAL';
-  if(host==='linkedin.com')return 'PUBLIC_RESPONSE';
-  return requested==='PUBLIC_RESPONSE'&&evidence&&evidence.publicEngagementSurfaceVerified===true&&typeof evidence.publicEngagementSurfaceEvidence==='string'&&evidence.publicEngagementSurfaceEvidence.trim()?'PUBLIC_RESPONSE':'CONTENT_SIGNAL';
+  // Discovery alone cannot establish a first-party relationship or permission.
+  // Existing exact text/safety requirements remain; all discovered public posts
+  // are demand intelligence, including LinkedIn.
+  return 'CONTENT_SIGNAL';
 }
 function opsVerifiedSocialRow_(read, mapping) {
   var id = read(mapping.id_header);

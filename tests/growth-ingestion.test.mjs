@@ -12,7 +12,7 @@ const env = {GROWTH_INGESTION_KEYS: JSON.stringify([{organisation_id:A,secret,so
 function load(file, mocks={}, environment=env) {
   const mod={exports:{}};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText, {
-    module:mod,exports:mod.exports, require:n=>mocks[n] || require(n),process:{env:environment},Buffer,URL,console,
+    module:mod,exports:mod.exports, require:n=>mocks[n] || (n.startsWith("@/lib/")?load(n.replace("@/","")+".ts",mocks,environment):require(n)),process:{env:environment},Buffer,URL,console,
   });return mod.exports;
 }
 const helper=load("lib/growthIngestion.server.ts");

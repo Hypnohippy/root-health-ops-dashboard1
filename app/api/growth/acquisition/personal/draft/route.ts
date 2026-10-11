@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { personalSignal } from "@/lib/personalSignal";
 import { publicReplyRules, safePublicDraft } from "@/lib/socialCommentOpportunity";
 import { uuid } from "@/lib/growthIngestion.server";
+import { requirePersonalSource } from "@/lib/personalSourceHealth.server";
 
 export const POST = withTenantRoute(async (req, tenant) => {
   const body = await req.json();
@@ -14,6 +15,7 @@ export const POST = withTenantRoute(async (req, tenant) => {
   };
   const item = await read(), signal = item && personalSignal(item);
   if (!signal || !["new", "reviewing", "accepted"].includes(item.status) || item.metadata?.test === true) return NextResponse.json({ error: "This opportunity cannot prepare a public response." }, { status: 409 });
+  await requirePersonalSource(tenant.organisationId, item);
   if (!process.env.OPENAI_API_KEY) return NextResponse.json({ error: "Response generation is unavailable. You can still type a response." }, { status: 503 });
   const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", signal: AbortSignal.timeout(25000), headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify({ model: "gpt-4.1-mini", messages: [...tenant.messages, { role: "system", content: publicReplyRules }, { role: "user", content: JSON.stringify({ original: signal.original, context: signal.context }) }], max_tokens: 600 }) });
   if (!response.ok) return NextResponse.json({ error: "Response generation failed. Your text has been retained." }, { status: 503 });

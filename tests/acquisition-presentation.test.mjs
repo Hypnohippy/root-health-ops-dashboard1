@@ -20,7 +20,7 @@ function load(file, mocks = {}, globals = {}) {
   return module.exports;
 }
 const org = '78fa2ac8-e7b6-4b9b-9604-035723ece6b1', id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const sample = (extra = {}) => ({ id, organisation_id: org, record_type: 'social_opportunity', source_engine: 'root_health_personal', source_record_id: 'social-1', status: 'new', source_url: 'https://www.reddit.com/r/jobs/comments/abc/discussion/', signal: 'Switching off after work', created_at: '2026-10-10T12:00:00Z', metadata: { action_type: 'CONTENT_SIGNAL', original_post: 'How do you switch off after work?', prepared_reply: 'What helps you unwind?', content_draft: 'A moment to pause after work.', engine_safety: { public_context: true, consumer_outreach: false, health_targeting: false, verified_direct_discussion: true } }, acquisition_item_events: [], ...extra });
+const sample = (extra = {}) => ({ id, organisation_id: org, record_type: 'social_opportunity', source_engine: 'root_health_personal', source_record_id: 'social-1', status: 'new', source_url: 'https://www.linkedin.com/posts/abc-discussion/', signal: 'Switching off after work', created_at: '2026-10-10T12:00:00Z', metadata: { action_type: 'CONTENT_SIGNAL', original_post: 'How do you switch off after work?', prepared_reply: 'What helps you unwind?', content_draft: 'A moment to pause after work.', engine_safety: { public_context: true, consumer_outreach: false, health_targeting: false, verified_direct_discussion: true } }, acquisition_item_events: [], ...extra });
 const presentation = load('lib/acquisitionPresentation.ts');
 const response = { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200 }) } };
 
@@ -41,9 +41,9 @@ test('existing action owner wins over a fresh duplicate; conflicting completion 
   const group = presentation.groupPersonalOpportunities([sample(), sent])[0]; assert.equal(group.item.id, 'b'); assert.equal(group.blocked, false);
   const conflict = presentation.groupPersonalOpportunities([sent, sample({ id: 'c', status: 'dismissed', acquisition_item_events: [{ action: 'dismiss', created_at: '2026-10-10T14:00:00Z' }] })])[0]; assert.equal(conflict.blocked, true);
 });
-test('Reddit remains content-only; LinkedIn can be a response; partner and unqualified evidence are separate categories', () => {
+test('discovered LinkedIn posts are Audience Intelligence; partner and unqualified evidence remain separate categories', () => {
   assert.equal(presentation.personalCategory(sample()), 'content');
-  assert.equal(presentation.personalCategory(sample({ source_url: 'https://linkedin.com/posts/discussion', metadata: { ...sample().metadata, action_type: 'PUBLIC_RESPONSE' } })), 'people');
+  assert.equal(presentation.personalCategory(sample({ source_url: 'https://linkedin.com/posts/discussion', metadata: { ...sample().metadata, action_type: 'PUBLIC_RESPONSE' } })), 'content');
   assert.equal(presentation.personalCategory(sample({ record_type: 'partner_opportunity' })), 'partners');
   assert.equal(presentation.personalCategory(sample({ metadata: {} })), 'review');
 });
@@ -69,7 +69,7 @@ test('saved content displays the actual tenant-scoped Publishing draft, includin
   assert.equal(result.body.groups[0].savedDraft,text); assert.deepEqual(filters,[['organisation_id',org]]);
 });
 async function cardFixture(request = async () => ({ ok: true, json: async () => ({ success: true }) })) {
-  const item = sample({ source_url: 'https://linkedin.com/posts/discussion', metadata: { ...sample().metadata, action_type: 'PUBLIC_RESPONSE' } });
+  const item = sample({ source_url: 'https://linkedin.com/posts/discussion', metadata: { ...sample().metadata, action_type: 'PUBLIC_RESPONSE', first_party_interaction:{organisation_id:org,verified:true,evidence:'Verified inbound engagement on tenant asset',source_record_id:'interaction-1',verified_source_url:'https://linkedin.com/posts/discussion',kind:'owned_asset_engagement',identified:true,asset_id:'tenant-post-1',asset_organisation_id:org,asset_ownership_verified:true,authorised_next_step:{verified:true,kind:'public_reply',evidence:'Reply to the inbound comment on our verified asset'}} } });
   const copies = [], requests = [], opens = []; let saved = 0;
   const Card = load('app/dashboard/growth/acquisition/PersonalSignalCard.tsx', { react: React, 'react/jsx-runtime': jsx }, { navigator: { clipboard: { writeText: async text => copies.push(text) } }, window: { open: (...args) => { opens.push(args); return { opener: null, location: { replace: url => opens.push(url) } }; } }, fetch: async (url, options) => { requests.push({ url, body: JSON.parse(options.body) }); return request(url, options); } }).default;
   let renderer; await act(async () => { renderer = create(React.createElement(Card, { item, signal: load('lib/personalSignal.ts').personalSignal(item), organisationId: org, onSaved: async () => saved++, onDismiss() {} })); });
@@ -107,7 +107,7 @@ test('Personal outreach blocks previous sends and replies without modifying targ
   }
 });
 test('Commercial, LinkedIn intake/Responses/cadence, growth targets and partner dispatch implementation stays byte-for-byte unchanged', () => {
-  for (const file of ['lib/acquisitionPromotion.server.ts', 'lib/acquisitionWorkflow.ts', 'lib/contactLifecycle.ts', 'lib/responseLifecycle.ts', 'lib/growthOutreach.ts', 'lib/linkedinCadenceBackfill.ts', 'app/api/growth/linkedin-console/route.ts', 'app/api/responses/list/route.ts', 'lib/partnerConversation.server.ts', 'lib/partnerConversation.ts']) {
+  for (const file of ['lib/acquisitionWorkflow.ts', 'lib/contactLifecycle.ts', 'lib/responseLifecycle.ts', 'lib/growthOutreach.ts', 'lib/linkedinCadenceBackfill.ts', 'app/api/growth/linkedin-console/route.ts', 'app/api/responses/list/route.ts', 'lib/partnerConversation.server.ts', 'lib/partnerConversation.ts']) {
     const baseline = execFileSync('git', ['show', `08cdb6185b292fdfebaad52278feaa7db1c37513:${file}`], { encoding: 'utf8' });
     assert.equal(fs.readFileSync(file, 'utf8').replaceAll('\r\n', '\n'), baseline.replaceAll('\r\n', '\n'), file);
   }
