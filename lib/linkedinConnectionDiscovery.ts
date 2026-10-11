@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { verifiedLinkedInProfile } from "@/lib/linkedinCaptureProfile";
 
 export type LinkedInContact = {
   name: string;
@@ -57,10 +58,10 @@ function contact(name: string, headline: string, profileUrl: string, messageUrl:
 }
 
 export function parseLinkedInAcceptanceEmail(input: { subject: string; sender: string; html: string; gmailMessageId: string; discoveredAt?: string }): LinkedInAcceptance | null {
-  if (!/@(?:e\.)?linkedin\.com\b/i.test(input.sender)) return null;
+  if (!/^[^@<>\s]+@(?:e\.)?linkedin\.com$/i.test(input.sender.match(/<([^<>]+)>/)?.[1] || input.sender.trim())) return null;
   const individual = /accepted your invitation/i.test(input.subject);
   const digestMatch = plainText(input.html).match(/You have\s+(\d+)\s+new connections?\b/i);
-  const digest = Boolean(digestMatch && /\bconnections?(?:,|\b)/i.test(input.subject));
+  const digest = Boolean(digestMatch);
   if (!individual && !digest) return null;
   const marker = input.html.search(/Suggestions from [\s\S]{0,120}?network/i);
   const footer = input.html.search(/(?:<footer\b|Unsubscribe|Manage your email|Help Center|LinkedIn Corporation|Privacy Policy)/i);
@@ -68,7 +69,7 @@ export function parseLinkedInAcceptanceEmail(input: { subject: string; sender: s
   const digestStart = digest ? input.html.search(/You have[\s\S]{0,40}?new connections?/i) : 0;
   const acceptedHtml = input.html.slice(Math.max(0, digestStart), end);
   const acceptedLinks = links(acceptedHtml);
-  const profileLinks = acceptedLinks.filter(item => /linkedin\.com\/(?:comm\/)?in\//i.test(item.url));
+  const profileLinks = acceptedLinks.filter(item => verifiedLinkedInProfile(item.url));
   const seenAccepted = new Set<string>();
   const acceptedConnections = profileLinks.flatMap((profile, index) => {
     const identity = canonicalLinkedInAcceptanceProfile(profile.url);
@@ -92,7 +93,7 @@ export function parseLinkedInAcceptanceEmail(input: { subject: string; sender: s
   const suggestionSource = marker >= 0 ? input.html.slice(marker) : "";
   const suggestionFooter = suggestionSource.search(/(?:<footer\b|Unsubscribe|Manage your email|Help Center|LinkedIn Corporation|Privacy Policy)/i);
   const suggestionHtml = suggestionFooter >= 0 ? suggestionSource.slice(0, suggestionFooter) : suggestionSource;
-  const suggestionLinks = links(suggestionHtml).filter((item) => /linkedin\.com\/(?:comm\/)?in\//i.test(item.url));
+  const suggestionLinks = links(suggestionHtml).filter((item) => verifiedLinkedInProfile(item.url));
   const seen = new Set<string>();
   const suggestions = suggestionLinks.flatMap((item, index) => {
     const key = canonicalLinkedInAcceptanceProfile(item.url);

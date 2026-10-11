@@ -3,6 +3,7 @@ import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordTypes, statuses, uuid } from "@/lib/growthIngestion.server";
 import { personalPerformance } from "@/lib/personalDistribution.server";
+import { linkedInRecommendationStates } from "@/lib/linkedinCapture.server";
 export async function GET(req: Request) {
   try {
     const params = new URL(req.url).searchParams;
@@ -12,12 +13,15 @@ export async function GET(req: Request) {
     const page = Number(params.get("page") || 0);
     const status = params.get("status");
     const recordType = params.get("record_type");
+    const sourceEngine = params.get("source_engine");
+    if (sourceEngine !== null && sourceEngine !== "linkedin_connection_recommendation") return NextResponse.json({ error: "Invalid source filter." }, { status: 400 });
     if (recordType !== null && !recordTypes.includes(recordType as typeof recordTypes[number])) return NextResponse.json({ error: "Invalid record_type." }, { status: 400 });
     const itemId = params.get("itemId");
     if (itemId && !uuid.test(itemId)) return NextResponse.json({ error: "Invalid item." }, { status: 400 });
     if (!Number.isInteger(page) || page < 0 || page > 10000 || (status && !statuses.includes(status as typeof statuses[number]))) return NextResponse.json({ error: "Invalid filter." }, { status: 400 });
     let query = supabaseAdmin.from("acquisition_items").select("*, acquisition_item_events(id, action, previous_status, new_status, outcome, note, created_at, actor_user_id, idempotency_key)", { count: "exact" }).eq("organisation_id", organisationId);
     if (status) query = query.eq("status", status);
+    if (sourceEngine) query = query.eq("source_engine", sourceEngine);
     if (recordType === "personal_opportunity") query = query.or("record_type.eq.personal_opportunity,and(record_type.eq.social_opportunity,source_engine.eq.root_health_personal)");
     else if (recordType) query = query.eq("record_type", recordType);
     if (itemId) query = query.eq("id", itemId);
@@ -37,7 +41,9 @@ export async function GET(req: Request) {
       for (const target of targets || []) linked.add(target.id);
     }
     const performance = await personalPerformance(supabaseAdmin, organisationId, data || []);
+    const linkedinStates = await linkedInRecommendationStates(organisationId, data || []);
     return NextResponse.json({ items: (data || []).map(item => ({ ...item, personalPerformance: performance[item.id] || null,
+      ...(linkedinStates[item.id] ? { linkedinConnectionState: linkedinStates[item.id] } : {}),
       outreachTargetId: candidates.includes(item) && linked.has(item.metadata.handoff.target_id) ? item.metadata.handoff.target_id : null,
     })), total: count, page });
   } catch (error) { return accessErrorResponse(error) || NextResponse.json({ error: "Unable to load acquisition queue." }, { status: 503 }); }

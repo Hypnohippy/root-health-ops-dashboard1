@@ -463,7 +463,14 @@ const LINKEDIN_ACCEPTANCE_LABEL_ = 'RootOps/LinkedIn-Acceptance-Imported';
 
 /* Install this as a time-driven trigger after deployment. It never sends email or LinkedIn messages. */
 function runLinkedInAcceptanceIntake_() {
-  return processLinkedInAcceptanceIntake_('newer_than:14d from:(invitations@linkedin.com OR invitations@e.linkedin.com) {subject:"accepted your invitation" subject:connections}', 50, true);
+  const acceptances = processLinkedInAcceptanceIntake_('newer_than:14d from:(invitations@linkedin.com OR invitations@e.linkedin.com) {subject:"accepted your invitation" subject:connections}', 50, true);
+  // Reuse this existing timer only after both reviewed files are installed.
+  // Acceptance results and retry/label behaviour remain unchanged.
+  if (typeof runLinkedInRecommendationIntake === 'function') {
+    try { acceptances.recommendations = runLinkedInRecommendationIntake(); }
+    catch (error) { Logger.log('LINKEDIN_RECOMMENDATION_INTAKE_UNAVAILABLE'); acceptances.recommendations = { failed: 1 }; }
+  }
+  return acceptances;
 }
 
 /* Safe bounded backfill. It deliberately ignores the old thread label because earlier runs may have imported only one person from a digest. */
@@ -516,7 +523,7 @@ function isLinkedInAcceptanceMessage_(message) {
   if (!/(?:^|[<@])(?:invitations@)?(?:e\.)?linkedin\.com(?:>|$)/i.test(from)) return false;
   if (/accepted your invitation/i.test(subject)) return true;
   const body = String(message.getBody ? message.getBody() : '');
-  return /\bconnections?(?:,|\b)/i.test(subject) && /You have\s+\d+\s+new connections?\b/i.test(body) && /linkedin\.com\/(?:comm\/)?in\//i.test(body) && /linkedin\.com\/(?:messaging|comm\/messaging)/i.test(body);
+  return /You have\s+\d+\s+new connections?\b/i.test(body.replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/gi, ' ').replace(/\s+/g, ' ')) && /https:\/\/(?:www\.)?linkedin\.com\/(?:comm\/)?in\//i.test(body);
 }
 
 function sendLinkedInAcceptanceToOps_(message, organisationId, secret) {
