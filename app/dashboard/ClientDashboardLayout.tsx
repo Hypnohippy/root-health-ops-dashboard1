@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import ResponseAttentionBadge from "./components/ResponseAttentionBadge";
 import AcquisitionHandoff from "./components/AcquisitionHandoff";
 import { usePathname } from "next/navigation";
 
@@ -12,7 +13,7 @@ type DashboardLayoutProps = {
 type SocialAccountsResponse = {
   success?: boolean;
   organisationId?: string;
-  socialAccounts?: any[];
+  socialAccounts?: unknown[];
   error?: string;
 };
 
@@ -26,6 +27,7 @@ type PrimaryNavItem = {
 type SecondaryNavItem = {
   label: string;
   href: string;
+  attentionCount?: number;
 };
 
 export default function ClientDashboardLayout({
@@ -41,6 +43,13 @@ export default function ClientDashboardLayout({
   const [supportError, setSupportError] = useState<string | null>(null);
   const [orgId, setOrgId] = useState<string>("");
   const [navCounts, setNavCounts] = useState<{acquisition?:number;responses?:number;today?:number}>({});
+  const [responseAttention, setResponseAttention] = useState<{count:number;href:string;channels:Record<string,{count:number;href:string}>}>({count:0,href:"/dashboard/responses",channels:{}});
+  const [attentionRevision,setAttentionRevision]=useState(0);
+  useEffect(()=> {
+    const refresh=()=>setAttentionRevision(value=>value+1);
+    window.addEventListener("responses-attention-changed",refresh);
+    return ()=>window.removeEventListener("responses-attention-changed",refresh);
+  },[]);
   const [founderAccess, setFounderAccess] = useState(false);
 
   useEffect(() => {
@@ -60,11 +69,12 @@ export default function ClientDashboardLayout({
         }
         const response = await fetch(`/api/home/attention?organisationId=${encodeURIComponent(current.organisationId)}`, { cache: "no-store" });
         const data = await response.json();
+        if (active && response.ok && data.responseAttention) setResponseAttention(data.responseAttention);
         if (active && response.ok && data.counts) setNavCounts({ acquisition: data.counts.newOpportunities, responses: data.counts.repliesNeedingResponse, today: data.counts.followupsDue });
       } catch { /* badges are optional; Home shows the actionable error */ }
     })();
     return () => { active = false; };
-  }, []);
+  }, [pathname, attentionRevision]);
 
   const canSend = useMemo(() => {
     return !supportSending && supportMsg.trim().length >= 5;
@@ -75,7 +85,7 @@ export default function ClientDashboardLayout({
       const res = await fetch("/api/social-accounts", { cache: "no-store" });
       const json: SocialAccountsResponse = await res
         .json()
-        .catch(() => ({} as any));
+        .catch(() => ({} as SocialAccountsResponse));
       if (res.ok && json?.organisationId) {
         setOrgId(String(json.organisationId));
       }
@@ -137,7 +147,7 @@ export default function ClientDashboardLayout({
         }),
       });
 
-      const json: any = await res.json().catch(() => null);
+      const json: {success?: boolean; error?: string} | null = await res.json().catch(() => null);
 
       if (!res.ok || !json?.success) {
         setSupportDone("fail");
@@ -148,9 +158,9 @@ export default function ClientDashboardLayout({
 
       setSupportDone("ok");
       setSupportSending(false);
-    } catch (e: any) {
+    } catch (e) {
       setSupportDone("fail");
-      setSupportError(e?.message || "Support message failed.");
+      setSupportError(e instanceof Error ? e.message : "Support message failed.");
       setSupportSending(false);
     }
   }
@@ -169,9 +179,9 @@ export default function ClientDashboardLayout({
     },
     {
       label: "Responses",
-      href: "/dashboard/responses",
+      href: responseAttention.count ? responseAttention.href : "/dashboard/responses",
       match: (p) => p.startsWith("/dashboard/responses"),
-      badge: navCounts.responses,
+      badge: responseAttention.count || undefined,
     },
     {
       label: "Campaigns",
@@ -215,7 +225,15 @@ export default function ClientDashboardLayout({
 
   const activePrimary = primaryNav.find((item) => item.match(pathname))?.label || "Home";
 
-  const secondaryNav = useMemo<SecondaryNavItem[]>(() => {
+  const secondaryNav: SecondaryNavItem[] = (() => {
+    if (activePrimary === "Responses") {
+      return [
+        {label:"All Responses",href:"/dashboard/responses"},
+        {label:"Needs reply",href:responseAttention.href,attentionCount:responseAttention.count},
+        {label:"LinkedIn needs reply",href:responseAttention.channels.linkedin?.href || "/dashboard/responses?platform=linkedin&status=needs_reply",attentionCount:responseAttention.channels.linkedin?.count || 0},
+        {label:"LinkedIn Outreach",href:"/dashboard/responses/linkedin"},
+      ];
+    }
     if (activePrimary === "Campaigns") {
       return [
         { label: "Campaign Studio", href: "/dashboard/sequences" },
@@ -252,7 +270,7 @@ export default function ClientDashboardLayout({
     }
 
     return [];
-  }, [activePrimary]);
+  })();
 
   const primaryLinkClasses = (item: PrimaryNavItem) => {
     const isActive = item.match(pathname);
@@ -307,18 +325,18 @@ export default function ClientDashboardLayout({
                   className={primaryLinkClasses(item)}
                 >
                   {item.label}
-                  {item.badge !== undefined ? <span className="ml-2 rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]" aria-label={`${item.badge} items`}>{item.badge}</span> : null}
+                  {item.label === "Responses" ? <ResponseAttentionBadge count={responseAttention.count} /> : item.badge !== undefined ? <span className="ml-2 rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]" aria-label={`${item.badge} items`}>{item.badge}</span> : null}
                 </Link>
               ))}
             </nav>
 
             <details className="group md:hidden">
               <summary className="flex cursor-pointer list-none items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
-                <span>{activePrimary}</span><span aria-hidden className="text-slate-400 transition group-open:rotate-180">⌄</span>
+                <span>{activePrimary}<ResponseAttentionBadge count={responseAttention.count} /></span><span aria-hidden className="text-slate-400 transition group-open:rotate-180">⌄</span>
               </summary>
               <nav aria-label="Mobile navigation" className="mt-2 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-xl">
                 {primaryNav.map((item) => <Link key={item.label} href={item.href} className={`${primaryLinkClasses(item)} justify-between`}>
-                  <span>{item.label}</span>{item.badge !== undefined ? <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{item.badge}</span> : null}
+                  <span>{item.label}</span>{item.label === "Responses" ? <ResponseAttentionBadge count={responseAttention.count} /> : item.badge !== undefined ? <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{item.badge}</span> : null}
                 </Link>)}
               </nav>
             </details>
@@ -329,9 +347,9 @@ export default function ClientDashboardLayout({
                   <Link
                     key={item.label}
                     href={item.href}
-                    className={secondaryLinkClasses(item.href)}
+                    className={secondaryLinkClasses(item.href.split("?")[0])}
                   >
-                    {item.label}
+                    {item.label}<ResponseAttentionBadge count={item.attentionCount || 0} />
                   </Link>
                 ))}
               </div>

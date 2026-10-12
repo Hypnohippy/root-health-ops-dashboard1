@@ -1,7 +1,7 @@
 // app/api/responses/list/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
-import { responseLifecycleMap } from "@/lib/responseLifecycle";
+import { responseLifecycleMap, responseAttention } from "@/lib/responseLifecycle";
 import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 
 export const runtime = "nodejs";
@@ -28,10 +28,11 @@ export async function GET(req: NextRequest) {
     const lifecycles = responseLifecycleMap(verified.organisationId, input);
     const timestamp = (value: unknown) => typeof value === "string" ? Date.parse(value) || 0 : 0;
     const data = input.inbox_items.filter(row => row.organisation_id === verified.organisationId && (!itemId || row.id === itemId))
-      .sort((a, b) => timestamp(b.created_at_platform || b.inserted_at) - timestamp(a.created_at_platform || a.inserted_at) || a.id.localeCompare(b.id)).slice(0, limit);
+      .sort((a, b) => Number(lifecycles.get(b.id)?.currentStage === "needs_reply") - Number(lifecycles.get(a.id)?.currentStage === "needs_reply") || timestamp(b.response_updated_at || b.created_at_platform || b.inserted_at) - timestamp(a.response_updated_at || a.created_at_platform || a.inserted_at) || a.id.localeCompare(b.id)).slice(0, limit);
 
     const items = (data || []).map((r) => ({
       id: String(r.id),
+      linkedinNotificationId: lifecycles.get(r.id)?.linkedinNotificationId || null,
       lifecycle: lifecycles.get(String(r.id)) || null,
       platform: (r.platform || "unknown"),
       status: (r.status || "unknown"),
@@ -64,6 +65,7 @@ export async function GET(req: NextRequest) {
     return okJson({
       success: true,
       configured: true,
+      attention: responseAttention(verified.organisationId, input, lifecycles),
       note:
         "Loaded from Supabase inbox_items. Use “Pull latest” to fetch new comments from connected platforms.",
       items,
