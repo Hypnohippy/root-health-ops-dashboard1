@@ -39,6 +39,7 @@ export async function getResponseContactContext(organisationId: string, itemId: 
     item.kind === "connection_accepted" ? `Accepted your LinkedIn connection${date(item.created_at_platform || item.inserted_at) ? ` on ${date(item.created_at_platform || item.inserted_at)}` : ""}.` : null,
     target?.last_action_at ? `Outreach action recorded on ${date(target.last_action_at)}.` : null,
     target?.replied_at ? `Reply recorded ${date(target.replied_at)}${text(target.reply_notes) ? `: ${text(target.reply_notes)}` : "."}` : null,
+    text(item.linkedin_recorded_reply_text) ? `Recorded LinkedIn conversation (user-supplied evidence): ${String(item.linkedin_recorded_reply_text)}` : null,
     text(item.last_reply_text) ? `Last response sent: ${text(item.last_reply_text)}` : null,
     ...(acquisitionEvents || []).map(event => `${String(event.action || "Queue action").replaceAll("_", " ")} on ${date(event.created_at) || "an unknown date"}${text(event.note) ? `: ${text(event.note)}` : ""}${text(event.outcome) ? ` — ${text(event.outcome)}` : ""}.`),
   ].filter(Boolean) as string[];
@@ -48,7 +49,7 @@ export async function getResponseContactContext(organisationId: string, itemId: 
     socialOpportunity: socialCommentOpportunity(item, profile, lifecycle, credentialState, input.inbox_items, acquisition?.source_engine === "root_health_personal" && acquisition.source_url === item.permalink && metadata.engine_safety && typeof metadata.engine_safety === "object" ? metadata.engine_safety as Record<string, unknown> : {}),
     interactionType: type, messageType: messageTypeLabel(type), name: type === "linkedin_connection_first_message" ? text(item.author_name) : text(target?.target_name) || text(acquisition?.person) || text(item.author_name), role, company, sector,
     source: plainSource(text(acquisition?.source_engine || target?.source_type || item.source_engine), text(item.kind)), whyRelevant: relevance,
-    relationship: lifecycle.label, latestEvent: text(item.text) || "No event text was recorded.", whatWeKnow: known.slice(0, 4), history,
+    relationship: lifecycle.label, latestEvent: text(item.linkedin_recorded_reply_text) || (lifecycle.missingReplyText ? "LinkedIn confirms a reply; the actual message text has not been recorded." : null) || text(item.text) || "No event text was recorded.", whatWeKnow: known.slice(0, 4), history,
     lifecycle,
     lastAction: lifecycle.lastAction ? `${lifecycle.lastAction.action.replaceAll("_", " ")}${lifecycle.lastAction.at ? ` on ${date(lifecycle.lastAction.at)}` : ""}` : null,
     currentStage: lifecycle.label, buyingSignal: hasSignal ? "actual" : (fit.length || acquisition ? "strategic_fit" : "unknown"),

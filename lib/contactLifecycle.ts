@@ -32,6 +32,22 @@ export function lifecycleLinkedInIdentity(value: unknown): string | null {
   } catch { return null; }
 }
 
+/** Latest verified intake evidence; never treats acceptance text as an inbound reply. */
+export function linkedInReplyNotification(row: LifecycleRow) {
+  if (row.platform !== "linkedin") return null;
+  const history = object(row.raw).linkedin_message_notifications;
+  if (!Array.isArray(history)) return null;
+  return history.map(object).filter(n => n.source === "linkedin_message_notification" && text(n.gmailMessageId) && date(n.receivedAt))
+    .sort((a,b) => compare(String(b.receivedAt), String(a.receivedAt)))[0] || null;
+}
+export function unresolvedLinkedInNotification(row: LifecycleRow) {
+  const notification = linkedInReplyNotification(row);
+  if (!notification) return false;
+  if (["converted", "closed_or_lost", "nurture"].includes(String(row.response_state)) || ["archived", "converted", "lost"].includes(String(row.status))) return false;
+  const completedAt = latest(row.last_replied_at, row.response_updated_at);
+  return !(completedAt && completedAt > String(notification.receivedAt) && ["engaged", "replied", "waiting_for_human", "no_reply_needed"].includes(String(row.response_state)));
+}
+
 function project(table: LifecycleTable, row: LifecycleRow): Projection {
   const raw = object(row.raw);
   const engine = table === "acquisition_items" && row.engine_state ? row.engine_state as EngineState : null;
@@ -126,6 +142,10 @@ function project(table: LifecycleTable, row: LifecycleRow): Projection {
   if (row.linkedin_conversation_active && !["closed", "lost", "converted", "archived", "dismissed", "nurture"].includes(status || "") && !["meeting", "lost", "converted", "dismissed", "no_reply_needed"].includes(currentStage) && !(currentStage === "nurture" && status !== "parked" && row.stage !== "parked")) {
     currentStage="engaged"; nextAction="review_engagement"; nextDueDate=null;
   }
+  if (table === "inbox_items" && unresolvedLinkedInNotification(row)) {
+    currentStage="needs_reply"; nextAction="reply"; nextDueDate=null;
+    lastAction=action("linkedin_reply_detected", linkedInReplyNotification(row)?.receivedAt);
+  }
   return { table, row, linkedin, email, fallback, name, company, currentStage, lastAction, nextAction, nextDueDate,
     channel: table === "growth_targets" ? (linkedin ? "linkedin" : email ? "email" : "linkedin") : text(engine?.channel) || text(row.platform) || (linkedin ? "linkedin" : email ? "email" : null),
     source: text(row.source_engine) || text(row.source_type) || table,
@@ -203,13 +223,16 @@ export function buildContactLifecycle(organisationId: string, input: LifecycleIn
     members.sort((a, b) => lifecycleStagePriority[b.currentStage] - lifecycleStagePriority[a.currentStage]
       || (emailThreadPresentation && a.currentStage === "needs_reply" && b.currentStage === "needs_reply" ? compare(date(b.row.created_at_platform) || date(b.row.inserted_at) || "", date(a.row.created_at_platform) || date(a.row.inserted_at) || "") : 0)
       || compare(b.observedAt || "", a.observedAt || "") || sourcePriority[b.table] - sourcePriority[a.table] || compare(rowKey(a), rowKey(b)));
-    const winner = members[0];
+    const notificationPending = members.some(p => p.table === "inbox_items" && unresolvedLinkedInNotification(p.row));
+    const pendingAt=members.filter(p=>p.table==="inbox_items").map(p=>String(linkedInReplyNotification(p.row)?.receivedAt || "")).sort().at(-1) || "";
+    const winner = notificationPending ? members.find(p => ["meeting", "converted", "lost", "nurture"].includes(p.currentStage) ||
+      p.currentStage==="engaged" && p.table==="growth_targets" && (["engaged","opportunity"].includes(String(p.row.deal_stage)) || ["positive","interested","engaged"].includes(String(p.row.reply_status))) && (latest(p.row.updated_at,p.row.replied_at) || "")>pendingAt) || members[0] : members[0];
     // A pending reply is an action within a meeting relationship, not a stage
     // regression. Closed outcomes remain non-actionable.
     const promotedTarget = winner.table === "acquisition_items" && winner.currentStage === "outreach_ready"
       ? members.find(p => p.table === "growth_targets" && p.currentStage === "outreach_ready" &&
         p.row.id === object(object(winner.row.metadata).handoff).target_id) : null;
-    const actionOwner = winner.currentStage === "meeting" ? members.find(p => p.currentStage === "needs_reply") || winner : promotedTarget || winner;
+    const actionOwner = winner.currentStage === "meeting" && !notificationPending ? members.find(p => p.currentStage === "needs_reply") || winner : promotedTarget || winner;
     const actions = members.flatMap(p => p.lastAction ? [p.lastAction] : []).sort((a, b) => compare(b.at || "", a.at || "") || compare(`${a.table}:${a.id}`, `${b.table}:${b.id}`));
     return { contactId: JSON.stringify([organisationId, identity]), identity, organisationId,
       name: members.find(p => p.name)?.name || null, company: members.find(p => p.company)?.company || null,

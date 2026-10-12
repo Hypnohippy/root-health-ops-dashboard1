@@ -1,4 +1,4 @@
-import { buildContactLifecycle, type LifecycleInput, type LifecycleRow } from "@/lib/contactLifecycle";
+import { buildContactLifecycle, linkedInReplyNotification, type LifecycleInput, type LifecycleRow } from "@/lib/contactLifecycle";
 
 type Contact = ReturnType<typeof buildContactLifecycle>[number];
 const closed = new Set(["converted", "lost", "dismissed"]);
@@ -24,18 +24,21 @@ export function presentResponseLifecycle(relationship: Contact, item: LifecycleR
   const ownsAction = contact.actionRecord.table === "inbox_items" && contact.actionRecord.id === item.id;
   const deliveryIssue = ownsAction && item.platform === "email" && item.email_classification === "bounce" && stage === "lost";
   const redirect = ownsAction && item.platform === "email" && item.email_classification === "redirect" && ["follow_up", "needs_reply"].includes(stage);
-  const canDraft = !history && !engineAction && !deliveryIssue && !redirect && supportedChannel && currentChannel && correctReply && !closed.has(stage) && ["outreach_ready", "needs_reply", "follow_up", "engaged", "meeting", "nurture"].includes(stage);
+  const notification = item.platform === "linkedin" && Array.isArray((item.raw as Record<string, unknown> | null)?.linkedin_message_notifications);
+  const replyDetected = notification && stage === "needs_reply" && ownsAction;
+  const missingReplyText = notification && !(typeof item.linkedin_recorded_reply_text === "string" && item.linkedin_recorded_reply_text.trim());
+  const canDraft = !missingReplyText && !history && !engineAction && !deliveryIssue && !redirect && supportedChannel && currentChannel && correctReply && !closed.has(stage) && ["outreach_ready", "needs_reply", "follow_up", "engaged", "meeting", "nurture"].includes(stage);
   const humanActionRequired = !history && (!threadContact || ownsAction) && (deliveryIssue || redirect || stage === "needs_reply" || stage === "outreach_ready" || (stage === "follow_up" && due) || stage === "meeting");
   const onRequest = canDraft && !actionItemId && (["engaged", "meeting", "nurture"].includes(stage) || (stage === "follow_up" && !due));
-  const nextAction = history ? null : deliveryIssue ? "Review delivery failure and contact details" : redirect ? "Review referral or redirect instructions" : stage === "follow_up" ? (due ? "Follow up" : "Wait for scheduled follow-up")
+  const nextAction = missingReplyText && replyDetected ? "Open LinkedIn conversation, then log or paste the reply" : history ? null : deliveryIssue ? "Review delivery failure and contact details" : redirect ? "Review referral or redirect instructions" : stage === "follow_up" ? (due ? "Follow up" : "Wait for scheduled follow-up")
     : actionItemId ? "Respond to the current reply" : stage === "outreach_ready" ? "Prepare first message"
     : contact.nextAction?.replaceAll("_", " ") || null;
   return { contactId: contact.contactId, currentStage: stage,
-    label: deliveryIssue ? "Delivery issue / blocked" : redirect ? "Referral / redirect needs review" : stage === "follow_up" ? (due ? "Follow-up due" : "Contacted / follow-up scheduled") : stage === "waiting" && contact.lastAction?.action === "marked_contacted" ? "Contacted / waiting" : labels[stage] || stage,
+    label: replyDetected ? "Needs reply / LinkedIn reply detected" : deliveryIssue ? "Delivery issue / blocked" : redirect ? "Referral / redirect needs review" : stage === "follow_up" ? (due ? "Follow-up due" : "Contacted / follow-up scheduled") : stage === "waiting" && contact.lastAction?.action === "marked_contacted" ? "Contacted / waiting" : labels[stage] || stage,
     lastAction: contact.lastAction, nextAction, nextDueDate: history ? null : contact.nextDueDate, channel: contact.channel,
-    humanActionRequired, canDraft, draftOnRequest: onRequest, actionItemId,
+    humanActionRequired, canDraft, replyDetected, missingReplyText, linkedinNotificationId: linkedInReplyNotification(item)?.gmailMessageId || null, draftOnRequest: onRequest, actionItemId,
     canMarkContacted: canDraft && stage === "outreach_ready" && item.platform === "linkedin" && item.kind === "connection_accepted" && item.status !== "replied" && !item.contacted_at && !item.last_replied_at,
-    blockedReason: canDraft ? null : handledHistory ? "This inbound email was handled by a successful reply in the same Gmail thread." : obsoleteThreadReply ? "Open the current reply in this Gmail thread; this event is history." : engineAction ? "Review the current action in the source engine; this snapshot does not authorize a message." : deliveryIssue ? "Resolve the delivery issue before further outreach." : redirect ? "Review the intended recipient or destination before drafting." : closed.has(stage) ? "This contact is closed; outreach drafting is unavailable."
+    blockedReason: canDraft ? null : missingReplyText ? "LinkedIn confirms a reply. Open the conversation to read it, then paste or log it before drafting a response." : handledHistory ? "This inbound email was handled by a successful reply in the same Gmail thread." : obsoleteThreadReply ? "Open the current reply in this Gmail thread; this event is history." : engineAction ? "Review the current action in the source engine; this snapshot does not authorize a message." : deliveryIssue ? "Resolve the delivery issue before further outreach." : redirect ? "Review the intended recipient or destination before drafting." : closed.has(stage) ? "This contact is closed; outreach drafting is unavailable."
       : !supportedChannel ? "Message drafting is not available for this channel."
       : !correctReply ? "Open the current reply to respond; this event is history."
       : !currentChannel ? `The next action belongs to ${contact.channel}; this event is history.`
@@ -57,4 +60,21 @@ export function responseLifecycleMap(organisationId: string, input: LifecycleInp
     if (item) result.set(item.id, presentResponseLifecycle(contact, item, threadByItem.get(item.id)));
   }
   return result;
+}
+
+/** Only current, verified human replies; not the broader follow-up/action queue. */
+export function responseAttention(organisationId: string, input: LifecycleInput, lifecycles = responseLifecycleMap(organisationId,input)) {
+  const items=input.inbox_items.filter(row=> {
+    const state=lifecycles.get(row.id);
+    if(row.organisation_id!==organisationId || !state?.humanActionRequired || state.currentStage!=="needs_reply" || state.actionItemId!==row.id) return false;
+    if(state.replyDetected) return true;
+    if(row.platform==="email") return !!row.email_message_id && ["question","human_positive","human_neutral"].includes(String(row.email_classification));
+    return row.kind==="dm" && typeof row.text==="string" && !!row.text.trim();
+  }).sort((a,b)=>String(linkedInReplyNotification(b)?.receivedAt || b.response_updated_at || b.created_at_platform || b.inserted_at || "").localeCompare(String(linkedInReplyNotification(a)?.receivedAt || a.response_updated_at || a.created_at_platform || a.inserted_at || "")) || a.id.localeCompare(b.id));
+  const href=(row?: LifecycleRow)=>`/dashboard/responses?organisationId=${encodeURIComponent(organisationId)}&status=needs_reply${row ? `&platform=${encodeURIComponent(String(row.platform))}&itemId=${encodeURIComponent(row.id)}` : ""}`;
+  const channels=Object.fromEntries([...new Set(items.map(row=>String(row.platform)))].map(channel=> {
+    const rows=items.filter(row=>row.platform===channel);
+    return [channel,{count:rows.length,href:href(rows[0])}];
+  }));
+  return {count:items.length,href:href(items[0]),channels};
 }

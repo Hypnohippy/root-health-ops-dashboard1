@@ -8,6 +8,8 @@ import ResponseLifecycleDetails from "./ResponseLifecycleDetails";
 import type { ResponseLifecycle } from "@/lib/responseLifecycle";
 import { tenantFetch } from "@/lib/tenantFetch";
 
+import LinkedInReplyResolution from "./LinkedInReplyResolution";
+import { useSearchParams } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type InboxPlatform =
@@ -37,6 +39,7 @@ type InboxItem = {
 
   permalink?: string | null;
   linkedinMessageUrl?: string | null;
+  linkedinNotificationId?: string | null;
 
   createdAt: string;
 
@@ -90,6 +93,7 @@ type ContactBriefing = {
 };
 
 type ApiResponse = {
+  attention?: {count:number;href:string;channels:Record<string,{count:number;href:string}>};
   success: boolean;
   items?: InboxItem[];
   note?: string;
@@ -193,9 +197,12 @@ export default function ResponsesPage() {
   const [emailActionBusy, setEmailActionBusy] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+  const routeParams=useSearchParams();
+  const routeSelection=routeParams.toString();
   const [note, setNote] = useState<string | null>(null);
   const [configured, setConfigured] = useState<boolean>(false);
 
+  const [attention,setAttention]=useState<ApiResponse["attention"]>();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
@@ -289,6 +296,8 @@ const [conversationError, setConversationError] =
 
       const rows = Array.isArray(data?.items) ? data.items : [];
       setItems(rows);
+      setAttention(data.attention);
+      window.dispatchEvent(new Event("responses-attention-changed"));
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
     } catch (e) {
@@ -338,9 +347,14 @@ const [conversationError, setConversationError] =
   };
 
   useEffect(() => {
+    const params=new URLSearchParams(routeSelection);
+    setSelectedId(params.get("itemId"));
+    setPlatformFilter((params.get("platform") as InboxPlatform) || "all");
+    const status=params.get("status");
+    if(status==="needs_reply") setStatusFilter("needs_reply");
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [routeSelection]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -851,6 +865,7 @@ const deleteSelectedResponse = async () => {
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
+            {attention?.channels.linkedin?.count ? <a className="mb-3 inline-flex items-center text-sky-300 underline" href={attention.channels.linkedin.href}>LinkedIn needs reply <span className="ml-2 rounded-full bg-red-500 px-1.5 text-xs text-white" aria-label={`${attention.channels.linkedin.count} responses need attention`}>{attention.channels.linkedin.count}</span></a> : null}
             <a className="mb-3 block text-sky-300 underline" href={`/dashboard/responses/linkedin${organisationId ? `?organisationId=${encodeURIComponent(organisationId)}` : ""}`}>LinkedIn Outreach Console — Work next 10</a>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
               Responses
@@ -1259,6 +1274,12 @@ const deleteSelectedResponse = async () => {
                       {contactContext.socialOpportunity.sourceUrl && <a className="mt-2 inline-block text-emerald-300 underline" href={contactContext.socialOpportunity.sourceUrl} target="_blank" rel="noreferrer">Open public conversation</a>}
                       {contactContext.socialOpportunity.eligible && <p className="mt-2 text-xs">Use AI Suggest, review the contextual draft, then Copy. Reply publicly only; never DM. After manual completion, mark the existing response replied so it is not prepared again.</p>}
                     </section>}
+                    {selected.lifecycle?.replyDetected && <div className="mt-3 rounded-xl border border-red-400/30 bg-red-500/5 p-3" role="status">
+                      <strong>LinkedIn reply detected — Needs reply</strong>
+                      <p className="mt-1 text-sm">{selected.lifecycle.missingReplyText ? `LinkedIn confirms ${selected.authorName || "this contact"} has replied. Open the conversation to read the message, then paste/log it before drafting a response.` : "Conversation text recorded. Review and respond manually; this reply remains unresolved."}</p>
+                      <a className="mt-2 inline-block text-emerald-300 underline" href={`/dashboard/responses/linkedin/conversations?organisationId=${encodeURIComponent(organisationId || "")}&contactId=${encodeURIComponent(selected.lifecycle.contactId)}`}>Log/paste conversation</a>
+                      {organisationId && selected.linkedinNotificationId && <LinkedInReplyResolution key={selected.id} organisationId={organisationId} id={selected.id} notificationId={selected.linkedinNotificationId} onComplete={load} />}
+                    </div>}
                     {selected.permalink ? (
                       <div className="mt-3 flex flex-wrap gap-3 text-[11px]">
                         <a
@@ -1269,7 +1290,7 @@ const deleteSelectedResponse = async () => {
                         >
                           {isLinkedInAcceptance(selected) ? "Open LinkedIn" : "Open on platform"}
                         </a>
-                        {isLinkedInAcceptance(selected) && selected.linkedinMessageUrl ? <a href={selected.linkedinMessageUrl} target="_blank" rel="noreferrer" className="text-emerald-300 hover:text-emerald-200 underline">Open LinkedIn Message</a> : null}
+                        {selected.platform === "linkedin" && selected.linkedinMessageUrl ? <a href={selected.linkedinMessageUrl} target="_blank" rel="noreferrer" className="text-emerald-300 hover:text-emerald-200 underline">{selected.lifecycle?.replyDetected ? "Open LinkedIn conversation" : "Open LinkedIn Message"}</a> : null}
                       </div>
                     ) : null}
                   </div>
