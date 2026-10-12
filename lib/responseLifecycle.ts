@@ -30,7 +30,7 @@ export function presentResponseLifecycle(relationship: Contact, item: LifecycleR
   const canDraft = !missingReplyText && !history && !engineAction && !deliveryIssue && !redirect && supportedChannel && currentChannel && correctReply && !closed.has(stage) && ["outreach_ready", "needs_reply", "follow_up", "engaged", "meeting", "nurture"].includes(stage);
   const humanActionRequired = !history && (!threadContact || ownsAction) && (deliveryIssue || redirect || stage === "needs_reply" || stage === "outreach_ready" || (stage === "follow_up" && due) || stage === "meeting");
   const onRequest = canDraft && !actionItemId && (["engaged", "meeting", "nurture"].includes(stage) || (stage === "follow_up" && !due));
-  const nextAction = missingReplyText ? "Open LinkedIn conversation, then log or paste the reply" : history ? null : deliveryIssue ? "Review delivery failure and contact details" : redirect ? "Review referral or redirect instructions" : stage === "follow_up" ? (due ? "Follow up" : "Wait for scheduled follow-up")
+  const nextAction = missingReplyText && replyDetected ? "Open LinkedIn conversation, then log or paste the reply" : history ? null : deliveryIssue ? "Review delivery failure and contact details" : redirect ? "Review referral or redirect instructions" : stage === "follow_up" ? (due ? "Follow up" : "Wait for scheduled follow-up")
     : actionItemId ? "Respond to the current reply" : stage === "outreach_ready" ? "Prepare first message"
     : contact.nextAction?.replaceAll("_", " ") || null;
   return { contactId: contact.contactId, currentStage: stage,
@@ -70,7 +70,7 @@ export function responseAttention(organisationId: string, input: LifecycleInput,
     if(state.replyDetected) return true;
     if(row.platform==="email") return !!row.email_message_id && ["question","human_positive","human_neutral"].includes(String(row.email_classification));
     return row.kind==="dm" && typeof row.text==="string" && !!row.text.trim();
-  }).sort((a,b)=>String(b.response_updated_at || b.created_at_platform || b.inserted_at || "").localeCompare(String(a.response_updated_at || a.created_at_platform || a.inserted_at || "")) || a.id.localeCompare(b.id));
+  }).sort((a,b)=>String(linkedInReplyNotification(b)?.receivedAt || b.response_updated_at || b.created_at_platform || b.inserted_at || "").localeCompare(String(linkedInReplyNotification(a)?.receivedAt || a.response_updated_at || a.created_at_platform || a.inserted_at || "")) || a.id.localeCompare(b.id));
   const href=(row?: LifecycleRow)=>`/dashboard/responses?organisationId=${encodeURIComponent(organisationId)}&status=needs_reply${row ? `&platform=${encodeURIComponent(String(row.platform))}&itemId=${encodeURIComponent(row.id)}` : ""}`;
   const channels=Object.fromEntries([...new Set(items.map(row=>String(row.platform)))].map(channel=> {
     const rows=items.filter(row=>row.platform===channel);

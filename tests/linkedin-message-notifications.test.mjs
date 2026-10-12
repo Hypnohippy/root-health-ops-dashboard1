@@ -150,3 +150,8 @@ test("Preview rehearsal cannot run in Production and has no write dependency",as
  },{process:{env:{VERCEL_ENV:"production"}}});
  assert.equal((await route.POST({json:async()=>mail})).status,404);assert.equal(reads,0);
 });
+
+test("attention orders a notification by the real receipt time, not the old acceptance/send",()=>{
+ const data=input();data.inbox_items.push({id:"email-current",organisation_id:org,platform:"email",kind:"email_reply",sender_email:"business@example.test",status:"needs_reply",response_state:"needs_reply",email_classification:"question",email_message_id:"verified-email",text:"Real question",created_at_platform:"2026-10-11T10:00:00Z"});
+ const attention=presentation.responseAttention(org,data);assert.equal(attention.count,2);assert.ok(attention.href.includes("itemId=accepted"));
+});
