@@ -145,3 +145,8 @@ test("first-message constraints are trusted generation policy, with contact/prof
  for(const phrase of ['evidence-informed','practical approaches','shared focus','helping teams understand and improve','burnout','absence']) assert.equal(context.safeLinkedInFirstMessage(light.replace('stress',phrase),{name:'Kate',role:'HR'}),false,phrase);
  assert.match(context.linkedinFirstMessagePolicy,/Recipient category influences only the reason for overlap/);
  });
+
+test('Day 0 keeps the overlap reason and sender work as separate short sentences',()=>{
+ const collapsed="Hi Vanessa, thanks for connecting. Given your role as Head of Human Resources at The Meath Epilepsy Charity, it made sense to connect as I work with workplace wellbeing through Root Health's support services. Good to be connected.";
+ assert.equal(context.safeLinkedInFirstMessage(collapsed,{name:'Vanessa',company:'The Meath Epilepsy Charity'}),false);
+});
