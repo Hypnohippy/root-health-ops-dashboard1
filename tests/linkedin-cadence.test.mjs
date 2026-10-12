@@ -56,3 +56,11 @@ test("snapshot anchor supports cadence without overwriting or preferring it over
  assert.equal(cadence.contextualOutreachDraft({target_name:'',stage:'connection'},profiles[0]),'');
  assert.equal(cadence.contextualOutreachDraft({target_name:'Alex',stage:'connection'},{business:{}}),'');
  });
+
+test("Day 0 fallback cannot recite a long or educational sender description",()=>{
+ for(const description of ['Evidence-informed practical approaches to burnout and absence', Array(46).fill('work').join(' ')]) {
+ assert.equal(cadence.contextualOutreachDraft({target_name:'Alex',stage:'connection'},{business:{description}}),'');
+ }
+ const draft=cadence.contextualOutreachDraft({target_name:'Alex',company:'Acme',stage:'connection'},{business:{description:'I work with organisations around stress and resilience.'}});
+ assert.ok(draft.endsWith('Good to be connected.'));assert.doesNotMatch(draft,/\.\./);
+});
