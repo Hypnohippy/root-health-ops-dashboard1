@@ -127,23 +127,19 @@ export function responseDraftRules(context: ResponseContactContext) {
 }
 
 // Structure gate for accepted-connection openers; reply/follow-up rules remain distinct.
-export function linkedInFirstMessageIssue(draft: string, context?: { name?: string | null; company?: string | null; role?: string | null }) {
+export function safeLinkedInFirstMessage(draft: string, context?: { name?: string | null; company?: string | null; role?: string | null }) {
   const text = draft.trim();
   const words = text.split(/\s+/).filter(Boolean);
-  if (words.length < 45 || words.length > 140 || text.length > 1100) return "length";
-  if (text.includes("?")) return "question";
-  if (/\p{Extended_Pictographic}/u.test(text)) return "emoji";
+  if (words.length < 45 || words.length > 140 || text.length > 1100) return false;
+  if (text.includes("?")) return false;
+  if (/\p{Extended_Pictographic}/u.test(text)) return false;
   const wording = text.toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, " ");
-  if (!/\bconnect(?:ing|ed|ion)?\b/.test(wording)) return "connection_acknowledgement";
+  if (!/\bconnect(?:ing|ed|ion)?\b/.test(wording)) return false;
   const disallowed = wording.match(/exchange perspectives|grow(?:ing)? (?:our|your|my) network|connect properly|leave it at a profile link|look forward to staying in touch|(?:keep|keeping|stay|staying) in touch|shar(?:e|ing) insights|shared interest|thanks for getting in touch|glad to help|following up|as we discussed|our (?:earlier|previous) conversation|(?:i'd|i would) (?:love|like|be interested) to hear|hear your (?:thoughts|perspective)|how (?:are|do|would) you|what are your|let me know|(?:would|could|can) you|please (?:reply|share)|book (?:a|the)|booking link|\b(?:demo|pitch)\b|(?:let's|can we|could we) (?:meet|have a call)|(?:schedule|arrange) (?:a |the )?(?:meeting|call)/i);
-  if (disallowed) return "disallowed_wording:" + disallowed[0];
+  if (disallowed) return false;
   const first = context?.name?.trim().split(/\s+/)[0]?.toLowerCase();
-  if (first && !wording.startsWith(`hi ${first},`) && !wording.startsWith(`hello ${first},`)) return "saved_first_name";
+  if (first && !wording.startsWith(`hi ${first},`) && !wording.startsWith(`hello ${first},`)) return false;
   const terms = `${context?.company || ""} ${context?.role || ""}`.toLowerCase().match(/[a-z]{4,}/g)?.filter(term => !["with", "from", "their", "company", "director", "chartered", "fcipd", "cipd"].includes(term)) || [];
-  if (terms.length && !terms.some(term => wording.includes(term))) return "recipient_context";
-  return null;
-}
-
-export function safeLinkedInFirstMessage(draft: string, context?: { name?: string | null; company?: string | null; role?: string | null }) {
-  return linkedInFirstMessageIssue(draft, context) === null;
+  if (terms.length && !terms.some(term => wording.includes(term))) return false;
+  return true;
 }
