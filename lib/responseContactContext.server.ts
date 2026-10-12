@@ -46,7 +46,7 @@ export async function getResponseContactContext(organisationId: string, itemId: 
   const relevance = fit.length ? `Their recorded role or company context matches the saved target profile (${fit.join(", ")}).` : acquisition?.reason ? String(acquisition.reason) : `No explicit Growth Profile match is recorded${role || company ? "; the available role and company context is shown for human review" : " because role and company detail is incomplete"}.`;
   return {
     socialOpportunity: socialCommentOpportunity(item, profile, lifecycle, credentialState, input.inbox_items, acquisition?.source_engine === "root_health_personal" && acquisition.source_url === item.permalink && metadata.engine_safety && typeof metadata.engine_safety === "object" ? metadata.engine_safety as Record<string, unknown> : {}),
-    interactionType: type, messageType: messageTypeLabel(type), name: text(target?.target_name) || text(acquisition?.person) || text(item.author_name), role, company, sector,
+    interactionType: type, messageType: messageTypeLabel(type), name: type === "linkedin_connection_first_message" ? text(item.author_name) : text(target?.target_name) || text(acquisition?.person) || text(item.author_name), role, company, sector,
     source: plainSource(text(acquisition?.source_engine || target?.source_type || item.source_engine), text(item.kind)), whyRelevant: relevance,
     relationship: lifecycle.label, latestEvent: text(item.text) || "No event text was recorded.", whatWeKnow: known.slice(0, 4), history,
     lifecycle,

@@ -41,6 +41,7 @@ export const POST = withTenantRoute(async (req, tenant) => {
   const selected = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self).items.find(i => i.table === body.table && i.id === body.id);
   if (!selected || state.revision !== body.revision) return NextResponse.json({ error: "Queue state changed. Reload before taking action." }, { status: 409 });
   const current = selected!;
+  if (current.stage === "connection" && !current.context.name?.trim()) return NextResponse.json({ error: "This connection has no saved name. Resolve the person’s name before generating a first message." }, { status: 409 });
   const key = process.env.OPENAI_API_KEY;
   if (!key) return NextResponse.json({ error: "Message generation is unavailable. You can write a message below." }, { status: 503 });
   const prompt = [...responseDraftRules(current.context).filter(rule => !rule.includes("unified current lifecycle is authoritative")),

@@ -68,7 +68,7 @@ export default function AcquisitionQueue(){
        if(!group)return null;
        return <PersonalOpportunityCard key={item.id} group={{...group,personalPerformance:item.personalPerformance||undefined}} organisationId={organisationId} onSaved={()=>load()}/>;
      }
-     if(item.source_engine === "linkedin_connection_recommendation") return <LinkedInConnectionOpportunity key={item.id} item={item} organisationId={organisationId} busy={!!busy} onSave={() => void act(item,{id:"accept",label:"Save for later"})} onDismiss={() => void act(item,{id:"dismiss",label:"Dismiss"})}/>;
+     if(["linkedin_connection_recommendation", "linkedin_accepted_reference"].includes(item.source_engine)) return <LinkedInConnectionOpportunity key={item.id} item={item} organisationId={organisationId} busy={!!busy} onSave={() => void act(item,{id:"accept",label:"Save for later"})} onDismiss={() => void act(item,{id:"dismiss",label:"Dismiss"})}/>;
      const signalCard=personalSignal(item);const content=contentSignal(item);const distribution=personalDistributionKind(item);
      if(signalCard)return <PersonalSignalCard key={item.id} item={item} signal={signalCard} organisationId={organisationId} onSaved={()=>load()} onDismiss={()=>void act(item,{id:"dismiss",label:"Dismiss"})}/>;
      const engineProjection=item.engine_state?projectEngineState(item.engine_state):null;
