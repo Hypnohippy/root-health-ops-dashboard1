@@ -100,6 +100,6 @@ export function safeConnectionNote(note: string, name: string, context: string) 
   const facts = (context.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter(word => word.length >= 4 && !generic.has(word));
   const words = new Set(note.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
   return !!first && note.length <= 200 && note.length >= 50 && note.startsWith(`Hi ${first},`) && /connect/i.test(note) &&
-    facts.some(word => words.has(word)) && /noticed|your work|your role|your background|caught my attention/i.test(note) &&
+    facts.some(word => words.has(word)) &&
     !/[?]|thanks for connecting|good to be connected|as (?:we )?discussed|meeting|book a|\bcall\b|\bdemo\b|(?:I['’]d|I would) (?:be glad|love) to connect/i.test(note);
 }
