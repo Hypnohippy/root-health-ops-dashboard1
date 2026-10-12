@@ -305,7 +305,7 @@ test("Responses AI first-message route blocks missing name before contacting the
   "next/server": { NextResponse: { json: (body, opts = {}) => ({ body, status: opts.status || 200 }) } },
   "@/lib/tenantRoute.server": { withTenantRoute: fn => req => fn(req, { organisationId: org, profile: {}, messages: [] }) },
   "@/lib/responseContactContext.server": { getResponseContactContext: async () => contact },
- }, { process: { env: { OPENAI_API_KEY: "fixture" } }, fetch: async (url, opts) => { providerCalls++; assert.match(JSON.parse(opts.body).messages.at(-1).content, /Alex Smith/); return { ok: true, json: async () => ({ choices: [{ message: { content: "Hi Alex, good to connect. Thought I'd say hello properly." } }] }) }; } });
+ }, { process: { env: { OPENAI_API_KEY: "fixture" } }, fetch: async (url, opts) => { providerCalls++; assert.match(JSON.parse(opts.body).messages.at(-1).content, /Alex Smith/); return { ok: true, json: async () => ({ choices: [{ message: { content: "Hi Alex, thanks for connecting. I wanted to introduce the work behind my profile. I focus on practical support for organisations, with an interest in making early intervention useful rather than offering another benefit. That is the context behind connecting, without assuming it is a priority for you. That practical approach is why connecting made sense to me. It is good to be connected here." } }] }) }; } });
  const req = { json: async () => ({ inboxItemId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", context: "responses_linkedin" }) };
  assert.equal((await route.POST(req)).status, 409); assert.equal(providerCalls, 0);
  contact = { ...contact, name: "Alex Smith" }; assert.equal((await route.POST(req)).status, 200); assert.equal(providerCalls, 1);

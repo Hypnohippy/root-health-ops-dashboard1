@@ -4,7 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 const modules=new Map();
-function load(path){if(modules.has(path))return modules.get(path).exports;const module={exports:{}};modules.set(path,module);vm.runInNewContext(ts.transpileModule(fs.readFileSync(path,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,URL,URLSearchParams,require:id=>load(id.replace("@/","")+".ts")});return module.exports;}
+function load(path){if(modules.has(path))return modules.get(path).exports;const mod={exports:{}};modules.set(path,mod);vm.runInNewContext(ts.transpileModule(fs.readFileSync(path,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,require:id=>load(id.replace("@/","")+".ts")});return mod.exports;}
 const cadence=load("lib/growthOutreach.ts"),backfill=load("lib/linkedinCadenceBackfill.ts"),queue=load("lib/linkedinOutreach.ts"),governor=load("lib/operationalGovernor.ts");
 const org="tenant-a",first="2026-08-01T12:34:56.000Z",day=n=>Date.parse(first)+n*86400000;
 const receipt=(at,message,stage)=>({key:"key-"+at,actor:"operator",evidence:"Explicit actual manual send",completed_at:at,confirmed_at:at,sent_at:at,historical_send_date_status:"verified",message,stage});
@@ -47,3 +47,20 @@ test("outbound message with unknown date preserves contacted state and prevents 
 
 test("full conversation snapshot preserves text and only accepts explicitly confirmed earliest date",()=>{const thread="  Name\nYesterday 8:30\n👏\nView profile\nReply\n";const body={key:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",message:thread,containsInboundReply:true};const snapshot=conversation.validateConversationHistory(body,day(35));assert.equal(snapshot.message,thread);assert.equal(snapshot.earliestOutboundAt,null);assert.equal(snapshot.containsInboundReply,true);assert.throws(()=>conversation.validateConversationHistory({...body,earliestOutboundAt:first,timezone:"Europe/London"},day(35)),/Explicitly confirm/);assert.equal(conversation.validateConversationHistory({...body,earliestOutboundAt:first,earliestOutboundConfirmed:true,timezone:"Europe/London"},day(35)).earliestOutboundAt,first);});
 test("snapshot anchor supports cadence without overwriting or preferring it over verified original receipts",()=>{const input=fixture(),original=input.growth_targets[0].manual_completion;input.growth_targets[0].linkedin_cadence_anchor={...receipt(new Date(day(5)).toISOString(),"Full snapshot","connection"),content_kind:"conversation_history_pasted"};assert.equal(cadence.firstConfirmedOutboundAt(input.growth_targets[0]),first);delete original.sent_at;delete original.historical_send_date_status;assert.equal(cadence.firstConfirmedOutboundAt(input.growth_targets[0]),new Date(day(5)).toISOString());assert.equal(original.message,"Original hello exactly");});
+
+ test("richer copy does not change absolute timing and stays specific to the sender profile",()=>{
+ const profiles=[{business:{name:"Clinic A",description:"We support people with grief"},offer:{priorityServices:["bereavement counselling"]}},{business:{name:"Practice B",description:"We support sports recovery"},offer:{priorityServices:["injury rehabilitation"]}}];
+ for(const profile of profiles){const target={target_name:"Alex Example",role_title:"Practice manager",company:"Example Practice",stage:"connection"};const first=cadence.contextualOutreachDraft(target,profile);assert.match(first,/Hi Alex, thanks for connecting/);assert.match(first,/Example Practice/);assert.ok(first.includes(profile.business.description));assert.doesNotMatch(first,/\?/);assert.doesNotMatch(first,/Root|David|workplace wellbeing/);
+ for(const stage of ['day3_followup','day7_parity']){const draft=cadence.contextualOutreachDraft({...target,stage,previous_outbound_text:first},profile);assert.ok(draft.includes(profile.offer.priorityServices[0]));assert.notEqual(draft,first);if(stage==='day7_parity')assert.match(draft,/brief conversation/);}
+ }
+ assert.equal(cadence.contextualOutreachDraft({target_name:'',stage:'connection'},profiles[0]),'');
+ assert.equal(cadence.contextualOutreachDraft({target_name:'Alex',stage:'connection'},{business:{}}),'');
+ });
+
+test("Day 0 fallback cannot recite a long or educational sender description",()=>{
+ for(const description of ['Evidence-informed practical approaches to burnout and absence', 'Helping organisations improve workforce stress', Array(46).fill('work').join(' ')]) {
+ assert.equal(cadence.contextualOutreachDraft({target_name:'Alex',stage:'connection'},{business:{description}}),'');
+ }
+ const draft=cadence.contextualOutreachDraft({target_name:'Alex',company:'Acme',stage:'connection'},{business:{description:'I work with organisations around stress and resilience.'}});
+ assert.ok(draft.endsWith('Good to be connected.'));assert.doesNotMatch(draft,/\.\./);
+});

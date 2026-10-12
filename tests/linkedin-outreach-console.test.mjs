@@ -91,7 +91,7 @@ test("console API revalidates due eligibility and revision, retries receipts and
   "@/lib/tenantGeneration":{generationMessages:()=>[]},"@/lib/growthOutreach":growth,
   "@/lib/manualCompletion.server":{completeManualAction:async(o,a,r)=>{completionCalls++;assert.equal(o,org);assert.equal(a,"actor");assert.equal(r.completedAt,"2026-01-01");return {duplicate:!!data.inbox_items[0].manual_completion};}},
  };
- const api=load("app/api/growth/linkedin-console/route.ts",deps,{process:{env:{OPENAI_API_KEY:"fixture"}},fetch:async(url,options)=>{providerCalls++; if(providerThrows) throw Error("upstream unavailable"); prompt=JSON.parse(options.body).messages.at(-1).content;return {ok:providerStatus===200,json:async()=>({choices:[{message:{content:replies.shift() || "Hi Sarah, we connected a while ago and I realised I hadn't said hello properly."}}]})};}});
+ const api=load("app/api/growth/linkedin-console/route.ts",deps,{process:{env:{OPENAI_API_KEY:"fixture"}},fetch:async(url,options)=>{providerCalls++; if(providerThrows) throw Error("upstream unavailable"); prompt=JSON.parse(options.body).messages.at(-1).content;return {ok:providerStatus===200,json:async()=>({choices:[{message:{content:replies.shift() || "Hi Sarah, we connected a while ago and I realised I had not introduced my work properly. I focus on practical stress support for organisations, with an interest in making early intervention more useful rather than offering another benefit. That is the context behind connecting, without assuming it is a priority for you. That practical approach is why connecting made sense to me. It is good to be connected here."}}]})};}});
  const req=body=>({json:async()=>body});
  const base={id:"a",table:"inbox_items",revision:"3"};
  const generated=await api.POST(req({...base,action:"generate"}));assert.equal(generated.status,200);assert.match(prompt,/older or undated connection/);assert.match(prompt,/Do not say good to connect/);assert.match(prompt, /"name":"Sarah"/);
@@ -104,8 +104,10 @@ test("console API revalidates due eligibility and revision, retries receipts and
  const retry=await api.POST(req({...base,action:"complete",confirmed:true,key:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",message:"Hello",completedAt:"2026-01-01"}));assert.equal(retry.status,409);assert.equal(completionCalls,0);
  data=followup();
  const fbase={id:"target",table:"growth_targets",revision:"4"};
- assert.equal((await api.POST(req({...fbase,action:"generate"}))).status,200);assert.ok(prompt.includes(receipt().message));assert.match(prompt,/lifecycle stage is never provider truth/);assert.doesNotMatch(prompt,/unified current lifecycle is authoritative/);
- replies=["x".repeat(350), "Hi Sarah, good to connect. Thought I'd say hello properly."];
+ assert.equal((await api.POST(req({...fbase,action:"generate"}))).status,200);assert.ok(prompt.includes(receipt().message));assert.match(prompt,/Follow-up 1 \/ Day 3/);assert.doesNotMatch(prompt,/60-110 words/);
+ data.growth_targets[0].stage="day7_parity";assert.equal((await api.POST(req({...fbase,action:"generate"}))).status,200);assert.match(prompt,/Follow-up 2 \/ Day 7/);assert.match(prompt,/brief conversation/);assert.ok(prompt.includes(receipt().message));
+ assert.match(prompt,/lifecycle stage is never provider truth/);assert.doesNotMatch(prompt,/unified current lifecycle is authoritative/);
+ replies=["x".repeat(350), "Hi Sarah, thanks for connecting. I wanted to introduce the work behind my profile. I focus on practical stress support for organisations, with an interest in making early intervention useful rather than offering another benefit. That is the context behind connecting, without assuming it is a priority for you. That practical approach is why connecting made sense to me. It is good to be connected here."];
  data=input({inbox_items:[acceptance()]}); const fresh={id:"a",table:"inbox_items",revision:"4",action:"generate"};
  const beforeCalls=providerCalls;assert.equal((await api.POST(req(fresh))).status,200);assert.equal(providerCalls-beforeCalls,2);assert.match(prompt,/failed validation/);
  replies=["x".repeat(350),"x".repeat(350)];assert.equal((await api.POST(req(fresh))).status,409);
