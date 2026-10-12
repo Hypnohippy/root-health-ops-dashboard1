@@ -122,3 +122,9 @@ test('draft endpoint rejects empty provider copy and passes grounded context/cat
  const response=await route.POST(request());assert.equal(response.status,200);assert.equal((await response.json()).note,note);
  const context=JSON.parse(payload.messages.at(-1).content);assert.equal(context.context,'Leadership and wellbeing coach');assert.equal(context.category,'Partner / referrer');assert.match(payload.messages[0].content,/ONE concrete grounded/);assert.equal(input.inbox_items.length,0);
 });
+
+test('connection notes reject brand-focus embellishment and networking filler',()=>{
+ const context='Workplace wellbeing and resilience';
+ for(const note of ['Hi Emma, your workplace wellbeing work aligns well with our focus. Looking forward to connecting.','Hi Emma, I noticed your resilience work. Connecting seems worthwhile given our shared interests.','Hi Emma, I noticed your wellbeing work and would love a meeting to connect.']) assert.equal(invitation.safeConnectionNote(note,'Emma Pennycard',context),false);
+ assert.equal(invitation.safeConnectionNote('Hi Emma, your workplace wellbeing work caught my attention and I thought there might be some overlap. It would be good to connect.','Emma Pennycard',context),true);
+});
