@@ -47,5 +47,5 @@ export async function GET(req: Request) {
       warmOpportunities: growth.warmOpportunities, meetingsOrConversions: growth.meetingsOrConversions,
       contentApprovals: approvals, connectionProblems,
     }}, { headers:{"Cache-Control":"private, no-store"} });
-  } catch (error) { return accessErrorResponse(error) || NextResponse.json({ success:false,error:"Unable to load todayâ€™s priorities." },{status:503}); }
+  } catch (error) { return accessErrorResponse(error) || NextResponse.json({ success:false,error:"Unable to load today’s priorities." },{status:503}); }
 }

@@ -9,7 +9,7 @@ import { interactionTypeFor, messageTypeLabel, objectiveFor, plainSource, profil
 
 const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;
 const date = (value: unknown) => text(value) ? new Date(String(value)).toLocaleDateString("en-GB") : null;
-const companyFromHeadline = (headline: string) => headline.match(/\bat\s+([^|Â·,]+)/i)?.[1]?.trim() || null;
+const companyFromHeadline = (headline: string) => headline.match(/\bat\s+([^|·,]+)/i)?.[1]?.trim() || null;
 
 export async function getResponseContactContext(organisationId: string, itemId: string, profile: GenerationProfile): Promise<ResponseContactContext> {
   const input = await readLifecycleInput(organisationId);
@@ -41,7 +41,7 @@ export async function getResponseContactContext(organisationId: string, itemId: 
     target?.replied_at ? `Reply recorded ${date(target.replied_at)}${text(target.reply_notes) ? `: ${text(target.reply_notes)}` : "."}` : null,
     text(item.linkedin_recorded_reply_text) ? `Recorded LinkedIn conversation (user-supplied evidence): ${String(item.linkedin_recorded_reply_text)}` : null,
     text(item.last_reply_text) ? `Last response sent: ${text(item.last_reply_text)}` : null,
-    ...(acquisitionEvents || []).map(event => `${String(event.action || "Queue action").replaceAll("_", " ")} on ${date(event.created_at) || "an unknown date"}${text(event.note) ? `: ${text(event.note)}` : ""}${text(event.outcome) ? ` â€” ${text(event.outcome)}` : ""}.`),
+    ...(acquisitionEvents || []).map(event => `${String(event.action || "Queue action").replaceAll("_", " ")} on ${date(event.created_at) || "an unknown date"}${text(event.note) ? `: ${text(event.note)}` : ""}${text(event.outcome) ? ` — ${text(event.outcome)}` : ""}.`),
   ].filter(Boolean) as string[];
   const known = [text(acquisition?.reason), text(acquisition?.signal), text(acquisition?.evidence), text(target?.notes), text(target?.reply_notes), text(item.outreach_reference)].filter(Boolean) as string[];
   const relevance = fit.length ? `Their recorded role or company context matches the saved target profile (${fit.join(", ")}).` : acquisition?.reason ? String(acquisition.reason) : `No explicit Growth Profile match is recorded${role || company ? "; the available role and company context is shown for human review" : " because role and company detail is incomplete"}.`;
