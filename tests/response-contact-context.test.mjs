@@ -113,6 +113,7 @@ test("recipient framing differentiates actual contexts without changing interact
   assert.ok(rules.includes(result.label));assert.match(rules,/No question mark/);assert.match(rules,/not a canned template/);
  }
  assert.equal(context.linkedInRecipientFraming({}).category,"other");
+ assert.equal(context.linkedInRecipientFraming({role:"HR Business Partner",company:"Example Ltd"}).category,"hr_people");
  assert.equal(context.linkedInRecipientFraming({role:"HR consultant",company:"Care Agency"}).category,"hr_consultancy");
  assert.equal(context.linkedInRecipientFraming({role:"People Director",company:"Example College"}).category,"education");
 });
