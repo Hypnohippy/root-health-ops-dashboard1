@@ -50,7 +50,7 @@ test("snapshot anchor supports cadence without overwriting or preferring it over
 
  test("richer copy does not change absolute timing and stays specific to the sender profile",()=>{
  const profiles=[{business:{name:"Clinic A",description:"We support people with grief"},offer:{priorityServices:["bereavement counselling"]}},{business:{name:"Practice B",description:"We support sports recovery"},offer:{priorityServices:["injury rehabilitation"]}}];
- for(const profile of profiles){const target={target_name:"Alex Example",role_title:"Practice manager",company:"Example Practice",stage:"connection"};const first=cadence.contextualOutreachDraft(target,profile);assert.match(first,/Hi Alex, thanks for connecting/);assert.match(first,/Example Practice/);assert.ok(first.includes(profile.business.description));assert.match(first,/\?/);assert.doesNotMatch(first,/Root|David|workplace wellbeing/);
+ for(const profile of profiles){const target={target_name:"Alex Example",role_title:"Practice manager",company:"Example Practice",stage:"connection"};const first=cadence.contextualOutreachDraft(target,profile);assert.match(first,/Hi Alex, thanks for connecting/);assert.match(first,/Example Practice/);assert.ok(first.includes(profile.business.description));assert.doesNotMatch(first,/\?/);assert.doesNotMatch(first,/Root|David|workplace wellbeing/);
  for(const stage of ['day3_followup','day7_parity']){const draft=cadence.contextualOutreachDraft({...target,stage,previous_outbound_text:first},profile);assert.ok(draft.includes(profile.offer.priorityServices[0]));assert.notEqual(draft,first);if(stage==='day7_parity')assert.match(draft,/brief conversation/);}
  }
  assert.equal(cadence.contextualOutreachDraft({target_name:'',stage:'connection'},profiles[0]),'');

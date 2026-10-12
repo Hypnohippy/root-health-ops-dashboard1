@@ -51,7 +51,7 @@ export function objectiveFor(type: InteractionType, hasSignal: boolean) {
   if (type === "relationship_message") return "Continue the established relationship on explicit human request, respecting recorded replies and commercial progress. Do not draft an unanswered-outreach follow-up.";
   if (type === "followup") return "Prepare the next scheduled follow-up using recorded history; never introduce the contact as new.";
   if (type === "first_message") return "Open a relevant first conversation using only recorded facts.";
-  if (type === "linkedin_connection_first_message") return "Acknowledge the accepted connection, explain grounded relevance and open a low-pressure conversation with one natural question.";
+  if (type === "linkedin_connection_first_message") return "Acknowledge the accepted connection and explain briefly why connecting made sense, using grounded context. End naturally with no question or CTA.";
   if (type === "linkedin_followup") return "Continue the relationship with a useful, specific follow-up based on the known context.";
   if (type === "linkedin_reply") return "Respond directly to what they said and move the conversation forward naturally.";
   if (type === "email_reply") return "Answer the email directly and agree a clear next step only where appropriate.";
@@ -68,6 +68,23 @@ export function profileFit(headline: string, company: string, profile: Generatio
   return matches.map(String).slice(0, 3);
 }
 
+export function linkedInRecipientFraming(context: { role?: string | null; company?: string | null; sector?: string | null; whatWeKnow?: string[] }) {
+  // A drafting hint, never a buying signal or lifecycle classification.
+  const facts = [context.role, context.company, context.sector, ...(context.whatWeKnow || [])].filter(Boolean).join(" ");
+  const choices = [
+    { category: "hr_consultancy", label: "HR agency / consultancy / outsourced HR provider", match: /(?:\bHR\b|human resources|people).{0,35}(?:consultan|agency|outsourc)|(?:consultan|agency|outsourc).{0,35}(?:\bHR\b|human resources|people)/i, framing: "Frame relevance around supporting their client organisations or complementing their existing offer. Do not pitch employee benefits to the agency itself or assume a buying need." },
+    { category: "education", label: "College / education / training provider", match: /\bcollege\b|\buniversity\b|\bschool\b|\beducation\b|\blearners?\b|training provider/i, framing: "Use learner/staff wellbeing, resilience, workshops or education/community relevance only where recorded context and the sender profile support it. Do not force a corporate-HR angle." },
+    { category: "care_health", label: "Care / health / nursing leadership", match: /\bnurs(?:e|ing)\b|\bclinical\b|\bsocial care\b|\bneurocare\b|\bhealthcare\b|\bcare (?:home|director|leader|manager)\b/i, framing: "Use workforce pressure, recovery, retention, staff wellbeing or practical support where their role and the sender profile support it. Do not infer personal health information." },
+    { category: "partner", label: "Potential partner / introducer / referrer", match: /\bpartner(?:ship|ships)?\b|\bintroducer\b|\breferrer\b|\breferral\b|\bdistribution\b|\bcomplementary\b|\bmember(?:s)?\b|\bassociation\b/i, framing: "Frame the reason for connecting around complementary work, mutual client/member value or possible collaboration/distribution. Do not treat them as a buyer without evidence." },
+    { category: "hr_people", label: "HR / People / Wellbeing buyer context", match: /\bHR\b|human resources|\bpeople\b|\bwellbeing\b|\bwellness\b/i, framing: "Use employee stress, resilience, early intervention or organisational insight only where supported by their role and this sender profile. Relevance is not buying intent; no immediate sales push." },
+  ];
+  const selected = choices.find(choice => choice.match.test(choice.category === "care_health" && /\bHR\b|human resources|\bpeople\b/i.test(context.role || "") ? context.role || "" : facts));
+  return selected ? { category: selected.category, label: selected.label, framing: selected.framing, groundedContext: facts } : {
+    category: "other", label: "Other strategic contact / fit uncertain", groundedContext: facts,
+    framing: "Use only verified role/company/context. Keep the reason for connecting neutral when fit is uncertain; do not invent a buyer, partner relationship, problem or overlap.",
+  };
+}
+
 export function responseDraftRules(context: ResponseContactContext) {
   const common = ["Use only supplied facts; never invent background, dialogue, results or a buying signal.", `The desired next-message objective is: ${context.objective}`,
     "The unified current lifecycle is authoritative. Original event types are historical evidence only. Never regress a contact's stage.",
@@ -80,10 +97,11 @@ export function responseDraftRules(context: ResponseContactContext) {
   if (context.interactionType === "linkedin_connection_first_message") return [...common,
     "This is the first outbound LinkedIn message after the person accepted a connection request; it is not a reply. Never imply prior dialogue.",
     "Use the saved person's actual first name. Acknowledge the connection naturally; thanks for connecting is allowed for a recent acceptance. For an older connection acknowledge it honestly without implying it just happened.",
-    "Write a complete human opener, usually 60-110 words: connection acknowledgement, one grounded recipient detail where available, a brief explanation of possible relevance from the sender's Growth Profile, then exactly one natural low-pressure question. Do not compress this into a one-line hello.",
-    "Use their recorded role, company or known context naturally. Do not invent a role or company when sparse; explain sender-side relevance tentatively and ask about their perspective without assuming they have a problem.",
+    "Write a complete human opener, usually 60-110 words: connection acknowledgement, one grounded recipient detail where available, a brief explanation of possible relevance from the sender's Growth Profile, and a natural ending. No question mark, question or CTA. Do not compress this into a one-line hello.",
+    "Use their recorded role, company or known context naturally. Do not invent a role or company when sparse; keep the reason for connecting neutral and explain sender-side context without assuming they have a problem or asking for their perspective.",
+    `Recipient framing (inferred only from supplied context): ${JSON.stringify(linkedInRecipientFraming(context))}. Use this to choose the reason for connecting, not a canned template. Do not turn a category into a claim about their needs.`,
     "Explain what the sender actually does only from this organisation's Growth Profile. A generic sentence such as I work with workplace wellbeing must never be the entire substance. Do not recite a CV or force marketing language.",
-    "No hard pitch, booking link, meeting/demo/call ask, emoji, exaggerated claims or flattery. A natural question is required, not prohibited.",
+    "No hard pitch, booking link, meeting/demo/call ask, emoji, exaggerated claims or flattery. No question mark, CTA, request for thoughts/perspective or priorities, or networking-coach language. Do not ask how they are approaching anything.",
     "Never say thanks for getting in touch, glad to help, following up, as we discussed, or anything implying an earlier conversation or inbound enquiry."
   ];
   if (context.interactionType === "linkedin_followup") {
@@ -106,10 +124,10 @@ export function responseDraftRules(context: ResponseContactContext) {
 export function safeLinkedInFirstMessage(draft: string, context?: { name?: string | null; company?: string | null; role?: string | null }) {
   const text = draft.trim();
   const words = text.split(/\s+/).filter(Boolean);
-  if (words.length < 45 || words.length > 140 || text.length > 1100 || (text.match(/\?/g) || []).length !== 1 || /\p{Extended_Pictographic}/u.test(text)) return false;
+  if (words.length < 45 || words.length > 140 || text.length > 1100 || text.includes("?") || /\p{Extended_Pictographic}/u.test(text)) return false;
   const wording = text.toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, " ");
   if (!/\bconnect(?:ing|ed|ion)?\b/.test(wording)) return false;
-  if (/thanks for getting in touch|glad to help|following up|as we discussed|our (?:earlier|previous) conversation|book (?:a|the)|booking link|\b(?:demo|pitch)\b|(?:let's|can we|could we) (?:meet|have a call)|(?:schedule|arrange) (?:a |the )?(?:meeting|call)/i.test(wording)) return false;
+  if (/thanks for getting in touch|glad to help|following up|as we discussed|our (?:earlier|previous) conversation|(?:i'd|i would) (?:love|like|be interested) to hear|hear your (?:thoughts|perspective)|how (?:are|do|would) you|what are your|let me know|(?:would|could|can) you|please (?:reply|share)|book (?:a|the)|booking link|\b(?:demo|pitch)\b|(?:let's|can we|could we) (?:meet|have a call)|(?:schedule|arrange) (?:a |the )?(?:meeting|call)/i.test(wording)) return false;
   const first = context?.name?.trim().split(/\s+/)[0]?.toLowerCase();
   if (first && !wording.startsWith(`hi ${first},`) && !wording.startsWith(`hello ${first},`)) return false;
   const terms = `${context?.company || ""} ${context?.role || ""}`.toLowerCase().match(/[a-z]{4,}/g)?.filter(term => !["with", "from", "their", "company", "director", "chartered", "fcipd", "cipd"].includes(term)) || [];

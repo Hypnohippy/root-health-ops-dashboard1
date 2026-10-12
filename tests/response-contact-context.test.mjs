@@ -18,7 +18,7 @@ test("LinkedIn acceptance is classified as a first outbound message with plain c
 test("first-message rules prohibit fake prior dialogue and aggressive pitching",()=>{
   const briefing={interactionType:"linkedin_connection_first_message",objective:"Open a relevant conversation."};
   const rules=context.responseDraftRules(briefing).join(" ");
-  assert.match(rules,/first outbound LinkedIn message/i); assert.match(rules,/not a reply/i); assert.match(rules,/never imply prior dialogue/i); assert.match(rules,/one natural low-pressure question/i); assert.match(rules,/No hard pitch/i);
+  assert.match(rules,/first outbound LinkedIn message/i); assert.match(rules,/not a reply/i); assert.match(rules,/never imply prior dialogue/i); assert.match(rules,/No question mark/i); assert.match(rules,/No hard pitch/i);
 });
 
 test("interaction types require the current lifecycle instead of inferring from the event",()=>{
@@ -55,20 +55,20 @@ test("existing email and social controls remain in Responses and LinkedIn is nev
   assert.doesNotMatch(ui,/api\/linkedin\/.*send|linkedin.*sendMessage/i);
 });
 
-const rich = "Hi Shelley, thanks for connecting. Your people work at Acme gives us a useful point of overlap. I work with organisations around stress, resilience and early intervention, especially where support needs to be practical rather than simply another benefit. How are you approaching that side of things at the moment?";
-const sparse = "Hi Shelley, thanks for connecting. I wanted to say hello properly rather than leave it at a profile link. My work is around practical stress support and early intervention for organisations. There may be a useful perspective to exchange, without assuming that is your priority. How are you approaching that side of things at the moment?";
+const rich = "Hi Shelley, thanks for connecting. Your people work at Acme gives us a useful point of overlap. I work with organisations around stress, resilience and early intervention, especially where support needs to be practical rather than simply another benefit. That practical approach is why connecting made sense to me. It is good to be connected here.";
+const sparse = "Hi Shelley, thanks for connecting. I wanted to say hello properly rather than leave it at a profile link. My work is around practical stress support and early intervention for organisations. There may be a useful perspective to exchange, without assuming that is your priority. That practical approach is why connecting made sense to me. It is good to be connected here.";
 
-test("rich first opener uses context and question; short generic/fake-dialogue/pitch outputs are rejected", () => {
+test("rich first opener uses context without questions; short generic/fake-dialogue/pitch outputs are rejected", () => {
  assert.equal(context.safeLinkedInFirstMessage(rich, {name:'Shelley',company:'Acme',role:'People director'}), true);
  assert.equal(context.safeLinkedInFirstMessage(sparse, {name:'Shelley'}), true);
- for(const draft of ["Hi Kate, I work with workplace wellbeing around stress and resilience. It's good to connect here.", "Hi Shelley, thanks for connecting. What are your priorities?", rich.replace('?', '.'), rich + ' Another question?', rich.replace('Hi Shelley,','Hi James,'), rich.replace('Acme','OtherCo').replace('people','finance'), rich.replace('thanks for connecting','thanks for getting in touch'), rich.replace('thanks for connecting','glad to help after our previous conversation'), rich + ' Book a call.', 'a'.repeat(500)]) {
+ for(const draft of ["Hi Kate, I work with workplace wellbeing around stress and resilience. It's good to connect here.", "Hi Shelley, thanks for connecting. What are your priorities?", rich + ' How are you approaching this?' , rich + ' Another question?', rich.replace('Hi Shelley,','Hi James,'), rich.replace('Acme','OtherCo').replace('people','finance'), rich.replace('thanks for connecting','thanks for getting in touch'), rich.replace('thanks for connecting','glad to help after our previous conversation'), rich + ' Book a call.', 'a'.repeat(500)]) {
   assert.equal(context.safeLinkedInFirstMessage(draft, {name:'Shelley',company:'Acme',role:'People director'}), false, draft);
  }
 });
 
 test("first opener is multi-tenant, while follow-up 1 and 2 have distinct history-led intent", () => {
  const first=context.responseDraftRules({interactionType:'linkedin_connection_first_message',objective:'Open conversation'}).join(' ');
- assert.match(first,/60-110 words/);assert.match(first,/saved person's actual first name/);assert.match(first,/Growth Profile/);assert.doesNotMatch(first,/Under 300|no question|Root|David/);
+ assert.match(first,/60-110 words/);assert.match(first,/saved person's actual first name/);assert.match(first,/Growth Profile/);assert.doesNotMatch(first,/Under 300|Root|David/);
  const one=context.responseDraftRules({interactionType:'linkedin_followup',cadenceStage:'day3_followup',objective:'Explore relevance'}).join(' ');
  const two=context.responseDraftRules({interactionType:'linkedin_followup',cadenceStage:'day7_parity',objective:'Explore relevance'}).join(' ');
  assert.match(one,/actual previous outbound text/);assert.match(one,/Follow-up 1/);assert.match(one,/one relevant thought/);assert.match(one,/one low-pressure question/);assert.doesNotMatch(one,/Follow-up 2/);
@@ -95,4 +95,33 @@ test("Responses follow-up endpoint requires exact outbound history and uses actu
  const req={json:async()=>({inboxItemId:'11111111-1111-1111-1111-111111111111'})};
  assert.equal((await mod.exports.POST(req)).status,409);assert.equal(calls,0);
  for(const [stage,label] of [['day3_followup','Follow-up 1'],['day7_parity','Follow-up 2']]){briefing={...briefing,cadenceStage:stage,history:['Actual previous outbound message: Exact actual earlier message']};assert.equal((await mod.exports.POST(req)).status,200);assert.ok(prompt.includes(label));assert.ok(prompt.includes('Exact actual earlier message'));assert.doesNotMatch(prompt,/60-110 words/);}
+});
+
+
+test("recipient framing differentiates actual contexts without changing interaction or buying intent", () => {
+ const cases = [
+  [{role:"Head of People",company:"Acme"},"hr_people",/employee stress/],
+  [{role:"Director of partnerships",company:"Member Association"},"partner",/complementary work/],
+  [{role:"HR consultant",company:"Example HR Consultancy"},"hr_consultancy",/client organisations/],
+  [{role:"Principal",company:"Example College"},"education",/learner\/staff/],
+  [{role:"Director of Nursing",company:"Example Health"},"care_health",/workforce pressure/],
+  [{role:"Director",company:"Example Ltd"},"other",/neutral/],
+ ];
+ for(const [facts,category,framing] of cases){
+  const result=context.linkedInRecipientFraming(facts);assert.equal(result.category,category);assert.match(result.framing,framing);
+  const rules=context.responseDraftRules({...facts,interactionType:"linkedin_connection_first_message",objective:context.objectiveFor("linkedin_connection_first_message",false)}).join(" ");
+  assert.ok(rules.includes(result.label));assert.match(rules,/No question mark/);assert.match(rules,/not a canned template/);
+ }
+ assert.equal(context.linkedInRecipientFraming({}).category,"other");
+ assert.equal(context.linkedInRecipientFraming({role:"HR consultant",company:"Care Agency"}).category,"hr_consultancy");
+ assert.equal(context.linkedInRecipientFraming({role:"People Director",company:"Example College"}).category,"education");
+});
+
+test("first acceptance never permits question marks or disguised CTAs, while later stages remain conversational", () => {
+ for(const suffix of ["?", " How are you approaching this.", " I'd love to hear your perspective.", " Let me know your thoughts.", " Would you share your priorities."])
+  assert.equal(context.safeLinkedInFirstMessage(rich+suffix,{name:"Shelley",company:"Acme"}),false);
+ assert.equal(context.safeLinkedInFirstMessage(rich,{name:"Shelley",company:"Acme"}),true);
+ assert.match(context.responseDraftRules({interactionType:"linkedin_followup",cadenceStage:"day3_followup"}).join(" "),/one low-pressure question/);
+ assert.match(context.responseDraftRules({interactionType:"linkedin_followup",cadenceStage:"day7_parity"}).join(" "),/brief conversation conditionally/);
+ assert.doesNotMatch(context.responseDraftRules({interactionType:"linkedin_reply"}).join(" "),/No question mark/);
 });
