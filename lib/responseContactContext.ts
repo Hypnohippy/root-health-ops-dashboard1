@@ -74,11 +74,15 @@ export function linkedInRecipientFraming(context: { role?: string | null; compan
   const choices = [
     { category: "hr_consultancy", label: "HR agency / consultancy / outsourced HR provider", match: /(?:\bHR\b|human resources|people).{0,35}(?:consultan|agency|outsourc)|(?:consultan|agency|outsourc).{0,35}(?:\bHR\b|human resources|people)/i, framing: "Frame relevance around supporting their client organisations or complementing their existing offer. Do not pitch employee benefits to the agency itself or assume a buying need." },
     { category: "education", label: "College / education / training provider", match: /\bcollege\b|\buniversity\b|\bschool\b|\beducation\b|\blearners?\b|training provider/i, framing: "Use learner/staff wellbeing, resilience, workshops or education/community relevance only where recorded context and the sender profile support it. Do not force a corporate-HR angle." },
-    { category: "care_health", label: "Care / health / nursing leadership", match: /\bnurs(?:e|ing)\b|\bclinical\b|\bsocial care\b|\bneurocare\b|\bhealthcare\b|\bcare (?:home|director|leader|manager)\b/i, framing: "Use workforce pressure, recovery, retention, staff wellbeing or practical support where their role and the sender profile support it. Do not infer personal health information." },
+    { category: "care_health", label: "Care / health / nursing leadership", match: /\bnurs(?:e|ing)\b|\bclinical\b|\bsocial care\b|\bneurocare\b|\bhealthcare\b|\bhealth\b|\bNHS\b|\bhospital\b|\bhospice\b|\bcare (?:home|director|leader|manager)\b/i, framing: "Use workforce pressure, recovery, retention, staff wellbeing or practical support where their role and the sender profile support it. Do not infer personal health information." },
     { category: "partner", label: "Potential partner / introducer / referrer", match: /\bpartnerships?\b|\bintroducer\b|\breferrer\b|\breferral\b|\bdistribution\b|\bcomplementary\b|\bmember(?:s)?\b|\bassociation\b/i, framing: "Frame the reason for connecting around complementary work, mutual client/member value or possible collaboration/distribution. Do not treat them as a buyer without evidence." },
     { category: "hr_people", label: "HR / People / Wellbeing buyer context", match: /\bHR\b|human resources|\bpeople\b|\bwellbeing\b|\bwellness\b/i, framing: "Use employee stress, resilience, early intervention or organisational insight only where supported by their role and this sender profile. Relevance is not buying intent; no immediate sales push." },
   ];
-  const selected = choices.find(choice => choice.match.test(choice.category === "care_health" && /\bHR\b|human resources|\bpeople\b/i.test(context.role || "") ? context.role || "" : facts));
+  const peopleRole = /\bHR\b|human resources|\bpeople\b/i.test(context.role || "");
+  const selected = choices.find(choice => {
+    const evidence = peopleRole && ["care_health", "partner"].includes(choice.category) ? context.role || "" : facts;
+    return choice.match.test(evidence);
+  });
   return selected ? { category: selected.category, label: selected.label, framing: selected.framing, groundedContext: facts } : {
     category: "other", label: "Other strategic contact / fit uncertain", groundedContext: facts,
     framing: "Use only verified role/company/context. Keep the reason for connecting neutral when fit is uncertain; do not invent a buyer, partner relationship, problem or overlap.",
