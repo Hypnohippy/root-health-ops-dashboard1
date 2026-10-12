@@ -261,6 +261,7 @@ test("accepted references link to the exact existing Responses record and never 
  const Component = load("app/dashboard/growth/acquisition/LinkedInConnectionOpportunity.tsx").default;
  let tree; await renderer.act(async () => { tree = renderer.create(React.createElement(Component, { organisationId: org, item: { id: "accepted:real-id", person: "Alex Smith", source_url: "https://linkedin.com/in/alex-smith", status: "connected", metadata: {}, linkedinConnectionState: { acceptedConnectionId: "real-id", alreadyKnown: true } }, onSave() { throw Error("no write"); }, onDismiss() { throw Error("no write"); } })); });
  assert.equal(tree.root.findAllByType("button").length, 0);
+ assert.match(tree.root.findAllByType("a")[0].props.href, /^\/dashboard\/responses\?/);
  assert.match(tree.root.findAllByType("a")[0].props.href, /itemId=real-id/);
  assert.match(tree.root.findAllByType("a")[0].props.href, new RegExp(`organisationId=${org}`));
  await renderer.act(async () => tree.unmount());
