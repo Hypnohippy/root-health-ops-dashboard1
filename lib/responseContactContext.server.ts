@@ -35,7 +35,10 @@ export async function getResponseContactContext(organisationId: string, itemId: 
   const fit = profileFit(role || "", company || "", profile);
   const type = interactionTypeFor(item, lifecycle);
   const hasSignal = Boolean(text(acquisition?.signal) || ["positive","interested","engaged","call_booked"].includes(String(target?.reply_status || "")) || ["opportunity","meeting","converted","won"].includes(String(target?.deal_stage || "")));
+  const receipt = target?.manual_completion && typeof target.manual_completion === "object" ? target.manual_completion as Record<string, unknown> : {};
+  const confirmedOutbound = [receipt.key, receipt.actor, receipt.evidence, receipt.message].every(value => !!text(value)) ? text(receipt.message) : null;
   const history = [
+    type === "linkedin_followup" && confirmedOutbound ? `Actual previous outbound message: ${confirmedOutbound}` : null,
     item.kind === "connection_accepted" ? `Accepted your LinkedIn connection${date(item.created_at_platform || item.inserted_at) ? ` on ${date(item.created_at_platform || item.inserted_at)}` : ""}.` : null,
     target?.last_action_at ? `Outreach action recorded on ${date(target.last_action_at)}.` : null,
     target?.replied_at ? `Reply recorded ${date(target.replied_at)}${text(target.reply_notes) ? `: ${text(target.reply_notes)}` : "."}` : null,
@@ -51,7 +54,7 @@ export async function getResponseContactContext(organisationId: string, itemId: 
     relationship: lifecycle.label, latestEvent: text(item.text) || "No event text was recorded.", whatWeKnow: known.slice(0, 4), history,
     lifecycle,
     lastAction: lifecycle.lastAction ? `${lifecycle.lastAction.action.replaceAll("_", " ")}${lifecycle.lastAction.at ? ` on ${date(lifecycle.lastAction.at)}` : ""}` : null,
-    currentStage: lifecycle.label, buyingSignal: hasSignal ? "actual" : (fit.length || acquisition ? "strategic_fit" : "unknown"),
+    currentStage: lifecycle.label, cadenceStage: type === "linkedin_followup" ? text(target?.stage) : null, buyingSignal: hasSignal ? "actual" : (fit.length || acquisition ? "strategic_fit" : "unknown"),
     buyingSignalLabel: hasSignal ? "A recorded signal or response exists." : fit.length || acquisition ? "Strategic fit only; no explicit buying signal is recorded." : "No buying signal or confirmed strategic fit is recorded.",
     objective: objectiveFor(type, hasSignal),
   };

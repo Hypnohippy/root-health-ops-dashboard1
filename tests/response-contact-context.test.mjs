@@ -18,7 +18,7 @@ test("LinkedIn acceptance is classified as a first outbound message with plain c
 test("first-message rules prohibit fake prior dialogue and aggressive pitching",()=>{
   const briefing={interactionType:"linkedin_connection_first_message",objective:"Open a relevant conversation."};
   const rules=context.responseDraftRules(briefing).join(" ");
-  assert.match(rules,/first outbound LinkedIn message/i); assert.match(rules,/not a reply/i); assert.match(rules,/never imply prior dialogue/i); assert.match(rules,/No emojis, pitch, product explanation, question, meeting\/demo\/call ask/i);
+  assert.match(rules,/first outbound LinkedIn message/i); assert.match(rules,/not a reply/i); assert.match(rules,/never imply prior dialogue/i); assert.match(rules,/one natural low-pressure question/i); assert.match(rules,/No hard pitch/i);
 });
 
 test("interaction types require the current lifecycle instead of inferring from the event",()=>{
@@ -55,60 +55,44 @@ test("existing email and social controls remain in Responses and LinkedIn is nev
   assert.doesNotMatch(ui,/api\/linkedin\/.*send|linkedin.*sendMessage/i);
 });
 
-test("Shelley's generic opener and Day 3 discovery questions are rejected", () => {
-  for (const draft of [
-    "Hi Shelley, great to connect here! I'd love to hear your thoughts on current wellbeing challenges in HR—what's top of mind for you these days?",
-    "Hi Shelley, I noticed your role at Acme.",
-    "Hi Shelley, I came across Acme and love what you're doing.",
-    "Hi Shelley, thanks for connecting. Book a call about our platform at Acme.",
-    "Hi Shelley, what is most important in your remit at Acme.",
-    "Hi Shelley, good to connect. What's changing at Acme?",
-    "Hi Shelley, great to connect here.",
-    "Hi Shelley, I'd love to hear your thoughts.",
-    "Hi Shelley, what's top of mind?",
-    "Hi Shelley, I noticed your team.",
-    "Hi Shelley, let me share our pitch.",
-    "Hi Shelley, let me show you a demo.",
-    "Hi Shelley, let's have a quick call.",
-    "Hi Shelley, we help teams improve wellbeing.",
-    "Hi Shelley, what are your team's priorities?",
-  ]) assert.equal(context.safeLinkedInFirstMessage(draft, {company:'Acme'}), false);
-});
+const rich = "Hi Shelley, thanks for connecting. Your people work at Acme gives us a useful point of overlap. I work with organisations around stress, resilience and early intervention, especially where support needs to be practical rather than simply another benefit. How are you approaching that side of things at the moment?";
+const sparse = "Hi Shelley, thanks for connecting. I wanted to say hello properly rather than leave it at a profile link. My work is around practical stress support and early intervention for organisations. There may be a useful perspective to exchange, without assuming that is your priority. How are you approaching that side of things at the moment?";
 
-test("Day 1 accepts human hellos without literal company or role matches", () => {
-  const hello = "Hi Shelley, good to connect. I thought I’d say hello properly.";
-  assert.equal(context.safeLinkedInFirstMessage(hello, {company:'Acme', role:'HR director'}), true);
-  assert.equal(context.safeLinkedInFirstMessage(hello, {role:'HR director'}), true);
-  assert.equal(context.safeLinkedInFirstMessage('Hi Shelley, good to connect. I wanted to say hello to you at Acme properly.', {company:'Acme'}), true);
-  assert.equal(context.safeLinkedInFirstMessage('Hi Shelley, good to connect. Your work in workforce planning is a useful point of overlap, so I thought I would say hello properly.', {role:'Workforce planning'}), true);
-  assert.equal(context.safeLinkedInFirstMessage('Hi Shelley, good to connect. A hello to a fellow people leader.', {company:'Acme', role:'HR director'}), true);
-  assert.equal(context.safeLinkedInFirstMessage('Hi Shelley, good to connect. I thought I would say hello properly.'), true);
-  assert.equal(context.safeLinkedInFirstMessage('a'.repeat(301)), false);
-  assert.equal(context.safeLinkedInFirstMessage('a'.repeat(300)), false);
-  assert.equal(context.safeLinkedInFirstMessage('a'.repeat(299)), true);
-  assert.equal(context.safeLinkedInFirstMessage('   '), false);
-});
-
-const jamesFiller = 'Hi James, thanks for connecting. Just wanted to say hello and look forward to staying in touch.';
-const jamesNatural = 'Hi James, good to connect. I work around workplace wellbeing and stress, so there’s probably some overlap in the things we both see day to day. Thought I’d say hello properly.';
-
-test('Day 1 rejects networking filler while accepting natural sender-side context', () => {
-  assert.equal(context.safeLinkedInFirstMessage(jamesFiller), false);
-  assert.equal(context.safeLinkedInFirstMessage(jamesNatural, {company:'Acme', role:'People director'}), true);
-  for (const phrase of ['thanks for connecting', 'just wanted to say hello', 'look forward to staying in touch', 'stay in touch', 'pleasure to connect', 'thanks for the connection', "hope you're well", 'hope you’re well', 'hope you are well', 'THANKS FOR\nCONNECTING']) {
-    assert.equal(context.safeLinkedInFirstMessage(`Hi James, ${phrase}.`), false, phrase);
-  }
-});
-
-test('active root-coach endpoint rejects bad model output and returns grounded editable copy', async()=>{
- const briefing={interactionType:'linkedin_connection_first_message',messageType:'First message after connection',company:'Acme',role:'HR director',name:'Shelley',objective:'Say hello',lifecycle:{canDraft:true,currentStage:'outreach_ready'}};
- for(const [draft,status] of [[jamesFiller,409],[jamesNatural,200],["Hi Shelley, great to connect here! What's top of mind at Acme?",409],['Hi Shelley, good to connect. I wanted to say hello to you at Acme properly.',200],["Hi Shelley, good to connect. I thought I’d say hello properly.",200],['Hi Shelley, good to connect. A hello to a fellow people leader.',200]]) {
-  const mod={exports:{}};let prompt='';
-  const deps={'@/lib/tenantRoute.server':{withTenantRoute:fn=>req=>fn(req,{organisationId:'review',profile:{},messages:[]})},'next/server':{NextResponse:{json:(body,o={})=>({body,status:o.status||200})}},'@/lib/responseContactContext.server':{getResponseContactContext:async(org)=>{assert.equal(org,'review');return briefing;}},'@/lib/responseContactContext':context,'@/lib/socialCommentOpportunity':{}};
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/ai/root-coach/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,require:n=>{assert.ok(n in deps,n);return deps[n];},process:{env:{OPENAI_API_KEY:'test'}},console,fetch:async(url,opts)=>{assert.equal(url,'https://api.openai.com/v1/chat/completions');prompt=opts.body;return {ok:true,json:async()=>({choices:[{message:{content:draft}}]})};}});
-  const result=await mod.exports.POST({json:async()=>({inboxItemId:'11111111-1111-1111-1111-111111111111'})});
-  assert.equal(result.status,status);assert.match(prompt,/Day 0/);assert.match(prompt,/Acme/);assert.match(prompt,/No emojis/);assert.match(prompt,/Exact company names and role words are optional/);
-  assert.match(prompt,/prefer natural sender-side context/);assert.match(prompt,/only when supported by the supplied sender profile/);assert.match(prompt,/Never use networking filler/);
-  if(status===200)assert.equal(result.body.coachMessage,draft);else assert.equal(result.body.coachMessage,undefined);
+test("rich first opener uses context and question; short generic/fake-dialogue/pitch outputs are rejected", () => {
+ assert.equal(context.safeLinkedInFirstMessage(rich, {name:'Shelley',company:'Acme',role:'People director'}), true);
+ assert.equal(context.safeLinkedInFirstMessage(sparse, {name:'Shelley'}), true);
+ for(const draft of ["Hi Kate, I work with workplace wellbeing around stress and resilience. It's good to connect here.", "Hi Shelley, thanks for connecting. What are your priorities?", rich.replace('?', '.'), rich + ' Another question?', rich.replace('Hi Shelley,','Hi James,'), rich.replace('Acme','OtherCo').replace('people','finance'), rich.replace('thanks for connecting','thanks for getting in touch'), rich.replace('thanks for connecting','glad to help after our previous conversation'), rich + ' Book a call.', 'a'.repeat(500)]) {
+  assert.equal(context.safeLinkedInFirstMessage(draft, {name:'Shelley',company:'Acme',role:'People director'}), false, draft);
  }
+});
+
+test("first opener is multi-tenant, while follow-up 1 and 2 have distinct history-led intent", () => {
+ const first=context.responseDraftRules({interactionType:'linkedin_connection_first_message',objective:'Open conversation'}).join(' ');
+ assert.match(first,/60-110 words/);assert.match(first,/saved person's actual first name/);assert.match(first,/Growth Profile/);assert.doesNotMatch(first,/Under 300|no question|Root|David/);
+ const one=context.responseDraftRules({interactionType:'linkedin_followup',cadenceStage:'day3_followup',objective:'Explore relevance'}).join(' ');
+ const two=context.responseDraftRules({interactionType:'linkedin_followup',cadenceStage:'day7_parity',objective:'Explore relevance'}).join(' ');
+ assert.match(one,/actual previous outbound text/);assert.match(one,/Follow-up 1/);assert.match(one,/one relevant thought/);assert.match(one,/one low-pressure question/);assert.doesNotMatch(one,/Follow-up 2/);
+ assert.match(two,/Follow-up 2/);assert.match(two,/shorter and more direct/i);assert.match(two,/brief conversation conditionally/);assert.match(two,/only if actually supported/);
+ for(const type of ['linkedin_reply','nurture','warm_opportunity','relationship_message'])assert.doesNotMatch(context.responseDraftRules({interactionType:type}).join(' '),/60-110 words|Follow-up 1|Follow-up 2/);
+});
+
+test('active root-coach endpoint rejects collapsed copy and returns a rich editable first message', async()=>{
+ const briefing={interactionType:'linkedin_connection_first_message',messageType:'First message after connection',company:'Acme',role:'People director',name:'Shelley',objective:'Open conversation',lifecycle:{canDraft:true,currentStage:'outreach_ready'}};
+ for(const [draft,status] of [["Hi Shelley, good to connect. I work with workplace wellbeing.",409],[rich,200],[sparse,409]]) {
+  const mod={exports:{}};let prompt='';
+  const deps={'@/lib/tenantRoute.server':{withTenantRoute:fn=>req=>fn(req,{organisationId:'review',profile:{},messages:[]})},'next/server':{NextResponse:{json:(body,o={})=>({body,status:o.status||200})}},'@/lib/responseContactContext.server':{getResponseContactContext:async()=>briefing},'@/lib/responseContactContext':context,'@/lib/socialCommentOpportunity':{}};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/ai/root-coach/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,require:n=>deps[n],process:{env:{OPENAI_API_KEY:'test'}},console,fetch:async(url,opts)=>{prompt=opts.body;return {ok:true,json:async()=>({choices:[{message:{content:draft}}]})};}});
+  const result=await mod.exports.POST({json:async()=>({inboxItemId:'11111111-1111-1111-1111-111111111111'})});
+  assert.equal(result.status,status);assert.match(prompt,/interaction type, relationship stage, contact context, history, organisation Growth Profile, then objective/);assert.match(prompt,/60-110 words/);assert.doesNotMatch(prompt,/Under 300|save questions/);
+  if(status===200)assert.equal(result.body.coachMessage,rich);else assert.equal(result.body.coachMessage,undefined);
+ }
+});
+
+test("Responses follow-up endpoint requires exact outbound history and uses actual cadence stage", async()=>{
+ let briefing={interactionType:'linkedin_followup',name:'Shelley',cadenceStage:'day3_followup',history:[],objective:'Explore relevance',lifecycle:{canDraft:true,currentStage:'follow_up'}};let calls=0,prompt='';
+ const mod={exports:{}};const deps={'@/lib/tenantRoute.server':{withTenantRoute:fn=>req=>fn(req,{organisationId:'review',profile:{},messages:[]})},'next/server':{NextResponse:{json:(body,o={})=>({body,status:o.status||200})}},'@/lib/responseContactContext.server':{getResponseContactContext:async()=>briefing},'@/lib/responseContactContext':context,'@/lib/socialCommentOpportunity':{}};
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/ai/root-coach/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,require:n=>deps[n],process:{env:{OPENAI_API_KEY:'test'}},console,fetch:async(url,opts)=>{calls++;prompt=opts.body;return {ok:true,json:async()=>({choices:[{message:{content:'An editable stage-specific follow-up'}}]})};}});
+ const req={json:async()=>({inboxItemId:'11111111-1111-1111-1111-111111111111'})};
+ assert.equal((await mod.exports.POST(req)).status,409);assert.equal(calls,0);
+ for(const [stage,label] of [['day3_followup','Follow-up 1'],['day7_parity','Follow-up 2']]){briefing={...briefing,cadenceStage:stage,history:['Actual previous outbound message: Exact actual earlier message']};assert.equal((await mod.exports.POST(req)).status,200);assert.ok(prompt.includes(label));assert.ok(prompt.includes('Exact actual earlier message'));assert.doesNotMatch(prompt,/60-110 words/);}
 });
