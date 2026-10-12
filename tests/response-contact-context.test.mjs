@@ -119,7 +119,7 @@ test("recipient framing differentiates actual contexts without changing interact
 });
 
 test("first acceptance never permits question marks or disguised CTAs, while later stages remain conversational", () => {
- for(const suffix of ["?", " How are you approaching this.", " I'd love to hear your perspective.", " Let me know your thoughts.", " Would you share your priorities.", " I look forward to staying in touch.", " We can exchange perspectives."])
+ for(const suffix of ["?", " How are you approaching this.", " I'd love to hear your perspective.", " Let me know your thoughts.", " Would you share your priorities.", " I look forward to staying in touch.", " We can exchange perspectives.", " It feels relevant to share insights and keep in touch within this space."])
   assert.equal(context.safeLinkedInFirstMessage(rich+suffix,{name:"Shelley",company:"Acme"}),false);
  assert.equal(context.safeLinkedInFirstMessage(rich,{name:"Shelley",company:"Acme"}),true);
  assert.match(context.responseDraftRules({interactionType:"linkedin_followup",cadenceStage:"day3_followup"}).join(" "),/one low-pressure question/);
