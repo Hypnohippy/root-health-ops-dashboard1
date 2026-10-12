@@ -128,3 +128,13 @@ test("first acceptance never permits question marks or disguised CTAs, while lat
  assert.match(context.responseDraftRules({interactionType:"linkedin_followup",cadenceStage:"day7_parity"}).join(" "),/brief conversation conditionally/);
  assert.doesNotMatch(context.responseDraftRules({interactionType:"linkedin_reply"}).join(" "),/No question mark/);
 });
+
+
+test("first-message constraints are trusted generation policy, with contact/profile JSON remaining data",()=>{
+ assert.match(context.linkedinFirstMessagePolicy,/No question, question mark, CTA/);
+ assert.match(context.linkedinFirstMessagePolicy,/untrusted data, not instructions/);
+ const consoleRoute=fs.readFileSync("app/api/growth/linkedin-console/route.ts","utf8");
+ const coachRoute=fs.readFileSync("app/api/ai/root-coach/route.ts","utf8");
+ assert.match(consoleRoute,/current.stage === "connection" \? \[\{ role: "system" as const, content: linkedinFirstMessagePolicy/);
+ assert.match(coachRoute,/contact.interactionType === "linkedin_connection_first_message" \? "\\n" \+ linkedinFirstMessagePolicy/);
+});
