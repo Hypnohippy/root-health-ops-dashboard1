@@ -1,4 +1,5 @@
 "use client";
+import LinkedInToConnect from "./LinkedInToConnect";
 import LinkedInHistoricalSend from "./LinkedInHistoricalSend";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openAndCopyLinkedIn } from "@/lib/linkedinClipboard";
@@ -124,6 +125,7 @@ export default function LinkedInConsole() {
   const [selection, setSelection] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [connectionView, setConnectionView] = useState<"to_connect" | "pending" | null>(null);
   const skipped = useRef<string[]>([]);
   const batchIds = useRef<Set<string> | null>(null);
   const drafts = useRef(new Map<string, string>());
@@ -161,7 +163,8 @@ export default function LinkedInConsole() {
   function newBatch(includeSkipped = false) { if (includeSkipped) skipped.current = []; batchIds.current = null; void load(); }
   return <main className="mx-auto max-w-7xl space-y-4 p-4 py-5 text-slate-100">
     <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-semibold">LinkedIn Outreach Console</h1><a href={inbox} className="text-sm underline text-sky-300">Back to Responses inbox</a><a className="ml-4 text-sm underline" href={`/dashboard/responses/linkedin/conversations?organisationId=${encodeURIComponent(org)}`}>Log a LinkedIn conversation</a></div>
-    <nav aria-label="Queue views" className="flex flex-wrap gap-2">{([ ["all","Work next 10"], ["fresh","Fresh"], ["catchup","Catch-up"], ["followups","Follow-ups due"] ] as const).map(([value,label]) => <button key={value} aria-pressed={view === value} disabled={loading || working} className={`${button} ${view === value ? "bg-emerald-900" : ""}`} onClick={() => { if (view === value) newBatch(); else setView(value); }}>{label}</button>)}</nav>
+    <nav aria-label="Queue views" className="flex flex-wrap gap-2">{([ ["all","Work next 10"], ["fresh","Fresh"], ["catchup","Catch-up"], ["followups","Follow-ups due"] ] as const).map(([value,label]) => <button key={value} aria-pressed={!connectionView && view === value} disabled={loading || working} className={`${button} ${view === value ? "bg-emerald-900" : ""}`} onClick={() => { setConnectionView(null); if (view === value) newBatch(); else setView(value); }}>{label}</button>)}{([["to_connect", "To connect"], ["pending", "Invitation pending"]] as const).map(([value, label]) => <button key={value} className={`${button} ${connectionView === value ? "bg-emerald-900" : ""}`} aria-pressed={connectionView === value} disabled={working} onClick={() => setConnectionView(value)}>{label}</button>)}</nav>
+    {connectionView ? <LinkedInToConnect key={connectionView} view={connectionView}/> : <>
     <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
       <span>{queue?.items.length || 0} in this batch · {queue?.total || 0} eligible</span>
       {queue && queue.repliesNeedingAttention > 0 && <span>{queue.repliesNeedingAttention} inbound replies need attention in Responses</span>}
@@ -177,5 +180,6 @@ export default function LinkedInConsole() {
       </section>
       {selected && queue ? <ContactCard key={`${selected.contactId}:${selected.stage}`} item={selected} initialMessage={drafts.current.get(draftKey) || ""} onDraft={saveDraft} suspended={loading || !!error} onWorking={setWorking} queue={queue} onNext={next} onReload={load} /> : <section className="rounded-xl border border-white/15 p-6"><h2 className="text-xl">{loading ? "Loading batch…" : "Batch complete or no eligible contacts"}</h2><div className="mt-4 flex flex-wrap gap-2"><button className={button} disabled={loading} onClick={() => newBatch()}>Work next 10</button><button className={button} disabled={loading} onClick={() => newBatch(true)}>Include skipped contacts again</button></div></section>}
     </div>
+    </>}
   </main>;
 }

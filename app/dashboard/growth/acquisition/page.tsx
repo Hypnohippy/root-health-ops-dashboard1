@@ -15,7 +15,7 @@ import { explicitTestRecord, groupPersonalOpportunities } from "@/lib/acquisitio
 import PersonalOpportunityCard from "./PersonalOpportunityCard";
 
 type Event = { id:string; action:string; previous_status:string; new_status:string; outcome:string|null; note:string|null; created_at:string };
-type Item = { personalPerformance?:PersonalPerformance|null; id:string; outreachTargetId?:string|null; record_type:string; source_engine:string; engine_state:EngineState|null; source_record_id:string; source_url:string|null; evidence:string|null; entity:string|null; person:string|null; company:string|null; reason:string|null; signal:string|null; suggested_action:string|null; status:string; current_action:string|null; actioned_at:string|null; outcome:string|null; outcome_at:string|null; metadata:Record<string,unknown>; acquisition_item_events?:Event[] };
+type Item = { linkedinConnectionState?: { acceptedConnectionId: string | null; alreadyKnown: boolean }; invitationSentAt?: string | null; personalPerformance?:PersonalPerformance|null; id:string; outreachTargetId?:string|null; record_type:string; source_engine:string; engine_state:EngineState|null; source_record_id:string; source_url:string|null; evidence:string|null; entity:string|null; person:string|null; company:string|null; reason:string|null; signal:string|null; suggested_action:string|null; status:string; current_action:string|null; actioned_at:string|null; outcome:string|null; outcome_at:string|null; metadata:Record<string,unknown>; acquisition_item_events?:Event[] };
 type Action = { id:string; label:string; route?:boolean; outcome?:boolean };
 const statuses=["new","reviewing","accepted","actioned","engaged","converted","nurture","lost","dismissed"];
 const typeLabels:Record<string,string>={b2b_lead:"B2B lead",personal_opportunity:"Personal",partner_opportunity:"Partner",social_opportunity:"Social"};
@@ -68,7 +68,7 @@ export default function AcquisitionQueue(){
        if(!group)return null;
        return <PersonalOpportunityCard key={item.id} group={{...group,personalPerformance:item.personalPerformance||undefined}} organisationId={organisationId} onSaved={()=>load()}/>;
      }
-     if(["linkedin_connection_recommendation", "linkedin_accepted_reference"].includes(item.source_engine)) return <LinkedInConnectionOpportunity key={item.id} item={item} organisationId={organisationId} busy={!!busy} onSave={() => void act(item,{id:"accept",label:"Save for later"})} onDismiss={() => void act(item,{id:"dismiss",label:"Dismiss"})}/>;
+     if(item.linkedinConnectionState || ["linkedin_connection_recommendation", "linkedin_accepted_reference"].includes(item.source_engine)) return <LinkedInConnectionOpportunity key={item.id} item={item} organisationId={organisationId} busy={!!busy} onSave={() => void act(item,{id:"accept",label:"Save for later"})} onDismiss={() => void act(item,{id:"dismiss",label:"Dismiss"})}/>;
      const signalCard=personalSignal(item);const content=contentSignal(item);const distribution=personalDistributionKind(item);
      if(signalCard)return <PersonalSignalCard key={item.id} item={item} signal={signalCard} organisationId={organisationId} onSaved={()=>load()} onDismiss={()=>void act(item,{id:"dismiss",label:"Dismiss"})}/>;
      const engineProjection=item.engine_state?projectEngineState(item.engine_state):null;
