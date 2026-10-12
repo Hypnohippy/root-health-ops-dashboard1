@@ -1,6 +1,6 @@
 import { planLinkedInCadenceBackfill } from "@/lib/linkedinCadenceBackfill";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import type { LifecycleInput, LifecycleRow, LifecycleTable } from "@/lib/contactLifecycle";
+import { lifecycleLinkedInIdentity, type LifecycleInput, type LifecycleRow, type LifecycleTable } from "@/lib/contactLifecycle";
 
 async function readSource(table: LifecycleTable, organisationId: string) {
   const rows: LifecycleRow[] = [];
@@ -18,7 +18,8 @@ export async function readLifecycleInput(organisationId: string, projectCadence 
     readSource("acquisition_items", organisationId), readSource("inbox_items", organisationId), readSource("growth_targets", organisationId),
   ]);
   const notified = inbox_items.filter(row => row.platform === "linkedin" && Array.isArray((row.raw as Record<string, unknown> | null)?.linkedin_message_notifications));
-  const identities = [...new Set(notified.map(row => String(row.linkedin_identity || "")).filter(Boolean))];
+  const identityById=new Map(notified.map(row=>[row.id,lifecycleLinkedInIdentity(row.linkedin_identity) || lifecycleLinkedInIdentity(row.permalink)]));
+  const identities = [...new Set([...identityById.values()].filter((value):value is string=>!!value))];
   for (let start=0;start<identities.length;start+=100) {
     const messages: Record<string, unknown>[]=[];
     for(let offset=0;;offset+=500) {
@@ -30,7 +31,7 @@ export async function readLifecycleInput(organisationId: string, projectCadence 
     for(const row of notified) {
       const notifications=(row.raw as Record<string, unknown>).linkedin_message_notifications as {receivedAt:string}[];
       const latest=notifications.map(n=>Date.parse(n.receivedAt)||0).sort((a,b)=>b-a)[0];
-      const text=messages.filter(m=>m.linkedin_identity===row.linkedin_identity && (m.direction==="inbound" || m.contains_inbound_reply===true) &&
+      const text=messages.filter(m=>m.linkedin_identity===identityById.get(row.id) && (m.direction==="inbound" || m.contains_inbound_reply===true) &&
         typeof m.message==="string" && m.message.trim() && Date.parse(String(m.confirmed_at))>=latest)
         .sort((a,b)=>String(a.confirmed_at).localeCompare(String(b.confirmed_at))).map(m=>String(m.message));
       if(text.length) row.linkedin_recorded_reply_text=text.join("\n\n");
