@@ -13,17 +13,18 @@ export function parseLinkedInMessageNotification(body: Record<string, unknown>, 
       !/\b(?:1|one) new message awaits your response\b/i.test(html.replace(/<[^>]*>/g, " ")) ||
       !/^[a-f0-9]{8,32}$/i.test(gmailMessageId) || !Number.isFinite(Date.parse(receivedAt)) || Date.parse(receivedAt) > now + 300000 || html.length > 200000) return null;
   const urls = [...html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)].map(m => m[1].replace(/&amp;/g, "&"));
-  const profiles = new Set<string>(); let messageUrl = "";
+  const profiles = new Set<string>(), messageUrls = new Set<string>();
   for (const value of urls) {
     try {
       const url = new URL(value);
       if (url.protocol !== "https:" || url.username || url.password || !/^(?:www\.|[a-z]{2,3}\.)?linkedin\.com$/i.test(url.hostname)) continue;
       const identity = lifecycleLinkedInIdentity(value);
       if (identity) profiles.add(identity);
-      if (/^\/(?:comm\/)?messaging\/thread\/[^/]+\/?$/i.test(url.pathname)) messageUrl = `https://www.linkedin.com${url.pathname.replace(/^\/comm\//, "/")}`;
+      if (/^\/(?:comm\/)?messaging\/thread\/[^/]+\/?$/i.test(url.pathname)) messageUrls.add(`https://www.linkedin.com${url.pathname.replace(/^\/comm\//, "/")}`);
     } catch { /* Untrusted/non-direct links are never resolved. */ }
   }
-  if (profiles.size !== 1 || !messageUrl) return null;
+  if (profiles.size !== 1 || messageUrls.size !== 1) return null;
+  const messageUrl=[...messageUrls][0];
   const identity = [...profiles][0];
   return { gmailMessageId, receivedAt: new Date(receivedAt).toISOString(), identity, profileUrl: `https://${identity}`, messageUrl, subject, source: "linkedin_message_notification" };
 }

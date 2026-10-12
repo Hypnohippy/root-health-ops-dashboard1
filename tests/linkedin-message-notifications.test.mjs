@@ -31,7 +31,7 @@ test("verified digest maps one canonical identity and strips email login tokens"
  assert.equal(notification.message,undefined);assert.equal(notification.sentiment,undefined);
 });
 test("spoofed sender, ambiguous identity, absent thread, acceptance and invalid dates fail closed",()=>{
- for(const patch of [{sender:"messaging-digest-noreply@linkedin.com.evil.test"},{subject:"accepted your invitation"},{received_at:"garbage"},{received_at:"2099-01-01"},{gmail_message_id:""},{html:'1 new message awaits your response <a href="https://linkedin.com/in/debbie">Profile</a>'},{html:mail.html+'<a href="https://linkedin.com/in/another-person">Other</a>'},{html:mail.html.replace("https://www.linkedin.com/comm/messaging", "https://evil.test/comm/messaging")}]) assert.equal(parser.parseLinkedInMessageNotification({...mail,...patch},Date.parse(time)),null);
+ for(const patch of [{sender:"messaging-digest-noreply@linkedin.com.evil.test"},{subject:"accepted your invitation"},{received_at:"garbage"},{received_at:"2099-01-01"},{gmail_message_id:""},{html:'1 new message awaits your response <a href="https://linkedin.com/in/debbie">Profile</a>'},{html:mail.html+'<a href="https://linkedin.com/in/another-person">Other</a>'},{html:mail.html.replace("https://www.linkedin.com/comm/messaging", "https://evil.test/comm/messaging")},{html:mail.html+'<a href="https://www.linkedin.com/messaging/thread/other-thread">Ambiguous thread</a>'}]) assert.equal(parser.parseLinkedInMessageNotification({...mail,...patch},Date.parse(time)),null);
 });
 test("receipt append preserves acceptance, exact sends and raw evidence; replay is idempotent",()=>{
  const patch=parser.notificationPatch(inbox,notification),row={...inbox,...patch};
