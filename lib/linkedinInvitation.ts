@@ -101,5 +101,5 @@ export function safeConnectionNote(note: string, name: string, context: string) 
   const words = new Set(note.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
   return !!first && note.length <= 200 && note.length >= 50 && note.startsWith(`Hi ${first},`) && /connect/i.test(note) &&
     facts.some(word => words.has(word)) &&
-    !/[?]|thanks for connecting|good to be connected|as (?:we )?discussed|meeting|book a|\bcall\b|\bdemo\b|(?:I['’]d|I would) (?:be glad|love) to connect/i.test(note);
+    !/[?]|thanks for connecting|good to be connected|as (?:we )?discussed|meeting|book a|\bcall\b|\bdemo\b|(?:I['’]d|I would) (?:be glad|love) to connect|aligns? well|looking forward|shared interests|connecting seems worthwhile|our (?:approach|focus)|share a focus/i.test(note);
 }
