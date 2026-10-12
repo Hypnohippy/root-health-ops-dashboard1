@@ -147,7 +147,7 @@ test("first-message constraints are trusted generation policy, with contact/prof
  });
 
 test('Day 0 permits two natural sentences and combined sender/overlap context',()=>{
- const example="Hi Vanessa, it’s good to connect here. I work with Root Health, focusing on workplace wellbeing and resilience, so it feels relevant to share this space with someone leading HR at The Meath Epilepsy Charity.";
+ const example="Hi Vanessa, it’s good to connect here. I work with Root Health, focusing on workplace wellbeing and resilience, so I thought there might be some overlap with someone leading HR at The Meath Epilepsy Charity.";
  const facts={name:'Vanessa',company:'The Meath Epilepsy Charity',role:'Head of Human Resources'};
  assert.equal(context.safeLinkedInFirstMessage(example,facts),true);
  assert.equal(context.safeLinkedInFirstMessage(example.replace('.', '?'),facts),false);
@@ -155,4 +155,13 @@ test('Day 0 permits two natural sentences and combined sender/overlap context',(
  assert.equal(context.safeLinkedInFirstMessage(example+" Let me know your thoughts.",facts),false);
  assert.match(context.linkedinFirstMessagePolicy,/Style reference only, never a fixed template/);
  assert.doesNotMatch(context.linkedinFirstMessagePolicy,/Write four|separate sentences|45-80/);
+});
+
+test('Day 0 accepts grounded role-area language without exact title or company and rejects AI praise',()=>{
+ const facts={name:'Vanessa',role:'Head of Human Resources',company:'The Meath Epilepsy Charity'};
+ const draft="Hi Vanessa, thanks for connecting here. I work with Root Health around workplace wellbeing and resilience, so I thought there might be some overlap with the work you do in people and HR. Good to connect.";
+ assert.equal(context.safeLinkedInFirstMessage(draft,facts),true);
+ for(const phrase of ['share this space','someone focused on','such an important sector','such a meaningful sector']) assert.equal(context.safeLinkedInFirstMessage(draft+' '+phrase+'.',facts),false,phrase);
+ assert.equal(context.safeLinkedInFirstMessage(draft.replace('people and HR','engineering'),facts),false);
+ assert.match(context.linkedinFirstMessagePolicy,/Do not repeat exact job title\/company unless genuinely useful/);
 });
