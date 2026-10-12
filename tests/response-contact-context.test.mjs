@@ -56,7 +56,7 @@ test("existing email and social controls remain in Responses and LinkedIn is nev
 });
 
 const rich = "Hi Shelley, thanks for connecting. Your people work at Acme gives us a useful point of overlap. I work with organisations around stress, resilience and early intervention, especially where support needs to be practical rather than simply another benefit. That practical approach is why connecting made sense to me. It is good to be connected here.";
-const sparse = "Hi Shelley, thanks for connecting. I wanted to say hello properly rather than leave it at a profile link. My work is around practical stress support and early intervention for organisations. There may be a useful perspective to exchange, without assuming that is your priority. That practical approach is why connecting made sense to me. It is good to be connected here.";
+const sparse = "Hi Shelley, thanks for connecting. I wanted to introduce the work behind my profile. My work is around practical stress support and early intervention for organisations. That is the context behind connecting, without assuming that it is your priority. That practical approach is why connecting made sense to me. It is good to be connected here.";
 
 test("rich first opener uses context without questions; short generic/fake-dialogue/pitch outputs are rejected", () => {
  assert.equal(context.safeLinkedInFirstMessage(rich, {name:'Shelley',company:'Acme',role:'People director'}), true);
@@ -119,7 +119,7 @@ test("recipient framing differentiates actual contexts without changing interact
 });
 
 test("first acceptance never permits question marks or disguised CTAs, while later stages remain conversational", () => {
- for(const suffix of ["?", " How are you approaching this.", " I'd love to hear your perspective.", " Let me know your thoughts.", " Would you share your priorities."])
+ for(const suffix of ["?", " How are you approaching this.", " I'd love to hear your perspective.", " Let me know your thoughts.", " Would you share your priorities.", " I look forward to staying in touch.", " We can exchange perspectives."])
   assert.equal(context.safeLinkedInFirstMessage(rich+suffix,{name:"Shelley",company:"Acme"}),false);
  assert.equal(context.safeLinkedInFirstMessage(rich,{name:"Shelley",company:"Acme"}),true);
  assert.match(context.responseDraftRules({interactionType:"linkedin_followup",cadenceStage:"day3_followup"}).join(" "),/one low-pressure question/);

@@ -38,7 +38,7 @@ export function contextualOutreachDraft(target: { target_name: string; company?:
   const previous = target.previous_outbound_text || target.last_reply_text;
   if (stage === "connection") {
     if (!target.target_name.trim() || !work) return ""; // Request the missing facts, never fill with a generic nameless hello.
-    const recipient = target.role_title ? `Your work as ${target.role_title}${target.company ? ` at ${target.company}` : ""} may give us a useful point of overlap.` : target.company ? `Your work at ${target.company} may give us a useful point of overlap.` : "I wanted to connect properly rather than leave it at a profile link.";
+    const recipient = target.role_title ? `Your work as ${target.role_title}${target.company ? ` at ${target.company}` : ""} may give us a useful point of overlap.` : target.company ? `Your work at ${target.company} may give us a useful point of overlap.` : "I wanted to introduce the work behind my profile.";
     return `Hi ${first}, thanks for connecting. ${recipient} To give a little context, ${work}. That is the context behind connecting, without assuming it is a priority for you. It is good to be connected here.`;
   }
   if (!previous) return ""; // No invented prior conversation or promise.
