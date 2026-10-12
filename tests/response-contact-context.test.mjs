@@ -68,12 +68,12 @@ test("rich first opener uses context without questions; short generic/fake-dialo
 
 test("first opener is multi-tenant, while follow-up 1 and 2 have distinct history-led intent", () => {
  const first=context.responseDraftRules({interactionType:'linkedin_connection_first_message',objective:'Open conversation'}).join(' ');
- assert.match(first,/45-80 words/);assert.match(first,/saved person's actual first name/);assert.match(first,/Growth Profile/);assert.doesNotMatch(first,/Under 300|Root|David/);
+ assert.match(first,/25–70 words/);assert.match(first,/saved person's actual first name/);assert.match(first,/Growth Profile/);assert.doesNotMatch(first,/Under 300|Root|David/);
  const one=context.responseDraftRules({interactionType:'linkedin_followup',cadenceStage:'day3_followup',objective:'Explore relevance'}).join(' ');
  const two=context.responseDraftRules({interactionType:'linkedin_followup',cadenceStage:'day7_parity',objective:'Explore relevance'}).join(' ');
  assert.match(one,/actual previous outbound text/);assert.match(one,/Follow-up 1/);assert.match(one,/one relevant thought/);assert.match(one,/one low-pressure question/);assert.doesNotMatch(one,/Follow-up 2/);
  assert.match(two,/Follow-up 2/);assert.match(two,/shorter and more direct/i);assert.match(two,/brief conversation conditionally/);assert.match(two,/only if actually supported/);
- for(const type of ['linkedin_reply','nurture','warm_opportunity','relationship_message'])assert.doesNotMatch(context.responseDraftRules({interactionType:type}).join(' '),/45-80 words|Follow-up 1|Follow-up 2/);
+ for(const type of ['linkedin_reply','nurture','warm_opportunity','relationship_message'])assert.doesNotMatch(context.responseDraftRules({interactionType:type}).join(' '),/25–70 words|Follow-up 1|Follow-up 2/);
 });
 
 test('active root-coach endpoint rejects collapsed copy and returns a rich editable first message', async()=>{
@@ -83,7 +83,7 @@ test('active root-coach endpoint rejects collapsed copy and returns a rich edita
   const deps={'@/lib/tenantRoute.server':{withTenantRoute:fn=>req=>fn(req,{organisationId:'review',profile:{},messages:[]})},'next/server':{NextResponse:{json:(body,o={})=>({body,status:o.status||200})}},'@/lib/responseContactContext.server':{getResponseContactContext:async()=>briefing},'@/lib/responseContactContext':context,'@/lib/socialCommentOpportunity':{}};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/ai/root-coach/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,require:n=>deps[n],process:{env:{OPENAI_API_KEY:'test'}},console,fetch:async(url,opts)=>{prompt=opts.body;return {ok:true,json:async()=>({choices:[{message:{content:draft}}]})};}});
   const result=await mod.exports.POST({json:async()=>({inboxItemId:'11111111-1111-1111-1111-111111111111'})});
-  assert.equal(result.status,status);assert.match(prompt,/interaction type, relationship stage, contact context, history, organisation Growth Profile, then objective/);assert.match(prompt,/45-80 words/);assert.doesNotMatch(prompt,/Under 300|save questions/);
+  assert.equal(result.status,status);assert.match(prompt,/interaction type, relationship stage, contact context, history, organisation Growth Profile, then objective/);assert.match(prompt,/25–70 words/);assert.doesNotMatch(prompt,/Under 300|save questions/);
   if(status===200)assert.equal(result.body.coachMessage,rich);else assert.equal(result.body.coachMessage,undefined);
  }
 });
@@ -94,7 +94,7 @@ test("Responses follow-up endpoint requires exact outbound history and uses actu
  vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/ai/root-coach/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,require:n=>deps[n],process:{env:{OPENAI_API_KEY:'test'}},console,fetch:async(url,opts)=>{calls++;prompt=opts.body;return {ok:true,json:async()=>({choices:[{message:{content:'An editable stage-specific follow-up'}}]})};}});
  const req={json:async()=>({inboxItemId:'11111111-1111-1111-1111-111111111111'})};
  assert.equal((await mod.exports.POST(req)).status,409);assert.equal(calls,0);
- for(const [stage,label] of [['day3_followup','Follow-up 1'],['day7_parity','Follow-up 2']]){briefing={...briefing,cadenceStage:stage,history:['Actual previous outbound message: Exact actual earlier message']};assert.equal((await mod.exports.POST(req)).status,200);assert.ok(prompt.includes(label));assert.ok(prompt.includes('Exact actual earlier message'));assert.doesNotMatch(prompt,/45-80 words/);}
+ for(const [stage,label] of [['day3_followup','Follow-up 1'],['day7_parity','Follow-up 2']]){briefing={...briefing,cadenceStage:stage,history:['Actual previous outbound message: Exact actual earlier message']};assert.equal((await mod.exports.POST(req)).status,200);assert.ok(prompt.includes(label));assert.ok(prompt.includes('Exact actual earlier message'));assert.doesNotMatch(prompt,/25–70 words/);}
 });
 
 
@@ -146,7 +146,13 @@ test("first-message constraints are trusted generation policy, with contact/prof
  assert.match(context.linkedinFirstMessagePolicy,/Recipient category influences only the reason for overlap/);
  });
 
-test('Day 0 keeps the overlap reason and sender work as separate short sentences',()=>{
- const collapsed="Hi Vanessa, thanks for connecting. Given your role as Head of Human Resources at The Meath Epilepsy Charity, it made sense to connect as I work with workplace wellbeing through Root Health's support services. Good to be connected.";
- assert.equal(context.safeLinkedInFirstMessage(collapsed,{name:'Vanessa',company:'The Meath Epilepsy Charity'}),false);
+test('Day 0 permits two natural sentences and combined sender/overlap context',()=>{
+ const example="Hi Vanessa, it’s good to connect here. I work with Root Health, focusing on workplace wellbeing and resilience, so it feels relevant to share this space with someone leading HR at The Meath Epilepsy Charity.";
+ const facts={name:'Vanessa',company:'The Meath Epilepsy Charity',role:'Head of Human Resources'};
+ assert.equal(context.safeLinkedInFirstMessage(example,facts),true);
+ assert.equal(context.safeLinkedInFirstMessage(example.replace('.', '?'),facts),false);
+ assert.equal(context.safeLinkedInFirstMessage(example,{...facts,name:'Kate'}),false);
+ assert.equal(context.safeLinkedInFirstMessage(example+" Let me know your thoughts.",facts),false);
+ assert.match(context.linkedinFirstMessagePolicy,/Style reference only, never a fixed template/);
+ assert.doesNotMatch(context.linkedinFirstMessagePolicy,/Write four|separate sentences|45-80/);
 });

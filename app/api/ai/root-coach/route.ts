@@ -211,7 +211,7 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
       if (contact.socialOpportunity && !safePublicDraft(String(json.choices?.[0]?.message?.content || ""))) return NextResponse.json({ error: "Draft needs a human rewrite; no safe contextual suggestion returned." }, { status: 409 });
       if (JSON.stringify(latest.lifecycle) !== JSON.stringify(contact.lifecycle)) return NextResponse.json({ error: "Lifecycle changed while drafting. Refresh before requesting another draft." }, { status: 409 });
       if (contact.interactionType === "linkedin_connection_first_message" && !safeLinkedInFirstMessage(String(json.choices?.[0]?.message?.content || ""), contact)) {
-        return NextResponse.json({ error: "The suggestion did not meet the human first-message rules. Try AI Suggest again or write a complete contextual opener with a natural question; no draft was saved." }, { status: 409 });
+        return NextResponse.json({ error: "The suggestion did not meet the human first-message rules. Try AI Suggest again or write a light grounded opener without a question or CTA; no draft was saved." }, { status: 409 });
       }
       return NextResponse.json({ coachMessage: String(json.choices?.[0]?.message?.content || "").trim(), interactionType: contact.interactionType });
     }
