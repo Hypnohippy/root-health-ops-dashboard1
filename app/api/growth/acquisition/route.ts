@@ -1,3 +1,5 @@
+import { linkedInInvitationQueue } from "@/lib/linkedinInvitation";
+import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
 import { NextResponse } from "next/server";
 import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -30,10 +32,23 @@ export async function GET(req: Request) {
         recommendations.push(...(data || []));
         if ((data || []).length < 500) break;
       }
-      const states = await linkedInRecommendationStates(organisationId, recommendations);
+      const invitationInput = await readLifecycleInput(organisationId, false);
+      const invitations = linkedInInvitationQueue(organisationId, invitationInput);
+      const members = new Set(invitations.flatMap(item => item.provenance.map(source => source.id)));
+      const owners = new Set(invitations.map(item => item.id));
+      // Only this LinkedIn view widens to explicitly qualified professional sources.
+      // Keep original records/provenance; canonical duplicates become one visible opportunity.
+      const candidates = recommendations.filter(item => !members.has(item.id) || owners.has(item.id));
+      candidates.push(...invitationInput.acquisition_items.filter(item => item.source_engine !== sourceEngine && owners.has(item.id) &&
+        (!status || item.status === status) && invitations.find(i => i.id === item.id)?.state !== "excluded"));
+      const states = await linkedInRecommendationStates(organisationId, candidates);
+      for (const item of invitations) if (candidates.some(row => row.id === item.id)) states[item.id] = {
+        acceptedConnectionId: item.acceptedConnectionId || states[item.id]?.acceptedConnectionId || null,
+        alreadyKnown: !!states[item.id]?.alreadyKnown || item.state !== "to_connect",
+      };
       const linkedIds = new Set(Object.values(states).map(state => state.acceptedConnectionId).filter(Boolean));
       const accepted = status ? [] : (await acceptedLinkedInOpportunities(organisationId)).filter(item => !linkedIds.has(item.linkedinConnectionState.acceptedConnectionId));
-      const combined = [...recommendations.map(item => ({ ...item, linkedinConnectionState: states[item.id] })), ...accepted]
+      const combined = [...candidates.map(item => ({ ...item, linkedinConnectionState: states[item.id], invitationSentAt: invitations.find(i => i.id === item.id)?.invitationSentAt || null, connectionSources: invitations.find(i => i.id === item.id)?.provenance })), ...accepted]
         .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")) || a.id.localeCompare(b.id));
       return NextResponse.json({ items: combined.slice(page * 25, page * 25 + 25), total: combined.length, page });
     }
