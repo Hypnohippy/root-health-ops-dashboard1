@@ -188,7 +188,7 @@ test("recommendation UI drafts editable current text and copies without lifecycl
   const React = require("react"), renderer = require("react-test-renderer");
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   let copied = "", lifecycleCalls = 0;
-  const Component = load("app/dashboard/growth/acquisition/LinkedInConnectionOpportunity.tsx", { "@/lib/linkedinCaptureProfile": profile }, { navigator: { clipboard: { writeText: async text => { copied = text; } } } }).default;
+  const Component = load("app/dashboard/growth/acquisition/LinkedInConnectionOpportunity.tsx", { "@/lib/linkedinCaptureProfile": profile, "@/lib/tenantFetch": { tenantFetch: async (_url, init) => { assert.equal(JSON.parse(init.body).action, "draft_note"); return { ok: true, json: async () => ({ note: "Hi Alex, I noticed your HR work and thought it would be good to connect." }) }; } } }, { AbortSignal, navigator: { clipboard: { writeText: async text => { copied = text; } } } }).default;
   const item = { id: "recommendation", person: "Alex", source_url: "https://linkedin.com/in/alex", status: "new", signal: "HR Director", metadata: { headline: "HR Director" }, linkedinConnectionState: { alreadyKnown: false, acceptedConnectionId: null } };
   let tree;
   const props = { item, organisationId: org, onSave: () => { lifecycleCalls++; }, onDismiss: () => { lifecycleCalls++; } };
