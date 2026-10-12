@@ -37,7 +37,7 @@ export function contextualOutreachDraft(target: { target_name: string; company?:
   const work = profile.business.description?.trim();
   const previous = target.previous_outbound_text || target.last_reply_text;
   if (stage === "connection") {
-    if (!target.target_name.trim() || !work || work.split(/\s+/).length > 45 || /evidence[- ]informed|practical approaches|shared focus|helping teams understand and improve|burnout|absence|[?]/i.test(work)) return ""; // Request the missing facts, never fill with a generic nameless hello.
+    if (!target.target_name.trim() || !work || work.split(/\s+/).length > 45 || /evidence[- ]informed|practical approaches|shared focus|helping teams understand and improve|(?:help|helping|supporting) (?:teams|organisations|organizations|people|employees) (?:to )?(?:understand|improve|reduce|increase)|burnout|absence|[?]/i.test(work)) return ""; // Request the missing facts, never fill with a generic nameless hello.
     const recipient = target.role_title ? `Your work as ${target.role_title}${target.company ? ` at ${target.company}` : ""} may give us a useful point of overlap.` : target.company ? `Your work at ${target.company} may give us a useful point of overlap.` : "I wanted to introduce the work behind my profile.";
     return `Hi ${first}, thanks for connecting. ${recipient} ${work.replace(/[.!]+$/, "")}. Good to be connected.`;
   }

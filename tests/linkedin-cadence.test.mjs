@@ -58,7 +58,7 @@ test("snapshot anchor supports cadence without overwriting or preferring it over
  });
 
 test("Day 0 fallback cannot recite a long or educational sender description",()=>{
- for(const description of ['Evidence-informed practical approaches to burnout and absence', Array(46).fill('work').join(' ')]) {
+ for(const description of ['Evidence-informed practical approaches to burnout and absence', 'Helping organisations improve workforce stress', Array(46).fill('work').join(' ')]) {
  assert.equal(cadence.contextualOutreachDraft({target_name:'Alex',stage:'connection'},{business:{description}}),'');
  }
  const draft=cadence.contextualOutreachDraft({target_name:'Alex',company:'Acme',stage:'connection'},{business:{description:'I work with organisations around stress and resilience.'}});
