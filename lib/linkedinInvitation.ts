@@ -94,8 +94,12 @@ export function planInvitationReceipt(row: LifecycleRow, action: "invitation_sen
   return { duplicate: false, metadata: { ...object(row.metadata), linkedin_invitation: { ...object(object(row.metadata).linkedin_invitation), history: [...history, receipt] } } };
 }
 
-export function safeConnectionNote(note: string, name: string) {
+export function safeConnectionNote(note: string, name: string, context: string) {
   const first = name.trim().split(/\s+/)[0];
-  return !!first && note.length <= 200 && note.length >= 20 && note.startsWith(`Hi ${first},`) && /connect/i.test(note) &&
-    !/[?]|thanks for connecting|good to be connected|as (?:we )?discussed|meeting|book a|\bcall\b|\bdemo\b/i.test(note);
+  const generic = new Set("your their with from around about work works working professional potential partner relevant relevance connection connect connecting overlap noticed thought would could should doing person company support supports client clients organisation organisations leadership public research context source people".split(" "));
+  const facts = (context.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter(word => word.length >= 4 && !generic.has(word));
+  const words = new Set(note.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
+  return !!first && note.length <= 200 && note.length >= 50 && note.startsWith(`Hi ${first},`) && /connect/i.test(note) &&
+    facts.some(word => words.has(word)) && /noticed|your work|your role|your background|caught my attention/i.test(note) &&
+    !/[?]|thanks for connecting|good to be connected|as (?:we )?discussed|meeting|book a|\bcall\b|\bdemo\b|(?:I['’]d|I would) (?:be glad|love) to connect/i.test(note);
 }

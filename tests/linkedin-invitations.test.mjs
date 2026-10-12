@@ -52,8 +52,8 @@ test('existing Gmail/manual identity, conversation or growth target blocks anoth
 test('connection notes are distinct from accepted first messages and use all category hints',()=>{
  const row=fixture().acquisition_items[0];const cases=[['hr_people','HR / People'],['partner_referrer','Partner / referrer'],['hr_consultancy','HR consultancy / agency'],['college','College / education'],['care_health','Care / health'],['other','Other strategic contact']];
  for(const [category,label] of cases){row.metadata.recipient_category=category;assert.equal(invitation.invitationCategory(row),label);}
- assert.equal(invitation.safeConnectionNote('Hi Emma, your work at BeCoaching caught my attention. It would be good to connect.','Emma Pennycard'),true);
- for(const bad of ['Hi Emma, thanks for connecting. Good to be connected.','Hi Emma, can we book a meeting to discuss our offer?','Hi Emma, '+ 'x'.repeat(201)])assert.equal(invitation.safeConnectionNote(bad,'Emma Pennycard'),false);
+ assert.equal(invitation.safeConnectionNote('Hi Emma, your work at BeCoaching caught my attention. It would be good to connect.','Emma Pennycard','Leadership and wellbeing coach at BeCoaching'),true);
+ for(const bad of ['Hi Emma, thanks for connecting. Good to be connected.','Hi Emma, can we book a meeting to discuss our offer?','Hi Emma, '+ 'x'.repeat(201)])assert.equal(invitation.safeConnectionNote(bad,'Emma Pennycard','Leadership and wellbeing coach at BeCoaching'),false);
 });
 
 test('Preview action rehearsals call no database mutations; accepted and stale records fail closed',async()=>{
@@ -104,4 +104,12 @@ test('ordinary Commercial Acquisition reads remain outside the invitation projec
  const db={from(table){assert.equal(table,'acquisition_items');return {select(){return this},eq(){return this},order(){return this},range:async()=>({data:[],count:0,error:null})};}};
  const route=load('app/api/growth/acquisition/route.ts',{'@/lib/tenantAuth':{requireOrganisation:async()=>({organisationId:org}),accessErrorResponse:()=>null},'@/lib/supabaseAdmin':{supabaseAdmin:db},'@/lib/lifecycleSnapshot.server':{readLifecycleInput:async()=>{throw Error('Commercial branch must not change');}},'@/lib/linkedinCapture.server':{linkedInRecommendationStates:async()=>({})},'@/lib/personalDistribution.server':{personalPerformance:async()=>({})}});
  const response=await route.GET(new Request(`https://ops.test/api/growth/acquisition?organisationId=${org}&record_type=b2b_lead`));assert.equal(response.status,200);assert.equal((await response.json()).total,0);
+});
+
+test('empty networking notes and unsupported themes are rejected; grounded light notes pass',()=>{
+ const context='Workplace wellbeing coaching at BeCoaching';
+ for(const note of ["Hi Emma, I'd be glad to connect.","Hi Emma, I’d love to connect.",'Hi Emma, I noticed your work and thought it would be good to connect.','Hi Emma, I noticed your work in robotics and thought it would be good to connect.']) assert.equal(invitation.safeConnectionNote(note,'Emma Pennycard',context),false);
+ assert.equal(invitation.safeConnectionNote('Hi Emma, I noticed your work around workplace wellbeing and thought it would be good to connect.','Emma Pennycard',context),true);
+ assert.equal(invitation.safeConnectionNote('Hi Emma, I noticed your work around workplace wellbeing and thought there might be some overlap in what we do. It would be good to connect.','Emma Pennycard',context),true);
+ assert.equal(invitation.safeConnectionNote('Hi Laura, I noticed your work around stress and thought it would be good to connect.','Laura Capell-Abra','Stress Matters'),true);
 });
