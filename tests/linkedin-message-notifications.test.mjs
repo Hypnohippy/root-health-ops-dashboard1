@@ -86,7 +86,7 @@ test("badge hides at zero, has red compact count, and accessible singular/plural
 function database(seed,options={}) {
  const stored=structuredClone(seed);let writes=0;
  const admin={from(table){const filters=[];let patch=null,range=null,single=false;
-  const q={maybeSingle(){single=true;return q;},select(){return q;},order(){return q;},eq(k,v){filters.push(r=>typeof r[k]==="object" ? JSON.stringify(r[k])===v : r[k]===v);return q;},is(k,v){filters.push(r=>r[k]==null && v==null);return q;},range(a,b){range=[a,b];return q;},update(value){patch=value;return q;},then(resolve){
+  const q={maybeSingle(){single=true;return q;},select(){return q;},order(){return q;},in(k,values){filters.push(r=>values.includes(r[k]));return q;},eq(k,v){filters.push(r=>typeof r[k]==="object" ? JSON.stringify(r[k])===v : r[k]===v);return q;},is(k,v){filters.push(r=>r[k]==null && v==null);return q;},range(a,b){range=[a,b];return q;},update(value){patch=value;return q;},then(resolve){
    if(patch && options.failTarget && table==="growth_targets") {options.failTarget=false;return Promise.resolve({data:null,error:Error("temporary target failure")}).then(resolve);}
    if(patch && options.concurrent && table==="inbox_items") {stored.inbox_items[0].raw.concurrent="preserved";options.concurrent=false;}
    let rows=(stored[table]||[]).filter(r=>filters.every(f=>f(r)));if(range)rows=rows.slice(range[0],range[1]+1);
@@ -154,4 +154,25 @@ test("Preview rehearsal cannot run in Production and has no write dependency",as
 test("attention orders a notification by the real receipt time, not the old acceptance/send",()=>{
  const data=input();data.inbox_items.push({id:"email-current",organisation_id:org,platform:"email",kind:"email_reply",sender_email:"business@example.test",status:"needs_reply",response_state:"needs_reply",email_classification:"question",email_message_id:"verified-email",text:"Real question",created_at_platform:"2026-10-11T10:00:00Z"});
  const attention=presentation.responseAttention(org,data);assert.equal(attention.count,2);assert.ok(attention.href.includes("itemId=accepted"));
+});
+
+test("stored conversation lookup accepts profile-only relationships and exact inbound-confirmed snapshots",async()=>{
+ const row={...notified(),linkedin_identity:null,permalink:`https://${identity}`};
+ const exact="Debbie: exact reply 👋\nLinkedIn UI text preserved";
+ const messages=[
+ {id:"old",organisation_id:org,linkedin_identity:identity,direction:"inbound",message:"Older conversation",confirmed_at:"2026-10-11T10:00:00Z"},
+ {id:"outbound",organisation_id:org,linkedin_identity:identity,direction:"outbound",message:"Own message",confirmed_at:"2026-10-13T10:00:00Z"},
+ {id:"unconfirmed",organisation_id:org,linkedin_identity:identity,direction:"snapshot",contains_inbound_reply:false,message:"Unconfirmed thread",confirmed_at:"2026-10-13T10:00:00Z"},
+ {id:"foreign",organisation_id:foreign,linkedin_identity:identity,direction:"inbound",message:"Foreign text",confirmed_at:"2026-10-13T10:00:00Z"},
+ {id:"actual",organisation_id:org,linkedin_identity:identity,direction:"snapshot",contains_inbound_reply:true,message:exact,confirmed_at:"2026-10-13T10:00:00Z"},
+ ];
+ const db=database({inbox_items:[row],growth_targets:[],acquisition_items:[],linkedin_conversation_messages:messages});
+ const snapshot=load("lib/lifecycleSnapshot.server.ts",{"@/lib/supabaseAdmin":{supabaseAdmin:db.admin},"@/lib/contactLifecycle":lifecycle,"@/lib/linkedinCadenceBackfill":{planLinkedInCadenceBackfill:(org,input)=>({projected:input})}});
+ const data=await snapshot.readLifecycleInput(org);assert.equal(data.inbox_items[0].linkedin_recorded_reply_text,exact);
+ assert.equal(state(data).canDraft,true);assert.equal(state(data).currentStage,"needs_reply");assert.equal(db.writes,0);
+});
+test("absence of actual inbound text remains fail-closed after snapshot reads",async()=>{
+ const db=database({...input(),linkedin_conversation_messages:[]});
+ const snapshot=load("lib/lifecycleSnapshot.server.ts",{"@/lib/supabaseAdmin":{supabaseAdmin:db.admin},"@/lib/contactLifecycle":lifecycle,"@/lib/linkedinCadenceBackfill":{planLinkedInCadenceBackfill:(org,input)=>({projected:input})}});
+ assert.equal(state(await snapshot.readLifecycleInput(org)).canDraft,false);assert.equal(db.writes,0);
 });
