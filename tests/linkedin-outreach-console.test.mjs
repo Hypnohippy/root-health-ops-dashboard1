@@ -94,7 +94,10 @@ test("console API revalidates due eligibility and revision, retries receipts and
  const api=load("app/api/growth/linkedin-console/route.ts",deps,{process:{env:{OPENAI_API_KEY:"fixture"}},fetch:async(url,options)=>{providerCalls++; if(providerThrows) throw Error("upstream unavailable"); prompt=JSON.parse(options.body).messages.at(-1).content;return {ok:providerStatus===200,json:async()=>({choices:[{message:{content:replies.shift() || "Hi Sarah, we connected a while ago and I realised I hadn't said hello properly."}}]})};}});
  const req=body=>({json:async()=>body});
  const base={id:"a",table:"inbox_items",revision:"3"};
- const generated=await api.POST(req({...base,action:"generate"}));assert.equal(generated.status,200);assert.match(prompt,/older or undated connection/);assert.match(prompt,/Do not say good to connect/);
+ const generated=await api.POST(req({...base,action:"generate"}));assert.equal(generated.status,200);assert.match(prompt,/older or undated connection/);assert.match(prompt,/Do not say good to connect/);assert.match(prompt, /"name":"Sarah"/);
+ data.inbox_items[0].author_name = null; const callsBeforeMissingName = providerCalls;
+ assert.equal((await api.POST(req({...base,action:"generate"}))).status,409);assert.equal(providerCalls,callsBeforeMissingName);
+ data.inbox_items[0].author_name = "Sarah";
  assert.equal((await api.POST(req({...base,revision:"2",action:"generate"}))).status,409);
  data.inbox_items[0].response_state="engaged";assert.equal((await api.POST(req({...base,action:"complete",confirmed:true,key:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",message:"Hello",completedAt:"2026-01-01"}))).status,409);assert.equal(completionCalls,0);
  data.inbox_items[0].manual_completion={key:"cccccccc-cccc-4ccc-8ccc-cccccccccccc"};rev="4";
@@ -179,4 +182,12 @@ test("missing destination and ambiguous identities remain diagnostic, never norm
 });
 test("foreign acceptance cannot authorise this tenant's followup or appear in evidence",()=>{
  const data=followup({}, {organisation_id:"org-b"});const actual=work(data);assert.equal(actual.total,0);assert.ok(actual.audit.every(c=>c.records.every(r=>r.table!=="inbox_items")));
+});
+
+
+test("first-message context uses saved accepted name rather than a competing target name",()=>{
+ const data=input({inbox_items:[acceptance("a",{author_name:"Sarah Accepted"})],growth_targets:[target({target_name:"Older target name",stage:"connection",first_outbound_at:null,last_action_at:null,manual_completion:null})]});
+ assert.equal(work(data).items[0].context.name,"Sarah Accepted");
+ data.inbox_items[0].author_name=null;
+ assert.equal(work(data).items[0].context.name,null);
 });

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { readIngestionBody, IngestionError } from "@/lib/growthIngestion.server";
+import { verifiedLinkedInProfile } from "@/lib/linkedinCaptureProfile";
 import { validateManualCapture } from "@/lib/linkedinCapture";
-import { recordManualLinkedInAcceptance } from "@/lib/linkedinCapture.server";
+import { recordManualLinkedInAcceptance, resolveCaptureName } from "@/lib/linkedinCapture.server";
 
 export const POST = withTenantRoute(async (req, tenant) => {
   // Shortcut opens the signed-in capture page. No shared ingestion/service key on iOS.
@@ -17,3 +18,10 @@ export const POST = withTenantRoute(async (req, tenant) => {
     return NextResponse.json({ error: error instanceof IngestionError ? error.message : "Capture was not saved. Review the profile in Responses or retry." }, { status: error instanceof IngestionError ? error.status : 503 });
   }
 });
+
+export const GET = withTenantRoute(async (req, tenant) => {
+  const profile = new URL(req.url).searchParams.get("profile_url") || "";
+  if (!verifiedLinkedInProfile(profile)) return NextResponse.json({ error: "Supply a direct LinkedIn profile URL." }, { status: 400 });
+  const result = await resolveCaptureName(tenant.organisationId, profile);
+  return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
+}, { write: false });

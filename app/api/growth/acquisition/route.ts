@@ -3,7 +3,7 @@ import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordTypes, statuses, uuid } from "@/lib/growthIngestion.server";
 import { personalPerformance } from "@/lib/personalDistribution.server";
-import { linkedInRecommendationStates } from "@/lib/linkedinCapture.server";
+import { linkedInRecommendationStates, acceptedLinkedInOpportunities } from "@/lib/linkedinCapture.server";
 export async function GET(req: Request) {
   try {
     const params = new URL(req.url).searchParams;
@@ -19,6 +19,24 @@ export async function GET(req: Request) {
     const itemId = params.get("itemId");
     if (itemId && !uuid.test(itemId)) return NextResponse.json({ error: "Invalid item." }, { status: 400 });
     if (!Number.isInteger(page) || page < 0 || page > 10000 || (status && !statuses.includes(status as typeof statuses[number]))) return NextResponse.json({ error: "Invalid filter." }, { status: 400 });
+    // This isolated view combines references before pagination. Other Acquisition contracts are unchanged.
+    if (sourceEngine === "linkedin_connection_recommendation" && !itemId && (!recordType || recordType === "personal_opportunity")) {
+      const recommendations = [];
+      for (let offset = 0; ; offset += 500) {
+        let request = supabaseAdmin.from("acquisition_items").select("*").eq("organisation_id", organisationId).eq("source_engine", sourceEngine);
+        if (status) request = request.eq("status", status);
+        const { data, error } = await request.order("created_at", { ascending: false }).order("id").range(offset, offset + 499);
+        if (error) throw error;
+        recommendations.push(...(data || []));
+        if ((data || []).length < 500) break;
+      }
+      const states = await linkedInRecommendationStates(organisationId, recommendations);
+      const linkedIds = new Set(Object.values(states).map(state => state.acceptedConnectionId).filter(Boolean));
+      const accepted = status ? [] : (await acceptedLinkedInOpportunities(organisationId)).filter(item => !linkedIds.has(item.linkedinConnectionState.acceptedConnectionId));
+      const combined = [...recommendations.map(item => ({ ...item, linkedinConnectionState: states[item.id] })), ...accepted]
+        .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")) || a.id.localeCompare(b.id));
+      return NextResponse.json({ items: combined.slice(page * 25, page * 25 + 25), total: combined.length, page });
+    }
     let query = supabaseAdmin.from("acquisition_items").select("*, acquisition_item_events(id, action, previous_status, new_status, outcome, note, created_at, actor_user_id, idempotency_key)", { count: "exact" }).eq("organisation_id", organisationId);
     if (status) query = query.eq("status", status);
     if (sourceEngine) query = query.eq("source_engine", sourceEngine);

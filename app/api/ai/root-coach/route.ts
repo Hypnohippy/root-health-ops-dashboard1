@@ -190,6 +190,7 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
       if (!contact.lifecycle?.canDraft || (contact.lifecycle.draftOnRequest && body.requestedLifecycleDraft !== true)) {
         return NextResponse.json({ error: contact.lifecycle?.blockedReason || "This message requires an explicit request for the current lifecycle stage.", lifecycle: contact.lifecycle }, { status: 409 });
       }
+      if (contact.interactionType === "linkedin_connection_first_message" && !contact.name?.trim()) return NextResponse.json({ error: "This connection has no saved name. Resolve the person’s name before generating a first message." }, { status: 409 });
       const responsePrompt = [
         "Write the exact message the user can send for this interaction.",
         `Interaction type: ${contact.messageType}`,

@@ -40,5 +40,6 @@ export function validateManualCapture(value: Record<string, unknown>, now = new 
   const capturedAt = typeof value.captured_at === "string" ? new Date(value.captured_at) : new Date(NaN);
   if (!Number.isFinite(capturedAt.getTime()) || capturedAt.getTime() > now.getTime() + 300000) throw Error("A valid capture timestamp is required.");
   const name = typeof value.name === "string" ? value.name.trim().slice(0, 300) : "";
+  if (!name) throw Error("Enter the person's name before saving.");
   return { profileUrl, capturedAt: capturedAt.toISOString(), name };
 }
