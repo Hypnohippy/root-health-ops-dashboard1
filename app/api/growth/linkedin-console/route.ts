@@ -6,7 +6,7 @@ import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
 import { linkedInOutreachQueue, type OutreachView } from "@/lib/linkedinOutreach";
-import { responseDraftRules, safeLinkedInFirstMessage } from "@/lib/responseContactContext";
+import { responseDraftRules, safeLinkedInFirstMessage, linkedInFirstMessageIssue } from "@/lib/responseContactContext";
 import { getOrganisationGenerationProfile } from "@/lib/organisationProfile.server";
 import { generationMessages } from "@/lib/tenantGeneration";
 
@@ -66,6 +66,7 @@ export const POST = withTenantRoute(async (req, tenant) => {
     const json = await response.json();
     message = typeof json.choices?.[0]?.message?.content === "string" ? json.choices[0].message.content.trim() : "";
     const invalid = !message || json.choices?.[0]?.finish_reason === "length" || (current.stage === "connection" && !safeLinkedInFirstMessage(message, current.context)) || (current.mode === "catchup" && /good to connect|thanks for connecting|just connected|recently connected/i.test(message));
+    if (invalid && current.stage === "connection") console.warn("linkedin_opener_validation", { issue: linkedInFirstMessageIssue(message, current.context), words: message.trim().split(/\s+/).length, attempt });
     if (!invalid) break;
     if (attempt === 1) return NextResponse.json({ error: "Generated suggestion did not meet the message rules. Retry Refresh draft or type your message below. Your draft is unchanged." }, { status: 409 });
     messages.push({ role: "user", content: "The suggestion failed validation. Rewrite from the supplied facts. For a first message write 60-110 words, use the saved first name, acknowledge the connection, ground relevance in recorded context and this sender profile, adapt the reason for connecting to the supplied recipient framing and end naturally. No question mark, question, CTA or request for thoughts/perspective. No emoji, hard pitch, meeting/call ask or networking filler about keeping in touch/sharing insights. Finish with the grounded reason for connecting. For catch-up never imply a recent connection. Return only the complete message." });
