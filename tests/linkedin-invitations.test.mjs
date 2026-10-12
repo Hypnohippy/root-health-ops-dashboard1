@@ -113,3 +113,12 @@ test('empty networking notes and unsupported themes are rejected; grounded light
  assert.equal(invitation.safeConnectionNote('Hi Emma, I noticed your work around workplace wellbeing and thought there might be some overlap in what we do. It would be good to connect.','Emma Pennycard',context),true);
  assert.equal(invitation.safeConnectionNote('Hi Laura, I noticed your work around stress and thought it would be good to connect.','Laura Capell-Abra','Stress Matters'),true);
 });
+test('draft endpoint rejects empty provider copy and passes grounded context/category to generation',async()=>{
+ const input=fixture();let note="Hi Emma, I'd be glad to connect.",payload;
+ const route=load('app/api/growth/linkedin-invitations/route.ts',{'@/lib/outreachSelfIdentity.server':{readOutreachSelfIdentity:async()=>({names:[],emails:[],linkedinProfiles:[],linkedinAccountIds:[]})},'@/lib/tenantRoute.server':{withTenantRoute:f=>req=>f(req,{organisationId:org,userId:actor})},'@/lib/lifecycleSnapshot.server':{readLifecycleInput:async()=>input},'@/lib/supabaseAdmin':{supabaseAdmin:{from(){throw Error('No writes');}}},'@/lib/organisationProfile.server':{getOrganisationGenerationProfile:async()=>({})},'@/lib/tenantGeneration':{generationMessages:()=>[]}}, {AbortSignal,process:{env:{OPENAI_API_KEY:'fixture-only',VERCEL_ENV:'preview'}},fetch:async(_url,init)=>{payload=JSON.parse(init.body);return {ok:true,json:async()=>({choices:[{finish_reason:'stop',message:{content:note}}]})};}});
+ const request=()=>new Request('https://preview.test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,action:'draft_note',version:input.acquisition_items[0].updated_at})});
+ assert.equal((await route.POST(request())).status,409);
+ note='Hi Emma, I noticed your wellbeing coaching and thought there might be some overlap in what we do. It would be good to connect.';
+ const response=await route.POST(request());assert.equal(response.status,200);assert.equal((await response.json()).note,note);
+ const context=JSON.parse(payload.messages.at(-1).content);assert.equal(context.context,'Leadership and wellbeing coach');assert.equal(context.category,'Partner / referrer');assert.match(payload.messages[0].content,/ONE concrete grounded/);assert.equal(input.inbox_items.length,0);
+});
