@@ -142,7 +142,7 @@ test("first-message constraints are trusted generation policy, with contact/prof
  test('Day 0 rejects educational embellishment and preserves a light grounded opener',()=>{
  const light="Hi Kate, thanks for connecting. I noticed your background in people and HR and thought there was likely some overlap in what we do. I work with organisations around stress, resilience and early intervention, with a particular focus on making workplace wellbeing genuinely useful rather than another employee benefit. Good to be connected.";
  assert.equal(context.safeLinkedInFirstMessage(light,{name:'Kate',role:'HR'}),true);
- for(const phrase of ['evidence-informed','practical approaches','shared focus','helping teams understand and improve','burnout','absence']) assert.equal(context.safeLinkedInFirstMessage(light.replace('stress',phrase),{name:'Kate',role:'HR'}),false,phrase);
+ for(const phrase of ['evidence-informed','practical approaches','shared focus','helping teams understand and improve','helping organisations improve','burnout','absence']) assert.equal(context.safeLinkedInFirstMessage(light.replace('stress',phrase),{name:'Kate',role:'HR'}),false,phrase);
  assert.match(context.linkedinFirstMessagePolicy,/Recipient category influences only the reason for overlap/);
  });
 
