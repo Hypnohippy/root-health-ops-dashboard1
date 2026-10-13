@@ -196,3 +196,110 @@ test("plural support rejects invalid counts and never weakens notification verif
  assert.equal(parser.notificationPatch(row,event),null);
  assert.equal(state(input(row)).currentStage,"needs_reply");assert.equal(state(input(row)).canDraft,false);
 });
+
+const nina="linkedin.com/in/nina-gurung", tracy="linkedin.com/in/tracy-fountain";
+const card=(person,thread,extra="")=>`<tr><td><a href="https://${person}">Person</a>${extra}</td><td><a href="https://www.linkedin.com/messaging/thread/${thread}">View message</a></td></tr>`;
+const digest={...mail,sender:"LinkedIn Messaging <messaging-digest-noreply@linkedin.com>",subject:"Nina and Tracy sent new messages",gmail_message_id:"1a1347f91b2b3316",html:`2 new messages await your response<table>${card(nina,"nina-thread")}${card(tracy,"tracy-thread")}</table>`};
+const parseDigest=value=>parser.parseLinkedInMessageNotifications(value,Date.parse(time));
+const digestRows=()=>[nina,tracy].map((person,index)=>({...inbox,id:`person-${index}`,linkedin_identity:person,permalink:`https://${person}`,raw:{source_gmail_message_id:`acceptance-${index}`}}));
+function digestService(db) {return load("lib/linkedinMessageNotification.server.ts",{"@/lib/supabaseAdmin":{supabaseAdmin:db.admin},"@/lib/contactLifecycle":lifecycle,"@/lib/linkedinMessageNotification":parser});}
+
+test("aggregate digest pairs two independent blocks, never subject names or global link order",()=>{
+ for(const html of [digest.html,`2 new messages await your response<table>${card(tracy,"tracy-thread")}${card(nina,"nina-thread")}</table>`]) {
+  const parsed=parseDigest({...digest,html});assert.equal(parsed.events.length,2);assert.equal(parsed.rejectedBlocks,0);
+  for(const event of parsed.events) {assert.equal(event.messageUrl,`https://www.linkedin.com/messaging/thread/${event.identity===nina ? "nina" : "tracy"}-thread`);assert.equal(event.gmailMessageId,digest.gmail_message_id);assert.equal(event.eventKey,parser.notificationEventKey(event));assert.equal(event.message,undefined);assert.equal(event.sentiment,undefined);}
+ }
+ assert.equal(parseDigest({...digest,subject:"Other and Different sent new messages"}).events.length,2);
+});
+test("repeated links and repeated blocks dedupe exact canonical events",()=>{
+ const html=`2 new messages await your response<table>${card(nina,"nina-thread",`<a href="https://uk.linkedin.com/comm/in/nina-gurung?token=secret">Again</a>`)}${card(nina,"nina-thread")}${card(tracy,"tracy-thread")}</table>`;
+ const parsed=parseDigest({...digest,html});assert.equal(parsed.events.length,2);assert.ok(!JSON.stringify(parsed).includes("secret"));
+});
+test("malformed or ambiguous blocks fail closed while independent valid blocks survive",()=>{
+ for(const broken of [card(nina,"nina-thread",`<a href="https://${tracy}">Other</a>`),`<tr><td><a href="https://${nina}">Nina</a></td></tr>`,`<tr><td><a href="https://linkedin.com/messaging/thread/nina-thread">View message</a></td></tr>`,card(nina,"nina-thread",'<a href="https://linkedin.com/messaging/thread/other">View message</a>')]) {
+  const parsed=parseDigest({...digest,html:`2 new messages await your response<table>${broken}${card(tracy,"tracy-thread")}</table>`});assert.equal(parsed.events.length,1);assert.equal(parsed.events[0].identity,tracy);assert.equal(parsed.rejectedBlocks,1);
+ }
+ assert.equal(parseDigest({...digest,html:digest.html.replace("</td>","</div>")}).events.length,0);
+ const split=`2 new messages await your response<table><tr><td><a href="https://${nina}">Nina</a></td></tr><tr><td><a href="https://linkedin.com/messaging/thread/nina-thread">View message</a></td></tr></table>`;
+ assert.equal(parseDigest({...digest,html:split}).events.length,0);
+});
+test("one thread cannot be attributed to different people",()=>{
+ const parsed=parseDigest({...digest,html:`2 new messages await your response<table>${card(nina,"shared")}${card(tracy,"shared")}</table>`});assert.equal(parsed.events.length,0);assert.equal(parsed.rejectedBlocks,2);
+});
+test("aggregate spoofed sender, invalid envelope and unsupported subject fail closed",()=>{
+ for(const patch of [{sender:"messaging-digest-noreply@linkedin.com.evil"},{subject:"Nina sent you an invitation"},{gmail_message_id:"invalid"},{received_at:"2099-01-01"},{html:digest.html.replace("2 new messages await your response","0 new messages await your response")}]) assert.equal(parseDigest({...digest,...patch}).events.length,0);
+});
+test("unknown contact fails independently without automatic relationship creation",async()=>{
+ const db=database({inbox_items:[digestRows()[0]],growth_targets:[]});
+ const results=await digestService(db).ingestLinkedInNotifications(org,parseDigest(digest).events);
+ assert.equal(results.filter(result=>result.itemId).length,1);assert.equal(results.filter(result=>result.error).length,1);assert.equal(db.stored.inbox_items.length,1);
+});
+test("aggregate intake is tenant isolated and preserves existing relationship evidence",async()=>{
+ const seed=digestRows();const db=database({inbox_items:[seed[0],{...seed[1],organisation_id:foreign}],growth_targets:[]});
+ const results=await digestService(db).ingestLinkedInNotifications(org,parseDigest(digest).events);
+ assert.equal(results[0].itemId,"person-0");assert.ok(results[1].error);assert.equal(db.stored.inbox_items[1].raw.linkedin_message_notifications,undefined);
+ assert.equal(db.stored.inbox_items[0].raw.source_gmail_message_id,"acceptance-0");assert.equal(db.stored.inbox_items[0].manual_completion.message,inbox.manual_completion.message);assert.equal(db.stored.inbox_items[0].contacted_at,inbox.contacted_at);
+});
+test("aggregate partial retry repairs targets and never duplicates either event",async()=>{
+ const db=database({inbox_items:digestRows(),growth_targets:[{...target,linkedin_identity:nina},{...target,id:"target-2",linkedin_identity:tracy}]},{failTarget:true});const service=digestService(db),events=parseDigest(digest).events;
+ const first=await service.ingestLinkedInNotifications(org,events);assert.ok(first[0].error);assert.equal(first[1].itemId,"person-1");
+ const retry=await service.ingestLinkedInNotifications(org,events);assert.ok(retry.every(result=>result.duplicate));
+ for(const row of db.stored.inbox_items) assert.equal(row.raw.linkedin_message_notifications.length,1);
+ assert.ok(db.stored.growth_targets.every(row=>row.linkedin_conversation_active));
+});
+test("legacy receipts dedupe equivalent events but not another identity or thread",()=>{
+ const event=parseDigest(digest).events[0],legacy={...event};delete legacy.eventKey;
+ const row={...digestRows()[0],raw:{linkedin_message_notifications:[legacy]}};
+ assert.equal(parser.notificationPatch(row,event),null);
+ assert.ok(parser.notificationPatch(row,{...event,messageUrl:"https://www.linkedin.com/messaging/thread/different"}));
+ assert.ok(parser.notificationPatch(row,{...event,identity:tracy}));
+});
+test("aggregate Needs reply, exact destinations, attention/deep links and AI block reuse existing projection",async()=>{
+ const db=database({inbox_items:digestRows(),growth_targets:[],acquisition_items:[]});await digestService(db).ingestLinkedInNotifications(org,parseDigest(digest).events);
+ const map=presentation.responseLifecycleMap(org,db.stored),attention=presentation.responseAttention(org,db.stored);assert.equal(attention.count,2);assert.ok(attention.href.includes("itemId=person-"));
+ for(const row of db.stored.inbox_items) {const view=map.get(row.id);assert.equal(view.currentStage,"needs_reply");assert.equal(view.canDraft,false);assert.equal(view.nextDueDate,null);assert.equal(view.linkedinNotificationId,row.raw.linkedin_message_notifications[0].eventKey);assert.equal(row.linkedin_message_url,row.raw.linkedin_message_notifications[0].messageUrl);assert.equal(row.response_state,inbox.response_state);}
+});
+test("per-event manual handling preserves Gmail ID and supports legacy notification IDs",async()=>{
+ for(const useLegacy of [false,true]) {const db=database({inbox_items:digestRows(),growth_targets:[]});const service=digestService(db);await service.ingestLinkedInNotifications(org,parseDigest(digest).events);const row=db.stored.inbox_items[0],event=row.raw.linkedin_message_notifications[0];
+ await service.resolveLinkedInNotification(org,"actor",{id:row.id,notificationId:useLegacy ? event.gmailMessageId : event.eventKey,confirmed:true,evidence:"Read and handled manually in LinkedIn"});assert.equal(row.raw.linkedin_reply_dispositions[0].gmailMessageId,event.gmailMessageId);assert.equal(row.raw.linkedin_reply_dispositions[0].eventKey,event.eventKey);}
+});
+test("worker recognises Nina/Tracy aggregate, keeps sender verification and counts partial results",()=>{
+ const source=fs.readFileSync("docs/linkedin-message-notification-intake.gs","utf8");let query,posts=0;
+ const message={getFrom:()=>digest.sender,getSubject:()=>digest.subject,getBody:()=>digest.html,getId:()=>digest.gmail_message_id,getDate:()=>new Date(time)};
+ const sandbox={PropertiesService:{getScriptProperties:()=>({getProperty:key=>key==="OPS_ORGANISATION_ID" ? org : "x".repeat(40)})},PHASE4D_EXPECTED_ORGANISATION_ID_:org,GmailApp:{search:(value,start,cap)=>{query=value;assert.equal(start,0);assert.equal(cap,50);return [{}];}},rootGetThreadMessages_:()=>[message],UrlFetchApp:{fetch:(url,options)=>{posts++;const body=JSON.parse(options.payload);assert.equal(body.subject,digest.subject);assert.equal(body.gmail_message_id,digest.gmail_message_id);return {getResponseCode:()=>503,getContentText:()=>JSON.stringify({success:false,results:[{}],imported:1,duplicates:0,failed:1})};}},Logger:{log:()=>{}}};
+ vm.runInNewContext(source,sandbox);const result=sandbox.runLinkedInMessageNotificationIntake();assert.equal(posts,1);assert.match(query,/subject:"sent new messages"/);assert.equal(result.imported,1);assert.equal(result.failed,1);
+ assert.equal(sandbox.isLinkedInMessageNotificationSubject_("Nina and Tracy sent new messages"),true);assert.equal(sandbox.isLinkedInMessageNotificationSubject_("New invitations"),false);
+});
+
+test("inert email styles/comments cannot create or disturb message blocks",()=>{
+ const parsed=parseDigest({...digest,html:`<html><head><style>.card { color:red }</style></head><body><!-- <a href="https://linkedin.com/in/fake">Fake</a> -->${digest.html}</body></html>`});assert.equal(parsed.events.length,2);
+});
+test("legacy thread variants compare canonically",()=>{
+ const event=parseDigest(digest).events[0],legacy={...event,messageUrl:event.messageUrl+"/"};delete legacy.eventKey;
+ assert.equal(parser.notificationPatch({...inbox,raw:{linkedin_message_notifications:[legacy]}},event),null);
+});
+test("Gmail-only disposition cannot ambiguously resolve two same-email thread events",async()=>{
+ const events=parseDigest(digest).events,second={...events[0],messageUrl:"https://www.linkedin.com/messaging/thread/second"};second.eventKey=parser.notificationEventKey(second);
+ const row={...digestRows()[0],raw:{linkedin_message_notifications:[events[0],second]}};
+ const db=database({inbox_items:[row],growth_targets:[]});await assert.rejects(digestService(db).resolveLinkedInNotification(org,"actor",{id:row.id,notificationId:digest.gmail_message_id,confirmed:true,evidence:"Read manually in LinkedIn"}));assert.equal(db.writes,0);
+});
+
+test("authenticated endpoint returns per-event partial outcomes and blocks wrong tenant scope",async()=>{
+ const db=database({inbox_items:[digestRows()[0]],growth_targets:[]});let authorisations=0;
+ class IngestionError extends Error {status=400;}
+ const route=load("app/api/growth/linkedin-connections/message-notifications/route.ts",{
+  "next/server":{NextResponse:{json:(body,options={})=>({body,status:options.status||200})}},
+  "@/lib/growthIngestion.server":{IngestionError,uuid:/^[a-f0-9-]{36}$/,readIngestionBody:async req=>req.body,authorizeIngestion:(token,tenant,sources)=>{assert.equal(token,"Bearer scoped");assert.equal(tenant,org);assert.equal(sources[0],"root_health_b2b");authorisations++;}},
+  "@/lib/linkedinMessageNotification":parser,"@/lib/linkedinMessageNotification.server":digestService(db)});
+ const req=body=>({body,headers:{get:()=>"Bearer scoped"}});
+ const result=await route.POST(req({...digest,organisation_id:org,source_engine:"root_health_b2b"}));assert.equal(result.status,503);assert.equal(result.body.imported,1);assert.equal(result.body.failed,1);assert.equal(result.body.results.length,2);
+ const retry=await route.POST(req({...digest,organisation_id:org,source_engine:"root_health_b2b"}));assert.equal(retry.body.duplicates,1);assert.equal(db.stored.inbox_items[0].raw.linkedin_message_notifications.length,1);
+ const blocked=await route.POST(req({...digest,organisation_id:org,source_engine:"other"}));assert.equal(blocked.status,400);assert.equal(authorisations,2);
+});
+test("aggregate notification preserves stronger closed/nurture/meeting relationships",async()=>{
+ for(const [patch,expected] of [[{response_state:"closed_or_lost",status:"lost"},"lost"],[{response_state:"nurture"},"nurture"],[{response_state:"converted",status:"converted"},"converted"]]) {
+  const row={...digestRows()[0],...patch};const db=database({inbox_items:[row],growth_targets:[],acquisition_items:[]});await digestService(db).ingestLinkedInNotifications(org,[parseDigest(digest).events[0]]);
+  assert.equal(db.stored.inbox_items[0].response_state,row.response_state);assert.equal(presentation.responseLifecycleMap(org,db.stored).get(row.id).currentStage,expected);assert.equal(presentation.responseAttention(org,db.stored).count,0);
+ }
+ const row=digestRows()[0],db=database({inbox_items:[row],growth_targets:[{...target,linkedin_identity:nina,deal_stage:"meeting"}],acquisition_items:[]});await digestService(db).ingestLinkedInNotifications(org,[parseDigest(digest).events[0]]);assert.equal(presentation.responseLifecycleMap(org,db.stored).get(row.id).currentStage,"meeting");assert.equal(db.stored.growth_targets[0].deal_stage,"meeting");
+});
