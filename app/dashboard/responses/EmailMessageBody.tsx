@@ -1,7 +1,7 @@
 /** Presentation only: retain every source character, including quoted history. */
 export function splitEmailFooter(body: string): { content: string; footer: string } {
   // Only explicit sign-offs/delimiters or legal notice paragraphs, never health/intent inference.
-  const start = body.search(/^(?:-- ?|(?:kind|best) regards[, ]*|regards[, ]*|confidentiality notice:?.*|disclaimer:?.*|this (?:email|e-mail|message) (?:and any attachments )?is (?:confidential|intended).*|the information contained in this (?:email|e-mail).*)\r?$/im);
+  const start = body.search(/^(?:-- ?|(?:kind|best) regards[, ]*|regards[, ]*|confidentiality notice:?.*|disclaimer:?.*|this (?:email|e-mail|message) (?:and any attachments )?is (?:confidential|intended(?: solely| only)? for|strictly confidential).*|the information contained in this (?:email|e-mail).*)\r?$/im);
   if (start <= 0 || !body.slice(0, start).trim()) return { content: body, footer: "" };
   return { content: body.slice(0, start), footer: body.slice(start) };
 }

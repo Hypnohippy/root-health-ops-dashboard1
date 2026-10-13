@@ -13,7 +13,7 @@ function load(file,mocks={},globals={}) {
  return m.exports;
 }
 const bodyComponent=load("app/dashboard/responses/EmailMessageBody.tsx");
-for(const ending of ["Kind regards,\r\nA name\r\nLegal notice", "-- \nSignature ðŸ‘‹\nQuoted previous email", "This email is confidential.\nDo not distribute."]) {
+for(const ending of ["Kind regards,\r\nA name\r\nLegal notice", "-- \nSignature \u{1F44B}\nQuoted previous email", "This email is confidential.\nDo not distribute."]) {
  test("footer is subordinate without losing a character: "+ending.split("\n")[0],()=>{
   const body="Please arrange a follow-up.\n\n"+ending;
   const parts=bodyComponent.splitEmailFooter(body);assert.equal(parts.content+parts.footer,body);assert.ok(parts.footer);
@@ -22,7 +22,7 @@ for(const ending of ["Kind regards,\r\nA name\r\nLegal notice", "-- \nSignature 
  });
 }
 test("unrecognised body and opening disclaimer remain fully visible; HTML stays escaped",()=>{
- for(const body of ["Discuss regards and our next steps.\nNo sign-off", "This email is confidential.\nThe whole message", "<script>alert(1)</script>\nMeaningful text"]) {
+ for(const body of ["Discuss regards and our next steps.\nNo sign-off", "Please review.\nThis message is intended to summarise our next steps.\nPlease reply when ready.", "This email is confidential.\nThe whole message", "<script>alert(1)</script>\nMeaningful text"]) {
   assert.equal(bodyComponent.splitEmailFooter(body).content,body);assert.equal(bodyComponent.splitEmailFooter(body).footer,"");
  }
  const html=require("react-dom/server").renderToStaticMarkup(React.createElement(bodyComponent.default,{body:"<script>alert(1)</script>"}));assert.ok(!html.includes("<script>"));
