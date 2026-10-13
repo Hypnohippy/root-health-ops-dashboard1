@@ -8,17 +8,17 @@ import * as jsx from "react/jsx-runtime";
 import { create, act } from "react-test-renderer";
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 function load(path, deps, globals={}) {
- const module={exports:{}};
- vm.runInNewContext(ts.transpileModule(fs.readFileSync(path,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module,exports:module.exports,require:id=>deps[id],Error,...globals});
- return module.exports;
+ const mod={exports:{}};
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync(path,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:mod,exports:mod.exports,require:id=>deps[id],Error,...globals});
+ return mod.exports;
 }
 const helpers=load("lib/linkedinWorkbench.ts",{}),clipboard=load("lib/linkedinClipboard.ts",{});
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
 const response=(status,message="Hello from the verified sender.")=>({ok:status===200,json:async()=>status===200?{message}:{error:`Generation failed (${status}). Type or retry.`}});
-async function fixture({request, timer=false, popup=true, copyFailure=false}={}) {
+async function fixture({request, timer=false, popup=true, copyFailure=false,clockDate=Date}={}) {
  const calls=[],copies=[],opened=[],requests=[];let deadline;
  const deps={"./LinkedInHistoricalSend":{default:()=>null},react:React,"react/jsx-runtime":jsx,"@/lib/linkedinWorkbench":helpers,"@/lib/linkedinClipboard":clipboard,"@/lib/tenantFetch":{tenantFetch:(url,init)=>{requests.push(init);calls.push(JSON.parse(init.body));return request ? request(init) : Promise.resolve(response(200));}}};
- const {ContactCard}=load("app/dashboard/responses/linkedin/LinkedInWorkbench.tsx",deps,{AbortController,clearTimeout:timer?()=>{}:clearTimeout,setTimeout:timer?fn=>{deadline=fn;return 1;}:setTimeout,crypto:{randomUUID:()=>"receipt"},window:{open:(url,target)=>{opened.push([url,target]);return popup?{opener:{},location:{replace:url=>opened.push([url])}}:null;}},navigator:{clipboard:{writeText:async text=>{if(copyFailure)throw Error("clipboard denied");copies.push(text);}}}});
+ const {ContactCard}=load("app/dashboard/responses/linkedin/LinkedInWorkbench.tsx",deps,{Date:clockDate,AbortController,clearTimeout:timer?()=>{}:clearTimeout,setTimeout:timer?fn=>{deadline=fn;return 1;}:setTimeout,crypto:{randomUUID:()=>"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},window:{open:(url,target)=>{opened.push([url,target]);return popup?{opener:{},location:{replace:url=>opened.push([url])}}:null;}},navigator:{clipboard:{writeText:async text=>{if(copyFailure)throw Error("clipboard denied");copies.push(text);}}}});
  const props={item:{contactId:"a",id:"a",table:"inbox_items",name:"Tara",stage:"connection",mode:"fresh",reason:"Accepted",lifecycle:"outreach_ready",destination:"https://www.linkedin.com/messaging/thread/123/"},queue:{organisationId:"tenant",revision:"3"},initialMessage:"",onDraft:()=>{},onNext:async()=>{},onReload:async()=>{},onWorking:()=>{},suspended:false};
  let renderer;await act(async()=>{renderer=create(React.createElement(ContactCard,props));});
  const button=name=>renderer.root.findAllByType("button").find(n=>n.children.join("")===name);
@@ -131,4 +131,23 @@ test("snapshot Save shows progress, blocks repeated clicks, and clears text only
  else{assert.equal(textarea().props.value,text);assert.equal(button().props.disabled,false);assert.ok(renderer.root.findAll(n=>n.props.role==="alert").some(n=>n.children.join("")==="Save failed — nothing was lost. Please retry."));}
  await act(async()=>renderer.unmount());
  }
+});
+
+
+test("real Sent now click succeeds first time with browser five seconds ahead and no client timestamp",async()=>{
+ const serverNow=Date.now();class AheadDate extends Date { constructor(...args){super(...(args.length?args:[serverNow+5000]));} static now(){return serverNow+5000;} }
+ const evidence=load("lib/linkedinSendEvidence.ts",{});let recorded;
+ const f=await fixture({clockDate:AheadDate,request:init=>{const body=JSON.parse(init.body);if(body.action==="generate")return Promise.resolve(response(200));recorded=evidence.validateSendInput(body,serverNow);return Promise.resolve({ok:true,json:async()=>({success:true})});}});
+ const next=[];await act(async()=>f.renderer.update(React.createElement(f.ContactCard,{...f.props,onNext:async(...args)=>next.push(args)})));
+ await act(async()=>f.renderer.root.findByType("textarea").props.onChange({target:{value:"  Exact edited sent text\n"}}));
+ await act(async()=>f.button("Sent now & next").props.onClick());
+ const sent=f.calls.filter(c=>c.action==="record_send");assert.equal(sent.length,1);assert.equal(sent[0].completedAt,undefined);assert.equal(recorded.sentAt,new Date(serverNow).toISOString());assert.equal(recorded.message,"  Exact edited sent text\n");assert.deepEqual(next,[["a",true]]);assert.ok(!f.status().includes("future"));await f.unmount();
+});
+
+test("uncertain confirmation retry reuses exact key/message/revision and advances only after acknowledgement",async()=>{
+ let attempts=0;const f=await fixture({request:init=>{const body=JSON.parse(init.body);if(body.action==="generate")return Promise.resolve(response(200));if(++attempts===1)throw Error("Response lost after recording");return Promise.resolve({ok:true,json:async()=>({duplicate:true})});}});
+ const next=[];await act(async()=>f.renderer.update(React.createElement(f.ContactCard,{...f.props,onNext:async(...args)=>next.push(args)})));
+ await act(async()=>f.button("Sent now & next").props.onClick());assert.equal(next.length,0);
+ await act(async()=>f.button("Retry confirmation safely").props.onClick());
+ const sends=f.calls.filter(c=>c.action==="record_send");assert.deepEqual(sends[1],sends[0]);assert.equal(sends[0].completedAt,undefined);assert.deepEqual(next,[["a",true]]);await f.unmount();
 });

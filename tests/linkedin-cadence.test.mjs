@@ -4,7 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 const modules=new Map();
-function load(path){if(modules.has(path))return modules.get(path).exports;const module={exports:{}};modules.set(path,module);vm.runInNewContext(ts.transpileModule(fs.readFileSync(path,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,URL,URLSearchParams,require:id=>load(id.replace("@/","")+".ts")});return module.exports;}
+function load(path){if(modules.has(path))return modules.get(path).exports;const mod={exports:{}};modules.set(path,mod);vm.runInNewContext(ts.transpileModule(fs.readFileSync(path,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,require:id=>load(id.replace("@/","")+".ts")});return mod.exports;}
 const cadence=load("lib/growthOutreach.ts"),backfill=load("lib/linkedinCadenceBackfill.ts"),queue=load("lib/linkedinOutreach.ts"),governor=load("lib/operationalGovernor.ts");
 const org="tenant-a",first="2026-08-01T12:34:56.000Z",day=n=>Date.parse(first)+n*86400000;
 const receipt=(at,message,stage)=>({key:"key-"+at,actor:"operator",evidence:"Explicit actual manual send",completed_at:at,confirmed_at:at,sent_at:at,historical_send_date_status:"verified",message,stage});
@@ -47,3 +47,13 @@ test("outbound message with unknown date preserves contacted state and prevents 
 
 test("full conversation snapshot preserves text and only accepts explicitly confirmed earliest date",()=>{const thread="  Name\nYesterday 8:30\n👏\nView profile\nReply\n";const body={key:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",message:thread,containsInboundReply:true};const snapshot=conversation.validateConversationHistory(body,day(35));assert.equal(snapshot.message,thread);assert.equal(snapshot.earliestOutboundAt,null);assert.equal(snapshot.containsInboundReply,true);assert.throws(()=>conversation.validateConversationHistory({...body,earliestOutboundAt:first,timezone:"Europe/London"},day(35)),/Explicitly confirm/);assert.equal(conversation.validateConversationHistory({...body,earliestOutboundAt:first,earliestOutboundConfirmed:true,timezone:"Europe/London"},day(35)).earliestOutboundAt,first);});
 test("snapshot anchor supports cadence without overwriting or preferring it over verified original receipts",()=>{const input=fixture(),original=input.growth_targets[0].manual_completion;input.growth_targets[0].linkedin_cadence_anchor={...receipt(new Date(day(5)).toISOString(),"Full snapshot","connection"),content_kind:"conversation_history_pasted"};assert.equal(cadence.firstConfirmedOutboundAt(input.growth_targets[0]),first);delete original.sent_at;delete original.historical_send_date_status;assert.equal(cadence.firstConfirmedOutboundAt(input.growth_targets[0]),new Date(day(5)).toISOString());assert.equal(original.message,"Original hello exactly");});
+
+
+test("Sent now ignores an ahead browser clock; historical choices still reject future dates",()=>{
+ const now=day(18),future=new Date(now+5000).toISOString();
+ const body={key:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",confirmed:true,message:"  Exact sent text\n",sendChoice:"now",completedAt:future};
+ const result=sendEvidence.validateSendInput(body,now);
+ assert.equal(result.sentAt,new Date(now).toISOString());assert.equal(result.confirmedAt,result.sentAt);assert.equal(result.message,body.message);
+ assert.equal(sendEvidence.validateSendInput({...body,completedAt:"invalid legacy clock"},now).sentAt,result.sentAt);
+ for(const sendChoice of ["historical","today","conversation"]) assert.throws(()=>sendEvidence.validateSendInput({...body,sendChoice,sentAt:future,timezone:"Europe/London",dateKnown:true,earliestOutboundConfirmed:true},now),/cannot be in the future/);
+});

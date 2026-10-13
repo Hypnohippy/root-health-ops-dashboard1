@@ -23,7 +23,9 @@ export async function reconcileLinkedInSend(org: string, actor: string, body: Re
   const day = (at: string) => new Intl.DateTimeFormat("en-CA", { timeZone: details.timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
   if (!review?.confirmedAt || day(details.sentAt!) !== day(review.confirmedAt)) throw Error("Sent today must match the original confirmation day. Use historical classification for an earlier date.");
  }
- const { data, error } = await supabaseAdmin.rpc("record_linkedin_send_evidence", { p_organisation_id: org, p_actor: actor, p_table: table, p_id: body.id, p_revision: body.revision, p_key: body.key, p_details: { ...details, correction, sentStage: selected?.stage || "connection" } });
+ // The existing RPC stamps a null now-send date with its own confirmed clock.
+ // Historical dates retain explicit application and SQL validation.
+ const { data, error } = await supabaseAdmin.rpc("record_linkedin_send_evidence", { p_organisation_id: org, p_actor: actor, p_table: table, p_id: body.id, p_revision: body.revision, p_key: body.key, p_details: { ...details, sentAt: details.choice === "now" ? null : details.sentAt, correction, sentStage: selected?.stage || "connection" } });
  if (error) throw Error("Confirmation was not recorded. Reload and retry with the same receipt key. This Preview requires the reconciliation schema; do not repeat the LinkedIn send.");
  return data;
 }
