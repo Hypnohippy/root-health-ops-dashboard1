@@ -8,6 +8,7 @@ import ResponseLifecycleDetails from "./ResponseLifecycleDetails";
 import type { ResponseLifecycle } from "@/lib/responseLifecycle";
 import { tenantFetch } from "@/lib/tenantFetch";
 
+import EmailMessageBody from "./EmailMessageBody";
 import LinkedInReplyResolution from "./LinkedInReplyResolution";
 import { useSearchParams } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -854,6 +855,21 @@ const deleteSelectedResponse = async () => {
     return savedDrafts.filter((d) => d.inboxItemId === selected.id);
   }, [savedDrafts, selected]);
 
+  const emailWorkspace = selected?.platform === "email";
+  const contactBriefing = selected ? (
+                  <section aria-label="Why this contact matters" className="rounded-2xl border border-sky-400/20 bg-sky-400/[0.07] p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold text-white">Why this contact matters</h2>{contactContext?.messageType ? <Pill>{`Message type: ${contactContext.messageType}`}</Pill> : null}</div>
+                    <ResponseLifecycleDetails lifecycle={selected.lifecycle} />
+                    {contextLoading ? <p className="mt-3 text-sm text-slate-400">Loading contact context…</p> : contactContext ? <div className="mt-3 grid gap-3 text-sm text-slate-300">
+                      <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Who</div><p className="mt-1 text-white">{[contactContext.name, contactContext.role, contactContext.company].filter(Boolean).join(" — ") || "Contact details are incomplete."}</p>{contactContext.sector ? <p className="mt-1 text-xs text-slate-400">Sector: {contactContext.sector}</p> : null}</div>
+                      <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Why relevant</div><p className="mt-1">{contactContext.whyRelevant}</p><p className="mt-1 text-xs text-slate-400">{contactContext.buyingSignalLabel}</p></div>
+                      <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Relationship</div><p className="mt-1">{contactContext.relationship}</p><p className="mt-1 text-xs text-slate-400">Source: {contactContext.source}{contactContext.currentStage ? ` · ${contactContext.currentStage}` : ""}</p></div>
+                      {(contactContext.whatWeKnow.length > 0 || contactContext.history.length > 0) ? <details className="rounded-xl border border-white/10 bg-black/20 p-3"><summary className="cursor-pointer font-semibold text-slate-200">What we know and previous history</summary><ul className="mt-2 space-y-1 text-xs text-slate-400">{[...contactContext.whatWeKnow,...contactContext.history].map((entry,index)=><li key={`${index}-${entry}`}>• {entry}</li>)}</ul></details> : <p className="text-xs text-slate-400">No additional outreach history is recorded.</p>}
+                      <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] p-3"><div className="text-xs font-semibold uppercase tracking-wide text-emerald-200">Best next move</div><p className="mt-1 text-emerald-50">{contactContext.objective}</p></div>
+                    </div> : <p className="mt-3 text-sm text-slate-400">The contact briefing could not be loaded. The selected event remains available below.</p>}
+                  </section>
+  ) : null;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -1015,8 +1031,8 @@ const deleteSelectedResponse = async () => {
           )}
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-3">
+        <div className="grid items-start gap-6 lg:grid-cols-3">
+          <div aria-label="Response selection" className={emailWorkspace ? "min-w-0 lg:col-span-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 max-h-52 overflow-y-auto" : "lg:col-span-2 space-y-3"}>
             {!loading && filtered.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
                 No items found. Pull latest fetches connected social comments; email replies arrive through the secure intake.
@@ -1093,7 +1109,7 @@ const deleteSelectedResponse = async () => {
             )}
           </div>
 
-          <div className="space-y-6">
+          <div aria-label={emailWorkspace ? "Selected email workspace" : undefined} className={emailWorkspace ? "min-w-0 space-y-6 lg:col-span-2" : "space-y-6"}>
             <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
               <div>
                 <div className="text-base font-semibold">{selected?.lifecycle?.label || "Response assistant"}</div>
@@ -1112,17 +1128,7 @@ const deleteSelectedResponse = async () => {
                 </div>
               ) : (
                 <div className="mt-4 space-y-4">
-                  <section aria-label="Why this contact matters" className="rounded-2xl border border-sky-400/20 bg-sky-400/[0.07] p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold text-white">Why this contact matters</h2>{contactContext?.messageType ? <Pill>{`Message type: ${contactContext.messageType}`}</Pill> : null}</div>
-                    <ResponseLifecycleDetails lifecycle={selected.lifecycle} />
-                    {contextLoading ? <p className="mt-3 text-sm text-slate-400">Loading contact context…</p> : contactContext ? <div className="mt-3 grid gap-3 text-sm text-slate-300">
-                      <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Who</div><p className="mt-1 text-white">{[contactContext.name, contactContext.role, contactContext.company].filter(Boolean).join(" — ") || "Contact details are incomplete."}</p>{contactContext.sector ? <p className="mt-1 text-xs text-slate-400">Sector: {contactContext.sector}</p> : null}</div>
-                      <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Why relevant</div><p className="mt-1">{contactContext.whyRelevant}</p><p className="mt-1 text-xs text-slate-400">{contactContext.buyingSignalLabel}</p></div>
-                      <div><div className="text-xs font-semibold uppercase tracking-wide text-sky-200">Relationship</div><p className="mt-1">{contactContext.relationship}</p><p className="mt-1 text-xs text-slate-400">Source: {contactContext.source}{contactContext.currentStage ? ` · ${contactContext.currentStage}` : ""}</p></div>
-                      {(contactContext.whatWeKnow.length > 0 || contactContext.history.length > 0) ? <details className="rounded-xl border border-white/10 bg-black/20 p-3"><summary className="cursor-pointer font-semibold text-slate-200">What we know and previous history</summary><ul className="mt-2 space-y-1 text-xs text-slate-400">{[...contactContext.whatWeKnow,...contactContext.history].map((entry,index)=><li key={`${index}-${entry}`}>• {entry}</li>)}</ul></details> : <p className="text-xs text-slate-400">No additional outreach history is recorded.</p>}
-                      <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] p-3"><div className="text-xs font-semibold uppercase tracking-wide text-emerald-200">Best next move</div><p className="mt-1 text-emerald-50">{contactContext.objective}</p></div>
-                    </div> : <p className="mt-3 text-sm text-slate-400">The contact briefing could not be loaded. The selected event remains available below.</p>}
-                  </section>
+                  {!emailWorkspace && contactBriefing}
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
@@ -1164,8 +1170,8 @@ const deleteSelectedResponse = async () => {
                       ) : null}
                     </div>
 
-                    <div className="mt-3 text-sm whitespace-pre-wrap">{selected.text}</div>
-                  {selected.platform === "email" ? <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-xs"><div><b>Sender:</b> {selected.senderEmail || selected.authorHandle || "Unknown"}</div><div><b>Subject:</b> {selected.subject || "(no subject)"}</div><div><b>Classification:</b> {(selected.emailClassification || "unclassified").replaceAll("_", " ")}</div><div><b>State:</b> {selected.lifecycle?.label || "State unavailable"}</div>{selected.emailDeliveryStatus ? <div><b>Delivery:</b> {selected.emailDeliveryStatus.replaceAll("_", " ")}</div> : null}{selected.outreachReference ? <div><b>Outreach:</b> {selected.outreachReference}</div> : null}{selected.emailThreadId ? <div><b>Thread:</b> {selected.emailThreadId}</div> : <div><b>Thread:</b> unavailable — engine will send safely without threading if supported</div>}</div> : null}
+                    {!emailWorkspace && <div className="mt-3 text-sm whitespace-pre-wrap">{selected.text}</div>}
+                  {selected.platform === "email" ? <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-xs break-words"><div><b>Sender:</b> {selected.senderEmail || selected.authorHandle || "Unknown"}</div><div><b>Subject:</b> {selected.subject || "(no subject)"}</div><details className="mt-2 text-slate-400"><summary className="cursor-pointer">Email details</summary><div><b>Classification:</b> {(selected.emailClassification || "unclassified").replaceAll("_", " ")}</div><div><b>State:</b> {selected.lifecycle?.label || "State unavailable"}</div>{selected.emailDeliveryStatus ? <div><b>Delivery:</b> {selected.emailDeliveryStatus.replaceAll("_", " ")}</div> : null}{selected.outreachReference ? <div><b>Outreach:</b> {selected.outreachReference}</div> : null}{selected.emailThreadId ? <div><b>Thread:</b> {selected.emailThreadId}</div> : <div><b>Thread:</b> unavailable — engine will send safely without threading if supported</div>}</details></div> : null}
                     {selected.platform === "email" ? (
   <section
     className="mt-4 rounded-2xl border border-white/10 bg-slate-950/50 p-4"
@@ -1196,10 +1202,12 @@ const deleteSelectedResponse = async () => {
     ) : conversationError ? (
       <div className="mt-4 rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
         {conversationError}
+        <div className="mt-3 text-slate-100"><EmailMessageBody body={selected.text} /></div>
       </div>
     ) : conversationMessages.length === 0 ? (
       <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
         No conversation history has been stored for this email yet.
+        <div className="mt-3 text-slate-100"><EmailMessageBody body={selected.text} /></div>
       </div>
     ) : (
       <div className="mt-4 space-y-3">
@@ -1253,9 +1261,7 @@ const deleteSelectedResponse = async () => {
                 </div>
               ) : null}
 
-              <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-100">
-                {message.body}
-              </div>
+              <div className="mt-3"><EmailMessageBody body={message.body} /></div>
             </article>
           );
         })}
@@ -1432,6 +1438,7 @@ const deleteSelectedResponse = async () => {
               )}
             </div>
           </div>
+          {emailWorkspace && <aside aria-label="Contact context" className="min-w-0 lg:col-span-1">{contactBriefing}</aside>}
         </div>
       </div>
 {showFollowUpPicker && selected && (
