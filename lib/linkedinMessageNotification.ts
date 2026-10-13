@@ -10,7 +10,7 @@ export function parseLinkedInMessageNotification(body: Record<string, unknown>, 
   const subject = str(body.subject), html = str(body.html), gmailMessageId = str(body.gmail_message_id);
   const receivedAt = str(body.received_at);
   if (!/^messaging-digest-noreply@(?:e\.)?linkedin\.com$/i.test(sender) || !/^.{1,200} just messaged you[.!]?$/i.test(subject) ||
-      !/\b(?:1|one) new message awaits your response\b/i.test(html.replace(/<[^>]*>/g, " ")) ||
+      !/(?<![\w.+-])(?:(?:1|one) new message awaits|(?:[2-9]|[1-9]\d+) new messages await) your response\b/i.test(html.replace(/<[^>]*>/g, " ")) ||
       !/^[a-f0-9]{8,32}$/i.test(gmailMessageId) || !Number.isFinite(Date.parse(receivedAt)) || Date.parse(receivedAt) > now + 300000 || html.length > 200000) return null;
   const urls = [...html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)].map(m => m[1].replace(/&amp;/g, "&"));
   const profiles = new Set<string>(), messageUrls = new Set<string>();
