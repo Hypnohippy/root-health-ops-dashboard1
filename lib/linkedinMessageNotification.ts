@@ -37,7 +37,7 @@ function eventFromHtml(html: string, base: { gmailMessageId: string; receivedAt:
       if (/^\/(?:comm\/)?messaging\/thread\/[^/]+\/?$/i.test(url.pathname)) {
         // Any extra thread makes the block ambiguous, even if its label differs.
         messageUrls.add(`https://www.linkedin.com${url.pathname.replace(/^\/comm\//, "/").replace(/\/$/, "")}`);
-        if (!/^view message$/i.test(match[2].replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim())) return null;
+        if (!/^view messages?$/i.test(match[2].replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim())) return null;
       }
     } catch { /* Never resolve redirects or non-direct links. */ }
   }
@@ -82,21 +82,49 @@ export function parseLinkedInMessageNotifications(body: Record<string, unknown>,
   }
   if (stack.length !== 1) return { events: [], rejectedBlocks: 1 };
   const events: LinkedInMessageNotification[] = []; let rejectedBlocks = 0;
-  const scan = (node: Node): boolean => {
-    const fragment = html.slice(node.start, node.end);
-    if (!/href\s*=\s*["'][^"']*\/messaging\/thread\//i.test(fragment) && !/href\s*=\s*["'][^"']*linkedin\.com\/(?:comm\/)?in\//i.test(fragment)) return false;
-    // Nested message rows/cards are separate boundaries. Never salvage them
-    // by pairing their links across an enclosing table or email container.
-    const strong = new Set(["tr","li","article","section"]);
-    const hasNestedBoundary = (child: Node): boolean => (strong.has(child.tag) && /href\s*=\s*["'][^"']*(?:\/messaging\/thread\/|linkedin\.com\/(?:comm\/)?in\/)/i.test(html.slice(child.start, child.end))) || child.children.some(hasNestedBoundary);
-    if (node.children.some(hasNestedBoundary)) { node.children.forEach(scan); return true; }
-    if (!strong.has(node.tag) && node.tag !== "div") { node.children.forEach(scan); return false; }
-    // Div cards must contain their own profile and View message anchors; do not
-    // combine sibling divs containing only half a pair.
-    if (node.tag === "div" && node.children.some(child => child.tag === "div")) { node.children.forEach(scan); return true; }
-    const event = eventFromHtml(fragment, { gmailMessageId: str(body.gmail_message_id), receivedAt: new Date(str(body.received_at)).toISOString(), subject });
-    if (event) events.push(event); else rejectedBlocks++;
-    return true;
+  const base = { gmailMessageId: str(body.gmail_message_id), receivedAt: new Date(str(body.received_at)).toISOString(), subject };
+  const containerTags = new Set(["tr", "li", "article", "section", "div"]);
+  const fragment = (node: Node) => html.slice(node.start, node.end);
+  const relevant = (node: Node) => /href\s*=\s*["'][^"']*(?:\/messaging\/thread\/|linkedin\.com\/(?:comm\/)?in\/)/i.test(fragment(node));
+  const groups = (node: Node) => {
+    const byTag = new Map<string, Node[]>();
+    for (const child of node.children) {
+      if (!containerTags.has(child.tag) || !relevant(child)) continue;
+      byTag.set(child.tag, [...(byTag.get(child.tag) || []), child]);
+    }
+    return [...byTag.values()].filter(children => children.length >= 2);
+  };
+  const hasTable = (node: Node): boolean => node.tag === "table" || node.children.some(hasTable);
+  const ambiguousNesting = (node: Node): boolean => groups(node).some(children =>
+    // Nested full cards or separately wrapped partial cards cannot be merged.
+    // Bare profile/action layout rows are permitted inside one message card.
+    children.filter(child => eventFromHtml(fragment(child), base)).length > 1 ||
+    children.every(child => child.tag !== "tr" || child.children.some(hasTable))) || node.children.some(ambiguousNesting);
+  const processContainer = (container: Node) => {
+    const event = eventFromHtml(fragment(container), base);
+    if (!event || ambiguousNesting(container)) { rejectedBlocks++; return; }
+    // Descend only within this established repeated-container boundary to find
+    // the smallest subtree containing the pair, including sibling layout rows.
+    let smallest = container;
+    for (;;) {
+      const complete = smallest.children.filter(child => eventFromHtml(fragment(child), base));
+      if (complete.length !== 1) break;
+      smallest = complete[0];
+    }
+    events.push(eventFromHtml(fragment(smallest), base)!);
+  };
+  const scan = (node: Node) => {
+    if (!relevant(node)) return;
+    const repeated = groups(node);
+    if (repeated.length) {
+      // Establish the outer repeated message boundaries BEFORE descending into
+      // their internal table rows. Never salvage an invalid card via its siblings.
+      repeated.flat().forEach(processContainer);
+      // Relevant unmatched sibling structures are unsupported, not silently paired.
+      rejectedBlocks += node.children.filter(child => relevant(child) && !repeated.flat().includes(child)).length;
+      return;
+    }
+    node.children.forEach(scan);
   };
   scan(root);
   const unique = [...new Map(events.map(event => [notificationEventKey(event), event])).values()];

@@ -303,3 +303,53 @@ test("aggregate notification preserves stronger closed/nurture/meeting relations
  }
  const row=digestRows()[0],db=database({inbox_items:[row],growth_targets:[{...target,linkedin_identity:nina,deal_stage:"meeting"}],acquisition_items:[]});await digestService(db).ingestLinkedInNotifications(org,[parseDigest(digest).events[0]]);assert.equal(presentation.responseLifecycleMap(org,db.stored).get(row.id).currentStage,"meeting");assert.equal(db.stored.growth_targets[0].deal_stage,"meeting");
 });
+
+// Original MIME-decoded Gmail digest 1a1347f91b2b3316. Only URL query tokens
+// were removed; nested table/card structure is retained verbatim.
+const realDigestHtml=fs.readFileSync("tests/fixtures/linkedin-nina-tracy-digest.html","utf8").replace(/\r\n/g,"\n");
+const realDigest={...digest,html:realDigestHtml};
+const realThreads={
+ "linkedin.com/in/nina-gurung":"https://www.linkedin.com/messaging/thread/2-NzlmMzQwZmQtMzgxNS00MjMxLWEyOTctZDI2NzY2MjhiZDc0XzEwMA==",
+ "linkedin.com/in/tracy-fountain-a6aa8215b":"https://www.linkedin.com/messaging/thread/2-NWNjZGU5NTEtNjEzNi00MjBlLWIyNGYtNWZkMjUxOWJkODJmXzEwMA=="
+};
+function assertRealPairs(parsed) {assert.equal(parsed.events.length,2);assert.equal(parsed.rejectedBlocks,0);for(const event of parsed.events) assert.equal(event.messageUrl,realThreads[event.identity]);}
+test("exact real Nina/Tracy nested Gmail HTML produces two block-local events",()=>{
+ assertRealPairs(parseDigest(realDigest));assert.doesNotMatch(realDigestHtml,/midToken=|otpToken=|trackingId=|authToken=/);
+});
+test("reversing actual person containers preserves profile/thread associations",()=>{
+ // Fixed original-fixture code-point boundaries of the two repeated message rows.
+ // Swapping the whole rows leaves their inner profile/action tables unchanged.
+ const chars=Array.from(realDigestHtml),a=chars.slice(8546,14635).join(""),b=chars.slice(14636,20737).join("");
+ assert.ok(a.startsWith("<tr") && a.endsWith("</tr>"));assert.ok(b.startsWith("<tr") && b.endsWith("</tr>"));assert.ok(a.includes("nina-gurung"));assert.ok(b.includes("tracy-fountain-a6aa8215b"));
+ const reversed=chars.slice(0,8546).join("")+b+chars.slice(14635,14636).join("")+a+chars.slice(20737).join("");assertRealPairs(parseDigest({...realDigest,html:reversed}));
+});
+const splitRows=(person,thread)=>`<tr><td><table><tbody><tr><td><a href="https://${person}">Person</a></td></tr><tr><td><a href="https://linkedin.com/messaging/thread/${thread}">View messages</a></td></tr></tbody></table></td></tr>`;
+test("profile/action sibling rows are paired inside each repeated message container",()=>{
+ const html=`2 new messages await your response<table><tbody>${splitRows(nina,"nina-thread")}${splitRows(tracy,"tracy-thread")}</tbody></table>`;
+ const parsed=parseDigest({...digest,html});assert.equal(parsed.events.length,2);assert.equal(parsed.rejectedBlocks,0);for(const event of parsed.events) assert.equal(event.messageUrl,`https://www.linkedin.com/messaging/thread/${event.identity===nina ? "nina" : "tracy"}-thread`);
+});
+test("adjacent incomplete message containers are never cross-paired",()=>{
+ const html=`2 new messages await your response<table><tbody><tr><td><table><tr><td><a href="https://${nina}">Nina</a></td></tr></table></td></tr><tr><td><table><tr><td><a href="https://linkedin.com/messaging/thread/nina-thread">View messages</a></td></tr></table></td></tr>${splitRows(tracy,"tracy-thread")}</tbody></table>`;
+ const parsed=parseDigest({...digest,html});assert.equal(parsed.events.length,1);assert.equal(parsed.events[0].identity,tracy);assert.equal(parsed.rejectedBlocks,2);
+});
+test("multiple profiles/threads or separately wrapped nested cards reject the entire container",()=>{
+ for(const broken of [splitRows(nina,"nina-thread").replace("</td></tr></tbody>",`<a href="https://${tracy}">Other</a></td></tr></tbody>`),splitRows(nina,"nina-thread").replace("</td></tr></tbody>",'<a href="https://linkedin.com/messaging/thread/other">View message</a></td></tr></tbody>'),`<tr><td><div><a href="https://${nina}">Nina</a></div><div><a href="https://linkedin.com/messaging/thread/nina-thread">View message</a></div></td></tr>`]) {
+ const parsed=parseDigest({...digest,html:`2 new messages await your response<table>${broken}${splitRows(tracy,"tracy-thread")}</table>`});assert.equal(parsed.events.length,1);assert.equal(parsed.events[0].identity,tracy);assert.equal(parsed.rejectedBlocks,1);
+ }
+});
+test("Jim/Natalie plural labels and singular labels pass only on valid direct threads",()=>{
+ for(const name of ["Jim","Natalie"]) for(const label of ["View message","View messages"]) {
+  const result=parser.parseLinkedInMessageNotification({...mail,subject:`${name} just messaged you`,html:mail.html.replace("1 new message awaits","2 new messages await").replace("View message",label)},Date.parse(time));assert.ok(result);assert.equal(result.identity,identity);
+ }
+ for(const label of ["Read messages","Open conversation","View message from Jim","View messages now"]) assert.equal(parser.parseLinkedInMessageNotification({...mail,html:mail.html.replace("View message",label)},Date.parse(time)),null);
+ assert.equal(parser.parseLinkedInMessageNotification({...mail,html:mail.html.replace("View message","View messages").replace("https://www.linkedin.com/comm/messaging","https://evil.test/comm/messaging")},Date.parse(time)),null);
+});
+test("real digest partial retry stays idempotent with exact thread destinations",async()=>{
+ const events=parseDigest(realDigest).events;assert.equal(events.length,2);
+ const rows=events.map((event,index)=>({...inbox,id:`real-${index}`,linkedin_identity:event.identity,raw:{source_gmail_message_id:`acceptance-${index}`}}));
+ const db=database({inbox_items:rows,growth_targets:events.map((event,index)=>({...target,id:`target-${index}`,linkedin_identity:event.identity})),acquisition_items:[]},{failTarget:true});const service=digestService(db);
+ const first=await service.ingestLinkedInNotifications(org,events);assert.ok(first[0].error);assert.ok(first[1].itemId);
+ const retry=await service.ingestLinkedInNotifications(org,events);assert.ok(retry.every(result=>result.duplicate));
+ for(const row of db.stored.inbox_items) {assert.equal(row.raw.linkedin_message_notifications.length,1);assert.equal(row.linkedin_message_url,realThreads[row.linkedin_identity]);assert.equal(row.manual_completion.message,inbox.manual_completion.message);const view=presentation.responseLifecycleMap(org,db.stored).get(row.id);assert.equal(view.currentStage,"needs_reply");assert.equal(view.canDraft,false);assert.equal(view.nextDueDate,null);}
+ assert.ok(db.stored.growth_targets.every(row=>row.linkedin_conversation_active));assert.equal(presentation.responseAttention(org,db.stored).count,2);
+});
