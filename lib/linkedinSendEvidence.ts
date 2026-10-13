@@ -37,9 +37,9 @@ export function validateSendInput(body: Record<string, unknown>, now = Date.now(
   const confirmedAt = new Date(now).toISOString();
   let sentAt: string | null = null;
   if (choice === "now") {
-    const at = body.completedAt === undefined ? now : Date.parse(String(body.completedAt));
-    if (!Number.isFinite(at) || at > now) throw Error("The send time must be valid and cannot be in the future.");
-    sentAt = new Date(at).toISOString();
+    // "Sent now" confirms operator intent, not a browser-clock date.
+    // Ignore legacy completedAt fields; persistence uses its own recording clock.
+    sentAt = confirmedAt;
   }
   else if (!unknown) {
     if (!nonempty(body.sentAt) || !/(Z|[+-]\d{2}:\d{2})$/.test(String(body.sentAt)) || !nonempty(body.timezone)) throw Error("Provide the actual LinkedIn send date and timezone.");

@@ -17,7 +17,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
   const [notice, setNotice] = useState("");
   const [historical, setHistorical] = useState(false);
   const [uncertain, setUncertain] = useState(false);
-  const receipt = useRef<{ key: string; completedAt: string; message: string; revision: string } | null>(null);
+  const receipt = useRef<{ key: string; message: string; revision: string } | null>(null);
   const currentDraft = useRef(initialMessage);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const generation = useRef(0);
@@ -75,7 +75,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
   async function complete() {
     if (locked.current) return;
     locked.current = true; setBusy("complete"); setNotice("");
-    receipt.current ||= { key: crypto.randomUUID(), completedAt: new Date().toISOString(), message, revision: queue.revision };
+    receipt.current ||= { key: crypto.randomUUID(), message, revision: queue.revision };
     try {
       const data = await post({ action: "record_send", sendChoice: "now", confirmed: true, ...receipt.current });
       if (data.reconciliationErrors?.length) {

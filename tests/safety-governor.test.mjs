@@ -168,11 +168,28 @@ test("real SQL: reconciliation appends immutable receipts, stores two clocks, bl
   await db.query(`insert into growth_targets(id,organisation_id,stage,status,linkedin_identity) values($1,$2,'connection','active','linkedin.com/in/test')`,[T,A]);
   const run=async(key,details,org=A)=>{const rev=(await db.query(`select revision from lifecycle_revisions where organisation_id=$1`,[org])).rows[0]?.revision||0;return (await db.query(`select record_linkedin_send_evidence($1,$2,'growth_targets',$3,$4,$5,$6::jsonb) as result`,[org,A,T,rev,key,JSON.stringify(details)])).rows[0].result;};
   const base={message:"  Exact message\n",source:"Manually confirmed LinkedIn send",timezone:"Europe/London",precision:"time",sentStage:"connection"};
-  const first=await run(K,{...base,choice:"now",correction:false});assert.ok(first.sentAt);assert.ok(first.confirmedAt);
+  const rpcCalls=[];
+  const service=load("lib/linkedinSendReconciliation.server.ts",{
+   "@/lib/supabaseAdmin":{supabaseAdmin:{rpc:async(name,p)=>{assert.equal(name,"record_linkedin_send_evidence");rpcCalls.push(p);try{return {data:(await db.query(`select record_linkedin_send_evidence($1,$2,$3,$4,$5,$6,$7::jsonb) as result`,[p.p_organisation_id,p.p_actor,p.p_table,p.p_id,p.p_revision,p.p_key,JSON.stringify(p.p_details)])).rows[0].result,error:null};}catch(error){return {data:null,error};}}}},
+   "@/lib/lifecycleSnapshot.server":{readLifecycleInput:async(org,backfill)=>{assert.equal(org,A);assert.equal(backfill,false);return input({growth_targets:(await db.query(`select * from growth_targets where organisation_id=$1`,[org])).rows});}},
+   "@/lib/linkedinCadenceBackfill":{planLinkedInCadenceBackfill:(org,data)=>({projected:data,review:[]})},
+   "@/lib/linkedinOutreach":{linkedInOutreachQueue:()=>({items:[{table:"growth_targets",id:T,stage:"connection"}]})},
+   "@/lib/outreachSelfIdentity.server":{readOutreachSelfIdentity:async()=>({})},"@/lib/linkedinSendEvidence":sendEvidence,
+  });
+  const revision=String((await db.query(`select revision from lifecycle_revisions where organisation_id=$1`,[A])).rows[0]?.revision||0);
+  const body={action:"record_send",table:"growth_targets",id:T,revision,key:K,sendChoice:"now",confirmed:true,message:base.message,completedAt:new Date(Date.now()+5000).toISOString()};
+  const first=await service.reconcileLinkedInSend(A,A,body);assert.ok(first.sentAt);assert.ok(first.confirmedAt);
+  assert.equal(rpcCalls[0].p_details.sentAt,null);assert.equal(rpcCalls[0].p_key,K);assert.equal(rpcCalls[0].p_revision,revision);
+  assert.equal(new Date(first.sentAt).toISOString(),new Date(first.confirmedAt).toISOString());
   let row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];const original=row.manual_completion;
   assert.equal(original.sent_at,original.confirmed_at);assert.equal(original.message,base.message);
+  const skewedRetry=await service.reconcileLinkedInSend(A,A,{...body,completedAt:"2099-01-01T00:00:00Z"});assert.equal(skewedRetry.duplicate,true);assert.equal(rpcCalls.length,1);
+  assert.deepEqual((await db.query(`select manual_completion from growth_targets where id=$1`,[T])).rows[0].manual_completion,original);
+  await assert.rejects(service.reconcileLinkedInSend(A,A,{...body,key:K2,sendChoice:"historical",sentAt:new Date(Date.now()+86400000).toISOString(),timezone:"Europe/London"}),/cannot be in the future/);
+  await assert.rejects(service.reconcileLinkedInSend(A,A,{...body,key:"88888888-8888-4888-8888-888888888888"}),/Confirmation was not recorded/);
+  assert.deepEqual((await db.query(`select manual_completion from growth_targets where id=$1`,[T])).rows[0].manual_completion,original);
   const unknown=await run(K2,{...base,choice:"conversation",status:"unknown",correction:true,source:"Manually reconciled from LinkedIn history"});assert.equal(unknown.sentAt,null);
-  row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(row.manual_completion.content_kind,"conversation_history_pasted");assert.equal(row.manual_completion.message,base.message);assert.equal(row.manual_completion.historical_send_date_status,"unknown");assert.equal(row.first_outbound_at,null);assert.equal(row.stage,"day3_followup");const {history: ignoredHistory,...originalWithoutHistory}=original;assert.deepEqual(row.manual_completion.history[0],originalWithoutHistory);
+  row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(row.manual_completion.content_kind,"conversation_history_pasted");assert.equal(row.manual_completion.message,base.message);assert.equal(row.manual_completion.historical_send_date_status,"unknown");assert.equal(row.first_outbound_at,null);assert.equal(row.stage,"day3_followup");const {history: ignoredHistory,...originalWithoutHistory}=original;assert.equal(ignoredHistory.length,0);assert.deepEqual(row.manual_completion.history[0],originalWithoutHistory);
   const retry=await run(K2,{...base,choice:"unknown",correction:true});assert.equal(retry.duplicate,true);assert.equal((await db.query(`select manual_completion from growth_targets where id=$1`,[T])).rows[0].manual_completion.history.length,1);
   const old="2026-08-01T12:34:56.000Z";await run("99999999-9999-4999-8999-999999999999",{...base,choice:"conversation",status:"verified",earliestOutboundConfirmed:true,sentAt:old,correction:true});
   row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(new Date(row.first_outbound_at).toISOString(),old);assert.notEqual(row.manual_completion.sent_at,row.manual_completion.confirmed_at);assert.equal(row.manual_completion.history.length,2);assert.equal(row.manual_completion.history[0].key,K);
