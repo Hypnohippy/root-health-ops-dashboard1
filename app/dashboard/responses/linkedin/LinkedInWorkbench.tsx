@@ -1,4 +1,5 @@
 "use client";
+import KnownRelationshipSearch from "./KnownRelationshipSearch";
 import LinkedInToConnect from "./LinkedInToConnect";
 import LinkedInHistoricalSend from "./LinkedInHistoricalSend";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -161,7 +162,7 @@ export default function LinkedInConsole() {
   const org = queue?.organisationId || "";
   const inbox = `/dashboard/responses${org ? `?organisationId=${encodeURIComponent(org)}` : ""}`;
   function newBatch(includeSkipped = false) { if (includeSkipped) skipped.current = []; batchIds.current = null; void load(); }
-  return <main className="mx-auto max-w-7xl space-y-4 p-4 py-5 text-slate-100">
+  return <main className="mx-auto max-w-7xl space-y-4 p-4 py-5 text-slate-100"><KnownRelationshipSearch/>
     <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-semibold">LinkedIn Outreach Console</h1><a href={inbox} className="text-sm underline text-sky-300">Back to Responses inbox</a><a className="ml-4 text-sm underline" href={`/dashboard/responses/linkedin/conversations?organisationId=${encodeURIComponent(org)}`}>Log a LinkedIn conversation</a></div>
     <nav aria-label="Queue views" className="flex flex-wrap gap-2">{([ ["all","Work next 10"], ["fresh","Fresh"], ["catchup","Catch-up"], ["followups","Follow-ups due"] ] as const).map(([value,label]) => <button key={value} aria-pressed={!connectionView && view === value} disabled={loading || working} className={`${button} ${view === value ? "bg-emerald-900" : ""}`} onClick={() => { setConnectionView(null); if (view === value) newBatch(); else setView(value); }}>{label}</button>)}{([["to_connect", "To connect"], ["pending", "Invitation pending"]] as const).map(([value, label]) => <button key={value} className={`${button} ${connectionView === value ? "bg-emerald-900" : ""}`} aria-pressed={connectionView === value} disabled={working} onClick={() => setConnectionView(value)}>{label}</button>)}</nav>
     {connectionView ? <LinkedInToConnect key={connectionView} view={connectionView}/> : <>

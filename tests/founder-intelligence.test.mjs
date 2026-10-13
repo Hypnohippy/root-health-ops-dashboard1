@@ -11,7 +11,7 @@ const require=createRequire(import.meta.url);
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 function load(file,mocks={},globals={}){
  const mod={exports:{}};
- vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Date,console,...globals,require:n=>n in mocks?mocks[n]:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Date,console,crypto:{randomUUID:()=>"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},...globals,require:n=>n in mocks?mocks[n]:n==='./FounderMemoryPanel'?{__esModule:true,default:()=>null}:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});
  return mod.exports;
 }
 const model=load('lib/founderIntelligence.ts');

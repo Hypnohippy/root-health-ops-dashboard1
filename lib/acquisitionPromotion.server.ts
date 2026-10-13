@@ -15,6 +15,7 @@ export function acquisitionTarget(item: Item) {
   if (!["accepted", "actioned", "nurture"].includes(String(item.status)))
     throw new AcquisitionWorkflowError("Accept this opportunity before starting outreach.", 409);
   const meta = item.metadata || {};
+  if(meta.founder_prior_contact===true) throw new AcquisitionWorkflowError("Prior Founder contact is recorded. Review the linked conversation before preparing initial outreach.",409);
   const linkedin = [item.source_url, meta.linkedin_url, meta.profile_url].map(lifecycleLinkedInIdentity).find(Boolean) || null;
   const email = text(meta.email)?.toLowerCase() || null;
   if (email && !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(email))
@@ -44,6 +45,11 @@ export async function promoteAcquisition(organisationId: string, userId: string,
     const context = await readPersonalOutreach(organisationId, itemId);
     if (!context.canStart) throw new AcquisitionWorkflowError(context.reason || "Initial outreach is not available.", 409);
     await requirePersonalSource(organisationId, item as PersonalSignalItem);
+  }
+  if(typeof item.metadata?.founder_research_id==="string") {
+    const {data:history,error:historyError}=await supabaseAdmin.from("founder_activity_events").select("id").eq("organisation_id",organisationId).eq("research_record_id",item.metadata.founder_research_id).in("activity_type",["emailed","linkedin_contacted","called","linked_gmail_evidence"]).limit(1);
+    if(historyError)throw historyError;
+    if(history?.length)throw new AcquisitionWorkflowError("Founder contact activity exists. Review the current relationship before initial outreach.",409);
   }
   const target = acquisitionTarget(item);
   const { data, error: promotionError } = await supabaseAdmin.rpc("promote_acquisition_target", {

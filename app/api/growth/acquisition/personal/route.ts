@@ -1,3 +1,4 @@
+import { matchesSearch,searchQuery } from "@/lib/opsSearch";
 import { NextResponse } from "next/server";
 import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { readPersonalOpportunities } from "@/lib/personalAcquisition.server";
@@ -15,8 +16,9 @@ export async function GET(req: Request) {
     if (!uuid.test(requested) || !Number.isInteger(page) || page < 0 || page > 10000 || !["", "people", "content", "partners", "review"].includes(category) || !["", "decide", "progress", "saved", "completed"].includes(state)) return NextResponse.json({ error: "Invalid opportunity filter." }, { status: 400 });
     const { organisationId } = await requireOrganisation(requested, false);
     const all = await readPersonalOpportunities(organisationId);
+    const search=searchQuery(params.get("q"));
     const stateOf = (status: string) => status === "nurture" ? "saved" : ["actioned", "engaged", "converted", "lost", "dismissed"].includes(status) ? "completed" : ["reviewing", "accepted"].includes(status) ? "progress" : "decide";
-    const groups = all.filter(g => (!category || g.category === category) && (!state || stateOf(g.item.status) === state));
+    const groups = all.filter(g => g.members.some(member=>matchesSearch(member,search)) && (!category || g.category === category) && (!state || stateOf(g.item.status) === state));
     const slice = groups.slice(page * 25, page * 25 + 25);
     const lifecycle = slice.some(g => g.category === "partners") ? await readLifecycleInput(organisationId, false) : null;
     const performance = await personalPerformance(supabaseAdmin, organisationId, slice.flatMap(g => g.members));

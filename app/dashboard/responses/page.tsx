@@ -94,6 +94,7 @@ type ContactBriefing = {
 };
 
 type ApiResponse = {
+  total?: number; page?: number;
   attention?: {count:number;href:string;channels:Record<string,{count:number;href:string}>};
   success: boolean;
   items?: InboxItem[];
@@ -208,6 +209,8 @@ export default function ResponsesPage() {
   const [organisationId, setOrganisationId] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
+  const [searchPage,setSearchPage]=useState(0),[searchTotal,setSearchTotal]=useState(0);
+  const searchSequence=useRef(0);
   const [platformFilter, setPlatformFilter] = useState<InboxPlatform | "all">(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("platform") as InboxPlatform) || "all");
   const [statusFilter, setStatusFilter] = useState<InboxStatusFilter>(() => {
   if (typeof window === "undefined") return "active";
@@ -277,6 +280,7 @@ const [conversationError, setConversationError] =
   };
 
   const load = async () => {
+    const token=++searchSequence.current;
     setLoading(true);
     setError(null);
 
@@ -284,7 +288,7 @@ const [conversationError, setConversationError] =
       const org = organisationId || (await resolveOrg());
 
       const itemId = new URLSearchParams(window.location.search).get("itemId");
-      const res = await fetch(`/api/responses/list?organisationId=${encodeURIComponent(org)}${itemId ? `&itemId=${encodeURIComponent(itemId)}` : ""}`, {
+      const res = await fetch(`/api/responses/list?organisationId=${encodeURIComponent(org)}${query ? `&q=${encodeURIComponent(query)}&page=${searchPage}&platform=${platformFilter}&status=${statusFilter}` : ""}${itemId && !query ? `&itemId=${encodeURIComponent(itemId)}` : ""}`, {
         method: "GET",
         cache: "no-store",
       });
@@ -295,19 +299,22 @@ const [conversationError, setConversationError] =
         throw new Error(data?.error || `Failed to load inbox (HTTP ${res.status}).`);
       }
 
+      if(token!==searchSequence.current)return;
+      setSearchTotal(data.total||0);
       const rows = Array.isArray(data?.items) ? data.items : [];
       setItems(rows);
       setAttention(data.attention);
-      window.dispatchEvent(new Event("responses-attention-changed"));
+      if(!query)window.dispatchEvent(new Event("responses-attention-changed"));
       setNote(typeof data?.note === "string" ? data.note : null);
       setConfigured(Boolean(data?.configured));
     } catch (e) {
+      if(token!==searchSequence.current)return;
       setError(e instanceof Error ? e.message : "Could not load responses inbox.");
       setItems([]);
       setNote(null);
       setConfigured(false);
     } finally {
-      setLoading(false);
+      if(token===searchSequence.current)setLoading(false);
     }
   };
 
@@ -357,8 +364,12 @@ const [conversationError, setConversationError] =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeSelection]);
 
+  useEffect(()=>{const sequence=searchSequence;const timer=setTimeout(()=>void load(),250);return()=>{clearTimeout(timer);sequence.current++;};
+    // Search is an explicit debounced request, never a polling loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[query,searchPage,platformFilter,statusFilter]);
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+
     return items.filter((it) => {
       if (platformFilter !== "all" && it.platform !== platformFilter) return false;
 
@@ -374,23 +385,10 @@ if (
 }
 
 if (kindFilter && it.kind !== kindFilter) return false;
-      if (!q) return true;
+      return true;
 
-      const hay = [
-        it.platform,
-        it.status,
-        it.kind || "",
-        it.authorName || "",
-        it.authorHandle || "",
-        it.text || "",
-        it.postText || "",
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      return hay.includes(q);
     });
-  }, [items, query, platformFilter, statusFilter, kindFilter]);
+  }, [items, platformFilter, statusFilter, kindFilter]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {
@@ -939,7 +937,7 @@ const deleteSelectedResponse = async () => {
                 className="w-full sm:w-[340px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                 placeholder="Search…"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {setQuery(e.target.value);setSearchPage(0);}}
               />
 
               <select
@@ -1033,6 +1031,7 @@ const deleteSelectedResponse = async () => {
 
         <div className="grid items-start gap-6 lg:grid-cols-3">
           <div aria-label="Response selection" className={emailWorkspace ? "min-w-0 lg:col-span-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 max-h-52 overflow-y-auto" : "lg:col-span-2 space-y-3"}>
+            {query&&<div className="flex gap-3"><button disabled={!searchPage} onClick={()=>setSearchPage(p=>p-1)}>Previous search page</button><span>{searchTotal} historical matches</span><button disabled={(searchPage+1)*200>=searchTotal} onClick={()=>setSearchPage(p=>p+1)}>Next search page</button></div>}
             {!loading && filtered.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
                 No items found. Pull latest fetches connected social comments; email replies arrive through the secure intake.

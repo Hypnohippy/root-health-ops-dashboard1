@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 function load(file, dependencies = {}, globals = {}) {
   const mod = { exports: {} };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
-    { module: mod, exports: mod.exports, URL, require: name => { assert.ok(name in dependencies, `Unexpected dependency: ${name}`); return dependencies[name]; }, ...globals }, { filename: file });
+    { module: mod, exports: mod.exports, URL, require: name => { if(name==="@/lib/contactLifecycle")return lifecycle;if(name==="@/lib/opsSearch")return load("lib/opsSearch.ts");if(name==="@/lib/opsSearch.server")return {readTenantHistory:async()=>[]};assert.ok(name in dependencies, `Unexpected dependency: ${name}`); return dependencies[name]; }, ...globals }, { filename: file });
   return mod.exports;
 }
 const outreach = load("lib/growthOutreach.ts", { "@/lib/linkedinSendEvidence": load("lib/linkedinSendEvidence.ts") });
