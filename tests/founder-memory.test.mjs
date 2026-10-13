@@ -49,11 +49,39 @@ test("SQL: additive Founder storage, tenant FKs, exact privileges, immutable his
  const event=(await db.query("select * from founder_activity_events")).rows[0];assert.equal(event.message,details.message);assert.equal(String(event.occurred_at),String(event.recorded_at));
  await assert.rejects(call(other,recordId,randomUUID(),details));await assert.rejects(call(org,recordId,randomUUID(),{...details,time_status:"historical",occurred_at:"2099-01-01T00:00:00Z"}));
  await call(org,recordId,randomUUID(),{...details,time_status:"historical",occurred_at:null});assert.equal((await db.query("select count(*)::int as count from founder_activity_events where occurred_at is null")).rows[0].count,1);
- await call(org,recordId,randomUUID(),{activity_type:"promoted_to_acquisition",time_status:"now",route:"Acquisition"},acquisitionId);assert.equal((await db.query("select linked_acquisition_item_id from founder_research_records")).rows[0].linked_acquisition_item_id,acquisitionId);
+ const secondAcq=randomUUID(),foreignAcq=randomUUID();await db.query("insert into acquisition_items values($1,$2),($3,$4)",[secondAcq,org,foreignAcq,other]);
+ // Direct table writes enforce NULL -> same-tenant link and immutable set links.
+ await assert.rejects(db.query("update founder_research_records set linked_acquisition_item_id=$1 where id=$2",[foreignAcq,recordId]),/Invalid tenant acquisition link/);
+ await db.query("update founder_research_records set linked_acquisition_item_id=$1 where id=$2",[acquisitionId,recordId]);
+ assert.equal((await db.query("select linked_acquisition_item_id from founder_research_records where id=$1",[recordId])).rows[0].linked_acquisition_item_id,acquisitionId);
+ await assert.rejects(db.query("update founder_research_records set linked_acquisition_item_id=$1 where id=$2",[secondAcq,recordId]),/immutable once set/);
+ await assert.rejects(db.query("update founder_research_records set linked_acquisition_item_id=null where id=$1",[recordId]),/immutable once set/);
+ const promotion={activity_type:"promoted_to_acquisition",time_status:"now",route:"Acquisition"};
+ await assert.rejects(call(org,recordId,randomUUID(),promotion),/Promotion requires/);
+ await assert.rejects(call(org,recordId,randomUUID(),details,acquisitionId),/Only promotion/);
+ await assert.rejects(call(org,recordId,key,details,acquisitionId),/Only promotion/);
+ await assert.rejects(call(org,recordId,randomUUID(),promotion,foreignAcq),/Invalid tenant acquisition link/);
+ await assert.rejects(call(org,recordId,randomUUID(),promotion,secondAcq),/Acquisition link changed/);
+ const promotionKey=randomUUID();await call(org,recordId,promotionKey,promotion,acquisitionId);
+ assert.equal((await call(org,recordId,promotionKey,promotion,acquisitionId)).rows[0].result.duplicate,true);
+ await assert.rejects(call(org,recordId,promotionKey,promotion),/Promotion requires/);
+ await assert.rejects(call(org,recordId,promotionKey,promotion,secondAcq),/Acquisition link changed/);assert.equal((await db.query("select linked_acquisition_item_id from founder_research_records")).rows[0].linked_acquisition_item_id,acquisitionId);
  await db.query("insert into email_conversation_messages values($1,'message-existing','thread-existing')",[org]);
+ // RPC and CHECK both reject absent, one-sided and blank Gmail IDs, and IDs on other activity types.
+ for(const ids of [{},{gmail_message_id:"message-existing"},{gmail_thread_id:"thread-existing"},{gmail_message_id:"",gmail_thread_id:"thread-existing"}]) {
+  await assert.rejects(call(org,recordId,randomUUID(),{activity_type:"linked_gmail_evidence",...ids}),/Both authoritative Gmail IDs/);
+  await assert.rejects(db.query("insert into founder_activity_events(organisation_id,research_record_id,actor,activity_type,gmail_message_id,gmail_thread_id,idempotency_key,receipt_details) values($1,$2,$3,'linked_gmail_evidence',$4,$5,$6,'{}')",[org,recordId,actor,ids.gmail_message_id??null,ids.gmail_thread_id??null,randomUUID()]),/founder_activity_gmail_ids/);
+ }
+ for(const ids of [{gmail_message_id:"message-existing",gmail_thread_id:"thread-existing"},{gmail_message_id:"message-existing"},{gmail_thread_id:"thread-existing"}]) {
+  await assert.rejects(call(org,recordId,randomUUID(),{...details,...ids}),/Only Gmail evidence/);
+  await assert.rejects(db.query("insert into founder_activity_events(organisation_id,research_record_id,actor,activity_type,gmail_message_id,gmail_thread_id,idempotency_key,receipt_details) values($1,$2,$3,'note_added',$4,$5,$6,'{}')",[org,recordId,actor,ids.gmail_message_id??null,ids.gmail_thread_id??null,randomUUID()]),/founder_activity_gmail_ids/);
+ }
+ await assert.rejects(call(org,recordId,randomUUID(),{activity_type:"linked_gmail_evidence",gmail_message_id:"message-existing",gmail_thread_id:"wrong-thread"}),/Existing tenant Gmail evidence/);
+ await db.query("insert into email_conversation_messages values($1,'foreign-message','foreign-thread')",[other]);
+ await assert.rejects(call(org,recordId,randomUUID(),{activity_type:"linked_gmail_evidence",gmail_message_id:"foreign-message",gmail_thread_id:"foreign-thread"}),/Existing tenant Gmail evidence/);
  const gmail={activity_type:"linked_gmail_evidence",occurred_at:"2026-01-01T00:00:00Z",gmail_message_id:"message-existing",gmail_thread_id:"thread-existing"};await call(org,recordId,randomUUID(),gmail);assert.equal((await call(org,recordId,randomUUID(),gmail)).rows[0].result.duplicate,true);
  const priv=(await db.query("select has_table_privilege('service_role','founder_activity_events','INSERT') as ins,has_table_privilege('service_role','founder_activity_events','UPDATE') as upd,has_table_privilege('authenticated','founder_research_records','SELECT') as browser,has_function_privilege('anon','record_founder_activity(uuid,uuid,uuid,uuid,jsonb,uuid)','EXECUTE') as public_exec")).rows[0];assert.equal(priv.ins,true);assert.equal(priv.upd,false);assert.equal(priv.browser,false);assert.equal(priv.public_exec,false);
- await db.query("insert into acquisition_items values($1,$2)",[randomUUID(),other]);const foreignAcq=(await db.query("select id from acquisition_items where organisation_id=$1",[other])).rows[0].id;await assert.rejects(db.query("update founder_research_records set linked_acquisition_item_id=$1 where id=$2",[foreignAcq,recordId]));await assert.rejects(db.query("update founder_research_records set organisation_id=$1 where id=$2",[other,recordId]));
+ await assert.rejects(db.query("update founder_research_records set linked_acquisition_item_id=$1 where id=$2",[foreignAcq,recordId]));await assert.rejects(db.query("update founder_research_records set organisation_id=$1 where id=$2",[other,recordId]));
  const rls=await db.query("select relrowsecurity from pg_class where relname in ('founder_research_records','founder_activity_events')");assert.ok(rls.rows.every(row=>row.relrowsecurity));await db.close();
 });
 test("Founder API access denial happens before persistence/search reads",async()=>{
