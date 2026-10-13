@@ -31,3 +31,34 @@ Do not save Apps Script Head before the Ops endpoint is ready. No worker has bee
 Debbie audit references: Gmail notification 1a13062900c62444; canonical linkedin.com/in/debbie-bartlett-172523a8; existing inbox f2077f8a-ba37-4f4d-af34-3c59eeb5c590; target 311c84dc-8cdd-4f27-ac61-1560e928aec9. Rehearsal timestamps taken from the Gmail display have minute precision; the live worker will use Gmail getDate() exactly.
 
 No migration, Production write, outbound action, live worker save or PR #58 change is included.
+
+
+## Aggregate message digests (local implementation; not activated)
+
+Recognised aggregate subjects such as `Nina and Tracy sent new messages` are
+included alongside `just messaged you`, with the existing verified sender,
+14-day search window, 50-thread cap and guarded timer invocation unchanged.
+Ops validates the envelope and then accepts only self-contained structural
+message rows/cards containing one canonical profile and one associated direct
+LinkedIn thread labelled `View message`. It never derives identity from subject
+names or pairs global links by order. Unsupported/unbalanced HTML, split pairs,
+multiple identities/threads and shared threads across identities fail closed.
+Valid independent blocks can succeed despite another invalid or unknown block.
+
+Evidence remains append-only in the existing relationship, with Gmail ID stored
+separately and a deterministic event key formed from Gmail ID, canonical identity
+and canonical thread URL. Legacy receipts without a key are compared using those
+same fields. Per-event outcomes and partial-failure HTTP 503 responses permit
+safe replay, including repair of a previously saved inbox event whose target
+cadence suspension failed. No relationship is created for an unknown identity.
+Manual disposition uses the event key; old Gmail-only IDs remain accepted only
+when they identify exactly one event on that relationship.
+
+The current Needs reply projection, attention beacon, conversation destination
+and actual-text drafting guard are reused. Acceptance and manual-send receipts
+and stronger lifecycle states are preserved. No schema, trigger or configuration
+change is required. Deploy Ops before separately authorising the documented
+Apps Script Head update. No live worker update is part of this local work.
+
+LinkedIn mobile push notifications without a corresponding Gmail notification
+cannot currently be ingested.
