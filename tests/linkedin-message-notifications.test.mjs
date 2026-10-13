@@ -176,3 +176,23 @@ test("absence of actual inbound text remains fail-closed after snapshot reads",a
  const snapshot=load("lib/lifecycleSnapshot.server.ts",{"@/lib/supabaseAdmin":{supabaseAdmin:db.admin},"@/lib/contactLifecycle":lifecycle,"@/lib/linkedinCadenceBackfill":{planLinkedInCadenceBackfill:(org,input)=>({projected:input})}});
  assert.equal(state(await snapshot.readLifecycleInput(org)).canDraft,false);assert.equal(db.writes,0);
 });
+
+
+test("verified singular and plural message notices retain exact identity and no invented content",()=>{
+ for(const wording of ["1 new message awaits your response","one new message awaits your response","2 new messages await your response","12 new messages await your response"]) {
+  const result=parser.parseLinkedInMessageNotification({...mail,html:mail.html.replace("1 new message awaits your response",wording)},Date.parse(time));
+  assert.ok(result,wording);assert.equal(result.identity,identity);assert.equal(result.gmailMessageId,mail.gmail_message_id);assert.equal(result.message,undefined);
+ }
+});
+
+test("plural support rejects invalid counts and never weakens notification verification",()=>{
+ for(const wording of ["0 new messages await your response","1 new messages await your response","2 new message awaits your response","-2 new messages await your response","1.2 new messages await your response","2 new messages available"]) {
+  assert.equal(parser.parseLinkedInMessageNotification({...mail,html:mail.html.replace("1 new message awaits your response",wording)},Date.parse(time)),null,wording);
+ }
+ const plural={...mail,html:mail.html.replace("1 new message awaits your response","2 new messages await your response")};
+ for(const patch of [{sender:"messaging-digest-noreply@linkedin.com.evil.test"},{subject:"accepted your invitation"},{received_at:"garbage"},{gmail_message_id:""},{html:plural.html+'<a href="https://linkedin.com/in/another-person">Other</a>'},{html:plural.html+'<a href="https://www.linkedin.com/messaging/thread/other-thread">Other</a>'},{html:plural.html.replace("https://www.linkedin.com/comm/messaging", "https://evil.test/comm/messaging")}]) assert.equal(parser.parseLinkedInMessageNotification({...plural,...patch},Date.parse(time)),null);
+ const event=parser.parseLinkedInMessageNotification(plural,Date.parse(time));
+ const row={...inbox,...parser.notificationPatch(inbox,event)};
+ assert.equal(parser.notificationPatch(row,event),null);
+ assert.equal(state(input(row)).currentStage,"needs_reply");assert.equal(state(input(row)).canDraft,false);
+});
