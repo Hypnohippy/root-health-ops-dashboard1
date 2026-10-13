@@ -1,3 +1,7 @@
+import { groupPersonalOpportunities } from "@/lib/acquisitionPresentation";
+import { matchesSearch, searchQuery } from "@/lib/opsSearch";
+
+
 import { linkedInInvitationQueue } from "@/lib/linkedinInvitation";
 import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
 import { NextResponse } from "next/server";
@@ -13,6 +17,7 @@ export async function GET(req: Request) {
     if (!uuid.test(requested)) return NextResponse.json({ error: "Select an organisation explicitly." }, { status: 400 });
     const { organisationId } = await requireOrganisation(requested, false);
     const page = Number(params.get("page") || 0);
+    const search = searchQuery(params.get("q"));
     const status = params.get("status");
     const recordType = params.get("record_type");
     const sourceEngine = params.get("source_engine");
@@ -50,7 +55,7 @@ export async function GET(req: Request) {
       const accepted = status ? [] : (await acceptedLinkedInOpportunities(organisationId)).filter(item => !linkedIds.has(item.linkedinConnectionState.acceptedConnectionId));
       const combined = [...candidates.map(item => ({ ...item, linkedinConnectionState: states[item.id], invitationSentAt: invitations.find(i => i.id === item.id)?.invitationSentAt || null, connectionSources: invitations.find(i => i.id === item.id)?.provenance })), ...accepted]
         .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")) || a.id.localeCompare(b.id));
-      return NextResponse.json({ items: combined.slice(page * 25, page * 25 + 25), total: combined.length, page });
+      return NextResponse.json({ items: combined.filter(item=>matchesSearch(item,search)).slice(page * 25, page * 25 + 25), total: combined.filter(item=>matchesSearch(item,search)).length, page });
     }
     let query = supabaseAdmin.from("acquisition_items").select("*, acquisition_item_events(id, action, previous_status, new_status, outcome, note, created_at, actor_user_id, idempotency_key)", { count: "exact" }).eq("organisation_id", organisationId);
     if (status) query = query.eq("status", status);
@@ -58,8 +63,12 @@ export async function GET(req: Request) {
     if (recordType === "personal_opportunity") query = query.or("record_type.eq.personal_opportunity,and(record_type.eq.social_opportunity,source_engine.eq.root_health_personal)");
     else if (recordType) query = query.eq("record_type", recordType);
     if (itemId) query = query.eq("id", itemId);
-    const { data, count, error } = await query.order("created_at", { ascending: false }).order("id").range(page * 25, page * 25 + 24);
-    if (error) throw error;
+    let data: Awaited<typeof query>["data"], count: number | null;
+    if(search) {
+      const all: NonNullable<Awaited<typeof query>["data"]>=[];
+      for(let offset=0;;offset+=500) {const result=await query.order("created_at",{ascending:false}).order("id").range(offset,offset+499);if(result.error)throw result.error;all.push(...(result.data||[]));if(!result.data||result.data.length<500)break;}
+      const grouped=[...all.filter(item=>item.source_engine!=="root_health_personal"),...groupPersonalOpportunities(all.filter(item=>item.source_engine==="root_health_personal")).map(group=>({...group.item,personalGroup:group}))];const found=grouped.filter(item=>matchesSearch(item,search) || "personalGroup" in item && item.personalGroup.members.some((member:Record<string,unknown>)=>matchesSearch(member,search)));count=found.length;data=found.slice(page*25,page*25+25);
+    } else {const result=await query.order("created_at",{ascending:false}).order("id").range(page*25,page*25+24);if(result.error)throw result.error;data=result.data;count=result.count;}
     const candidates = (data || []).filter(item => {
       const handoff = item.metadata?.handoff;
       return ["b2b_lead", "partner_opportunity"].includes(item.record_type) && ["prepare_outreach", "route_outreach"].includes(handoff?.action) &&

@@ -1,0 +1,8 @@
+"use client";
+import {useEffect,useState} from "react";
+import {tenantFetch} from "@/lib/tenantFetch";
+export default function KnownRelationshipSearch() {
+ const [q,setQ]=useState(""),[page,setPage]=useState(0),[data,setData]=useState<{items:{contactId:string;name:string;company:string;currentStage:string;nextAction:string;destination:string}[];total:number}>({items:[],total:0}),[error,setError]=useState("");
+ useEffect(()=>{if(!q.trim())return;const controller=new AbortController(),timer=setTimeout(()=>{tenantFetch(`/api/growth/linkedin-relationships/search?${new URLSearchParams({q,page:String(page)})}`,{signal:controller.signal}).then(async res=>{const body=await res.json();if(!res.ok)throw Error(body.error||"Search unavailable.");setData(body);setError("");}).catch(e=>{if(!controller.signal.aborted)setError(e.message);});},250);return()=>{clearTimeout(timer);controller.abort();};},[q,page]);
+ return <section className="rounded-xl border border-white/10 p-3"><label className="grid gap-1 text-sm">Search all known LinkedIn relationships<input value={q} maxLength={200} onChange={e=>{setQ(e.target.value);setPage(0);}} className="rounded-lg bg-slate-950 p-2" placeholder="Beyond Work next 10: name, company, email or profile"/></label>{error&&<p role="alert">{error}</p>}{q&&<><ul>{data.items.map(item=><li key={item.contactId} className="py-2"><a href={item.destination} className="text-sky-300 underline">{item.name||item.company}</a> · {item.currentStage.replaceAll("_"," ")} · {item.nextAction||"No action due"}</li>)}</ul><button disabled={!page} onClick={()=>setPage(p=>p-1)}>Previous</button><span> {data.total} relationships </span><button disabled={(page+1)*25>=data.total} onClick={()=>setPage(p=>p+1)}>Next</button></>}</section>;
+}

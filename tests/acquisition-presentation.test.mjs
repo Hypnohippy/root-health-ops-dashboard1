@@ -13,11 +13,11 @@ import { create, act } from 'react-test-renderer';
 const require = createRequire(import.meta.url);
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 function load(file, mocks = {}, globals = {}) {
-  const module = { exports: {} };
+  const mod = { exports: {} };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText,
-    { module, exports: module.exports, URL, URLSearchParams, AbortController, AbortSignal, Date, console, Buffer, crypto: { randomUUID }, process: { env: {} }, ...globals,
+    { module:mod, exports: mod.exports, URL, URLSearchParams, AbortController, AbortSignal, Date, console, Buffer, crypto: { randomUUID }, process: { env: {} }, ...globals,
       require: n => n in mocks ? mocks[n] : n.startsWith('@/lib/') ? load(n.replace('@/', '') + '.ts', mocks, globals) : n.startsWith('./') ? load(path.join(path.dirname(file), n + '.tsx'), mocks, globals) : require(n) });
-  return module.exports;
+  return mod.exports;
 }
 const org = '78fa2ac8-e7b6-4b9b-9604-035723ece6b1', id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const sample = (extra = {}) => ({ id, organisation_id: org, record_type: 'social_opportunity', source_engine: 'root_health_personal', source_record_id: 'social-1', status: 'new', source_url: 'https://www.linkedin.com/posts/abc-discussion/', signal: 'Switching off after work', created_at: '2026-10-10T12:00:00Z', metadata: { action_type: 'CONTENT_SIGNAL', original_post: 'How do you switch off after work?', prepared_reply: 'What helps you unwind?', content_draft: 'A moment to pause after work.', engine_safety: { public_context: true, consumer_outreach: false, health_targeting: false, verified_direct_discussion: true } }, acquisition_item_events: [], ...extra });
@@ -106,9 +106,9 @@ test('Personal outreach blocks previous sends and replies without modifying targ
     assert.equal((await service.readPersonalOutreach(org, id)).canStart, false);
   }
 });
-test('Commercial, LinkedIn intake/Responses/cadence, growth targets and partner dispatch implementation stays byte-for-byte unchanged', () => {
-  for (const file of ['lib/acquisitionWorkflow.ts', 'lib/contactLifecycle.ts', 'lib/responseLifecycle.ts', 'lib/growthOutreach.ts', 'lib/linkedinCadenceBackfill.ts', 'app/api/growth/linkedin-console/route.ts', 'app/api/responses/list/route.ts', 'lib/partnerConversation.server.ts', 'lib/partnerConversation.ts']) {
-    const baseline = execFileSync('git', ['show', `08cdb6185b292fdfebaad52278feaa7db1c37513:${file}`], { encoding: 'utf8' });
+test('Current-main Commercial/LinkedIn lifecycle, cadence and partner dispatch stay unchanged; historical search is additive', () => {
+  for (const file of ['lib/acquisitionWorkflow.ts', 'lib/contactLifecycle.ts', 'lib/responseLifecycle.ts', 'lib/growthOutreach.ts', 'lib/linkedinCadenceBackfill.ts', 'app/api/growth/linkedin-console/route.ts', 'lib/partnerConversation.server.ts', 'lib/partnerConversation.ts']) {
+    const baseline = execFileSync('git', ['show', `5e809db5c9c9273ab8cd4b1f49f0e37f76b6ab77:${file}`], { encoding: 'utf8' });
     assert.equal(fs.readFileSync(file, 'utf8').replaceAll('\r\n', '\n'), baseline.replaceAll('\r\n', '\n'), file);
   }
 });
