@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import "./root-visual-system.css";
 import ResponseAttentionBadge from "./components/ResponseAttentionBadge";
 import AcquisitionHandoff from "./components/AcquisitionHandoff";
 import { usePathname } from "next/navigation";
@@ -296,12 +297,12 @@ export default function ClientDashboardLayout({
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 flex flex-col">
-      <header className="border-b border-white/10 bg-black/30 backdrop-blur-xl">
+    <div data-visual-system={activePrimary === "Growth" ? "root" : undefined} className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 flex flex-col">
+      <header className="ops-shell-navigation border-b border-white/10 bg-black/30 backdrop-blur-xl">
         <div className="mx-auto max-w-6xl px-4 py-4">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="ops-shell-brand flex items-center gap-3 min-w-0">
                 <div className="h-9 w-9 rounded-2xl bg-emerald-400/80 shadow-lg shadow-emerald-500/40 shrink-0" />
                 <div className="flex flex-col leading-tight min-w-0">
                   <span className="text-sm font-semibold text-slate-50">
@@ -323,6 +324,7 @@ export default function ClientDashboardLayout({
                 <Link
                   key={item.label}
                   href={item.href}
+                  aria-current={item.match(pathname) ? "page" : undefined}
                   className={primaryLinkClasses(item)}
                 >
                   {item.label}
@@ -343,7 +345,7 @@ export default function ClientDashboardLayout({
             </details>
 
             {secondaryNav.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
+              <div className="ops-shell-subnav flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
                 {secondaryNav.map((item) => (
                   <Link
                     key={item.label}
@@ -358,6 +360,8 @@ export default function ClientDashboardLayout({
           </div>
         </div>
       </header>
+
+      {activePrimary === "Growth" && <div className="ops-workspace-topbar"><div><span className="ops-eyebrow">Root Health Ops</span><p>Growth workspace</p></div><Link className="ops-search-entry" href={`/dashboard/growth/relationships${orgId ? `?organisationId=${encodeURIComponent(orgId)}` : ""}`}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>Search relationships<span className="ops-search-hint">People · companies · history</span></Link></div>}
 
       <main className="flex-1 p-6"><AcquisitionHandoff key={pathname} />{children}</main>
 

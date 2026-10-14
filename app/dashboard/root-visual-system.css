@@ -1,0 +1,73 @@
+/* Root visual system v1. Values are scoped; importing this file does not theme other Ops routes. */
+[data-visual-system="root"], .relationship-workspace {
+ --ops-frame: #071b35;
+ --ops-frame-raised: #102b4a;
+ --ops-on-frame: #eff5ff;
+ --ops-on-frame-muted: #b2c4da;
+ --ops-canvas: #e9eef8;
+ --ops-surface: #ffffff;
+ --ops-glass: rgba(255,255,255,.86);
+ --ops-ink: #12213e;
+ --ops-muted: #53627b;
+ --ops-border: #d4ddec;
+ --ops-emerald: #087a50;
+ --ops-on-emerald: #ffffff;
+ --ops-blue-surface: #e1efff;
+ --ops-blue-ink: #164f98;
+ --ops-violet-surface: #eee8ff;
+ --ops-violet-ink: #6033a5;
+ --ops-green-surface: #def7e9;
+ --ops-green-ink: #176240;
+ --ops-shadow: 0 10px 30px -18px rgba(23,47,84,.32), 0 1px 3px rgba(23,47,84,.05);
+ --ops-shadow-float: 0 15px 40px -18px rgba(11,28,58,.4);
+ --ops-radius: 16px;
+ --ops-focus: #1769b2;
+}
+.ops-surface { color: var(--ops-ink); background: var(--ops-glass); border: 1px solid var(--ops-border); border-radius: var(--ops-radius); box-shadow: var(--ops-shadow); }
+.ops-surface[data-tone=blue] { --ops-tone-ink: var(--ops-blue-ink); background: linear-gradient(120deg,var(--ops-blue-surface),#d7e9fe); }
+.ops-surface[data-tone=violet] { --ops-tone-ink: var(--ops-violet-ink); background: linear-gradient(120deg,var(--ops-violet-surface),#e7defb); }
+.ops-surface[data-tone=green] { --ops-tone-ink: var(--ops-green-ink); background: linear-gradient(120deg,var(--ops-green-surface),#cff0df); }
+.ops-eyebrow { font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--ops-muted); }
+.ops-intelligence-card { position: relative; min-width: 0; padding: 1.35rem 1.4rem 1.35rem 3.9rem; }
+.ops-intelligence-card::before { content: ''; position: absolute; width: 1.7rem; height: 1.7rem; border: 1px solid currentColor; border-radius: 50%; left: 1.3rem; top: 1.35rem; color: var(--ops-tone-ink); background: rgba(255,255,255,.6); }
+.ops-intelligence-card h2 { color: var(--ops-ink); font-weight: 650; font-size: .95rem; line-height: 1.3; }
+.ops-intelligence-card p { font-size: .8rem; line-height: 1.6; }
+.ops-intelligence-card > p:first-of-type { color: var(--ops-ink); font-weight: 500; margin-top: .55rem; }
+.ops-intelligence-card > p:not(:first-of-type) { color: var(--ops-muted); }
+.ops-button-secondary { border: 1px solid var(--ops-border); background: var(--ops-surface); color: var(--ops-ink); border-radius: .6rem; padding: .6rem 1rem; font-size: .8rem; }
+/* Navy navigation surrounds the pilot workspace. Existing routes, permissions, badges and menus are retained. */
+[data-visual-system=root] { background: var(--ops-frame); }
+[data-visual-system=root] > .ops-shell-navigation { color: var(--ops-on-frame); background: linear-gradient(170deg,var(--ops-frame),var(--ops-frame-raised)); }
+[data-visual-system=root] .ops-shell-brand > div:first-child { border-radius: 50%; background: transparent; border: 3px solid #8bd2b7; box-shadow: 0 0 12px rgba(105,218,178,.25); }
+[data-visual-system=root] .ops-workspace-topbar { display: flex; gap: 1rem; align-items: center; justify-content: space-between; background: var(--ops-canvas); color: var(--ops-ink); padding: 1.2rem 2rem; }
+[data-visual-system=root] .ops-workspace-topbar p { font-size: 1rem; font-weight: 600; letter-spacing: -.02em; margin-top: .1rem; }
+[data-visual-system=root] .ops-search-entry { display: flex; align-items: center; gap: .65rem; width: min(560px,65%); padding: .8rem 1rem; border: 1px solid var(--ops-border); border-radius: 1.1rem; background: var(--ops-glass); box-shadow: inset 0 0 0 4px rgba(255,255,255,.5); color: var(--ops-ink); font-size: .85rem; }
+[data-visual-system=root] .ops-search-hint { margin-left: auto; color: var(--ops-muted); font-size: .7rem; }
+[data-visual-system=root] > main { min-width: 0; }
+[data-visual-system=root] > main:has(.relationship-workspace) { background: radial-gradient(ellipse at 100% 0,rgba(193,211,250,.5),transparent 60%),var(--ops-canvas); padding: 0 1rem; color: var(--ops-ink); }
+[data-visual-system=root] > footer { color: var(--ops-on-frame-muted); background: var(--ops-frame); }
+[data-visual-system=root] > footer button { color: #c3ebdc; }
+[data-visual-system=root] :is(a,button,summary):focus-visible { outline: 2px solid #69c9a5; outline-offset: 3px; }
+@media (min-width: 1024px) {
+ [data-visual-system=root] > .ops-shell-navigation { position: fixed; inset: 0 auto 0 0; width: 212px; z-index: 40; border: 0; border-right: 1px solid rgba(200,220,255,.12); overflow-y: auto; }
+ [data-visual-system=root] > .ops-shell-navigation > div { padding: 1.5rem .8rem; }
+ [data-visual-system=root] .ops-shell-brand { align-items: center; gap: .65rem; padding: .25rem .5rem 1.5rem; }
+ [data-visual-system=root] .ops-shell-brand > div:first-child { width: 36px; height: 36px; }
+ [data-visual-system=root] .ops-shell-brand span:first-child { font-size: .9rem; }
+ [data-visual-system=root] .ops-shell-brand span:last-child { color: var(--ops-on-frame-muted); font-size: .6rem; }
+ [data-visual-system=root] .ops-shell-context { color: var(--ops-on-frame-muted); text-transform: uppercase; font-size: .6rem; letter-spacing: .16em; padding-inline: .7rem; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] { display: flex; flex-direction: column; align-items: stretch; gap: .4rem; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a { border-radius: .6rem; padding: .75rem 1rem; color: var(--ops-on-frame-muted); font-size: .85rem; box-shadow: none; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a:hover { background: rgba(255,255,255,.07); color: var(--ops-on-frame); }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a[aria-current=page] { color: #fff; background: linear-gradient(100deg,#087a50,#0b674c); box-shadow: inset 2px 0 #8cdaba; }
+ [data-visual-system=root] .ops-shell-subnav { border-top: 1px solid rgba(220,235,255,.14); padding-top: 1rem; gap: .1rem; flex-direction: column; align-items: stretch; }
+ [data-visual-system=root] .ops-shell-subnav > a { padding: .55rem 1rem; border-radius: .4rem; font-size: .72rem; color: var(--ops-on-frame-muted); }
+ [data-visual-system=root] .ops-shell-subnav > a[class*="bg-white/12"] { color: #fff; background: rgba(255,255,255,.08); border-color: transparent; }
+ [data-visual-system=root] > :is(main,footer,.ops-workspace-topbar) { margin-left: 212px; }
+}
+@media (max-width: 767px) {
+ [data-visual-system=root] .ops-workspace-topbar { flex-direction: column; align-items: stretch; padding: 1rem; gap: .75rem; }
+ [data-visual-system=root] .ops-search-entry { width: 100%; }
+ [data-visual-system=root] .ops-search-hint { display: none; }
+ [data-visual-system=root] > main:has(.relationship-workspace) { padding: 0; }
+}
