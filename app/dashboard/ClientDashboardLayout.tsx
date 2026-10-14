@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import "./root-visual-system.css";
+import { OpsNavigationIcon } from "./components/visual/OpsSurface";
 import ResponseAttentionBadge from "./components/ResponseAttentionBadge";
 import AcquisitionHandoff from "./components/AcquisitionHandoff";
 import { usePathname } from "next/navigation";
@@ -225,6 +226,7 @@ export default function ClientDashboardLayout({
   }
 
   const activePrimary = primaryNav.find((item) => item.match(pathname))?.label || "Home";
+  const relationshipVisualPilot = pathname.startsWith("/dashboard/growth/relationships/");
 
   const secondaryNav: SecondaryNavItem[] = (() => {
     if (activePrimary === "Responses") {
@@ -297,7 +299,7 @@ export default function ClientDashboardLayout({
   };
 
   return (
-    <div data-visual-system={activePrimary === "Growth" ? "root" : undefined} className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 flex flex-col">
+    <div data-visual-system={relationshipVisualPilot ? "root" : undefined} className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 flex flex-col">
       <header className="ops-shell-navigation border-b border-white/10 bg-black/30 backdrop-blur-xl">
         <div className="mx-auto max-w-6xl px-4 py-4">
           <div className="flex flex-col gap-4">
@@ -327,6 +329,7 @@ export default function ClientDashboardLayout({
                   aria-current={item.match(pathname) ? "page" : undefined}
                   className={primaryLinkClasses(item)}
                 >
+                  {relationshipVisualPilot && <OpsNavigationIcon label={item.label} />}
                   {item.label}
                   {item.label === "Responses" ? <ResponseAttentionBadge count={responseAttention.count} /> : item.badge !== undefined ? <span className="ml-2 rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]" aria-label={`${item.badge} items`}>{item.badge}</span> : null}
                 </Link>
@@ -361,7 +364,7 @@ export default function ClientDashboardLayout({
         </div>
       </header>
 
-      {activePrimary === "Growth" && <div className="ops-workspace-topbar"><div><span className="ops-eyebrow">Root Health Ops</span><p>Growth workspace</p></div><Link className="ops-search-entry" href={`/dashboard/growth/relationships${orgId ? `?organisationId=${encodeURIComponent(orgId)}` : ""}`}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>Search relationships<span className="ops-search-hint">People · companies · history</span></Link></div>}
+      {relationshipVisualPilot && <div className="ops-workspace-topbar"><div><span className="ops-eyebrow">Root Health Ops</span><p>Growth workspace</p></div><Link className="ops-search-entry" href={`/dashboard/growth/relationships${orgId ? `?organisationId=${encodeURIComponent(orgId)}` : ""}`}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>Search relationships<span className="ops-search-hint">People · companies · history</span></Link></div>}
 
       <main className="flex-1 p-6"><AcquisitionHandoff key={pathname} />{children}</main>
 

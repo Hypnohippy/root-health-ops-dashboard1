@@ -29,14 +29,15 @@
 .ops-surface[data-tone=green] { --ops-tone-ink: var(--ops-green-ink); background: linear-gradient(120deg,var(--ops-green-surface),#cff0df); }
 .ops-eyebrow { font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--ops-muted); }
 .ops-intelligence-card { position: relative; min-width: 0; padding: 1.35rem 1.4rem 1.35rem 3.9rem; }
-.ops-intelligence-card::before { content: ''; position: absolute; width: 1.7rem; height: 1.7rem; border: 1px solid currentColor; border-radius: 50%; left: 1.3rem; top: 1.35rem; color: var(--ops-tone-ink); background: rgba(255,255,255,.6); }
+.ops-intelligence-mark { display: grid; place-items: center; color: var(--ops-tone-ink); }
+.ops-intelligence-card > .ops-intelligence-mark { position: absolute; width: 1.7rem; height: 1.7rem; border: 1px solid currentColor; border-radius: 50%; left: 1.3rem; top: 1.35rem; color: var(--ops-tone-ink); background: rgba(255,255,255,.6); }
 .ops-intelligence-card h2 { color: var(--ops-ink); font-weight: 650; font-size: .95rem; line-height: 1.3; }
 .ops-intelligence-card p { font-size: .8rem; line-height: 1.6; }
 .ops-intelligence-card > p:first-of-type { color: var(--ops-ink); font-weight: 500; margin-top: .55rem; }
 .ops-intelligence-card > p:not(:first-of-type) { color: var(--ops-muted); }
 .ops-button-secondary { border: 1px solid var(--ops-border); background: var(--ops-surface); color: var(--ops-ink); border-radius: .6rem; padding: .6rem 1rem; font-size: .8rem; }
 /* Navy navigation surrounds the pilot workspace. Existing routes, permissions, badges and menus are retained. */
-[data-visual-system=root] { background: var(--ops-frame); }
+[data-visual-system=root] { background: var(--ops-frame); font-family: ui-sans-serif,system-ui,"Segoe UI",sans-serif; }
 [data-visual-system=root] > .ops-shell-navigation { color: var(--ops-on-frame); background: linear-gradient(170deg,var(--ops-frame),var(--ops-frame-raised)); }
 [data-visual-system=root] .ops-shell-brand > div:first-child { border-radius: 50%; background: transparent; border: 3px solid #8bd2b7; box-shadow: 0 0 12px rgba(105,218,178,.25); }
 [data-visual-system=root] .ops-workspace-topbar { display: flex; gap: 1rem; align-items: center; justify-content: space-between; background: var(--ops-canvas); color: var(--ops-ink); padding: 1.2rem 2rem; }
@@ -50,6 +51,7 @@
 [data-visual-system=root] :is(a,button,summary):focus-visible { outline: 2px solid #69c9a5; outline-offset: 3px; }
 @media (min-width: 1024px) {
  [data-visual-system=root] > .ops-shell-navigation { position: fixed; inset: 0 auto 0 0; width: 212px; z-index: 40; border: 0; border-right: 1px solid rgba(200,220,255,.12); overflow-y: auto; }
+ [data-visual-system=root] > .ops-shell-navigation > div > div > div:first-child { flex-direction: column; align-items: stretch; gap: .4rem; }
  [data-visual-system=root] > .ops-shell-navigation > div { padding: 1.5rem .8rem; }
  [data-visual-system=root] .ops-shell-brand { align-items: center; gap: .65rem; padding: .25rem .5rem 1.5rem; }
  [data-visual-system=root] .ops-shell-brand > div:first-child { width: 36px; height: 36px; }
@@ -71,3 +73,5 @@
  [data-visual-system=root] .ops-search-hint { display: none; }
  [data-visual-system=root] > main:has(.relationship-workspace) { padding: 0; }
 }
+
+.ops-navigation-icon { flex-shrink: 0; margin-right: .65rem; }
