@@ -83,3 +83,31 @@
 @media (min-width:1024px) {
  [data-visual-system=root] nav[aria-label="Primary navigation"] > a[aria-current=page] { background: linear-gradient(95deg,#075bea,rgba(20,75,155,.25)); box-shadow: inset 2px 0 #77bbff,0 8px 24px -18px #1769ee; }
 }
+
+/* Glass navigation rail: presentation-only, confined to the representative workspace. */
+.ops-sidebar-ambient { display:none; }
+[data-visual-system=root] .ops-nav-copy { display:flex; flex-direction:column; gap:3px; min-width:0; }
+[data-visual-system=root] .ops-nav-copy small { color:#b8cbe1; font-size:10px; font-weight:400; letter-spacing:.005em; }
+@media(min-width:1024px) {
+ [data-visual-system=root] > .ops-shell-navigation { display:flex; flex-direction:column; isolation:isolate; background:radial-gradient(ellipse at 105% 12%,#355a80a8,transparent 55%),linear-gradient(145deg,#06172eeb,#122c49f5 60%,#10283e); box-shadow:inset -1px 0 #e0efff35,inset -8px 0 26px #a8d8ff0b,10px 0 36px -22px #0d264b; backdrop-filter:blur(24px); }
+ [data-visual-system=root] > .ops-shell-navigation:before { content:""; position:absolute; inset:0; pointer-events:none; z-index:-1; background:linear-gradient(110deg,transparent 40%,#c6e7ff0a 50%,transparent 70%); }
+ [data-visual-system=root] > .ops-shell-navigation > div:first-child { width:100%; padding:22px 10px 12px; flex-shrink:0; }
+ [data-visual-system=root] > .ops-shell-navigation > div > div { gap:12px; }
+ [data-visual-system=root] .ops-shell-brand { gap:11px; padding:0 5px 18px; }
+ [data-visual-system=root] .ops-shell-brand > div:first-child { width:47px; height:47px; border:3px solid #c2ee81; background:radial-gradient(circle,#78a9ae18,#c5ef8320); box-shadow:0 0 0 5px #c4f78e09,0 0 17px #c3ee8173,inset 0 0 12px #abf4d933; }
+ [data-visual-system=root] .ops-shell-brand span:first-child { font-size:19px; letter-spacing:-.6px; font-weight:650; }
+ [data-visual-system=root] .ops-shell-brand span:last-child { font-size:10px; color:#e2edfb; margin-top:5px; letter-spacing:.02em; }
+ [data-visual-system=root] .ops-shell-context { display:none; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] { gap:4px; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a { min-height:51px; padding:9px 11px; border:1px solid transparent; border-radius:11px; color:#f0f5ff; font-size:13px; font-weight:550; letter-spacing:-.1px; }
+ [data-visual-system=root] .ops-navigation-icon { width:25px; height:25px; margin-right:12px; filter:drop-shadow(0 2px 3px #00152e66); stroke-width:1.7; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a:hover { background:linear-gradient(100deg,#c9e4ff12,#c9e4ff04); border-color:#b8d5ff18; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a[aria-current=page] { background:linear-gradient(105deg,#0874ff,#1558c4a6 65%,#337aba25); border-color:#78b7ff66; box-shadow:inset 0 1px #bce2ff55,inset 3px 0 #8fccff,0 6px 22px #001c4b55; }
+ [data-visual-system=root] .ops-shell-subnav { display:grid; grid-template-columns:1fr 1fr; gap:3px; padding:12px 0 0; border-color:#d0e7ff21; }
+ [data-visual-system=root] .ops-shell-subnav > a { padding:6px; font-size:10px; line-height:1.35; min-height:29px; border:1px solid transparent; border-radius:6px; }
+ [data-visual-system=root] .ops-shell-subnav > a[class*="bg-white/12"] { background:#c0deff15; border-color:#d0e7ff20; }
+ [data-visual-system=root] .ops-sidebar-ambient { display:flex; flex-direction:column; justify-content:flex-end; flex:1 0 210px; position:relative; overflow:hidden; text-align:center; padding:100px 12px 22px; pointer-events:none; }
+ .ops-sidebar-ambient svg { position:absolute; inset:0; width:100%; height:100%; z-index:-1; }
+ .ops-sidebar-ambient p { color:#f0f2ee; font-family:Georgia,serif; font-style:italic; font-size:14px; line-height:1.6; text-shadow:0 2px 8px #041422; }
+ .ops-sidebar-ambient > span { color:#b8cadd; font-size:8px; letter-spacing:.2em; margin-top:13px; }
+}
