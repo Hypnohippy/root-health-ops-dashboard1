@@ -75,3 +75,13 @@ test("SQL Founder boundary: mixed remains shared, private artifacts persist thro
  const foreign=randomUUID();await db.query("insert into founder_research_records values($1,$2)",[foreign,other]);await assert.rejects(call({refs:[op,{table:"founder_research_records",id:foreign}],founder:true,workspace:w,revision:6}),/tenant/);
  }finally{await db.close();}
 });
+
+test("legacy note activity hints never change Ops channel or invent a conversation; genuine manual activities retain their channels",async()=>{
+ const svc=load("lib/relationshipHistory.server.ts",{"@/lib/opsSearch.server":{readTenantHistory:async()=>[]}}),relationship=core.projectRelationships(org,input([]))[0]||{refs:[],founderIds:[],contactId:null};
+ for(const [activityType,channel] of [["called","Calls"],["meeting","Meetings"],["emailed","Email"],["linkedin_contacted","LinkedIn"]]){
+  const legacy={id:"legacy-note",activity_type:"note",note_type:"Observation",message:"RELATIONSHIP SCHEMA SMOKE — harmless test note",details:{activityType},occurred_at:"2026-10-14T13:42:33Z",recorded_at:"2026-10-14T13:42:34Z",actor};
+  const call={id:"manual-activity",activity_type:"activity",message:"Explicitly confirmed manual activity",details:{activityType},occurred_at:"2026-10-14T14:00:00Z",recorded_at:"2026-10-14T14:00:01Z",actor};
+  const original=JSON.stringify(legacy),h=await svc.relationshipHistory(org,relationship,input([]),[],[legacy,call]);const note=h.history.dated.find(e=>e.id==="workspace:legacy-note"),manual=h.history.dated.find(e=>e.id==="workspace:manual-activity");assert.equal(note.kind,"Observation");assert.equal(note.channel,"Ops");assert.equal(note.text,legacy.message);assert.equal(manual.channel,channel);assert.equal(h.conversation.dated.length,1);assert.equal(h.conversation.dated[0].id,"workspace:manual-activity");assert.equal(JSON.stringify(legacy),original,"rendering must not rewrite legacy evidence");
+  const Trail=load("app/dashboard/growth/relationships/components/RelationshipTrail.tsx").default,html=require("react-dom/server").renderToStaticMarkup(require("react").createElement(Trail,{trail:{dated:[note,manual],undated:[]}}));assert.match(html,/Observation · Ops/);if(activityType==="called")assert.match(html,/Manually recorded called · Calls/);
+ }
+});

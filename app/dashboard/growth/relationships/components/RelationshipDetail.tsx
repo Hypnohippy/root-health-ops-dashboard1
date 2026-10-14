@@ -31,7 +31,7 @@ export default function RelationshipDetail({organisationId,locator,initial}:{org
   }catch(e){setError(e instanceof Error?e.message:"Save failed. Nothing was lost.");return false;}finally{setBusy(false);inFlight.current=false;}
  }
  const locked=busy||!!pending.current||!data.storageAvailable;
- async function saveNote(){if(await perform(manual?"activity":"note",{message:note,noteType,activityType:activity,route,subject,timeChoice,occurredAt:timeChoice==="historical"&&actual?new Date(actual).toISOString():null})){setNote("");setActual("");setRoute("");setSubject("");}}
+ async function saveNote(){if(await perform(manual?"activity":"note",{message:note,noteType,...(manual?{activityType:activity,route,subject}:{}),timeChoice,occurredAt:timeChoice==="historical"&&actual?new Date(actual).toISOString():null})){setNote("");setActual("");setRoute("");setSubject("");}}
  const value=data.assessment?.result as ReturnType<typeof calculateValue>|undefined;
  const latest=data.history.dated.filter(e=>e.at&&Date.parse(e.at)<=Date.now()).sort((a,b)=>String(b.at).localeCompare(String(a.at)))[0];
  const journey=["Discovered","Researched","Contacted","Conversation","Opportunity","Won"];
