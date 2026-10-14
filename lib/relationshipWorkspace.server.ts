@@ -15,7 +15,7 @@ export async function relationshipContext(tenant:RelationshipTenant) {
  const [input,founderRows]=await Promise.all([readLifecycleInput(org),canFounder?readTenantHistory("founder_research_records",org):Promise.resolve([])]);
  const founder=founderRows.filter(f=>f.organisation_id===org);
  let workspaces:Row[]=[],links:Row[]=[],models:Row[]=[],values:Row[]=[],storageAvailable=true;
- try{[workspaces,links,models,values]=await Promise.all(["relationship_workspaces","relationship_source_links","relationship_pricing_models","relationship_value_assessments"].map(t=>readTenantHistory(t,org)));}catch(e){if(!missing(e))throw e;storageAvailable=false;workspaces=[];links=[];models=[];values=[];}
+ try{[workspaces,links,models,values]=await Promise.all(["relationship_workspaces","relationship_source_links","relationship_pricing_models","relationship_value_assessments"].map(t=>t==="relationship_source_links"?readTenantHistory(t,org,"*",["source_table","source_id"]):readTenantHistory(t,org)));}catch(e){if(!missing(e))throw e;storageAvailable=false;workspaces=[];links=[];models=[];values=[];}
  // Filter protected references before resolution/search; hidden Founder links never influence a Growth payload.
  if(!canFounder)links=links.filter(l=>l.source_table!=="founder_research_records");
  workspaces=workspaces.filter(w=>w.organisation_id===org);links=links.filter(l=>l.organisation_id===org);models=models.filter(m=>m.organisation_id===org);values=values.filter(v=>v.organisation_id===org);
