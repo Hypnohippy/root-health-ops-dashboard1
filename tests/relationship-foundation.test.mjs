@@ -2,12 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import path from "node:path";
 import ts from "typescript";
 import {createRequire} from "node:module";
 import {randomUUID} from "node:crypto";
 import {PGlite} from "@electric-sql/pglite";
 const require=createRequire(import.meta.url);
-function load(file,mocks={}){const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Date,Intl,console,require:n=>n in mocks?mocks[n]:n.startsWith("@/")?load(n.replace("@/","")+".ts",mocks):require(n)});return mod.exports;}
+function load(file,mocks={}){const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Date,Intl,console,require:n=>n in mocks?mocks[n]:n.startsWith("@/")?load(n.replace("@/","")+".ts",mocks):n.startsWith(".")?load(path.resolve(path.dirname(file),n)+(fs.existsSync(path.resolve(path.dirname(file),n)+".tsx")?".tsx":".ts"),mocks):require(n)});return mod.exports;}
 const core=load("lib/relationshipWorkspace.ts"),value=load("lib/relationshipValue.ts"),org=randomUUID(),other=randomUUID(),actor=randomUUID(),inboxId=randomUUID(),targetId=randomUUID(),founderId=randomUUID();
 const inbox={id:inboxId,organisation_id:org,platform:"email",sender_email:"alex@example.test",author_name:"Alex",company:"Example",status:"needs_reply",kind:"email_reply",email_thread_id:"thread-a",created_at_platform:"2026-01-01"};
 const input=(rows=[inbox],targets=[])=>({inbox_items:rows,growth_targets:targets,acquisition_items:[]});

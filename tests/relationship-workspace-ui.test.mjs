@@ -34,3 +34,24 @@ test("typed note excludes stale manual activityType, route and subject from its 
 test("genuine manual call retains activityType, route and subject in its request",async()=>{
  const calls=[],tree=await mount({fetch:async(url,opts)=>{calls.push(JSON.parse(opts.body));return {ok:false,json:async()=>({error:"Local fixture only"})};}});await renderer.act(async()=>button(tree,"Add activity").props.onClick());const inputs=tree.root.findAllByType("input");await renderer.act(async()=>{inputs[0].props.onChange({target:{value:"Recorded call route"}});inputs[1].props.onChange({target:{value:"Recorded subject"}});tree.root.findByType("textarea").props.onChange({target:{value:"Confirmed call note"}});});await renderer.act(async()=>tree.root.findByType("form").props.onSubmit({preventDefault(){}}));assert.equal(calls[0].action,"activity");assert.equal(calls[0].details.activityType,"called");assert.equal(calls[0].details.route,"Recorded call route");assert.equal(calls[0].details.subject,"Recorded subject");await renderer.act(async()=>tree.unmount());
 });
+
+
+test("view briefings count stored evidence and tasks without inferring content or mutating state",()=>{
+ const Briefing=load("app/dashboard/growth/relationships/components/RelationshipViewBriefing.tsx").default,render=require("react-dom/server").renderToStaticMarkup;
+ const data={conversation:{dated:[],undated:[snapshot]},history:{dated:[],undated:[snapshot]},tasks:[{status:"open"},{status:"done"}]},before=JSON.stringify(data);
+ const conversation=render(React.createElement(Briefing,{...data,view:"Conversation"}));assert.match(conversation,/0 dated entries/);assert.match(conversation,/1 undated entries/);
+ const tasks=render(React.createElement(Briefing,{...data,view:"Tasks"}));assert.match(tasks,/1 open tasks/);assert.match(tasks,/1 completed tasks/);
+ const strategy=render(React.createElement(Briefing,{...data,view:"Strategy"}));assert.match(strategy,/Forthcoming/);assert.equal(JSON.stringify(data),before);
+});
+
+test("list retains tenant-scoped server search, pagination and existing locator links without writes",async()=>{
+ const requests=[],scheduled=[],result={items:[{...r,retention:"active",value:null}],total:30,storageAvailable:true};
+ const List=load("app/dashboard/growth/relationships/components/RelationshipsList.tsx",{}, {AbortController,setTimeout:fn=>{scheduled.push(fn);return 1;},clearTimeout(){},fetch:async(url,opts)=>{requests.push({url,opts});return {ok:true,json:async()=>result};}}).default;
+ let tree;await renderer.act(async()=>{tree=renderer.create(React.createElement(List,{organisationId:org,initial:result}));});
+ await renderer.act(async()=>{scheduled.pop()();await Promise.resolve();});
+ assert.equal(requests.length,1);assert.equal(new URL(requests[0].url,"https://ops.test").searchParams.get("organisationId"),org);
+ assert.ok(tree.root.findAllByType("a").some(a=>a.props.href===`/dashboard/growth/relationships/${r.locator}?organisationId=${org}`));
+ const search=tree.root.findAllByType("input").find(i=>i.props["aria-label"]==="Search relationships");await renderer.act(async()=>search.props.onChange({target:{value:"Company exact"}}));await renderer.act(async()=>{scheduled.pop()();await Promise.resolve();});
+ assert.equal(new URL(requests.at(-1).url,"https://ops.test").searchParams.get("q"),"Company exact");
+ await renderer.act(async()=>button(tree,"Next").props.onClick());await renderer.act(async()=>{scheduled.pop()();await Promise.resolve();});assert.equal(new URL(requests.at(-1).url,"https://ops.test").searchParams.get("page"),"1");assert.ok(requests.every(r=>!r.opts.method));await renderer.act(async()=>tree.unmount());
+});

@@ -226,7 +226,7 @@ export default function ClientDashboardLayout({
   }
 
   const activePrimary = primaryNav.find((item) => item.match(pathname))?.label || "Home";
-  const relationshipVisualPilot = pathname.startsWith("/dashboard/growth/relationships/");
+  const relationshipVisualPilot = (pathname === "/dashboard/growth/relationships" || pathname.startsWith("/dashboard/growth/relationships/"));
 
   const secondaryNav: SecondaryNavItem[] = (() => {
     if (activePrimary === "Responses") {
