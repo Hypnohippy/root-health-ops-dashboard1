@@ -40,7 +40,7 @@
 [data-visual-system=root] { background: var(--ops-frame); font-family: ui-sans-serif,system-ui,"Segoe UI",sans-serif; }
 [data-visual-system=root] > .ops-shell-navigation { color: var(--ops-on-frame); background: linear-gradient(170deg,var(--ops-frame),var(--ops-frame-raised)); }
 [data-visual-system=root] .ops-shell-brand > div:first-child { border-radius: 50%; background: transparent; border: 3px solid #8bd2b7; box-shadow: 0 0 12px rgba(105,218,178,.25); }
-[data-visual-system=root] .ops-workspace-topbar { display: flex; gap: 1rem; align-items: center; justify-content: space-between; background: var(--ops-canvas); color: var(--ops-ink); padding: 1.2rem 2rem; }
+[data-visual-system=root] .ops-workspace-topbar { display: flex; gap: 1rem; align-items: center; justify-content: space-between; background: var(--ops-canvas); color: var(--ops-ink); padding: .7rem 1.5rem; }
 [data-visual-system=root] .ops-workspace-topbar p { font-size: 1rem; font-weight: 600; letter-spacing: -.02em; margin-top: .1rem; }
 [data-visual-system=root] .ops-search-entry { display: flex; align-items: center; gap: .65rem; width: min(560px,65%); padding: .8rem 1rem; border: 1px solid var(--ops-border); border-radius: 1.1rem; background: var(--ops-glass); box-shadow: inset 0 0 0 4px rgba(255,255,255,.5); color: var(--ops-ink); font-size: .85rem; }
 [data-visual-system=root] .ops-search-hint { margin-left: auto; color: var(--ops-muted); font-size: .7rem; }

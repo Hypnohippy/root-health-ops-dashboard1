@@ -249,4 +249,12 @@
  .relationship-lower-briefing { grid-template-columns: 1fr; }
  .relationship-lower-briefing > :last-child { grid-column: 1; }
 }
+
+.relationship-overview.relationship-briefing-layout > .relationship-summary-journey { padding: 0; }
+.relationship-value-highlight > div > strong { display: block; font-size: 1.2rem; color: var(--ops-green-ink); letter-spacing: -.03em; margin-top: .25rem; }
+.relationship-value-highlight > div > p { font-size: .63rem; color: var(--ops-muted); line-height: 1.5; margin-top: .3rem; }
+.relationship-value-highlight > div > small { display: block; font-size: .56rem; color: var(--ops-muted); margin-top: .4rem; }
+.relationship-cockpit-screen .ops-intelligence-card { padding-block: .8rem; }
+.relationship-cockpit-screen .ops-intelligence-card p:not(:first-of-type) { font-size: .65rem; }
+.relationship-command.relationship-identity-header { padding-bottom: .8rem; }
 }
