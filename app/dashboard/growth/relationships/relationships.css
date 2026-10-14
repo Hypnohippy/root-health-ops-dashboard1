@@ -532,3 +532,46 @@
 }
 @media(max-width:767px) { .relationship-value-facts { grid-template-columns:1fr; } .relationship-tabs button svg { width:15px; height:15px; } }
 }
+
+@scope ([data-visual-system="root"]) {
+@media(min-width:1301px) {
+ .relationship-back { margin-bottom:0; }
+ .relationship-command.relationship-identity-header { padding-top:3px; padding-bottom:12px; }
+ .relationship-command-metrics dt { line-height:1.2; }
+ .relationship-command-metrics strong { line-height:1.2; margin-top:7px; }
+ .relationship-command-metrics time,.relationship-command-metrics small { line-height:1.3; margin-top:5px; }
+ .relationship-health-card { padding:11px 13px; gap:4px 9px; }
+ .relationship-health-card h2,.relationship-health-card p,.relationship-health-card > small { line-height:1.25; }
+ .relationship-health-card strong { line-height:1.2; }
+ .relationship-cockpit-screen .ops-intelligence-card { padding-block:12px 10px; }
+ .relationship-cockpit-screen .ops-intelligence-card h2 { line-height:1.2; }
+ .relationship-cockpit-screen .ops-intelligence-card p { line-height:1.35; margin-top:4px; }
+ .relationship-cockpit-screen .ops-intelligence-card p:not(:first-of-type) { line-height:1.3; }
+ .relationship-cockpit-primary .relationship-tabs button { line-height:20px; }
+ .relationship-recorded-summary h2,.relationship-journey-column h2 { line-height:1.2; }
+ .relationship-value-highlight { padding:10px; margin-top:10px; }
+ .relationship-value-highlight h3 { line-height:1.2; }
+ .relationship-value-highlight > div > strong { line-height:1.2; margin-top:4px; }
+ .relationship-value-highlight > div > p { line-height:1.25; margin-top:3px; }
+ .relationship-value-highlight > div > small { line-height:1.2; margin-top:4px; }
+ .relationship-journey-column .relationship-journey { padding-top:8px; }
+ .relationship-journey-column .relationship-journey li { line-height:1.25; padding-top:57px; }
+ .relationship-journey-column .relationship-journey p { line-height:1.2; margin-top:8px; }
+ .relationship-value-facts strong,.relationship-value-facts small { line-height:1.2; }
+ .relationship-recent-activity strong { line-height:1.3; }
+ .relationship-recent-activity time { line-height:1.35; }
+ .relationship-recent-activity li { padding-bottom:11px; }
+ .relationship-activity-excerpt { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.3; }
+ .relationship-metric-tiles strong,.relationship-metric-tiles span { line-height:1.2; }
+ .relationship-lower-briefing h2 { line-height:1.2; }
+ .relationship-pipeline-state,.relationship-pipeline-details strong { line-height:1.3; }
+ .relationship-pipeline-details small { line-height:1.3; }
+ .relationship-workflow-links a { line-height:1.25; }
+ .relationship-cockpit-assistant .relationship-assistant h2 { line-height:1.2; }
+ .relationship-root-context li { padding-block:3px; }
+ .relationship-root-context li strong,.relationship-root-context li span { line-height:1.3; }
+ .relationship-cockpit-assistant .ops-assistant-prompts button { line-height:1.2; }
+ .relationship-cockpit-assistant .ops-button-secondary { line-height:1.2; }
+ .relationship-cockpit-assistant .relationship-assistant > .ops-assistant-footnote { line-height:1.2; }
+}
+}
