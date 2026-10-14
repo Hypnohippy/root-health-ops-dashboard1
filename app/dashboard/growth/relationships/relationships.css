@@ -587,3 +587,5 @@
  .relationship-expected-basis { line-height:1.25; }
 }
 }
+
+@scope ([data-visual-system="root"]) { @media(min-width:1301px) { .relationship-activity-trend svg { height:50px; } } }
