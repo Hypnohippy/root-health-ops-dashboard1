@@ -9,14 +9,14 @@ const require=createRequire(import.meta.url),React=require("react"),renderer=req
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 function load(file,mocks={},globals={}) { const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Date,Intl,console,window:{addEventListener(){},removeEventListener(){}},...globals,require:n=>n in mocks?mocks[n]:n.endsWith(".css")?{}:n.startsWith("@/")?load(n.replace("@/","")+".ts",mocks,globals):n.startsWith(".")?load(path.resolve(path.dirname(file),n)+(fs.existsSync(path.resolve(path.dirname(file),n)+".tsx")?".tsx":".ts"),mocks,globals):require(n)});return mod.exports; }
 
-test("pilot styling covers Relationships only; existing nav routes, Founder permission and attention deep link survive",async()=>{
+test("pilot styling covers Today and Relationships only; existing nav routes, Founder permission and attention deep link survive",async()=>{
  const org="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",attentionHref=`/dashboard/responses?organisationId=${org}&platform=linkedin&status=needs_reply&itemId=existing`;
- for(const pathname of ["/dashboard/growth","/dashboard/growth/relationships","/dashboard/growth/relationships/inbox_existing","/dashboard/responses","/dashboard/growth/acquisition","/dashboard/founder-intelligence"]){
+ for(const pathname of ["/dashboard/growth","/dashboard/growth/relationships","/dashboard/growth/relationships/inbox_existing","/dashboard/growth/targets","/dashboard/growth/waiting","/dashboard/growth/pipeline","/dashboard/growth/import","/dashboard/growth/tracker","/dashboard/growth/cadence-report","/dashboard/responses","/dashboard/growth/acquisition","/dashboard/founder-intelligence"]){
   const requests=[],fetch=async(url,opts)=>{requests.push({url,opts});return {ok:true,json:async()=>url==="/api/org/current"?{organisationId:org}:url.includes("/access?")?{allowed:false}:{responseAttention:{count:3,href:attentionHref,channels:{linkedin:{count:3,href:attentionHref}}},counts:{newOpportunities:7,repliesNeedingResponse:3,followupsDue:2}}};};
   const C=load("app/dashboard/ClientDashboardLayout.tsx",{"next/navigation":{usePathname:()=>pathname},"next/link":({children,...props})=>React.createElement("a",props,children),"./components/AcquisitionHandoff":()=>null},{fetch}).default;
   let tree;await renderer.act(async()=>{tree=renderer.create(React.createElement(C,null,React.createElement("p",null,"Existing page content")));});
   const root=tree.root.findAllByType("div").find(x=>Object.hasOwn(x.props,"data-visual-system"));
-  assert.equal(root.props["data-visual-system"],(pathname==="/dashboard/growth/relationships"||pathname.startsWith("/dashboard/growth/relationships/"))?"root":undefined);
+  assert.equal(root.props["data-visual-system"],(pathname==="/dashboard/growth"||pathname==="/dashboard/growth/relationships"||pathname.startsWith("/dashboard/growth/relationships/"))?"root":undefined);
   const nav=tree.root.findAllByType("nav").find(x=>x.props["aria-label"]==="Primary navigation"),links=nav.findAllByType("a");
   assert.deepEqual(links.map(a=>a.props.href),["/dashboard","/dashboard/growth/acquisition",attentionHref,"/dashboard/sequences","/dashboard/publishing","/dashboard/growth","/dashboard/resources","/dashboard/connect"]);
   assert.equal(links.some(a=>a.props.href==="/dashboard/founder-intelligence"),false);
@@ -58,4 +58,20 @@ test("Value and activity graphics require actual evidence and are labelled as co
  const known=render(React.createElement(ValueEvidenceGraphic,{value}));assert.match(known,/Potential £120.00; expected £60.00/);assert.match(known,/not a growth forecast/);const expectedOnly=render(React.createElement(ValueEvidenceGraphic,{value:{...value,potential:null}}));assert.match(expectedOnly,/Potential not established; expected £60.00/);
  const chart=render(React.createElement(RelationshipMetricsCard,{value,evidence:{entries:2,snapshots:1,openTasks:0,days:[{date:"2026-10-11",count:1},{date:"2026-10-13",count:2}]}}));assert.match(chart,/2026-10-11: 1 recorded events; 2026-10-13: 2 recorded events/);assert.match(chart,/not inferred messages/);
  const avatar=render(React.createElement(RelationshipAvatar,{name:"Tracy Fountain",kind:"person"}));assert.match(avatar,/>TF</);assert.doesNotMatch(avatar,/<img|online|presence/);
+});
+
+ test("Today visuals show loaded evidence only and preserve unavailable commercial/plan states",()=>{
+ const C=load("app/dashboard/growth/GrowthTodayVisuals.tsx").default,render=require("react-dom/server").renderToStaticMarkup;
+ const empty=render(React.createElement(C,{loading:false,followups:[],posts:0,targets:0,approved:false,saved:false}));
+ assert.match(empty,/No loaded follow-up data/);assert.match(empty,/Not established/);assert.match(empty,/Not generated/);assert.doesNotMatch(empty,/£150|Momentum: High|92\/100/);
+ const loaded=render(React.createElement(C,{loading:false,followups:[{id:"1",stage:"day3_followup"},{id:"2",stage:"day3_followup"},{id:"3",stage:"day7_parity"}],posts:3,targets:2,approved:true,saved:true}));
+ assert.match(loaded,/3 loaded follow-ups/);assert.match(loaded,/day3 followup/);assert.match(loaded,/day7 parity/);assert.match(loaded,/Up to 10 from the existing Today loader/);assert.match(loaded,/no historical trend inferred/);
+ assert.equal((loaded.match(/data-recorded="true"/g)||[]).length,2);
+});
+ test("Today presentation keeps existing handler bodies and initial read path unchanged",()=>{
+ const page=fs.readFileSync("app/dashboard/growth/page.tsx","utf8").replaceAll("\r\n","\n");
+ const baseline=require("node:child_process").execFileSync("git",["show","1174ff4e1fbb28a8cdaadba8f7b4071a9f3a607c:app/dashboard/growth/page.tsx"],{encoding:"utf8"});
+ assert.equal(page.slice(page.indexOf("  const ["),page.indexOf("  return (")),baseline.replaceAll("\r\n","\n").slice(baseline.replaceAll("\r\n","\n").indexOf("  const ["),baseline.replaceAll("\r\n","\n").indexOf("  return (")));
+ assert.match(page,/className="growth-today-dock"/);assert.equal((page.match(/onClick=\{generate\}/g)||[]).length,1);
+ const visuals=fs.readFileSync("app/dashboard/growth/GrowthTodayVisuals.tsx","utf8");assert.doesNotMatch(visuals,/tenantFetch|useEffect|fetch\(|POST|supabase/);
 });
