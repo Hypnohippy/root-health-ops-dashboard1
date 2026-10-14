@@ -142,3 +142,5 @@
 .relationship-tasks > p { display:flex; align-items:center; gap:12px; }
 .relationship-tasks > p > svg { width:35px; height:35px; flex-shrink:0; padding:7px; border:1px solid #c9dded; background:#e8f4fd; color:#3d79a8; border-radius:10px; }
 }
+
+@scope ([data-visual-system="root"]) { @media(max-width:767px) { .relationship-list-value > .relationship-value-graphic { grid-column:1; } .relationship-list-value .relationship-value { grid-template-columns:1fr; } } }
