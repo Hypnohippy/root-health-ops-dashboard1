@@ -575,3 +575,15 @@
  .relationship-cockpit-assistant .relationship-assistant > .ops-assistant-footnote { line-height:1.2; }
 }
 }
+
+@scope ([data-visual-system="root"]) {
+@media(min-width:1301px) {
+ .relationship-command.relationship-identity-header { padding-bottom:7px; }
+ .relationship-cockpit-screen .ops-intelligence-card { padding-top:10px; padding-bottom:8px; }
+ .relationship-cockpit-screen .ops-intelligence-card p:not(:first-of-type) { font-size:9.5px; }
+ .relationship-cockpit-assistant .relationship-assistant > .ops-eyebrow { line-height:1.2; }
+ .relationship-activity-trend figcaption,.relationship-activity-trend figcaption span { line-height:1.25; }
+ .relationship-activity-trend svg { display:block; }
+ .relationship-expected-basis { line-height:1.25; }
+}
+}
