@@ -111,3 +111,36 @@
  .ops-sidebar-ambient p { color:#f0f2ee; font-family:Georgia,serif; font-style:italic; font-size:14px; line-height:1.6; text-shadow:0 2px 8px #041422; }
  .ops-sidebar-ambient > span { color:#b8cadd; font-size:8px; letter-spacing:.2em; margin-top:13px; }
 }
+
+/* Approved reference composition: cloud-lit command bar and scenic navy frame. */
+[data-visual-system=root] { --ops-ink:#090c30; --ops-muted:#465476; --ops-blue-surface:#bfe1ff; --ops-violet-surface:#d8ccff; --ops-green-surface:#bdf3d4; --ops-radius:11px; }
+[data-visual-system=root] .ops-command-context { display:flex; align-items:center; gap:10px; color:#07132e; font-size:12px; font-weight:650; white-space:nowrap; }
+[data-visual-system=root] .ops-command-context small { display:block; font-size:10px; font-weight:400; margin-top:3px; }
+[data-visual-system=root] .ops-command-orb { width:34px; height:34px; border-radius:50%; background:radial-gradient(circle,#fff 30%,#c7e1f4 60%,#88b9d2); border:2px solid #d4e6ef; box-shadow:0 0 0 5px #e8f2ff70; }
+@media(min-width:1024px) {
+ [data-visual-system=root] > .ops-shell-navigation { width:202px; background:radial-gradient(ellipse at 110% 8%,#47729e88,transparent 50%),linear-gradient(110deg,#03162f,#102c50 80%,#315478); border-right:1px solid #bfdeff66; box-shadow:8px 0 20px #7797be55; }
+ [data-visual-system=root] > :is(main,footer,.ops-workspace-topbar) { margin-left:202px; }
+ [data-visual-system=root] > .ops-shell-navigation > div:first-child { padding:17px 9px 7px; }
+ [data-visual-system=root] .ops-shell-brand { gap:10px; padding:0 2px 16px; }
+ [data-visual-system=root] .ops-shell-brand > div:first-child { width:50px; height:50px; }
+ [data-visual-system=root] .ops-shell-brand span:first-child { font-size:17px; letter-spacing:-.55px; white-space:nowrap; }
+ [data-visual-system=root] .ops-shell-brand span:last-child { font-size:8px; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] { gap:3px; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a { min-height:45px; padding:6px 10px; border-radius:8px; font-size:13px; }
+ [data-visual-system=root] .ops-nav-copy { gap:2px; }
+ [data-visual-system=root] .ops-nav-copy small { font-size:9px; }
+ [data-visual-system=root] .ops-navigation-icon { width:24px; height:24px; margin-right:11px; stroke-width:2; }
+ [data-visual-system=root] .ops-shell-subnav { padding-top:8px; gap:1px; }
+ [data-visual-system=root] .ops-shell-subnav > a { font-size:9px; min-height:24px; padding:5px; }
+ [data-visual-system=root] .ops-sidebar-ambient { flex:1 0 300px; padding:190px 10px 28px; background:linear-gradient(180deg,#0a224900,transparent 48%,#071d37d9 94%),url('/images/root-sidebar-landscape.png') center 55%/cover no-repeat; }
+ [data-visual-system=root] .ops-sidebar-ambient:before { content:""; position:absolute; inset:0; background:linear-gradient(#102c50,transparent 22%); pointer-events:none; }
+ [data-visual-system=root] .ops-sidebar-ambient p,[data-visual-system=root] .ops-sidebar-ambient > span { position:relative; }
+ .ops-sidebar-ambient p { font-size:15px; line-height:1.55; }
+ .ops-sidebar-ambient > span { font-size:10px; letter-spacing:0; margin-top:15px; padding-top:10px; border-top:1px solid #b4d2fa26; }
+ [data-visual-system=root] .ops-workspace-topbar { height:60px; padding:6px 24px; gap:24px; background:radial-gradient(ellipse at 20% 0,#80b3e7aa,transparent 70%),linear-gradient(105deg,#4e7dae,#d4e9ff 75%); }
+ [data-visual-system=root] .ops-command-brand { display:none; }
+ [data-visual-system=root] .ops-search-entry { width:min(720px,75%); margin-left:175px; background:#edf4ffc9; border:7px solid #d4e7fa99; border-radius:22px; padding:6px 13px; font-size:12px; min-width:0; box-shadow:inset 0 1px 5px #abc5e23d; white-space:nowrap; overflow:hidden; }
+ [data-visual-system=root] .ops-search-hint { font-size:9px; background:#d7e3f7; border-radius:5px; padding:3px 6px; }
+ [data-visual-system=root] > main:has(.relationship-workspace) { margin-right:8px; padding:0 12px; background:radial-gradient(ellipse at 100% 0,#c8d9fa99,transparent 70%),linear-gradient(125deg,#f0f3ff,#e2edff); border-radius:12px; box-shadow:0 0 0 5px #d4e9ff55,inset 0 1px 0 #fff; }
+}
+@media(max-width:1023px) { [data-visual-system=root] .ops-command-context { display:none; } }

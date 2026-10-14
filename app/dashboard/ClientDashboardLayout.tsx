@@ -308,10 +308,10 @@ export default function ClientDashboardLayout({
                 <div className="h-9 w-9 rounded-2xl bg-emerald-400/80 shadow-lg shadow-emerald-500/40 shrink-0" />
                 <div className="flex flex-col leading-tight min-w-0">
                   <span className="text-sm font-semibold text-slate-50">
-                    {relationshipVisualPilot ? "Root Health" : "Root Health Ops"}
+                    Root Health Ops
                   </span>
                   <span className="text-[11px] text-slate-300">
-                    {relationshipVisualPilot ? "Resilient Human" : "Your cockpit for growth"}
+                    {relationshipVisualPilot ? "Growth Operations Centre" : "Your cockpit for growth"}
                   </span>
                 </div>
               </div>
@@ -362,10 +362,10 @@ export default function ClientDashboardLayout({
             ) : null}
           </div>
         </div>
-        {relationshipVisualPilot && <div className="ops-sidebar-ambient" aria-hidden="true"><svg viewBox="0 0 212 230" preserveAspectRatio="xMidYMax slice"><defs><radialGradient id="ops-sunset"><stop stopColor="#f6cf93" stopOpacity=".8"/><stop offset="1" stopColor="#a67b66" stopOpacity="0"/></radialGradient><linearGradient id="ops-hill" x2="0" y2="1"><stop stopColor="#44636b"/><stop offset="1" stopColor="#071a2b"/></linearGradient></defs><ellipse cx="32" cy="85" rx="150" ry="100" fill="url(#ops-sunset)"/><path d="M0 132Q43 102 86 130T212 112V230H0Z" fill="#405768" opacity=".65"/><path d="M0 165Q65 119 130 154T212 139V230H0Z" fill="url(#ops-hill)"/><path d="m81 167 4-54 4 54Zm5-34-17-20 18 12 21-24-20 32" fill="#0b2530"/><path d="M54 110q-13-11 0-18-2-15 13-14 4-19 21-12 15-10 24 5 20-2 18 15 15 9 3 21-4 12-24 9-10 11-25 1-19 7-30-7Z" fill="#173e40"/><path d="M0 195Q81 156 212 186V230H0Z" fill="#081c2c" opacity=".8"/></svg><p>Together, we grow<br/>healthier, stronger,<br/>more resilient.</p><span>ROOT HEALTH</span></div>}
+        {relationshipVisualPilot && <div className="ops-sidebar-ambient" aria-hidden="true"><p>Together, we grow<br/>smarter, stronger,<br/>more connected.</p><span>Root Health Ops</span></div>}
       </header>
 
-      {relationshipVisualPilot && <div className="ops-workspace-topbar"><div><span className="ops-eyebrow">Root Health Ops</span><p>Growth workspace</p></div><Link className="ops-search-entry" href={`/dashboard/growth/relationships${orgId ? `?organisationId=${encodeURIComponent(orgId)}` : ""}`}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>Search relationships<span className="ops-search-hint">People · companies · history</span></Link></div>}
+      {relationshipVisualPilot && <div className="ops-workspace-topbar"><div className="ops-command-brand"><span className="ops-eyebrow">Root Health Ops</span><p>Growth Operations Centre</p></div><Link className="ops-search-entry" href={`/dashboard/growth/relationships${orgId ? `?organisationId=${encodeURIComponent(orgId)}` : ""}`}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>Search people, companies, or what’s happening in your growth operations…<span className="ops-search-hint">Search</span></Link><div className="ops-command-context"><span className="ops-command-orb" aria-hidden="true"/><span>Growth workspace<small>Relationships &amp; intelligence</small></span></div></div>}
 
       <main className="flex-1 p-6"><AcquisitionHandoff key={pathname} />{children}</main>
 
