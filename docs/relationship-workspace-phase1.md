@@ -27,7 +27,9 @@ Legacy unresolvable canonical IDs produce a recovery link to search; they are ne
 
 All six have RLS enabled. PUBLIC/anon/authenticated/service_role privileges are reset; service_role receives SELECT only. All mutations use service-role-only `apply_relationship_workspace_action(...)`. This SECURITY DEFINER RPC is necessary for atomic multi-table saves while keeping ordinary service-role table UPDATE/DELETE/INSERT unavailable. It locks per tenant, independently validates actor membership/write role, tenant-owned sources, Founder protection, workspace revision, idempotency and same-tenant task/company/pricing references. No SQL path updates an operational source table. Browser roles have no table/RPC access. Composite tenant FKs protect task/event/value/workspace relationships. Source-link triggers prevent source reassignment. Pricing defaults require owner/admin; ordinary workspace actions use existing owner/admin/manager policy.
 
-Founder permission is checked through unchanged `requireFounderIntelligence()`. Ordinary tenant readers never load Founder records. Workspaces referencing Founder records are protected as a whole; their metadata/history is not exposed to non-Founder readers, even after promotion. This intentionally favours privacy rather than copying private research into public relationship data.
+Founder permission is checked through unchanged `requireFounderIntelligence()`. Pure Founder-only workspaces are protected; mixed operational + Founder relationships retain one shared workspace/identity. Founder links are filtered before non-Founder resolution/search; those users never load Founder research/activity rows. Adding Founder evidence never makes an existing shared workspace private. Promoting a pure Founder workspace with valid operational evidence can open the same workspace without exposing its earlier protected content.
+
+Workspace events/notes, tasks and value assessments carry independent immutable `founder_only` scope, derived by the RPC from validated source references (not a browser visibility flag). Saves from a Founder-linked view are conservatively Founder-only and labelled in the UI. Ordinary operational saves remain shared. Private task updates and private receipt replays require Founder permission. Protected value data cannot be promoted into shared tenant pricing defaults. Raw workspace creator/update metadata and protected company references are not returned to ordinary users. The revision is a concurrency token, not an activity count or history payload. Founder-only evidence cannot influence ordinary list/search results, current history or value summaries. Losing Founder permission removes intelligence, not the operational relationship.
 
 ## Evidence and UI
 
@@ -47,14 +49,14 @@ Every displayed Potential/Expected figure includes its basis alongside it. Serve
 
 - A single scoped detail POST dispatches approved workspace actions instead of three separate activity/task/value mutation routes; the atomic database RPC is shared.
 - Strategy save/AI remains a future shell as approved; manual Strategic thought notes are available now.
-- Founder private workspaces are founder-only until explicit future sharing design; company association does not relax this.
+- Pure Founder workspaces remain protected. Mixed workspaces keep shared operational access with separately permission-gated Founder evidence, notes, tasks and assessments.
 - No global archive filtering, duplicate merges, permanent delete or operational status editing was added.
 - Search scans tenant-scoped server pages using existing helpers. Conversation loading currently reads tenant history then filters exact known identities/threads server-side; correctness is favoured over new query/index architecture. Large-history optimisation remains future work.
 - No Production data or tenant pricing was populated. Local SQL tests use an isolated in-memory Postgres fixture; visual inspection uses labelled synthetic data.
 
 ## Local verification
 
-49 relationship-focused tests cover projection/identity strengthening, lazy creation/rollback, duplicate-workspace conflict, Founder authorisation, tenant isolation, exact conversation evidence, value methods/unknowns/itemised services, UI tabs and safe retries. 224 selected existing Founder/Acquisition/Responses/LinkedIn regression tests passed. The separate outreach-console suite remains 18/19: its existing 409-versus-200 fixture failure at line 110 was independently reproduced on untouched main before this work; generation/lifecycle logic was not changed to accommodate it. TypeScript and targeted lint are required at final local handoff.
+57 relationship-focused tests cover projection/identity strengthening, lazy creation/rollback, duplicate-workspace conflict, Founder authorisation, tenant isolation, exact conversation evidence, value methods/unknowns/itemised services, UI tabs and safe retries. 224 selected existing Founder/Acquisition/Responses/LinkedIn regression tests passed. The separate outreach-console suite remains 18/19: its existing 409-versus-200 fixture failure at line 110 was independently reproduced on untouched main before this work; generation/lifecycle logic was not changed to accommodate it. TypeScript and targeted lint are required at final local handoff.
 
 The fixture screenshot is a synthetic render of the actual components, not a Production/Preview schema test. No remote save behaviour is claimed before migration and deployment are separately authorised.
 

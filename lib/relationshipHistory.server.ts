@@ -3,16 +3,19 @@ import { lifecycleLinkedInIdentity, type LifecycleInput } from "@/lib/contactLif
 import { externalSentAt, sendReceipts } from "@/lib/linkedinSendEvidence";
 import { chronologicalEvidence, object, words, sourceRows, type Row, type ProjectedRelationship, type EvidenceEvent } from "@/lib/relationshipWorkspace";
 export async function relationshipHistory(org:string,relationship:ProjectedRelationship,input:LifecycleInput,founder:Row[],events:Row[]) {
- const rows=sourceRows(input,relationship.refs), identities=new Set(rows.flatMap(r=>[r.linkedin_identity,r.linkedin_url,r.permalink].map(lifecycleLinkedInIdentity).filter(Boolean)));
+ // Defence in depth around the tenant-scoped reader; never borrow protected provenance across tenants.
+ const historyRows=async(table:string)=>(await readTenantHistory(table,org)).filter(r=>!r.organisation_id||r.organisation_id===org);
+ founder=founder.filter(f=>f.organisation_id===org);
+ const rows=sourceRows(input,relationship.refs).filter(r=>r.organisation_id===org), identities=new Set(rows.flatMap(r=>[r.linkedin_identity,r.linkedin_url,r.permalink].map(lifecycleLinkedInIdentity).filter(Boolean)));
  // The existing canonical projection may carry stronger identity than any one source row.
  if(relationship.contactId)try{const [tenant,identity]=JSON.parse(relationship.contactId);if(tenant===org&&typeof identity==="string"&&identity.startsWith("linkedin:")){const canonical=lifecycleLinkedInIdentity(identity.slice(9));if(canonical)identities.add(canonical);}}catch{ /* Source evidence remains usable; never guess an identity. */ }
  for(const f of founder.filter(f=>relationship.founderIds.includes(String(f.id)))){const canonical=lifecycleLinkedInIdentity(f.linkedin_identity);if(canonical)identities.add(canonical);}
  const threads=new Set(rows.filter(r=>r.platform==="email").flatMap(r=>[words(r.email_thread_id),words(r.email_sent_thread_id)]).filter(Boolean));
- const founderEvents=founder.length?(await readTenantHistory("founder_activity_events",org)).filter(e=>relationship.founderIds.includes(String(e.research_record_id))):[];
+ const founderEvents=founder.length?(await historyRows("founder_activity_events")).filter(e=>relationship.founderIds.includes(String(e.research_record_id))):[];
  for(const e of founderEvents)if(e.gmail_message_id&&e.gmail_thread_id)threads.add(String(e.gmail_thread_id));
  const [li,email,acquisition,response]=await Promise.all([
-  identities.size?readTenantHistory("linkedin_conversation_messages",org):[],threads.size?readTenantHistory("email_conversation_messages",org):[],
-  relationship.refs.some(r=>r.table==="acquisition_items")?readTenantHistory("acquisition_item_events",org):[],relationship.refs.some(r=>r.table==="inbox_items")?readTenantHistory("response_item_events",org):[],
+  identities.size?historyRows("linkedin_conversation_messages"):[],threads.size?historyRows("email_conversation_messages"):[],
+  relationship.refs.some(r=>r.table==="acquisition_items")?historyRows("acquisition_item_events"):[],relationship.refs.some(r=>r.table==="inbox_items")?historyRows("response_item_events"):[],
  ]);
  const communication:EvidenceEvent[]=[],history:EvidenceEvent[]=[];
  const event=(e:EvidenceEvent)=>history.push(e);
