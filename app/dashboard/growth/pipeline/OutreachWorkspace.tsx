@@ -91,6 +91,7 @@ export default function OutreachWorkspace({ target, onComplete }: { target: Outr
     {target.linkedin_url && /^https:\/\/(?:www\.)?linkedin\.com\/in\//i.test(target.linkedin_url) && <a className="block underline" href={target.linkedin_url} target="_blank" rel="noreferrer">Open LinkedIn profile</a>}
     {target.lifecycle?.lastAction && <p>Last action: {target.lifecycle.lastAction.action.replaceAll("_", " ")}{target.lifecycle.lastAction.at ? ` (${new Date(target.lifecycle.lastAction.at).toLocaleString()})` : ""}</p>}
     {target.lifecycle?.nextDueDate && <p>Next due: {new Date(target.lifecycle.nextDueDate).toLocaleString()}</p>}
+    <a className="block text-sm text-emerald-300 underline" href={`/dashboard/growth/relationships/target_${target.id}?organisationId=${target.organisation_id}`}>Open Relationship</a>
     {target.notes && <p className="whitespace-pre-wrap">{target.notes}</p>}
     {target.acquisition?.map(a => <details key={a.id} id={`source-evidence-${a.id}`} open={b2bOwned || undefined}><summary>Acquisition evidence</summary>
       <p className="whitespace-pre-wrap">{a.evidence}</p><p>{a.source_engine} · {a.source_record_id}</p>

@@ -259,6 +259,7 @@ export default function ClientDashboardLayout({
         { label: "Import", href: "/dashboard/growth/import" },
         { label: "Tracker", href: "/dashboard/growth/tracker" },
         { label: "Cadence", href: "/dashboard/growth/cadence-report" },
+        { label: "Relationships", href: `/dashboard/growth/relationships${orgId ? `?organisationId=${encodeURIComponent(orgId)}` : ""}` },
       ];
     }
 
