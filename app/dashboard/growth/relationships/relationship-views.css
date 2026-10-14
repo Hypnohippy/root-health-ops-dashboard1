@@ -133,3 +133,12 @@
 
 [data-visual-system=root] > main:has(.relationship-list) { min-width:0; padding:0 12px; margin-right:8px; background:radial-gradient(ellipse at 100% 0,#c8d9fa99,transparent 70%),linear-gradient(125deg,#f0f3ff,#e2edff); border-radius:12px; box-shadow:0 0 0 5px #d4e9ff55,inset 0 1px 0 #fff; }
 @media(max-width:767px) { [data-visual-system=root] > main:has(.relationship-list) { padding:0 10px; margin-right:0; } }
+
+@scope ([data-visual-system="root"]) {
+.relationship-trail-empty { padding:28px; border:1px dashed #b8cae6; border-radius:12px; background:radial-gradient(ellipse at 0 0,#e9e1fc66,transparent 70%),linear-gradient(120deg,#fff,#f3f8ff); box-shadow:0 2px 8px #8098be0b; }
+.relationship-trail-empty > svg { width:40px; height:40px; padding:9px; border:1px solid #d3c7ed; border-radius:12px; background:#eee7fb; color:#7852bb; }
+.relationship-trail-empty h4 { color:#243d66; font-size:16px; margin-top:15px; font-weight:600; }
+.relationship-trail-empty p { max-width:650px; color:#526987; font-size:12px; line-height:1.7; margin-top:8px; }
+.relationship-tasks > p { display:flex; align-items:center; gap:12px; }
+.relationship-tasks > p > svg { width:35px; height:35px; flex-shrink:0; padding:7px; border:1px solid #c9dded; background:#e8f4fd; color:#3d79a8; border-radius:10px; }
+}
