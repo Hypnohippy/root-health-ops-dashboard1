@@ -75,3 +75,11 @@
 }
 
 .ops-navigation-icon { flex-shrink: 0; margin-right: .65rem; }
+/* Representative Overview: richer navy framing without enabling the visual system elsewhere. */
+[data-visual-system=root] > .ops-shell-navigation {
+ background: radial-gradient(ellipse at 115% 5%,rgba(68,113,166,.55),transparent 48%),radial-gradient(ellipse at -5% 100%,rgba(180,133,82,.28),transparent 35%),linear-gradient(170deg,#061b35,#102640 72%,#1c2c3e);
+}
+[data-visual-system=root] .ops-shell-brand > div:first-child { border-color: #bae577; box-shadow: 0 0 0 3px rgba(186,229,119,.08),0 0 16px rgba(186,229,119,.28); }
+@media (min-width:1024px) {
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a[aria-current=page] { background: linear-gradient(95deg,#075bea,rgba(20,75,155,.25)); box-shadow: inset 2px 0 #77bbff,0 8px 24px -18px #1769ee; }
+}

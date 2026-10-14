@@ -34,3 +34,28 @@ test("light content, navy frame and intelligence token text meet normal-text AA 
   const a=luminance(tokens[fg]),b=luminance(tokens[bg]),contrast=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);assert.ok(contrast>=4.5,`${fg} on ${bg}: ${contrast.toFixed(2)}`);
  }
 });
+
+test("Overview metrics count stored entries only, dedupe IDs and never infer dates from snapshot text",()=>{
+ const {overviewEvidence}=load("app/dashboard/growth/relationships/components/RelationshipOverviewVisuals.tsx");
+ const outbound={id:"out",direction:"outbound",at:"2026-10-13T07:48:00Z"},snapshot={id:"snapshot",direction:"snapshot",at:null,recordedAt:"2026-10-14T09:00:00Z",text:"Many messages and old timestamps 2019-01-01"};
+ const a={id:"a",at:"2026-10-11T10:00:00Z"},b={id:"b",at:"2026-10-13T08:00:00Z"},c={id:"c",at:"2026-10-13T09:00:00Z"};
+ const result=overviewEvidence({dated:[outbound,outbound],undated:[snapshot]},{dated:[a,b,c,b,{id:"invalid",at:"not a date"},{id:"unknown",at:null,recordedAt:"2026-10-14"}],undated:[snapshot]},[{status:"open"},{status:"done"},{status:"cancelled"}]);
+ assert.equal(result.entries,2);assert.equal(result.snapshots,1);assert.equal(result.openTasks,1);assert.equal(JSON.stringify(result.days),JSON.stringify([{date:"2026-10-11",count:1},{date:"2026-10-13",count:2}]));
+});
+
+test("Health stays unassessed and the pipeline never fills earlier or unknown stages",()=>{
+ const {RelationshipHealthCard,CommercialPipelineCard}=load("app/dashboard/growth/relationships/components/RelationshipOverviewVisuals.tsx"),render=require("react-dom/server").renderToStaticMarkup;
+ const health=render(React.createElement(RelationshipHealthCard));assert.match(health,/Not established/);assert.match(health,/Momentum not assessed/);assert.doesNotMatch(health,/Momentum: High|92\/100|aria-valuenow/);
+ const unknown=render(React.createElement(CommercialPipelineCard,{stage:"no_reply_needed",nextAction:"Respect recorded state",due:null}));assert.match(unknown,/No action due/);assert.match(unknown,/Pipeline stage not established/);assert.equal((unknown.match(/data-current="true"/g)||[]).length,0);
+ const known=render(React.createElement(CommercialPipelineCard,{stage:"engaged",nextAction:"Review conversation",due:null}));assert.equal((known.match(/data-current="true"/g)||[]).length,1);assert.match(known,/data-current="true"[^>]*>Conversation/);
+});
+
+test("Value and activity graphics require actual evidence and are labelled as comparison or recorded counts",()=>{
+ const {ValueEvidenceGraphic,RelationshipMetricsCard,RelationshipAvatar}=load("app/dashboard/growth/relationships/components/RelationshipOverviewVisuals.tsx"),render=require("react-dom/server").renderToStaticMarkup;
+ const unknown=render(React.createElement(ValueEvidenceGraphic,{}));assert.match(unknown,/Not established/);assert.doesNotMatch(unknown,/role="img"/);
+ const empty=render(React.createElement(RelationshipMetricsCard,{evidence:{entries:0,snapshots:0,openTasks:0,days:[]}}));assert.match(empty,/Activity trend · Not established/);assert.doesNotMatch(empty,/role="img"/);
+ const {calculateValue}=load("lib/relationshipValue.ts");const value=calculateValue({method:"per_employee",currency:"GBP",eligibleEmployees:10,standardRate:1,expectedQuantity:5,oneOffPotential:0,oneOffExpected:0,quantitySource:"Unit fixture",priceSource:"Unit fixture"});
+ const known=render(React.createElement(ValueEvidenceGraphic,{value}));assert.match(known,/Potential £120.00; expected £60.00/);assert.match(known,/not a growth forecast/);const expectedOnly=render(React.createElement(ValueEvidenceGraphic,{value:{...value,potential:null}}));assert.match(expectedOnly,/Potential not established; expected £60.00/);
+ const chart=render(React.createElement(RelationshipMetricsCard,{value,evidence:{entries:2,snapshots:1,openTasks:0,days:[{date:"2026-10-11",count:1},{date:"2026-10-13",count:2}]}}));assert.match(chart,/2026-10-11: 1 recorded events; 2026-10-13: 2 recorded events/);assert.match(chart,/not inferred messages/);
+ const avatar=render(React.createElement(RelationshipAvatar,{name:"Tracy Fountain",kind:"person"}));assert.match(avatar,/>TF</);assert.doesNotMatch(avatar,/<img|online|presence/);
+});

@@ -19,3 +19,11 @@ PR #69 introduces a reusable visual language, initially activated only on the re
 ## Expansion rule
 
 Use the shared tokens and presentation primitives for a separately reviewed page rollout. Do not enable the theme for additional primary areas until approved. Keep lifecycle, permission filtering, source evidence and actions outside presentation primitives. Existing red reply-attention badges must retain their meaning and tenant-scoped deep links.
+
+## Representative Overview evidence rules
+
+The second visual pass retains a Health/Momentum card with an explicit unassessed state; no score or health rubric is invented. Pipeline chevrons select only a directly supported current lifecycle stage and never fill earlier stages automatically. Other states retain their exact lifecycle label with an unestablished pipeline position.
+
+Key Metrics counts unique stored conversation entries, explicitly marked snapshots and open tasks from the existing server-filtered payload. Snapshot contents are not parsed into individual messages. The activity graphic uses only valid actual event timestamps, grouped by UTC date, deduplicated by event ID; it appears only with at least two dated days. It shows recorded event counts, not performance, sentiment or revenue growth. Unknown trends remain a visible empty component.
+
+Saved commercial values may show a proportional Potential/Expected scope comparison, explicitly labelled as comparison rather than growth. No saved values means a visible Not established comparison state. Calculation inputs, stored values and service logic are not changed.
