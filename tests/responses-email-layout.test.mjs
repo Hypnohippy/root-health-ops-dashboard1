@@ -27,14 +27,15 @@ test("unrecognised body and opening disclaimer remain fully visible; HTML stays 
  }
  const html=require("react-dom/server").renderToStaticMarkup(React.createElement(bodyComponent.default,{body:"<script>alert(1)</script>"}));assert.ok(!html.includes("<script>"));
 });
-async function page(platform="email",messages=[],failed=false) {
+async function page(platform="email",messages=[],failed=false,lifecycleOverrides={}) {
  const search=`?platform=${platform}&status=needs_reply&itemId=selected`;
  const calls=[];
  const fetch=async(url,options={})=>{
   calls.push({url,method:options.method||"GET"});assert.equal(options.method||"GET","GET","layout mount must never write or send");
   let data;
   if(url==="/api/social-accounts") data={organisationId:"org"};
-  else if(url.startsWith("/api/responses/list")) data={success:true,configured:true,items:[{id:"selected",platform,status:"needs_reply",kind:platform==="email"?"email_reply":"connection_accepted",authorName:"Example Person",text:"Original source message",createdAt:"2026-10-12T12:00:00Z",subject:"Long thread",senderEmail:"business@example.test",lifecycle:{currentStage:"needs_reply",label:"Needs reply",canDraft:true,humanActionRequired:true,nextAction:"Prepare reply",contactId:"contact"}}]};
+  else if(url.startsWith("/api/responses/list")) data={success:true,configured:true,items:[{id:"selected",platform,status:"needs_reply",kind:platform==="email"?"email_reply":"connection_accepted",authorName:"Example Person",text:"Original source message",createdAt:"2026-10-12T12:00:00Z",subject:"Long thread",senderEmail:"business@example.test",lifecycle:{currentStage:"needs_reply",label:"Needs reply",canDraft:true,humanActionRequired:true,nextAction:"Prepare reply",contactId:"contact",...lifecycleOverrides}}]};
+  else if(url.startsWith("/api/growth/linkedin-conversation?")) data=failed?{success:false,error:"Conversation unavailable"}:{success:true,contactId:"contact",messages:Array.isArray(messages)?{dated:[],undated:messages}:messages};
   else if(url.includes("/conversation?")) data=failed?{success:false,error:"Conversation unavailable"}:{success:true,messages};
   else if(url.includes("/context?")) data={context:{name:"Example Person",whatWeKnow:[],history:[],whyRelevant:"Relevant recorded context",relationship:"Conversation",objective:"Review and reply"}};
   else throw Error("Unexpected request "+url);
@@ -43,6 +44,7 @@ async function page(platform="email",messages=[],failed=false) {
  const Page=load("app/dashboard/responses/page.tsx",{
   "@/lib/responseContactContext":{safeLinkedInFirstMessage:()=>""},"../components/ManualTakeover":()=>null,
   "./ResponseLifecycleDetails":load("app/dashboard/responses/ResponseLifecycleDetails.tsx"),"./EmailMessageBody":bodyComponent,
+  "./LinkedInConversationHistory":load("app/dashboard/responses/LinkedInConversationHistory.tsx",{},{fetch}),
   "./LinkedInReplyResolution":()=>null,"@/lib/tenantFetch":{tenantFetch:fetch},"next/navigation":{useSearchParams:()=>new URLSearchParams(search)},
  },{fetch,window:{location:{search},localStorage:{getItem:()=>null},dispatchEvent(){},scrollY:0,scrollTo(){}},requestAnimationFrame:fn=>fn()}).default;
  let tree;await renderer.act(async()=>{tree=renderer.create(React.createElement(Page));});return {tree,calls};
@@ -59,7 +61,53 @@ test("email thread and reply controls occupy wide main workspace; context rail h
 test("empty or failed thread fetch retains original selected source text",async()=>{
  for(const failed of [false,true]) {const {tree}=await page("email",[],failed);assert.equal(tree.root.findByType(bodyComponent.default).props.body,"Original source message");await renderer.act(async()=>tree.unmount());}
 });
-test("LinkedIn keeps original list/assistant placement and never fetches an email thread",async()=>{
- const {tree,calls}=await page("linkedin");assert.equal(tree.root.findAllByType("aside").length,0);assert.equal(tree.root.findAllByType(bodyComponent.default).length,0);
- assert.equal(tree.root.findByProps({"aria-label":"Response selection"}).props.className,"lg:col-span-2 space-y-3");assert.ok(!calls.some(c=>c.url.includes("/conversation?")));await renderer.act(async()=>tree.unmount());
+test("LinkedIn selection is compact above a wide platform-specific workspace, never the old narrow right panel",async()=>{
+ const {tree,calls}=await page("linkedin");
+ const workspace=tree.root.findByProps({"aria-label":"Selected LinkedIn workspace"});assert.match(workspace.props.className,/min-w-0.*lg:col-span-2/);
+ const selection=tree.root.findByProps({"aria-label":"Response selection"});assert.match(selection.props.className,/lg:col-span-3/);assert.match(selection.props.className,/max-h-52 overflow-y-auto/);assert.notEqual(selection.props.className,"lg:col-span-2 space-y-3");
+ assert.equal(tree.root.findAllByType(bodyComponent.default).length,0);
+ assert.equal(tree.root.findByType("aside").findAllByProps({"aria-label":"LinkedIn conversation history"}).length,0);
+ assert.ok(workspace.findByProps({"aria-label":"LinkedIn conversation history"}));assert.ok(workspace.findAllByType("textarea").length);
+ assert.ok(calls.some(c=>c.url.startsWith("/api/growth/linkedin-conversation?organisationId=org&contactId=contact")));
+ assert.ok(!calls.some(c=>c.url.startsWith("/api/responses/email/")));await renderer.act(async()=>tree.unmount());
+});
+
+test("Tracy/Jim/Natalie-style pasted snapshots retain every character and remain explicitly undated",async()=>{
+ const names=["Tracy","Jim","Natalie"];
+ const history={dated:[{id:"first",direction:"outbound",message_at:"2026-10-01T10:00:00Z",message:"First exact outbound"},{id:"second",direction:"inbound",message_at:"2026-10-02T10:00:00Z",message:"Second exact inbound"}],undated:names.map((name,i)=>({id:String(i),direction:"snapshot",message_at:null,confirmed_at:"2026-10-10T10:00:00Z",earliest_outbound_at:i===0?"2026-09-01T10:00:00Z":null,message:`  ${name}  9:30 AM\r\nLinkedIn UI text\nYou: Hello 👋\n${name}: A real reply\n  `}))};
+ const {tree}=await page("linkedin",history);
+ const panel=tree.root.findByProps({"aria-label":"LinkedIn conversation history"});
+ assert.deepEqual(panel.findAllByType("pre").map(node=>node.props.children),[...history.dated,...history.undated].map(entry=>entry.message));
+ const text=JSON.stringify(tree.toJSON());assert.match(text,/Undated messages and snapshots/);assert.match(text,/Message date unknown/);assert.match(text,/not the message date/);assert.match(text,/Individual message dates are not inferred/);
+ assert.equal(panel.findAllByType("article").length,5);assert.equal(panel.findAllByType("time")[2].props.dateTime,history.undated[0].confirmed_at);
+ await renderer.act(async()=>tree.unmount());
+});
+
+test("notification without history keeps missing-text warning and AI guard; stored snapshots do not override lifecycle",async()=>{
+ for(const messages of [[],[{id:"snapshot",direction:"snapshot",message:"Exact stored history",message_at:null}]]) {
+  const {tree}=await page("linkedin",messages,false,{replyDetected:true,missingReplyText:true,canDraft:false});
+  const panel=tree.root.findByProps({"aria-label":"LinkedIn conversation history"});
+  const text=JSON.stringify(tree.toJSON());assert.equal(text.includes("LinkedIn reply detected — open conversation and paste/log it"),messages.length===0);
+  assert.equal(panel.findAllByType("pre").length,messages.length);
+  const ai=tree.root.findAllByType("button").find(b=>b.children.includes("AI Suggest"));assert.equal(ai.props.disabled,true);
+  assert.ok(panel.findByType("a").props.href.includes("contactId=contact"));await renderer.act(async()=>tree.unmount());
+ }
+});
+
+test("LinkedIn history read error stays explicit and logging remains available",async()=>{
+ const {tree}=await page("linkedin",[],true);const panel=tree.root.findByProps({"aria-label":"LinkedIn conversation history"});assert.equal(panel.findByProps({role:"alert"}).props.children,"Conversation unavailable");assert.equal(panel.findAllByType("pre").length,0);assert.ok(panel.findByType("a"));await renderer.act(async()=>tree.unmount());
+});
+
+test("contact switches hide earlier history immediately and reject a mismatched response identity",async()=>{
+ const pending=[];
+ const fetch=async(url,options)=>new Promise(resolve=>pending.push({url,options,resolve}));
+ const Component=load("app/dashboard/responses/LinkedInConversationHistory.tsx",{},{fetch}).default;
+ let tree;await renderer.act(async()=>{tree=renderer.create(React.createElement(Component,{organisationId:"org-a",contactId:"contact-a",replyDetected:true}));});
+ await renderer.act(async()=>pending[0].resolve({ok:true,json:async()=>({success:true,contactId:"contact-a",messages:{dated:[],undated:[{id:"old",direction:"snapshot",message:"First contact private history",message_at:null}]}})}));
+ assert.match(JSON.stringify(tree.toJSON()),/First contact private history/);
+ await renderer.act(async()=>tree.update(React.createElement(Component,{organisationId:"org-a",contactId:"contact-b",replyDetected:true})));
+ assert.equal(pending[0].options.signal.aborted,true);assert.doesNotMatch(JSON.stringify(tree.toJSON()),/First contact private history/);assert.match(JSON.stringify(tree.toJSON()),/Loading LinkedIn conversation history/);
+ await renderer.act(async()=>pending[1].resolve({ok:true,json:async()=>({success:true,contactId:"contact-a",messages:{dated:[],undated:[{id:"wrong",direction:"snapshot",message:"Must never appear",message_at:null}]}})}));
+ assert.match(JSON.stringify(tree.toJSON()),/Could not load LinkedIn conversation history/);assert.doesNotMatch(JSON.stringify(tree.toJSON()),/Must never appear/);
+ await renderer.act(async()=>tree.unmount());
 });

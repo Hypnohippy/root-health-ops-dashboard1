@@ -10,6 +10,7 @@ import { tenantFetch } from "@/lib/tenantFetch";
 
 import EmailMessageBody from "./EmailMessageBody";
 import LinkedInReplyResolution from "./LinkedInReplyResolution";
+import LinkedInConversationHistory from "./LinkedInConversationHistory";
 import { useSearchParams } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
@@ -854,6 +855,7 @@ const deleteSelectedResponse = async () => {
   }, [savedDrafts, selected]);
 
   const emailWorkspace = selected?.platform === "email";
+  const wideWorkspace = emailWorkspace || selected?.platform === "linkedin";
   const contactBriefing = selected ? (
                   <section aria-label="Why this contact matters" className="rounded-2xl border border-sky-400/20 bg-sky-400/[0.07] p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold text-white">Why this contact matters</h2>{contactContext?.messageType ? <Pill>{`Message type: ${contactContext.messageType}`}</Pill> : null}</div>
@@ -1030,7 +1032,7 @@ const deleteSelectedResponse = async () => {
         </div>
 
         <div className="grid items-start gap-6 lg:grid-cols-3">
-          <div aria-label="Response selection" className={emailWorkspace ? "min-w-0 lg:col-span-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 max-h-52 overflow-y-auto" : "lg:col-span-2 space-y-3"}>
+          <div aria-label="Response selection" className={wideWorkspace ? "min-w-0 lg:col-span-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 max-h-52 overflow-y-auto" : "lg:col-span-2 space-y-3"}>
             {query&&<div className="flex gap-3"><button disabled={!searchPage} onClick={()=>setSearchPage(p=>p-1)}>Previous search page</button><span>{searchTotal} historical matches</span><button disabled={(searchPage+1)*200>=searchTotal} onClick={()=>setSearchPage(p=>p+1)}>Next search page</button></div>}
             {!loading && filtered.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
@@ -1108,7 +1110,7 @@ const deleteSelectedResponse = async () => {
             )}
           </div>
 
-          <div aria-label={emailWorkspace ? "Selected email workspace" : undefined} className={emailWorkspace ? "min-w-0 space-y-6 lg:col-span-2" : "space-y-6"}>
+          <div aria-label={emailWorkspace ? "Selected email workspace" : selected?.platform === "linkedin" ? "Selected LinkedIn workspace" : undefined} className={wideWorkspace ? "min-w-0 space-y-6 lg:col-span-2" : "space-y-6"}>
             <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
               <div>
                 <div className="text-base font-semibold">{selected?.lifecycle?.label || "Response assistant"}</div>
@@ -1127,7 +1129,7 @@ const deleteSelectedResponse = async () => {
                 </div>
               ) : (
                 <div className="mt-4 space-y-4">
-                  {!emailWorkspace && contactBriefing}
+                  {!wideWorkspace && contactBriefing}
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
@@ -1268,6 +1270,12 @@ const deleteSelectedResponse = async () => {
     )}
   </section>
 ) : null}
+                    {selected.platform === "linkedin" && <LinkedInConversationHistory
+                      key={`${organisationId}:${selected.lifecycle?.contactId || selected.id}`}
+                      organisationId={organisationId}
+                      contactId={selected.lifecycle?.contactId}
+                      replyDetected={selected.lifecycle?.replyDetected === true}
+                    />}
                     {contactContext?.socialOpportunity && <section className="my-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-sm text-slate-200" aria-label="Public conversation opportunity">
                       <h3 className="font-semibold">Public conversation opportunity</h3>
                       <p>{contactContext.socialOpportunity.relevance} · {contactContext.socialOpportunity.opportunityType.replaceAll("_", " ")} · Risk: {contactContext.socialOpportunity.risk.replaceAll("_", " ")}</p>
@@ -1437,7 +1445,7 @@ const deleteSelectedResponse = async () => {
               )}
             </div>
           </div>
-          {emailWorkspace && <aside aria-label="Contact context" className="min-w-0 lg:col-span-1">{contactBriefing}</aside>}
+          {wideWorkspace && <aside aria-label="Contact context" className="min-w-0 lg:col-span-1">{contactBriefing}</aside>}
         </div>
       </div>
 {showFollowUpPicker && selected && (
