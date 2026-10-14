@@ -1270,6 +1270,7 @@ const deleteSelectedResponse = async () => {
     )}
   </section>
 ) : null}
+                    {organisationId && <a className="my-3 inline-block text-sm text-emerald-300 underline" href={`/dashboard/growth/relationships/inbox_${selected.id}?organisationId=${organisationId}`}>Open Relationship</a>}
                     {selected.platform === "linkedin" && <LinkedInConversationHistory
                       key={`${organisationId}:${selected.lifecycle?.contactId || selected.id}`}
                       organisationId={organisationId}

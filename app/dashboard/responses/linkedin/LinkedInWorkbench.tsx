@@ -87,6 +87,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
     finally { locked.current = false; setBusy(""); }
   }
   return <article className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-white/15 bg-slate-900 lg:h-full" aria-label="Selected LinkedIn contact" aria-busy={!!busy}>
+    <a className="px-4 pt-3 text-sm text-emerald-300 underline" href={`/dashboard/growth/relationships/${item.table === "inbox_items" ? "inbox" : item.table === "growth_targets" ? "target" : "acquisition"}_${item.id}?organisationId=${queue.organisationId}`}>Open Relationship</a>
     <header className="sticky top-0 z-10 shrink-0 space-y-3 border-b border-white/10 bg-slate-900 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="text-xl font-semibold">{item.name}</h2><p className="text-sm">{item.role || "Role not recorded"}</p><p className="text-sm text-slate-300">{item.company || "Company not recorded"}</p></div><span className="rounded bg-emerald-900 px-2 py-1 text-xs">{item.mode === "catchup" ? "Catch-up" : item.mode === "fresh" ? "Fresh" : "Follow-up"} · {item.stage.replaceAll("_", " ")}</span></div>
       <p className="text-sm text-emerald-200">{item.reason}</p>
