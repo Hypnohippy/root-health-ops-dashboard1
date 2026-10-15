@@ -42,7 +42,7 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
   }
 
   return <>
-    <button ref={launcher} type="button" className="root-coach-launcher" aria-haspopup="dialog" aria-controls="root-coach-dialog" onClick={open}><span aria-hidden="true">✦</span> Ask Root</button>
+    <button ref={launcher} type="button" className="root-coach-launcher" disabled={!organisationId} aria-haspopup="dialog" aria-controls="root-coach-dialog" onClick={open}><span aria-hidden="true">✦</span> Ask Root</button>
     <dialog ref={dialog} id="root-coach-dialog" className="root-coach-dialog" aria-labelledby="root-coach-title" aria-describedby="root-coach-boundary" onClose={() => { request.current?.abort(); launcher.current?.focus(); }} onCancel={close}>
       <header className="root-coach-heading"><div><p>YOUR CONTEXTUAL GUIDE</p><h2 id="root-coach-title"><span aria-hidden="true">✦</span> Ask Root</h2></div><button type="button" autoFocus aria-label="Close Ask Root" onClick={close}>×</button></header>
       <div className="root-coach-scroll">

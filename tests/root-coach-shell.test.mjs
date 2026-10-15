@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 const shell=fs.readFileSync("app/dashboard/ClientDashboardLayout.tsx","utf8"),component=fs.readFileSync("app/dashboard/components/RootCoach.tsx","utf8"),css=fs.readFileSync("app/dashboard/components/root-coach.css","utf8");
 test("one shell mount receives only existing workspace and permission state",()=>{
  assert.equal((shell.match(/<RootCoach\s/g)||[]).length,1);assert.match(shell,/pathname=\{pathname\} organisationId=\{orgId\} founderAllowed=\{founderAccess\}/);
+ assert.match(component,/className="root-coach-launcher" disabled=\{!organisationId\}/);
  assert.doesNotMatch(component,/setInterval|document\.body\.innerHTML|supabase|localStorage|window\.location|router\.push/);
 });
 test("drawer is modal, labelled, keyboard-dismissable and restores focus",()=>{
