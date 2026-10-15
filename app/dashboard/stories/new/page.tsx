@@ -1,5 +1,6 @@
 // app/dashboard/stories/new/page.tsx
 "use client";
+import "../../publishing/publishing.css";
 
 import { tenantFetch } from "@/lib/tenantFetch";
 
@@ -643,7 +644,7 @@ export default function StorySeriesBuilderPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
+    <div className="publishing-workspace min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-8">
         <header className="space-y-2">
           <div className="flex items-start justify-between gap-3">

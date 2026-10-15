@@ -1,5 +1,6 @@
 // app/dashboard/scheduled/page.tsx
 "use client";
+import "../publishing/publishing.css";
 
 import React, { useEffect, useMemo, useState } from "react";
 
@@ -644,7 +645,7 @@ export default function ScheduledPage() {
   const emptyState = !loading && !error && filtered.length === 0;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
+    <div className="publishing-workspace min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-5xl space-y-6">
         <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-8 shadow-xl backdrop-blur">
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">

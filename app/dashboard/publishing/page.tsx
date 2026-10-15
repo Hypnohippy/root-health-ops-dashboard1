@@ -1,5 +1,6 @@
 // app/dashboard/page.tsx
 "use client";
+import "./publishing.css";
 
 import { tenantFetch } from "@/lib/tenantFetch";
 
@@ -1309,7 +1310,7 @@ export default function DashboardHomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
+    <div className="publishing-workspace min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
         <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-6 md:p-10 shadow-xl backdrop-blur">
                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
@@ -1325,7 +1326,7 @@ export default function DashboardHomePage() {
                 />
               ) : null}
 
-              <h1 className="mt-1 text-2xl md:text-3xl font-semibold">
+              <div className="publishing-eyebrow">Publishing workspace</div><h1 className="publishing-title mt-1 text-2xl md:text-3xl font-semibold"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h4"/></svg>
                 {organisation?.brand_name || organisation?.name || "Dashboard"}
               </h1>
 
@@ -1385,6 +1386,11 @@ export default function DashboardHomePage() {
             </div>
           ) : null}
 
+          <section className="publishing-intelligence" aria-label="Publishing state briefing">
+            <div className="publishing-state-card publishing-drafts"><span className="publishing-state-icon" aria-hidden="true">▤</span><div><h2>Saved drafts</h2><strong>{drafts.length}</strong><p>Drafts saved in this browser</p><small>Local drafts are distinct from pending approval records.</small></div></div>
+            <div className="publishing-state-card publishing-scheduled"><span className="publishing-state-icon" aria-hidden="true">◷</span><div><h2>Scheduled</h2><strong>Not established</strong><p>Schedule totals are not loaded in this composer</p><a href="/dashboard/scheduled">Review recorded schedule →</a></div></div>
+            <div className="publishing-state-card publishing-published"><span className="publishing-state-icon" aria-hidden="true">✓</span><div><h2>Published / delivery</h2><strong>Not established</strong><p>A draft or approval does not confirm delivery</p><a href="/dashboard/approvals">Review approvals and recorded status →</a></div></div>
+          </section>
           <div className="mt-8 grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2 rounded-3xl border border-slate-700 bg-slate-900/80 p-5 md:p-6">
               <div className="flex items-start justify-between gap-4">
