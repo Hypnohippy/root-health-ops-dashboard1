@@ -117,3 +117,19 @@ test("Value and activity graphics require actual evidence and are labelled as co
  let tree;await renderer.act(async()=>tree=renderer.create(await C({searchParams:Promise.resolve({})})));const text=JSON.stringify(tree.toJSON());assert.match(text,result.error?/Read unavailable/:/No recently contacted leads yet/);assert.doesNotMatch(text,/Momentum: High|92\/100|£150/);await renderer.act(async()=>tree.unmount());
  }
  });
+
+ test("Pipeline presentation preserves loading/filter/action source and mounts with read requests only",async()=>{
+ const page=fs.readFileSync("app/dashboard/growth/pipeline/page.tsx","utf8").replaceAll("\r\n","\n"),base=require("node:child_process").execFileSync("git",["show","5cd64e4:app/dashboard/growth/pipeline/page.tsx"],{encoding:"utf8"}).replaceAll("\r\n","\n");
+ assert.equal(page.slice(page.indexOf("  const [targets"),page.indexOf("  return (")),base.slice(base.indexOf("  const [targets"),base.indexOf("  return (")));
+ const rows=[{id:"warm",target_name:"Warm Contact",reply_status:"interested",deal_stage:"opportunity",deal_value:1250,next_step:"Review recorded proposal",organisation_id:"tenant"},{id:"meeting",target_name:"Meeting Contact",reply_status:"call_booked",deal_stage:"meeting",deal_value:null,organisation_id:"tenant"},{id:"won",target_name:"Won Contact",deal_stage:"won",deal_value:0,organisation_id:"tenant"}];
+ for(const [search,expected,absent] of [["?view=warm",["Warm Contact","Meeting Contact"],"Won Contact"],["",["Meeting Contact","Won Contact"],"Warm Contact"],["?targetId=warm",["Warm Contact"],"Meeting Contact"]]){
+ const requests=[];const C=load("app/dashboard/growth/pipeline/page.tsx",{"@/lib/tenantFetch":{tenantFetch:async(url,opts)=>{requests.push({url,opts});return {ok:true,json:async()=>({success:true,data:rows})}}},"./OutreachWorkspace":()=>null},{window:{location:{search}}}).default;
+ let tree;await renderer.act(async()=>tree=renderer.create(React.createElement(C)));const text=JSON.stringify(tree.toJSON());for(const name of expected)assert.match(text,new RegExp(name));assert.doesNotMatch(text,new RegExp(absent));assert.match(text,/Not established/);
+ assert.equal(requests.length,1);assert.equal(requests[0].url,search.includes("targetId")?"/api/growth/pipeline?targetId=warm":"/api/growth/pipeline");assert.equal(requests[0].opts,undefined);assert.doesNotMatch(text,/Momentum: High|92\/100|£150k|annual subscription/);
+ await renderer.act(async()=>tree.unmount());
+ }
+ });
+ test("Pipeline empty/error presentation never fabricates stages or value",async()=>{
+ for(const success of [true,false]){const C=load("app/dashboard/growth/pipeline/page.tsx",{"@/lib/tenantFetch":{tenantFetch:async()=>({ok:success,json:async()=>({success,data:[],error:"Read unavailable"})})},"./OutreachWorkspace":()=>null},{window:{location:{search:""}}}).default;
+ let tree;await renderer.act(async()=>tree=renderer.create(React.createElement(C)));const text=JSON.stringify(tree.toJSON());assert.match(text,success?/No calls booked yet/:/Read unavailable/);assert.equal(tree.root.findAllByProps({className:"pipeline-opportunity"}).length,0);assert.equal(tree.root.findByProps({className:"pipeline-stage-ribbon"}).findAllByType("span").length,0);await renderer.act(async()=>tree.unmount());}
+ });
