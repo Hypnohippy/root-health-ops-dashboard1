@@ -228,7 +228,7 @@ export default function ClientDashboardLayout({
 
   const activePrimary = primaryNav.find((item) => item.match(pathname))?.label || "Home";
   // Growth owns one persistent shell; individual pages must not opt into a legacy frame.
-  const relationshipVisualPilot = pathname === "/dashboard/growth" || pathname.startsWith("/dashboard/growth/") || pathname === "/dashboard/founder-intelligence" || pathname === "/dashboard/responses" || pathname === "/dashboard/sequences" || pathname === "/dashboard/publishing" || pathname === "/dashboard/scheduled" || pathname === "/dashboard/approvals" || pathname === "/dashboard/stories/new";
+  const relationshipVisualPilot = pathname === "/dashboard/growth" || pathname.startsWith("/dashboard/growth/") || pathname === "/dashboard/founder-intelligence" || pathname === "/dashboard/responses" || pathname === "/dashboard/sequences" || pathname === "/dashboard/publishing" || pathname === "/dashboard/scheduled" || pathname === "/dashboard/approvals" || pathname === "/dashboard/stories/new" || pathname === "/dashboard/resources";
 
   const secondaryNav: SecondaryNavItem[] = (() => {
     if (activePrimary === "Responses") {

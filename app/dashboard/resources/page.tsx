@@ -1,4 +1,5 @@
 "use client";
+import "./resources.css";
 
 import { tenantFetch } from "@/lib/tenantFetch";
 
@@ -3998,11 +3999,11 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
 
   const theme = slideThemeClasses(presentationTheme);
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
-      <div className="w-full max-w-7xl space-y-6">
+    <div className="resources-workspace min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
+      <div className="resources-main w-full max-w-7xl space-y-6">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold">Resource Library</h1>
+            <div className="resources-eyebrow">Growth Operations Centre</div><h1 className="resources-title text-2xl font-semibold"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M4 4h7v16H4zM14 4h6v16h-6"/></svg>Resource Library</h1>
             <p className="text-sm text-slate-400 mt-1">
               Saved resources plus starter teaching templates for webinars,
               presentations, guides and worksheets.
@@ -4027,6 +4028,11 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
             </button>
           </div>
         </header>
+        <section className="resources-intelligence" aria-label="Resource library briefing">
+          <div className="resources-info-card resources-saved"><span className="resources-info-icon" aria-hidden="true">▤</span><div><h2>Saved library</h2><strong>{loading || error || !organisationId ? "Not established" : resources.length}</strong><p>Resources loaded in this workspace</p><small>Reopen existing material to review, edit or download.</small></div></div>
+          <div className="resources-info-card resources-templates"><span className="resources-info-icon" aria-hidden="true">◇</span><div><h2>Starter templates</h2><strong>{STARTER_TEMPLATES.length}</strong><p>Existing teaching templates</p><small>Browse the original outlines, audiences and delivery formats.</small></div></div>
+          <div className="resources-info-card resources-create"><span className="resources-info-icon" aria-hidden="true">✦</span><div><h2>Create and refine</h2><p>Choose a resource, then use its existing tools</p><small>Generation, editing, artwork and downloads remain explicit actions.</small></div></div>
+        </section>
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
   You have {Math.max(limit - usage, 0)} resource creations remaining this month
 </div>
@@ -5635,6 +5641,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
 
                           return (
                             <div
+                              data-resource-slide="true"
                               key={`${(selected as any).id}-slide-${idx}`}
                               className={[
                                 "relative overflow-hidden rounded-[28px] border p-6 md:p-8 transition",
@@ -6187,9 +6194,9 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
       </div>
 
             {creatorOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+        <div className="resources-creator-modal fixed inset-0 z-50 flex items-center justify-center px-4">
           <div
-            className="absolute inset-0 bg-black/70"
+            className="resources-modal-backdrop absolute inset-0 bg-black/70"
             onClick={() => setCreatorOpen(false)}
           />
 
