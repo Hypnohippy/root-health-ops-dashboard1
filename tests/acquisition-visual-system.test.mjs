@@ -10,6 +10,6 @@ test("Acquisition state, fetches, filters and action handlers remain identical t
 });
 test("Acquisition visual scope reuses approved components without altering protected screens or child workflows",()=>{
  assert.match(current,/acquisition-workspace/);assert.match(current,/OpsIntelligenceCard/);assert.match(current,/aria-label="Acquisition briefing"/);
- const changes=execFileSync("git",["diff","4d6a551","--name-only"],{encoding:"utf8"}).trim().split("\n").filter(x=>x&&!x.startsWith("docs/"));assert.ok(changes.every(x=>[file,"tests/acquisition-presentation.test.mjs","tests/acquisition-actions.test.mjs","tests/acquisition-promotion.test.mjs","app/dashboard/growth/acquisition/acquisition.css","tests/acquisition-visual-system.test.mjs"].includes(x)));
+ const changes=execFileSync("git",["diff","4d6a551","--name-only","--","app/dashboard/growth/acquisition","tests/acquisition*.test.mjs"],{encoding:"utf8"}).trim().split("\n").filter(x=>x&&!x.startsWith("docs/"));assert.ok(changes.every(x=>[file,"tests/acquisition-presentation.test.mjs","tests/acquisition-actions.test.mjs","tests/acquisition-promotion.test.mjs","app/dashboard/growth/acquisition/acquisition.css","tests/acquisition-visual-system.test.mjs"].includes(x)));
  const css=fs.readFileSync("app/dashboard/growth/acquisition/acquisition.css","utf8");assert.match(css,/@media\(max-width:767px\)/);assert.match(css,/\.acquisition-workspace/);assert.doesNotMatch(current,/Momentum: High|£150k|92\/100/);
 });

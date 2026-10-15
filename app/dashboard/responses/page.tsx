@@ -1,5 +1,6 @@
 // app/dashboard/responses/page.tsx
 "use client";
+import "./responses.css";
 import { safeLinkedInFirstMessage } from "@/lib/responseContactContext";
 import ManualTakeover from "../components/ManualTakeover";
 
@@ -871,19 +872,19 @@ const deleteSelectedResponse = async () => {
   ) : null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="responses-workspace min-h-screen bg-slate-950 text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
         <div className="absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-sky-500/10 blur-3xl" />
         <div className="absolute bottom-0 right-0 h-[520px] w-[520px] rounded-full bg-pink-500/10 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
+      <div className="responses-main relative mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
             {attention?.channels.linkedin?.count ? <a className="mb-3 inline-flex items-center text-sky-300 underline" href={attention.channels.linkedin.href}>LinkedIn needs reply <span className="ml-2 rounded-full bg-red-500 px-1.5 text-xs text-white" aria-label={`${attention.channels.linkedin.count} responses need attention`}>{attention.channels.linkedin.count}</span></a> : null}
             <a className="mb-3 block text-sky-300 underline" href={`/dashboard/responses/linkedin${organisationId ? `?organisationId=${encodeURIComponent(organisationId)}` : ""}`}>LinkedIn Outreach Console — Work next 10</a>
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+            <h1 className="responses-title text-3xl md:text-4xl font-semibold tracking-tight"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 4h18v13H8l-5 4V4Z"/></svg>
               Responses
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
@@ -925,6 +926,11 @@ const deleteSelectedResponse = async () => {
           </div>
         </div>
 
+        <section className="responses-intelligence" aria-label="Response state briefing">
+          <div className="responses-briefing-card responses-needs-reply"><span aria-hidden="true" className="responses-state-icon">↩</span><div><h2>Needs action</h2><strong>{counts.needs_reply}</strong><p>Existing action-required inbox count</p><small>Use the recorded state and next action for each thread.</small></div></div>
+          <div className="responses-briefing-card responses-waiting"><span aria-hidden="true" className="responses-state-icon">◷</span><div><h2>Waiting / handled</h2><strong>{counts.replied}</strong><p>Existing waiting and handled inbox count</p><small>Waiting is distinct from an unresolved human reply.</small></div></div>
+          <div className="responses-briefing-card responses-next"><span aria-hidden="true" className="responses-state-icon">✦</span><div><h2>Read the conversation first</h2><p>Review evidence, then choose the next action</p><small>Stored history and existing drafting safeguards remain authoritative.</small></div></div>
+        </section>
         <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
