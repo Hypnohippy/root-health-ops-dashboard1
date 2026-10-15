@@ -27,9 +27,10 @@ function withoutPresentation(source){
 for(const file of ["app/dashboard/page.tsx","app/dashboard/ControlOverview.tsx"]){test(`${file}: all non-presentation code, live values, text, handlers and links match approved baseline`,()=>{
  assert.equal(withoutPresentation(fs.readFileSync(file,"utf8")),withoutPresentation(before(file)));
 });}
-test("Home opts into the exact existing scenic shell and no other shell code changes",()=>{
+test("Home retains the exact scenic shell apart from the approved shared Ask Root mount",()=>{
  const file="app/dashboard/ClientDashboardLayout.tsx",source=fs.readFileSync(file,"utf8").replaceAll("\r\n","\n");
- assert.equal(source.replace('pathname === "/dashboard" || ',""),before(file).replaceAll("\r\n","\n"));
+ const withoutGuide=source.replace('import RootCoach from "./components/RootCoach";\n',"").replace('      <RootCoach pathname={pathname} organisationId={orgId} founderAllowed={founderAccess} />\n',"");
+ assert.equal(withoutGuide.replace('pathname === "/dashboard" || ',""),before(file).replaceAll("\r\n","\n"));
  assert.match(source,/pathname === "\/dashboard" \|\| pathname === "\/dashboard\/growth"/);
  for(const feature of ["ops-sidebar-ambient","ops-mobile-menu-toggle","ops-workspace-topbar"])assert.ok(source.includes(feature));
 });

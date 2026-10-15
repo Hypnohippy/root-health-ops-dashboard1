@@ -7,6 +7,7 @@ import { OpsNavigationIcon } from "./components/visual/OpsSurface";
 import ResponseAttentionBadge from "./components/ResponseAttentionBadge";
 import AcquisitionHandoff from "./components/AcquisitionHandoff";
 import { usePathname } from "next/navigation";
+import RootCoach from "./components/RootCoach";
 
 type DashboardLayoutProps = {
   children: React.ReactNode;
@@ -375,6 +376,7 @@ export default function ClientDashboardLayout({
       {relationshipVisualPilot && <div className="ops-workspace-topbar"><div className="ops-command-brand"><span className="ops-eyebrow">Root Health Ops</span><p>Growth Operations Centre</p></div><Link className="ops-search-entry" href={`/dashboard/growth/relationships${orgId ? `?organisationId=${encodeURIComponent(orgId)}` : ""}`}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>Search people, companies, or what’s happening in your growth operations…<span className="ops-search-hint">Search</span></Link><div className="ops-command-context"><span className="ops-command-orb" aria-hidden="true"/><span>Growth workspace<small>Relationships &amp; intelligence</small></span></div></div>}
 
       <main className="flex-1 p-6"><AcquisitionHandoff key={pathname} />{children}</main>
+      <RootCoach pathname={pathname} organisationId={orgId} founderAllowed={founderAccess} />
 
       <footer className="border-t border-white/10 py-4 text-[12px] text-slate-400">
         <div className="mx-auto max-w-6xl px-4 flex flex-col md:flex-row items-center justify-between gap-2">

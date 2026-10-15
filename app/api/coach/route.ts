@@ -2,6 +2,7 @@ import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/coach/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { rootCoachGuidance } from "@/lib/rootCoachGuide.server";
 
 export const runtime = "nodejs"; // ensures server execution
 
@@ -121,7 +122,7 @@ function deterministicFallback(input: {
   return null;
 }
 
-export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
+const legacyCoachPOST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     const body = await req.json().catch(() => ({}));
 
@@ -193,6 +194,23 @@ Remember: speak to the user in plain English and recommend an in-app next action
     );
   }
 }, { generation: true });
+
+const guidancePOST = withTenantRoute(async (req: NextRequest, tenant) => {
+  try {
+    const text = await req.text();
+    if (text.length > 4096) return NextResponse.json({ error: "Keep guidance requests short." }, { status: 400 });
+    const body = JSON.parse(text);
+    const answer = await rootCoachGuidance(body, tenant);
+    return NextResponse.json(answer, { headers: { "Cache-Control": "private, no-store" } });
+  } catch {
+    return NextResponse.json({ error: "Ask a question of 1–600 characters using a recognized workspace context." }, { status: 400 });
+  }
+}, { write: false });
+
+export async function POST(req: NextRequest) {
+  const body = await req.clone().json().catch(() => null);
+  return body?.mode === "guidance" ? guidancePOST(req) : legacyCoachPOST(req);
+}
 
 function safeJsonForPrompt(v: any) {
   try {
