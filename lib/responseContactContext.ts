@@ -1,11 +1,12 @@
-import { linkedInDayZeroMessage, safeDayZeroMessage, type DayZeroContext } from "@/lib/linkedinDayZero";
-export { linkedInDayZeroMessage };
+import { linkedInDayZeroMessage, linkedInConnectionMode, FRESH_CONNECTION_MS, safeDayZeroMessage, type DayZeroContext, type LinkedInConnectionMode } from "@/lib/linkedinDayZero";
+export { linkedInDayZeroMessage, linkedInConnectionMode, FRESH_CONNECTION_MS };
 import type { GenerationProfile } from "@/lib/tenantGeneration";
 import type { ResponseLifecycle } from "@/lib/responseLifecycle";
 import type { SocialCommentOpportunity } from "@/lib/socialCommentOpportunity";
 
 export type InteractionType = "linkedin_connection_first_message" | "linkedin_followup" | "linkedin_reply" | "email_reply" | "social_reply" | "nurture" | "warm_opportunity" | "first_message" | "followup" | "relationship_message" | "no_action";
 export type ResponseContactContext = {
+  connectionMode?: LinkedInConnectionMode;
   recipientCategory?: string | null;
   socialOpportunity?: SocialCommentOpportunity;
   interactionType: InteractionType;
@@ -114,4 +115,9 @@ export function safeLinkedInCatchupMessage(draft: string) {
   if (/\b(?:thanks for connecting|just wanted to say hello|look forward to staying in touch|stay in touch|pleasure to connect|thanks for the connection|hope (?:you're|you are) well)\b/.test(wording)) return false;
   if (/great to connect|love to hear your thoughts|top of mind|i noticed|i came across|love what you.re doing|current wellbeing challenges|caught my attention|most important in your remit|\b(pitch|demo|meeting|call|our product|our platform|our services|we help|connect with you|connection request)\b/i.test(text)) return false;
   return true;
+}
+
+/** The complete existing Console catch-up gate, shared with Responses. */
+export function safeLinkedInCatchupDraft(draft: string) {
+  return safeLinkedInCatchupMessage(draft) && !/good to connect|thanks for connecting|just connected|recently connected/i.test(draft);
 }

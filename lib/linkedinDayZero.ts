@@ -1,4 +1,12 @@
 /** Code-owned post-acceptance strategy. Invitation notes and later stages never use this. */
+export const FRESH_CONNECTION_MS = 7 * 24 * 60 * 60 * 1000;
+export type LinkedInConnectionMode = "fresh" | "catchup" | "unverified";
+/** Exactly seven days is fresh; unknown, invalid and future acceptance times never authorise Day 0. */
+export function linkedInConnectionMode(acceptedAt: unknown, now = Date.now()): LinkedInConnectionMode {
+  const at = typeof acceptedAt === "string" && acceptedAt.trim() ? Date.parse(acceptedAt) : NaN;
+  if (!Number.isFinite(at) || !Number.isFinite(now) || at > now) return "unverified";
+  return now - at <= FRESH_CONNECTION_MS ? "fresh" : "catchup";
+}
 export const recipientCategories = ["hr_people", "partner_referrer", "hr_consultancy", "college", "care_health", "other"] as const;
 export type RecipientCategory = typeof recipientCategories[number];
 export type DayZeroContext = { name?: string | null; role?: string | null; company?: string | null; recipientCategory?: string | null };

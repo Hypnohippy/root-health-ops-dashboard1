@@ -4,9 +4,9 @@ import { isOutreachSelfContact, emptyOutreachSelfIdentity, type OutreachSelfIden
 import { buildContactLifecycle, lifecycleLinkedInIdentity, type LifecycleInput, type LifecycleRow } from "@/lib/contactLifecycle";
 import { planManualCompletion } from "@/lib/operationalGovernor";
 import { outreachStages } from "@/lib/growthOutreach";
-import { objectiveFor, type ResponseContactContext } from "@/lib/responseContactContext";
+import { objectiveFor, linkedInConnectionMode, FRESH_CONNECTION_MS, type ResponseContactContext } from "@/lib/responseContactContext";
 
-export const FRESH_CONNECTION_MS = 7 * 24 * 60 * 60 * 1000;
+export { FRESH_CONNECTION_MS };
 export type OutreachView = "all" | "fresh" | "catchup" | "followups";
 const text = (v: unknown): string | null => typeof v === "string" && v.trim() ? v.trim() : null;
 const object = (v: unknown): Record<string, unknown> => v && typeof v === "object" ? v as Record<string, unknown> : {};
@@ -99,7 +99,7 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
     if (!date(acceptance.created_at_platform || acceptance.inserted_at) || Date.parse(String(acceptance.created_at_platform || acceptance.inserted_at)) > now) return reject("acceptance timing unverified");
     if (!planManualCompletion(organisationId, input, table, row.id).allowed) return reject("manual governor refused");
     const connectedAt = date(acceptance?.created_at_platform || acceptance?.inserted_at);
-    const fresh = !!connectedAt && Date.parse(connectedAt) <= now && now - Date.parse(connectedAt) <= FRESH_CONNECTION_MS;
+    const fresh = linkedInConnectionMode(connectedAt, now) === "fresh";
     const mode = first ? fresh ? "fresh" : "catchup" : "followups";
     if (view !== "all" && view !== mode) return reject("different view");
     audit.push({ ...evidence, eligibility: "eligible" });
@@ -109,6 +109,7 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
     const stage = first ? "connection" : String(row.stage);
     const reason = first ? `${fresh ? "Fresh accepted connection" : connectedAt ? "Older connection awaiting a first message" : "First message; acceptance timing is unknown"}${highFit ? "; recorded role matches people, wellbeing or health leadership" : ""}.` : `The existing ${stage.replaceAll("_", " ")} follow-up is due${contact.nextDueDate ? ` since ${new Date(contact.nextDueDate).toLocaleDateString("en-GB")}` : ""}.`;
     const context: ResponseContactContext = {
+      ...(first ? { connectionMode: fresh ? "fresh" as const : "catchup" as const } : {}),
       interactionType: first ? "linkedin_connection_first_message" : "linkedin_followup", messageType: first ? "First LinkedIn message" : stage,
       name: first ? text(truth.acceptance?.author_name) : contact.name, company: contact.company, role, sector: null, source: contact.source, whyRelevant: reason,
       relationship: contact.currentStage, latestEvent: text(acceptance?.text) || "Recorded LinkedIn outreach",

@@ -103,7 +103,7 @@ test('unchanged catch-up gate rejects networking filler while accepting natural 
 });
 
 test('active root-coach endpoint replaces provider-dependent Day 0 with grounded code-owned copy', async()=>{
- const briefing={interactionType:'linkedin_connection_first_message',messageType:'First message after connection',company:'Acme',role:'HR director',name:'Shelley',objective:'Say hello',lifecycle:{canDraft:true,currentStage:'outreach_ready'}};
+ const briefing={interactionType:'linkedin_connection_first_message',connectionMode:'fresh',messageType:'First message after connection',company:'Acme',role:'HR director',name:'Shelley',objective:'Say hello',lifecycle:{canDraft:true,currentStage:'outreach_ready'}};
  for(const [draft,status] of [[jamesFiller,409],[jamesNatural,200],["Hi Shelley, great to connect here! What's top of mind at Acme?",409],['Hi Shelley, good to connect. I wanted to say hello to you at Acme properly.',200],["Hi Shelley, good to connect. I thought I’d say hello properly.",200],['Hi Shelley, good to connect. A hello to a fellow people leader.',200]]) {
   const mod={exports:{}};let providerCalls=0, reads=0;
   const deps={'@/lib/tenantRoute.server':{withTenantRoute:fn=>req=>fn(req,{organisationId:'review',profile:{},messages:[]})},'next/server':{NextResponse:{json:(body,o={})=>({body,status:o.status||200})}},'@/lib/responseContactContext.server':{getResponseContactContext:async(org)=>{assert.equal(org,'review');return briefing;}},'@/lib/responseContactContext':context,'@/lib/socialCommentOpportunity':{}};

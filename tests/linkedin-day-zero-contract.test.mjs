@@ -95,7 +95,7 @@ test("recipient recovery is tenant-scoped and exact canonical identity only; con
 });
 test("Responses rechecks lifecycle and never returns a Day 0 draft after a concurrent reply", async () => {
   let reads = 0;
-  const contact = { interactionType: "linkedin_connection_first_message", name: "Keeley", role: "People Director", lifecycle: { canDraft: true, currentStage: "outreach_ready" } };
+  const contact = { interactionType: "linkedin_connection_first_message", connectionMode: "fresh", name: "Keeley", role: "People Director", lifecycle: { canDraft: true, currentStage: "outreach_ready" } };
   const mocks = { "next/server": { NextResponse: { json } }, "@/lib/tenantRoute.server": { withTenantRoute: fn => req => fn(req, { organisationId: org, profile: {}, messages: [] }) }, "@/lib/responseContactContext.server": { getResponseContactContext: async () => ++reads === 1 ? contact : { ...contact, lifecycle: { canDraft: false, currentStage: "needs_reply" } } } };
   const route = load("app/api/ai/root-coach/route.ts", mocks, { fetch: () => assert.fail("no provider") });
   const result = await route.POST({ json: async () => ({ inboxItemId: id }) });
@@ -125,4 +125,92 @@ test("acceptance notification text and handles never become invented professiona
   assert.equal(context.role, null);assert.equal(context.company, null);
   const message = strategy.linkedInDayZeroMessage(context);
   assert.doesNotMatch(message, /keeley123|Accepted your connection request|I work with/);
+});
+
+const boundaryNow = Date.parse("2026-10-15T12:00:00.000Z");
+class BoundaryClock extends Date { static now() { return boundaryNow; } }
+const catchupMessage = "Hi Keeley, we connected a while ago and I realised I hadn't said hello properly.";
+function ageHarness(acceptedAt, reply = catchupMessage) {
+  const input = fixture("hr_people", "People Director", "Employer Ltd");
+  input.inbox_items[0].created_at_platform = acceptedAt;
+  let calls = 0, canonicalCalls = 0, prompt = "";
+  const profile = { customers: { audience: "organisations", problems: [] }, offer: { priorityServices: [] } };
+  const mocks = {
+    "next/server": { NextResponse: { json } },
+    "@/lib/tenantRoute.server": { withTenantRoute: handler => req => handler(req, { organisationId: org, userId: "actor", profile, messages: [] }) },
+    "@/lib/outreachSelfIdentity.server": { readOutreachSelfIdentity: async () => ({ names: [], emails: [], linkedinProfiles: [], linkedinAccountIds: [] }) },
+    "@/lib/lifecycleSnapshot.server": { readLifecycleInput: async tenant => { assert.equal(tenant, org); return input; } },
+    "@/lib/organisationProfile.server": { getOrganisationGenerationProfile: async () => profile },
+    "@/lib/tenantGeneration": { generationMessages: () => [] },
+    "@/lib/socialCommentOpportunity": { socialCommentOpportunity: () => undefined },
+    "@/lib/linkedinSendReconciliation.server": { reconcileLinkedInSend: () => assert.fail("no send") },
+    "@/lib/supabaseAdmin": { supabaseAdmin: { from: table => {
+      assert.ok(["lifecycle_revisions", "acquisition_item_events"].includes(table));
+      const query = { select: () => query, eq: (key, value) => { if (key === "organisation_id") assert.equal(value, org); return query; },
+        maybeSingle: async () => ({ data: { revision: "1" } }), order: () => query, limit: async () => ({ data: [], error: null }) }; return query;
+    } } },
+  };
+  const globals = { Date: BoundaryClock, process: { env: { OPENAI_API_KEY: "fixture" } }, fetch: async (url, options) => {
+    assert.equal(url, "https://api.openai.com/v1/chat/completions");calls++;prompt = JSON.parse(options.body).messages.at(-1).content;
+    return { ok: true, json: async () => ({ choices: [{ message: { content: reply }, finish_reason: "stop" }] }) };
+  } };
+  const context = load("lib/responseContactContext.ts", mocks, globals);
+  mocks["@/lib/responseContactContext"] = { ...context, linkedInDayZeroMessage: contact => { canonicalCalls++;return context.linkedInDayZeroMessage(contact); } };
+  const service = load("lib/responseContactContext.server.ts", mocks, globals);
+  mocks["@/lib/responseContactContext.server"] = service;
+  return { input, profile, service, mocks, globals, get calls() { return calls; }, get canonicalCalls() { return canonicalCalls; }, get prompt() { return prompt; },
+    responses: load("app/api/ai/root-coach/route.ts", mocks, globals), console: load("app/api/growth/linkedin-console/route.ts", mocks, globals),
+    queue: load("lib/linkedinOutreach.ts", mocks, globals) };
+}
+const ageCases = [
+  ["one millisecond inside seven days", new Date(boundaryNow - strategy.FRESH_CONNECTION_MS + 1).toISOString(), "fresh"],
+  ["exactly seven days (inclusive)", new Date(boundaryNow - strategy.FRESH_CONNECTION_MS).toISOString(), "fresh"],
+  ["one millisecond beyond seven days", new Date(boundaryNow - strategy.FRESH_CONNECTION_MS - 1).toISOString(), "catchup"],
+  ["old acceptance", "2026-09-01T12:00:00.000Z", "catchup"],
+  ["undated acceptance", null, "unverified"],
+  ["invalid acceptance date", "not a date", "unverified"],
+  ["future acceptance", "2026-10-15T12:00:00.001Z", "unverified"],
+];
+for (const [label, acceptedAt, expected] of ageCases) test(`actual Console and Responses agree: ${label}`, async () => {
+  const h = ageHarness(acceptedAt), before = JSON.stringify(h.input);
+  const context = await h.service.getResponseContactContext(org, id, h.profile);
+  assert.equal(context.connectionMode, expected);
+  assert.equal(strategy.linkedInConnectionMode(acceptedAt, boundaryNow), expected);
+  assert.equal(h.queue.FRESH_CONNECTION_MS, strategy.FRESH_CONNECTION_MS);
+  const selected = h.queue.linkedInOutreachQueue(org, h.input, boundaryNow).items[0];
+  if (expected === "unverified") assert.equal(selected, undefined);
+  else { assert.equal(selected.mode, expected);assert.equal(selected.context.connectionMode, context.connectionMode); }
+  const response = await h.responses.POST({ json: async () => ({ inboxItemId: id }) });
+  if (expected === "unverified") {
+    assert.equal(response.status, 409);assert.equal(response.body.coachMessage, undefined);assert.equal(h.calls, 0);assert.equal(h.canonicalCalls, 0);
+  } else if (expected === "fresh") {
+    assert.equal(response.status, 200);assert.equal(response.body.coachMessage, strategy.linkedInDayZeroMessage(context));
+    assert.match(response.body.coachMessage, /people and workplace wellbeing/);assert.equal(context.recipientCategory, "hr_people");assert.equal(h.calls, 0);assert.equal(h.canonicalCalls, 1);
+  } else {
+    assert.equal(response.status, 200);assert.equal(response.body.coachMessage, catchupMessage);assert.equal(h.calls, 1);assert.equal(h.canonicalCalls, 0);
+    assert.match(h.prompt, /older or undated connection/);assert.match(h.prompt, /Do not say good to connect/);assert.doesNotMatch(h.prompt, /canonical code-owned/);
+    assert.doesNotMatch(response.body.coachMessage, /thanks for connecting|good to connect|recently connected/i);
+  }
+  const console = await h.console.POST({ json: async () => ({ action: "generate", table: "inbox_items", id, revision: "1" }) });
+  assert.equal(console.status, expected === "unverified" ? 409 : 200);
+  if (expected !== "unverified") assert.equal(console.body.message, response.body.coachMessage);
+  assert.equal(h.canonicalCalls, expected === "fresh" ? 2 : 0);assert.equal(h.calls, expected === "catchup" ? 2 : 0);
+  assert.equal(JSON.stringify(h.input), before);
+});
+test("Responses catch-up uses the complete Console safety gate and rejects fresh wording", async () => {
+  for (const reply of ["Hi Keeley, thanks for connecting.", "Hi Keeley, good to connect.", "Hi Keeley, we recently connected.", "Hi Keeley, shall we have a call?", "x".repeat(300), ""]) {
+    const h = ageHarness("2026-09-01", reply);
+    const result = await h.responses.POST({ json: async () => ({ inboxItemId: id }) });
+    assert.equal(result.status, 409, reply);assert.equal(result.body.coachMessage, undefined);assert.equal(h.canonicalCalls, 0);
+  }
+});
+test("Responses catch-up rechecks lifecycle after provider generation", async () => {
+  const h = ageHarness("2026-09-01");let reads = 0;
+  const service = { getResponseContactContext: async (...args) => {
+    const context = await h.service.getResponseContactContext(...args);
+    return ++reads === 1 ? context : { ...context, lifecycle: { ...context.lifecycle, canDraft: false, currentStage: "needs_reply" } };
+  } };
+  const route = load("app/api/ai/root-coach/route.ts", { ...h.mocks, "@/lib/responseContactContext.server": service }, h.globals);
+  const response = await route.POST({ json: async () => ({ inboxItemId: id }) });
+  assert.equal(response.status, 409);assert.equal(response.body.coachMessage, undefined);assert.equal(h.calls, 1);assert.equal(h.canonicalCalls, 0);
 });

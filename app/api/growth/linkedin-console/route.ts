@@ -6,7 +6,7 @@ import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
 import { linkedInOutreachQueue, type OutreachView } from "@/lib/linkedinOutreach";
-import { responseDraftRules, safeLinkedInCatchupMessage, linkedInDayZeroMessage } from "@/lib/responseContactContext";
+import { responseDraftRules, safeLinkedInCatchupDraft, linkedInDayZeroMessage } from "@/lib/responseContactContext";
 import { getOrganisationGenerationProfile } from "@/lib/organisationProfile.server";
 import { generationMessages } from "@/lib/tenantGeneration";
 
@@ -72,7 +72,7 @@ export const POST = withTenantRoute(async (req, tenant) => {
     if (!response.ok) return NextResponse.json({ error: "Generation failed; retry or type your message below. Your draft is unchanged." }, { status: 503 });
     const json = await response.json();
     message = typeof json.choices?.[0]?.message?.content === "string" ? json.choices[0].message.content.trim() : "";
-    const invalid = !message || json.choices?.[0]?.finish_reason === "length" || (current.stage === "connection" && !safeLinkedInCatchupMessage(message)) || (current.mode === "catchup" && /good to connect|thanks for connecting|just connected|recently connected/i.test(message));
+    const invalid = !message || json.choices?.[0]?.finish_reason === "length" || (current.stage === "connection" && !safeLinkedInCatchupDraft(message));
     if (!invalid) break;
     if (attempt === 1) return NextResponse.json({ error: "Generated suggestion did not meet the message rules. Retry Refresh draft or type your message below. Your draft is unchanged." }, { status: 409 });
     messages.push({ role: "user", content: "The suggestion failed validation. Rewrite from the supplied facts. For a first message use at most 240 characters, no question, emoji, pitch or meeting/call ask, and no networking filler listed above. For catch-up never imply a recent connection. Return only the complete message." });

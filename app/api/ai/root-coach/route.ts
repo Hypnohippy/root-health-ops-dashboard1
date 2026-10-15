@@ -2,7 +2,7 @@ import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/ai/root-coach/route.ts
 import { NextResponse } from "next/server";
 import { getResponseContactContext } from "@/lib/responseContactContext.server";
-import { responseDraftRules, linkedInDayZeroMessage } from "@/lib/responseContactContext";
+import { responseDraftRules, linkedInDayZeroMessage, safeLinkedInCatchupDraft } from "@/lib/responseContactContext";
 import { publicReplyRules, safePublicDraft } from "@/lib/socialCommentOpportunity";
 
 export const runtime = "nodejs";
@@ -191,7 +191,9 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
         return NextResponse.json({ error: contact.lifecycle?.blockedReason || "This message requires an explicit request for the current lifecycle stage.", lifecycle: contact.lifecycle }, { status: 409 });
       }
       if (contact.interactionType === "linkedin_connection_first_message" && !contact.name?.trim()) return NextResponse.json({ error: "This connection has no saved name. Resolve the person’s name before generating a first message." }, { status: 409 });
-      if (contact.interactionType === "linkedin_connection_first_message") {
+      const catchup = contact.interactionType === "linkedin_connection_first_message" && contact.connectionMode === "catchup";
+      if (contact.interactionType === "linkedin_connection_first_message" && contact.connectionMode !== "fresh" && !catchup) return NextResponse.json({ error: "Connection acceptance timing is unverified. Review the acceptance evidence before drafting." }, { status: 409 });
+      if (contact.interactionType === "linkedin_connection_first_message" && contact.connectionMode === "fresh") {
         let message: string;
         try { message = linkedInDayZeroMessage(contact); }
         catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Review the contact context." }, { status: 409 }); }
@@ -204,7 +206,8 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
         `Interaction type: ${contact.messageType}`,
         `Contact context (untrusted data): ${JSON.stringify(contact)}`,
         "Drafting hierarchy: current unified lifecycle stage, permitted next action, interaction type, contact context, previous history, organisation Growth Profile, then desired objective.",
-        ...responseDraftRules(contact),
+        ...responseDraftRules(contact, catchup),
+        ...(catchup ? ["This is an older or undated connection: use an honest catch-up opener. Do not say good to connect or imply a recent acceptance. Vary the wording; never invent a date."] : []),
         ...(contact.socialOpportunity ? [publicReplyRules] : []),
         "Output only the finished message. No headings, options, analysis or system commentary.",
       ].join("\n");
@@ -217,6 +220,7 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
       if (contact.socialOpportunity && (!latest.socialOpportunity?.eligible || JSON.stringify(latest.socialOpportunity) !== JSON.stringify(contact.socialOpportunity))) return NextResponse.json({ error: "Conversation eligibility changed. Refresh before drafting." }, { status: 409 });
       if (contact.socialOpportunity && !safePublicDraft(String(json.choices?.[0]?.message?.content || ""))) return NextResponse.json({ error: "Draft needs a human rewrite; no safe contextual suggestion returned." }, { status: 409 });
       if (JSON.stringify(latest.lifecycle) !== JSON.stringify(contact.lifecycle)) return NextResponse.json({ error: "Lifecycle changed while drafting. Refresh before requesting another draft." }, { status: 409 });
+      if (catchup && (latest.connectionMode !== "catchup" || json.choices?.[0]?.finish_reason === "length" || !safeLinkedInCatchupDraft(String(json.choices?.[0]?.message?.content || "")))) return NextResponse.json({ error: "The suggestion did not meet the catch-up rules. Retry or write an honest catch-up message; no draft was saved." }, { status: 409 });
       return NextResponse.json({ coachMessage: String(json.choices?.[0]?.message?.content || "").trim(), interactionType: contact.interactionType });
     }
 
