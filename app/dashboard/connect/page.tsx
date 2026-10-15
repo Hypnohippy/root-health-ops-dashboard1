@@ -1,4 +1,5 @@
 "use client";
+import "./connect.css";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ChannelCard from "./ChannelCard";
@@ -71,16 +72,21 @@ export default function ConnectPage() {
     catch { setMessage(`${name} disconnected from Ops. The remaining connection information could not be refreshed; check again.`); }
   }
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-8 text-white sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl space-y-8">
+    <main className="connect-workspace min-h-screen bg-slate-950 px-4 py-8 text-white sm:px-6 lg:px-8">
+      <div className="connect-main mx-auto max-w-6xl space-y-8">
         <header>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Connections</p>
-          <h1 className="mt-2 text-3xl font-bold">Connect the channels your growth system uses</h1>
+          <h1 className="connect-title mt-2 text-3xl font-bold"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="m9 8-2-2a4 4 0 0 0-5 6l4 4a4 4 0 0 0 6 0l2-2M15 16l2 2a4 4 0 0 0 5-6l-4-4a4 4 0 0 0-6 0l-2 2"/></svg>Connect the channels your growth system uses</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">See what is connected, what Ops can do and whether you need to take a next step.</p>
           {checkedAt && <p className="mt-3 text-xs text-slate-400">Last checked: {new Date(checkedAt).toLocaleString()}. Sending and publishing are not tested by this check.</p>}
           {message && <p role="status" className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</p>}
         </header>
 
+        <section className="connect-intelligence" aria-label="Recorded connection overview">
+          <div className="connect-info-card connect-recorded"><span className="connect-info-icon" aria-hidden="true">⌁</span><div><h2>Recorded connections</h2><strong>{checkedAt ? sections.connected.length : "Not established"}</strong><p>Current accounts reported as connected</p><small>Saved connection state does not verify sending or publishing.</small></div></div>
+          <div className="connect-info-card connect-review"><span className="connect-info-icon" aria-hidden="true">◇</span><div><h2>Setup / review</h2><strong>{checkedAt ? sections.needsAttention.length : "Not established"}</strong><p>Current channels outside the connected group</p><small>Each card keeps its existing owner, limitations and next step.</small></div></div>
+          <div className="connect-info-card connect-future"><span className="connect-info-icon" aria-hidden="true">◷</span><div><h2>Available later</h2><strong>{sections.future.length}</strong><p>Planned channels in the existing catalogue</p><small>Coming soon does not mean supported or ready to connect.</small></div></div>
+        </section>
         <section aria-labelledby="connected-channels">
           <h2 id="connected-channels" className="text-xl font-semibold">Connected accounts</h2>
           <p className="mt-1 text-sm text-slate-400">Each card explains what is available and what still needs checking.</p>

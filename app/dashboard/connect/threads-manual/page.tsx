@@ -1,5 +1,6 @@
 // app/dashboard/connect/threads-manual/page.tsx
 "use client";
+import "../connect.css";
 
 import React, { useMemo, useState } from "react";
 
@@ -44,7 +45,7 @@ export default function ThreadsManualConnectPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
+    <div className="connect-workspace min-h-screen bg-slate-950 text-slate-100 px-4 py-10">
       <div className="mx-auto w-full max-w-3xl rounded-3xl border border-white/10 bg-white/5 p-6 md:p-10 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur space-y-4">
         <h1 className="text-2xl md:text-3xl font-semibold">Connect Threads (manual token)</h1>
 
