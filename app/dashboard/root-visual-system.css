@@ -144,3 +144,28 @@
  [data-visual-system=root] > main:has(.relationship-workspace) { margin-right:8px; padding:0 12px; background:radial-gradient(ellipse at 100% 0,#c8d9fa99,transparent 70%),linear-gradient(125deg,#f0f3ff,#e2edff); border-radius:12px; box-shadow:0 0 0 5px #d4e9ff55,inset 0 1px 0 #fff; }
 }
 @media(max-width:1023px) { [data-visual-system=root] .ops-command-context { display:none; } }
+
+/* Responsive version of the same Growth rail. Desktop composition is unchanged. */
+.ops-mobile-menu-toggle,.ops-mobile-menu-close,.ops-mobile-menu-backdrop { display:none; }
+@media(max-width:1023px) {
+ [data-visual-system=root] .ops-mobile-menu-toggle { display:flex; align-items:center; gap:10px; padding:12px 16px; background:linear-gradient(115deg,#071b35,#234e76); color:#f0f5ff; border-bottom:1px solid #b8d5ff55; font-size:13px; font-weight:600; }
+ [data-visual-system=root] .ops-mobile-menu-toggle > span[aria-hidden] { margin-left:auto; font-size:21px; }
+ [data-visual-system=root] .ops-mobile-menu-toggle svg { width:24px; height:24px; color:#aee79c; }
+ [data-visual-system=root] > .ops-shell-navigation { display:none; position:fixed; inset:0 auto 0 0; width:min(320px,87vw); height:100dvh; overflow-y:auto; z-index:70; border-right:1px solid #bfdeff66; background:radial-gradient(ellipse at 110% 8%,#47729e88,transparent 50%),linear-gradient(110deg,#03162f,#102c50 80%,#315478); box-shadow:10px 0 35px #00132c88; }
+ [data-visual-system=root] > .ops-shell-navigation[data-mobile-open=true] { display:flex; flex-direction:column; }
+ [data-visual-system=root] .ops-mobile-menu-backdrop { display:block; position:fixed; inset:0; z-index:65; background:#06172e99; backdrop-filter:blur(4px); }
+ [data-visual-system=root] .ops-mobile-menu-close { display:block; position:absolute; right:10px; top:8px; color:#e9f3ff; font-size:27px; width:34px; height:34px; border-radius:50%; background:#ffffff12; }
+ [data-visual-system=root] > .ops-shell-navigation > div:first-of-type { width:100%; padding:22px 12px 10px; }
+ [data-visual-system=root] .ops-shell-brand { padding:6px 30px 12px 0; }
+ [data-visual-system=root] .ops-shell-context { display:none; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] { display:flex; flex-direction:column; align-items:stretch; gap:3px; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a { padding:8px 10px; min-height:43px; border-radius:9px; color:#edf5ff; font-size:13px; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a[aria-current=page] { background:linear-gradient(105deg,#0874ff,#1558c4a6 65%,#337aba25); border:1px solid #78b7ff66; box-shadow:inset 3px 0 #8fccff; }
+ [data-visual-system=root] .ops-shell-subnav { display:grid; grid-template-columns:1fr 1fr; gap:5px; padding-top:10px; border-color:#d0e7ff21; }
+ [data-visual-system=root] .ops-shell-subnav > a { font-size:11px; padding:7px; border-radius:7px; }
+ [data-visual-system=root] .ops-sidebar-ambient { display:flex; flex-direction:column; justify-content:flex-end; flex:1 0 220px; text-align:center; padding:110px 14px 20px; background:linear-gradient(180deg,#102c50,transparent 25%,#071d37db 96%),url('/images/root-sidebar-landscape.png') center/cover no-repeat; }
+ [data-visual-system=root] .ops-sidebar-ambient p { font:italic 15px/1.6 Georgia,serif; color:#f0f4ef; text-shadow:0 2px 8px #041422; }
+ [data-visual-system=root] .ops-sidebar-ambient > span { color:#c5d8eb; font-size:10px; margin-top:12px; }
+ [data-visual-system=root] .ops-command-brand { display:none; }
+ [data-visual-system=root] .ops-workspace-topbar { padding:10px 12px; background:linear-gradient(110deg,#b8d6f1,#e6f1ff); }
+}

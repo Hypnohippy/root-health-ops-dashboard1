@@ -36,6 +36,7 @@ export default function ClientDashboardLayout({
   children,
 }: DashboardLayoutProps) {
   const pathname = usePathname();
+  const [mobileGrowthMenuOpen, setMobileGrowthMenuOpen] = useState(false);
 
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportEmail, setSupportEmail] = useState("");
@@ -301,7 +302,10 @@ export default function ClientDashboardLayout({
 
   return (
     <div data-visual-system={relationshipVisualPilot ? "root" : undefined} className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 flex flex-col">
-      <header className="ops-shell-navigation border-b border-white/10 bg-black/30 backdrop-blur-xl">
+      {relationshipVisualPilot && <button className="ops-mobile-menu-toggle" aria-expanded={mobileGrowthMenuOpen} aria-controls="growth-shell-navigation" onClick={() => setMobileGrowthMenuOpen(!mobileGrowthMenuOpen)}><OpsNavigationIcon label="Growth" /><span>Root Health Ops</span><span aria-hidden="true">☰</span><span className="sr-only">Open navigation</span></button>}
+      {relationshipVisualPilot && mobileGrowthMenuOpen && <button className="ops-mobile-menu-backdrop" aria-label="Close navigation" onClick={() => setMobileGrowthMenuOpen(false)} />}
+      <header id="growth-shell-navigation" data-mobile-open={mobileGrowthMenuOpen} onKeyDown={event => { if (event.key === "Escape") setMobileGrowthMenuOpen(false); }} className="ops-shell-navigation border-b border-white/10 bg-black/30 backdrop-blur-xl">
+        {relationshipVisualPilot && <button className="ops-mobile-menu-close" aria-label="Close navigation" onClick={() => setMobileGrowthMenuOpen(false)}>×</button>}
         <div className="mx-auto max-w-6xl px-4 py-4">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -326,6 +330,7 @@ export default function ClientDashboardLayout({
               {primaryNav.map((item) => (
                 <Link
                   key={item.label}
+                  onClick={() => setMobileGrowthMenuOpen(false)}
                   href={item.href}
                   aria-current={item.match(pathname) ? "page" : undefined}
                   className={primaryLinkClasses(item)}
@@ -337,7 +342,7 @@ export default function ClientDashboardLayout({
               ))}
             </nav>
 
-            <details className="group md:hidden">
+            {!relationshipVisualPilot && <details className="group md:hidden">
               <summary className="flex cursor-pointer list-none items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
                 <span>{activePrimary}<ResponseAttentionBadge count={responseAttention.count} /></span><span aria-hidden className="text-slate-400 transition group-open:rotate-180">⌄</span>
               </summary>
@@ -346,13 +351,14 @@ export default function ClientDashboardLayout({
                   <span>{item.label}</span>{item.label === "Responses" ? <ResponseAttentionBadge count={responseAttention.count} /> : item.badge !== undefined ? <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{item.badge}</span> : null}
                 </Link>)}
               </nav>
-            </details>
+            </details>}
 
             {secondaryNav.length > 0 ? (
               <div className="ops-shell-subnav flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
                 {secondaryNav.map((item) => (
                   <Link
                     key={item.label}
+                    onClick={() => setMobileGrowthMenuOpen(false)}
                     href={item.href}
                     className={secondaryLinkClasses(item.href.split("?")[0])}
                   >

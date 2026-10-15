@@ -21,6 +21,15 @@ test("persistent Growth shell covers every Growth route; existing nav routes, Fo
   assert.deepEqual(links.map(a=>a.props.href),["/dashboard","/dashboard/growth/acquisition",attentionHref,"/dashboard/sequences","/dashboard/publishing","/dashboard/growth","/dashboard/resources","/dashboard/connect"]);
   assert.equal(links.some(a=>a.props.href==="/dashboard/founder-intelligence"),false);
   assert.ok(nav.findAllByType("span").some(x=>x.props.className==="sr-only"&&x.children.join("")==="3 responses need attention"));
+  if(pathname==="/dashboard/growth") {
+   assert.equal(tree.root.findAllByProps({"aria-label":"Mobile navigation"}).length,0);
+   const toggle=tree.root.findByProps({"aria-controls":"growth-shell-navigation"});
+   assert.equal(toggle.props["aria-expanded"],false);
+   await renderer.act(async()=>toggle.props.onClick());
+   assert.equal(tree.root.findByProps({id:"growth-shell-navigation"}).props["data-mobile-open"],true);
+   await renderer.act(async()=>tree.root.findByProps({id:"growth-shell-navigation"}).props.onKeyDown({key:"Escape"}));
+   assert.equal(toggle.props["aria-expanded"],false);
+  }
   assert.equal(requests.length,3);assert.ok(requests.every(r=>!r.opts?.method||r.opts.method==="GET"));
   assert.ok(requests.filter(r=>r.url!=="/api/org/current").every(r=>r.url.includes(org)));
   await renderer.act(async()=>tree.unmount());
