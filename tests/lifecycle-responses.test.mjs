@@ -7,6 +7,8 @@ import * as jsx from "react/jsx-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
 
 function load(file, dependencies = {}, globals = {}) {
+  if (file !== "lib/linkedinDayZero.ts") dependencies["@/lib/linkedinDayZero"] = load("lib/linkedinDayZero.ts");
+  if (file === "lib/responseContactContext.server.ts") dependencies["@/lib/linkedinRecipientContext"] = load("lib/linkedinRecipientContext.ts");
   const mod = { exports: {} };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
     { module: mod, exports: mod.exports, URL, require: name => { if(name==="@/lib/contactLifecycle")return lifecycle;if(name==="@/lib/opsSearch")return load("lib/opsSearch.ts");if(name==="@/lib/opsSearch.server")return {readTenantHistory:async()=>[]};assert.ok(name in dependencies, `Unexpected dependency: ${name}`); return dependencies[name]; }, ...globals }, { filename: file });

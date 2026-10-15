@@ -2,7 +2,7 @@ import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/ai/root-coach/route.ts
 import { NextResponse } from "next/server";
 import { getResponseContactContext } from "@/lib/responseContactContext.server";
-import { responseDraftRules, safeLinkedInFirstMessage } from "@/lib/responseContactContext";
+import { responseDraftRules, linkedInDayZeroMessage } from "@/lib/responseContactContext";
 import { publicReplyRules, safePublicDraft } from "@/lib/socialCommentOpportunity";
 
 export const runtime = "nodejs";
@@ -191,6 +191,14 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
         return NextResponse.json({ error: contact.lifecycle?.blockedReason || "This message requires an explicit request for the current lifecycle stage.", lifecycle: contact.lifecycle }, { status: 409 });
       }
       if (contact.interactionType === "linkedin_connection_first_message" && !contact.name?.trim()) return NextResponse.json({ error: "This connection has no saved name. Resolve the person’s name before generating a first message." }, { status: 409 });
+      if (contact.interactionType === "linkedin_connection_first_message") {
+        let message: string;
+        try { message = linkedInDayZeroMessage(contact); }
+        catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Review the contact context." }, { status: 409 }); }
+        const latest = await getResponseContactContext(tenant.organisationId, inboxItemId, tenant.profile!);
+        if (JSON.stringify(latest) !== JSON.stringify(contact)) return NextResponse.json({ error: "Lifecycle or contact context changed while drafting. Refresh before requesting another draft." }, { status: 409 });
+        return NextResponse.json({ coachMessage: message, interactionType: contact.interactionType });
+      }
       const responsePrompt = [
         "Write the exact message the user can send for this interaction.",
         `Interaction type: ${contact.messageType}`,
@@ -209,9 +217,6 @@ export const POST = withTenantRoute(async function POST(req: Request, tenant) {
       if (contact.socialOpportunity && (!latest.socialOpportunity?.eligible || JSON.stringify(latest.socialOpportunity) !== JSON.stringify(contact.socialOpportunity))) return NextResponse.json({ error: "Conversation eligibility changed. Refresh before drafting." }, { status: 409 });
       if (contact.socialOpportunity && !safePublicDraft(String(json.choices?.[0]?.message?.content || ""))) return NextResponse.json({ error: "Draft needs a human rewrite; no safe contextual suggestion returned." }, { status: 409 });
       if (JSON.stringify(latest.lifecycle) !== JSON.stringify(contact.lifecycle)) return NextResponse.json({ error: "Lifecycle changed while drafting. Refresh before requesting another draft." }, { status: 409 });
-      if (contact.interactionType === "linkedin_connection_first_message" && !safeLinkedInFirstMessage(String(json.choices?.[0]?.message?.content || ""), contact)) {
-        return NextResponse.json({ error: "The suggestion did not meet the human first-message rules. Try AI Suggest again or write a brief contextual hello; no draft was saved." }, { status: 409 });
-      }
       return NextResponse.json({ coachMessage: String(json.choices?.[0]?.message?.content || "").trim(), interactionType: contact.interactionType });
     }
 

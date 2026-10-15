@@ -1,3 +1,4 @@
+import { linkedInRecipientContext } from "@/lib/linkedinRecipientContext";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { GenerationProfile } from "@/lib/tenantGeneration";
 import { buildContactLifecycle } from "@/lib/contactLifecycle";
@@ -45,9 +46,11 @@ export async function getResponseContactContext(organisationId: string, itemId: 
   ].filter(Boolean) as string[];
   const known = [text(acquisition?.reason), text(acquisition?.signal), text(acquisition?.evidence), text(target?.notes), text(target?.reply_notes), text(item.outreach_reference)].filter(Boolean) as string[];
   const relevance = fit.length ? `Their recorded role or company context matches the saved target profile (${fit.join(", ")}).` : acquisition?.reason ? String(acquisition.reason) : `No explicit Growth Profile match is recorded${role || company ? "; the available role and company context is shown for human review" : " because role and company detail is incomplete"}.`;
+  const recipient = type === "linkedin_connection_first_message" ? linkedInRecipientContext(organisationId, input, contact.identity) : null;
   return {
+    recipientCategory: recipient?.recipientCategory,
     socialOpportunity: socialCommentOpportunity(item, profile, lifecycle, credentialState, input.inbox_items, acquisition?.source_engine === "root_health_personal" && acquisition.source_url === item.permalink && metadata.engine_safety && typeof metadata.engine_safety === "object" ? metadata.engine_safety as Record<string, unknown> : {}),
-    interactionType: type, messageType: messageTypeLabel(type), name: type === "linkedin_connection_first_message" ? text(item.author_name) : text(target?.target_name) || text(acquisition?.person) || text(item.author_name), role, company, sector,
+    interactionType: type, messageType: messageTypeLabel(type), name: type === "linkedin_connection_first_message" ? text(item.author_name) : text(target?.target_name) || text(acquisition?.person) || text(item.author_name), role: recipient ? recipient.role : role, company: recipient ? recipient.company : company, sector,
     source: plainSource(text(acquisition?.source_engine || target?.source_type || item.source_engine), text(item.kind)), whyRelevant: relevance,
     relationship: lifecycle.label, latestEvent: text(item.linkedin_recorded_reply_text) || (lifecycle.missingReplyText ? "LinkedIn confirms a reply; the actual message text has not been recorded." : null) || text(item.text) || "No event text was recorded.", whatWeKnow: known.slice(0, 4), history,
     lifecycle,

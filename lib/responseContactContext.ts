@@ -1,9 +1,12 @@
+import { linkedInDayZeroMessage, safeDayZeroMessage, type DayZeroContext } from "@/lib/linkedinDayZero";
+export { linkedInDayZeroMessage };
 import type { GenerationProfile } from "@/lib/tenantGeneration";
 import type { ResponseLifecycle } from "@/lib/responseLifecycle";
 import type { SocialCommentOpportunity } from "@/lib/socialCommentOpportunity";
 
 export type InteractionType = "linkedin_connection_first_message" | "linkedin_followup" | "linkedin_reply" | "email_reply" | "social_reply" | "nurture" | "warm_opportunity" | "first_message" | "followup" | "relationship_message" | "no_action";
 export type ResponseContactContext = {
+  recipientCategory?: string | null;
   socialOpportunity?: SocialCommentOpportunity;
   interactionType: InteractionType;
   messageType: string;
@@ -67,7 +70,7 @@ export function profileFit(headline: string, company: string, profile: Generatio
   return matches.map(String).slice(0, 3);
 }
 
-export function responseDraftRules(context: ResponseContactContext) {
+export function responseDraftRules(context: ResponseContactContext, catchup = false) {
   const common = ["Use only supplied facts; never invent background, dialogue, results or a buying signal.", `The desired next-message objective is: ${context.objective}`,
     "The unified current lifecycle is authoritative. Original event types are historical evidence only. Never regress a contact's stage.",
     `Current lifecycle: ${context.lifecycle?.label || context.currentStage || "unknown"}. Next action: ${context.lifecycle?.nextAction || "none"}.`,
@@ -76,7 +79,7 @@ export function responseDraftRules(context: ResponseContactContext) {
   if (context.interactionType === "relationship_message") return [...common, "Respect their recorded reply and the advanced relationship. Do not assume they failed to respond or send a first-contact opener."];
   if (context.interactionType === "followup") return [...common, "Draft only the scheduled next-stage message; this is not a reply to the old event."];
   if (context.interactionType === "first_message") return [...common, "Open the first conversation without inventing prior dialogue."];
-  if (context.interactionType === "linkedin_connection_first_message") return [...common,
+  if (context.interactionType === "linkedin_connection_first_message" && catchup) return [...common,
     "This is the first outbound LinkedIn message after the person accepted a connection request; it is not a reply. Day 0 is a human hello, not discovery or a later-stage follow-up.",
     "Under 300 characters. Plain spoken English, warm, conversational and lightly informal: one person saying hello with a genuine reason for connecting, not networking copy. No emojis, pitch, product explanation, question, meeting/demo/call ask, fake enthusiasm, flattery or profile/resume recital.",
     "Prefer verified company, role/remit or recorded context when it fits naturally. Exact company names and role words are optional. Do not recite their profile or force a detail into the message.",
@@ -85,6 +88,10 @@ export function responseDraftRules(context: ResponseContactContext) {
     "Never use networking filler: thanks for connecting; just wanted to say hello; look forward to staying in touch; stay in touch; pleasure to connect; thanks for the connection; hope you're well. Do not pad the message with a polite stock closing.",
     "Never use: great to connect here; I'd love to hear your thoughts; what's top of mind; I noticed; I came across; I love what you're doing; current wellbeing challenges; caught my attention; most important in your remit. No marketing language or HR jargon.",
     "Never imply prior dialogue and never say ‘glad to help’, ‘thanks for getting in touch’, or ‘following up on our conversation’."
+  ];
+  if (context.interactionType === "linkedin_connection_first_message") return [...common,
+    "This is the first outbound LinkedIn message after acceptance, not a reply. Day 0 uses the canonical code-owned recipient strategy; never replace it with generic sender copy.",
+    "No emojis, pitch, product explanation, question, meeting/demo/call ask or invented prior dialogue. Never imply prior dialogue. Invitation-note limits do not apply to post-acceptance messages.",
   ];
   if (context.interactionType === "linkedin_followup") return [...common, "This is a later LinkedIn follow-up. Continue from the recorded relationship stage rather than writing a first-connection opener."];
   if (context.interactionType === "email_reply") return [...common, "Reply directly to the inbound email and preserve its thread context."];
@@ -95,7 +102,12 @@ export function responseDraftRules(context: ResponseContactContext) {
 }
 
 // Quality gate for Day 0 only; later lifecycle stages have different intent.
-export function safeLinkedInFirstMessage(draft: string, _context?: { company?: string | null; role?: string | null }) {
+export function safeLinkedInFirstMessage(draft: string, context?: DayZeroContext) {
+  return !!context && safeDayZeroMessage(draft, context);
+}
+
+// Existing catch-up gate retained verbatim; fresh Day 0 has its own stronger contract.
+export function safeLinkedInCatchupMessage(draft: string) {
   const text = draft.trim();
   if (!text || text.length >= 300 || /[?]|\p{Extended_Pictographic}/u.test(text)) return false;
   const wording = text.toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, " ");

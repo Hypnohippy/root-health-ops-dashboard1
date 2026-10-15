@@ -1,3 +1,4 @@
+import { linkedInRecipientContext } from "@/lib/linkedinRecipientContext";
 import { externalSentAt, sendReceipts, firstSendEvidence } from "@/lib/linkedinSendEvidence";
 import { isOutreachSelfContact, emptyOutreachSelfIdentity, type OutreachSelfIdentity } from "@/lib/outreachSelfIdentity";
 import { buildContactLifecycle, lifecycleLinkedInIdentity, type LifecycleInput, type LifecycleRow } from "@/lib/contactLifecycle";
@@ -116,6 +117,13 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
       lastAction: contact.lastAction ? JSON.stringify(contact.lastAction) : null, currentStage: stage,
       buyingSignal: "unknown", buyingSignalLabel: "No buying signal inferred.", objective: objectiveFor(first ? "linkedin_connection_first_message" : "linkedin_followup", false),
     };
+    if (first && fresh) {
+      const recipient = linkedInRecipientContext(organisationId, input, contact.identity);
+      context.recipientCategory = recipient.recipientCategory;
+      // Acceptance text/handles are not professional facts; conflicts stay unknown.
+      context.role = recipient.role;
+      context.company = recipient.company;
+    }
     return [{ contactId: contact.contactId, table, id: row.id, name: contact.name || "Unnamed contact", company: contact.company, role, connectedAt,
       lifecycle: contact.currentStage, stage, mode, dueAt: contact.nextDueDate, lastAction: contact.lastAction, reason,
       destination: truth.destination, destinationKind: /\/messaging\//.test(truth.destination) ? "messaging" : "profile", previousOutbound: first ? null : previousOutbound, context,
