@@ -5,6 +5,8 @@ import vm from "node:vm";
 import ts from "typescript";
 function load(file, deps = {}, globals = {}) {
  const mod={exports:{}};
+ if (!deps["@/lib/linkedinDayZero"]) deps["@/lib/linkedinDayZero"] = file === "lib/linkedinDayZero.ts" ? {} : load("lib/linkedinDayZero.ts", {"@/lib/linkedinDayZero": {}});
+ if (file === "lib/linkedinOutreach.ts") deps["@/lib/linkedinRecipientContext"] = load("lib/linkedinRecipientContext.ts", {"@/lib/contactLifecycle": lifecycle});
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{...globals,module:mod,exports:mod.exports,URL,URLSearchParams,AbortSignal,require:n=>{assert.ok(n in deps,n);return deps[n];}});
  return mod.exports;
 }
@@ -105,8 +107,9 @@ test("console API revalidates due eligibility and revision, retries receipts and
  data=followup();
  const fbase={id:"target",table:"growth_targets",revision:"4"};
  assert.equal((await api.POST(req({...fbase,action:"generate"}))).status,200);assert.ok(prompt.includes(receipt().message));assert.match(prompt,/lifecycle stage is never provider truth/);assert.doesNotMatch(prompt,/unified current lifecycle is authoritative/);
- replies=["x".repeat(350), "Hi Sarah, good to connect. Thought I'd say hello properly."];
- data=input({inbox_items:[acceptance()]}); const fresh={id:"a",table:"inbox_items",revision:"4",action:"generate"};
+ // Provider/retry safety remains exercised on catch-up; fresh Day 0 is code-owned.
+ replies=["x".repeat(350), "Hi Sarah, we connected a while ago and I realised I hadn't said hello properly."];
+ data=input({inbox_items:[acceptance("a",{created_at_platform:"2020-01-01"})]}); const fresh={id:"a",table:"inbox_items",revision:"4",action:"generate"};
  const beforeCalls=providerCalls;assert.equal((await api.POST(req(fresh))).status,200);assert.equal(providerCalls-beforeCalls,2);assert.match(prompt,/failed validation/);
  replies=["x".repeat(350),"x".repeat(350)];assert.equal((await api.POST(req(fresh))).status,409);
  providerStatus=503;assert.equal((await api.POST(req(fresh))).status,503);providerStatus=200;
