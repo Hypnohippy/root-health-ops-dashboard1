@@ -1,5 +1,8 @@
 "use client";
 import ManualTakeover from "../components/ManualTakeover";
+import GrowthTodayVisuals from "./GrowthTodayVisuals";
+import { OverviewIcon } from "./relationships/components/RelationshipOverviewVisuals";
+import "./growth-today.css";
 
 import { tenantFetch } from "@/lib/tenantFetch";
 import LifecycleReconciliationControl from "./LifecycleReconciliationControl";
@@ -285,26 +288,10 @@ export default function GrowthPage() {
   );
   
   return (
-    <div style={page}>
-      <h1 style={title}>🚀 Daily Growth Cockpit</h1>
-
-      <button
-        onClick={() => {
-          window.location.href =
-            "/dashboard/growth/acquisition" + window.location.search;
-        }}
-      >
-        Open acquisition queue
-      </button>
-
-      <LifecycleReconciliationControl />
-
-      <p style={subtitle}>
-        Generate the day, choose the creative direction, review the real people
-        and messages, then approve once.
-      </p>
-
-      <div
+    <div className="growth-today" style={page}>
+      <header className="growth-today-header"><div><p className="growth-today-eyebrow">Growth Operations Centre · Today</p><h1 style={title}><OverviewIcon kind="opportunity"/>Today’s Growth</h1><p style={subtitle}>Generate the day, choose the creative direction, review the real people and messages, then approve once.</p></div><span className="growth-today-status">{approved?"Plan approved":saved?"Plan generated":"No plan generated in this session"}</span></header>
+      <GrowthTodayVisuals loading={followupsLoading} followups={visibleFollowups} posts={postOptions.length} targets={outreachTargets.length} approved={approved} saved={saved}/>
+      <div className="growth-today-shortcuts">      <div
         style={{
           marginTop: 16,
           display: "flex",
@@ -333,24 +320,20 @@ export default function GrowthPage() {
         </a>
       </div>
 
-      <section style={card}>
-        <h2>1. Generate Today’s Plan</h2>
+</div>
+      <div className="growth-today-workspace"><div className="growth-today-primary">
+      <section className="growth-today-plan" style={card}>
+        <h2><OverviewIcon kind="spark"/>Today’s plan</h2>
 
         <p style={muted}>
           Ops creates three content choices and personalised outreach for the
           actual people due today.
         </p>
 
-        <button
-          onClick={generate}
-          style={mainButton}
-          disabled={loading}
-        >
-          {loading ? "Generating..." : "Generate Today’s Plan"}
-        </button>
+        {!data&&<div className="growth-plan-empty"><span className="growth-root-orb" aria-hidden="true"><OverviewIcon kind="spark"/></span><h3>Your next plan starts here</h3><p>Generate to load the actual creative options and named outreach. Nothing has been generated in this session.</p><div><span><OverviewIcon kind="research"/>Creative choices<small>Not generated</small></span><span><OverviewIcon kind="person"/>Named outreach<small>Not established</small></span><span><OverviewIcon kind="conversation"/>Follow-up copy<small>Not generated</small></span></div></div>}
 
         {saved && (
-          <p style={{ marginTop: 12, color: "#86efac" }}>
+          <p style={{ marginTop: 12, color: "#087a50" }}>
             Saved to Growth Tracker ✅
           </p>
         )}
@@ -433,7 +416,7 @@ export default function GrowthPage() {
                 </p>
               ) : (
                 outreachTargets.map((target) => (
-                  <article key={target.id} style={targetCard}>
+                  <article key={target.id} className="growth-target-card" style={targetCard}>
                     <h3 style={{ margin: 0 }}>
                       {target.name}
                     </h3>
@@ -550,8 +533,8 @@ export default function GrowthPage() {
         )}
       </section>
 
-      <section style={card}>
-        <h2>2. Approved Outreach for Today</h2>
+      <section className="growth-today-approved" style={card}>
+        <h2><OverviewIcon kind="contact"/>Approved outreach for today</h2>
 
         <p style={muted}>
           These are the messages you reviewed above. Nothing is regenerated
@@ -618,8 +601,8 @@ export default function GrowthPage() {
         )}
       </section>
 
-      <section style={card}>
-        <h2>3. Follow-Ups Due Today</h2>
+      <section className="growth-today-followups" style={card}>
+        <h2><OverviewIcon kind="clock"/>Follow-ups due today</h2>
 
         {followupsLoading ? (
           <p style={muted}>
@@ -631,7 +614,7 @@ export default function GrowthPage() {
           </p>
         ) : (
           visibleFollowups.map((target: any) => (
-            <article key={target.id} style={targetCard}>
+            <article key={target.id} className="growth-target-card" style={targetCard}>
               <h3 style={{ margin: 0 }}>
                 {target.target_name}
               </h3>
@@ -661,7 +644,7 @@ export default function GrowthPage() {
                 </a>
               )}
 
-              <div style={messageBox}>
+              <details className="growth-followup-detail"><summary><OverviewIcon kind="conversation"/>Review message &amp; reply tracking</summary><div style={messageBox}>
                 {target.suggested_message}
               </div>
 
@@ -724,11 +707,29 @@ export default function GrowthPage() {
                 >
                   Save Reply Tracking
                 </button>
-              </div>
+              </div></details>
             </article>
           ))
         )}
       </section>
+      </div><aside className="growth-today-context"><section className="growth-root-panel"><h2><OverviewIcon kind="spark"/>Root daily briefing</h2><div><span className="growth-root-orb" aria-hidden="true"><OverviewIcon kind="spark"/></span><p>{approved?"The plan is approved. Your reviewed outreach is available in the existing queue.":saved?"Your generated plan is ready for your review. Check the selected post and each named message before approval.":"Start with the contacts already due, then generate a plan when you are ready to review it."}</p><small>Workflow guidance from current page state · no additional AI analysis</small></div></section><section className="growth-value-panel"><h2><OverviewIcon kind="won"/>Commercial value</h2><strong>Not established</strong><p>This Today view does not load a commercial assessment.</p><div className="growth-value-placeholder" aria-hidden="true"><span/><span/><span/></div><a href="/dashboard/growth/pipeline">View existing Pipeline →</a></section><LifecycleReconciliationControl /></aside></div>
+      <div className="growth-today-dock">        <button
+          onClick={generate}
+          style={mainButton}
+          disabled={loading}
+        >
+          {loading ? "Generating..." : "Generate Today’s Plan"}
+        </button>
+      <button
+        onClick={() => {
+          window.location.href =
+            "/dashboard/growth/acquisition" + window.location.search;
+        }}
+      >
+        Open acquisition queue
+      </button>
+
+</div>
     </div>
   );
 }
@@ -781,10 +782,10 @@ function CopyBtn({ onClick }: any) {
 }
 
 const page: React.CSSProperties = {
-  padding: 24,
-  color: "#ffffff",
-  background: "#020617",
-  minHeight: "100vh",
+  padding: 0,
+  color: "#12213e",
+  background: "#f4f7ff",
+  minHeight: "100%",
 };
 
 const title: React.CSSProperties = {
@@ -794,24 +795,24 @@ const title: React.CSSProperties = {
 
 const subtitle: React.CSSProperties = {
   marginTop: 8,
-  color: "#cbd5e1",
+  color: "#53627b",
 };
 
 const smallLink: React.CSSProperties = {
   display: "inline-block",
   padding: "8px 12px",
   borderRadius: 10,
-  background: "#0f172a",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
   textDecoration: "none",
   fontWeight: 700,
 };
 
 const card: React.CSSProperties = {
   marginTop: 22,
-  background: "#0f172a",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  border: "1px solid #d4ddec",
   borderRadius: 16,
   padding: 18,
 };
@@ -843,41 +844,41 @@ const approvalBox: React.CSSProperties = {
   marginTop: 22,
   padding: 18,
   borderRadius: 14,
-  background: "#052e16",
+  background: "#def7e9",
   border: "1px solid #22c55e",
 };
 
 const approvalSummary: React.CSSProperties = {
-  color: "#d1fae5",
+  color: "#176240",
   lineHeight: 1.7,
 };
 
 const runStatus: React.CSSProperties = {
   marginTop: 14,
-  color: "#bbf7d0",
+  color: "#176240",
   fontWeight: 700,
   lineHeight: 1.5,
 };
 
 const section: React.CSSProperties = {
-  background: "#020617",
+  background: "#f4f7ff",
   padding: 16,
   borderRadius: 12,
   marginBottom: 16,
-  border: "1px solid #334155",
+  border: "1px solid #d4ddec",
 };
 
 const postCard: React.CSSProperties = {
   marginTop: 14,
   padding: 16,
   borderRadius: 12,
-  background: "#0f172a",
+  background: "#ffffff",
 };
 
 const postAngle: React.CSSProperties = {
   marginTop: 6,
   marginBottom: 0,
-  color: "#94a3b8",
+  color: "#53627b",
   fontSize: 14,
 };
 
@@ -887,17 +888,17 @@ const postEditor: React.CSSProperties = {
   marginTop: 14,
   padding: 14,
   borderRadius: 10,
-  background: "#020617",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#f4f7ff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
   lineHeight: 1.6,
 };
 
 const chooseButton: React.CSSProperties = {
   padding: "8px 12px",
   borderRadius: 8,
-  background: "#334155",
-  color: "#ffffff",
+  background: "#e9eef8",
+  color: "#12213e",
   border: "none",
   fontWeight: 800,
   cursor: "pointer",
@@ -911,36 +912,36 @@ const selectedButton: React.CSSProperties = {
 
 const targetCard: React.CSSProperties = {
   marginTop: 14,
-  background: "#020617",
-  border: "1px solid #334155",
+  background: "#f4f7ff",
+  border: "1px solid #d4ddec",
   borderRadius: 12,
   padding: 14,
 };
 
 const muted: React.CSSProperties = {
-  color: "#94a3b8",
+  color: "#53627b",
 };
 
 const stage: React.CSSProperties = {
-  color: "#facc15",
+  color: "#6033a5",
   fontWeight: 700,
 };
 
 const replyStatus: React.CSSProperties = {
-  color: "#86efac",
+  color: "#087a50",
   fontWeight: 700,
 };
 
 const profileLink: React.CSSProperties = {
   display: "inline-block",
   marginBottom: 10,
-  color: "#93c5fd",
+  color: "#164f98",
 };
 
 const messageBox: React.CSSProperties = {
   marginTop: 10,
-  background: "#0f172a",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  border: "1px solid #d4ddec",
   borderRadius: 10,
   padding: 14,
   whiteSpace: "pre-wrap",
@@ -953,9 +954,9 @@ const editableMessage: React.CSSProperties = {
   marginTop: 10,
   padding: 12,
   borderRadius: 10,
-  background: "#0f172a",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
   whiteSpace: "pre-wrap",
   lineHeight: 1.6,
 };
@@ -977,17 +978,17 @@ const replyBox: React.CSSProperties = {
   marginTop: 16,
   padding: 14,
   borderRadius: 12,
-  background: "#0f172a",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  border: "1px solid #d4ddec",
 };
 
 const select: React.CSSProperties = {
   width: "100%",
   padding: 10,
   borderRadius: 8,
-  background: "#020617",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#f4f7ff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
 };
 
 const textarea: React.CSSProperties = {
@@ -996,9 +997,9 @@ const textarea: React.CSSProperties = {
   marginTop: 10,
   padding: 10,
   borderRadius: 8,
-  background: "#020617",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#f4f7ff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
 };
 
 const saveReplyButton: React.CSSProperties = {

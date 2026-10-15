@@ -2,9 +2,12 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import "./root-visual-system.css";
+import { OpsNavigationIcon } from "./components/visual/OpsSurface";
 import ResponseAttentionBadge from "./components/ResponseAttentionBadge";
 import AcquisitionHandoff from "./components/AcquisitionHandoff";
 import { usePathname } from "next/navigation";
+import RootCoach from "./components/RootCoach";
 
 type DashboardLayoutProps = {
   children: React.ReactNode;
@@ -34,6 +37,7 @@ export default function ClientDashboardLayout({
   children,
 }: DashboardLayoutProps) {
   const pathname = usePathname();
+  const [mobileGrowthMenuOpen, setMobileGrowthMenuOpen] = useState(false);
 
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportEmail, setSupportEmail] = useState("");
@@ -224,6 +228,8 @@ export default function ClientDashboardLayout({
   }
 
   const activePrimary = primaryNav.find((item) => item.match(pathname))?.label || "Home";
+  // Growth owns one persistent shell; individual pages must not opt into a legacy frame.
+  const relationshipVisualPilot = pathname === "/dashboard" || pathname === "/dashboard/growth" || pathname.startsWith("/dashboard/growth/") || pathname === "/dashboard/founder-intelligence" || pathname === "/dashboard/responses" || pathname === "/dashboard/sequences" || pathname === "/dashboard/publishing" || pathname === "/dashboard/scheduled" || pathname === "/dashboard/approvals" || pathname === "/dashboard/stories/new" || pathname === "/dashboard/resources" || pathname === "/dashboard/connect" || pathname === "/dashboard/connect/threads-manual";
 
   const secondaryNav: SecondaryNavItem[] = (() => {
     if (activePrimary === "Responses") {
@@ -296,24 +302,26 @@ export default function ClientDashboardLayout({
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 flex flex-col">
-      <header className="border-b border-white/10 bg-black/30 backdrop-blur-xl">
+    <div data-visual-system={relationshipVisualPilot ? "root" : undefined} className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 flex flex-col">
+      {relationshipVisualPilot && <button className="ops-mobile-menu-toggle" aria-expanded={mobileGrowthMenuOpen} aria-controls="growth-shell-navigation" onClick={() => setMobileGrowthMenuOpen(!mobileGrowthMenuOpen)}><OpsNavigationIcon label="Growth" /><span>Root Health Ops</span><span aria-hidden="true">☰</span><span className="sr-only">Open navigation</span></button>}
+      {relationshipVisualPilot && mobileGrowthMenuOpen && <button className="ops-mobile-menu-backdrop" aria-label="Close navigation" onClick={() => setMobileGrowthMenuOpen(false)} />}
+      <header id="growth-shell-navigation" data-mobile-open={mobileGrowthMenuOpen} onKeyDown={event => { if (event.key === "Escape") setMobileGrowthMenuOpen(false); }} className="ops-shell-navigation border-b border-white/10 bg-black/30 backdrop-blur-xl">
         <div className="mx-auto max-w-6xl px-4 py-4">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="ops-shell-brand flex items-center gap-3 min-w-0">
                 <div className="h-9 w-9 rounded-2xl bg-emerald-400/80 shadow-lg shadow-emerald-500/40 shrink-0" />
                 <div className="flex flex-col leading-tight min-w-0">
                   <span className="text-sm font-semibold text-slate-50">
                     Root Health Ops
                   </span>
                   <span className="text-[11px] text-slate-300">
-                    Your cockpit for growth
+                    {relationshipVisualPilot ? "Growth Operations Centre" : "Your cockpit for growth"}
                   </span>
                 </div>
               </div>
 
-              <div className="text-[11px] text-slate-400">
+              <div className="ops-shell-context text-[11px] text-slate-400">
                 {activePrimary}
               </div>
             </div>
@@ -322,16 +330,19 @@ export default function ClientDashboardLayout({
               {primaryNav.map((item) => (
                 <Link
                   key={item.label}
+                  onClick={() => setMobileGrowthMenuOpen(false)}
                   href={item.href}
+                  aria-current={item.match(pathname) ? "page" : undefined}
                   className={primaryLinkClasses(item)}
                 >
-                  {item.label}
+                  {relationshipVisualPilot && <OpsNavigationIcon label={item.label} />}
+                  {relationshipVisualPilot ? <span className="ops-nav-copy"><span>{item.label}</span><small>{{Home: "Your daily briefing", Founder: "Intelligence & research", Acquisition: "New opportunities", Responses: "People & conversations", Campaigns: "Coordinated outreach", Publishing: "Content & distribution", Growth: "Relationships & progress", Resources: "Knowledge & tools", Connect: "Channels & accounts"}[item.label]}</small></span> : item.label}
                   {item.label === "Responses" ? <ResponseAttentionBadge count={responseAttention.count} /> : item.badge !== undefined ? <span className="ml-2 rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]" aria-label={`${item.badge} items`}>{item.badge}</span> : null}
                 </Link>
               ))}
             </nav>
 
-            <details className="group md:hidden">
+            {!relationshipVisualPilot && <details className="group md:hidden">
               <summary className="flex cursor-pointer list-none items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
                 <span>{activePrimary}<ResponseAttentionBadge count={responseAttention.count} /></span><span aria-hidden className="text-slate-400 transition group-open:rotate-180">⌄</span>
               </summary>
@@ -340,13 +351,14 @@ export default function ClientDashboardLayout({
                   <span>{item.label}</span>{item.label === "Responses" ? <ResponseAttentionBadge count={responseAttention.count} /> : item.badge !== undefined ? <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{item.badge}</span> : null}
                 </Link>)}
               </nav>
-            </details>
+            </details>}
 
             {secondaryNav.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
+              <div className="ops-shell-subnav flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
                 {secondaryNav.map((item) => (
                   <Link
                     key={item.label}
+                    onClick={() => setMobileGrowthMenuOpen(false)}
                     href={item.href}
                     className={secondaryLinkClasses(item.href.split("?")[0])}
                   >
@@ -357,9 +369,14 @@ export default function ClientDashboardLayout({
             ) : null}
           </div>
         </div>
+        {relationshipVisualPilot && <div className="ops-sidebar-ambient" aria-hidden="true"><p>Together, we grow<br/>smarter, stronger,<br/>more connected.</p><span>Root Health Ops</span></div>}
+        {relationshipVisualPilot && <button className="ops-mobile-menu-close" aria-label="Close navigation" onClick={() => setMobileGrowthMenuOpen(false)}>×</button>}
       </header>
 
+      {relationshipVisualPilot && <div className="ops-workspace-topbar"><div className="ops-command-brand"><span className="ops-eyebrow">Root Health Ops</span><p>Growth Operations Centre</p></div><Link className="ops-search-entry" href={`/dashboard/growth/relationships${orgId ? `?organisationId=${encodeURIComponent(orgId)}` : ""}`}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>Search people, companies, or what’s happening in your growth operations…<span className="ops-search-hint">Search</span></Link><div className="ops-command-context"><span className="ops-command-orb" aria-hidden="true"/><span>Growth workspace<small>Relationships &amp; intelligence</small></span></div></div>}
+
       <main className="flex-1 p-6"><AcquisitionHandoff key={pathname} />{children}</main>
+      <RootCoach pathname={pathname} organisationId={orgId} founderAllowed={founderAccess} />
 
       <footer className="border-t border-white/10 py-4 text-[12px] text-slate-400">
         <div className="mx-auto max-w-6xl px-4 flex flex-col md:flex-row items-center justify-between gap-2">

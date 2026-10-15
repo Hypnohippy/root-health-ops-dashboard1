@@ -1,0 +1,171 @@
+/* Root visual system v1. Values are scoped; importing this file does not theme other Ops routes. */
+[data-visual-system="root"], .relationship-workspace {
+ --ops-frame: #071b35;
+ --ops-frame-raised: #102b4a;
+ --ops-on-frame: #eff5ff;
+ --ops-on-frame-muted: #b2c4da;
+ --ops-canvas: #e9eef8;
+ --ops-surface: #ffffff;
+ --ops-glass: rgba(255,255,255,.86);
+ --ops-ink: #12213e;
+ --ops-muted: #53627b;
+ --ops-border: #d4ddec;
+ --ops-emerald: #087a50;
+ --ops-on-emerald: #ffffff;
+ --ops-blue-surface: #e1efff;
+ --ops-blue-ink: #164f98;
+ --ops-violet-surface: #eee8ff;
+ --ops-violet-ink: #6033a5;
+ --ops-green-surface: #def7e9;
+ --ops-green-ink: #176240;
+ --ops-shadow: 0 10px 30px -18px rgba(23,47,84,.32), 0 1px 3px rgba(23,47,84,.05);
+ --ops-shadow-float: 0 15px 40px -18px rgba(11,28,58,.4);
+ --ops-radius: 16px;
+ --ops-focus: #1769b2;
+}
+.ops-surface { color: var(--ops-ink); background: var(--ops-glass); border: 1px solid var(--ops-border); border-radius: var(--ops-radius); box-shadow: var(--ops-shadow); }
+.ops-surface[data-tone=blue] { --ops-tone-ink: var(--ops-blue-ink); background: linear-gradient(120deg,var(--ops-blue-surface),#d7e9fe); }
+.ops-surface[data-tone=violet] { --ops-tone-ink: var(--ops-violet-ink); background: linear-gradient(120deg,var(--ops-violet-surface),#e7defb); }
+.ops-surface[data-tone=green] { --ops-tone-ink: var(--ops-green-ink); background: linear-gradient(120deg,var(--ops-green-surface),#cff0df); }
+.ops-eyebrow { font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--ops-muted); }
+.ops-intelligence-card { position: relative; min-width: 0; padding: 1.35rem 1.4rem 1.35rem 3.9rem; }
+.ops-intelligence-mark { display: grid; place-items: center; color: var(--ops-tone-ink); }
+.ops-intelligence-card > .ops-intelligence-mark { position: absolute; width: 1.7rem; height: 1.7rem; border: 1px solid currentColor; border-radius: 50%; left: 1.3rem; top: 1.35rem; color: var(--ops-tone-ink); background: rgba(255,255,255,.6); }
+.ops-intelligence-card h2 { color: var(--ops-ink); font-weight: 650; font-size: .95rem; line-height: 1.3; }
+.ops-intelligence-card p { font-size: .8rem; line-height: 1.6; }
+.ops-intelligence-card > p:first-of-type { color: var(--ops-ink); font-weight: 500; margin-top: .55rem; }
+.ops-intelligence-card > p:not(:first-of-type) { color: var(--ops-muted); }
+.ops-button-secondary { border: 1px solid var(--ops-border); background: var(--ops-surface); color: var(--ops-ink); border-radius: .6rem; padding: .6rem 1rem; font-size: .8rem; }
+/* Navy navigation surrounds the pilot workspace. Existing routes, permissions, badges and menus are retained. */
+[data-visual-system=root] { background: var(--ops-frame); font-family: ui-sans-serif,system-ui,"Segoe UI",sans-serif; }
+[data-visual-system=root] > .ops-shell-navigation { color: var(--ops-on-frame); background: linear-gradient(170deg,var(--ops-frame),var(--ops-frame-raised)); }
+[data-visual-system=root] .ops-shell-brand > div:first-child { border-radius: 50%; background: transparent; border: 3px solid #8bd2b7; box-shadow: 0 0 12px rgba(105,218,178,.25); }
+[data-visual-system=root] .ops-workspace-topbar { display: flex; gap: 1rem; align-items: center; justify-content: space-between; background: var(--ops-canvas); color: var(--ops-ink); padding: .7rem 1.5rem; }
+[data-visual-system=root] .ops-workspace-topbar p { font-size: 1rem; font-weight: 600; letter-spacing: -.02em; margin-top: .1rem; }
+[data-visual-system=root] .ops-search-entry { display: flex; align-items: center; gap: .65rem; width: min(560px,65%); padding: .8rem 1rem; border: 1px solid var(--ops-border); border-radius: 1.1rem; background: var(--ops-glass); box-shadow: inset 0 0 0 4px rgba(255,255,255,.5); color: var(--ops-ink); font-size: .85rem; }
+[data-visual-system=root] .ops-search-hint { margin-left: auto; color: var(--ops-muted); font-size: .7rem; }
+[data-visual-system=root] > main { min-width: 0; }
+[data-visual-system=root] > main:has(.relationship-workspace) { background: radial-gradient(ellipse at 100% 0,rgba(193,211,250,.5),transparent 60%),var(--ops-canvas); padding: 0 1rem; color: var(--ops-ink); }
+[data-visual-system=root] > footer { color: var(--ops-on-frame-muted); background: var(--ops-frame); }
+[data-visual-system=root] > footer button { color: #c3ebdc; }
+[data-visual-system=root] :is(a,button,summary):focus-visible { outline: 2px solid #69c9a5; outline-offset: 3px; }
+@media (min-width: 1024px) {
+ [data-visual-system=root] > .ops-shell-navigation { position: fixed; inset: 0 auto 0 0; width: 212px; z-index: 40; border: 0; border-right: 1px solid rgba(200,220,255,.12); overflow-y: auto; }
+ [data-visual-system=root] > .ops-shell-navigation > div > div > div:first-child { flex-direction: column; align-items: stretch; gap: .4rem; }
+ [data-visual-system=root] > .ops-shell-navigation > div { padding: 1.5rem .8rem; }
+ [data-visual-system=root] .ops-shell-brand { align-items: center; gap: .65rem; padding: .25rem .5rem 1.5rem; }
+ [data-visual-system=root] .ops-shell-brand > div:first-child { width: 36px; height: 36px; }
+ [data-visual-system=root] .ops-shell-brand span:first-child { font-size: .9rem; }
+ [data-visual-system=root] .ops-shell-brand span:last-child { color: var(--ops-on-frame-muted); font-size: .6rem; }
+ [data-visual-system=root] .ops-shell-context { color: var(--ops-on-frame-muted); text-transform: uppercase; font-size: .6rem; letter-spacing: .16em; padding-inline: .7rem; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] { display: flex; flex-direction: column; align-items: stretch; gap: .4rem; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a { border-radius: .6rem; padding: .75rem 1rem; color: var(--ops-on-frame-muted); font-size: .85rem; box-shadow: none; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a:hover { background: rgba(255,255,255,.07); color: var(--ops-on-frame); }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a[aria-current=page] { color: #fff; background: linear-gradient(100deg,#087a50,#0b674c); box-shadow: inset 2px 0 #8cdaba; }
+ [data-visual-system=root] .ops-shell-subnav { border-top: 1px solid rgba(220,235,255,.14); padding-top: 1rem; gap: .1rem; flex-direction: column; align-items: stretch; }
+ [data-visual-system=root] .ops-shell-subnav > a { padding: .55rem 1rem; border-radius: .4rem; font-size: .72rem; color: var(--ops-on-frame-muted); }
+ [data-visual-system=root] .ops-shell-subnav > a[class*="bg-white/12"] { color: #fff; background: rgba(255,255,255,.08); border-color: transparent; }
+ [data-visual-system=root] > :is(main,footer,.ops-workspace-topbar) { margin-left: 212px; }
+}
+@media (max-width: 767px) {
+ [data-visual-system=root] .ops-workspace-topbar { flex-direction: column; align-items: stretch; padding: 1rem; gap: .75rem; }
+ [data-visual-system=root] .ops-search-entry { width: 100%; }
+ [data-visual-system=root] .ops-search-hint { display: none; }
+ [data-visual-system=root] > main:has(.relationship-workspace) { padding: 0; }
+}
+
+.ops-navigation-icon { flex-shrink: 0; margin-right: .65rem; }
+/* Representative Overview: richer navy framing without enabling the visual system elsewhere. */
+[data-visual-system=root] > .ops-shell-navigation {
+ background: radial-gradient(ellipse at 115% 5%,rgba(68,113,166,.55),transparent 48%),radial-gradient(ellipse at -5% 100%,rgba(180,133,82,.28),transparent 35%),linear-gradient(170deg,#061b35,#102640 72%,#1c2c3e);
+}
+[data-visual-system=root] .ops-shell-brand > div:first-child { border-color: #bae577; box-shadow: 0 0 0 3px rgba(186,229,119,.08),0 0 16px rgba(186,229,119,.28); }
+@media (min-width:1024px) {
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a[aria-current=page] { background: linear-gradient(95deg,#075bea,rgba(20,75,155,.25)); box-shadow: inset 2px 0 #77bbff,0 8px 24px -18px #1769ee; }
+}
+
+/* Glass navigation rail: presentation-only, confined to the representative workspace. */
+.ops-sidebar-ambient { display:none; }
+[data-visual-system=root] .ops-nav-copy { display:flex; flex-direction:column; gap:3px; min-width:0; }
+[data-visual-system=root] .ops-nav-copy small { color:#b8cbe1; font-size:10px; font-weight:400; letter-spacing:.005em; }
+@media(min-width:1024px) {
+ [data-visual-system=root] > .ops-shell-navigation { display:flex; flex-direction:column; isolation:isolate; background:radial-gradient(ellipse at 105% 12%,#355a80a8,transparent 55%),linear-gradient(145deg,#06172eeb,#122c49f5 60%,#10283e); box-shadow:inset -1px 0 #e0efff35,inset -8px 0 26px #a8d8ff0b,10px 0 36px -22px #0d264b; backdrop-filter:blur(24px); }
+ [data-visual-system=root] > .ops-shell-navigation:before { content:""; position:absolute; inset:0; pointer-events:none; z-index:-1; background:linear-gradient(110deg,transparent 40%,#c6e7ff0a 50%,transparent 70%); }
+ [data-visual-system=root] > .ops-shell-navigation > div:first-child { width:100%; padding:22px 10px 12px; flex-shrink:0; }
+ [data-visual-system=root] > .ops-shell-navigation > div > div { gap:12px; }
+ [data-visual-system=root] .ops-shell-brand { gap:11px; padding:0 5px 18px; }
+ [data-visual-system=root] .ops-shell-brand > div:first-child { width:47px; height:47px; border:3px solid #c2ee81; background:radial-gradient(circle,#78a9ae18,#c5ef8320); box-shadow:0 0 0 5px #c4f78e09,0 0 17px #c3ee8173,inset 0 0 12px #abf4d933; }
+ [data-visual-system=root] .ops-shell-brand span:first-child { font-size:19px; letter-spacing:-.6px; font-weight:650; }
+ [data-visual-system=root] .ops-shell-brand span:last-child { font-size:10px; color:#e2edfb; margin-top:5px; letter-spacing:.02em; }
+ [data-visual-system=root] .ops-shell-context { display:none; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] { gap:4px; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a { min-height:51px; padding:9px 11px; border:1px solid transparent; border-radius:11px; color:#f0f5ff; font-size:13px; font-weight:550; letter-spacing:-.1px; }
+ [data-visual-system=root] .ops-navigation-icon { width:25px; height:25px; margin-right:12px; filter:drop-shadow(0 2px 3px #00152e66); stroke-width:1.7; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a:hover { background:linear-gradient(100deg,#c9e4ff12,#c9e4ff04); border-color:#b8d5ff18; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a[aria-current=page] { background:linear-gradient(105deg,#0874ff,#1558c4a6 65%,#337aba25); border-color:#78b7ff66; box-shadow:inset 0 1px #bce2ff55,inset 3px 0 #8fccff,0 6px 22px #001c4b55; }
+ [data-visual-system=root] .ops-shell-subnav { display:grid; grid-template-columns:1fr 1fr; gap:3px; padding:12px 0 0; border-color:#d0e7ff21; }
+ [data-visual-system=root] .ops-shell-subnav > a { padding:6px; font-size:10px; line-height:1.35; min-height:29px; border:1px solid transparent; border-radius:6px; }
+ [data-visual-system=root] .ops-shell-subnav > a[class*="bg-white/12"] { background:#c0deff15; border-color:#d0e7ff20; }
+ [data-visual-system=root] .ops-sidebar-ambient { display:flex; flex-direction:column; justify-content:flex-end; flex:1 0 210px; position:relative; overflow:hidden; text-align:center; padding:100px 12px 22px; pointer-events:none; }
+ .ops-sidebar-ambient svg { position:absolute; inset:0; width:100%; height:100%; z-index:-1; }
+ .ops-sidebar-ambient p { color:#f0f2ee; font-family:Georgia,serif; font-style:italic; font-size:14px; line-height:1.6; text-shadow:0 2px 8px #041422; }
+ .ops-sidebar-ambient > span { color:#b8cadd; font-size:8px; letter-spacing:.2em; margin-top:13px; }
+}
+
+/* Approved reference composition: cloud-lit command bar and scenic navy frame. */
+[data-visual-system=root] { --ops-ink:#090c30; --ops-muted:#465476; --ops-blue-surface:#bfe1ff; --ops-violet-surface:#d8ccff; --ops-green-surface:#bdf3d4; --ops-radius:11px; }
+[data-visual-system=root] .ops-command-context { display:flex; align-items:center; gap:10px; color:#07132e; font-size:12px; font-weight:650; white-space:nowrap; }
+[data-visual-system=root] .ops-command-context small { display:block; font-size:10px; font-weight:400; margin-top:3px; }
+[data-visual-system=root] .ops-command-orb { width:34px; height:34px; border-radius:50%; background:radial-gradient(circle,#fff 30%,#c7e1f4 60%,#88b9d2); border:2px solid #d4e6ef; box-shadow:0 0 0 5px #e8f2ff70; }
+@media(min-width:1024px) {
+ [data-visual-system=root] > .ops-shell-navigation { width:202px; background:radial-gradient(ellipse at 110% 8%,#47729e88,transparent 50%),linear-gradient(110deg,#03162f,#102c50 80%,#315478); border-right:1px solid #bfdeff66; box-shadow:8px 0 20px #7797be55; }
+ [data-visual-system=root] > :is(main,footer,.ops-workspace-topbar) { margin-left:202px; }
+ [data-visual-system=root] > .ops-shell-navigation > div:first-child { padding:17px 9px 7px; }
+ [data-visual-system=root] .ops-shell-brand { gap:10px; padding:0 2px 16px; }
+ [data-visual-system=root] .ops-shell-brand > div:first-child { width:50px; height:50px; }
+ [data-visual-system=root] .ops-shell-brand span:first-child { font-size:17px; letter-spacing:-.55px; white-space:nowrap; }
+ [data-visual-system=root] .ops-shell-brand span:last-child { font-size:8px; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] { gap:3px; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a { min-height:45px; padding:6px 10px; border-radius:8px; font-size:13px; }
+ [data-visual-system=root] .ops-nav-copy { gap:2px; }
+ [data-visual-system=root] .ops-nav-copy small { font-size:9px; }
+ [data-visual-system=root] .ops-navigation-icon { width:24px; height:24px; margin-right:11px; stroke-width:2; }
+ [data-visual-system=root] .ops-shell-subnav { padding-top:8px; gap:1px; }
+ [data-visual-system=root] .ops-shell-subnav > a { font-size:9px; min-height:24px; padding:5px; }
+ [data-visual-system=root] .ops-sidebar-ambient { flex:1 0 300px; padding:190px 10px 28px; background:linear-gradient(180deg,#0a224900,transparent 48%,#071d37d9 94%),url('/images/root-sidebar-landscape.png') center 55%/cover no-repeat; }
+ [data-visual-system=root] .ops-sidebar-ambient:before { content:""; position:absolute; inset:0; background:linear-gradient(#102c50,transparent 22%); pointer-events:none; }
+ [data-visual-system=root] .ops-sidebar-ambient p,[data-visual-system=root] .ops-sidebar-ambient > span { position:relative; }
+ .ops-sidebar-ambient p { font-size:15px; line-height:1.55; }
+ .ops-sidebar-ambient > span { font-size:10px; letter-spacing:0; margin-top:15px; padding-top:10px; border-top:1px solid #b4d2fa26; }
+ [data-visual-system=root] .ops-workspace-topbar { height:60px; padding:6px 24px; gap:24px; background:radial-gradient(ellipse at 20% 0,#80b3e7aa,transparent 70%),linear-gradient(105deg,#4e7dae,#d4e9ff 75%); }
+ [data-visual-system=root] .ops-command-brand { display:none; }
+ [data-visual-system=root] .ops-search-entry { width:min(720px,75%); margin-left:175px; background:#edf4ffc9; border:7px solid #d4e7fa99; border-radius:22px; padding:6px 13px; font-size:12px; min-width:0; box-shadow:inset 0 1px 5px #abc5e23d; white-space:nowrap; overflow:hidden; }
+ [data-visual-system=root] .ops-search-hint { font-size:9px; background:#d7e3f7; border-radius:5px; padding:3px 6px; }
+ [data-visual-system=root] > main:has(.relationship-workspace) { margin-right:8px; padding:0 12px; background:radial-gradient(ellipse at 100% 0,#c8d9fa99,transparent 70%),linear-gradient(125deg,#f0f3ff,#e2edff); border-radius:12px; box-shadow:0 0 0 5px #d4e9ff55,inset 0 1px 0 #fff; }
+}
+@media(max-width:1023px) { [data-visual-system=root] .ops-command-context { display:none; } }
+
+/* Responsive version of the same Growth rail. Desktop composition is unchanged. */
+.ops-mobile-menu-toggle,.ops-mobile-menu-close,.ops-mobile-menu-backdrop { display:none; }
+@media(max-width:1023px) {
+ [data-visual-system=root] .ops-mobile-menu-toggle { display:flex; align-items:center; gap:10px; padding:12px 16px; background:linear-gradient(115deg,#071b35,#234e76); color:#f0f5ff; border-bottom:1px solid #b8d5ff55; font-size:13px; font-weight:600; }
+ [data-visual-system=root] .ops-mobile-menu-toggle > span[aria-hidden] { margin-left:auto; font-size:21px; }
+ [data-visual-system=root] .ops-mobile-menu-toggle svg { width:24px; height:24px; color:#aee79c; }
+ [data-visual-system=root] > .ops-shell-navigation { display:none; position:fixed; inset:0 auto 0 0; width:min(320px,87vw); height:100dvh; overflow-y:auto; z-index:70; border-right:1px solid #bfdeff66; background:radial-gradient(ellipse at 110% 8%,#47729e88,transparent 50%),linear-gradient(110deg,#03162f,#102c50 80%,#315478); box-shadow:10px 0 35px #00132c88; }
+ [data-visual-system=root] > .ops-shell-navigation[data-mobile-open=true] { display:flex; flex-direction:column; }
+ [data-visual-system=root] .ops-mobile-menu-backdrop { display:block; position:fixed; inset:0; z-index:65; background:#06172e99; backdrop-filter:blur(4px); }
+ [data-visual-system=root] .ops-mobile-menu-close { display:block; position:absolute; right:10px; top:8px; color:#e9f3ff; font-size:27px; width:34px; height:34px; border-radius:50%; background:#ffffff12; }
+ [data-visual-system=root] > .ops-shell-navigation > div:first-of-type { width:100%; padding:22px 12px 10px; }
+ [data-visual-system=root] .ops-shell-brand { padding:6px 30px 12px 0; }
+ [data-visual-system=root] .ops-shell-context { display:none; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] { display:flex; flex-direction:column; align-items:stretch; gap:3px; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a { padding:4px 10px; min-height:41px; border-radius:9px; color:#edf5ff; font-size:13px; line-height:1.2; }
+ [data-visual-system=root] nav[aria-label="Primary navigation"] > a[aria-current=page] { background:linear-gradient(105deg,#0874ff,#1558c4a6 65%,#337aba25); border:1px solid #78b7ff66; box-shadow:inset 3px 0 #8fccff; }
+ [data-visual-system=root] .ops-shell-subnav { display:grid; grid-template-columns:1fr 1fr; gap:5px; padding-top:10px; border-color:#d0e7ff21; }
+ [data-visual-system=root] .ops-shell-subnav > a { font-size:11px; padding:5px; border-radius:7px; }
+ [data-visual-system=root] .ops-sidebar-ambient { display:flex; flex-direction:column; justify-content:flex-end; flex:1 0 220px; text-align:center; padding:110px 14px 20px; background:linear-gradient(180deg,#102c50,transparent 25%,#071d37db 96%),url('/images/root-sidebar-landscape.png') center/cover no-repeat; }
+ [data-visual-system=root] .ops-sidebar-ambient p { font:italic 15px/1.6 Georgia,serif; color:#f0f4ef; text-shadow:0 2px 8px #041422; }
+ [data-visual-system=root] .ops-sidebar-ambient > span { color:#c5d8eb; font-size:10px; margin-top:12px; }
+ [data-visual-system=root] .ops-command-brand { display:none; }
+ [data-visual-system=root] .ops-workspace-topbar { padding:10px 12px; background:linear-gradient(110deg,#b8d6f1,#e6f1ff); }
+}

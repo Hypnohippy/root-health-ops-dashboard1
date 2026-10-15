@@ -1,5 +1,9 @@
 "use client";
 
+import { OpsIntelligenceCard, OpsSurface } from "../../components/visual/OpsSurface";
+import { OverviewIcon, RelationshipAvatar } from "../relationships/components/RelationshipOverviewVisuals";
+import "./pipeline.css";
+
 import { tenantFetch } from "@/lib/tenantFetch";
 
 import { useCallback, useEffect, useState } from "react";
@@ -121,14 +125,19 @@ export default function GrowthPipelinePage() {
     : t.reply_status === "call_booked" || ["meeting", "converted", "won"].includes(t.deal_stage || ""));
 
   return (
-    <main style={page}>
-      <h1 style={title}>{targetId ? "Contact record" : view === "warm" ? "Active opportunities" : "📅 Meetings & outcomes"}</h1>
+    <div className="growth-pipeline" style={page}>
+      <header className="pipeline-header"><div><p className="pipeline-eyebrow">Growth Operations Centre · Pipeline</p>
+      <h1 style={title}><OverviewIcon kind="opportunity"/>{targetId ? "Contact record" : view === "warm" ? "Active opportunities" : "📅 Meetings & outcomes"}</h1>
 
       <p style={subtitle}>
         {targetId ? "Outreach workspace" : view === "warm" ? "Keep warm replies and live opportunities moving." : "Prepare for booked calls, record outcomes, and set the next step."}
       </p>
 
-      <div style={{ marginTop: 16 }}>
+      </div><span className="pipeline-view-chip">{targetId ? "Selected contact" : view === "warm" ? "Warm opportunities view" : "Meetings & outcomes view"}</span></header>
+      <section className="pipeline-intelligence" aria-label="Pipeline briefing"><OpsIntelligenceCard title="Where we are now" tone="blue"><p>{loading ? "Loading recorded opportunities…" : error ? "Pipeline unavailable" : `${calls.length} contact${calls.length === 1 ? "" : "s"} in this view`}</p><p>Existing view filters remain authoritative.</p></OpsIntelligenceCard><OpsIntelligenceCard title="Recorded commercial context" tone="violet"><p>{loading ? "Loading…" : error ? "Unavailable" : `${calls.filter(t=>t.deal_value != null).length} with a recorded deal value`}</p><p>Recorded deal amounts only; no annualisation or probability weighting.</p></OpsIntelligenceCard><OpsIntelligenceCard title="What to do next" tone="green"><p>Review context, prepare and record the next step</p><p>Existing preparation and outcome controls remain explicit.</p></OpsIntelligenceCard></section>
+      <section className="pipeline-metrics" aria-label="Current Pipeline view metrics">{[["person",calls.length,"Contacts in this view"],["meeting",calls.filter(t=>t.call_date).length,"Recorded call dates"],["task",calls.filter(t=>t.next_step).length,"Recorded next steps"],["won",calls.filter(t=>t.deal_value != null).length,"Recorded deal values"]].map(([icon,value,label])=><OpsSurface key={String(label)}><OverviewIcon kind={String(icon)}/><div><strong>{loading ? "Loading…" : error ? "Unavailable" : value}</strong><span>{label}</span></div></OpsSurface>)}</section>
+      <div className="pipeline-evidence"><OpsSurface><h2><OverviewIcon kind="opportunity"/>Recorded deal stages</h2><div className="pipeline-stage-ribbon">{Array.from(new Set(calls.map(t=>t.deal_stage || "Not established"))).map((stageName,index)=><span key={stageName} data-tone={index%3}><OverviewIcon kind="opportunity"/><strong>{stageName.replaceAll("_"," ")}</strong><b>{calls.filter(t=>(t.deal_stage || "Not established")===stageName).length}</b></span>)}</div>{!calls.length&&<p>{loading ? "Loading stage evidence…" : error ? "Stage evidence unavailable." : "No recorded stages in this view."}</p>}<small>Current recorded state only · no earlier stages or stage history inferred.</small></OpsSurface><OpsSurface className="pipeline-value-context"><h2><OverviewIcon kind="won"/>Value basis</h2><strong>Recorded deal value</strong><p>Each card shows its stored amount where available. Potential, expected value and calculation basis are not established by this Pipeline view.</p><div aria-hidden="true"><span/><span/><span/></div></OpsSurface></div>
+      <div className="pipeline-shortcuts" style={{ marginTop: 16 }}>
         <a href="/dashboard/growth" style={button}>← Cockpit</a>{" "}
         <a href="/dashboard/growth/followups" style={button}>🎯 Follow-Ups</a>{" "}
         <a href="/dashboard/growth/tracker" style={button}>📊 Tracker</a>
@@ -136,12 +145,13 @@ export default function GrowthPipelinePage() {
 
       {error && <p role="alert">{error}</p>}
       {loading ? (
-        <p style={muted}>Loading contacts...</p>
+        <section className="pipeline-empty"><OverviewIcon kind="clock"/><p style={muted}>Loading contacts...</p></section>
       ) : calls.length === 0 ? (
-        <p style={muted}>{targetId ? "Contact unavailable in this workspace." : "No calls booked yet."}</p>
+        <section className="pipeline-empty"><OverviewIcon kind="meeting"/><h2>{targetId ? "Contact unavailable in this workspace." : "No calls booked yet."}</h2><p>The current Pipeline view has no matching records.</p></section>
       ) : (
         calls.map((target) => (
-          <article key={target.id} style={card}>
+          <article key={target.id} className="pipeline-opportunity" style={card}>
+            <div className="pipeline-identity"><RelationshipAvatar name={target.target_name || "Unknown"} kind="person"/><div>
             <h2 style={{ marginBottom: 4 }}>{target.target_name}</h2>
 
             <p style={muted}>
@@ -149,10 +159,11 @@ export default function GrowthPipelinePage() {
               {target.company || "Company not added"}
             </p>
 
+            </div></div><div className="pipeline-status"><span>Deal stage<strong>{target.deal_stage || "Not established"}</strong></span><span>Relationship state<strong>{target.lifecycle?.currentStage || "Not established"}</strong></span><span>Reply status<strong>{target.reply_status || "Not established"}</strong></span></div><div className="pipeline-context"><span>Owner<strong>Not established</strong></span><span>Last activity<strong>{target.lifecycle?.lastAction ? `${target.lifecycle.lastAction.action}${target.lifecycle.lastAction.at ? ` · ${new Date(target.lifecycle.lastAction.at).toLocaleString("en-GB")}` : " · date not established"}` : "Not established"}</strong></span><span>Next action<strong>{target.lifecycle?.nextAction || target.next_step || "Not established"}</strong></span></div>
             {targetId && <OutreachWorkspace key={target.id} target={target} onComplete={loadPipeline} />}
 
             {(!targetId || ["meeting", "converted"].includes(target.lifecycle?.currentStage || "") || target.reply_status === "call_booked" || ["meeting", "converted", "won"].includes(target.deal_stage || "")) && <>
-            <p style={green}>
+            <p className="pipeline-deal-value" style={green}>
               Deal value: {target.deal_value == null ? "Unknown" : `£${Number(target.deal_value).toLocaleString()}`}
             </p>
 
@@ -186,8 +197,8 @@ export default function GrowthPipelinePage() {
               </>
             )}
 
-            <section style={outcomeBox}>
-              <h3 style={{ marginTop: 0 }}>Call Outcome</h3>
+            <section className="pipeline-outcome" style={outcomeBox}>
+              <h3 style={{ marginTop: 0 }}><OverviewIcon kind="task"/>Call Outcome</h3>
 
               <label style={label}>Outcome</label>
               <select
@@ -242,16 +253,16 @@ export default function GrowthPipelinePage() {
           </article>
         ))
       )}
-    </main>
+    </div>
   );
 }
 
 const page: React.CSSProperties = {
-  padding: 24,
+  padding: 0,
   overflowWrap: "anywhere",
-  color: "#ffffff",
-  background: "#020617",
-  minHeight: "100vh",
+  color: "#12213e",
+  background: "#f3f7ff",
+  minHeight: "100%",
 };
 
 const title: React.CSSProperties = {
@@ -260,16 +271,16 @@ const title: React.CSSProperties = {
 };
 
 const subtitle: React.CSSProperties = {
-  color: "#cbd5e1",
+  color: "#53627b",
 };
 
 const button: React.CSSProperties = {
   display: "inline-block",
   padding: "8px 12px",
   borderRadius: 10,
-  background: "#0f172a",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
   textDecoration: "none",
   fontWeight: 700,
 };
@@ -278,29 +289,29 @@ const card: React.CSSProperties = {
   marginTop: 16,
   padding: 16,
   borderRadius: 12,
-  background: "#0f172a",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  border: "1px solid #d4ddec",
 };
 
 const muted: React.CSSProperties = {
-  color: "#94a3b8",
+  color: "#53627b",
 };
 
 const green: React.CSSProperties = {
-  color: "#86efac",
+  color: "#087a50",
   fontWeight: 700,
 };
 
 const date: React.CSSProperties = {
-  color: "#93c5fd",
+  color: "#164f98",
 };
 
 const generateButton: React.CSSProperties = {
   marginTop: 10,
   padding: "8px 12px",
   borderRadius: 8,
-  background: "#facc15",
-  color: "#020617",
+  background: "#7540ce",
+  color: "#ffffff",
   border: "none",
   fontWeight: 800,
   cursor: "pointer",
@@ -312,9 +323,9 @@ const textarea: React.CSSProperties = {
   marginTop: 12,
   padding: 12,
   borderRadius: 10,
-  background: "#020617",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#f3f7ff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
   whiteSpace: "pre-wrap",
   lineHeight: 1.6,
 };
@@ -323,8 +334,8 @@ const copyButton: React.CSSProperties = {
   marginTop: 10,
   padding: "8px 12px",
   borderRadius: 8,
-  background: "#22c55e",
-  color: "#020617",
+  background: "#087a50",
+  color: "#ffffff",
   border: "none",
   fontWeight: 800,
   cursor: "pointer",
@@ -334,24 +345,24 @@ const outcomeBox: React.CSSProperties = {
   marginTop: 18,
   padding: 14,
   borderRadius: 12,
-  background: "#020617",
-  border: "1px solid #334155",
+  background: "#f3f7ff",
+  border: "1px solid #d4ddec",
 };
 
 const label: React.CSSProperties = {
   display: "block",
   marginTop: 10,
   marginBottom: 4,
-  color: "#cbd5e1",
+  color: "#53627b",
 };
 
 const input: React.CSSProperties = {
   width: "100%",
   padding: 10,
   borderRadius: 8,
-  background: "#0f172a",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
 };
 
 const textareaSmall: React.CSSProperties = {
@@ -359,17 +370,17 @@ const textareaSmall: React.CSSProperties = {
   minHeight: 90,
   padding: 10,
   borderRadius: 8,
-  background: "#0f172a",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
 };
 
 const saveButton: React.CSSProperties = {
   marginTop: 12,
   padding: "8px 12px",
   borderRadius: 8,
-  background: "#38bdf8",
-  color: "#020617",
+  background: "#165db5",
+  color: "#ffffff",
   border: "none",
   fontWeight: 800,
   cursor: "pointer",

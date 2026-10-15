@@ -1,3 +1,6 @@
+import { OpsIntelligenceCard, OpsSurface } from "../../components/visual/OpsSurface";
+import { OverviewIcon } from "../relationships/components/RelationshipOverviewVisuals";
+import "./cadence.css";
 import { requireOrganisation } from "@/lib/tenantAuth";
 import { readLinkedInCadenceReport } from "@/lib/linkedinCadenceReport.server";
 import { cadenceLabels, exclusionLabels } from "@/lib/linkedinCadenceBackfill";
@@ -6,14 +9,13 @@ export const dynamic = "force-dynamic";
 export default async function Report({ searchParams }: { searchParams: Promise<{ organisationId?: string }> }) {
  const { organisationId } = await requireOrganisation((await searchParams).organisationId, false);
  const report = await readLinkedInCadenceReport(organisationId);
- return <main className="space-y-4 p-6"><h1 className="text-2xl font-semibold">LinkedIn cadence report</h1>
- <a className="block underline" href={`/dashboard/responses/linkedin/conversations?organisationId=${encodeURIComponent(organisationId)}`}>Log a LinkedIn conversation</a>
- <p>Read-only snapshot as of {report.asOf}. Loading this report makes no database changes or sends.</p>
- <h2 className="text-xl font-semibold">Verified send date — current cadence</h2>
- <table><tbody>{Object.entries(cadenceLabels).map(([key, label]) => <tr key={key}><th className="pr-8 text-left">{label}</th><td>{report.counts[key as keyof typeof report.counts]}</td></tr>)}</tbody></table>
- <h2 className="text-xl font-semibold">Contacts excluded from cadence timing</h2>
- <table><tbody>{Object.entries(exclusionLabels).filter(([key]) => report.excluded[key as keyof typeof report.excluded] || ["replies", "stronger_states", "historical_unknown", "actual_send_unverified"].includes(key)).map(([key, label]) => <tr key={key}><th className="pr-8 text-left">{label}</th><td>{report.excluded[key as keyof typeof report.excluded]}</td></tr>)}</tbody></table>
- <p>Legacy confirmation timestamps are not external send dates. Existing receipt evidence is preserved. No backfill has been run.</p>
- <SendDateReview items={report.review} organisationId={organisationId} revision={report.revision} />
- </main>;
+ return <div className="growth-cadence">
+ <header className="cadence-header"><div><p className="cadence-eyebrow">Growth Operations Centre · Cadence</p><h1><OverviewIcon kind="clock"/>LinkedIn cadence report</h1><p>Read-only snapshot as of {report.asOf}. Loading this report makes no database changes or sends.</p></div><span className="cadence-view-chip">Recorded evidence · read-only</span></header>
+ <section className="cadence-intelligence" aria-label="Cadence briefing"><OpsIntelligenceCard title="Where we are now" tone="blue"><p>{Object.values(report.counts).reduce((sum,n)=>sum+n,0)} contacts with verified timing</p><p>Only qualifying send evidence enters the current cadence.</p></OpsIntelligenceCard><OpsIntelligenceCard title="What needs review" tone="violet"><p>{report.review.length} send-date reviews available</p><p>Confirmation time is not treated as an external send date.</p></OpsIntelligenceCard><OpsIntelligenceCard title="What to do next" tone="green"><p>Review evidence before changing a send date</p><p>Classification remains explicit and auditable. This snapshot schedules nothing.</p></OpsIntelligenceCard></section>
+ <section className="cadence-metrics" aria-label="Current cadence snapshot counts">{[["clock",report.counts.waiting_day3,"Waiting for Day 3"],["task",report.review.length,"Send-date reviews available"],["person",Object.values(report.excluded).reduce((sum,n)=>sum+n,0),"Excluded from timing"],["conversation",report.excluded.replies,"Genuine replies recorded"]].map(([icon,value,label])=><OpsSurface key={String(label)}><OverviewIcon kind={String(icon)}/><div><strong>{value}</strong><span>{label}</span></div></OpsSurface>)}</section>
+ <div className="cadence-shortcuts"><a href={`/dashboard/responses/linkedin/conversations?organisationId=${encodeURIComponent(organisationId)}`}><OverviewIcon kind="conversation"/>Log a LinkedIn conversation</a></div>
+ <section className="cadence-stages"><h2><OverviewIcon kind="opportunity"/>Verified send date — current cadence</h2><p>Current stage counts from the report; these milestones do not imply historical messages were sent.</p><div className="cadence-stage-grid">{Object.entries(cadenceLabels).map(([key,label],index)=><OpsSurface key={key} data-stage={key}><span className="cadence-stage-icon"><OverviewIcon kind={key==="parked"?"check":"clock"}/></span><small>Current count</small><strong>{report.counts[key as keyof typeof report.counts]}</strong><h3>{label}</h3><i aria-hidden="true"><b style={{width:`${report.counts[key as keyof typeof report.counts]/Math.max(...Object.values(report.counts),1)*100}%`}}/></i><span className="cadence-stage-index" aria-hidden="true">{index+1}</span></OpsSurface>)}</div></section>
+ <div className="cadence-evidence"><OpsSurface><h2><OverviewIcon kind="task"/>Contacts excluded from cadence timing</h2><div className="cadence-exclusions">{Object.entries(exclusionLabels).filter(([key]) => report.excluded[key as keyof typeof report.excluded] || ["replies", "stronger_states", "historical_unknown", "actual_send_unverified"].includes(key)).map(([key,label])=><div key={key}><span>{label}</span><strong>{report.excluded[key as keyof typeof report.excluded]}</strong></div>)}</div></OpsSurface><OpsSurface className="cadence-evidence-note"><h2><OverviewIcon kind="research"/>Evidence comes first</h2><p>Legacy confirmation timestamps are not external send dates. Existing receipt evidence is preserved. No backfill has been run.</p><span>Performance &amp; outcomes<strong>Not established</strong></span><p>This snapshot does not measure response performance, conversion or revenue.</p></OpsSurface></div>
+ <div className="cadence-review"><SendDateReview items={report.review} organisationId={organisationId} revision={report.revision} />{report.review.length === 0 && <p className="cadence-review-empty">No send-date reviews available in this snapshot.</p>}</div>
+ </div>;
 }

@@ -9,7 +9,7 @@ const React=require("react"), renderer=require("react-test-renderer");
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 function load(file,mocks={},globals={}) {
  const m={exports:{}};
- vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:m,exports:m.exports,URL,URLSearchParams,AbortController,Event,console,setTimeout,clearTimeout,...globals,require:n=>n in mocks?mocks[n]:require(n)});
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:m,exports:m.exports,URL,URLSearchParams,AbortController,Event,console,setTimeout,clearTimeout,...globals,require:n=>n in mocks?mocks[n]:n.endsWith(".css")?{}:require(n)});
  return m.exports;
 }
 const bodyComponent=load("app/dashboard/responses/EmailMessageBody.tsx");

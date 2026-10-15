@@ -1,0 +1,96 @@
+/* Growth Home only: consumes the frozen Relationship visual system without altering it. */
+[data-visual-system=root] > main:has(.growth-today) { margin-right:8px; padding:0 12px; background:radial-gradient(ellipse at 100% 0,#c8d9fa99,transparent 70%),linear-gradient(125deg,#f0f3ff,#e2edff); border-radius:12px; box-shadow:0 0 0 5px #d4e9ff55,inset 0 1px 0 #fff; }
+.growth-today { --ops-ink:#090c30; --ops-muted:#465476; --ops-border:#d4ddec; --ops-radius:11px; color:#12213e !important; background:transparent !important; padding:18px 0 100px !important; font-family:Arial,"Segoe UI",sans-serif; }
+.growth-today-header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:8px 3px 17px; }
+.growth-today-eyebrow { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#08754e; }
+.growth-today-header h1 { display:flex; align-items:center; gap:12px; color:#111938; letter-spacing:-1px; margin-top:7px; }
+.growth-today-header h1 svg { width:29px; height:29px; color:#5b3ec0; }
+.growth-today-header p:last-child { font-size:12px; line-height:1.5; max-width:760px; }
+.growth-today-status { font-size:10px; padding:7px 12px; border:1px solid #c7def1; background:#eef6ffa6; color:#31577e; border-radius:20px; white-space:nowrap; }
+.growth-today-intelligence { display:grid; grid-template-columns:1fr 1fr 1.25fr; gap:10px; }
+.growth-today-intelligence .ops-intelligence-card { padding:13px 15px 12px 64px; border:1px solid #fff9; min-height:99px; border-radius:11px; }
+.growth-today-intelligence [data-tone=blue] { background:linear-gradient(110deg,#a6d4ff,#c7e5ff); }
+.growth-today-intelligence [data-tone=violet] { background:linear-gradient(110deg,#d4beff,#d5ddff); }
+.growth-today-intelligence [data-tone=green] { background:linear-gradient(110deg,#b2f4cf,#bdf7da); }
+.growth-today-intelligence .ops-intelligence-mark { width:38px; height:38px; top:18px; left:14px; color:white; background:linear-gradient(135deg,#087bff,#003cf0); border:0; }
+.growth-today-intelligence [data-tone=violet] .ops-intelligence-mark { background:linear-gradient(135deg,#a132f5,#6419ca); }
+.growth-today-intelligence [data-tone=green] .ops-intelligence-mark { background:linear-gradient(135deg,#1bd84a,#00952c); }
+.growth-today-intelligence h2 { font-size:15px; color:#0b1234; }
+.growth-today-intelligence p { font-size:12px; line-height:1.4; }
+.growth-today-intelligence p:not(:first-of-type) { font-size:10px; color:#354965; }
+.growth-today-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:12px 0; }
+.growth-today-metrics > div { display:flex; align-items:flex-start; gap:12px; padding:13px 15px; background:linear-gradient(125deg,#fff,#f8fbff); border:1px solid #d8e3f4; }
+.growth-today-metrics svg { width:22px; height:22px; color:#2671d4; margin-top:3px; }
+.growth-today-metrics > div:nth-child(2) svg { color:#874acb; }
+.growth-today-metrics > div:nth-child(3) svg { color:#09985d; }
+.growth-today-metrics > div:nth-child(4) svg { color:#aa801f; }
+.growth-today-metrics strong { display:block; color:#102043; font-size:19px; line-height:1.3; }
+.growth-today-metrics span { display:block; font-size:11px; color:#314965; margin-top:3px; }
+.growth-today-metrics small { display:block; font-size:9px; color:#62718b; margin-top:4px; }
+.growth-today-evidence-row { display:grid; grid-template-columns:1.45fr 1fr; gap:11px; }
+.growth-today-evidence-row > div { padding:14px 16px; background:#fffffff0; }
+.growth-today-evidence-row h2,.growth-today-primary > section > h2,.growth-today-context h2 { display:flex; gap:8px; align-items:center; font-size:16px; line-height:1.3; font-weight:700; color:#111a3c; }
+.growth-today-evidence-row h2 svg,.growth-today-primary > section > h2 svg,.growth-today-context h2 svg { width:20px; height:20px; color:#7545d2; }
+.growth-today-journey ol { display:grid; grid-template-columns:repeat(4,1fr); margin-top:15px; }
+.growth-today-journey li { position:relative; display:grid; justify-items:center; text-align:center; gap:6px; padding:0 5px; }
+.growth-today-journey li:before { content:""; position:absolute; top:18px; left:0; right:0; height:2px; background:#c0d1ee; }
+.growth-today-journey li:first-child:before { left:50%; }
+.growth-today-journey li:last-child:before { right:50%; }
+.growth-today-journey li > span { display:grid; place-items:center; position:relative; width:38px; height:38px; border:1px solid #d1daf0; border-radius:50%; background:#f0f4ff; color:#7389ad; box-shadow:0 0 0 5px #f8fbff; }
+.growth-today-journey li[data-recorded=true] > span { background:linear-gradient(130deg,#04c95a,#087d50); border-color:#aae7c4; color:#fff; box-shadow:0 0 0 5px #def7e8; }
+.growth-today-journey li strong { font-size:11px; color:#1b3459; }
+.growth-today-journey li small { font-size:9px; color:#607291; }
+.growth-today-journey > p { font-size:9px; color:#667897; margin-top:13px; }
+.growth-today-stage-chart figure { margin-top:13px; }
+.growth-today-stage-chart figure > div { display:grid; gap:9px; }
+.growth-today-stage-chart figure > div > div { display:grid; grid-template-columns:110px 1fr 22px; gap:9px; align-items:center; font-size:10px; color:#395372; }
+.growth-today-stage-chart i { display:block; height:8px; border-radius:5px; background:#e9f0fd; }
+.growth-today-stage-chart b { display:block; height:8px; background:linear-gradient(90deg,#167bed,#7462d6); border-radius:5px; }
+.growth-today-stage-chart figcaption { margin-top:10px; font-size:9px; color:#62718b; }
+.growth-today-chart-empty { display:grid; grid-template-columns:100px 1fr; gap:5px 15px; margin-top:15px; }
+.growth-today-chart-empty > div { grid-row:span 2; display:flex; align-items:flex-end; justify-content:center; gap:8px; border-bottom:1px solid #c7d5e9; height:53px; }
+.growth-today-chart-empty span { width:18px; height:35px; background:#ecf2ff; border:1px dashed #a8bedb; border-radius:4px 4px 0 0; }
+.growth-today-chart-empty strong { font-size:12px; color:#456285; }
+.growth-today-chart-empty p { font-size:10px; color:#617795; line-height:1.5; }
+.growth-today-shortcuts > div { margin-top:12px !important; gap:7px !important; margin-bottom:3px; }
+.growth-today-shortcuts a { background:#f7fbff !important; color:#365c87 !important; border-color:#ceddf1 !important; font-size:11px; font-weight:500 !important; padding:6px 11px !important; }
+.growth-today-workspace { display:grid; grid-template-columns:minmax(0,2.8fr) minmax(280px,1fr); gap:12px; }
+.growth-today-primary { min-width:0; }
+.growth-today-primary > section { margin-top:12px !important; border-radius:12px !important; box-shadow:0 3px 12px #7b97c01d; background:linear-gradient(120deg,#fff,#fbfdff) !important; padding:17px !important; }
+.growth-today-primary > section > p { font-size:12px; line-height:1.5; margin-top:8px; }
+.growth-plan-empty { margin-top:14px; padding:18px; border:1px dashed #c9d9ef; border-radius:11px; background:radial-gradient(ellipse at 100% 0,#dfceff55,transparent 65%),linear-gradient(125deg,#fafcff,#edf6ff); }
+.growth-root-orb { display:grid; place-items:center; float:left; margin:0 12px 10px 0; width:42px; height:42px; border:2px solid #b4db7b; border-radius:50%; background:radial-gradient(circle,#fff,#dfeeff); color:#7754bc; box-shadow:0 0 0 4px #dce9fa80; }
+.growth-plan-empty h3 { font-size:16px; font-weight:600; color:#253762; }
+.growth-plan-empty > p { font-size:11px; color:#546b8b; line-height:1.5; margin-top:6px; }
+.growth-plan-empty > div { clear:both; display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin-top:15px; }
+.growth-plan-empty > div > span { padding:11px; border:1px solid #d8e4f7; border-radius:8px; background:#ffffffc9; font-size:11px; color:#355178; }
+.growth-plan-empty > div svg { width:17px; height:17px; color:#785ac2; margin-bottom:5px; }
+.growth-plan-empty small { display:block; font-size:9px; color:#6f819d; margin-top:6px; }
+.growth-today-context { padding-top:12px; min-width:0; }
+.growth-today-context > section { border:1px solid #dbdff5; background:linear-gradient(135deg,#fff,#f5f5ff); border-radius:12px; box-shadow:0 3px 10px #8198bb1c; margin-bottom:12px; padding:14px; }
+.growth-root-panel h2 { margin:-14px -14px 14px; padding:13px 14px; border-bottom:1px solid #dfe4fa; background:linear-gradient(110deg,#fdfaff,#edf4ff); border-radius:12px 12px 0 0; }
+.growth-root-panel p { font-size:12px; line-height:1.6; color:#344e72; }
+.growth-root-panel small { display:block; clear:both; font-size:9px; color:#6e7d97; padding-top:12px; }
+.growth-today-context .growth-value-panel { background:linear-gradient(125deg,#e5ffed,#edf9f3); border-color:#c4ead4; }
+.growth-value-panel > strong { display:block; margin-top:13px; color:#07804b; font-size:19px; }
+.growth-value-panel > p { color:#476e61; font-size:11px; line-height:1.5; margin-top:6px; }
+.growth-value-placeholder { display:flex; height:50px; align-items:flex-end; gap:10px; border-bottom:1px solid #b9daca; margin-top:10px; }
+.growth-value-placeholder span { width:20px; height:30px; background:#d6f6e2; border:1px dashed #a5cdb7; border-radius:4px 4px 0 0; }
+.growth-value-panel a { display:block; margin-top:11px; color:#077550; font-size:11px; }
+.growth-today-context > details { color:#536b8e; border-color:#c7d8ee; background:#ffffff8c; font-size:11px; }
+.growth-today-context > details summary { color:#526a8a; }
+.growth-today-context > details button { color:#365883; border-color:#c4d6ef; }
+.growth-today :is(input,textarea,select) { min-width:0; }
+.growth-target-card { background:#f8fbff !important; border-color:#d6e1f3 !important; border-left:3px solid #a896d9 !important; }
+.growth-target-card h3 { font-weight:650; color:#172342; font-size:15px; }
+.growth-target-card > p { font-size:11px; line-height:1.5; margin-top:5px; }
+.growth-followup-detail { margin-top:10px; }
+.growth-followup-detail > summary { display:flex; align-items:center; gap:7px; color:#315c8c; font-size:11px; cursor:pointer; padding:8px 10px; border:1px solid #d2e1f5; border-radius:7px; background:#eef5ff; }
+.growth-followup-detail > summary svg { width:16px; height:16px; }
+.growth-followup-detail > div { font-size:12px; }
+.growth-today-dock { position:fixed; bottom:0; left:0; right:0; z-index:45; min-height:71px; display:flex; justify-content:center; align-items:center; gap:12px; padding:10px 22px 10px 202px; background:radial-gradient(ellipse at 32% 0,#444a77aa,transparent 50%),linear-gradient(110deg,#061a35,#193d68); border-top:1px solid #c1daf877; box-shadow:0 -4px 22px #49699455; }
+.growth-today-dock > button { margin:0 !important; padding:11px 18px !important; border-radius:12px !important; font-size:12px; color:#eef6ff; border:1px solid #8fa8c1; background:linear-gradient(#29394f,#101e34); box-shadow:inset 0 1px #ffffff30; }
+.growth-today-dock > button:first-child { background:linear-gradient(120deg,#078553,#096c4d) !important; color:#fff !important; border:1px solid #8fcbaa !important; }
+.growth-today :is(a,button,summary,input,textarea,select):focus-visible { outline:2px solid #1769b2; outline-offset:3px; }
+@media(max-width:1100px) { .growth-today-workspace { grid-template-columns:1fr; } .growth-today-context { display:grid; grid-template-columns:1fr 1fr; gap:10px; } .growth-today-context > details { grid-column:1/-1; } }
+@media(max-width:767px) { [data-visual-system=root] > main:has(.growth-today) { margin-right:0; padding:0 10px; } .growth-today { padding:14px 0 115px !important; } .growth-today-header { flex-direction:column; align-items:flex-start; gap:9px; } .growth-today-header h1 { font-size:27px !important; } .growth-today-status { font-size:9px; white-space:normal; } .growth-today-intelligence,.growth-today-evidence-row,.growth-today-workspace,.growth-today-context { grid-template-columns:1fr; } .growth-today-intelligence { gap:8px; } .growth-today-metrics { grid-template-columns:1fr 1fr; gap:8px; } .growth-today-metrics > div { padding:12px 10px; gap:8px; } .growth-today-metrics strong { font-size:16px; } .growth-today-metrics small { font-size:8px; } .growth-today-metrics svg { width:19px; height:19px; flex-shrink:0; } .growth-plan-empty > div { grid-template-columns:1fr; } .growth-today-journey li small { font-size:8px; } .growth-today-primary > section { padding:14px !important; } .growth-today-dock { padding:9px 10px; gap:8px; min-height:80px; } .growth-today-dock > button { padding:10px !important; font-size:10px; max-width:48%; } }
