@@ -1340,7 +1340,7 @@ export default function DashboardHomePage() {
                 </div>
               </div>
 
-              <BrandGrowthProfileEditor key={organisationId || "current"} organisationId={organisationId} compact />
+              <details className="publishing-brand-settings"><summary>Brand settings · name, logo and contact details</summary><BrandGrowthProfileEditor key={organisationId || "current"} organisationId={organisationId} compact /></details>
 
               {experimentId ? (
                 <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
