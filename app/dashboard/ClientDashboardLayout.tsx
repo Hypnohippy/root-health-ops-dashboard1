@@ -305,7 +305,6 @@ export default function ClientDashboardLayout({
       {relationshipVisualPilot && <button className="ops-mobile-menu-toggle" aria-expanded={mobileGrowthMenuOpen} aria-controls="growth-shell-navigation" onClick={() => setMobileGrowthMenuOpen(!mobileGrowthMenuOpen)}><OpsNavigationIcon label="Growth" /><span>Root Health Ops</span><span aria-hidden="true">☰</span><span className="sr-only">Open navigation</span></button>}
       {relationshipVisualPilot && mobileGrowthMenuOpen && <button className="ops-mobile-menu-backdrop" aria-label="Close navigation" onClick={() => setMobileGrowthMenuOpen(false)} />}
       <header id="growth-shell-navigation" data-mobile-open={mobileGrowthMenuOpen} onKeyDown={event => { if (event.key === "Escape") setMobileGrowthMenuOpen(false); }} className="ops-shell-navigation border-b border-white/10 bg-black/30 backdrop-blur-xl">
-        {relationshipVisualPilot && <button className="ops-mobile-menu-close" aria-label="Close navigation" onClick={() => setMobileGrowthMenuOpen(false)}>×</button>}
         <div className="mx-auto max-w-6xl px-4 py-4">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -370,6 +369,7 @@ export default function ClientDashboardLayout({
           </div>
         </div>
         {relationshipVisualPilot && <div className="ops-sidebar-ambient" aria-hidden="true"><p>Together, we grow<br/>smarter, stronger,<br/>more connected.</p><span>Root Health Ops</span></div>}
+        {relationshipVisualPilot && <button className="ops-mobile-menu-close" aria-label="Close navigation" onClick={() => setMobileGrowthMenuOpen(false)}>×</button>}
       </header>
 
       {relationshipVisualPilot && <div className="ops-workspace-topbar"><div className="ops-command-brand"><span className="ops-eyebrow">Root Health Ops</span><p>Growth Operations Centre</p></div><Link className="ops-search-entry" href={`/dashboard/growth/relationships${orgId ? `?organisationId=${encodeURIComponent(orgId)}` : ""}`}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>Search people, companies, or what’s happening in your growth operations…<span className="ops-search-hint">Search</span></Link><div className="ops-command-context"><span className="ops-command-orb" aria-hidden="true"/><span>Growth workspace<small>Relationships &amp; intelligence</small></span></div></div>}
