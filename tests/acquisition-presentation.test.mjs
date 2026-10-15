@@ -16,7 +16,7 @@ function load(file, mocks = {}, globals = {}) {
   const mod = { exports: {} };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText,
     { module:mod, exports: mod.exports, URL, URLSearchParams, AbortController, AbortSignal, Date, console, Buffer, crypto: { randomUUID }, process: { env: {} }, ...globals,
-      require: n => n in mocks ? mocks[n] : n.startsWith('@/lib/') ? load(n.replace('@/', '') + '.ts', mocks, globals) : n.startsWith('./') ? load(path.join(path.dirname(file), n + '.tsx'), mocks, globals) : require(n) });
+      require: n => n in mocks ? mocks[n] : n.endsWith('.css') ? {} : n.includes('components/visual/OpsSurface') ? load('app/dashboard/components/visual/OpsSurface.tsx', mocks, globals) : n.startsWith('@/lib/') ? load(n.replace('@/', '') + '.ts', mocks, globals) : n.startsWith('./') ? load(path.join(path.dirname(file), n + '.tsx'), mocks, globals) : require(n) });
   return mod.exports;
 }
 const org = '78fa2ac8-e7b6-4b9b-9604-035723ece6b1', id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

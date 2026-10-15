@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { OpsIntelligenceCard, OpsNavigationIcon } from "../../components/visual/OpsSurface";
+import "./acquisition.css";
 import { planAcquisitionAction } from "@/lib/acquisitionWorkflow";
 import { projectEngineState, type EngineState } from "@/lib/engineState";
 import { partnerActivity, partnerActionVisible, partnerActionLabel } from "@/lib/partnerConversation";
@@ -43,10 +45,11 @@ export default function AcquisitionQueue(){
  useEffect(()=>{const controller=new AbortController();void load(controller.signal);return()=>controller.abort();},[load]);
  async function act(item:Item,action:Action){let outcome:string|undefined;if(action.outcome){outcome=window.prompt(`Optional note for ${action.label.toLowerCase()}:`)||action.label.toLowerCase();if(!outcome)return;}setBusy(`${item.id}:${action.id}`);setError("");try{const res=await fetch(`/api/growth/acquisition/${encodeURIComponent(item.id)}/action`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({organisationId,action:action.id,outcome,note:notes[item.id]||null,idempotencyKey:crypto.randomUUID()})});const data=await res.json();if(!res.ok)throw Error(data.error||"Unable to update item.");await load();if(action.route&&data.destination)window.location.assign(data.destination);}catch(e){setError(e instanceof Error?e.message:"Unable to update item.");}finally{setBusy("");}}
  const pageCount=Math.max(1,Math.ceil(total/25));
- return <div className="min-h-screen bg-slate-950 text-slate-100">
+ return <div className="acquisition-workspace min-h-screen bg-slate-950 text-slate-100">
   <div className="pointer-events-none fixed inset-0 overflow-hidden"><div className="absolute -top-48 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl"/><div className="absolute bottom-0 right-0 h-[420px] w-[420px] rounded-full bg-sky-500/10 blur-3xl"/></div>
-  <main className="relative mx-auto max-w-6xl space-y-5 px-3 py-6 sm:px-6 sm:py-10">
-   <header><h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Acquisition</h1><p className="mt-1 max-w-3xl text-sm text-slate-300">Choose an opportunity and complete its next action. Nothing sends or publishes automatically.</p></header>
+  <main className="acquisition-main relative mx-auto max-w-6xl space-y-5 px-3 py-6 sm:px-6 sm:py-10">
+   <header className="acquisition-header"><div className="acquisition-eyebrow">Growth Operations Centre</div><h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl"><OpsNavigationIcon label="Acquisition"/>Acquisition</h1><p className="mt-1 max-w-3xl text-sm text-slate-300">Choose an opportunity and complete its next action. Nothing sends or publishes automatically.</p></header>
+   <section className="acquisition-intelligence" aria-label="Acquisition briefing"><OpsIntelligenceCard title="Find the right opportunity" tone="blue"><p>People, content, partners and commercial opportunities</p><p>Use the existing lanes and filters to focus your queue.</p></OpsIntelligenceCard><OpsIntelligenceCard title="Evidence before action" tone="violet"><p>Source context stays with each opportunity</p><p>Open the evidence, recorded status and history before deciding.</p></OpsIntelligenceCard><OpsIntelligenceCard title="Your next move" tone="green"><p>Review, prepare, then act explicitly</p><p>Nothing sends or publishes automatically.</p></OpsIntelligenceCard></section>
    {workspaceLoading&&<p role="status" className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">Loading workspace…</p>}
    {workspaceError&&<p role="alert" className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{workspaceError}</p>}
    {organisationId&&<>
