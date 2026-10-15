@@ -188,7 +188,7 @@ test('actual target page shows outreach-ready lead, not empty meetings; meeting 
   const id=randomUUID(),Component=()=>null;
   for(const stage of ['outreach_ready','meeting']) {
     let index=0;const values=[[{id,target_name:"Barnardo's",lifecycle:{currentStage:stage}}],false,'',{},null,'meetings',id];
-    const page=load('app/dashboard/growth/pipeline/page.tsx',{'react':{useState:()=>[values[index++],()=>{}],useEffect(){},useCallback:fn=>fn},'./OutreachWorkspace':{__esModule:true,default:Component},'@/lib/tenantFetch':{} }).default;
+    const page=load('app/dashboard/growth/pipeline/page.tsx',{'react':{useState:()=>[values[index++],()=>{}],useEffect(){},useCallback:fn=>fn},'./OutreachWorkspace':{__esModule:true,default:Component},'../../components/visual/OpsSurface':{OpsSurface:Component,OpsIntelligenceCard:Component},'../relationships/components/RelationshipOverviewVisuals':{OverviewIcon:Component,RelationshipAvatar:Component},'./pipeline.css':{},'@/lib/tenantFetch':{} }).default;
     const tree=page(),serialized=JSON.stringify(tree);assert.match(serialized,/Barnardo/);assert.doesNotMatch(serialized,/No calls booked yet/);
     assert.equal(nodes(tree,Component).length,1);assert.equal(serialized.includes('Generate Call Prep'),stage==='meeting');
   }
