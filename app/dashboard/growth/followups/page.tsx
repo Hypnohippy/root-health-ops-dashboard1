@@ -110,7 +110,7 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
         {due.length === 0 ? (
           <div className="targets-empty"><OverviewIcon kind="check"/><h3>No follow-ups due today</h3><p>The existing due-target rules returned no contacts for this view.</p></div>
         ) : (
-          due.map((t) => (
+          due.map((t: any) => (
             <article key={t.id} className="target-opportunity" style={card}>
               <div className="target-identity"><RelationshipAvatar name={t.target_name || "Unknown"} kind="person"/><div>
               <h3 style={{ marginBottom: 4 }}>{t.target_name}</h3>
