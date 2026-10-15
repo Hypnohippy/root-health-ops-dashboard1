@@ -157,3 +157,20 @@ test("Value and activity graphics require actual evidence and are labelled as co
  await renderer.act(async()=>tree.unmount());
  }
  });
+
+ test("Tracker keeps the tenant query, latest-50 limit, exact stored copy and explicit used action",async()=>{
+ const org="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",calls=[],auth=[],revalidated=[];
+ const rows=[{id:"pending",created_at:"2026-10-13T12:00:00Z",used:false,linkedin_post:"Exact post\n😀",dm_message:"Exact direct message",follow_up_message:"Exact follow-up"},{id:"used",created_at:"2026-10-12T12:00:00Z",used:true,linkedin_post:"Stored used post",dm_message:null,follow_up_message:""}];
+ const chain={select(...args){calls.push(["select",...args]);return this},eq(...args){calls.push(["eq",...args]);return this},order(...args){calls.push(["order",...args]);return this},async limit(...args){calls.push(["limit",...args]);return {data:rows}},update(...args){calls.push(["update",...args]);return this}};
+ const C=load("app/dashboard/growth/tracker/page.tsx",{"@/lib/tenantAuth":{requireOrganisation:async(id,write)=>{auth.push({id,write});return {organisationId:org}}},"@/lib/supabaseAdmin":{supabaseAdmin:{from:table=>{calls.push(["from",table]);return chain}}},"next/cache":{revalidatePath:path=>revalidated.push(path)}}).default;
+ let tree;await renderer.act(async()=>tree=renderer.create(await C({searchParams:Promise.resolve({organisationId:org})})));
+ assert.equal(JSON.stringify(calls),JSON.stringify([["from","growth_plans"],["select","*"],["eq","organisation_id",org],["order","created_at",{ascending:false}],["limit",50]]));assert.equal(auth[0].write,false);
+ const paragraphs=tree.root.findAllByType("p");assert.ok(paragraphs.some(p=>p.children.join("")===rows[0].linkedin_post));assert.ok(paragraphs.some(p=>p.children.join("")===rows[0].dm_message));assert.ok(paragraphs.some(p=>p.children.join("")===rows[0].follow_up_message));
+ assert.equal(tree.root.findAllByType("form").length,1);assert.match(JSON.stringify(tree.toJSON()),/Performance outcome/);assert.match(JSON.stringify(tree.toJSON()),/Not established/);assert.doesNotMatch(JSON.stringify(tree.toJSON()),/Momentum: High|92\/100|£150k/);
+ await renderer.act(async()=>tree.root.findByType("form").props.action());assert.equal(JSON.stringify(calls.slice(5)),JSON.stringify([["from","growth_plans"],["update",{used:true}],["eq","id","pending"],["eq","organisation_id",org]]));assert.equal(auth.length,2);assert.deepEqual(revalidated,["/dashboard/growth/tracker"]);
+ const page=fs.readFileSync("app/dashboard/growth/tracker/page.tsx","utf8").replaceAll("\r\n","\n"),base=require("node:child_process").execFileSync("git",["show","a4ec14a:app/dashboard/growth/tracker/page.tsx"],{encoding:"utf8"}).replaceAll("\r\n","\n");assert.equal(page.slice(page.indexOf("  const { organisationId }"),page.indexOf("  return (")),base.slice(base.indexOf("  const { organisationId }"),base.indexOf("  return (")));await renderer.act(async()=>tree.unmount());
+ });
+ test("Tracker empty state has no fabricated plans, performance or write controls",async()=>{
+ for(const data of [[],null]){const chain={select(){return this},eq(){return this},order(){return this},limit:async()=>({data})};const C=load("app/dashboard/growth/tracker/page.tsx",{"@/lib/tenantAuth":{requireOrganisation:async()=>({organisationId:"tenant"})},"@/lib/supabaseAdmin":{supabaseAdmin:{from:()=>chain}},"next/cache":{revalidatePath(){throw Error("No write expected")}}}).default;
+ let tree;await renderer.act(async()=>tree=renderer.create(await C({searchParams:Promise.resolve({})})));assert.match(JSON.stringify(tree.toJSON()),/No saved plans available/);assert.equal(tree.root.findAllByType("form").length,0);assert.equal(tree.root.findAllByType("article").length,0);await renderer.act(async()=>tree.unmount());}
+ });
