@@ -52,15 +52,15 @@ export default function ImportTargetsPage() {
       </p>
 
       </div><span className="import-view-chip">{loading ? "Import in progress" : message.startsWith("✅") ? "Import completed" : "CSV target import"}</span></header>
-      <section className="import-intelligence" aria-label="Import briefing"><OpsIntelligenceCard title="What you are bringing in" tone="blue"><p>{file ? file.name : "No file queued"}</p><p>Your chosen CSV is sent only when you select Import Targets.</p></OpsIntelligenceCard><OpsIntelligenceCard title="Validation stays intact" tone="violet"><p>Existing server checks and mappings</p><p>File size, row limits and required name evidence are checked by the existing importer.</p></OpsIntelligenceCard><OpsIntelligenceCard title="What comes next" tone="green"><p>Review the result, then open Targets</p><p>Importing records does not send outreach.</p></OpsIntelligenceCard></section>
-      <section className="import-metrics" aria-label="Import requirements and current state">{[["research","CSV","Supported file type"],["task","2 MB","Existing maximum file size"],["person","1,000","Existing maximum rows"],["opportunity",loading ? "Importing…" : message.startsWith("✅") ? "Completed" : "Not established","Current import result"]].map(([icon,value,label])=><OpsSurface key={String(label)}><OverviewIcon kind={String(icon)}/><div><strong>{value}</strong><span>{label}</span></div></OpsSurface>)}</section>
+      <section className="import-intelligence" aria-label="Import briefing"><OpsIntelligenceCard title="What you are bringing in" tone="blue"><p>{file ? file.name : "No file queued"}</p><p>Your chosen CSV is sent only when you select Import Targets.</p></OpsIntelligenceCard><OpsIntelligenceCard title="Before you import" tone="violet"><p>CSV format · names required</p><p>File size, row limits and required names are checked when you import.</p></OpsIntelligenceCard><OpsIntelligenceCard title="What comes next" tone="green"><p>Review the result, then open Targets</p><p>Importing records does not send outreach.</p></OpsIntelligenceCard></section>
+      <section className="import-metrics" aria-label="Import requirements and current state">{[["research","CSV","Supported file type"],["task","2 MB","Maximum file size"],["person","1,000","Maximum rows"],["opportunity",loading ? "Importing…" : message.startsWith("✅") ? "Completed" : "Not established","Current import result"]].map(([icon,value,label])=><OpsSurface key={String(label)}><OverviewIcon kind={String(icon)}/><div><strong>{value}</strong><span>{label}</span></div></OpsSurface>)}</section>
       <div className="import-shortcuts" style={{ marginTop: 16 }}>
         <a href="/dashboard/growth" style={button}>← Cockpit</a>{" "}
         <a href="/dashboard/growth/followups" style={button}>🎯 Follow-Ups</a>
       </div>
 
       <div className="import-workspace"><section className="import-upload" style={card}>
-        <h2><OverviewIcon kind="research"/>Upload CSV</h2><p className="import-hint">Choose your source file. Parsing and validation run through the existing import service.</p><div className="import-file-panel"><span className="import-file-symbol" aria-hidden="true"><OverviewIcon kind="research"/></span><label htmlFor="growth-import-file">Choose a CSV file</label><p>{file ? file.name : "Select a file to begin"}</p>
+        <h2><OverviewIcon kind="research"/>Upload CSV</h2><p className="import-hint">Choose your source file. Review the result after importing.</p><div className="import-file-panel"><span className="import-file-symbol" aria-hidden="true"><OverviewIcon kind="research"/></span><label htmlFor="growth-import-file">Choose a CSV file</label><p>{file ? file.name : "Select a file to begin"}</p>
 
         <input
           id="growth-import-file"
@@ -89,7 +89,7 @@ export default function ImportTargetsPage() {
         <p style={text}>
           Extra columns are not lost — they are saved into the target notes.
         </p>
-      </section><OpsSurface className="import-validation"><h2><OverviewIcon kind="opportunity"/>Validation &amp; next steps</h2><ol><li><span>1</span><div><strong>Choose the source</strong><p>One CSV file; no preview row count is inferred.</p></div></li><li><span>2</span><div><strong>Import &amp; check the result</strong><p>The existing importer requires names and applies its current validation and identity rules.</p></div></li><li><span>3</span><div><strong>Review in Targets</strong><p>Continue through the existing review workflow before outreach.</p></div></li></ol></OpsSurface></aside></div>
+      </section><OpsSurface className="import-validation"><h2><OverviewIcon kind="opportunity"/>Validation &amp; next steps</h2><ol><li><span>1</span><div><strong>Choose the source</strong><p>Select the CSV you want to bring into Growth.</p></div></li><li><span>2</span><div><strong>Import &amp; check the result</strong><p>Rows need a name to become targets. Check the import result before continuing.</p></div></li><li><span>3</span><div><strong>Review in Targets</strong><p>Review the imported contacts before outreach.</p></div></li></ol></OpsSurface></aside></div>
     </div>
   );
 }
