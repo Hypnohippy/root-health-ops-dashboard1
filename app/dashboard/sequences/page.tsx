@@ -1,4 +1,5 @@
 "use client";
+import "./campaigns.css";
 
 import { tenantFetch } from "@/lib/tenantFetch";
 
@@ -1344,11 +1345,11 @@ export default function SequencesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
-      <div className="w-full max-w-6xl space-y-6">
+    <div className="campaigns-workspace min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
+      <div className="campaigns-main w-full max-w-6xl space-y-6">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold">Campaign Studio</h1>
+            <div className="campaigns-eyebrow">Growth Operations Centre</div><h1 className="campaigns-title text-2xl md:text-3xl font-semibold"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="m3 11 18-8-8 18-2-8-8-2Zm8 2L21 3"/></svg>Campaign Studio</h1>
             <p className="mt-1 text-sm text-slate-300">
               Build calm campaigns, generate guided assets, then develop them in Brainstorm.
             </p>
@@ -1358,6 +1359,12 @@ export default function SequencesPage() {
             Org workspace
           </span>
         </header>
+
+        <section className="campaigns-intelligence" aria-label="Recorded campaign states">
+          <div className="campaigns-state-card campaigns-planned"><span className="campaigns-state-icon" aria-hidden="true">◇</span><div><h2>Draft / planning</h2><strong>{loading || !organisationId || err ? "Not established" : sequences.filter(s => s.status.trim().toLowerCase() === "draft").length}</strong><p>Recorded draft campaigns</p><small>Shape the goal, audience and content before the next step.</small></div></div>
+          <div className="campaigns-state-card campaigns-progress"><span className="campaigns-state-icon" aria-hidden="true">↗</span><div><h2>In progress</h2><strong>{loading || !organisationId || err ? "Not established" : sequences.filter(s => s.status.trim().toLowerCase() === "in_progress").length}</strong><p>Recorded in-progress campaigns</p><small>This status does not imply live delivery or publication.</small></div></div>
+          <div className="campaigns-state-card campaigns-completed"><span className="campaigns-state-icon" aria-hidden="true">✓</span><div><h2>Completed</h2><strong>{loading || !organisationId || err ? "Not established" : sequences.filter(s => s.status.trim().toLowerCase() === "completed").length}</strong><p>Explicitly recorded completed campaigns</p><small>Content, phases and handoffs remain visible in each campaign.</small></div></div>
+        </section>
 
         {toast ? (
           <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
@@ -1469,7 +1476,7 @@ export default function SequencesPage() {
               });
 
               return (
-                <div key={s.id} className="rounded-3xl border border-slate-700 bg-slate-950/60 p-5 space-y-4">
+                <div key={s.id} data-campaign-status={s.status.trim().toLowerCase()} className="campaigns-record rounded-3xl border border-slate-700 bg-slate-950/60 p-5 space-y-4">
                   <div className="space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
