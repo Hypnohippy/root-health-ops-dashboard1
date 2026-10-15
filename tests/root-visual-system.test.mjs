@@ -16,7 +16,7 @@ test("persistent Growth shell covers every Growth route; existing nav routes, Fo
   const C=load("app/dashboard/ClientDashboardLayout.tsx",{"next/navigation":{usePathname:()=>pathname},"next/link":({children,...props})=>React.createElement("a",props,children),"./components/AcquisitionHandoff":()=>null},{fetch}).default;
   let tree;await renderer.act(async()=>{tree=renderer.create(React.createElement(C,null,React.createElement("p",null,"Existing page content")));});
   const root=tree.root.findAllByType("div").find(x=>Object.hasOwn(x.props,"data-visual-system"));
-  assert.equal(root.props["data-visual-system"],(pathname==="/dashboard/growth"||pathname.startsWith("/dashboard/growth/"))?"root":undefined);
+  assert.equal(root.props["data-visual-system"],(pathname==="/dashboard/growth"||pathname.startsWith("/dashboard/growth/")||pathname==="/dashboard/founder-intelligence")?"root":undefined);
   const nav=tree.root.findAllByType("nav").find(x=>x.props["aria-label"]==="Primary navigation"),links=nav.findAllByType("a");
   assert.deepEqual(links.map(a=>a.props.href),["/dashboard","/dashboard/growth/acquisition",attentionHref,"/dashboard/sequences","/dashboard/publishing","/dashboard/growth","/dashboard/resources","/dashboard/connect"]);
   assert.equal(links.some(a=>a.props.href==="/dashboard/founder-intelligence"),false);
