@@ -1,3 +1,6 @@
+import { OpsIntelligenceCard, OpsSurface } from "../../components/visual/OpsSurface";
+import { OverviewIcon, RelationshipAvatar } from "../relationships/components/RelationshipOverviewVisuals";
+import "./targets.css";
 import { readDueGrowthTargets } from "@/lib/growthDue.server";
 import { outreachStages } from "@/lib/growthOutreach";
 import { requireOrganisation } from "@/lib/tenantAuth";
@@ -63,14 +66,19 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
   }
 
   return (
-    <main style={page}>
-      <h1 style={title}>👥 Leads / Contact Review</h1>
+    <div className="growth-targets" style={page}>
+      <header className="targets-header"><div><p className="targets-eyebrow">Growth Operations Centre · Targets</p>
+      <h1 style={title}><OverviewIcon kind="person"/>Targets</h1>
 
       <p style={subtitle}>
         Add targets, review lead quality, and move valid prospects through the LinkedIn outreach sequence.
       </p>
 
-      <div style={{ marginTop: 16 }}>
+      </div><span className="targets-view-chip">{requestedStage ? `Stage: ${requestedStage.replaceAll("_", " ")}` : "All currently due stages"}</span></header>
+      <section className="targets-intelligence" aria-label="Targets briefing"><OpsIntelligenceCard title="Where we are now" tone="blue"><p>{due.length} targets in this due view</p><p>Existing eligibility and stage rules determine this queue.</p></OpsIntelligenceCard><OpsIntelligenceCard title="Review before outreach" tone="violet"><p>{due.filter(t => t.lead_quality === "valid").length} marked valid · {due.filter(t => !t.lead_quality || t.lead_quality === "unreviewed").length} unreviewed</p><p>Recorded quality only; no fit score inferred.</p></OpsIntelligenceCard><OpsIntelligenceCard title="Your next move" tone="green"><p>Review context, then use LinkedIn outreach</p><p>Messaging remains an explicit, separate manual action.</p></OpsIntelligenceCard></section>
+      <section className="targets-metrics" aria-label="Current view metrics">{[["person",due.length,"Due in this view"],["research",due.filter(t=>t.linkedin_url).length,"Recorded LinkedIn routes"],["task",due.filter(t=>t.lead_quality === "research_needed").length,"Research needed"],["won","Not established","Commercial value"]].map(([icon,value,label])=><OpsSurface key={String(label)}><OverviewIcon kind={String(icon)}/><div><strong>{value}</strong><span>{label}</span></div></OpsSurface>)}</section>
+      <div className="targets-evidence"><OpsSurface><h2><OverviewIcon kind="opportunity"/>Recorded stages · current view</h2><div className="targets-stage-bars">{Array.from(new Set<string>(due.map(t=>String(t.stage || "Not established")))).map(stageName=><div key={stageName}><span>{stageName.replaceAll("_"," ")}</span><i><b style={{width:`${due.filter(t=>t.stage===stageName).length/Math.max(due.length,1)*100}%`}}/></i><strong>{due.filter(t=>t.stage===stageName).length}</strong></div>)}{due.length===0&&<p>No due targets to chart.</p>}</div><small>Counts reflect this filtered due queue, not the full relationship history.</small></OpsSurface><OpsSurface className="targets-value"><h2><OverviewIcon kind="won"/>Potential &amp; expected value</h2><strong>Not established</strong><p>This queue does not load commercial assessments.</p><span className="targets-value-outline" aria-hidden="true">▥ ▥ ▥</span></OpsSurface></div>
+      <div className="targets-shortcuts" style={{ marginTop: 16 }}>
         <a href="/dashboard/growth" style={button}>
           ← Cockpit
         </a>{" "}
@@ -82,8 +90,8 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
         </a>
       </div>
 
-      <section style={card}>
-        <h2>Add Target</h2>
+      <div className="targets-workspace"><aside className="targets-add"><section style={card}>
+        <h2><OverviewIcon kind="person"/>Add target</h2><p className="targets-form-hint">Record a person and their known professional context.</p>
 
         <form action={addTarget}>
           <input name="target_name" placeholder="Name" required style={input} />
@@ -96,25 +104,26 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
         </form>
       </section>
 
-      <section style={{ marginTop: 24 }}>
+      </aside><section className="targets-queue" style={{ marginTop: 24 }}>
         <h2>{requestedStage === "connection" ? "Outreach ready" : "Outreach Queue"}</h2>
 
         {due.length === 0 ? (
-          <p style={muted}>No follow-ups due today.</p>
+          <div className="targets-empty"><OverviewIcon kind="check"/><h3>No follow-ups due today</h3><p>The existing due-target rules returned no contacts for this view.</p></div>
         ) : (
-          due.map((t: any) => (
-            <article key={t.id} style={card}>
+          due.map((t) => (
+            <article key={t.id} className="target-opportunity" style={card}>
+              <div className="target-identity"><RelationshipAvatar name={t.target_name || "Unknown"} kind="person"/><div>
               <h3 style={{ marginBottom: 4 }}>{t.target_name}</h3>
 
               <p style={muted}>
                 {t.role_title || "Role not added"} · {t.company || "Company not added"}
               </p>
 
-              <p style={stage}>Stage: {t.stage}</p>
+              </div></div><div className="target-chips"><p style={stage}>Stage: {t.stage}</p>
 
               <p style={quality}>
                 Lead quality: {qualityLabel(t.lead_quality)}
-              </p>
+              </p></div><div className="target-context"><span>Owner<strong>Not established</strong></span><span>Last activity<strong>Not established in this view</strong></span><span>Next step<strong>Review recorded context</strong></span></div>
 
               {t.linkedin_url && (
                 <p>
@@ -132,7 +141,7 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
               )}
 
               <div style={qualityBox}>
-                <h4 style={{ marginTop: 0 }}>Lead Quality Controls</h4>
+                <h4 style={{ marginTop: 0 }}><OverviewIcon kind="task"/>Lead quality review</h4>
 
                 <form action={updateLeadQuality}>
                   <input type="hidden" name="id" value={t.id} />
@@ -188,15 +197,16 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
           ))
         )}
       </section>
-    </main>
+      </div>
+    </div>
   );
 }
 
 const page: React.CSSProperties = {
-  padding: 24,
-  color: "#fff",
-  background: "#020617",
-  minHeight: "100vh",
+  padding: 0,
+  color: "#12213e",
+  background: "#f3f7ff",
+  minHeight: "100%",
 };
 
 const title: React.CSSProperties = {
@@ -205,7 +215,7 @@ const title: React.CSSProperties = {
 };
 
 const subtitle: React.CSSProperties = {
-  color: "#cbd5e1",
+  color: "#53627b",
   marginTop: 8,
 };
 
@@ -213,17 +223,17 @@ const button: React.CSSProperties = {
   display: "inline-block",
   marginTop: 8,
   padding: "8px 12px",
-  background: "#0f172a",
-  color: "#fff",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
   borderRadius: 8,
   textDecoration: "none",
   fontWeight: 700,
 };
 
 const card: React.CSSProperties = {
-  background: "#0f172a",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  border: "1px solid #d4ddec",
   borderRadius: 12,
   padding: 16,
   marginTop: 14,
@@ -235,9 +245,9 @@ const input: React.CSSProperties = {
   marginTop: 10,
   padding: 10,
   borderRadius: 8,
-  background: "#020617",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#f3f7ff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
 };
 
 const textarea: React.CSSProperties = {
@@ -246,9 +256,9 @@ const textarea: React.CSSProperties = {
   marginTop: 10,
   padding: 10,
   borderRadius: 8,
-  background: "#020617",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#f3f7ff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
   minHeight: 80,
 };
 
@@ -258,16 +268,16 @@ const select: React.CSSProperties = {
   marginTop: 10,
   padding: 10,
   borderRadius: 8,
-  background: "#020617",
-  color: "#ffffff",
-  border: "1px solid #334155",
+  background: "#f3f7ff",
+  color: "#12213e",
+  border: "1px solid #d4ddec",
 };
 
 const greenButton: React.CSSProperties = {
   marginTop: 10,
   padding: "8px 12px",
-  background: "#22c55e",
-  color: "#020617",
+  background: "#087a50",
+  color: "#ffffff",
   borderRadius: 8,
   border: "none",
   fontWeight: 800,
@@ -277,8 +287,8 @@ const greenButton: React.CSSProperties = {
 const blueButton: React.CSSProperties = {
   marginTop: 10,
   padding: "8px 12px",
-  background: "#38bdf8",
-  color: "#020617",
+  background: "#165db5",
+  color: "#ffffff",
   borderRadius: 8,
   border: "none",
   fontWeight: 800,
@@ -286,21 +296,21 @@ const blueButton: React.CSSProperties = {
 };
 
 const muted: React.CSSProperties = {
-  color: "#94a3b8",
+  color: "#53627b",
 };
 
 const stage: React.CSSProperties = {
-  color: "#facc15",
+  color: "#6033a5",
   fontWeight: 700,
 };
 
 const quality: React.CSSProperties = {
-  color: "#86efac",
+  color: "#087a50",
   fontWeight: 700,
 };
 
 const link: React.CSSProperties = {
-  color: "#93c5fd",
+  color: "#164f98",
 };
 
 const smallTitle: React.CSSProperties = {
@@ -309,7 +319,7 @@ const smallTitle: React.CSSProperties = {
 };
 
 const text: React.CSSProperties = {
-  color: "#e5e7eb",
+  color: "#334965",
   whiteSpace: "pre-wrap",
   lineHeight: 1.6,
 };
@@ -318,16 +328,16 @@ const qualityBox: React.CSSProperties = {
   marginTop: 14,
   padding: 14,
   borderRadius: 12,
-  background: "#020617",
-  border: "1px solid #334155",
+  background: "#f3f7ff",
+  border: "1px solid #d4ddec",
 };
 
 const warningBox: React.CSSProperties = {
   marginTop: 14,
   padding: 12,
   borderRadius: 8,
-  background: "#422006",
-  color: "#fde68a",
+  background: "#fff7df",
+  color: "#785519",
   border: "1px solid #92400e",
 };
 
@@ -335,7 +345,7 @@ const badBox: React.CSSProperties = {
   marginTop: 14,
   padding: 12,
   borderRadius: 8,
-  background: "#450a0a",
-  color: "#fecaca",
+  background: "#fff0f0",
+  color: "#8e2733",
   border: "1px solid #991b1b",
 };

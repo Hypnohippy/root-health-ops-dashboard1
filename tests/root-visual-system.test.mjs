@@ -84,3 +84,16 @@ test("Value and activity graphics require actual evidence and are labelled as co
  assert.match(page,/className="growth-today-dock"/);assert.equal((page.match(/onClick=\{generate\}/g)||[]).length,1);
  const visuals=fs.readFileSync("app/dashboard/growth/GrowthTodayVisuals.tsx","utf8");assert.doesNotMatch(visuals,/tenantFetch|useEffect|fetch\(|POST|supabase/);
 });
+
+ test("Targets presentation preserves due loading, stage filtering, forms and exact server actions",async()=>{
+ const requests=[],org="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+ const C=load("app/dashboard/growth/followups/page.tsx",{"@/lib/growthDue.server":{readDueGrowthTargets:async(id)=>{requests.push(id);return [{id:"one",target_name:"Known Person",stage:"connection",lead_quality:"valid",linkedin_url:"https://linkedin.com/in/known",notes:"Exact source note"},{id:"two",target_name:"Other Person",stage:"day3_followup",lead_quality:"research_needed"}];}},"@/lib/growthOutreach":{outreachStages:["connection","day3_followup"]},"@/lib/tenantAuth":{requireOrganisation:async()=>({organisationId:org})},"@/lib/supabaseAdmin":{supabaseAdmin:{}},"next/cache":{revalidatePath(){}}}).default;
+ let tree;await renderer.act(async()=>{tree=renderer.create(await C({searchParams:Promise.resolve({organisationId:org,stage:"connection"})}));});
+ const text=JSON.stringify(tree.toJSON());assert.match(text,/Known Person/);assert.doesNotMatch(text,/Other Person/);assert.match(text,/Exact source note/);assert.match(text,/Not established/);
+ assert.equal(requests.length,1);assert.equal(requests[0],org);
+ assert.deepEqual(tree.root.findAllByType("form").map(f=>f.props.action.name),["addTarget","updateLeadQuality"]);
+ assert.ok(tree.root.findAllByType("a").some(a=>a.props.href===`/dashboard/responses/linkedin?organisationId=${org}&view=followups`));
+ const page=fs.readFileSync("app/dashboard/growth/followups/page.tsx","utf8").replaceAll("\r\n","\n"),before=require("node:child_process").execFileSync("git",["show","95d7e9b:app/dashboard/growth/followups/page.tsx"],{encoding:"utf8"}).replaceAll("\r\n","\n");
+ assert.equal(page.slice(page.indexOf("  const params"),page.indexOf("  return (",page.indexOf("  const params"))),before.slice(before.indexOf("  const params"),before.indexOf("  return (",before.indexOf("  const params"))));
+ await renderer.act(async()=>tree.unmount());
+ });
