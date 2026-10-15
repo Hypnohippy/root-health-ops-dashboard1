@@ -135,8 +135,8 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
 
               {t.notes && (
                 <>
-                  <h4 style={smallTitle}>Imported Notes</h4>
-                  <p style={text}>{t.notes}</p>
+                  <details className="target-source-notes"><summary style={smallTitle}>Imported notes · source context</summary>
+                  <p style={text}>{t.notes}</p></details>
                 </>
               )}
 
