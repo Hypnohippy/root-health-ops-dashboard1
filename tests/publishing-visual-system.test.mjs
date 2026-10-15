@@ -15,3 +15,10 @@ test("Publishing distinguishes local draft evidence from unknown schedule and de
  const page=fs.readFileSync("app/dashboard/publishing/page.tsx","utf8");assert.match(page,/<strong>\{drafts.length\}<\/strong>/);assert.match(page,/Schedule totals are not loaded in this composer/);assert.match(page,/A draft or approval does not confirm delivery/);assert.match(page,/href="\/dashboard\/scheduled"/);assert.match(page,/href="\/dashboard\/approvals"/);
  const css=fs.readFileSync("app/dashboard/publishing/publishing.css","utf8");assert.match(css,/@media\(max-width:767px\)/);assert.match(css,/\.publishing-workspace/);
 });
+
+test("Stories header wraps its action without crushing the Clear drafts label",()=>{
+ const page=fs.readFileSync("app/dashboard/stories/new/page.tsx","utf8");
+ const header=page.slice(page.indexOf('<header className="space-y-2">'),page.indexOf('</header>'));
+ assert.match(header,/className="flex flex-wrap items-start justify-between gap-3"/);
+ assert.match(header,/onClick=\{clearStoriesLocker\}\s+className="shrink-0 /);
+});

@@ -647,7 +647,7 @@ export default function StorySeriesBuilderPage() {
     <div className="publishing-workspace min-h-screen bg-slate-950 text-slate-100 px-4 py-8 flex justify-center">
       <div className="w-full max-w-6xl space-y-8">
         <header className="space-y-2">
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h1 className="text-2xl md:text-3xl font-semibold">Stories</h1>
               <p className="text-sm text-slate-300 max-w-3xl">
@@ -658,7 +658,7 @@ export default function StorySeriesBuilderPage() {
             <button
               type="button"
               onClick={clearStoriesLocker}
-              className="rounded-full border border-slate-600 bg-slate-950 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10"
+              className="shrink-0 rounded-full border border-slate-600 bg-slate-950 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-white/10"
             >
               Clear drafts
             </button>
