@@ -97,3 +97,23 @@ test("Value and activity graphics require actual evidence and are labelled as co
  assert.equal(page.slice(page.indexOf("  const params"),page.indexOf("  return (",page.indexOf("  const params"))),before.slice(before.indexOf("  const params"),before.indexOf("  return (",before.indexOf("  const params"))));
  await renderer.act(async()=>tree.unmount());
  });
+
+ test("Waiting preserves tenant query, recorded dates, due helper, reply status and profile destination",async()=>{
+ const org="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",calls=[],rows=[{id:"one",target_name:"Recorded Person",company:"Recorded Company",role_title:"People lead",stage:"day3_followup",reply_status:"no_reply",last_action_at:"2026-10-13T12:00:00Z",linkedin_url:"https://www.linkedin.com/in/recorded"}];
+ const query={select(...args){calls.push(["select",...args]);return this},eq(...args){calls.push(["eq",...args]);return this},not(...args){calls.push(["not",...args]);return this},async order(...args){calls.push(["order",...args]);return {data:rows,error:null}}};
+ const dueCalls=[];const C=load("app/dashboard/growth/waiting/page.tsx",{"@/lib/growthOutreach":{growthFollowUpDueAt:t=>{dueCalls.push(t.id);return null;}},"@/lib/tenantAuth":{requireOrganisation:async(id,write)=>{assert.equal(id,org);assert.equal(write,false);return {organisationId:org}}},"@/lib/supabaseAdmin":{supabaseAdmin:{from:table=>{calls.push(["from",table]);return query}}}}).default;
+ let tree;await renderer.act(async()=>tree=renderer.create(await C({searchParams:Promise.resolve({organisationId:org})})));
+ const text=JSON.stringify(tree.toJSON());assert.match(text,/Recorded Person/);assert.match(text,/Confirmed first-send evidence required/);assert.match(text,/no_reply/);assert.match(text,/Not established/);assert.deepEqual(dueCalls,["one"]);
+ assert.equal(JSON.stringify(calls),JSON.stringify([["from","growth_targets"],["select","*"],["eq","organisation_id",org],["eq","status","active"],["not","last_action_at","is",null],["order","last_action_at",{ascending:false}]]));
+ assert.ok(tree.root.findAllByType("a").some(a=>a.props.href===rows[0].linkedin_url));assert.equal(tree.root.findAllByType("form").length,0);
+ const page=fs.readFileSync("app/dashboard/growth/waiting/page.tsx","utf8").replaceAll("\r\n","\n"),base=require("node:child_process").execFileSync("git",["show","bc118c1:app/dashboard/growth/waiting/page.tsx"],{encoding:"utf8"}).replaceAll("\r\n","\n");
+ for(const [start,end] of [["function nextDueDate","export default"],["  const { organisationId }","  if (error)"]])assert.equal(page.slice(page.indexOf(start),page.indexOf(end,page.indexOf(start))),base.slice(base.indexOf(start),base.indexOf(end,base.indexOf(start))));
+ await renderer.act(async()=>tree.unmount());
+ });
+ test("Waiting empty and error views remain explicit without invented activity or metrics",async()=>{
+ for(const result of [{data:[],error:null},{data:null,error:{message:"Read unavailable"}}]){
+ const chain={select(){return this},eq(){return this},not(){return this},order:async()=>result};
+ const C=load("app/dashboard/growth/waiting/page.tsx",{"@/lib/growthOutreach":{growthFollowUpDueAt(){throw Error("No dated target expected")}},"@/lib/tenantAuth":{requireOrganisation:async()=>({organisationId:"tenant"})},"@/lib/supabaseAdmin":{supabaseAdmin:{from:()=>chain}}}).default;
+ let tree;await renderer.act(async()=>tree=renderer.create(await C({searchParams:Promise.resolve({})})));const text=JSON.stringify(tree.toJSON());assert.match(text,result.error?/Read unavailable/:/No recently contacted leads yet/);assert.doesNotMatch(text,/Momentum: High|92\/100|£150/);await renderer.act(async()=>tree.unmount());
+ }
+ });
