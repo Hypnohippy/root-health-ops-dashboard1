@@ -58,7 +58,7 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
           return safe ? <a key={safe.id} href={safe.href} onClick={close}>{safe.label}<span aria-hidden="true">→</span></a> : null;
         })}</nav></section>}
       </div>
-      <form className="root-coach-form" onSubmit={event => { event.preventDefault(); void ask(question); }}><label htmlFor="root-coach-question">Ask about this workspace</label><textarea id="root-coach-question" rows={2} maxLength={600} value={question} onChange={event => setQuestion(event.target.value)} placeholder="What does this mean, or where should I go?"/><div><small>No live counts supplied. Open the source workspace for current state.</small><button type="submit" disabled={busy || !organisationId || !question.trim()}>Ask Root <span aria-hidden="true">→</span></button></div></form>
+      <form className="root-coach-form" onSubmit={event => { event.preventDefault(); void ask(question); }}><label htmlFor="root-coach-question">Ask about this workspace</label><textarea id="root-coach-question" rows={2} maxLength={600} value={question} onChange={event => setQuestion(event.target.value)} placeholder="What does this mean, or where should I go?"/><div><small>Current figures and status are always shown in the source workspace.</small><button type="submit" disabled={busy || !organisationId || !question.trim()}>Ask Root <span aria-hidden="true">→</span></button></div></form>
     </dialog>
   </>;
 }
