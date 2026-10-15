@@ -133,3 +133,27 @@ test("Value and activity graphics require actual evidence and are labelled as co
  for(const success of [true,false]){const C=load("app/dashboard/growth/pipeline/page.tsx",{"@/lib/tenantFetch":{tenantFetch:async()=>({ok:success,json:async()=>({success,data:[],error:"Read unavailable"})})},"./OutreachWorkspace":()=>null},{window:{location:{search:""}}}).default;
  let tree;await renderer.act(async()=>tree=renderer.create(React.createElement(C)));const text=JSON.stringify(tree.toJSON());assert.match(text,success?/No calls booked yet/:/Read unavailable/);assert.equal(tree.root.findAllByProps({className:"pipeline-opportunity"}).length,0);assert.equal(tree.root.findByProps({className:"pipeline-stage-ribbon"}).findAllByType("span").length,0);await renderer.act(async()=>tree.unmount());}
  });
+
+ test("Import presentation retains the exact upload handler and does no work before explicit import",async()=>{
+ const page=fs.readFileSync("app/dashboard/growth/import/page.tsx","utf8").replaceAll("\r\n","\n"),base=require("node:child_process").execFileSync("git",["show","5036417:app/dashboard/growth/import/page.tsx"],{encoding:"utf8"}).replaceAll("\r\n","\n");
+ assert.equal(page.slice(page.indexOf("  const [file"),page.indexOf("  return (")),base.slice(base.indexOf("  const [file"),base.indexOf("  return (")));
+ const requests=[];const C=load("app/dashboard/growth/import/page.tsx",{"@/lib/tenantFetch":{tenantFetch:async()=>{requests.push(1);throw Error("No upload expected")}}}).default;
+ let tree;await renderer.act(async()=>tree=renderer.create(React.createElement(C)));assert.equal(requests.length,0);assert.equal(tree.root.findByType("input").props.accept,".csv");
+ await renderer.act(async()=>tree.root.findAllByType("button").find(b=>b.children.join("")==="Import Targets").props.onClick());
+ assert.equal(requests.length,0);assert.match(JSON.stringify(tree.toJSON()),/Please choose a CSV file first/);assert.equal(tree.root.findByProps({className:"import-status"}).props["data-status"],"error");
+ await renderer.act(async()=>tree.unmount());
+ });
+ test("Import selection, loading, exact multipart file and server success/error evidence are unchanged",async()=>{
+ for(const success of [true,false]){
+ const requests=[],file={name:"controlled-local-fixture.csv",size:42};let resolveResponse;
+ class Form {entries=[];append(key,value){this.entries.push([key,value]);}}
+ const C=load("app/dashboard/growth/import/page.tsx",{"@/lib/tenantFetch":{tenantFetch:(url,opts)=>{requests.push({url,opts});return new Promise(resolve=>{resolveResponse=resolve})}}},{FormData:Form}).default;
+ let tree;await renderer.act(async()=>tree=renderer.create(React.createElement(C)));
+ await renderer.act(async()=>tree.root.findByType("input").props.onChange({target:{files:[file]}}));assert.match(JSON.stringify(tree.toJSON()),/controlled-local-fixture.csv/);assert.equal(requests.length,0);
+ let pending;await renderer.act(async()=>{pending=tree.root.findAllByType("button").find(b=>b.children.join("")==="Import Targets").props.onClick();});
+ assert.equal(requests.length,1);assert.equal(requests[0].url,"/api/growth/import-targets");assert.equal(requests[0].opts.method,"POST");assert.equal(requests[0].opts.body.entries[0][0],"file");assert.equal(requests[0].opts.body.entries[0][1],file);assert.equal(tree.root.findByType("button").props.disabled,true);assert.equal(tree.root.findByProps({className:"import-status"}).props["data-status"],"loading");
+ await renderer.act(async()=>{resolveResponse({json:async()=>success?{success:true,imported:2}:{success:false,error:"Source validation failed"}});await pending;});
+ assert.equal(tree.root.findByType("button").props.disabled,false);assert.equal(tree.root.findByProps({className:"import-status"}).props["data-status"],success?"success":"error");assert.match(JSON.stringify(tree.toJSON()),success?/Imported 2 targets successfully/:/Source validation failed/);assert.equal(requests.length,1);
+ await renderer.act(async()=>tree.unmount());
+ }
+ });
