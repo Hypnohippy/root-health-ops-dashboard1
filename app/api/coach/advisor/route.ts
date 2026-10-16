@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { advisorRequest } from "@/lib/rootCoachAdvisor";
-import { rootCoachAdvisor } from "@/lib/rootCoachAdvisor.server";
+import { AdvisorUnavailable, rootCoachAdvisor } from "@/lib/rootCoachAdvisor.server";
 export const runtime = "nodejs";
 const advisorPOST = withTenantRoute(async (req, tenant) => {
   if (!req.headers.get("content-type")?.includes("application/json")) return NextResponse.json({ error: "Use JSON." }, { status: 415 });
@@ -9,8 +9,13 @@ const advisorPOST = withTenantRoute(async (req, tenant) => {
   if (text.length > 4096) return NextResponse.json({ error: "Keep advice requests short." }, { status: 400 });
   let request;
   try { request = advisorRequest(JSON.parse(text)); } catch { return NextResponse.json({ error: "Choose an existing relationship and a bounded advice question. Supplied conversation or identity data is not accepted." }, { status: 400 }); }
-  const answer = await rootCoachAdvisor(request, tenant);
-  return NextResponse.json(answer, { headers: { "Cache-Control": "private, no-store" } });
+  try {
+    const answer = await rootCoachAdvisor(request, tenant);
+    return NextResponse.json(answer, { headers: { "Cache-Control": "private, no-store" } });
+  } catch (error) {
+    if (error instanceof AdvisorUnavailable) return NextResponse.json({ error: error.message }, { status: 503, headers: { "Cache-Control": "private, no-store" } });
+    throw error;
+  }
 }, { write: false });
 export async function POST(req: Request) {
   // Bound the stream before the tenant wrapper clones/parses JSON.
