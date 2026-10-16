@@ -27,6 +27,10 @@ test('contradictory recorded notes stay separate with provenance rather than ove
  const f=fixture();f.rows.inbox_items[0].notes='Manual note says waiting';f.state.relationship.stage='needs_reply';
  const result=await f.svc.advisorRelationshipContext(tenant,locator);assert.equal(result.packet.stage,'needs_reply');assert.ok(result.packet.evidence.some(e=>e.kind==='Recorded notes'&&e.text==='Manual note says waiting'));
 });
+test('saved task uses the actual task field and preserves recorded timestamps',async()=>{
+ const f=fixture();f.state.tasks=[{id:'task1',task:'Send the agreed report',status:'open',created_at:'2026-10-16T10:00:00Z'}];
+ const result=await f.svc.advisorRelationshipContext(tenant,locator);const task=result.packet.evidence.find(e=>e.id==='task:task1');assert.match(task.text,/Send the agreed report/);assert.equal(task.recordedAt,'2026-10-16T10:00:00Z');
+});
 test('resolver denial propagates; client locator never becomes a direct arbitrary database read',async()=>{
  const svc=load('lib/rootCoachAdvisorContext.server.ts',{'@/lib/relationshipWorkspace.server':{getRelationship:async()=>{throw Error('Not permitted');}},'@/lib/lifecycleSnapshot.server':{readLifecycleInput:()=>assert.fail('read after denial')}});
  await assert.rejects(svc.advisorRelationshipContext(tenant,'founder_foreign'),/Not permitted/);
