@@ -39,10 +39,14 @@ export function validateAdvisorAnswer(value: unknown, packet: AdvisorPacket): Ad
     });
   };
   if (raw.draft != null && (typeof raw.draft !== "string" || raw.draft.length > 6000)) throw Error("Invalid draft.");
-  const limitations = Array.isArray(raw.limitations) ? raw.limitations.filter((v): v is string => typeof v === "string" && v.length <= 1000).slice(0, 10) : [];
+  // Coverage and mailbox freshness are server-owned facts, never model-generated claims.
+  const limitations: string[] = [];
+  let withheldClaim = false;
+  const unsupportedState = (text: string) => /(?:\bno\b|\babsence\b|\black\b|\bwithout\b|\bhasn.t\b)[^.]{0,60}\b(?:repl(?:y|ies)|messages?|engagement)\b|\b(?:repl(?:y|ies)|messages?)\b[^.]{0,60}\b(?:absent|nonexistent|none|not exist|not replied)\b|\b(?:verified|confirmed|proved|proven)\b[^.]{0,45}\b(?:delivery|delivered)\b/i.test(text);
+  const supportedClaims = (key: string) => claims(key).filter(claim => { if (!unsupportedState(claim.text)) return true; withheldClaim = true; return false; });
   const cited = (claim: AdvisorClaim) => packet.evidence.filter(e => claim.evidenceIds.includes(e.id));
   let withheldDate = false;
-  const facts = claims("facts").filter(claim => {
+  const facts = supportedClaims("facts").filter(claim => {
     const dates = claim.text.match(/\b\d{4}-\d{2}-\d{2}\b/g) || [];
     const supported = dates.every(date => cited(claim).some(e => e.at?.slice(0, 10) === date || e.text.includes(date)));
     if (!supported) withheldDate = true;
@@ -52,6 +56,11 @@ export function validateAdvisorAnswer(value: unknown, packet: AdvisorPacket): Ad
     const prefix = evidence.every(e => e.direction === "snapshot" && !e.at) ? "Undated stored snapshot: " : evidence.some(e => /^Manually recorded /i.test(e.kind)) ? "Manual record: " : "";
     return { ...claim, text: prefix + claim.text };
   });
+  const interpretations = supportedClaims("interpretations"), recommendations = supportedClaims("recommendations"), commitments = supportedClaims("commitments");
+  const draft = packet.canDraft ? (raw.draft as string | null) || null : null;
+  const safeDraft = draft && unsupportedState(draft) ? null : draft;
+  if (draft && !safeDraft) withheldClaim = true;
+  if (withheldClaim) limitations.push("An unsupported claim about absent replies or verified delivery was withheld. Missing history does not establish current mailbox state, interest or inactivity.");
   if (withheldDate) limitations.push("A dated factual claim was withheld because its cited evidence did not establish that date. Recording time is not message time.");
-  return { mode: "advisor", relationshipLocator: packet.locator, facts, interpretations: claims("interpretations"), recommendations: claims("recommendations"), commitments: claims("commitments"), draft: packet.canDraft ? (raw.draft as string | null) || null : null, limitations: [...new Set([...packet.limitations, ...limitations])], evidence: packet.evidence, asOf: packet.asOf };
+  return { mode: "advisor", relationshipLocator: packet.locator, facts, interpretations, recommendations, commitments, draft: safeDraft, limitations: [...new Set([...packet.limitations, ...limitations])], evidence: packet.evidence, asOf: packet.asOf };
 }
