@@ -10,16 +10,17 @@ export const identityPersistenceEnabled=()=>process.env.IDENTITY_RECONCILIATION_
 const pair=(a:{table:string;id:string},b:{table:string;id:string})=>[a.table+':'+a.id,b.table+':'+b.id].sort().join('|');
 export async function identityLedgerReview(tenant:RelationshipTenant,example=false){
  requireIdentityReviewer(tenant);const ctx=await readIdentityReview(tenant,undefined,example);
- const rows=identityPersistenceEnabled()&&!example?await readTenantHistory('relationship_identity_decisions',tenant.organisationId,'*',['sequence']) as IdentityLedgerRow[]:[];
+ const capturedRows=identityPersistenceEnabled()&&!example?await readTenantHistory('relationship_identity_decisions',tenant.organisationId,'*',['sequence']) as IdentityLedgerRow[]:[];
+ const rows=capturedRows.filter(r=>r.organisation_id===tenant.organisationId);
  const visible=rows.filter(r=>r.organisation_id===tenant.organisationId&&(!r.founder_only||ctx.policy.founderAllowed)&&ctx.partition.byRef.has(r.source_ref_a.table+':'+r.source_ref_a.id)&&ctx.partition.byRef.has(r.source_ref_b.table+':'+r.source_ref_b.id));
  const history=visible.map(r=>({id:r.id,pair:pair(r.source_ref_a,r.source_ref_b),decision:r.decision,actor:r.actor_user_id,decidedAt:r.decided_at,revision:r.revision,note:r.note,supersedes:r.supersedes_decision_id,illustrative:false}));
  if(example&&ctx.candidates[0])history.push({id:'fictional-history-example',pair:ctx.candidates[0].id,decision:'review_later',actor:'Fictional reviewer',decidedAt:'2026-10-16T12:00:00Z',revision:1,note:'Illustrative history only — no saved decision.',supersedes:null,illustrative:true});
- return {ctx,rows,visible,payload:{...identityReviewPayload(ctx),persistenceEnabled:identityPersistenceEnabled()&&!example,history}};
+ return {ctx,rows,visible,payload:{...identityReviewPayload(ctx),simulation:!identityPersistenceEnabled()||example,persistenceEnabled:identityPersistenceEnabled()&&!example,history}};
 }
 /** Single explicit append only. The gate is checked before any source/ledger read. */
 export async function saveIdentityDecision(tenant:RelationshipTenant,req:IdentityPreviewRequest&{previousDecisionId:string|null}){
  requireIdentityReviewer(tenant);if(!identityPersistenceEnabled())throw new AccessError('Identity reconciliation is not activated. Rehearsal remains available.',403);
- if(!req||!/^[a-f0-9-]{36}$/i.test(req.requestId)||typeof req.confirmed!=='boolean'||!req.confirmed)throw new AccessError('Explicit confirmation is required for a recorded decision.',400);
+ if(!req||!/^[a-f0-9-]{36}$/i.test(req.requestId)||typeof req.confirmed!=='boolean'||!req.confirmed||req.note!==undefined&&typeof req.note!=='string')throw new AccessError('Explicit confirmation is required for a recorded decision.',400);
  const refs=typeof req.candidateId==='string'?req.candidateId.split('|').map(k=>{const [table,id]=k.split(':');return {table,id};}):[];
  if(refs.length!==2||refs.some(r=>!['inbox_items','growth_targets','acquisition_items','founder_research_records'].includes(r.table)||!/^[a-f0-9-]{36}$/i.test(r.id||'')))throw new AccessError('Invalid source pair.',400);
  const founderPermission=refs.some(r=>r.table==='founder_research_records')?await founderAllowed(tenant.organisationId):false;

@@ -1,0 +1,133 @@
+{
+  "mode": "SIMULATED ledger rows only; no real decisions or writes",
+  "sourceHead": "4076fd4b526dbc6a20a34c5f02e00f4c249bf5aa",
+  "historicalMembershipAt": "2026-10-16T11:27:40.25936+00:00",
+  "supplementalSearchObservedAt": "2026-10-16T15:01:13.338804+00:00",
+  "atomic": false,
+  "groupsReviewed": 52,
+  "pairsReviewed": 71,
+  "sameFixtures": 70,
+  "separateFixtures": 1,
+  "deferredFixtures": 0,
+  "realDecisionsSaved": 0,
+  "realGroupsAwaitingReview": 52,
+  "identitySplitsBefore": 65,
+  "identitySplitsAfter": 14,
+  "withheldPairsBefore": 84,
+  "withheldPairsAfter": 14,
+  "unresolvedFixtureReviewGroups": 0,
+  "unsupportedJoins": 0,
+  "separationViolations": 0,
+  "entityShapeRegressions": 0,
+  "overlaps": 0,
+  "summary": {
+    "relationshipsEvaluated": 2411,
+    "fieldComparisons": 34888,
+    "agreements": 32783,
+    "differences": 2105,
+    "agreementRate": 0.9396640678743408,
+    "knownComparisons": 27996,
+    "knownAgreements": 25891,
+    "knownAgreementRate": 0.9248106872410344,
+    "disagreementCounts": {
+      "current_output_correct_shadow_wrong": 54,
+      "shadow_correct_current_output_wrong": 1200,
+      "insufficient_evidence": 637,
+      "historical_evidence_gap": 200,
+      "identity_ambiguity": 14
+    },
+    "newlyDiscoverableRecordCount": 1300,
+    "qualifiedActionRelationshipCount": 166,
+    "unavailableSearchFacetCount": 3688,
+    "identitySplitCount": 14,
+    "ambiguousJoinPairsWithheld": 14,
+    "currentRelationshipsShadowRefusesToAssociate": 14,
+    "proposedShadowJoinCount": 0,
+    "shadowOverlappingMembershipCount": 0,
+    "newlyDiscoverableRelationshipCount": 1193,
+    "unprojectedVerifiedFounderContacts": 4
+  },
+  "searchCoverage": {
+    "excluded": 0,
+    "uncaptured": 0
+  },
+  "searchProbes": [
+    {
+      "currentId": "acquisition_c35f5437-7b76-4179-a5bb-beb834070e4c",
+      "facet": "name",
+      "query": "ross abbate",
+      "currentFound": false,
+      "shadowFound": true
+    },
+    {
+      "currentId": "acquisition_dcd22b6f-9ab7-4877-b699-60704aeafb44",
+      "facet": "name",
+      "query": "vicki hooper",
+      "currentFound": false,
+      "shadowFound": true
+    },
+    {
+      "currentId": "acquisition_dcd22b6f-9ab7-4877-b699-60704aeafb44",
+      "facet": "company",
+      "query": "unipart group",
+      "currentFound": false,
+      "shadowFound": true
+    },
+    {
+      "currentId": "acquisition_dcd22b6f-9ab7-4877-b699-60704aeafb44",
+      "facet": "company",
+      "query": "unipart logistics",
+      "currentFound": false,
+      "shadowFound": true
+    },
+    {
+      "currentId": "acquisition_5ffcfb22-134c-4891-9509-1b8bd87f1537",
+      "facet": "company",
+      "query": "leviton manufacturing uk limited (leviton network solutions europe)",
+      "currentFound": false,
+      "shadowFound": true
+    },
+    {
+      "currentId": "acquisition_968d12bc-b913-4293-8cfc-57677eab5303",
+      "facet": "name",
+      "query": "steve jackaman",
+      "currentFound": false,
+      "shadowFound": true
+    },
+    {
+      "currentId": "acquisition_ca68b40e-16a2-4f88-beb6-890d6da0086e",
+      "facet": "name",
+      "query": "jamie corser",
+      "currentFound": false,
+      "shadowFound": true
+    },
+    {
+      "currentId": "acquisition_704a470a-0e39-4267-8c49-543d913aef58",
+      "facet": "name",
+      "query": "elissa macgregor",
+      "currentFound": false,
+      "shadowFound": true
+    },
+    {
+      "currentId": "acquisition_1eefcc8c-3684-4439-a478-84d227612913",
+      "facet": "name",
+      "query": "kata escott",
+      "currentFound": false,
+      "shadowFound": true
+    },
+    {
+      "currentId": "acquisition_1eefcc8c-3684-4439-a478-84d227612913",
+      "facet": "company",
+      "query": "airbus defence and space ltd – uk (stevenage site)",
+      "currentFound": false,
+      "shadowFound": true
+    },
+    {
+      "currentId": "acquisition_9d05addf-e294-4cca-8d06-d245460c97e9",
+      "facet": "name",
+      "query": "rob luijten",
+      "currentFound": false,
+      "shadowFound": true
+    }
+  ]
+}
