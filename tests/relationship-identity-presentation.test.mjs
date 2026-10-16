@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {loadTruthModule} from './relationship-truth-loader.mjs';
+const {relationshipIdentityPresentation:present}=loadTruthModule('lib/relationshipIdentityPresentation.ts');
+const fact=(field,value,id='source:a')=>({value:{field,value},evidenceIds:[id]});
+const base=()=>({entityKind:'person',recordedFacts:[],verifiedAliases:[],relatedFounderContacts:[],sourceRecords:[]});
+test('person names agree without company-name substitution',()=>{const t=base();t.recordedFacts=[fact('person','Tracy Fountain'),fact('author_name','tracy fountain'),fact('company','Leading with Compassion')];assert.equal(present(t).name.disputed,false);assert.match(present(t).name.value,/fountain/i);});
+test('company display ignores person-shaped names on joined sources',()=>{const t=base();t.entityKind='company';t.recordedFacts=[fact('company','Resource UK'),fact('author_name','Sender')];assert.equal(present(t).name.value,'Resource UK');});
+test('conflicting names have no table-order winner and remain searchable',()=>{const t=base();t.recordedFacts=[fact('person','One'),fact('author_name','Two')];assert.equal(present(t).name.value,null);assert.equal(present(t).name.disputed,true);assert.deepEqual([...present(t).search.names],['One','Two']);t.recordedFacts.reverse();assert.deepEqual([...present(t).search.names],['One','Two']);});
+test('company and role conflicts are not guessed',()=>{const t=base();t.recordedFacts=[fact('company','A'),fact('company','B'),fact('role_title','HR'),fact('role_title','CEO')];assert.equal(present(t).company.value,null);assert.equal(present(t).role.value,null);});
+test('multiple verified emails never acquire arbitrary primary priority',()=>{const t=base();t.verifiedAliases=['a@example.com','b@example.com'].map(value=>({value:{type:'email',value},evidenceIds:['e1']}));assert.equal(present(t).primaryEmail.value,null);assert.equal(present(t).search.emails.length,2);});
+test('LinkedIn conflict cannot pick a canonical winner',()=>{const t=base();t.verifiedAliases=['linkedin.com/in/a','linkedin.com/in/b'].map(value=>({value:{type:'linkedin',value},evidenceIds:['e2']}));assert.equal(present(t).linkedin.value,null);assert.equal(present(t).linkedin.disputed,true);});
+test('unknown values stay unknown; no domain/name-derived email or role',()=>{const p=present(base());assert.equal(p.name.value,null);assert.equal(p.primaryEmail.value,null);assert.equal(p.role.value,null);});
+test('provenance retained on each field without altering source evidence',()=>{const t=base();t.recordedFacts=[fact('person','A','source:a'),fact('person','A','source:b')];const before=JSON.stringify(t);assert.deepEqual([...present(t).name.evidenceIds],['source:a','source:b']);assert.equal(JSON.stringify(t),before);});

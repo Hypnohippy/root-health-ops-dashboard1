@@ -1,0 +1,18 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {loadTruthModule} from './relationship-truth-loader.mjs';
+const {relationshipEntityShape:shape}=loadTruthModule('lib/relationshipEntityShape.ts');
+const ref=id=>({table:'acquisition_items',id});
+const fact=(field,value,id='a')=>({value:{field,value},evidenceIds:['acquisition_items:'+id]});
+const base=()=>({entityKind:'person',recordedFacts:[],verifiedAliases:[],sourceRecords:[ref('a'),ref('b')]});
+test('legacy person-shaped company-only evidence becomes company presentation without inventing person',()=>{const t=base();t.recordedFacts=[fact('company','Nutritionist Resource UK')];assert.equal(shape(t).entity_kind,'company');assert.equal(shape(t).person_anchor,null);assert.equal(shape(t).company_anchor.id,'a');});
+test('recorded person without company is a person',()=>{const t=base();t.recordedFacts=[fact('person','Avery Morgan')];assert.equal(shape(t).entity_kind,'person');});
+test('person with recorded company context is association not company identity equivalence',()=>{const t=base();t.recordedFacts=[fact('person','Avery Morgan'),fact('company','Example')];const s=shape(t);assert.equal(s.entity_kind,'person_with_company');assert.equal(s.identity_equivalence_authorised,false);assert.equal(s.associated_company_refs.length,1);});
+test('separate person and company source rows are withheld for association review',()=>{const t=base();t.recordedFacts=[fact('person','Avery Morgan'),fact('company','Example','b')];assert.equal(shape(t).entity_kind,'ambiguous');assert.match(shape(t).ambiguity_reason,/not identity-equivalent/);});
+test('company label repeated in author name does not establish a person',()=>{const t=base();t.recordedFacts=[fact('company','Example'),fact('author_name','Example')];assert.equal(shape(t).entity_kind,'company');});
+test('email alias without person/company evidence remains ambiguous',()=>{const t=base();t.verifiedAliases=[{value:{type:'email',value:'a@example.com'},evidenceIds:['mail:1']}];assert.equal(shape(t).entity_kind,'ambiguous');});
+test('canonical personal profile is person-specific; competing profiles remain ambiguous',()=>{const t=base();t.verifiedAliases=[{value:{type:'linkedin',value:'linkedin.com/in/avery'},evidenceIds:['acquisition_items:a']}];assert.equal(shape(t).entity_kind,'person');t.verifiedAliases.push({value:{type:'linkedin',value:'linkedin.com/in/other'},evidenceIds:['acquisition_items:b']});assert.equal(shape(t).entity_kind,'ambiguous');});
+test('provenance and aliases remain exact and input immutable',()=>{const t=base();t.recordedFacts=[fact('company','Example')];const before=JSON.stringify(t);assert.equal(shape(t).classification_basis[1].evidenceIds[0],'acquisition_items:a');assert.equal(JSON.stringify(t),before);});
+test('company-typed source with a contact never converts into person identity',()=>{const t=base();t.entityKind='company';t.recordedFacts=[fact('company','Example'),fact('person','Avery Morgan')];assert.equal(shape(t).entity_kind,'ambiguous');assert.equal(shape(t).identity_equivalence_authorised,false);});
+test('unknown placeholder is not person-specific evidence',()=>{const t=base();t.recordedFacts=[fact('person','Not established'),fact('company','Example')];assert.equal(shape(t).entity_kind,'company');});
+test('generic sender or target label never proves person shape',()=>{const t=base();t.recordedFacts=[fact('author_name','Example Team'),fact('target_name','Example Team')];assert.equal(shape(t).entity_kind,'ambiguous');t.recordedFacts.push(fact('company','Example'));assert.equal(shape(t).entity_kind,'company');});

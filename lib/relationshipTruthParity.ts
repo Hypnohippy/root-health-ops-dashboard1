@@ -1,5 +1,7 @@
 import type { RelationshipTruth, TruthRef, TruthRow } from "@/lib/relationshipTruth";
 import type { DisagreementCategory } from "@/lib/relationshipTruthComparison";
+import { relationshipIdentityPresentation } from "@/lib/relationshipIdentityPresentation";
+import type { RelationshipEntityShape } from "@/lib/relationshipEntityShape";
 
 /** Isolated review adapter. Not a UI/search implementation or an identity writer. */
 export type ParityView = {
@@ -9,6 +11,7 @@ export type ParityView = {
   nameProbes: string[]; companyProbes: string[]; emailProbes: string[]; linkedinProbes: string[];
   evidenceIds: string[]; uncertainDisplay: boolean;
   confirmedAnchorEvidenceIds?: string[]; timingEquivalent?: boolean;
+  entityShape?:RelationshipEntityShape;
 };
 export type ParityDifference = { field: string; current: unknown; shadow: unknown; classification: DisagreementCategory; reason: string; evidenceIds: string[] };
 export const parityClassifications: DisagreementCategory[] = ["current_output_correct_shadow_wrong", "shadow_correct_current_output_wrong", "insufficient_evidence", "historical_evidence_gap", "identity_ambiguity"];
@@ -20,20 +23,20 @@ const eq = (a: unknown,b: unknown) => JSON.stringify(a)===JSON.stringify(b);
 const cleanName = (v: string | null) => !!v && !/^(identity not established|stored research|unnamed contact)$/i.test(v);
 
 export function shadowParityView(truth: RelationshipTruth): ParityView {
+  const display=relationshipIdentityPresentation(truth);
   const named=uniqueStrings(truth.recordedFacts.filter(f=>["author_name","target_name","person","person_name"].includes(f.value.field)).map(f=>f.value.value));
   const nested=uniqueStrings(truth.relatedFounderContacts.map(c=>c.value.name));
   const companies=uniqueStrings(truth.recordedFacts.filter(f=>f.value.field==="company").map(f=>f.value.value));
-  const candidates=named.length?named:truth.entityKind==="company"?companies:nested;
-  const name=candidates.length===1?candidates[0]:null;
-  const company=companies.length===1?companies[0]:null;
+  const name=display.name.value;
+  const company=display.company.value;
   const linkedin=uniqueStrings(truth.verifiedAliases.filter(a=>a.value.type==="linkedin").map(a=>a.value.value));
   const emails=uniqueStrings(truth.verifiedAliases.filter(a=>a.value.type==="email").map(a=>a.value.value));
-  return { id:truth.relationshipId,refs:truth.sourceRecords.map(refKey).sort(),kind:truth.entityKind,linkedin,emails,name,company,
+  return { id:truth.relationshipId,refs:truth.sourceRecords.map(refKey).sort(),kind:display.entityShape.entity_kind==='person_with_company'?'person':display.entityShape.entity_kind,entityShape:display.entityShape,linkedin,emails,name,company,
     stage:truth.lifecycleStage.value,actionable:truth.actionableState.value,nextAction:truth.nextLegitimateAction.value,due:truth.dueDate.value,
     ambiguity:uniqueStrings(truth.contradictions.filter(c=>["identity_ambiguity","workspace_conflict","projection_identity_split"].includes(c.code)).map(c=>c.code)),
     gaps:uniqueStrings(truth.missingEvidence.filter(g=>!["coverage_not_established","partial_read"].includes(g.code)).map(g=>g.code)),
     nameProbes:uniqueStrings([...named,...nested,name]),companyProbes:companies,emailProbes:emails,linkedinProbes:linkedin,
-    evidenceIds:uniqueStrings([...truth.sourceRecords.map(refKey),...truth.relatedFounderContacts.flatMap(f=>f.evidenceIds)]),uncertainDisplay:candidates.length>1||companies.length>1 };
+    evidenceIds:uniqueStrings([...truth.sourceRecords.map(refKey),...truth.relatedFounderContacts.flatMap(f=>f.evidenceIds)]),uncertainDisplay:display.name.disputed||display.company.disputed };
 }
 export function currentActionable(stage:string,due:string|null,asOf:string) {
   return stage==="follow_up" ? due&&Date.parse(due)<=Date.parse(asOf)?"followup_due":"waiting" : stage==="researched"?"review":stage;
@@ -63,7 +66,7 @@ function classify(field:string,current:ParityView,shadow:ParityView,truth:Relati
   if(field==="displayed_name"&&!cleanName(current.name)&&cleanName(shadow.name)&&truth.relatedFounderContacts.length>0)return {classification:"shadow_correct_current_output_wrong",reason:"Exact verified email supports permitted nested-contact name attribution, without merging its company entity."};
   return {classification:"insufficient_evidence",reason:"Difference alone does not establish either output as correct. Review source identity, field provenance and intended scope."};
 }
-export function compareInventoryParity(current:ParityView,truth:RelationshipTruth,currentMatches:(query:string)=>boolean) {
+export function compareInventoryParity(current:ParityView,truth:RelationshipTruth,currentMatches:(query:string)=>boolean,querySupported?:(query:string)=>boolean) {
   const shadow=shadowParityView(truth), differences:ParityDifference[]=[], checks:{field:string;agreement:boolean;known:boolean}[]=[];
   const compare=(field:string,a:unknown,b:unknown,known=true)=>{
     const agreement=eq(a,b);checks.push({field,agreement,known});
@@ -81,9 +84,11 @@ export function compareInventoryParity(current:ParityView,truth:RelationshipTrut
   compare("due_date",current.due,shadow.due,!!current.due||!!shadow.due);
   const facets=["name","company","email","linkedin"] as const;
   const unavailableFacets:string[]=[];
+  const unassessedSearchProbes:{facet:string;reason:string}[]=[];
   for(const facet of facets){
     const property=`${facet}Probes` as "nameProbes"|"companyProbes"|"emailProbes"|"linkedinProbes";
-    const probes=uniqueStrings([...current[property],...shadow[property]]).filter(q=>q.length<=200);
+    const eligible=uniqueStrings([...current[property],...shadow[property]]).filter(q=>q.length<=200);
+    const probes=eligible.filter(q=>{if(!querySupported||querySupported(q))return true;unassessedSearchProbes.push({facet,reason:"Query terms absent from the captured source-search evidence."});return false;});
     if(!probes.length){unavailableFacets.push(facet);continue;}
     // Candidate discovery only. Search hits are never identity-association authority.
     const shadowTerms=uniqueStrings([shadow.name,shadow.company,...shadow.nameProbes,...shadow.companyProbes,...shadow.emails,...shadow.linkedin]);
@@ -98,7 +103,7 @@ export function compareInventoryParity(current:ParityView,truth:RelationshipTrut
       if(!d.field.startsWith("discoverability_")||!Array.isArray(d.current)||!Array.isArray(d.shadow))return false;
       const before=d.current as {found:boolean}[],after=d.shadow as {found:boolean}[];
       return after.some((v,i)=>v.found&&!before[i]?.found);
-    }),readOnly:true};
+    }),unassessedSearchProbes,readOnly:true};
 }
 export function summarizeInventoryParity(results:ReturnType<typeof compareInventoryParity>[]) {
   const counts=Object.fromEntries(parityClassifications.map(c=>[c,0])) as Record<DisagreementCategory,number>;
