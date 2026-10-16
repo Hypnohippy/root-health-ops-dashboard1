@@ -1,6 +1,7 @@
 import type { RelationshipTruth, TruthRef, TruthRow } from "@/lib/relationshipTruth";
 import type { DisagreementCategory } from "@/lib/relationshipTruthComparison";
 import { relationshipIdentityPresentation } from "@/lib/relationshipIdentityPresentation";
+import type { RelationshipEntityShape } from "@/lib/relationshipEntityShape";
 
 /** Isolated review adapter. Not a UI/search implementation or an identity writer. */
 export type ParityView = {
@@ -10,6 +11,7 @@ export type ParityView = {
   nameProbes: string[]; companyProbes: string[]; emailProbes: string[]; linkedinProbes: string[];
   evidenceIds: string[]; uncertainDisplay: boolean;
   confirmedAnchorEvidenceIds?: string[]; timingEquivalent?: boolean;
+  entityShape?:RelationshipEntityShape;
 };
 export type ParityDifference = { field: string; current: unknown; shadow: unknown; classification: DisagreementCategory; reason: string; evidenceIds: string[] };
 export const parityClassifications: DisagreementCategory[] = ["current_output_correct_shadow_wrong", "shadow_correct_current_output_wrong", "insufficient_evidence", "historical_evidence_gap", "identity_ambiguity"];
@@ -29,7 +31,7 @@ export function shadowParityView(truth: RelationshipTruth): ParityView {
   const company=display.company.value;
   const linkedin=uniqueStrings(truth.verifiedAliases.filter(a=>a.value.type==="linkedin").map(a=>a.value.value));
   const emails=uniqueStrings(truth.verifiedAliases.filter(a=>a.value.type==="email").map(a=>a.value.value));
-  return { id:truth.relationshipId,refs:truth.sourceRecords.map(refKey).sort(),kind:truth.entityKind,linkedin,emails,name,company,
+  return { id:truth.relationshipId,refs:truth.sourceRecords.map(refKey).sort(),kind:display.entityShape.entity_kind==='person_with_company'?'person':display.entityShape.entity_kind,entityShape:display.entityShape,linkedin,emails,name,company,
     stage:truth.lifecycleStage.value,actionable:truth.actionableState.value,nextAction:truth.nextLegitimateAction.value,due:truth.dueDate.value,
     ambiguity:uniqueStrings(truth.contradictions.filter(c=>["identity_ambiguity","workspace_conflict","projection_identity_split"].includes(c.code)).map(c=>c.code)),
     gaps:uniqueStrings(truth.missingEvidence.filter(g=>!["coverage_not_established","partial_read"].includes(g.code)).map(g=>g.code)),

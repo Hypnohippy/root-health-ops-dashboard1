@@ -1,9 +1,11 @@
 import type { RelationshipTruth } from "@/lib/relationshipTruth";
+import { relationshipEntityShape } from "@/lib/relationshipEntityShape";
 
 export type IdentityField = {value:string|null; alternatives:string[]; evidenceIds:string[]; rule:string; disputed:boolean};
 const norm=(s:string)=>s.normalize('NFKC').trim().replace(/\s+/g,' ').toLowerCase();
 /** Shadow-only display/index policy. Display precedence never authorises an identity join. */
 export function relationshipIdentityPresentation(truth:RelationshipTruth) {
+ const shape=relationshipEntityShape(truth);
  const select=(fields:string[],rule:string):IdentityField=>{
   const facts=truth.recordedFacts.filter(f=>fields.includes(f.value.field));
   const groups=new Map<string,typeof facts>();
@@ -13,7 +15,7 @@ export function relationshipIdentityPresentation(truth:RelationshipTruth) {
   return {value:alternatives.length===1?alternatives[0]:null,alternatives,evidenceIds:[...new Set(facts.flatMap(f=>f.evidenceIds))].sort(),rule,disputed:alternatives.length>1};
  };
  const company=select(['company'],'recorded_company_consensus');
- let name=select(truth.entityKind==='company'?['company']:['author_name','target_name','person','person_name'],'typed_entity_recorded_name_consensus');
+ let name=select(shape.entity_kind==='company'?['company']:['author_name','target_name','person','person_name'],'evidence_based_entity_name_consensus');
  if(!name.alternatives.length&&truth.entityKind==='person'){
   const contacts=truth.relatedFounderContacts.filter(c=>c.value.name);
   const names=[...new Set(contacts.map(c=>c.value.name!.trim()))].sort();
@@ -26,7 +28,7 @@ export function relationshipIdentityPresentation(truth:RelationshipTruth) {
   return {value:alternatives.length===1?alternatives[0]:null,alternatives,evidenceIds:[...new Set(values.flatMap(a=>a.evidenceIds))].sort(),rule:type==='email'?'unique_verified_email_only_no_recency_preference':'unique_canonical_linkedin_only',disputed:alternatives.length>1};
  };
  const email=alias('email'),linkedin=alias('linkedin');
- return {name,company,role,primaryEmail:email,linkedin,sourceRefs:truth.sourceRecords,
+ return {name,company,role,primaryEmail:email,linkedin,entityShape:shape,sourceRefs:truth.sourceRecords,
   search:{names:name.alternatives,companies:company.alternatives,roles:role.alternatives,emails:email.alternatives,linkedin:linkedin.alternatives},
   rule:'permission_filtered_confirmed_members_only; alternatives_are_search_labels_not_join_authority'};
 }
