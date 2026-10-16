@@ -13,7 +13,8 @@ async function adviceStage<T>(stage: "context" | "profile" | "provider" | "valid
     const status = error && typeof error === "object" && "status" in error && typeof error.status === "number" ? error.status : null;
     const detail = error instanceof Error ? error.message : "";
     const reason = ["minItems", "maxItems", "Invalid advice structure.", "Advice cited unavailable evidence.", "Invalid advice evidence.", "Invalid draft."].find(code => detail.includes(code)) || null;
-    console.warn("root_advisor_unavailable", { stage, status, reason });
+    const schemaError = stage === "provider" && /^400 Invalid schema for response_format/.test(detail) ? detail.replace(/[a-f0-9]{8}-[a-f0-9-]{27,}/gi, "[record id]").slice(0, 600) : null;
+    console.warn("root_advisor_unavailable", { stage, status, reason, schemaError });
     throw new AdvisorUnavailable(stage === "validation" ? "The advice could not be verified against the recorded evidence. Please try again or open the source history." : stage === "context" ? "The recorded relationship evidence could not be loaded. Please reopen the relationship and try again." : "Relationship advice is temporarily unavailable. Guide and source evidence remain available.");
   }
 }
