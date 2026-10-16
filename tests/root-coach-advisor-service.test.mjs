@@ -11,7 +11,7 @@ function service({mailboxError, candidates=[], canDraft=false}={}) {
 }
 const request={organisationId:'tenant',relationshipLocator:locator,intent:'assess_reply',question:'Assess the stored reply',checkLatestEmail:false};
 test('stored-only advice uses actual packet and no mailbox call; provider has no tools and does not store responses',async()=>{
- const f=service(),answer=await f.svc.rootCoachAdvisor(request,tenant);assert.equal(f.reads,0);assert.equal(answer.draft,null);assert.equal(f.payload.store,false);assert.equal(f.payload.tools,undefined);assert.match(f.payload.messages[1].content,/Exact stored reply/);
+ const f=service(),answer=await f.svc.rootCoachAdvisor(request,tenant);assert.equal(f.reads,0);assert.equal(answer.draft,null);assert.equal(f.payload.store,false);assert.equal(f.payload.response_format.type,"json_schema");assert.equal(f.payload.response_format.json_schema.strict,true);assert.deepEqual(Array.from(f.payload.response_format.json_schema.schema.properties.facts.items.properties.evidenceIds.items.enum),["message:1"]);assert.equal(f.payload.tools,undefined);assert.match(f.payload.messages[1].content,/Exact stored reply/);
 });
 test('disabled live lookup is a clear limitation and does not imply current mailbox state',async()=>{
  const f=service({mailboxError:'Live email checking is not activated.'}),answer=await f.svc.rootCoachAdvisor({...request,checkLatestEmail:true},tenant);assert.match(answer.limitations.join(' '),/not activated/);assert.equal(f.reads,1);
