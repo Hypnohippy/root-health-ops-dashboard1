@@ -40,5 +40,18 @@ export function validateAdvisorAnswer(value: unknown, packet: AdvisorPacket): Ad
   };
   if (raw.draft != null && (typeof raw.draft !== "string" || raw.draft.length > 6000)) throw Error("Invalid draft.");
   const limitations = Array.isArray(raw.limitations) ? raw.limitations.filter((v): v is string => typeof v === "string" && v.length <= 1000).slice(0, 10) : [];
-  return { mode: "advisor", relationshipLocator: packet.locator, facts: claims("facts"), interpretations: claims("interpretations"), recommendations: claims("recommendations"), commitments: claims("commitments"), draft: packet.canDraft ? (raw.draft as string | null) || null : null, limitations: [...new Set([...packet.limitations, ...limitations])], evidence: packet.evidence, asOf: packet.asOf };
+  const cited = (claim: AdvisorClaim) => packet.evidence.filter(e => claim.evidenceIds.includes(e.id));
+  let withheldDate = false;
+  const facts = claims("facts").filter(claim => {
+    const dates = claim.text.match(/\b\d{4}-\d{2}-\d{2}\b/g) || [];
+    const supported = dates.every(date => cited(claim).some(e => e.at?.slice(0, 10) === date || e.text.includes(date)));
+    if (!supported) withheldDate = true;
+    return supported;
+  }).map(claim => {
+    const evidence = cited(claim);
+    const prefix = evidence.every(e => e.direction === "snapshot" && !e.at) ? "Undated stored snapshot: " : evidence.some(e => /^Manually recorded /i.test(e.kind)) ? "Manual record: " : "";
+    return { ...claim, text: prefix + claim.text };
+  });
+  if (withheldDate) limitations.push("A dated factual claim was withheld because its cited evidence did not establish that date. Recording time is not message time.");
+  return { mode: "advisor", relationshipLocator: packet.locator, facts, interpretations: claims("interpretations"), recommendations: claims("recommendations"), commitments: claims("commitments"), draft: packet.canDraft ? (raw.draft as string | null) || null : null, limitations: [...new Set([...packet.limitations, ...limitations])], evidence: packet.evidence, asOf: packet.asOf };
 }

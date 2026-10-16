@@ -43,7 +43,7 @@ export async function rootCoachAdvisor(request: AdvisorRequest, tenant: Relation
   // Legacy evidence keys can contain JSON quotes. Model-facing aliases are bounded and safe;
   // validate against them first, then restore the exact canonical IDs for the returned audit evidence.
   const canonicalIds = new Map(packet.evidence.map((e, i) => [`E${i + 1}`, e.id]));
-  const modelPacket = { ...packet, evidence: packet.evidence.map((e, i) => ({ ...e, id: `E${i + 1}` })) };
+  const modelPacket = { ...packet, evidence: packet.evidence.map((e, i) => ({ ...e, id: `E${i + 1}`, ...(e.direction === "snapshot" && !e.at ? { recordedAt: null, kind: "Undated conversation snapshot — message dates unknown" } : {}) })) };
   const claimSchema = { type: "object", additionalProperties: false, required: ["text", "evidenceIds"], properties: { text: { type: "string" }, evidenceIds: { type: "array", items: { type: "string", enum: [...canonicalIds.keys()] } } } };
   const claimList = { type: "array", items: claimSchema };
   const result = await adviceStage("provider", () => client.chat.completions.create({ model: "gpt-4.1-mini", temperature: 0.3, max_tokens: 2200, store: false, response_format: { type: "json_schema", json_schema: { name: "relationship_advice", strict: true, schema: { type: "object", additionalProperties: false, required: ["facts", "interpretations", "recommendations", "commitments", "limitations", "draft"], properties: { facts: claimList, interpretations: claimList, recommendations: claimList, commitments: claimList, limitations: { type: "array", items: { type: "string" } }, draft: { type: ["string", "null"] } } } } }, messages: [
