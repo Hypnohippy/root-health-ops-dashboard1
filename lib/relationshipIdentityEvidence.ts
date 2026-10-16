@@ -34,6 +34,8 @@ function verifiedEmails(r: TruthRow) {
   return uniq([r.email_verified===true||meta.email_verification==="PASSED"?mail(r.email||meta.email):null,r.platform==="email"&&r.email_message_id&&r.email_thread_id?mail(r.sender_email):null].filter((v):v is string=>!!v));
 }
 function candidateEmails(r: TruthRow) {const meta=object(r.metadata),raw=object(r.raw),engine=object(r.engine_state);return uniq([r.email,r.sender_email,meta.email,raw.email,engine.email,r.platform==="email"?r.author_handle:null].map(mail).filter((v):v is string=>!!v));}
+/** Shared structural facts for isolated reconciliation; never uses a fuzzy identity key. */
+export function identitySourceFacts(ref:TruthRef,row:TruthRow) {return {kind:company(ref.table,row)?"company" as const:"person" as const,profiles:profiles(ref.table,row),emails:verifiedEmails(row)};}
 function proof(refs: TruthRef[],alias: RelationshipIdentityEvidence["alias"],basis: string,confidence: RelationshipIdentityEvidence["confidenceClass"],reason: string|null): RelationshipIdentityEvidence {
   return {sourceRefs:refs.map(r=>({...r})).sort((a,b)=>key(a).localeCompare(key(b))),alias,verificationBasis:basis,evidenceIds:uniq(refs.map(key)),confidenceClass:confidence,ambiguityReason:reason,humanReviewRequired:confidence==="human_reconciliation"};
 }

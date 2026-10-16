@@ -1,8 +1,8 @@
 /** Whole-inventory local replay. Reads only a body-free SELECT export; no Production client. */
 import fs from 'node:fs';
 import {loadTruthModule} from '../tests/relationship-truth-loader.mjs';
-const [snapshotPath,outputPath,asOf,hitsPath,probesPath,manifestPath,identityMode]=process.argv.slice(2);
-if(identityMode&&identityMode!=='--identity-shadow')throw Error('Unsupported isolated shadow mode');
+const [snapshotPath,outputPath,asOf,hitsPath,probesPath,manifestPath,identityMode,decisionPath]=process.argv.slice(2);
+if(identityMode&&!['--identity-shadow','--human-shadow'].includes(identityMode))throw Error('Unsupported isolated shadow mode');
 if(!snapshotPath||!outputPath||!Number.isFinite(Date.parse(asOf)))throw Error('Usage: snapshot output asOf [source-token-hits.json] [probe-output.json]');
 const snapshot=JSON.parse(fs.readFileSync(snapshotPath,'utf8'));
 const org='78fa2ac8-e7b6-4b9b-9604-035723ece6b1';
@@ -20,9 +20,12 @@ const {cadenceDays,legacyCadenceStages}=loadTruthModule('lib/growthOutreach.ts')
 const parity=loadTruthModule('lib/relationshipTruthParity.ts');
 const policy={organisationId:org,founderAllowed:true,asOf,partialSources:['mailbox completeness not established; body-free replay']};
 const input={lifecycle:raw,founder:snapshot.founder_research_records,founderActivities:snapshot.founder_activity_events,emailMessages:snapshot.email_conversation_messages,linkedinMessages:snapshot.linkedin_conversation_messages,workspaces:snapshot.relationship_workspaces,links:snapshot.relationship_source_links,activities:snapshot.relationship_activity_events,tasks:snapshot.relationship_tasks,acquisitionEvents:snapshot.acquisition_item_events,responseEvents:snapshot.response_item_events};
-const identity=identityMode?loadTruthModule('lib/relationshipIdentityEvidence.ts'):null;
+const identity=identityMode==='--identity-shadow'?loadTruthModule('lib/relationshipIdentityEvidence.ts'):null;
 const identityPlan=identity?.prepareIdentityShadow(input,policy);
-const projectTruth=anchor=>identity?identity.relationshipTruthIdentityShadow(input,anchor,policy,identityPlan).truth:relationshipTruth(input,anchor,policy);
+const human=identityMode==='--human-shadow'?loadTruthModule('lib/relationshipIdentityReconciliation.ts'):null;
+const decisions=human?JSON.parse(fs.readFileSync(decisionPath,'utf8')):[];
+const humanPlan=human?.identityDecisionPartition(input,policy,decisions);
+const projectTruth=anchor=>human?human.truthWithIdentityDecisions(input,anchor,policy,decisions,humanPlan):identity?identity.relationshipTruthIdentityShadow(input,anchor,policy,identityPlan).truth:relationshipTruth(input,anchor,policy);
 
 const current=projectRelationships(org,projected,input.founder);
 const ctx={tenant:{organisationId:org,userId:'owner-audit',role:'owner'},input:projected,founder:input.founder,canFounder:true,items:current,workspaces:input.workspaces,links:input.links,models:[],values:[],storageAvailable:true};
