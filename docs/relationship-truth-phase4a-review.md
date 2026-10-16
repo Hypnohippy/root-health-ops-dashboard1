@@ -71,6 +71,16 @@ Return code-owned internal destinations constructed from server-resolved locator
 
 ## Verification boundary
 
+## Final replay result and stopping decision
+
+**NEEDS MORE IDENTITY POLICY WORK.** All 52 groups / 71 pairs can be presented for explicit human review; none has actually been resolved. The all-same counterfactual reduces 65 splits / 84 withheld pairs to 13 / 13 and increases discoverable source records from 1,231 to 1,296 (+65; canonical groups +16). This is an upper bound, not an identity verdict. All-separate and review-later retain 65 / 84. There are zero unsupported joins, overlapping memberships or separation violations in every scenario.
+
+The all-same scenario increases current-correct/shadow-wrong from 64 to 65: the Nutritionist Resource UK Acquisition source `0806a3b0-7dd1-4972-9ff9-4535d016cf2c` loses an established display name in the hypothetical combined review projection. This is a presentation/identity-policy blocker, not permission to choose a name or repair live records. Keep-separate and review-later introduce no such increase. Action/due projections affected by rehearsal are explicitly blocked/qualified, never operationally advanced.
+
+The all-same discovery result excludes 11 probes containing 13 terms absent from the original atomic search capture. These are unassessed, never assumed hits/misses. Search coverage is therefore incomplete. All 52 real groups remain ambiguous pending actual evidence review; 13 additional groups were already intentionally separate in Phase 3.
+
+Checks: 187/187 identity/shadow/parity/Day 0 contracts; 83/83 visual/foundation regressions; 93/95 selected operational regressions, with the two unchanged `lifecycle-control` and `lifecycle-reconciliation` loader failures for `@/lib/linkedinSendEvidence`. TypeScript and targeted lint pass. Authenticated Preview rehearsal uses only the fictional Avery Morgan fixture: explicit checkbox, Escape, same/separate/defer output, reload reset and mobile wrapping verified. A scoped pale canvas corrects inherited dark-background contrast on this new page only.
+
 No Production decisions, source identities, source links, workspaces or histories are saved. POST is read-only computation despite its HTTP verb. No RPC, sends, mailbox calls, labels, ingestion, lifecycle/cadence updates, migration, consumer wiring or PR #58 changes.
 
 Screenshots use the explicitly labelled fictional rehearsal and will be captured from the new page. Existing visual shell, Day 0, lifecycle and regression checks remain part of the final verification.

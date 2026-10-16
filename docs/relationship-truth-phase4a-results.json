@@ -1,0 +1,2018 @@
+{
+  "base": "e6efbaf7f7180c4caab7be6e255cf928dad3804e",
+  "decision": "NEEDS MORE IDENTITY POLICY WORK",
+  "captureAt": "2026-10-16T11:27:40.25936+00:00",
+  "mode": "synthetic/replay only; no real human decisions",
+  "baseline": {
+    "relationshipsEvaluated": 2411,
+    "fieldComparisons": 34888,
+    "agreements": 33062,
+    "differences": 1826,
+    "agreementRate": 0.9476610869066728,
+    "knownComparisons": 27981,
+    "knownAgreements": 26155,
+    "knownAgreementRate": 0.9347414316857868,
+    "disagreementCounts": {
+      "current_output_correct_shadow_wrong": 64,
+      "shadow_correct_current_output_wrong": 1170,
+      "insufficient_evidence": 328,
+      "historical_evidence_gap": 199,
+      "identity_ambiguity": 65
+    },
+    "newlyDiscoverableRecordCount": 1231,
+    "qualifiedActionRelationshipCount": 135,
+    "unavailableSearchFacetCount": 3688,
+    "identitySplitCount": 65,
+    "ambiguousJoinPairsWithheld": 84,
+    "currentRelationshipsShadowRefusesToAssociate": 65,
+    "proposedShadowJoinCount": 0,
+    "shadowOverlappingMembershipCount": 0,
+    "newlyDiscoverableRelationshipCount": 1175,
+    "unprojectedVerifiedFounderContacts": 4
+  },
+  "eligibleHumanGroups": 52,
+  "eligibleSourcePairs": 71,
+  "sameAllowedPairs": 71,
+  "actualProductionGroupsResolved": 0,
+  "realGroupsStillAwaitingHumanReview": 52,
+  "candidates": [
+    {
+      "id": "acquisition_items:01c80cf9-f070-4170-93cb-d7a4f567a1b7|acquisition_items:d76dbcfd-4f45-4644-b22c-408ffd6fb6de",
+      "groupIds": [
+        "acquisition_01c80cf9-f070-4170-93cb-d7a4f567a1b7"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "01c80cf9-f070-4170-93cb-d7a4f567a1b7"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "d76dbcfd-4f45-4644-b22c-408ffd6fb6de"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:01c80cf9-f070-4170-93cb-d7a4f567a1b7",
+        "acquisition_items:d76dbcfd-4f45-4644-b22c-408ffd6fb6de"
+      ]
+    },
+    {
+      "id": "acquisition_items:036bdaae-9a1a-43dc-ba57-fb067c7a17e3|acquisition_items:c35f5437-7b76-4179-a5bb-beb834070e4c",
+      "groupIds": [
+        "acquisition_c35f5437-7b76-4179-a5bb-beb834070e4c"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "c35f5437-7b76-4179-a5bb-beb834070e4c"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "036bdaae-9a1a-43dc-ba57-fb067c7a17e3"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:036bdaae-9a1a-43dc-ba57-fb067c7a17e3",
+        "acquisition_items:c35f5437-7b76-4179-a5bb-beb834070e4c"
+      ]
+    },
+    {
+      "id": "acquisition_items:057bf6be-54a8-4c39-8a94-6226bb3da7f4|acquisition_items:9f715bb2-2615-4473-a477-7d8a7013f423",
+      "groupIds": [
+        "acquisition_9f715bb2-2615-4473-a477-7d8a7013f423"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "9f715bb2-2615-4473-a477-7d8a7013f423"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "057bf6be-54a8-4c39-8a94-6226bb3da7f4"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:057bf6be-54a8-4c39-8a94-6226bb3da7f4",
+        "acquisition_items:9f715bb2-2615-4473-a477-7d8a7013f423"
+      ]
+    },
+    {
+      "id": "acquisition_items:057bf6be-54a8-4c39-8a94-6226bb3da7f4|acquisition_items:e6ba1428-cdd6-4df1-9a50-1888e32aa3dd",
+      "groupIds": [
+        "acquisition_9f715bb2-2615-4473-a477-7d8a7013f423"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "057bf6be-54a8-4c39-8a94-6226bb3da7f4"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e6ba1428-cdd6-4df1-9a50-1888e32aa3dd"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:057bf6be-54a8-4c39-8a94-6226bb3da7f4",
+        "acquisition_items:e6ba1428-cdd6-4df1-9a50-1888e32aa3dd"
+      ]
+    },
+    {
+      "id": "acquisition_items:05b8bed2-6018-4cdb-ae39-ffc1163e5f9f|acquisition_items:7e8541ec-b04c-4fcd-b82d-f54ca43157dc",
+      "groupIds": [
+        "acquisition_05b8bed2-6018-4cdb-ae39-ffc1163e5f9f"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "05b8bed2-6018-4cdb-ae39-ffc1163e5f9f"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "7e8541ec-b04c-4fcd-b82d-f54ca43157dc"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:05b8bed2-6018-4cdb-ae39-ffc1163e5f9f",
+        "acquisition_items:7e8541ec-b04c-4fcd-b82d-f54ca43157dc"
+      ]
+    },
+    {
+      "id": "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c|inbox_items:bf4b827e-8d70-43c7-a4e9-96cd64da8805",
+      "groupIds": [
+        "acquisition_0806a3b0-7dd1-4972-9ff9-4535d016cf2c"
+      ],
+      "sourceRefs": [
+        {
+          "table": "inbox_items",
+          "id": "bf4b827e-8d70-43c7-a4e9-96cd64da8805"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "0806a3b0-7dd1-4972-9ff9-4535d016cf2c"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c",
+        "email_conversation_messages:05a2b569-b0a7-4570-bc61-4dc2518d4df7",
+        "email_conversation_messages:1c95993d-5f05-4400-b2e1-5491e1ef53a8",
+        "inbox_items:bf4b827e-8d70-43c7-a4e9-96cd64da8805"
+      ]
+    },
+    {
+      "id": "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c|inbox_items:c5b69e30-dcc0-4b8f-9791-0cc9c255891d",
+      "groupIds": [
+        "acquisition_0806a3b0-7dd1-4972-9ff9-4535d016cf2c"
+      ],
+      "sourceRefs": [
+        {
+          "table": "inbox_items",
+          "id": "c5b69e30-dcc0-4b8f-9791-0cc9c255891d"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "0806a3b0-7dd1-4972-9ff9-4535d016cf2c"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c",
+        "email_conversation_messages:05a2b569-b0a7-4570-bc61-4dc2518d4df7",
+        "email_conversation_messages:1c95993d-5f05-4400-b2e1-5491e1ef53a8",
+        "inbox_items:c5b69e30-dcc0-4b8f-9791-0cc9c255891d"
+      ]
+    },
+    {
+      "id": "acquisition_items:094edc1e-4109-46c8-a6ff-7f043c60ab4e|acquisition_items:be838eb4-8eb3-4a8f-949c-5aee704e8dff",
+      "groupIds": [
+        "acquisition_be838eb4-8eb3-4a8f-949c-5aee704e8dff"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "be838eb4-8eb3-4a8f-949c-5aee704e8dff"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "094edc1e-4109-46c8-a6ff-7f043c60ab4e"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:094edc1e-4109-46c8-a6ff-7f043c60ab4e",
+        "acquisition_items:be838eb4-8eb3-4a8f-949c-5aee704e8dff"
+      ]
+    },
+    {
+      "id": "acquisition_items:0a1961e9-1d24-49eb-b1b1-39c7ecb81b22|acquisition_items:1eefcc8c-3684-4439-a478-84d227612913",
+      "groupIds": [
+        "acquisition_1eefcc8c-3684-4439-a478-84d227612913"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "1eefcc8c-3684-4439-a478-84d227612913"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "0a1961e9-1d24-49eb-b1b1-39c7ecb81b22"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:0a1961e9-1d24-49eb-b1b1-39c7ecb81b22",
+        "acquisition_items:1eefcc8c-3684-4439-a478-84d227612913"
+      ]
+    },
+    {
+      "id": "acquisition_items:0a1961e9-1d24-49eb-b1b1-39c7ecb81b22|acquisition_items:abe93633-e4a1-49ac-993a-b437b938dc21",
+      "groupIds": [
+        "acquisition_1eefcc8c-3684-4439-a478-84d227612913"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "0a1961e9-1d24-49eb-b1b1-39c7ecb81b22"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "abe93633-e4a1-49ac-993a-b437b938dc21"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:0a1961e9-1d24-49eb-b1b1-39c7ecb81b22",
+        "acquisition_items:abe93633-e4a1-49ac-993a-b437b938dc21"
+      ]
+    },
+    {
+      "id": "acquisition_items:0c506c45-316f-466d-9f52-07068dbeb5fe|acquisition_items:39b0a564-a670-4857-abfe-9432f3f5e646",
+      "groupIds": [
+        "acquisition_0c506c45-316f-466d-9f52-07068dbeb5fe"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "0c506c45-316f-466d-9f52-07068dbeb5fe"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "39b0a564-a670-4857-abfe-9432f3f5e646"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:0c506c45-316f-466d-9f52-07068dbeb5fe",
+        "acquisition_items:39b0a564-a670-4857-abfe-9432f3f5e646"
+      ]
+    },
+    {
+      "id": "acquisition_items:1017dd86-fe86-445d-9f2b-8c62d1d22dee|acquisition_items:e6f6e8a6-eec0-4858-b799-f147978c6a1a",
+      "groupIds": [
+        "acquisition_e6f6e8a6-eec0-4858-b799-f147978c6a1a"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "e6f6e8a6-eec0-4858-b799-f147978c6a1a"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "1017dd86-fe86-445d-9f2b-8c62d1d22dee"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:1017dd86-fe86-445d-9f2b-8c62d1d22dee",
+        "acquisition_items:e6f6e8a6-eec0-4858-b799-f147978c6a1a"
+      ]
+    },
+    {
+      "id": "acquisition_items:12f6f6d9-0a16-4438-9201-ad407f0fdeed|acquisition_items:c3b784b1-52ee-4591-b97b-40bd0eeacc5d",
+      "groupIds": [
+        "acquisition_12f6f6d9-0a16-4438-9201-ad407f0fdeed"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "12f6f6d9-0a16-4438-9201-ad407f0fdeed"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "c3b784b1-52ee-4591-b97b-40bd0eeacc5d"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:12f6f6d9-0a16-4438-9201-ad407f0fdeed",
+        "acquisition_items:c3b784b1-52ee-4591-b97b-40bd0eeacc5d"
+      ]
+    },
+    {
+      "id": "acquisition_items:134c569c-dbc9-470d-8ad2-37f06f39eba6|acquisition_items:4e2945dc-4b39-4e70-847a-5a19594c0847",
+      "groupIds": [
+        "acquisition_134c569c-dbc9-470d-8ad2-37f06f39eba6"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "134c569c-dbc9-470d-8ad2-37f06f39eba6"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "4e2945dc-4b39-4e70-847a-5a19594c0847"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:134c569c-dbc9-470d-8ad2-37f06f39eba6",
+        "acquisition_items:4e2945dc-4b39-4e70-847a-5a19594c0847"
+      ]
+    },
+    {
+      "id": "acquisition_items:1384346e-8ea5-45b8-86f8-57ab77acf6af|acquisition_items:61091096-1f38-404c-bd34-00a99630eac7",
+      "groupIds": [
+        "acquisition_1384346e-8ea5-45b8-86f8-57ab77acf6af"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "1384346e-8ea5-45b8-86f8-57ab77acf6af"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "61091096-1f38-404c-bd34-00a99630eac7"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:1384346e-8ea5-45b8-86f8-57ab77acf6af",
+        "acquisition_items:61091096-1f38-404c-bd34-00a99630eac7"
+      ]
+    },
+    {
+      "id": "acquisition_items:14894e81-0d2e-4069-a149-a5d10ac92db4|acquisition_items:5b9f138d-d317-4e6c-9afd-95933cbc4c9e",
+      "groupIds": [
+        "acquisition_14894e81-0d2e-4069-a149-a5d10ac92db4"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "14894e81-0d2e-4069-a149-a5d10ac92db4"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "5b9f138d-d317-4e6c-9afd-95933cbc4c9e"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:14894e81-0d2e-4069-a149-a5d10ac92db4",
+        "acquisition_items:5b9f138d-d317-4e6c-9afd-95933cbc4c9e"
+      ]
+    },
+    {
+      "id": "acquisition_items:1555272e-1197-403c-bb0e-cc7495cf5da5|acquisition_items:e48ad2dd-1b6a-4c0e-918f-e9668db6be0b",
+      "groupIds": [
+        "acquisition_1555272e-1197-403c-bb0e-cc7495cf5da5"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "1555272e-1197-403c-bb0e-cc7495cf5da5"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e48ad2dd-1b6a-4c0e-918f-e9668db6be0b"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:1555272e-1197-403c-bb0e-cc7495cf5da5",
+        "acquisition_items:e48ad2dd-1b6a-4c0e-918f-e9668db6be0b"
+      ]
+    },
+    {
+      "id": "acquisition_items:166068cd-cbb6-4f93-81b8-980e37a9dac9|acquisition_items:262a0569-74c8-4c38-8305-99733698dded",
+      "groupIds": [
+        "acquisition_262a0569-74c8-4c38-8305-99733698dded"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "262a0569-74c8-4c38-8305-99733698dded"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "166068cd-cbb6-4f93-81b8-980e37a9dac9"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:166068cd-cbb6-4f93-81b8-980e37a9dac9",
+        "acquisition_items:262a0569-74c8-4c38-8305-99733698dded"
+      ]
+    },
+    {
+      "id": "acquisition_items:1e14b428-bdf4-4774-aaed-ff6d0517ce59|acquisition_items:ca68b40e-16a2-4f88-beb6-890d6da0086e",
+      "groupIds": [
+        "acquisition_ca68b40e-16a2-4f88-beb6-890d6da0086e"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "ca68b40e-16a2-4f88-beb6-890d6da0086e"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "1e14b428-bdf4-4774-aaed-ff6d0517ce59"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:1e14b428-bdf4-4774-aaed-ff6d0517ce59",
+        "acquisition_items:ca68b40e-16a2-4f88-beb6-890d6da0086e"
+      ]
+    },
+    {
+      "id": "acquisition_items:1f5a5acc-f318-4f8d-98c2-1ddcd76f1ced|acquisition_items:788c974b-ac50-4690-a4a6-3d1a0e0d1917",
+      "groupIds": [
+        "acquisition_1f5a5acc-f318-4f8d-98c2-1ddcd76f1ced"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "1f5a5acc-f318-4f8d-98c2-1ddcd76f1ced"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "788c974b-ac50-4690-a4a6-3d1a0e0d1917"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:1f5a5acc-f318-4f8d-98c2-1ddcd76f1ced",
+        "acquisition_items:788c974b-ac50-4690-a4a6-3d1a0e0d1917"
+      ]
+    },
+    {
+      "id": "acquisition_items:23a7822b-dc76-4d8b-844a-31981372ed4e|acquisition_items:d26e90a3-7cf6-49b9-b50d-6b10ab8d2228",
+      "groupIds": [
+        "acquisition_d26e90a3-7cf6-49b9-b50d-6b10ab8d2228"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "d26e90a3-7cf6-49b9-b50d-6b10ab8d2228"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "23a7822b-dc76-4d8b-844a-31981372ed4e"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:23a7822b-dc76-4d8b-844a-31981372ed4e",
+        "acquisition_items:d26e90a3-7cf6-49b9-b50d-6b10ab8d2228"
+      ]
+    },
+    {
+      "id": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:1721cfdd-2eee-48c4-a3e1-70058a12f1d6",
+      "groupIds": [
+        "inbox_bc43605d-2663-4a2a-af97-df4af4bcc552"
+      ],
+      "sourceRefs": [
+        {
+          "table": "inbox_items",
+          "id": "1721cfdd-2eee-48c4-a3e1-70058a12f1d6"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "email_conversation_messages:21c4c7cf-ee03-419a-9ad2-1601573c12df",
+        "email_conversation_messages:b6ff9f86-f601-4964-bb64-a419b4f41df7",
+        "inbox_items:1721cfdd-2eee-48c4-a3e1-70058a12f1d6"
+      ]
+    },
+    {
+      "id": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:21fa4ecd-1ad7-40b8-960c-b2400cd92057",
+      "groupIds": [
+        "inbox_bc43605d-2663-4a2a-af97-df4af4bcc552"
+      ],
+      "sourceRefs": [
+        {
+          "table": "inbox_items",
+          "id": "21fa4ecd-1ad7-40b8-960c-b2400cd92057"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "email_conversation_messages:016a2edb-5ffd-4134-a235-2ae99372f195",
+        "email_conversation_messages:45c3bc26-99c2-4674-a872-cba8f7c2c8a5",
+        "email_conversation_messages:5dc8cd46-4654-4f7e-a587-1565dbc5c492",
+        "email_conversation_messages:c78b833f-a2b6-4e4a-807f-35cf845c5859",
+        "email_conversation_messages:cbe9fa9f-fa89-4e1b-aebc-faff10d754fe",
+        "inbox_items:21fa4ecd-1ad7-40b8-960c-b2400cd92057"
+      ]
+    },
+    {
+      "id": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:85d9b80f-bbb9-4392-a88e-4d451e002d90",
+      "groupIds": [
+        "inbox_bc43605d-2663-4a2a-af97-df4af4bcc552"
+      ],
+      "sourceRefs": [
+        {
+          "table": "inbox_items",
+          "id": "85d9b80f-bbb9-4392-a88e-4d451e002d90"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "email_conversation_messages:016a2edb-5ffd-4134-a235-2ae99372f195",
+        "email_conversation_messages:45c3bc26-99c2-4674-a872-cba8f7c2c8a5",
+        "email_conversation_messages:5dc8cd46-4654-4f7e-a587-1565dbc5c492",
+        "email_conversation_messages:c78b833f-a2b6-4e4a-807f-35cf845c5859",
+        "email_conversation_messages:cbe9fa9f-fa89-4e1b-aebc-faff10d754fe",
+        "inbox_items:85d9b80f-bbb9-4392-a88e-4d451e002d90"
+      ]
+    },
+    {
+      "id": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:aa9de9e5-d03b-41ee-8295-2fbe3cf52139",
+      "groupIds": [
+        "inbox_bc43605d-2663-4a2a-af97-df4af4bcc552"
+      ],
+      "sourceRefs": [
+        {
+          "table": "inbox_items",
+          "id": "aa9de9e5-d03b-41ee-8295-2fbe3cf52139"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "email_conversation_messages:016a2edb-5ffd-4134-a235-2ae99372f195",
+        "email_conversation_messages:45c3bc26-99c2-4674-a872-cba8f7c2c8a5",
+        "email_conversation_messages:5dc8cd46-4654-4f7e-a587-1565dbc5c492",
+        "email_conversation_messages:c78b833f-a2b6-4e4a-807f-35cf845c5859",
+        "email_conversation_messages:cbe9fa9f-fa89-4e1b-aebc-faff10d754fe",
+        "inbox_items:aa9de9e5-d03b-41ee-8295-2fbe3cf52139"
+      ]
+    },
+    {
+      "id": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:acc37042-8d5d-4b63-9f42-8955efe09fff",
+      "groupIds": [
+        "inbox_bc43605d-2663-4a2a-af97-df4af4bcc552"
+      ],
+      "sourceRefs": [
+        {
+          "table": "inbox_items",
+          "id": "acc37042-8d5d-4b63-9f42-8955efe09fff"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "email_conversation_messages:016a2edb-5ffd-4134-a235-2ae99372f195",
+        "email_conversation_messages:45c3bc26-99c2-4674-a872-cba8f7c2c8a5",
+        "email_conversation_messages:5dc8cd46-4654-4f7e-a587-1565dbc5c492",
+        "email_conversation_messages:c78b833f-a2b6-4e4a-807f-35cf845c5859",
+        "email_conversation_messages:cbe9fa9f-fa89-4e1b-aebc-faff10d754fe",
+        "inbox_items:acc37042-8d5d-4b63-9f42-8955efe09fff"
+      ]
+    },
+    {
+      "id": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:b921ee53-c8d5-48b0-b77f-628dbe7f0756",
+      "groupIds": [
+        "inbox_bc43605d-2663-4a2a-af97-df4af4bcc552"
+      ],
+      "sourceRefs": [
+        {
+          "table": "inbox_items",
+          "id": "b921ee53-c8d5-48b0-b77f-628dbe7f0756"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "email_conversation_messages:016a2edb-5ffd-4134-a235-2ae99372f195",
+        "email_conversation_messages:45c3bc26-99c2-4674-a872-cba8f7c2c8a5",
+        "email_conversation_messages:5dc8cd46-4654-4f7e-a587-1565dbc5c492",
+        "email_conversation_messages:c78b833f-a2b6-4e4a-807f-35cf845c5859",
+        "email_conversation_messages:cbe9fa9f-fa89-4e1b-aebc-faff10d754fe",
+        "inbox_items:b921ee53-c8d5-48b0-b77f-628dbe7f0756"
+      ]
+    },
+    {
+      "id": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:bc43605d-2663-4a2a-af97-df4af4bcc552",
+      "groupIds": [
+        "inbox_bc43605d-2663-4a2a-af97-df4af4bcc552"
+      ],
+      "sourceRefs": [
+        {
+          "table": "inbox_items",
+          "id": "bc43605d-2663-4a2a-af97-df4af4bcc552"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "email_conversation_messages:21c4c7cf-ee03-419a-9ad2-1601573c12df",
+        "email_conversation_messages:b6ff9f86-f601-4964-bb64-a419b4f41df7",
+        "inbox_items:bc43605d-2663-4a2a-af97-df4af4bcc552"
+      ]
+    },
+    {
+      "id": "acquisition_items:2cf7f171-769b-434c-b3c8-3a5d261d69cc|acquisition_items:80ccb675-3612-4230-a234-c6cdf1addfbc",
+      "groupIds": [
+        "acquisition_80ccb675-3612-4230-a234-c6cdf1addfbc"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "80ccb675-3612-4230-a234-c6cdf1addfbc"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "2cf7f171-769b-434c-b3c8-3a5d261d69cc"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:2cf7f171-769b-434c-b3c8-3a5d261d69cc",
+        "acquisition_items:80ccb675-3612-4230-a234-c6cdf1addfbc"
+      ]
+    },
+    {
+      "id": "acquisition_items:2f3df6dd-100e-48e3-97e1-1cb8e5a03cad|acquisition_items:f3c822a8-8fc1-4c13-b3ce-02904bf0738f",
+      "groupIds": [
+        "acquisition_2f3df6dd-100e-48e3-97e1-1cb8e5a03cad"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "2f3df6dd-100e-48e3-97e1-1cb8e5a03cad"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f3c822a8-8fc1-4c13-b3ce-02904bf0738f"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:2f3df6dd-100e-48e3-97e1-1cb8e5a03cad",
+        "acquisition_items:f3c822a8-8fc1-4c13-b3ce-02904bf0738f"
+      ]
+    },
+    {
+      "id": "acquisition_items:333ec284-812e-426d-9e84-3ca251e98611|acquisition_items:968d12bc-b913-4293-8cfc-57677eab5303",
+      "groupIds": [
+        "acquisition_968d12bc-b913-4293-8cfc-57677eab5303"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "968d12bc-b913-4293-8cfc-57677eab5303"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "333ec284-812e-426d-9e84-3ca251e98611"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:333ec284-812e-426d-9e84-3ca251e98611",
+        "acquisition_items:968d12bc-b913-4293-8cfc-57677eab5303"
+      ]
+    },
+    {
+      "id": "acquisition_items:345e448a-329c-4cee-a595-88753fdce023|acquisition_items:7a5c6c10-feda-4206-8d89-b465142be605",
+      "groupIds": [
+        "acquisition_7a5c6c10-feda-4206-8d89-b465142be605"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "7a5c6c10-feda-4206-8d89-b465142be605"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "345e448a-329c-4cee-a595-88753fdce023"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:345e448a-329c-4cee-a595-88753fdce023",
+        "acquisition_items:7a5c6c10-feda-4206-8d89-b465142be605"
+      ]
+    },
+    {
+      "id": "acquisition_items:3b873559-ae93-4664-95da-683fe5eeb3bb|acquisition_items:dcd22b6f-9ab7-4877-b699-60704aeafb44",
+      "groupIds": [
+        "acquisition_dcd22b6f-9ab7-4877-b699-60704aeafb44"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "dcd22b6f-9ab7-4877-b699-60704aeafb44"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "3b873559-ae93-4664-95da-683fe5eeb3bb"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:3b873559-ae93-4664-95da-683fe5eeb3bb",
+        "acquisition_items:dcd22b6f-9ab7-4877-b699-60704aeafb44"
+      ]
+    },
+    {
+      "id": "acquisition_items:3b873559-ae93-4664-95da-683fe5eeb3bb|acquisition_items:e926f241-1927-4e01-b219-73d4138450f3",
+      "groupIds": [
+        "acquisition_dcd22b6f-9ab7-4877-b699-60704aeafb44"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "3b873559-ae93-4664-95da-683fe5eeb3bb"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e926f241-1927-4e01-b219-73d4138450f3"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:3b873559-ae93-4664-95da-683fe5eeb3bb",
+        "acquisition_items:e926f241-1927-4e01-b219-73d4138450f3"
+      ]
+    },
+    {
+      "id": "acquisition_items:4694af80-1016-4fc0-bb88-8879f0838cdd|acquisition_items:f02b8eef-0b97-4473-a0b1-756af9178950",
+      "groupIds": [
+        "acquisition_4694af80-1016-4fc0-bb88-8879f0838cdd"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "4694af80-1016-4fc0-bb88-8879f0838cdd"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f02b8eef-0b97-4473-a0b1-756af9178950"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:4694af80-1016-4fc0-bb88-8879f0838cdd",
+        "acquisition_items:f02b8eef-0b97-4473-a0b1-756af9178950"
+      ]
+    },
+    {
+      "id": "acquisition_items:47793fa2-9570-44e4-84cc-29007393ea66|acquisition_items:fc7d78ef-8dfc-46cc-a0be-3ed2fc4a737e",
+      "groupIds": [
+        "acquisition_fc7d78ef-8dfc-46cc-a0be-3ed2fc4a737e"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "fc7d78ef-8dfc-46cc-a0be-3ed2fc4a737e"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "47793fa2-9570-44e4-84cc-29007393ea66"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:47793fa2-9570-44e4-84cc-29007393ea66",
+        "acquisition_items:fc7d78ef-8dfc-46cc-a0be-3ed2fc4a737e"
+      ]
+    },
+    {
+      "id": "acquisition_items:5142bfab-f4f4-421a-b327-18703108aa88|acquisition_items:8757758a-cb86-44c2-b932-b8da7a8ca185",
+      "groupIds": [
+        "acquisition_8757758a-cb86-44c2-b932-b8da7a8ca185"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "8757758a-cb86-44c2-b932-b8da7a8ca185"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "5142bfab-f4f4-421a-b327-18703108aa88"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:5142bfab-f4f4-421a-b327-18703108aa88",
+        "acquisition_items:8757758a-cb86-44c2-b932-b8da7a8ca185"
+      ]
+    },
+    {
+      "id": "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf|acquisition_items:8e9e8b97-dacd-4300-9f87-2e632a083413",
+      "groupIds": [
+        "acquisition_edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "8e9e8b97-dacd-4300-9f87-2e632a083413"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "51e81749-a3de-4a6e-8cc2-62e3a9875bbf"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf",
+        "acquisition_items:8e9e8b97-dacd-4300-9f87-2e632a083413"
+      ]
+    },
+    {
+      "id": "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf|acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6",
+      "groupIds": [
+        "acquisition_edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "a36196f6-2a0f-4572-877f-c13f73d385a6"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "51e81749-a3de-4a6e-8cc2-62e3a9875bbf"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf",
+        "acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6"
+      ]
+    },
+    {
+      "id": "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf|acquisition_items:edbcc7c2-c3d6-4bdd-906e-4b6465928e9b",
+      "groupIds": [
+        "acquisition_edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "51e81749-a3de-4a6e-8cc2-62e3a9875bbf"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf",
+        "acquisition_items:edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+      ]
+    },
+    {
+      "id": "acquisition_items:51f2aeb0-69dd-4d19-a02e-ca3fbd13fde6|acquisition_items:fc82a184-b584-43bb-9770-2b3d469adfbb",
+      "groupIds": [
+        "acquisition_fc82a184-b584-43bb-9770-2b3d469adfbb"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "fc82a184-b584-43bb-9770-2b3d469adfbb"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "51f2aeb0-69dd-4d19-a02e-ca3fbd13fde6"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:51f2aeb0-69dd-4d19-a02e-ca3fbd13fde6",
+        "acquisition_items:fc82a184-b584-43bb-9770-2b3d469adfbb"
+      ]
+    },
+    {
+      "id": "acquisition_items:559b0da8-8609-46c2-8054-8ce2a5389596|acquisition_items:f65ca189-1234-4225-9c18-7cacaebb5b98",
+      "groupIds": [
+        "acquisition_559b0da8-8609-46c2-8054-8ce2a5389596"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "559b0da8-8609-46c2-8054-8ce2a5389596"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f65ca189-1234-4225-9c18-7cacaebb5b98"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:559b0da8-8609-46c2-8054-8ce2a5389596",
+        "acquisition_items:f65ca189-1234-4225-9c18-7cacaebb5b98"
+      ]
+    },
+    {
+      "id": "acquisition_items:5947e6ee-46bd-4434-95e8-3461c3754a99|acquisition_items:aca277be-6002-4fe8-b318-45e4a4724031",
+      "groupIds": [
+        "acquisition_aca277be-6002-4fe8-b318-45e4a4724031"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "aca277be-6002-4fe8-b318-45e4a4724031"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "5947e6ee-46bd-4434-95e8-3461c3754a99"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:5947e6ee-46bd-4434-95e8-3461c3754a99",
+        "acquisition_items:aca277be-6002-4fe8-b318-45e4a4724031"
+      ]
+    },
+    {
+      "id": "acquisition_items:5d83efed-0164-49d6-806f-010c1b249599|acquisition_items:fb75affc-cea8-46dc-9918-798f8f8f4a6d",
+      "groupIds": [
+        "acquisition_fb75affc-cea8-46dc-9918-798f8f8f4a6d"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "fb75affc-cea8-46dc-9918-798f8f8f4a6d"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "5d83efed-0164-49d6-806f-010c1b249599"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:5d83efed-0164-49d6-806f-010c1b249599",
+        "acquisition_items:fb75affc-cea8-46dc-9918-798f8f8f4a6d"
+      ]
+    },
+    {
+      "id": "acquisition_items:5ffcfb22-134c-4891-9509-1b8bd87f1537|acquisition_items:dcd8e542-d87c-4797-a5b3-2c66fb71f3b9",
+      "groupIds": [
+        "acquisition_5ffcfb22-134c-4891-9509-1b8bd87f1537"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "5ffcfb22-134c-4891-9509-1b8bd87f1537"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "dcd8e542-d87c-4797-a5b3-2c66fb71f3b9"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:5ffcfb22-134c-4891-9509-1b8bd87f1537",
+        "acquisition_items:dcd8e542-d87c-4797-a5b3-2c66fb71f3b9"
+      ]
+    },
+    {
+      "id": "acquisition_items:6469e058-8208-4977-9a95-ae7d7f829796|acquisition_items:6c2cafcc-20e8-4787-9b34-d94e50792758",
+      "groupIds": [
+        "acquisition_6c2cafcc-20e8-4787-9b34-d94e50792758"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "6c2cafcc-20e8-4787-9b34-d94e50792758"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "6469e058-8208-4977-9a95-ae7d7f829796"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:6469e058-8208-4977-9a95-ae7d7f829796",
+        "acquisition_items:6c2cafcc-20e8-4787-9b34-d94e50792758"
+      ]
+    },
+    {
+      "id": "acquisition_items:6e0297ac-4a0b-4c62-ac4f-ed2c9be544d0|acquisition_items:d252d7ba-5d2d-42a2-a5b4-d7696490d177",
+      "groupIds": [
+        "acquisition_6e0297ac-4a0b-4c62-ac4f-ed2c9be544d0"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "6e0297ac-4a0b-4c62-ac4f-ed2c9be544d0"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "d252d7ba-5d2d-42a2-a5b4-d7696490d177"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:6e0297ac-4a0b-4c62-ac4f-ed2c9be544d0",
+        "acquisition_items:d252d7ba-5d2d-42a2-a5b4-d7696490d177"
+      ]
+    },
+    {
+      "id": "acquisition_items:704a470a-0e39-4267-8c49-543d913aef58|acquisition_items:8868ef73-d791-43bf-970d-fd0b79a99c06",
+      "groupIds": [
+        "acquisition_704a470a-0e39-4267-8c49-543d913aef58"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "704a470a-0e39-4267-8c49-543d913aef58"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "8868ef73-d791-43bf-970d-fd0b79a99c06"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:704a470a-0e39-4267-8c49-543d913aef58",
+        "acquisition_items:8868ef73-d791-43bf-970d-fd0b79a99c06"
+      ]
+    },
+    {
+      "id": "acquisition_items:704a470a-0e39-4267-8c49-543d913aef58|acquisition_items:93677425-e29f-4999-9667-9b38ed41f2db",
+      "groupIds": [
+        "acquisition_704a470a-0e39-4267-8c49-543d913aef58"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "704a470a-0e39-4267-8c49-543d913aef58"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "93677425-e29f-4999-9667-9b38ed41f2db"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:704a470a-0e39-4267-8c49-543d913aef58",
+        "acquisition_items:93677425-e29f-4999-9667-9b38ed41f2db"
+      ]
+    },
+    {
+      "id": "acquisition_items:731652fa-c453-41b1-b59b-836dc952f674|acquisition_items:f06d5900-2fc2-4b3c-830d-45a56872078e",
+      "groupIds": [
+        "acquisition_731652fa-c453-41b1-b59b-836dc952f674"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "731652fa-c453-41b1-b59b-836dc952f674"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f06d5900-2fc2-4b3c-830d-45a56872078e"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:731652fa-c453-41b1-b59b-836dc952f674",
+        "acquisition_items:f06d5900-2fc2-4b3c-830d-45a56872078e"
+      ]
+    },
+    {
+      "id": "acquisition_items:7518f25d-8440-4d3f-a670-bbd606370f19|acquisition_items:78af73e9-ad33-4ad4-86ef-ad4276439619",
+      "groupIds": [
+        "acquisition_78af73e9-ad33-4ad4-86ef-ad4276439619"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "78af73e9-ad33-4ad4-86ef-ad4276439619"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "7518f25d-8440-4d3f-a670-bbd606370f19"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:7518f25d-8440-4d3f-a670-bbd606370f19",
+        "acquisition_items:78af73e9-ad33-4ad4-86ef-ad4276439619"
+      ]
+    },
+    {
+      "id": "acquisition_items:757139de-fe95-475a-a0bc-44eaaa73ac04|acquisition_items:d125ea08-7bdb-4945-aab1-7709b62c9078",
+      "groupIds": [
+        "acquisition_757139de-fe95-475a-a0bc-44eaaa73ac04"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "757139de-fe95-475a-a0bc-44eaaa73ac04"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "d125ea08-7bdb-4945-aab1-7709b62c9078"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:757139de-fe95-475a-a0bc-44eaaa73ac04",
+        "acquisition_items:d125ea08-7bdb-4945-aab1-7709b62c9078"
+      ]
+    },
+    {
+      "id": "acquisition_items:7d6a276b-64c4-4a9f-a1e9-5d3d77158ae4|acquisition_items:a295e9b8-1653-4bfc-ba3d-cf0924b1eb49",
+      "groupIds": [
+        "acquisition_7d6a276b-64c4-4a9f-a1e9-5d3d77158ae4"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "7d6a276b-64c4-4a9f-a1e9-5d3d77158ae4"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "a295e9b8-1653-4bfc-ba3d-cf0924b1eb49"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:7d6a276b-64c4-4a9f-a1e9-5d3d77158ae4",
+        "acquisition_items:a295e9b8-1653-4bfc-ba3d-cf0924b1eb49"
+      ]
+    },
+    {
+      "id": "acquisition_items:882fa572-d689-478c-8761-3dc6a4f2c567|acquisition_items:eec74a05-3bf6-41ba-9fb0-b57128e923e3",
+      "groupIds": [
+        "acquisition_882fa572-d689-478c-8761-3dc6a4f2c567"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "882fa572-d689-478c-8761-3dc6a4f2c567"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "eec74a05-3bf6-41ba-9fb0-b57128e923e3"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:882fa572-d689-478c-8761-3dc6a4f2c567",
+        "acquisition_items:eec74a05-3bf6-41ba-9fb0-b57128e923e3"
+      ]
+    },
+    {
+      "id": "acquisition_items:8868ef73-d791-43bf-970d-fd0b79a99c06|acquisition_items:93677425-e29f-4999-9667-9b38ed41f2db",
+      "groupIds": [
+        "acquisition_704a470a-0e39-4267-8c49-543d913aef58"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "8868ef73-d791-43bf-970d-fd0b79a99c06"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "93677425-e29f-4999-9667-9b38ed41f2db"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:8868ef73-d791-43bf-970d-fd0b79a99c06",
+        "acquisition_items:93677425-e29f-4999-9667-9b38ed41f2db"
+      ]
+    },
+    {
+      "id": "acquisition_items:8c826075-7cf9-4c57-9cd0-27ba50b991ae|acquisition_items:b639678e-479c-4f2d-8421-a1bf393317ce",
+      "groupIds": [
+        "acquisition_8c826075-7cf9-4c57-9cd0-27ba50b991ae"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "8c826075-7cf9-4c57-9cd0-27ba50b991ae"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "b639678e-479c-4f2d-8421-a1bf393317ce"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:8c826075-7cf9-4c57-9cd0-27ba50b991ae",
+        "acquisition_items:b639678e-479c-4f2d-8421-a1bf393317ce"
+      ]
+    },
+    {
+      "id": "acquisition_items:8e9e8b97-dacd-4300-9f87-2e632a083413|acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6",
+      "groupIds": [
+        "acquisition_edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "8e9e8b97-dacd-4300-9f87-2e632a083413"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "a36196f6-2a0f-4572-877f-c13f73d385a6"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:8e9e8b97-dacd-4300-9f87-2e632a083413",
+        "acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6"
+      ]
+    },
+    {
+      "id": "acquisition_items:91de61b4-3bdb-4eba-9b30-954a708d07bb|acquisition_items:cdef7bff-abc2-4254-b09c-9470a1dbbdbc",
+      "groupIds": [
+        "acquisition_91de61b4-3bdb-4eba-9b30-954a708d07bb"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "91de61b4-3bdb-4eba-9b30-954a708d07bb"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "cdef7bff-abc2-4254-b09c-9470a1dbbdbc"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:91de61b4-3bdb-4eba-9b30-954a708d07bb",
+        "acquisition_items:cdef7bff-abc2-4254-b09c-9470a1dbbdbc"
+      ]
+    },
+    {
+      "id": "acquisition_items:9d05addf-e294-4cca-8d06-d245460c97e9|acquisition_items:a6005634-b30b-428c-80b4-2ea11b9af9e2",
+      "groupIds": [
+        "acquisition_9d05addf-e294-4cca-8d06-d245460c97e9"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "9d05addf-e294-4cca-8d06-d245460c97e9"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "a6005634-b30b-428c-80b4-2ea11b9af9e2"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:9d05addf-e294-4cca-8d06-d245460c97e9",
+        "acquisition_items:a6005634-b30b-428c-80b4-2ea11b9af9e2"
+      ]
+    },
+    {
+      "id": "acquisition_items:9f715bb2-2615-4473-a477-7d8a7013f423|acquisition_items:e6ba1428-cdd6-4df1-9a50-1888e32aa3dd",
+      "groupIds": [
+        "acquisition_9f715bb2-2615-4473-a477-7d8a7013f423"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "9f715bb2-2615-4473-a477-7d8a7013f423"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e6ba1428-cdd6-4df1-9a50-1888e32aa3dd"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:9f715bb2-2615-4473-a477-7d8a7013f423",
+        "acquisition_items:e6ba1428-cdd6-4df1-9a50-1888e32aa3dd"
+      ]
+    },
+    {
+      "id": "acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6|acquisition_items:edbcc7c2-c3d6-4bdd-906e-4b6465928e9b",
+      "groupIds": [
+        "acquisition_edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "a36196f6-2a0f-4572-877f-c13f73d385a6"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6",
+        "acquisition_items:edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+      ]
+    },
+    {
+      "id": "acquisition_items:a4bcbfaf-bb8e-46f2-83be-ec235547f842|acquisition_items:dfcae627-a7f9-40b9-bb52-f4cc5564bf09",
+      "groupIds": [
+        "acquisition_dfcae627-a7f9-40b9-bb52-f4cc5564bf09"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "dfcae627-a7f9-40b9-bb52-f4cc5564bf09"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "a4bcbfaf-bb8e-46f2-83be-ec235547f842"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:a4bcbfaf-bb8e-46f2-83be-ec235547f842",
+        "acquisition_items:dfcae627-a7f9-40b9-bb52-f4cc5564bf09"
+      ]
+    },
+    {
+      "id": "acquisition_items:b004897a-6174-4479-9f64-60e3a162ece0|acquisition_items:f02b8eef-0b97-4473-a0b1-756af9178950",
+      "groupIds": [
+        "acquisition_4694af80-1016-4fc0-bb88-8879f0838cdd"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "b004897a-6174-4479-9f64-60e3a162ece0"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f02b8eef-0b97-4473-a0b1-756af9178950"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:b004897a-6174-4479-9f64-60e3a162ece0",
+        "acquisition_items:f02b8eef-0b97-4473-a0b1-756af9178950"
+      ]
+    },
+    {
+      "id": "acquisition_items:b56551d6-2ff7-4ddf-83ce-09b44e54e8c5|acquisition_items:de64b795-6029-4643-af9e-06c939da1b78",
+      "groupIds": [
+        "acquisition_de64b795-6029-4643-af9e-06c939da1b78"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "de64b795-6029-4643-af9e-06c939da1b78"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "b56551d6-2ff7-4ddf-83ce-09b44e54e8c5"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:b56551d6-2ff7-4ddf-83ce-09b44e54e8c5",
+        "acquisition_items:de64b795-6029-4643-af9e-06c939da1b78"
+      ]
+    },
+    {
+      "id": "acquisition_items:bf825386-73bf-4a64-b877-3d0131967a77|acquisition_items:d7b7bf8f-730f-4043-b977-4545bf2dec59",
+      "groupIds": [
+        "acquisition_d7b7bf8f-730f-4043-b977-4545bf2dec59"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "d7b7bf8f-730f-4043-b977-4545bf2dec59"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "bf825386-73bf-4a64-b877-3d0131967a77"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:bf825386-73bf-4a64-b877-3d0131967a77",
+        "acquisition_items:d7b7bf8f-730f-4043-b977-4545bf2dec59"
+      ]
+    },
+    {
+      "id": "acquisition_items:ce97dcc1-f3bd-41e4-948e-391a236cd25f|acquisition_items:d093b45c-bee8-44a1-ada7-9bae27037c05",
+      "groupIds": [
+        "acquisition_d093b45c-bee8-44a1-ada7-9bae27037c05"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "d093b45c-bee8-44a1-ada7-9bae27037c05"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "ce97dcc1-f3bd-41e4-948e-391a236cd25f"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:ce97dcc1-f3bd-41e4-948e-391a236cd25f",
+        "acquisition_items:d093b45c-bee8-44a1-ada7-9bae27037c05"
+      ]
+    },
+    {
+      "id": "acquisition_items:d21fce0d-5395-4388-89ae-cd2365b5c142|acquisition_items:ec017664-ffe2-47a0-ab92-989f3e6fe39f",
+      "groupIds": [
+        "acquisition_d21fce0d-5395-4388-89ae-cd2365b5c142"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "d21fce0d-5395-4388-89ae-cd2365b5c142"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "ec017664-ffe2-47a0-ab92-989f3e6fe39f"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:d21fce0d-5395-4388-89ae-cd2365b5c142",
+        "acquisition_items:ec017664-ffe2-47a0-ab92-989f3e6fe39f"
+      ]
+    },
+    {
+      "id": "acquisition_items:dcd22b6f-9ab7-4877-b699-60704aeafb44|acquisition_items:e926f241-1927-4e01-b219-73d4138450f3",
+      "groupIds": [
+        "acquisition_dcd22b6f-9ab7-4877-b699-60704aeafb44"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "dcd22b6f-9ab7-4877-b699-60704aeafb44"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e926f241-1927-4e01-b219-73d4138450f3"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:dcd22b6f-9ab7-4877-b699-60704aeafb44",
+        "acquisition_items:e926f241-1927-4e01-b219-73d4138450f3"
+      ]
+    },
+    {
+      "id": "acquisition_items:de5d3c98-fa0b-41f0-b0c8-a5a636c596b2|acquisition_items:f7d32e4b-3eff-4ac9-8cc6-a0532329af20",
+      "groupIds": [
+        "acquisition_de5d3c98-fa0b-41f0-b0c8-a5a636c596b2"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "de5d3c98-fa0b-41f0-b0c8-a5a636c596b2"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f7d32e4b-3eff-4ac9-8cc6-a0532329af20"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:de5d3c98-fa0b-41f0-b0c8-a5a636c596b2",
+        "acquisition_items:f7d32e4b-3eff-4ac9-8cc6-a0532329af20"
+      ]
+    },
+    {
+      "id": "acquisition_items:f774a2e4-2129-4144-9c85-888dff744108|acquisition_items:ffb8ae0d-c00d-4387-af17-154e748907c3",
+      "groupIds": [
+        "acquisition_ffb8ae0d-c00d-4387-af17-154e748907c3"
+      ],
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "ffb8ae0d-c00d-4387-af17-154e748907c3"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f774a2e4-2129-4144-9c85-888dff744108"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "acquisition_items:f774a2e4-2129-4144-9c85-888dff744108",
+        "acquisition_items:ffb8ae0d-c00d-4387-af17-154e748907c3"
+      ]
+    },
+    {
+      "id": "growth_targets:1059d1f8-a8b0-49a7-855e-9b420100d759|growth_targets:bce9122f-4839-4b23-aa84-1c25ebb40eb8",
+      "groupIds": [
+        "target_1059d1f8-a8b0-49a7-855e-9b420100d759"
+      ],
+      "sourceRefs": [
+        {
+          "table": "growth_targets",
+          "id": "1059d1f8-a8b0-49a7-855e-9b420100d759"
+        },
+        {
+          "table": "growth_targets",
+          "id": "bce9122f-4839-4b23-aa84-1c25ebb40eb8"
+        }
+      ],
+      "sameAllowed": true,
+      "blockedReason": null,
+      "evidenceIds": [
+        "growth_targets:1059d1f8-a8b0-49a7-855e-9b420100d759",
+        "growth_targets:bce9122f-4839-4b23-aa84-1c25ebb40eb8"
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "choice": "review_later",
+      "simulation": true,
+      "notARealIdentityVerdict": true,
+      "hypotheticalDecisionCount": 71,
+      "summary": {
+        "relationshipsEvaluated": 2411,
+        "fieldComparisons": 34888,
+        "agreements": 33062,
+        "differences": 1826,
+        "agreementRate": 0.9476610869066728,
+        "knownComparisons": 27981,
+        "knownAgreements": 26155,
+        "knownAgreementRate": 0.9347414316857868,
+        "disagreementCounts": {
+          "current_output_correct_shadow_wrong": 64,
+          "shadow_correct_current_output_wrong": 1170,
+          "insufficient_evidence": 328,
+          "historical_evidence_gap": 199,
+          "identity_ambiguity": 65
+        },
+        "newlyDiscoverableRecordCount": 1231,
+        "qualifiedActionRelationshipCount": 135,
+        "unavailableSearchFacetCount": 3688,
+        "identitySplitCount": 65,
+        "ambiguousJoinPairsWithheld": 84,
+        "currentRelationshipsShadowRefusesToAssociate": 65,
+        "proposedShadowJoinCount": 0,
+        "shadowOverlappingMembershipCount": 0,
+        "newlyDiscoverableRelationshipCount": 1175,
+        "unprojectedVerifiedFounderContacts": 4
+      },
+      "searchCoverage": {
+        "unassessedSearchProbeCount": 0,
+        "uncapturedSearchTermCount": 0,
+        "searchCoverageComplete": true,
+        "tokenSearchCaptured": true,
+        "uniqueSearchTerms": 6065,
+        "calibrations": [
+          {
+            "queryRecord": "acquisition_e94ad9b1-6afb-4689-9bd7-06d75f1444c9",
+            "matches": true,
+            "expected": 2,
+            "actual": 2
+          },
+          {
+            "queryRecord": "acquisition_3d58755b-9a50-4e7c-9f7f-b859960c6c3e",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_50fbf788-37e2-4c10-a5cb-af2274b99767",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_704a470a-0e39-4267-8c49-543d913aef58",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_b0ecee67-e183-422f-8f18-1a1c57601ad1",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_46d56df9-13f1-4c99-a645-030ba7dc578a",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_d205b697-4d04-4940-b96e-df4fac420e95",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_b9861ead-020b-4154-8da0-55798638c076",
+            "matches": true,
+            "expected": 3,
+            "actual": 3
+          },
+          {
+            "queryRecord": "acquisition_d28a7550-7cf6-4832-a660-94eecccb592b",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "target_35b6f97e-19df-4dc4-a3af-765e95f8283f",
+            "matches": true,
+            "expected": 24,
+            "actual": 24
+          },
+          {
+            "queryRecord": "acquisition_534937d6-5966-4022-9c9b-0dfcdd343a0c",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_34c7b2dc-6899-41c7-8ffa-6bb7a21fc8c7",
+            "matches": true,
+            "expected": 2,
+            "actual": 2
+          }
+        ],
+        "unsafeOrUnavailable": [],
+        "errors": []
+      },
+      "identityGroups": 2480,
+      "newlyJoinedSourcePairs": 0,
+      "unsupportedJoinCount": 0,
+      "separationViolations": 0,
+      "quarantinedAliasCount": 0,
+      "reviewedGroupCount": 0,
+      "unreviewedHumanGroups": 52,
+      "currentCorrectShadowWrongIncrease": 0,
+      "discoverabilityGain": 0
+    },
+    {
+      "choice": "keep_separate",
+      "simulation": true,
+      "notARealIdentityVerdict": true,
+      "hypotheticalDecisionCount": 71,
+      "summary": {
+        "relationshipsEvaluated": 2411,
+        "fieldComparisons": 34888,
+        "agreements": 32971,
+        "differences": 1917,
+        "agreementRate": 0.9450527401972024,
+        "knownComparisons": 27996,
+        "knownAgreements": 26079,
+        "knownAgreementRate": 0.9315259322760394,
+        "disagreementCounts": {
+          "current_output_correct_shadow_wrong": 64,
+          "shadow_correct_current_output_wrong": 1170,
+          "insufficient_evidence": 419,
+          "historical_evidence_gap": 199,
+          "identity_ambiguity": 65
+        },
+        "newlyDiscoverableRecordCount": 1231,
+        "qualifiedActionRelationshipCount": 166,
+        "unavailableSearchFacetCount": 3688,
+        "identitySplitCount": 65,
+        "ambiguousJoinPairsWithheld": 84,
+        "currentRelationshipsShadowRefusesToAssociate": 65,
+        "proposedShadowJoinCount": 0,
+        "shadowOverlappingMembershipCount": 0,
+        "newlyDiscoverableRelationshipCount": 1175,
+        "unprojectedVerifiedFounderContacts": 4
+      },
+      "searchCoverage": {
+        "unassessedSearchProbeCount": 0,
+        "uncapturedSearchTermCount": 0,
+        "searchCoverageComplete": true,
+        "tokenSearchCaptured": true,
+        "uniqueSearchTerms": 6065,
+        "calibrations": [
+          {
+            "queryRecord": "acquisition_e94ad9b1-6afb-4689-9bd7-06d75f1444c9",
+            "matches": true,
+            "expected": 2,
+            "actual": 2
+          },
+          {
+            "queryRecord": "acquisition_3d58755b-9a50-4e7c-9f7f-b859960c6c3e",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_50fbf788-37e2-4c10-a5cb-af2274b99767",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_704a470a-0e39-4267-8c49-543d913aef58",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_b0ecee67-e183-422f-8f18-1a1c57601ad1",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_46d56df9-13f1-4c99-a645-030ba7dc578a",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_d205b697-4d04-4940-b96e-df4fac420e95",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_b9861ead-020b-4154-8da0-55798638c076",
+            "matches": true,
+            "expected": 3,
+            "actual": 3
+          },
+          {
+            "queryRecord": "acquisition_d28a7550-7cf6-4832-a660-94eecccb592b",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "target_35b6f97e-19df-4dc4-a3af-765e95f8283f",
+            "matches": true,
+            "expected": 24,
+            "actual": 24
+          },
+          {
+            "queryRecord": "acquisition_534937d6-5966-4022-9c9b-0dfcdd343a0c",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_34c7b2dc-6899-41c7-8ffa-6bb7a21fc8c7",
+            "matches": true,
+            "expected": 2,
+            "actual": 2
+          }
+        ],
+        "unsafeOrUnavailable": [],
+        "errors": []
+      },
+      "identityGroups": 2480,
+      "newlyJoinedSourcePairs": 0,
+      "unsupportedJoinCount": 0,
+      "separationViolations": 0,
+      "quarantinedAliasCount": 0,
+      "reviewedGroupCount": 52,
+      "unreviewedHumanGroups": 0,
+      "currentCorrectShadowWrongIncrease": 0,
+      "discoverabilityGain": 0
+    },
+    {
+      "choice": "same_relationship",
+      "simulation": true,
+      "notARealIdentityVerdict": true,
+      "hypotheticalDecisionCount": 71,
+      "summary": {
+        "relationshipsEvaluated": 2411,
+        "fieldComparisons": 34888,
+        "agreements": 32986,
+        "differences": 1902,
+        "agreementRate": 0.9454826874570053,
+        "knownComparisons": 27996,
+        "knownAgreements": 26094,
+        "knownAgreementRate": 0.9320617231033005,
+        "disagreementCounts": {
+          "current_output_correct_shadow_wrong": 65,
+          "shadow_correct_current_output_wrong": 1201,
+          "insufficient_evidence": 423,
+          "historical_evidence_gap": 200,
+          "identity_ambiguity": 13
+        },
+        "newlyDiscoverableRecordCount": 1296,
+        "qualifiedActionRelationshipCount": 166,
+        "unavailableSearchFacetCount": 3688,
+        "identitySplitCount": 13,
+        "ambiguousJoinPairsWithheld": 13,
+        "currentRelationshipsShadowRefusesToAssociate": 13,
+        "proposedShadowJoinCount": 0,
+        "shadowOverlappingMembershipCount": 0,
+        "newlyDiscoverableRelationshipCount": 1191,
+        "unprojectedVerifiedFounderContacts": 4
+      },
+      "searchCoverage": {
+        "unassessedSearchProbeCount": 11,
+        "uncapturedSearchTermCount": 13,
+        "searchCoverageComplete": false,
+        "tokenSearchCaptured": true,
+        "uniqueSearchTerms": 6078,
+        "calibrations": [
+          {
+            "queryRecord": "acquisition_e94ad9b1-6afb-4689-9bd7-06d75f1444c9",
+            "matches": true,
+            "expected": 2,
+            "actual": 2
+          },
+          {
+            "queryRecord": "acquisition_3d58755b-9a50-4e7c-9f7f-b859960c6c3e",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_50fbf788-37e2-4c10-a5cb-af2274b99767",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_704a470a-0e39-4267-8c49-543d913aef58",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_b0ecee67-e183-422f-8f18-1a1c57601ad1",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_46d56df9-13f1-4c99-a645-030ba7dc578a",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_d205b697-4d04-4940-b96e-df4fac420e95",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_b9861ead-020b-4154-8da0-55798638c076",
+            "matches": true,
+            "expected": 3,
+            "actual": 3
+          },
+          {
+            "queryRecord": "acquisition_d28a7550-7cf6-4832-a660-94eecccb592b",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "target_35b6f97e-19df-4dc4-a3af-765e95f8283f",
+            "matches": true,
+            "expected": 24,
+            "actual": 24
+          },
+          {
+            "queryRecord": "acquisition_534937d6-5966-4022-9c9b-0dfcdd343a0c",
+            "matches": true,
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "queryRecord": "acquisition_34c7b2dc-6899-41c7-8ffa-6bb7a21fc8c7",
+            "matches": true,
+            "expected": 2,
+            "actual": 2
+          }
+        ],
+        "unsafeOrUnavailable": [],
+        "errors": []
+      },
+      "identityGroups": 2424,
+      "newlyJoinedSourcePairs": 71,
+      "unsupportedJoinCount": 0,
+      "separationViolations": 0,
+      "quarantinedAliasCount": 0,
+      "reviewedGroupCount": 52,
+      "unreviewedHumanGroups": 0,
+      "currentCorrectShadowWrongIncrease": 1,
+      "discoverabilityGain": 65
+    }
+  ],
+  "limitations": [
+    "All-same is an upper-bound counterfactual, not approval that these contacts are the same.",
+    "All-separate is a counterfactual, not a real operator decision.",
+    "No operational data, sources, decisions, links or workspace history were written.",
+    "Known current-correct/shadow-wrong issues and lifecycle scope disagreements require review before consumer integration."
+  ]
+}

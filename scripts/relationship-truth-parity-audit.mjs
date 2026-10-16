@@ -32,6 +32,9 @@ const ctx={tenant:{organisationId:org,userId:'owner-audit',role:'owner'},input:p
 const refs=new Map([...tables.flatMap(t=>raw[t].map(r=>[t+':'+r.id,r])),...input.founder.map(r=>['founder_research_records:'+r.id,r])]);
 
 const tokenHits=hitsPath?JSON.parse(fs.readFileSync(hitsPath,'utf8')):null;
+const manifest=manifestPath?JSON.parse(fs.readFileSync(manifestPath,'utf8')):null;
+const capturedTerms=new Set(manifest?.terms||[]);
+const supportedQuery=human&&manifest?q=>q.trim().normalize('NFKC').toLowerCase().split(/\s+/).every(t=>capturedTerms.has(t)):undefined;
 const tokenSets=new Map(Object.entries(tokenHits||{}).map(([k,v])=>[k,new Set(v)]));
 const shadowBySource=new Map(),groups=new Map(),errors=[],overlaps=[];
 let computed=0;
@@ -79,7 +82,7 @@ for(const r of current){
  });
  view.evidenceIds=parity.uniqueStrings([...view.evidenceIds,...view.confirmedAnchorEvidenceIds]);
  for(const q of [...view.nameProbes,...view.companyProbes,...view.emailProbes,...view.linkedinProbes,...shadow.nameProbes,...shadow.companyProbes,...shadow.emailProbes,...shadow.linkedinProbes].filter(q=>q.length<=200))for(const term of q.trim().normalize('NFKC').toLowerCase().split(/\s+/))allTokens.add(term);
- const comparison=parity.compareInventoryParity(view,truth,q=>tokenHits?termHits(r,q):false);
+ const comparison=parity.compareInventoryParity(view,truth,q=>tokenHits?termHits(r,q):false,supportedQuery);
  if(!tokenHits){comparison.checks=comparison.checks.filter(c=>!c.field.startsWith('discoverability_'));comparison.differences=comparison.differences.filter(c=>!c.field.startsWith('discoverability_'));comparison.newDiscovery=false;}
  results.push({...comparison,anchor:truth.anchor,shadowGroup:shadowBySource.get(parity.refKey(primary)),allShadowGroups:signatures,shadowIssues:{contradictions:truth.contradictions.map(i=>i.code),gaps:truth.missingEvidence.map(i=>i.code)}});
  for(const ref of r.refs){const k=parity.refKey(ref),set=currentGroupMap.get(k)||new Set();set.add(r.locator);currentGroupMap.set(k,set);}
@@ -111,8 +114,11 @@ if(tokenHits){for(const r of current.filter((_,i)=>i%Math.max(1,Math.floor(curre
  const actual=[];for(let page=0;;page++){const result=listRelationships(searchCtx,q,'all',page);actual.push(...result.items.map(i=>i.locator));if(actual.length>=result.total||!result.items.length)break;}
  calibrations.push({queryRecord:r.locator,matches:JSON.stringify(expected)===JSON.stringify(actual.sort()),expected:expected.length,actual:actual.length});
 }}
-const manifest=manifestPath?JSON.parse(fs.readFileSync(manifestPath,'utf8')):null;
-if(manifest&&(Date.parse(manifest.capturedAt)!==Date.parse(asOf)||[...allTokens].some(t=>!manifest.terms.includes(t))))throw Error('Snapshot timestamp or search probe coverage mismatch');
-const output={captureManifestVerified:!!manifest,asOf,scope:'Whole captured tenant inventory; no mailbox import; no consumer changed; body-free metadata and SQL search-token hits.',sourceRows:Object.fromEntries(Object.entries(snapshot).map(([k,v])=>[k,v.length])),currentInventoryCount:current.length,shadowGroupCount:groups.size,persistedSourceCount:refs.size,listInventory:{total:listTotal,listed},summary:{...summary,...identityMetrics,newlyDiscoverableRecordCount:globalDiscoveryRecords.size,newlyDiscoverableRelationshipCount:globalDiscoveryGroups.size,proposedShadowJoinCount:mergedCandidates.length,shadowOverlappingMembershipCount:new Set(overlaps).size,unprojectedVerifiedFounderContacts:founderContactCoverage.filter(c=>!c.hasOperationalPerson).length},coverage:{tokenSearchCaptured:!!tokenHits,uniqueSearchTerms:allTokens.size,calibrations,unsafeOrUnavailable:unavailable,errors},results};
+const uncapturedTerms=[...allTokens].filter(t=>!capturedTerms.has(t));
+if(manifest&&(Date.parse(manifest.capturedAt)!==Date.parse(asOf)||!human&&uncapturedTerms.length))throw Error('Snapshot timestamp or search probe coverage mismatch');
+const unassessedSearchProbeCount=results.reduce((n,r)=>n+(r.unassessedSearchProbes?.length||0),0);
+if(human&&uncapturedTerms.length&&!unassessedSearchProbeCount)throw Error('Unsupported search probes were not explicitly excluded');
+const output={captureManifestVerified:!!manifest,asOf,scope:'Whole captured tenant inventory; no mailbox import; no consumer changed; body-free metadata and SQL search-token hits.',sourceRows:Object.fromEntries(Object.entries(snapshot).map(([k,v])=>[k,v.length])),currentInventoryCount:current.length,shadowGroupCount:groups.size,persistedSourceCount:refs.size,listInventory:{total:listTotal,listed},summary:{...summary,...identityMetrics,newlyDiscoverableRecordCount:globalDiscoveryRecords.size,newlyDiscoverableRelationshipCount:globalDiscoveryGroups.size,proposedShadowJoinCount:mergedCandidates.length,shadowOverlappingMembershipCount:new Set(overlaps).size,unprojectedVerifiedFounderContacts:founderContactCoverage.filter(c=>!c.hasOperationalPerson).length},coverage:{unassessedSearchProbeCount,uncapturedSearchTermCount:manifest?uncapturedTerms.length:null,searchCoverageComplete:!!manifest&&!uncapturedTerms.length,tokenSearchCaptured:!!tokenHits,uniqueSearchTerms:allTokens.size,calibrations,unsafeOrUnavailable:unavailable,errors},results};
 fs.writeFileSync(outputPath,JSON.stringify(output,null,2));
 console.log(JSON.stringify({...output,results:undefined},null,2));
+

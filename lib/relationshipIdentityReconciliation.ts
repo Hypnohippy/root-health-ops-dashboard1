@@ -11,6 +11,7 @@ export type RelationshipIdentityDecision={
 };
 export type IdentitySourceSummary={ref:TruthRef;name:string;company:string|null;kind:"person"|"company";channel:string;source:string;status:string;verifiedAliases:IdentityAlias[];evidenceIds:string[];workspaceIds:string[]};
 export type IdentityReviewCandidate={id:string;revision:string;groupIds:string[];left:IdentitySourceSummary;right:IdentitySourceSummary;evidenceIds:string[];evidenceSummary:string;reason:string;missing:string[];sameAllowed:boolean;blockedReason:string|null};
+export type ReconciledShadowTruth=RelationshipTruth&{identityReview?:{mode:"dry_run";decisionEvidenceIds:string[];separations:{a:TruthRef;b:TruthRef;decisionId:string}[];quarantinedAliases:string[];operationalAuthority:false}};
 const obj=(v:unknown):Record<string,unknown>=>v&&typeof v==="object"&&!Array.isArray(v)?v as Record<string,unknown>:{};
 const txt=(v:unknown)=>typeof v==="string"?v.trim():"";
 const key=(r:TruthRef)=>`${r.table}:${r.id}`;
@@ -101,7 +102,7 @@ export function hypotheticalDecision(candidate:IdentityReviewCandidate,choice:Id
 }
 
 /** Human authority changes only a disposable grouping, never existing consumers or source data. */
-export function truthWithIdentityDecisions(input:TruthInput,anchor:TruthRef,policy:TruthPolicy,decisions:RelationshipIdentityDecision[],prepared=identityDecisionPartition(input,policy,decisions)):RelationshipTruth {
+export function truthWithIdentityDecisions(input:TruthInput,anchor:TruthRef,policy:TruthPolicy,decisions:RelationshipIdentityDecision[],prepared=identityDecisionPartition(input,policy,decisions)):ReconciledShadowTruth {
  const id=prepared.byRef.get(key(anchor));if(id===undefined)throw Error("Relationship source unavailable.");const refs=prepared.groups[id],keys=new Set(refs);
  const baseline=relationshipTruth(prepared.input,anchor,policy);
  const relevant=prepared.activeDecisions.filter(d=>keys.has(key(d.sourceRefA))||keys.has(key(d.sourceRefB)));
@@ -122,10 +123,12 @@ export function truthWithIdentityDecisions(input:TruthInput,anchor:TruthRef,poli
  if(uniq(pieces.map(p=>p.lifecycleStage.value)).length>1)truth.contradictions.push({code:'human_identity_lifecycle_scope',value:'Hypothetical association spans distinct operational states; no lifecycle transition is authorised.',kind:'uncertainty',rule:'human_identity_is_not_lifecycle_authority',evidenceIds});
  truth.actionableState={value:'blocked',kind:'uncertainty',rule:'hypothetical_identity_not_operational_authority',evidenceIds};truth.nextLegitimateAction={value:'Review hypothetical identity evidence; operational workflows remain unchanged',kind:'uncertainty',rule:'hypothetical_identity_not_operational_authority',evidenceIds};truth.dueDate={value:null,kind:'uncertainty',rule:'identity_dry_run_no_schedule_authority',evidenceIds};
  truth.interpretations.push({value:'Hypothetical identity review only. No records, history or lifecycle state were moved or saved.',kind:'interpretation',rule:'identity_decision_dry_run',evidenceIds});
+ const separations=relevant.filter(d=>d.decision==='keep_separate').map(d=>({a:d.sourceRefA,b:d.sourceRefB,decisionId:d.id}));
+ if(separations.length)truth.contradictions.push({code:'explicit_keep_separate',value:'Hypothetical human separation prohibits rejoining these sources through aliases or transitive links.',kind:'interpretation',rule:'keep_separate_is_structural_authority',evidenceIds:separations.map(d=>d.decisionId)});
  // Association provenance must accompany every conclusion without claiming messages were verified by the decision.
  const conclusions=[truth.latestConfirmedInbound,truth.latestConfirmedOutbound,truth.lifecycleStage,truth.actionableState,truth.nextLegitimateAction,truth.dueDate,truth.replyState,...truth.recordedFacts,...truth.verifiedAliases,...truth.commitments,...truth.suppressionReasons,...truth.contradictions,...truth.missingEvidence,...truth.interpretations,...truth.relatedFounderContacts];
  for(const c of conclusions){c.evidenceIds=uniq([...c.evidenceIds,...evidenceIds]);c.rule+=';hypothetical_identity_association_only';}
- return truth;
+ return Object.assign(truth,{identityReview:{mode:'dry_run' as const,decisionEvidenceIds:evidenceIds,separations,quarantinedAliases:prepared.quarantinedAliases,operationalAuthority:false as const}});
 }
 /** Code-owned fictional rehearsal input; never an Ops identity lookup or persisted record. */
 export function syntheticIdentityReviewInput(organisationId:string):TruthInput {

@@ -63,7 +63,7 @@ function classify(field:string,current:ParityView,shadow:ParityView,truth:Relati
   if(field==="displayed_name"&&!cleanName(current.name)&&cleanName(shadow.name)&&truth.relatedFounderContacts.length>0)return {classification:"shadow_correct_current_output_wrong",reason:"Exact verified email supports permitted nested-contact name attribution, without merging its company entity."};
   return {classification:"insufficient_evidence",reason:"Difference alone does not establish either output as correct. Review source identity, field provenance and intended scope."};
 }
-export function compareInventoryParity(current:ParityView,truth:RelationshipTruth,currentMatches:(query:string)=>boolean) {
+export function compareInventoryParity(current:ParityView,truth:RelationshipTruth,currentMatches:(query:string)=>boolean,querySupported?:(query:string)=>boolean) {
   const shadow=shadowParityView(truth), differences:ParityDifference[]=[], checks:{field:string;agreement:boolean;known:boolean}[]=[];
   const compare=(field:string,a:unknown,b:unknown,known=true)=>{
     const agreement=eq(a,b);checks.push({field,agreement,known});
@@ -81,9 +81,11 @@ export function compareInventoryParity(current:ParityView,truth:RelationshipTrut
   compare("due_date",current.due,shadow.due,!!current.due||!!shadow.due);
   const facets=["name","company","email","linkedin"] as const;
   const unavailableFacets:string[]=[];
+  const unassessedSearchProbes:{facet:string;reason:string}[]=[];
   for(const facet of facets){
     const property=`${facet}Probes` as "nameProbes"|"companyProbes"|"emailProbes"|"linkedinProbes";
-    const probes=uniqueStrings([...current[property],...shadow[property]]).filter(q=>q.length<=200);
+    const eligible=uniqueStrings([...current[property],...shadow[property]]).filter(q=>q.length<=200);
+    const probes=eligible.filter(q=>{if(!querySupported||querySupported(q))return true;unassessedSearchProbes.push({facet,reason:"Query terms absent from the captured source-search evidence."});return false;});
     if(!probes.length){unavailableFacets.push(facet);continue;}
     // Candidate discovery only. Search hits are never identity-association authority.
     const shadowTerms=uniqueStrings([shadow.name,shadow.company,...shadow.nameProbes,...shadow.companyProbes,...shadow.emails,...shadow.linkedin]);
@@ -98,7 +100,7 @@ export function compareInventoryParity(current:ParityView,truth:RelationshipTrut
       if(!d.field.startsWith("discoverability_")||!Array.isArray(d.current)||!Array.isArray(d.shadow))return false;
       const before=d.current as {found:boolean}[],after=d.shadow as {found:boolean}[];
       return after.some((v,i)=>v.found&&!before[i]?.found);
-    }),readOnly:true};
+    }),unassessedSearchProbes,readOnly:true};
 }
 export function summarizeInventoryParity(results:ReturnType<typeof compareInventoryParity>[]) {
   const counts=Object.fromEntries(parityClassifications.map(c=>[c,0])) as Record<DisagreementCategory,number>;
