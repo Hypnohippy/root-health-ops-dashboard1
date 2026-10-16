@@ -1,5 +1,6 @@
 import type { RelationshipTruth, TruthRef, TruthRow } from "@/lib/relationshipTruth";
 import type { DisagreementCategory } from "@/lib/relationshipTruthComparison";
+import { relationshipIdentityPresentation } from "@/lib/relationshipIdentityPresentation";
 
 /** Isolated review adapter. Not a UI/search implementation or an identity writer. */
 export type ParityView = {
@@ -20,12 +21,12 @@ const eq = (a: unknown,b: unknown) => JSON.stringify(a)===JSON.stringify(b);
 const cleanName = (v: string | null) => !!v && !/^(identity not established|stored research|unnamed contact)$/i.test(v);
 
 export function shadowParityView(truth: RelationshipTruth): ParityView {
+  const display=relationshipIdentityPresentation(truth);
   const named=uniqueStrings(truth.recordedFacts.filter(f=>["author_name","target_name","person","person_name"].includes(f.value.field)).map(f=>f.value.value));
   const nested=uniqueStrings(truth.relatedFounderContacts.map(c=>c.value.name));
   const companies=uniqueStrings(truth.recordedFacts.filter(f=>f.value.field==="company").map(f=>f.value.value));
-  const candidates=named.length?named:truth.entityKind==="company"?companies:nested;
-  const name=candidates.length===1?candidates[0]:null;
-  const company=companies.length===1?companies[0]:null;
+  const name=display.name.value;
+  const company=display.company.value;
   const linkedin=uniqueStrings(truth.verifiedAliases.filter(a=>a.value.type==="linkedin").map(a=>a.value.value));
   const emails=uniqueStrings(truth.verifiedAliases.filter(a=>a.value.type==="email").map(a=>a.value.value));
   return { id:truth.relationshipId,refs:truth.sourceRecords.map(refKey).sort(),kind:truth.entityKind,linkedin,emails,name,company,
@@ -33,7 +34,7 @@ export function shadowParityView(truth: RelationshipTruth): ParityView {
     ambiguity:uniqueStrings(truth.contradictions.filter(c=>["identity_ambiguity","workspace_conflict","projection_identity_split"].includes(c.code)).map(c=>c.code)),
     gaps:uniqueStrings(truth.missingEvidence.filter(g=>!["coverage_not_established","partial_read"].includes(g.code)).map(g=>g.code)),
     nameProbes:uniqueStrings([...named,...nested,name]),companyProbes:companies,emailProbes:emails,linkedinProbes:linkedin,
-    evidenceIds:uniqueStrings([...truth.sourceRecords.map(refKey),...truth.relatedFounderContacts.flatMap(f=>f.evidenceIds)]),uncertainDisplay:candidates.length>1||companies.length>1 };
+    evidenceIds:uniqueStrings([...truth.sourceRecords.map(refKey),...truth.relatedFounderContacts.flatMap(f=>f.evidenceIds)]),uncertainDisplay:display.name.disputed||display.company.disputed };
 }
 export function currentActionable(stage:string,due:string|null,asOf:string) {
   return stage==="follow_up" ? due&&Date.parse(due)<=Date.parse(asOf)?"followup_due":"waiting" : stage==="researched"?"review":stage;

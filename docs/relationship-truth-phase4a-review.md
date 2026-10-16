@@ -1,5 +1,7 @@
 # Phase 4A — Human identity review, dry run only
 
+Follow-up field policy: [canonical display, conflict and Finder indexing rules](relationship-identity-field-policy.md). The initial replay below is retained for audit; the follow-up results explicitly distinguish the later supplemental search observation from the original atomic capture.
+
 Base: `e6efbaf7f7180c4caab7be6e255cf928dad3804e` / Phase 3. Stacked branch only. No existing consumer is migrated. No schema, migration or persistent decision is created. All choices in this screen are hypothetical and are discarded on reload.
 
 ## Storage audit and recommendation

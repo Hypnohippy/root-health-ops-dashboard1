@@ -34,6 +34,8 @@ const refs=new Map([...tables.flatMap(t=>raw[t].map(r=>[t+':'+r.id,r])),...input
 const tokenHits=hitsPath?JSON.parse(fs.readFileSync(hitsPath,'utf8')):null;
 const manifest=manifestPath?JSON.parse(fs.readFileSync(manifestPath,'utf8')):null;
 const capturedTerms=new Set(manifest?.terms||[]);
+// Supplemental probes are a later read-only observation, never an atomic historical recapture.
+if(manifest?.supplementalCapturedAt)console.error('Supplemental search observation: '+manifest.supplementalCapturedAt+'; source membership remains historical');
 const supportedQuery=human&&manifest?q=>q.trim().normalize('NFKC').toLowerCase().split(/\s+/).every(t=>capturedTerms.has(t)):undefined;
 const tokenSets=new Map(Object.entries(tokenHits||{}).map(([k,v])=>[k,new Set(v)]));
 const shadowBySource=new Map(),groups=new Map(),errors=[],overlaps=[];
