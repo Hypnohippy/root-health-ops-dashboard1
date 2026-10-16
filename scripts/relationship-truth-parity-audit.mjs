@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import {loadTruthModule} from '../tests/relationship-truth-loader.mjs';
 const [snapshotPath,outputPath,asOf,hitsPath,probesPath,manifestPath,identityMode,decisionPath]=process.argv.slice(2);
-if(identityMode&&!['--identity-shadow','--human-shadow'].includes(identityMode))throw Error('Unsupported isolated shadow mode');
+if(identityMode&&!['--identity-shadow','--human-shadow','--ledger-shadow'].includes(identityMode))throw Error('Unsupported isolated shadow mode');
 if(!snapshotPath||!outputPath||!Number.isFinite(Date.parse(asOf)))throw Error('Usage: snapshot output asOf [source-token-hits.json] [probe-output.json]');
 const snapshot=JSON.parse(fs.readFileSync(snapshotPath,'utf8'));
 const org='78fa2ac8-e7b6-4b9b-9604-035723ece6b1';
@@ -22,8 +22,9 @@ const policy={organisationId:org,founderAllowed:true,asOf,partialSources:['mailb
 const input={lifecycle:raw,founder:snapshot.founder_research_records,founderActivities:snapshot.founder_activity_events,emailMessages:snapshot.email_conversation_messages,linkedinMessages:snapshot.linkedin_conversation_messages,workspaces:snapshot.relationship_workspaces,links:snapshot.relationship_source_links,activities:snapshot.relationship_activity_events,tasks:snapshot.relationship_tasks,acquisitionEvents:snapshot.acquisition_item_events,responseEvents:snapshot.response_item_events};
 const identity=identityMode==='--identity-shadow'?loadTruthModule('lib/relationshipIdentityEvidence.ts'):null;
 const identityPlan=identity?.prepareIdentityShadow(input,policy);
-const human=identityMode==='--human-shadow'?loadTruthModule('lib/relationshipIdentityReconciliation.ts'):null;
-const decisions=human?JSON.parse(fs.readFileSync(decisionPath,'utf8')):[];
+const human=['--human-shadow','--ledger-shadow'].includes(identityMode)?loadTruthModule('lib/relationshipIdentityReconciliation.ts'):null;
+const decisionInput=human?JSON.parse(fs.readFileSync(decisionPath,'utf8')):[];
+const decisions=identityMode==='--ledger-shadow'?loadTruthModule('lib/relationshipIdentityLedger.ts').ledgerDecisions(decisionInput,policy):decisionInput;
 const humanPlan=human?.identityDecisionPartition(input,policy,decisions);
 const projectTruth=anchor=>human?human.truthWithIdentityDecisions(input,anchor,policy,decisions,humanPlan):identity?identity.relationshipTruthIdentityShadow(input,anchor,policy,identityPlan).truth:relationshipTruth(input,anchor,policy);
 
