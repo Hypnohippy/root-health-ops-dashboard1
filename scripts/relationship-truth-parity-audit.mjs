@@ -1,7 +1,8 @@
 /** Whole-inventory local replay. Reads only a body-free SELECT export; no Production client. */
 import fs from 'node:fs';
 import {loadTruthModule} from '../tests/relationship-truth-loader.mjs';
-const [snapshotPath,outputPath,asOf,hitsPath,probesPath,manifestPath]=process.argv.slice(2);
+const [snapshotPath,outputPath,asOf,hitsPath,probesPath,manifestPath,identityMode]=process.argv.slice(2);
+if(identityMode&&identityMode!=='--identity-shadow')throw Error('Unsupported isolated shadow mode');
 if(!snapshotPath||!outputPath||!Number.isFinite(Date.parse(asOf)))throw Error('Usage: snapshot output asOf [source-token-hits.json] [probe-output.json]');
 const snapshot=JSON.parse(fs.readFileSync(snapshotPath,'utf8'));
 const org='78fa2ac8-e7b6-4b9b-9604-035723ece6b1';
@@ -19,6 +20,9 @@ const {cadenceDays,legacyCadenceStages}=loadTruthModule('lib/growthOutreach.ts')
 const parity=loadTruthModule('lib/relationshipTruthParity.ts');
 const policy={organisationId:org,founderAllowed:true,asOf,partialSources:['mailbox completeness not established; body-free replay']};
 const input={lifecycle:raw,founder:snapshot.founder_research_records,founderActivities:snapshot.founder_activity_events,emailMessages:snapshot.email_conversation_messages,linkedinMessages:snapshot.linkedin_conversation_messages,workspaces:snapshot.relationship_workspaces,links:snapshot.relationship_source_links,activities:snapshot.relationship_activity_events,tasks:snapshot.relationship_tasks,acquisitionEvents:snapshot.acquisition_item_events,responseEvents:snapshot.response_item_events};
+const identity=identityMode?loadTruthModule('lib/relationshipIdentityEvidence.ts'):null;
+const identityPlan=identity?.prepareIdentityShadow(input,policy);
+const projectTruth=anchor=>identity?identity.relationshipTruthIdentityShadow(input,anchor,policy,identityPlan).truth:relationshipTruth(input,anchor,policy);
 
 const current=projectRelationships(org,projected,input.founder);
 const ctx={tenant:{organisationId:org,userId:'owner-audit',role:'owner'},input:projected,founder:input.founder,canFounder:true,items:current,workspaces:input.workspaces,links:input.links,models:[],values:[],storageAvailable:true};
@@ -32,7 +36,7 @@ for(const [source,row] of refs){
  if(shadowBySource.has(source))continue;
  const table=source.slice(0,source.indexOf(':'));
  try{
-  const truth=relationshipTruth(input,{table,id:row.id},policy),signature=truth.sourceRecords.map(parity.refKey).sort().join('|');
+  const truth=projectTruth({table,id:row.id}),signature=truth.sourceRecords.map(parity.refKey).sort().join('|');
   if(!groups.has(signature))groups.set(signature,truth);
   for(const ref of truth.sourceRecords){const k=parity.refKey(ref);if(shadowBySource.has(k)&&shadowBySource.get(k)!==signature)overlaps.push(k);else shadowBySource.set(k,signature);}
   computed++;if(computed%200===0)console.error('Shadow groups evaluated: '+computed);
