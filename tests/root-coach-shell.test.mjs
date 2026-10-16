@@ -10,7 +10,7 @@ test("one shell mount receives only existing workspace and permission state",()=
  assert.doesNotMatch(component,/setInterval|document\.body\.innerHTML|supabase|localStorage|window\.location|router\.push/);
 });
 test("drawer is modal, labelled, keyboard-dismissable and restores focus",()=>{
- assert.match(component,/<dialog /);assert.match(component,/aria-labelledby="root-coach-title"/);assert.match(component,/aria-describedby="root-coach-boundary"/);assert.match(component,/\.showModal\(\)/);assert.match(component,/onCancel=\{close\}/);assert.match(component,/launcher\.current\?\.focus\(\)/);assert.match(component,/aria-label="Close Ask Root"/);
+ assert.match(component,/<dialog /);assert.match(component,/aria-labelledby="root-coach-title"/);assert.match(component,/aria-describedby=\{mode === "guide" \? "root-coach-boundary" : undefined\}/);assert.match(component,/\.showModal\(\)/);assert.match(component,/onCancel=\{close\}/);assert.match(component,/launcher\.current\?\.focus\(\)/);assert.match(component,/aria-label="Close Ask Root"/);
 });
 test("drawer revalidates links, requires explicit clicks and bounds question input",()=>{
  assert.match(component,/guideDestination\(destination.id/);assert.match(component,/href=\{safe.href\}/);assert.match(component,/maxLength=\{600\}/);assert.match(component,/mode: "guidance"/);assert.match(component,/role="status"/);assert.match(component,/role="alert"/);assert.match(component,/AbortController/);
