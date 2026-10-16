@@ -8,7 +8,7 @@ export type RelationshipEntityShape={
 const normal=(v:string)=>v.normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();
 const established=(v:string)=>!!v.trim()&&!/^(unknown|not established|identity not established|unnamed contact|stored research|n\/a)$/i.test(v.trim());
 /** Pure shape projection, not an identity join or a lifecycle/type mutation. */
-export function relationshipEntityShape(truth:RelationshipTruth):RelationshipEntityShape {
+export function relationshipEntityShape(truth:Pick<RelationshipTruth,'entityKind'|'recordedFacts'|'verifiedAliases'|'sourceRecords'>):RelationshipEntityShape {
  const companies=truth.recordedFacts.filter(f=>f.value.field==='company'&&established(f.value.value));
  const companyLabels=new Set(companies.map(f=>normal(f.value.value)));
  // Equality can veto a company label masquerading as a person, never establish identity.

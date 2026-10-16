@@ -1,4 +1,5 @@
 import { projectRelationships } from "@/lib/relationshipWorkspace";
+import { relationshipEntityShape } from "@/lib/relationshipEntityShape";
 import { prepareIdentityShadow, identityNodes, identitySourceFacts, reviewIdentityPair } from "@/lib/relationshipIdentityEvidence";
 import { relationshipTruth, visibleTruthInput, type RelationshipTruth, type TruthInput, type TruthPolicy, type TruthRef, type TruthRow } from "@/lib/relationshipTruth";
 
@@ -7,11 +8,11 @@ export type IdentityAlias={type:"linkedin"|"email";value:string};
 export type RelationshipIdentityDecision={
  schemaVersion:1;id:string;organisationId:string;sourceRefA:TruthRef;sourceRefB:TruthRef;
  decision:IdentityDecisionChoice;evidenceIdsShown:string[];evidenceSummary:string;actorUserId:string;decidedAt:string;
- note:string|null;revision:number;candidateRevision:string;aliasBindings:{a:IdentityAlias[];b:IdentityAlias[]};simulation:true;
+ note:string|null;revision:number;candidateRevision:string;aliasBindings:{a:IdentityAlias[];b:IdentityAlias[]};simulation:boolean;authority?:'persisted';
 };
 export type IdentitySourceSummary={ref:TruthRef;name:string;company:string|null;kind:"person"|"company";channel:string;source:string;status:string;verifiedAliases:IdentityAlias[];evidenceIds:string[];workspaceIds:string[]};
 export type IdentityReviewCandidate={id:string;revision:string;groupIds:string[];left:IdentitySourceSummary;right:IdentitySourceSummary;evidenceIds:string[];evidenceSummary:string;reason:string;missing:string[];sameAllowed:boolean;blockedReason:string|null};
-export type ReconciledShadowTruth=RelationshipTruth&{identityReview?:{mode:"dry_run";decisionEvidenceIds:string[];separations:{a:TruthRef;b:TruthRef;decisionId:string}[];quarantinedAliases:string[];operationalAuthority:false}};
+export type ReconciledShadowTruth=RelationshipTruth&{identityReview?:{mode:"dry_run"|"persisted_shadow";decisionEvidenceIds:string[];separations:{a:TruthRef;b:TruthRef;decisionId:string}[];quarantinedAliases:string[];operationalAuthority:false}};
 const obj=(v:unknown):Record<string,unknown>=>v&&typeof v==="object"&&!Array.isArray(v)?v as Record<string,unknown>:{};
 const txt=(v:unknown)=>typeof v==="string"?v.trim():"";
 const key=(r:TruthRef)=>`${r.table}:${r.id}`;
@@ -35,7 +36,7 @@ export function identityDecisionPartition(input:TruthInput,policy:TruthPolicy,de
  const effective=new Map<string,RelationshipIdentityDecision>();
  const seenRevision=new Map<string,string>();
  for(const d of decisions) {
-  if(d.organisationId!==policy.organisationId||!d.simulation||d.schemaVersion!==1||!refOK(d.sourceRefA)||!refOK(d.sourceRefB)||key(d.sourceRefA)===key(d.sourceRefB)||!Number.isInteger(d.revision)||d.revision<1||!Number.isFinite(Date.parse(d.decidedAt))||Date.parse(d.decidedAt)>Date.parse(policy.asOf)||!txt(d.actorUserId)||!d.evidenceIdsShown.length)throw Error("Invalid hypothetical identity decision.");
+  if(d.organisationId!==policy.organisationId||!(d.simulation===true||d.simulation===false&&d.authority==='persisted')||d.schemaVersion!==1||!refOK(d.sourceRefA)||!refOK(d.sourceRefB)||key(d.sourceRefA)===key(d.sourceRefB)||!Number.isInteger(d.revision)||d.revision<1||!Number.isFinite(Date.parse(d.decidedAt))||Date.parse(d.decidedAt)>Date.parse(policy.asOf)||!txt(d.actorUserId)||!d.evidenceIdsShown.length)throw Error("Invalid identity decision.");
   const a=nodeByKey.get(key(d.sourceRefA)),b=nodeByKey.get(key(d.sourceRefB));if(!a||!b)throw Error("Decision source unavailable in authorised tenant scope.");
   const pk=pairKey(d.sourceRefA,d.sourceRefB),revisionKey=pk+':'+d.revision;
   if(seenRevision.has(revisionKey)&&seenRevision.get(revisionKey)!==JSON.stringify(d))throw Error("Conflicting decision revision.");seenRevision.set(revisionKey,JSON.stringify(d));
@@ -85,7 +86,8 @@ export function reconciliationCandidates(input:TruthInput,policy:TruthPolicy) {
   const left=sourceSummary(a,ar,partition.input),right=sourceSummary(b,br,partition.input);
   const evidenceIds=uniq([...left.evidenceIds,...right.evidenceIds]);
   const canonical=uniq([...left.verifiedAliases,...right.verifiedAliases].filter(a=>a.type==="linkedin").map(a=>a.value));
-  const blockedReason=left.kind!==right.kind?"Person and company must remain distinct.":canonical.length>1?"Conflicting canonical profiles require further identity policy review.":uniq([...left.workspaceIds,...right.workspaceIds]).length>1?"Separate durable workspaces require an explicit history policy.":null;
+  const pairShape=relationshipEntityShape({entityKind:left.kind,sourceRecords:[a,b],recordedFacts:[{ref:a,row:ar},{ref:b,row:br}].flatMap(n=>['person','person_name','company'].filter(f=>txt(n.row[f])).map(field=>({value:{field,value:txt(n.row[field])},evidenceIds:[key(n.ref)],rule:'stored_field',kind:'recorded_fact' as const}))),verifiedAliases:[{ref:a,value:left.verifiedAliases},{ref:b,value:right.verifiedAliases}].flatMap(n=>n.value.map(value=>({value,evidenceIds:[key(n.ref)],rule:'verified_alias',kind:'recorded_fact' as const})))});
+  const blockedReason=left.kind!==right.kind?"Person and company must remain distinct.":canonical.length>1?"Conflicting canonical profiles require further identity policy review.":uniq([...left.workspaceIds,...right.workspaceIds]).length>1?"Separate durable workspaces require an explicit history policy.":pairShape.entity_kind==='ambiguous'?pairShape.ambiguity_reason:null;
   const evidenceSummary=`${left.source} / ${right.source}; ${left.verifiedAliases.length} / ${right.verifiedAliases.length} verified aliases. ${review.ambiguityReason}`;
   const revision=JSON.stringify({left,right,updated:[ar.updated_at||null,br.updated_at||null],missing:review.missingBridges});
   candidates.set(id,{id,revision,groupIds:[group.locator],left,right,evidenceIds,evidenceSummary,reason:review.ambiguityReason||"Explicit identity review needed",missing:review.missingBridges,sameAllowed:!blockedReason,blockedReason});
@@ -118,17 +120,18 @@ export function truthWithIdentityDecisions(input:TruthInput,anchor:TruthRef,poli
  truth.recordedFacts=merge(pieces.map(p=>p.recordedFacts),f=>JSON.stringify(f));truth.verifiedAliases=merge(pieces.map(p=>p.verifiedAliases),a=>JSON.stringify(a));
  truth.commitments=merge(pieces.map(p=>p.commitments),c=>c.value.taskId);truth.suppressionReasons=merge(pieces.map(p=>p.suppressionReasons),c=>JSON.stringify(c));truth.missingEvidence=merge(pieces.map(p=>p.missingEvidence),c=>JSON.stringify(c));truth.contradictions=merge(pieces.map(p=>p.contradictions),c=>JSON.stringify(c));
  const evidenceIds=uniq(relevant.map(d=>d.id));
+ const mode=relevant.some(d=>d.simulation)?'dry_run' as const:'persisted_shadow' as const;
  const latest=(field:"latestConfirmedInbound"|"latestConfirmedOutbound")=>pieces.map(p=>p[field]).filter(c=>c.value?.at).sort((a,b)=>String(b.value!.at).localeCompare(String(a.value!.at)))[0];
  truth.latestConfirmedInbound=latest('latestConfirmedInbound')||truth.latestConfirmedInbound;truth.latestConfirmedOutbound=latest('latestConfirmedOutbound')||truth.latestConfirmedOutbound;
  if(uniq(pieces.map(p=>p.lifecycleStage.value)).length>1)truth.contradictions.push({code:'human_identity_lifecycle_scope',value:'Hypothetical association spans distinct operational states; no lifecycle transition is authorised.',kind:'uncertainty',rule:'human_identity_is_not_lifecycle_authority',evidenceIds});
- truth.actionableState={value:'blocked',kind:'uncertainty',rule:'hypothetical_identity_not_operational_authority',evidenceIds};truth.nextLegitimateAction={value:'Review hypothetical identity evidence; operational workflows remain unchanged',kind:'uncertainty',rule:'hypothetical_identity_not_operational_authority',evidenceIds};truth.dueDate={value:null,kind:'uncertainty',rule:'identity_dry_run_no_schedule_authority',evidenceIds};
- truth.interpretations.push({value:'Hypothetical identity review only. No records, history or lifecycle state were moved or saved.',kind:'interpretation',rule:'identity_decision_dry_run',evidenceIds});
+ truth.actionableState={value:'blocked',kind:'uncertainty',rule:mode==='dry_run'?'hypothetical_identity_not_operational_authority':'persisted_identity_no_consumer_migration',evidenceIds};truth.nextLegitimateAction={value:mode==='dry_run'?'Review hypothetical identity evidence; operational workflows remain unchanged':'Review recorded identity evidence; operational workflows remain unchanged',kind:'uncertainty',rule:'identity_not_outreach_authority',evidenceIds};truth.dueDate={value:null,kind:'uncertainty',rule:'identity_no_schedule_authority',evidenceIds};
+ truth.interpretations.push({value:mode==='dry_run'?'Hypothetical identity review only. No records, history or lifecycle state were moved or saved.':'Recorded identity decisions applied to shadow grouping only. Original evidence and operational consumers are unchanged.',kind:'interpretation',rule:mode==='dry_run'?'identity_decision_dry_run':'persisted_decision_shadow_only',evidenceIds});
  const separations=relevant.filter(d=>d.decision==='keep_separate').map(d=>({a:d.sourceRefA,b:d.sourceRefB,decisionId:d.id}));
- if(separations.length)truth.contradictions.push({code:'explicit_keep_separate',value:'Hypothetical human separation prohibits rejoining these sources through aliases or transitive links.',kind:'interpretation',rule:'keep_separate_is_structural_authority',evidenceIds:separations.map(d=>d.decisionId)});
+ if(separations.length)truth.contradictions.push({code:'explicit_keep_separate',value:mode==='dry_run'?'Hypothetical human separation prohibits rejoining these sources through aliases or transitive links.':'Recorded human separation prohibits rejoining these sources through aliases or transitive links.',kind:'interpretation',rule:'keep_separate_is_structural_authority',evidenceIds:separations.map(d=>d.decisionId)});
  // Association provenance must accompany every conclusion without claiming messages were verified by the decision.
  const conclusions=[truth.latestConfirmedInbound,truth.latestConfirmedOutbound,truth.lifecycleStage,truth.actionableState,truth.nextLegitimateAction,truth.dueDate,truth.replyState,...truth.recordedFacts,...truth.verifiedAliases,...truth.commitments,...truth.suppressionReasons,...truth.contradictions,...truth.missingEvidence,...truth.interpretations,...truth.relatedFounderContacts];
- for(const c of conclusions){c.evidenceIds=uniq([...c.evidenceIds,...evidenceIds]);c.rule+=';hypothetical_identity_association_only';}
- return Object.assign(truth,{identityReview:{mode:'dry_run' as const,decisionEvidenceIds:evidenceIds,separations,quarantinedAliases:prepared.quarantinedAliases,operationalAuthority:false as const}});
+ for(const c of conclusions){c.evidenceIds=uniq([...c.evidenceIds,...evidenceIds]);c.rule+=mode==='dry_run'?';hypothetical_identity_association_only':';persisted_identity_association_only';}
+ return Object.assign(truth,{identityReview:{mode,decisionEvidenceIds:evidenceIds,separations,quarantinedAliases:prepared.quarantinedAliases,operationalAuthority:false as const}});
 }
 /** Code-owned fictional rehearsal input; never an Ops identity lookup or persisted record. */
 export function syntheticIdentityReviewInput(organisationId:string):TruthInput {
