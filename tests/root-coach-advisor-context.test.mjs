@@ -35,3 +35,5 @@ test('resolver denial propagates; client locator never becomes a direct arbitrar
  const svc=load('lib/rootCoachAdvisorContext.server.ts',{'@/lib/relationshipWorkspace.server':{getRelationship:async()=>{throw Error('Not permitted');}},'@/lib/lifecycleSnapshot.server':{readLifecycleInput:()=>assert.fail('read after denial')}});
  await assert.rejects(svc.advisorRelationshipContext(tenant,'founder_foreign'),/Not permitted/);
 });
+
+test('confirmed inbound snapshot can support drafting only when the existing lifecycle gate allows it',async()=>{const f=fixture();f.state.conversation.undated[0].direction='snapshot';assert.equal((await f.svc.advisorRelationshipContext(tenant,locator)).packet.canDraft,false);f.rows.inbox_items[0].linkedin_recorded_reply_text='Exact inbound text';const result=await f.svc.advisorRelationshipContext(tenant,locator);assert.equal(result.packet.canDraft,true);assert.equal(result.packet.evidence.find(e=>e.id==='linkedin:message').at,null);});

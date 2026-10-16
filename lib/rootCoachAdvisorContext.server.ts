@@ -39,7 +39,9 @@ export async function advisorRelationshipContext(tenant: RelationshipTenant, loc
   const bounded = boundAdvisorEvidence(evidence, 79, 47000);
   const limitations = ["Only legitimately associated stored evidence is included. Mailbox freshness is not established unless an explicit live lookup succeeds.", "Snapshots without message dates are undated; recorded time is not message time.", "Research, notes and manual activity are attributed records, not independent verification."];
   if (bounded.partial) limitations.push("History is partial: the evidence budget omitted or shortened entries. Commitments outside this packet cannot be ruled out.");
-  const hasInbound = [...state.conversation.dated, ...state.conversation.undated].some(e => e.direction === "inbound" && e.text.trim());
+  const conversation = [...state.conversation.dated, ...state.conversation.undated];
+  const hasInbound = conversation.some(e => e.direction === "inbound" && e.text.trim()) ||
+    (conversation.some(e => e.direction === "snapshot" && e.text.trim()) && rows.some(row => typeof row.linkedin_recorded_reply_text === "string" && row.linkedin_recorded_reply_text.trim()));
   const canDraft = hasInbound && rows.some(row => { const s = lifecycle.get(row.id); return s?.canDraft && ["needs_reply", "engaged", "meeting", "nurture"].includes(s.currentStage); });
   if (!canDraft) limitations.push("Reply drafting is unavailable for the current recorded state or because actual inbound message text is missing. Notification-only evidence cannot support a reply draft. Use the existing workflow for accepted-connection first messages.");
   return { packet: { organisationId: tenant.organisationId, locator, name: state.relationship.name, stage: state.relationship.stage, nextAction: state.relationship.nextAction, canDraft, evidence: [lifecycleEvidence, ...bounded.evidence], limitations, asOf: new Date().toISOString() }, mailbox: { organisationId: tenant.organisationId, relationshipLocator: locator, emails: [...emails], threadIds: [...threadIds] } };
