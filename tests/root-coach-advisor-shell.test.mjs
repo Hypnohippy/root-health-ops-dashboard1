@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import React from 'react';
+import renderer from 'react-test-renderer';
+import {load} from './root-advisor-helpers.mjs';
+globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+test('Advisor only derives locators from recognised existing relationship or Responses routes',()=>{const {advisorLocator}=load('app/dashboard/components/RootCoachAdvisor.tsx');assert.equal(advisorLocator('/dashboard/growth/relationships/inbox_5243a6ec-485e-43fd-86a7-3627aa07cf23',''),'inbox_5243a6ec-485e-43fd-86a7-3627aa07cf23');assert.equal(advisorLocator('/dashboard','?itemId=5243a6ec-485e-43fd-86a7-3627aa07cf23'),null);assert.equal(advisorLocator('/dashboard/responses','?email=unknown@example.org'),null);});
+test('opening Advisor without a resolved locator makes no request',async()=>{const C=load('app/dashboard/components/RootCoachAdvisor.tsx',{}, {window:{location:{search:''}},fetch:()=>assert.fail('network')}).default;let tree;await renderer.act(async()=>{tree=renderer.create(React.createElement(C,{organisationId:'tenant',pathname:'/dashboard'}));});assert.match(JSON.stringify(tree.toJSON()),/Choose a relationship/);await renderer.act(async()=>tree.unmount());});
+test('Advisor POST carries selectors/question only and no operational action endpoint exists',()=>{const source=fs.readFileSync('app/dashboard/components/RootCoachAdvisor.tsx','utf8');assert.deepEqual([...source.matchAll(/fetch\("([^"]+)"/g)].map(m=>m[1]),['/api/coach/advisor']);assert.match(source,/Explicitly check current email/);assert.match(source,/not saved or sent/);assert.doesNotMatch(source,/localStorage|dangerouslySetInnerHTML|\.clipboard|window\.open|approve-send|update-status/);});
