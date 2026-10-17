@@ -17,7 +17,7 @@ export type RelationshipDiscoveryResult={
  recordedContacts:{name:string|null;verifiedEmail:string|null}[];
 };
 export type DiscoveryEntry={result:RelationshipDiscoveryResult;refs:TruthRef[];labels:string[]};
-export type DiscoveryContext={input:TruthInput;policy:TruthPolicy;ledger:IdentityLedgerRow[]};
+export type DiscoveryContext={input:TruthInput;policy:TruthPolicy;ledger:IdentityLedgerRow[];currentSearchRefs?:TruthRef[]};
 const key=(r:TruthRef)=>r.table+':'+r.id;
 const text=(v:unknown)=>typeof v==='string'?v.trim():'';
 const object=(v:unknown):Record<string,unknown>=>v&&typeof v==='object'&&!Array.isArray(v)?v as Record<string,unknown>:{};
@@ -58,7 +58,7 @@ export function relationshipDiscoveryInventory(ctx:DiscoveryContext){
    verifiedAliases:aliases,ambiguity:{state:uncertain?'not_fully_established':'established',possibleRecords:Math.max(possible.get(index)||1,uncertain?refs.length:1),reasons},
    reconciliationStatus:separated?'separated':confirmed?'confirmed':'unreviewed',
    destination:uncertain?sourceDestination(anchor,ctx.policy.organisationId):relationshipHref(anchor as SourceRef,ctx.policy.organisationId),sourceCoverage:{count:refs.length,channels:unique(refs.map(r=>r.table==='founder_research_records'?'Founder':r.table==='acquisition_items'?'Acquisition':r.table==='growth_targets'?'Growth':'Inbox'))},recordedContacts:contacts,
-   sourceChoices:uncertain?refs.map(ref=>{const row=ref.table==='founder_research_records'?subset.founder.find(r=>r.id===ref.id):subset.lifecycle[ref.table as typeof tables[number]].find(r=>r.id===ref.id);return {label:text(row?.person)||text(row?.person_name)||text(row?.author_name)||text(row?.target_name)||text(row?.company)||'Recorded source',destination:sourceDestination(ref,ctx.policy.organisationId)};}):[]};
+   sourceChoices:refs.map(ref=>{const row=ref.table==='founder_research_records'?subset.founder.find(r=>r.id===ref.id):subset.lifecycle[ref.table as typeof tables[number]].find(r=>r.id===ref.id);return {label:text(row?.person)||text(row?.person_name)||text(row?.author_name)||text(row?.target_name)||text(row?.company)||'Recorded source',destination:sourceDestination(ref,ctx.policy.organisationId)};})};
   return {result,refs,labels:unique([...p.search.names,...p.search.companies,...p.search.emails,...p.search.linkedin,...refs.map(key),...truth.acceptedLocators,...contacts.flatMap(c=>[c.name||'',c.verifiedEmail||''])].filter(Boolean))};
  });
  return {entries,partition,readOnly:true as const};
@@ -67,7 +67,9 @@ export function relationshipDiscoveryInventory(ctx:DiscoveryContext){
 /** Future Finder entry point. Search labels discover existing partitions; never union them. */
 export function findRelationships(query:unknown,context:DiscoveryContext,prepared=relationshipDiscoveryInventory(context)){
  const raw=searchQuery(query),q=lifecycleLinkedInIdentity(raw)||raw,terms=q.split(/\s+/).filter(Boolean);
- return prepared.entries.filter(e=>terms.every(term=>normal(e.labels.join(' ')).includes(term))).map(e=>e.result);
+ const matched=new Set((context.currentSearchRefs||[]).map(key));
+ const rank=(e:DiscoveryEntry)=>!q?4:e.result.verifiedAliases.some(a=>a.type==='email'&&normal(a.value)===q)?0:e.result.verifiedAliases.some(a=>a.type==='linkedin'&&normal(a.value)===q)?1:normal(e.result.displayLabel)===q||e.result.recordedContacts.some(c=>normal(c.name||'')===q)?2:3;
+ return prepared.entries.filter(e=>terms.every(term=>normal(e.labels.join(' ')).includes(term))||e.refs.some(r=>matched.has(key(r)))).sort((a,b)=>rank(a)-rank(b)||a.result.displayLabel.localeCompare(b.result.displayLabel)||a.result.canonicalRelationshipId.localeCompare(b.result.canonicalRelationshipId)).map(e=>e.result);
 }
 
 /** Comparison is returned with the query, not persisted as telemetry or a priority engine. */
