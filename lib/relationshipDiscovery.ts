@@ -39,7 +39,8 @@ export function relationshipDiscoveryInventory(ctx:DiscoveryContext){
   const included=new Set(members),anchor=refs[0];
   // Evaluate each already-established partition on its own sources. This avoids
   // rebuilding the full inventory per result and cannot borrow neighbouring text.
-  const subset:TruthInput={...safe,lifecycle:Object.fromEntries(tables.map(t=>[t,safe.lifecycle[t].filter(r=>included.has(t+':'+r.id))])) as TruthInput['lifecycle'],founder:safe.founder.filter(r=>included.has('founder_research_records:'+r.id))};
+  const projected=partition.input;
+  const subset:TruthInput={...projected,lifecycle:Object.fromEntries(tables.map(t=>[t,projected.lifecycle[t].filter(r=>included.has(t+':'+r.id))])) as TruthInput['lifecycle'],founder:projected.founder.filter(r=>included.has('founder_research_records:'+r.id))};
   const truth=truthWithIdentityDecisions(subset,anchor,ctx.policy,decisions,{...partition,input:subset});
   const p=relationshipIdentityPresentation(truth),emails=new Set(truth.verifiedAliases.filter(a=>a.value.type==='email').map(a=>a.value.value));
   const contacts=safe.founder.flatMap(f=>Array.isArray(f.contacts)?f.contacts.flatMap(c=>{const contact=object(c),address=text(contact.directEmail).toLowerCase(),verified=contact.emailStatus==='verified'&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address);
