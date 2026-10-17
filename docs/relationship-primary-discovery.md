@@ -10,6 +10,8 @@ Existing Relationships output remains the only source for lifecycle label, next 
 
 `findRelationships(query, context)` in `relationshipDiscoveryOperations.ts` is the stable, read-only Finder-facing contract. Context is constructed server-side from tenant/Founder-filtered evidence, the decision ledger and existing operational projections. The response includes identity, aliases, source coverage, reconciliation/separation and explicit `operational.state` / `current` / `choices`. Ask Root is not connected to it.
 
+The top-level operational `destination` is null unless one safe current mapping exists. Context-only navigation is a distinct `contextDestination`; multiple mappings expose choices only. Future Finder cannot accidentally treat a default identity/source URL as a selected operational destination.
+
 ## Routing and ambiguity
 
 - Exactly one fully contained existing operational relationship: attach its existing fields and Open relationship URL. This may already have a durable workspace, or be the existing source-backed read-only relationship route. The latter is labelled explicitly; opening never creates a workspace.

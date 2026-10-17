@@ -3,7 +3,7 @@ import {findRelationships as findIdentities,relationshipDiscoveryInventory,type 
 import type {calculateValue} from '@/lib/relationshipValue';
 
 export type CurrentRelationshipOperation={refs:TruthRef[];label:string;destination:string;stage:string;nextAction:string|null;nextDueDate:string|null;retention:string;workspaceExists:boolean;conflict:boolean;value:ReturnType<typeof calculateValue>|null};
-export type PrimaryRelationshipResult=RelationshipDiscoveryResult&{operational:{state:'single'|'multiple'|'none';current:Omit<CurrentRelationshipOperation,'refs'|'conflict'>|null;choices:{label:string;destination:string}[]};emailCoverage:'verified_alias_recorded'|'not_established'};
+export type PrimaryRelationshipResult=Omit<RelationshipDiscoveryResult,'destination'>&{destination:string|null;contextDestination:string;operational:{state:'single'|'multiple'|'none';current:Omit<CurrentRelationshipOperation,'refs'|'conflict'>|null;choices:{label:string;destination:string}[]};emailCoverage:'verified_alias_recorded'|'not_established'};
 const key=(r:TruthRef)=>r.table+':'+r.id;
 function allowedDestination(value:string,result:RelationshipDiscoveryResult){
  if(!value.startsWith('/dashboard/growth/relationships/'))return false;
@@ -29,7 +29,7 @@ export function attachRelationshipOperations(result:RelationshipDiscoveryResult,
  // Unsafe legacy groups must not route back through a workspace spanning other
  // canonical identities. Exact source destinations remain available for review.
  if(unique.some(o=>!safe.includes(o)))for(const choice of result.sourceChoices)choices.push({...choice});
- return {...result,operational:{state:single?'single':unique.length?'multiple':'none',current,choices:[...new Map(choices.map(c=>[c.destination,c])).values()]},emailCoverage:result.verifiedAliases.some(a=>a.type==='email')?'verified_alias_recorded':'not_established'};
+ return {...result,destination:current?.destination||null,contextDestination:result.destination,operational:{state:single?'single':unique.length?'multiple':'none',current,choices:[...new Map(choices.map(c=>[c.destination,c])).values()]},emailCoverage:result.verifiedAliases.some(a=>a.type==='email')?'verified_alias_recorded':'not_established'};
 }
 
 /** Stable Finder-facing read-only contract, supplied with server-resolved operations. */
