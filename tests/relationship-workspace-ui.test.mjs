@@ -45,7 +45,9 @@ test("view briefings count stored evidence and tasks without inferring content o
 });
 
 test("list retains tenant-scoped server search, pagination and existing locator links without writes",async()=>{
- const requests=[],scheduled=[],result={items:[{...r,retention:"active",value:null}],total:30,storageAvailable:true};
+ const destination=`/dashboard/growth/relationships/${r.locator}?organisationId=${org}`;
+ const primary={canonicalRelationshipId:r.contactId,displayLabel:r.name,entityKind:"person_with_company",company:r.company,verifiedAliases:[],recordedContacts:[],sourceCoverage:{count:1,channels:["LinkedIn"]},ambiguity:{state:"established",possibleRecords:1,reasons:[]},reconciliationStatus:"unreviewed",emailCoverage:"not_established",sourceChoices:[],destination,contextDestination:destination,operational:{state:"single",current:{label:r.name,destination,stage:r.stage,nextAction:r.nextAction,nextDueDate:null,retention:"active",workspaceExists:false,value:null},choices:[]}};
+ const requests=[],scheduled=[],result={items:[primary],total:30,page:0,storageAvailable:true,available:true,notice:"",comparison:null,operationalAmbiguity:0};
  const List=load("app/dashboard/growth/relationships/components/RelationshipsList.tsx",{}, {AbortController,setTimeout:fn=>{scheduled.push(fn);return 1;},clearTimeout(){},fetch:async(url,opts)=>{requests.push({url,opts});return {ok:true,json:async()=>result};}}).default;
  let tree;await renderer.act(async()=>{tree=renderer.create(React.createElement(List,{organisationId:org,initial:result}));});
  await renderer.act(async()=>{scheduled.pop()();await Promise.resolve();});

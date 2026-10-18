@@ -1,0 +1,121 @@
+{
+  "mode": "READ_ONLY_PRIMARY_DISCOVERY_REPLAY",
+  "coverage": "Phase 6 identity-only snapshot; body search parity tested separately; authenticated Preview verification is reported separately.",
+  "currentInventory": 2411,
+  "phase6TruthGroups": 2479,
+  "primaryCards": 2532,
+  "uncertainCards": 237,
+  "unpackedUncertainSourceCards": 53,
+  "operationalMapping": {
+    "single": 2317,
+    "multiple": 204,
+    "none": 11
+  },
+  "sourceRecords": 2658,
+  "coveredSourceRecords": 2658,
+  "duplicateSourceMemberships": 0,
+  "lostCurrentResults": 0,
+  "probes": [
+    {
+      "case": "Tracy",
+      "facet": "name",
+      "current": 1,
+      "primary": 1,
+      "sourceCounts": [
+        1
+      ],
+      "single": 1,
+      "multiple": 0,
+      "contextOnly": 0,
+      "reconciled": 0,
+      "uncertain": 0,
+      "lostCurrentResults": 0
+    },
+    {
+      "case": "Tracy",
+      "facet": "email",
+      "current": 0,
+      "primary": 0,
+      "sourceCounts": [],
+      "single": 0,
+      "multiple": 0,
+      "contextOnly": 0,
+      "reconciled": 0,
+      "uncertain": 0,
+      "lostCurrentResults": 0
+    },
+    {
+      "case": "Simon",
+      "facet": "name",
+      "current": 0,
+      "primary": 2,
+      "sourceCounts": [
+        1,
+        1
+      ],
+      "single": 1,
+      "multiple": 0,
+      "contextOnly": 1,
+      "reconciled": 0,
+      "uncertain": 1,
+      "lostCurrentResults": 0
+    },
+    {
+      "case": "Frank",
+      "facet": "name",
+      "current": 3,
+      "primary": 3,
+      "sourceCounts": [
+        1,
+        1,
+        2
+      ],
+      "single": 3,
+      "multiple": 0,
+      "contextOnly": 0,
+      "reconciled": 1,
+      "uncertain": 0,
+      "lostCurrentResults": 0
+    },
+    {
+      "case": "Courtney",
+      "facet": "name",
+      "current": 1,
+      "primary": 2,
+      "sourceCounts": [
+        1,
+        1
+      ],
+      "single": 0,
+      "multiple": 2,
+      "contextOnly": 0,
+      "reconciled": 0,
+      "uncertain": 2,
+      "lostCurrentResults": 0
+    },
+    {
+      "case": "Tracy",
+      "facet": "linkedin",
+      "current": 1,
+      "primary": 1,
+      "sourceCounts": [
+        1
+      ],
+      "single": 1,
+      "multiple": 0,
+      "contextOnly": 0,
+      "reconciled": 0,
+      "uncertain": 0,
+      "lostCurrentResults": 0
+    }
+  ],
+  "unsupportedJoins": 0,
+  "separationViolations": 0,
+  "productionNegativeDecisionAvailable": false,
+  "negativeDecisionCoveredByFixtures": true,
+  "sourceMutation": false,
+  "operationalChanges": 0,
+  "newWorkspaces": 0,
+  "newDecisions": 0,
+  "ledgerRows": 1
+}
