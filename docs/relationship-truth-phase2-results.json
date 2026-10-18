@@ -1,0 +1,202 @@
+{
+  "base": "1df89477fc11ae399b099d07b0a70ca42043b4d4",
+  "decision": "NEEDS IDENTITY REPAIR FIRST",
+  "captureManifestVerified": true,
+  "asOf": "2026-10-16T11:27:40.25936+00:00",
+  "scope": "Whole captured tenant inventory; no mailbox import; no consumer changed; body-free metadata and SQL search-token hits.",
+  "sourceRows": {
+    "inbox_items": 179,
+    "growth_targets": 199,
+    "acquisition_items": 2267,
+    "relationship_tasks": 1,
+    "response_item_events": 12,
+    "acquisition_item_events": 37,
+    "founder_activity_events": 2,
+    "relationship_workspaces": 4,
+    "founder_research_records": 13,
+    "relationship_source_links": 4,
+    "email_conversation_messages": 68,
+    "relationship_activity_events": 8,
+    "linkedin_conversation_messages": 8
+  },
+  "currentInventoryCount": 2411,
+  "shadowGroupCount": 2481,
+  "persistedSourceCount": 2658,
+  "listInventory": {
+    "total": 2411,
+    "listed": 2411
+  },
+  "summary": {
+    "relationshipsEvaluated": 2411,
+    "fieldComparisons": 34888,
+    "agreements": 33064,
+    "differences": 1824,
+    "agreementRate": 0.9477184132079798,
+    "knownComparisons": 27980,
+    "knownAgreements": 26156,
+    "knownAgreementRate": 0.9348105789849893,
+    "disagreementCounts": {
+      "current_output_correct_shadow_wrong": 64,
+      "shadow_correct_current_output_wrong": 1170,
+      "insufficient_evidence": 325,
+      "historical_evidence_gap": 199,
+      "identity_ambiguity": 66
+    },
+    "newlyDiscoverableRecordCount": 1231,
+    "qualifiedActionRelationshipCount": 135,
+    "unavailableSearchFacetCount": 3688,
+    "identitySplitCount": 66,
+    "ambiguousJoinPairsWithheld": 85,
+    "currentRelationshipsShadowRefusesToAssociate": 66,
+    "proposedShadowJoinCount": 0,
+    "shadowOverlappingMembershipCount": 0,
+    "newlyDiscoverableRelationshipCount": 1175,
+    "unprojectedVerifiedFounderContacts": 4
+  },
+  "coverage": {
+    "tokenSearchCaptured": true,
+    "uniqueSearchTerms": 6065,
+    "calibrations": [
+      {
+        "queryRecord": "acquisition_e94ad9b1-6afb-4689-9bd7-06d75f1444c9",
+        "matches": true,
+        "expected": 2,
+        "actual": 2
+      },
+      {
+        "queryRecord": "acquisition_3d58755b-9a50-4e7c-9f7f-b859960c6c3e",
+        "matches": true,
+        "expected": 1,
+        "actual": 1
+      },
+      {
+        "queryRecord": "acquisition_50fbf788-37e2-4c10-a5cb-af2274b99767",
+        "matches": true,
+        "expected": 1,
+        "actual": 1
+      },
+      {
+        "queryRecord": "acquisition_704a470a-0e39-4267-8c49-543d913aef58",
+        "matches": true,
+        "expected": 1,
+        "actual": 1
+      },
+      {
+        "queryRecord": "acquisition_b0ecee67-e183-422f-8f18-1a1c57601ad1",
+        "matches": true,
+        "expected": 1,
+        "actual": 1
+      },
+      {
+        "queryRecord": "acquisition_46d56df9-13f1-4c99-a645-030ba7dc578a",
+        "matches": true,
+        "expected": 1,
+        "actual": 1
+      },
+      {
+        "queryRecord": "acquisition_d205b697-4d04-4940-b96e-df4fac420e95",
+        "matches": true,
+        "expected": 1,
+        "actual": 1
+      },
+      {
+        "queryRecord": "acquisition_b9861ead-020b-4154-8da0-55798638c076",
+        "matches": true,
+        "expected": 3,
+        "actual": 3
+      },
+      {
+        "queryRecord": "acquisition_d28a7550-7cf6-4832-a660-94eecccb592b",
+        "matches": true,
+        "expected": 1,
+        "actual": 1
+      },
+      {
+        "queryRecord": "target_35b6f97e-19df-4dc4-a3af-765e95f8283f",
+        "matches": true,
+        "expected": 24,
+        "actual": 24
+      },
+      {
+        "queryRecord": "acquisition_534937d6-5966-4022-9c9b-0dfcdd343a0c",
+        "matches": true,
+        "expected": 1,
+        "actual": 1
+      },
+      {
+        "queryRecord": "acquisition_34c7b2dc-6899-41c7-8ffa-6bb7a21fc8c7",
+        "matches": true,
+        "expected": 2,
+        "actual": 2
+      }
+    ],
+    "unsafeOrUnavailable": [],
+    "errors": []
+  },
+  "fieldBreakdown": {
+    "discoverability_email": {
+      "agreements": 15,
+      "differences": 1129
+    },
+    "source_membership": {
+      "agreements": 2345,
+      "differences": 66
+    },
+    "person_company": {
+      "agreements": 2394,
+      "differences": 17
+    },
+    "displayed_name": {
+      "agreements": 2377,
+      "differences": 34
+    },
+    "discoverability_name": {
+      "agreements": 2363,
+      "differences": 18
+    },
+    "displayed_company": {
+      "agreements": 2382,
+      "differences": 29
+    },
+    "actionable_state": {
+      "agreements": 2260,
+      "differences": 151
+    },
+    "next_action": {
+      "agreements": 2261,
+      "differences": 150
+    },
+    "due_date": {
+      "agreements": 2339,
+      "differences": 72
+    },
+    "verified_email_aliases": {
+      "agreements": 2401,
+      "differences": 10
+    },
+    "discoverability_company": {
+      "agreements": 2259,
+      "differences": 14
+    },
+    "lifecycle_stage": {
+      "agreements": 2396,
+      "differences": 15
+    },
+    "historical_evidence_gaps": {
+      "agreements": 2338,
+      "differences": 73
+    },
+    "discoverability_linkedin": {
+      "agreements": 113,
+      "differences": 45
+    },
+    "canonical_linkedin": {
+      "agreements": 2410,
+      "differences": 1
+    },
+    "identity_ambiguity": {
+      "agreements": 2411,
+      "differences": 0
+    }
+  }
+}
