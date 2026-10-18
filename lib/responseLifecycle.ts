@@ -6,6 +6,15 @@ const labels: Record<string, string> = { new: "New opportunity", reviewing: "Und
 
 /** Presentation and action eligibility only; relationship state comes from Phase 4L. */
 export function presentResponseLifecycle(relationship: Contact, item: LifecycleRow, threadContact?: Contact) {
+  // A handled social event is history even if another channel needs a reply.
+  // This changes only this Response, never the relationship's other channels.
+  if (item.platform !== "email" && ["comment", "dm", "mention", "reaction"].includes(String(item.kind)) && item.status === "archived" && item.response_state === "no_reply_needed") {
+    return { contactId: relationship.contactId, currentStage: "no_reply_needed", label: item.status === "archived" ? "Dismissed" : "No action due",
+      lastAction: { action: "response_state:no_reply_needed", at: typeof item.response_updated_at === "string" ? item.response_updated_at : null, table: "inbox_items" as const, id: item.id },
+      nextAction: null, nextDueDate: null, channel: String(item.platform), humanActionRequired: false, canDraft: false,
+      replyDetected: false, missingReplyText: false, linkedinNotificationId: null, draftOnRequest: false, actionItemId: null,
+      canMarkContacted: false, blockedReason: "This response needs no reply. Other relationship channels remain available." };
+  }
   // CRM identity stays contact-level. Email reply ownership and history are
   // derived from the exact Gmail thread, never another thread from this sender.
   const relationshipOverride = ["meeting", "converted", "lost", "nurture", "dismissed"].includes(relationship.currentStage) && relationship.actionRecord.table !== "inbox_items";

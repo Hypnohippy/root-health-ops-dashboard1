@@ -37,7 +37,8 @@ export function socialCommentOpportunity(item: LifecycleRow, profile: Generation
   const healthContext = /\b(health|healthcare|wellness|wellbeing|therapy|therapists?|therapeutic|medical|clinical|patients?|anxiety|depression|trauma|burnout|stress|adhd|autism|ptsd|ocd|panic|pain|illness|disorder|cancer|nursing|care homes?)\b/i.test(profileText + " " + context);
   const safetyRequired = healthContext || item.source_engine === "root_health_personal";
   const safetyVerified = !safetyRequired || (safety.public_context === true && safety.consumer_outreach === false && safety.health_targeting === false && safety.verified_direct_discussion === true && (!/\b(partner|partnership|collaborat\w*|referr\w*)\b/i.test(conversation) || safety.verified_public_business === true));
-  const sameThread = siblings.filter(row => row.organisation_id === item.organisation_id && row.platform === item.platform && row.kind === "comment" && !!item.post_id && row.post_id === item.post_id);
+  // A dismissed provider item is not evidence of a reply to another comment.
+  const sameThread = siblings.filter(row => !(row.status === "archived" && row.response_state === "no_reply_needed") && row.organisation_id === item.organisation_id && row.platform === item.platform && row.kind === "comment" && !!item.post_id && row.post_id === item.post_id);
   const firstOpen = sameThread.filter(row => !isHandled(row)).sort((a, b) => String(a.created_at_platform || a.id).localeCompare(String(b.created_at_platform || b.id)) || a.id.localeCompare(b.id))[0];
   const duplicateThread = sameThread.some(row => row.id !== item.id && isHandled(row)) || (!!firstOpen && firstOpen.id !== item.id);
   const terms = words(profileText).filter(word => words(context).includes(word)).slice(0, 8);

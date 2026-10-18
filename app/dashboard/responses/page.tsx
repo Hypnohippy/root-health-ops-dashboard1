@@ -1,6 +1,7 @@
 // app/dashboard/responses/page.tsx
 "use client";
 import "./responses.css";
+import { afterResponseCleanup, canDismissResponse, dismissalReasons, isSocialResponse } from "@/lib/responseCleanup";
 import { safeLinkedInFirstMessage } from "@/lib/responseContactContext";
 import ManualTakeover from "../components/ManualTakeover";
 
@@ -199,6 +200,9 @@ export default function ResponsesPage() {
   const [pulling, setPulling] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
   const [emailActionBusy, setEmailActionBusy] = useState(false);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupIds, setCleanupIds] = useState<string[]>([]);
+  const [dismissReason, setDismissReason] = useState("");
 
   const [error, setError] = useState<string | null>(null);
   const routeParams=useSearchParams();
@@ -410,6 +414,40 @@ if (kindFilter && it.kind !== kindFilter) return false;
   const selected = useMemo(() => {
     return filtered.find((x) => x.id === selectedId) || null;
   }, [filtered, selectedId]);
+
+  const selectedCleanupIds = filtered.filter(item => cleanupIds.includes(item.id) && canDismissResponse(item)).map(item => item.id);
+  const removeCleanedResponses = (ids: string[]) => {
+    // Invalidate in-flight loads so a pre-dismissal response cannot restore a card.
+    searchSequence.current++;
+    setLoading(false);
+    const next = afterResponseCleanup(items, filtered, selectedId, ids);
+    setItems(next.items); setSelectedId(next.selectedId);
+    setCleanupIds(prev => prev.filter(id => !ids.includes(id)));
+    setReplyDraft(""); setContactContext(null);
+    setSearchTotal(prev => Math.max(0, prev - ids.length));
+    setAttention(prev => {
+      if (!prev) return prev;
+      const removed = items.filter(item => ids.includes(item.id) && item.lifecycle?.humanActionRequired && item.lifecycle.currentStage === "needs_reply" && item.lifecycle.actionItemId === item.id &&
+        (item.lifecycle.replyDetected || item.kind === "dm" && !!item.text.trim()));
+      return { ...prev, count: Math.max(0, prev.count - removed.length), channels: Object.fromEntries(Object.entries(prev.channels).map(([channel, value]) => [channel, { ...value, count: Math.max(0, value.count - removed.filter(item => item.platform === channel).length) }])) };
+    });
+    window.dispatchEvent(new Event("responses-attention-changed"));
+  };
+
+  const dismissResponses = async (ids: string[]) => {
+    if (!ids.length || cleanupBusy) return;
+    setCleanupBusy(true); setError(null);
+    try {
+      const org = organisationId || await resolveOrg();
+      const res = await fetch("/api/responses/dismiss", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organisationId: org, ids, reason: dismissReason || null, idempotencyKey: crypto.randomUUID() }) });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Could not dismiss responses.");
+      removeCleanedResponses(data.dismissedIds);
+      setAiStatus(`${data.dismissedIds.length} response(s) dismissed.`);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not dismiss responses."); }
+    finally { setCleanupBusy(false); }
+  };
 
   useEffect(() => {
     const item = items.find((candidate) => candidate.id === selectedId);
@@ -834,11 +872,12 @@ const deleteSelectedResponse = async () => {
     }
 
     setShowDeleteConfirm(false);
-    setSelectedId(null);
+    if (selected.platform === "email") setSelectedId(null);
+    else removeCleanedResponses([selected.id]);
     setReplyDraft("");
     setContactContext(null);
     setAiStatus("Response permanently deleted.");
-    await load();
+    if (selected.platform === "email") await load();
   } catch (e) {
     setError(
       e instanceof Error
@@ -1039,6 +1078,12 @@ const deleteSelectedResponse = async () => {
 
         <div className="grid items-start gap-6 lg:grid-cols-3">
           <div aria-label="Response selection" className={wideWorkspace ? "min-w-0 lg:col-span-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 max-h-52 overflow-y-auto" : "lg:col-span-2 space-y-3"}>
+            {filtered.some(canDismissResponse) && <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 p-3 sm:col-span-2 xl:col-span-3">
+              <span className="text-sm">{selectedCleanupIds.length} selected</span>
+              <button type="button" disabled={cleanupBusy || !selectedCleanupIds.length} onClick={() => void dismissResponses(selectedCleanupIds)} className="rounded-xl bg-slate-700 px-3 py-2 text-sm disabled:opacity-50">Dismiss selected</button>
+              <button type="button" disabled={cleanupBusy} onClick={() => setCleanupIds(filtered.filter(canDismissResponse).map(item => item.id))} className="text-sm underline">Select visible social responses</button>
+              <button type="button" onClick={() => setCleanupIds([])} className="text-sm underline">Clear selection</button>
+            </div>}
             {query&&<div className="flex gap-3"><button disabled={!searchPage} onClick={()=>setSearchPage(p=>p-1)}>Previous search page</button><span>{searchTotal} historical matches</span><button disabled={(searchPage+1)*200>=searchTotal} onClick={()=>setSearchPage(p=>p+1)}>Next search page</button></div>}
             {!loading && filtered.length === 0 ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-300">
@@ -1046,9 +1091,11 @@ const deleteSelectedResponse = async () => {
               </div>
             ) : (
               filtered.map((it) => (
+                <div key={it.id} className="min-w-0">
+                {canDismissResponse(it) && <label className="mb-1 flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" aria-label={`Select response from ${it.authorName || it.authorHandle || it.id}`} disabled={cleanupBusy} checked={cleanupIds.includes(it.id)} onChange={e => setCleanupIds(prev => e.target.checked ? [...prev, it.id] : prev.filter(id => id !== it.id))} />Select for dismissal</label>}
                 <button
-                  key={it.id}
                   type="button"
+                  disabled={cleanupBusy}
                   onClick={(e) => {
                     e.preventDefault();
                     if (typeof window !== "undefined") listScrollYRef.current = window.scrollY || 0;
@@ -1112,6 +1159,7 @@ const deleteSelectedResponse = async () => {
                   <ResponseLifecycleDetails lifecycle={it.lifecycle} compact />
                   {it.platform === "email" && it.emailClassification ? <div className="mt-2 text-[11px] text-violet-200">{it.emailClassification.replaceAll("_", " ")} · {it.lifecycle?.label || "State unavailable"}</div> : null}
                 </button>
+                </div>
               ))
             )}
           </div>
@@ -1178,6 +1226,20 @@ const deleteSelectedResponse = async () => {
                     </div>
 
                     {!emailWorkspace && <div className="mt-3 text-sm whitespace-pre-wrap">{selected.text}</div>}
+                    {isSocialResponse(selected) && <section aria-label="Response cleanup" className="mt-4 rounded-xl border border-white/15 p-3">
+                      <h3 className="text-sm font-semibold">Response cleanup</h3>
+                      <p className="mt-1 text-xs text-slate-400">Dismiss removes this response from active work and keeps its history. The original social content and other relationship channels stay unchanged.</p>
+                      <label className="mt-3 block text-xs">Dismiss reason (optional)
+                        <select value={dismissReason} onChange={e => setDismissReason(e.target.value)} className="mt-1 block w-full rounded-lg border border-white/20 bg-slate-950 p-2 text-sm">
+                          <option value="">No reason selected</option>{dismissalReasons.map(reason => <option key={reason}>{reason}</option>)}
+                        </select>
+                      </label>
+                      <div className="mt-3 flex flex-wrap gap-3">
+                        {canDismissResponse(selected) && <button type="button" disabled={cleanupBusy || sendingReply || emailActionBusy} onClick={() => void dismissResponses([selected.id])} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold disabled:opacity-50">{cleanupBusy ? "Dismissing…" : "Dismiss"}</button>}
+                        <button type="button" disabled={cleanupBusy || sendingReply || emailActionBusy} onClick={() => setShowDeleteConfirm(true)} className="rounded-xl border border-red-400/30 px-3 py-2 text-sm text-red-200">Delete permanently</button>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-400">Permanent delete is for junk, tests or accidental imports. Pulled items may be imported again after deletion; use Dismiss to prevent resurfacing.</p>
+                    </section>}
                   {selected.platform === "email" ? <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-xs break-words"><div><b>Sender:</b> {selected.senderEmail || selected.authorHandle || "Unknown"}</div><div><b>Subject:</b> {selected.subject || "(no subject)"}</div><details className="mt-2 text-slate-400"><summary className="cursor-pointer">Email details</summary><div><b>Classification:</b> {(selected.emailClassification || "unclassified").replaceAll("_", " ")}</div><div><b>State:</b> {selected.lifecycle?.label || "State unavailable"}</div>{selected.emailDeliveryStatus ? <div><b>Delivery:</b> {selected.emailDeliveryStatus.replaceAll("_", " ")}</div> : null}{selected.outreachReference ? <div><b>Outreach:</b> {selected.outreachReference}</div> : null}{selected.emailThreadId ? <div><b>Thread:</b> {selected.emailThreadId}</div> : <div><b>Thread:</b> unavailable — engine will send safely without threading if supported</div>}</details></div> : null}
                     {selected.platform === "email" ? (
   <section
