@@ -27,6 +27,23 @@ const target=(fields={})=>({id:"target",organisation_id:org,linkedin_identity:"l
 const receipt=(at="2026-09-01",message="Hi Sarah, here is the wellbeing resource we discussed.")=>({key:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",actor:"verified-operator",completed_at:at,sent_at:new Date(at).toISOString(),historical_send_date_status:"verified",evidence:"Operator confirmed actual LinkedIn message sent",stage:"connection",message});
 const followup=(fields={},acceptedFields={})=>input({inbox_items:[acceptance("a",{created_at_platform:"2026-08-01",...acceptedFields})],growth_targets:[target({manual_completion:receipt(fields.last_action_at || "2026-09-01"),...fields})]});
 const work=(data,view="all")=>queue.linkedInOutreachQueue(org,data,now,view);
+
+test("recent import never disguises an unknown acceptance as fresh",()=>{
+ for(const created_at_platform of [null,"not a date","2026-10-09T12:00:00Z"]){
+  const result=work(input({inbox_items:[acceptance("a",{created_at_platform,inserted_at:"2026-10-08T11:59:00Z"})]}));
+  assert.equal(result.total,0);assert.equal(result.audit[0].eligibility,"acceptance timing unverified");
+ }
+});
+
+test("equivalent PostgreSQL receipt precision stays eligible; a real time conflict remains suppressed",()=>{
+ const at="2026-09-01T12:34:56.123456+00:00";
+ const saved={...receipt(at),sent_at:at,confirmed_at:at};
+ const data=followup({last_action_at:"2026-09-01T12:34:56.123+00:00",manual_completion:saved});
+ assert.equal(work(data).total,1);
+ data.growth_targets[0].last_action_at="2026-09-01T12:34:57.123+00:00";
+ assert.equal(work(data).total,0);
+ assert.equal(work(data).audit[0].eligibility,"conflicting lifecycle: cadence timestamp differs from confirmed send");
+});
 test("fresh and older accepted connections qualify; unknown acceptance timing needs reconciliation",()=>{
  const data=input({inbox_items:[acceptance(),acceptance("old",{created_at_platform:"2026-06-01"}),acceptance("unknown",{created_at_platform:null})]});
  assert.equal(work(data).items.length,2);assert.equal(work(data,"fresh").items.length,1);assert.equal(work(data,"catchup").items.length,1);

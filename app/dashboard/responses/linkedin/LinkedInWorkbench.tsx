@@ -5,12 +5,12 @@ import LinkedInHistoricalSend from "./LinkedInHistoricalSend";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openAndCopyLinkedIn } from "@/lib/linkedinClipboard";
 import { tenantFetch } from "@/lib/tenantFetch";
-import { selectedBatchId, removeBatchContact } from "@/lib/linkedinWorkbench";
+import { selectedBatchId, removeBatchContact, outreachDraftKey, outreachDateTime } from "@/lib/linkedinWorkbench";
 import type { LinkedInOutreachItem, OutreachView } from "@/lib/linkedinOutreach";
 
 type Queue = { audit?: Record<string, unknown>[]; reconciliationReasons?: Record<string, number>; identityReviewNeeded: number; unreconciledFollowups: number; items: LinkedInOutreachItem[]; revision: string; total: number; repliesNeedingAttention: number; organisationId: string };
 const button = "rounded-lg border border-white/20 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-40";
-const when = (value: string | null) => value ? new Date(value).toLocaleString("en-GB") : "Not recorded";
+const when = outreachDateTime;
 
 export function ContactCard({ item, queue, onNext, onReload, suspended, onWorking, initialMessage, onDraft }: { initialMessage: string; onDraft: (message: string) => void; onWorking: (working: boolean) => void; suspended: boolean; item: LinkedInOutreachItem; queue: Queue; onNext: (id: string, completed: boolean) => Promise<void>; onReload: () => Promise<void> }) {
   const [message, setMessage] = useState(initialMessage);
@@ -153,12 +153,12 @@ export default function LinkedInConsole() {
     skipped.current.push(id);
     const remaining = removeBatchContact(queue?.items || [], id);
     batchIds.current = new Set(remaining.items.map(i => i.contactId));
-    setQueue(current => current ? { ...current, items: remaining.items } : null);
+    setQueue(current => current ? { ...current, items: remaining.items, total: completed ? Math.max(0, current.total - 1) : current.total } : null);
     setSelection(remaining.selectedId);
     if (completed) await load();
   }
   const selected = queue?.items.find(i => i.contactId === selectedBatchId(queue.items, selection));
-  const draftKey = selected ? `${selected.contactId}:${selected.stage}` : "";
+  const draftKey = selected ? outreachDraftKey(selected) : "";
   const saveDraft = useCallback((message: string) => { drafts.current.set(draftKey, message); }, [draftKey]);
   const org = queue?.organisationId || "";
   const inbox = `/dashboard/responses${org ? `?organisationId=${encodeURIComponent(org)}` : ""}`;
@@ -180,7 +180,7 @@ export default function LinkedInConsole() {
         <BatchList items={queue?.items || []} selectedId={selected?.contactId || null} disabled={working || loading} onSelect={setSelection} />
         {!queue?.items.length && !loading && <p className="p-4 text-sm text-slate-400">No contacts in this batch.</p>}
       </section>
-      {selected && queue ? <ContactCard key={`${selected.contactId}:${selected.stage}`} item={selected} initialMessage={drafts.current.get(draftKey) || ""} onDraft={saveDraft} suspended={loading || !!error} onWorking={setWorking} queue={queue} onNext={next} onReload={load} /> : <section className="rounded-xl border border-white/15 p-6"><h2 className="text-xl">{loading ? "Loading batch…" : "Batch complete or no eligible contacts"}</h2><div className="mt-4 flex flex-wrap gap-2"><button className={button} disabled={loading} onClick={() => newBatch()}>Work next 10</button><button className={button} disabled={loading} onClick={() => newBatch(true)}>Include skipped contacts again</button></div></section>}
+      {selected && queue ? <ContactCard key={draftKey} item={selected} initialMessage={drafts.current.get(draftKey) || ""} onDraft={saveDraft} suspended={loading || !!error} onWorking={setWorking} queue={queue} onNext={next} onReload={load} /> : <section className="rounded-xl border border-white/15 p-6"><h2 className="text-xl">{loading ? "Loading batch…" : "Batch complete or no eligible contacts"}</h2><div className="mt-4 flex flex-wrap gap-2"><button className={button} disabled={loading} onClick={() => newBatch()}>Work next 10</button><button className={button} disabled={loading} onClick={() => newBatch(true)}>Include skipped contacts again</button></div></section>}
     </div>
     </>}
   </main>;

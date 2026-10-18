@@ -46,7 +46,7 @@ export function linkedInDayZeroMessage(context: DayZeroContext): string {
   const area = /\b(hr|human resources|people)\b/i.test(role) ? "your work in people and HR" : /\b(college|education|training|university)\b/i.test(role) ? "your work in education and training" : /\b(care|health|nurs\w*|clinical)\b/i.test(role) ? "your work in care and health" : `your work as ${role}`;
   // Prefer a natural role area; a company-only record stays grounded in the actual company.
   const anchor = role ? area : company ? `your work at ${company}` : "";
-  if (!anchor && category === "other") return `Hi ${first}, thanks for connecting. Good to be connected.`;
+  if (!anchor && category === "other") return `Hi ${first}, thanks for connecting. Just wanted to say hello.`;
   return `Hi ${first}, thanks for connecting. I noticed ${anchor || "your recorded professional background"} and ${angles[category]}. Good to be connected.`;
 }
 export function safeDayZeroMessage(draft: string, context: DayZeroContext) {
