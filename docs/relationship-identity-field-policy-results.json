@@ -1,0 +1,274 @@
+{
+  "policy": "relationship-identity-field-policy.md",
+  "mode": "shadow only; no real decisions",
+  "historicalMembershipAt": "2026-10-16T11:27:40.25936+00:00",
+  "supplementalSearchObservedAt": "2026-10-16T15:01:13.338804+00:00",
+  "atomic": false,
+  "limitation": "Historical source membership plus later ID/token-only search observation; intervening source edits cannot be excluded.",
+  "baseline": {
+    "relationshipsEvaluated": 2411,
+    "fieldComparisons": 34888,
+    "agreements": 33062,
+    "differences": 1826,
+    "agreementRate": 0.9476610869066728,
+    "knownComparisons": 27981,
+    "knownAgreements": 26155,
+    "knownAgreementRate": 0.9347414316857868,
+    "disagreementCounts": {
+      "current_output_correct_shadow_wrong": 64,
+      "shadow_correct_current_output_wrong": 1170,
+      "insufficient_evidence": 328,
+      "historical_evidence_gap": 199,
+      "identity_ambiguity": 65
+    },
+    "newlyDiscoverableRecordCount": 1231,
+    "qualifiedActionRelationshipCount": 135,
+    "unavailableSearchFacetCount": 3688,
+    "identitySplitCount": 65,
+    "ambiguousJoinPairsWithheld": 84,
+    "currentRelationshipsShadowRefusesToAssociate": 65,
+    "proposedShadowJoinCount": 0,
+    "shadowOverlappingMembershipCount": 0,
+    "newlyDiscoverableRelationshipCount": 1175,
+    "unprojectedVerifiedFounderContacts": 4
+  },
+  "scenarios": [
+    {
+      "choice": "review_later",
+      "simulation": true,
+      "notARealIdentityVerdict": true,
+      "hypotheticalDecisionCount": 71,
+      "summary": {
+        "relationshipsEvaluated": 2411,
+        "fieldComparisons": 34888,
+        "agreements": 33062,
+        "differences": 1826,
+        "agreementRate": 0.9476610869066728,
+        "knownComparisons": 27981,
+        "knownAgreements": 26155,
+        "knownAgreementRate": 0.9347414316857868,
+        "disagreementCounts": {
+          "current_output_correct_shadow_wrong": 64,
+          "shadow_correct_current_output_wrong": 1170,
+          "insufficient_evidence": 328,
+          "historical_evidence_gap": 199,
+          "identity_ambiguity": 65
+        },
+        "newlyDiscoverableRecordCount": 1231,
+        "qualifiedActionRelationshipCount": 135,
+        "unavailableSearchFacetCount": 3688,
+        "identitySplitCount": 65,
+        "ambiguousJoinPairsWithheld": 84,
+        "currentRelationshipsShadowRefusesToAssociate": 65,
+        "proposedShadowJoinCount": 0,
+        "shadowOverlappingMembershipCount": 0,
+        "newlyDiscoverableRelationshipCount": 1175,
+        "unprojectedVerifiedFounderContacts": 4
+      },
+      "searchCoverage": {
+        "unassessedSearchProbeCount": 0,
+        "uncapturedSearchTermCount": 0,
+        "searchCoverageComplete": true
+      },
+      "identityGroups": 2480,
+      "newlyJoinedSourcePairs": 0,
+      "unsupportedJoinCount": 0,
+      "separationViolations": 0,
+      "quarantinedAliasCount": 0,
+      "reviewedGroupCount": 0,
+      "unreviewedHumanGroups": 52,
+      "currentCorrectShadowWrongIncrease": 0,
+      "discoverabilityGain": 0
+    },
+    {
+      "choice": "keep_separate",
+      "simulation": true,
+      "notARealIdentityVerdict": true,
+      "hypotheticalDecisionCount": 71,
+      "summary": {
+        "relationshipsEvaluated": 2411,
+        "fieldComparisons": 34888,
+        "agreements": 32971,
+        "differences": 1917,
+        "agreementRate": 0.9450527401972024,
+        "knownComparisons": 27996,
+        "knownAgreements": 26079,
+        "knownAgreementRate": 0.9315259322760394,
+        "disagreementCounts": {
+          "current_output_correct_shadow_wrong": 64,
+          "shadow_correct_current_output_wrong": 1170,
+          "insufficient_evidence": 419,
+          "historical_evidence_gap": 199,
+          "identity_ambiguity": 65
+        },
+        "newlyDiscoverableRecordCount": 1231,
+        "qualifiedActionRelationshipCount": 166,
+        "unavailableSearchFacetCount": 3688,
+        "identitySplitCount": 65,
+        "ambiguousJoinPairsWithheld": 84,
+        "currentRelationshipsShadowRefusesToAssociate": 65,
+        "proposedShadowJoinCount": 0,
+        "shadowOverlappingMembershipCount": 0,
+        "newlyDiscoverableRelationshipCount": 1175,
+        "unprojectedVerifiedFounderContacts": 4
+      },
+      "searchCoverage": {
+        "unassessedSearchProbeCount": 0,
+        "uncapturedSearchTermCount": 0,
+        "searchCoverageComplete": true
+      },
+      "identityGroups": 2480,
+      "newlyJoinedSourcePairs": 0,
+      "unsupportedJoinCount": 0,
+      "separationViolations": 0,
+      "quarantinedAliasCount": 0,
+      "reviewedGroupCount": 52,
+      "unreviewedHumanGroups": 0,
+      "currentCorrectShadowWrongIncrease": 0,
+      "discoverabilityGain": 0
+    },
+    {
+      "choice": "same_relationship",
+      "simulation": true,
+      "notARealIdentityVerdict": true,
+      "hypotheticalDecisionCount": 71,
+      "summary": {
+        "relationshipsEvaluated": 2411,
+        "fieldComparisons": 34888,
+        "agreements": 32978,
+        "differences": 1910,
+        "agreementRate": 0.9452533822517771,
+        "knownComparisons": 27996,
+        "knownAgreements": 26086,
+        "knownAgreementRate": 0.931775967995428,
+        "disagreementCounts": {
+          "current_output_correct_shadow_wrong": 65,
+          "shadow_correct_current_output_wrong": 1201,
+          "insufficient_evidence": 431,
+          "historical_evidence_gap": 200,
+          "identity_ambiguity": 13
+        },
+        "newlyDiscoverableRecordCount": 1302,
+        "qualifiedActionRelationshipCount": 166,
+        "unavailableSearchFacetCount": 3688,
+        "identitySplitCount": 13,
+        "ambiguousJoinPairsWithheld": 13,
+        "currentRelationshipsShadowRefusesToAssociate": 13,
+        "proposedShadowJoinCount": 0,
+        "shadowOverlappingMembershipCount": 0,
+        "newlyDiscoverableRelationshipCount": 1194,
+        "unprojectedVerifiedFounderContacts": 4
+      },
+      "searchCoverage": {
+        "unassessedSearchProbeCount": 0,
+        "uncapturedSearchTermCount": 0,
+        "searchCoverageComplete": true
+      },
+      "identityGroups": 2424,
+      "newlyJoinedSourcePairs": 71,
+      "unsupportedJoinCount": 0,
+      "separationViolations": 0,
+      "quarantinedAliasCount": 0,
+      "reviewedGroupCount": 52,
+      "unreviewedHumanGroups": 0,
+      "currentCorrectShadowWrongIncrease": 1,
+      "discoverabilityGain": 71
+    }
+  ],
+  "supplementalProbes": [
+    {
+      "currentId": "acquisition_c35f5437-7b76-4179-a5bb-beb834070e4c",
+      "facet": "name",
+      "query": "ross abbate",
+      "currentFound": false,
+      "shadowFound": true,
+      "hypotheticalOnly": true
+    },
+    {
+      "currentId": "acquisition_dcd22b6f-9ab7-4877-b699-60704aeafb44",
+      "facet": "name",
+      "query": "vicki hooper",
+      "currentFound": false,
+      "shadowFound": true,
+      "hypotheticalOnly": true
+    },
+    {
+      "currentId": "acquisition_dcd22b6f-9ab7-4877-b699-60704aeafb44",
+      "facet": "company",
+      "query": "unipart group",
+      "currentFound": false,
+      "shadowFound": true,
+      "hypotheticalOnly": true
+    },
+    {
+      "currentId": "acquisition_dcd22b6f-9ab7-4877-b699-60704aeafb44",
+      "facet": "company",
+      "query": "unipart logistics",
+      "currentFound": false,
+      "shadowFound": true,
+      "hypotheticalOnly": true
+    },
+    {
+      "currentId": "acquisition_5ffcfb22-134c-4891-9509-1b8bd87f1537",
+      "facet": "company",
+      "query": "leviton manufacturing uk limited (leviton network solutions europe)",
+      "currentFound": false,
+      "shadowFound": true,
+      "hypotheticalOnly": true
+    },
+    {
+      "currentId": "acquisition_968d12bc-b913-4293-8cfc-57677eab5303",
+      "facet": "name",
+      "query": "steve jackaman",
+      "currentFound": false,
+      "shadowFound": true,
+      "hypotheticalOnly": true
+    },
+    {
+      "currentId": "acquisition_ca68b40e-16a2-4f88-beb6-890d6da0086e",
+      "facet": "name",
+      "query": "jamie corser",
+      "currentFound": false,
+      "shadowFound": true,
+      "hypotheticalOnly": true
+    },
+    {
+      "currentId": "acquisition_704a470a-0e39-4267-8c49-543d913aef58",
+      "facet": "name",
+      "query": "elissa macgregor",
+      "currentFound": false,
+      "shadowFound": true,
+      "hypotheticalOnly": true
+    },
+    {
+      "currentId": "acquisition_1eefcc8c-3684-4439-a478-84d227612913",
+      "facet": "name",
+      "query": "kata escott",
+      "currentFound": false,
+      "shadowFound": true,
+      "hypotheticalOnly": true
+    },
+    {
+      "currentId": "acquisition_1eefcc8c-3684-4439-a478-84d227612913",
+      "facet": "company",
+      "query": "airbus defence and space ltd – uk (stevenage site)",
+      "currentFound": false,
+      "shadowFound": true,
+      "hypotheticalOnly": true
+    },
+    {
+      "currentId": "acquisition_9d05addf-e294-4cca-8d06-d245460c97e9",
+      "facet": "name",
+      "query": "rob luijten",
+      "currentFound": false,
+      "shadowFound": true,
+      "hypotheticalOnly": true
+    }
+  ],
+  "actualProductionGroupsResolved": 0,
+  "recommendation": "NEEDS MORE IDENTITY POLICY WORK",
+  "remainingDisplayDifference": {
+    "source": "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c",
+    "reason": "Resolved group is person-shaped with company only; legacy UI displays company as contact name. Policy refuses to manufacture a person name. Existing parity classifier retains this as current-correct/shadow-wrong pending explicit entity/display policy review."
+  }
+}

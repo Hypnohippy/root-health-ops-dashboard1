@@ -1,8 +1,8 @@
 /** Whole-inventory local replay. Reads only a body-free SELECT export; no Production client. */
 import fs from 'node:fs';
 import {loadTruthModule} from '../tests/relationship-truth-loader.mjs';
-const [snapshotPath,outputPath,asOf,hitsPath,probesPath,manifestPath,identityMode]=process.argv.slice(2);
-if(identityMode&&identityMode!=='--identity-shadow')throw Error('Unsupported isolated shadow mode');
+const [snapshotPath,outputPath,asOf,hitsPath,probesPath,manifestPath,identityMode,decisionPath]=process.argv.slice(2);
+if(identityMode&&!['--identity-shadow','--human-shadow'].includes(identityMode))throw Error('Unsupported isolated shadow mode');
 if(!snapshotPath||!outputPath||!Number.isFinite(Date.parse(asOf)))throw Error('Usage: snapshot output asOf [source-token-hits.json] [probe-output.json]');
 const snapshot=JSON.parse(fs.readFileSync(snapshotPath,'utf8'));
 const org='78fa2ac8-e7b6-4b9b-9604-035723ece6b1';
@@ -20,15 +20,23 @@ const {cadenceDays,legacyCadenceStages}=loadTruthModule('lib/growthOutreach.ts')
 const parity=loadTruthModule('lib/relationshipTruthParity.ts');
 const policy={organisationId:org,founderAllowed:true,asOf,partialSources:['mailbox completeness not established; body-free replay']};
 const input={lifecycle:raw,founder:snapshot.founder_research_records,founderActivities:snapshot.founder_activity_events,emailMessages:snapshot.email_conversation_messages,linkedinMessages:snapshot.linkedin_conversation_messages,workspaces:snapshot.relationship_workspaces,links:snapshot.relationship_source_links,activities:snapshot.relationship_activity_events,tasks:snapshot.relationship_tasks,acquisitionEvents:snapshot.acquisition_item_events,responseEvents:snapshot.response_item_events};
-const identity=identityMode?loadTruthModule('lib/relationshipIdentityEvidence.ts'):null;
+const identity=identityMode==='--identity-shadow'?loadTruthModule('lib/relationshipIdentityEvidence.ts'):null;
 const identityPlan=identity?.prepareIdentityShadow(input,policy);
-const projectTruth=anchor=>identity?identity.relationshipTruthIdentityShadow(input,anchor,policy,identityPlan).truth:relationshipTruth(input,anchor,policy);
+const human=identityMode==='--human-shadow'?loadTruthModule('lib/relationshipIdentityReconciliation.ts'):null;
+const decisions=human?JSON.parse(fs.readFileSync(decisionPath,'utf8')):[];
+const humanPlan=human?.identityDecisionPartition(input,policy,decisions);
+const projectTruth=anchor=>human?human.truthWithIdentityDecisions(input,anchor,policy,decisions,humanPlan):identity?identity.relationshipTruthIdentityShadow(input,anchor,policy,identityPlan).truth:relationshipTruth(input,anchor,policy);
 
 const current=projectRelationships(org,projected,input.founder);
 const ctx={tenant:{organisationId:org,userId:'owner-audit',role:'owner'},input:projected,founder:input.founder,canFounder:true,items:current,workspaces:input.workspaces,links:input.links,models:[],values:[],storageAvailable:true};
 const refs=new Map([...tables.flatMap(t=>raw[t].map(r=>[t+':'+r.id,r])),...input.founder.map(r=>['founder_research_records:'+r.id,r])]);
 
 const tokenHits=hitsPath?JSON.parse(fs.readFileSync(hitsPath,'utf8')):null;
+const manifest=manifestPath?JSON.parse(fs.readFileSync(manifestPath,'utf8')):null;
+const capturedTerms=new Set(manifest?.terms||[]);
+// Supplemental probes are a later read-only observation, never an atomic historical recapture.
+if(manifest?.supplementalCapturedAt)console.error('Supplemental search observation: '+manifest.supplementalCapturedAt+'; source membership remains historical');
+const supportedQuery=human&&manifest?q=>q.trim().normalize('NFKC').toLowerCase().split(/\s+/).every(t=>capturedTerms.has(t)):undefined;
 const tokenSets=new Map(Object.entries(tokenHits||{}).map(([k,v])=>[k,new Set(v)]));
 const shadowBySource=new Map(),groups=new Map(),errors=[],overlaps=[];
 let computed=0;
@@ -76,7 +84,7 @@ for(const r of current){
  });
  view.evidenceIds=parity.uniqueStrings([...view.evidenceIds,...view.confirmedAnchorEvidenceIds]);
  for(const q of [...view.nameProbes,...view.companyProbes,...view.emailProbes,...view.linkedinProbes,...shadow.nameProbes,...shadow.companyProbes,...shadow.emailProbes,...shadow.linkedinProbes].filter(q=>q.length<=200))for(const term of q.trim().normalize('NFKC').toLowerCase().split(/\s+/))allTokens.add(term);
- const comparison=parity.compareInventoryParity(view,truth,q=>tokenHits?termHits(r,q):false);
+ const comparison=parity.compareInventoryParity(view,truth,q=>tokenHits?termHits(r,q):false,supportedQuery);
  if(!tokenHits){comparison.checks=comparison.checks.filter(c=>!c.field.startsWith('discoverability_'));comparison.differences=comparison.differences.filter(c=>!c.field.startsWith('discoverability_'));comparison.newDiscovery=false;}
  results.push({...comparison,anchor:truth.anchor,shadowGroup:shadowBySource.get(parity.refKey(primary)),allShadowGroups:signatures,shadowIssues:{contradictions:truth.contradictions.map(i=>i.code),gaps:truth.missingEvidence.map(i=>i.code)}});
  for(const ref of r.refs){const k=parity.refKey(ref),set=currentGroupMap.get(k)||new Set();set.add(r.locator);currentGroupMap.set(k,set);}
@@ -108,8 +116,11 @@ if(tokenHits){for(const r of current.filter((_,i)=>i%Math.max(1,Math.floor(curre
  const actual=[];for(let page=0;;page++){const result=listRelationships(searchCtx,q,'all',page);actual.push(...result.items.map(i=>i.locator));if(actual.length>=result.total||!result.items.length)break;}
  calibrations.push({queryRecord:r.locator,matches:JSON.stringify(expected)===JSON.stringify(actual.sort()),expected:expected.length,actual:actual.length});
 }}
-const manifest=manifestPath?JSON.parse(fs.readFileSync(manifestPath,'utf8')):null;
-if(manifest&&(Date.parse(manifest.capturedAt)!==Date.parse(asOf)||[...allTokens].some(t=>!manifest.terms.includes(t))))throw Error('Snapshot timestamp or search probe coverage mismatch');
-const output={captureManifestVerified:!!manifest,asOf,scope:'Whole captured tenant inventory; no mailbox import; no consumer changed; body-free metadata and SQL search-token hits.',sourceRows:Object.fromEntries(Object.entries(snapshot).map(([k,v])=>[k,v.length])),currentInventoryCount:current.length,shadowGroupCount:groups.size,persistedSourceCount:refs.size,listInventory:{total:listTotal,listed},summary:{...summary,...identityMetrics,newlyDiscoverableRecordCount:globalDiscoveryRecords.size,newlyDiscoverableRelationshipCount:globalDiscoveryGroups.size,proposedShadowJoinCount:mergedCandidates.length,shadowOverlappingMembershipCount:new Set(overlaps).size,unprojectedVerifiedFounderContacts:founderContactCoverage.filter(c=>!c.hasOperationalPerson).length},coverage:{tokenSearchCaptured:!!tokenHits,uniqueSearchTerms:allTokens.size,calibrations,unsafeOrUnavailable:unavailable,errors},results};
+const uncapturedTerms=[...allTokens].filter(t=>!capturedTerms.has(t));
+if(manifest&&(Date.parse(manifest.capturedAt)!==Date.parse(asOf)||!human&&uncapturedTerms.length))throw Error('Snapshot timestamp or search probe coverage mismatch');
+const unassessedSearchProbeCount=results.reduce((n,r)=>n+(r.unassessedSearchProbes?.length||0),0);
+if(human&&uncapturedTerms.length&&!unassessedSearchProbeCount)throw Error('Unsupported search probes were not explicitly excluded');
+const output={captureManifestVerified:!!manifest,asOf,scope:'Whole captured tenant inventory; no mailbox import; no consumer changed; body-free metadata and SQL search-token hits.',sourceRows:Object.fromEntries(Object.entries(snapshot).map(([k,v])=>[k,v.length])),currentInventoryCount:current.length,shadowGroupCount:groups.size,persistedSourceCount:refs.size,listInventory:{total:listTotal,listed},summary:{...summary,...identityMetrics,newlyDiscoverableRecordCount:globalDiscoveryRecords.size,newlyDiscoverableRelationshipCount:globalDiscoveryGroups.size,proposedShadowJoinCount:mergedCandidates.length,shadowOverlappingMembershipCount:new Set(overlaps).size,unprojectedVerifiedFounderContacts:founderContactCoverage.filter(c=>!c.hasOperationalPerson).length},coverage:{unassessedSearchProbeCount,uncapturedSearchTermCount:manifest?uncapturedTerms.length:null,searchCoverageComplete:!!manifest&&!uncapturedTerms.length,tokenSearchCaptured:!!tokenHits,uniqueSearchTerms:allTokens.size,calibrations,unsafeOrUnavailable:unavailable,errors},results};
 fs.writeFileSync(outputPath,JSON.stringify(output,null,2));
 console.log(JSON.stringify({...output,results:undefined},null,2));
+

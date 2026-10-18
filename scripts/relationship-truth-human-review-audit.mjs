@@ -1,0 +1,31 @@
+/** Phase 4A local-only replay. Decisions are labelled hypothetical, never Production instructions. */
+import fs from 'node:fs';import {spawnSync} from 'node:child_process';import {loadTruthModule} from '../tests/relationship-truth-loader.mjs';
+const [snapshotPath,beforePath,hitsPath,manifestPath,artifactPrefix,outputPath]=process.argv.slice(2);if(!outputPath)throw Error('Usage: snapshot phase3Comparison searchHits manifest artifactPrefix report');
+const snapshot=JSON.parse(fs.readFileSync(snapshotPath,'utf8')),before=JSON.parse(fs.readFileSync(beforePath,'utf8')),manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8'));
+if(!before.captureManifestVerified||Date.parse(before.asOf)!==Date.parse(manifest.capturedAt))throw Error('Atomic baseline required');
+const input={lifecycle:snapshot,founder:snapshot.founder_research_records,founderActivities:snapshot.founder_activity_events,emailMessages:snapshot.email_conversation_messages,linkedinMessages:snapshot.linkedin_conversation_messages,workspaces:snapshot.relationship_workspaces,links:snapshot.relationship_source_links,activities:snapshot.relationship_activity_events,tasks:snapshot.relationship_tasks,acquisitionEvents:snapshot.acquisition_item_events,responseEvents:snapshot.response_item_events};
+const m=loadTruthModule('lib/relationshipIdentityReconciliation.ts'),policy={organisationId:'78fa2ac8-e7b6-4b9b-9604-035723ece6b1',founderAllowed:true,asOf:before.asOf};
+const projection=m.reconciliationCandidates(input,policy),baselineGroups=new Set(before.results.flatMap(r=>r.allShadowGroups));
+if(projection.partition.groups.length!==baselineGroups.size||projection.partition.groups.some(g=>!baselineGroups.has(g.join('|'))))throw Error('Graph differs from Phase 3 baseline');
+if(projection.groupCount!==52||projection.candidates.length!==71)throw Error('Expected Phase 3 review coverage changed');
+const scenarios=[];
+for(const choice of ['review_later','keep_separate','same_relationship']) {
+ const decisions=projection.candidates.map((c,i)=>m.hypotheticalDecision(c,choice,{organisationId:policy.organisationId,userId:'REPLAY-ONLY-NOT-A-PRODUCTION-DECISION'},policy.asOf,{id:'hypothetical:phase4a-'+choice+'-'+i,revision:1,confirmed:true,candidateRevision:c.revision,evidenceIdsShown:c.evidenceIds,note:'Counterfactual coverage test only. Does not establish any real identity.'}));
+ const plan=m.identityDecisionPartition(input,policy,decisions),decisionsPath=artifactPrefix+'-'+choice+'-decisions.json',afterPath=artifactPrefix+'-'+choice+'-parity.json';
+ fs.writeFileSync(decisionsPath,JSON.stringify(decisions));
+ const run=spawnSync(process.execPath,['scripts/relationship-truth-parity-audit.mjs',snapshotPath,afterPath,before.asOf,hitsPath,artifactPrefix+'-'+choice+'-probes.json',manifestPath,'--human-shadow',decisionsPath],{stdio:'inherit'});if(run.status!==0)throw Error('Scenario replay failed '+choice);
+ const after=JSON.parse(fs.readFileSync(afterPath,'utf8'));
+ const oldRef=new Map([...baselineGroups].flatMap((g,i)=>g.split('|').map(ref=>[ref,i]))),parent=new Map([...oldRef.values()].map(i=>[i,i]));
+ const root=i=>parent.get(i)===i?i:root(parent.get(i));
+ for(const d of decisions.filter(d=>d.decision==='same_relationship')){const a=oldRef.get(d.sourceRefA.table+':'+d.sourceRefA.id),b=oldRef.get(d.sourceRefB.table+':'+d.sourceRefB.id);parent.set(root(a),root(b));}
+ const newPairs=[];let unsupported=0;
+ for(const g of plan.groups)for(let i=0;i<g.length;i++)for(let j=i+1;j<g.length;j++){const a=oldRef.get(g[i]),b=oldRef.get(g[j]);if(a===b)continue;const authorised=root(a)===root(b);if(!authorised)unsupported++;newPairs.push({sourceRefs:[g[i],g[j]],hypotheticalAuthority:authorised});}
+ if(unsupported)throw Error('STOP: join has no explicit hypothetical decision authority');
+ let separationViolations=0;for(const d of decisions.filter(d=>d.decision==='keep_separate'))if(plan.byRef.get(d.sourceRefA.table+':'+d.sourceRefA.id)===plan.byRef.get(d.sourceRefB.table+':'+d.sourceRefB.id))separationViolations++;
+ if(separationViolations||after.summary.shadowOverlappingMembershipCount)throw Error('STOP: separation or overlap invariant failed');
+ scenarios.push({choice,simulation:true,notARealIdentityVerdict:true,hypotheticalDecisionCount:decisions.length,summary:after.summary,searchCoverage:after.coverage,identityGroups:plan.groups.length,newlyJoinedSourcePairs:newPairs.length,unsupportedJoinCount:unsupported,separationViolations,quarantinedAliasCount:plan.quarantinedAliases.length,reviewedGroupCount:choice==='review_later'?0:projection.groupCount,unreviewedHumanGroups:choice==='review_later'?projection.groupCount:0,currentCorrectShadowWrongIncrease:after.summary.disagreementCounts.current_output_correct_shadow_wrong-before.summary.disagreementCounts.current_output_correct_shadow_wrong,discoverabilityGain:after.summary.newlyDiscoverableRecordCount-before.summary.newlyDiscoverableRecordCount});
+}
+const later=scenarios.find(s=>s.choice==='review_later');if(later.identityGroups!==baselineGroups.size||later.newlyJoinedSourcePairs)throw Error('Review later changed baseline identity grouping');
+const report={base:'e6efbaf7f7180c4caab7be6e255cf928dad3804e',decision:'NEEDS MORE IDENTITY POLICY WORK',captureAt:before.asOf,mode:'synthetic/replay only; no real human decisions',baseline:before.summary,eligibleHumanGroups:projection.groupCount,eligibleSourcePairs:projection.candidates.length,sameAllowedPairs:projection.candidates.filter(c=>c.sameAllowed).length,actualProductionGroupsResolved:0,realGroupsStillAwaitingHumanReview:projection.groupCount,candidates:projection.candidates.map(c=>({id:c.id,groupIds:c.groupIds,sourceRefs:[c.left.ref,c.right.ref],sameAllowed:c.sameAllowed,blockedReason:c.blockedReason,evidenceIds:c.evidenceIds})),scenarios,limitations:['All-same is an upper-bound counterfactual, not approval that these contacts are the same.','All-separate is a counterfactual, not a real operator decision.','No operational data, sources, decisions, links or workspace history were written.','Known current-correct/shadow-wrong issues and lifecycle scope disagreements require review before consumer integration.']};
+fs.writeFileSync(outputPath,JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify({...report,candidates:undefined},null,2));
+
