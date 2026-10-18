@@ -35,8 +35,9 @@ function selected(ctx:Context,locator:string) {
  const workspace=id?ctx.workspaces.find(w=>w.id===id)||null:null;
  return {relationship,workspace};
 }
-export function listRelationships(ctx:Context,q:unknown,view:string,page:number) {
- if(!Number.isInteger(page)||page<0)throw Error("Invalid search page.");const query=searchQuery(q);
+/** The same existing list projection, before pagination; read-only discovery comparison only. */
+export function relationshipListInventory(ctx:Context,q:unknown,view:string) {
+ const query=searchQuery(q);
  const items=ctx.items.flatMap(r=>{let id:string|null=null,conflict=false;try{id=matchingWorkspace(r.refs,ctx.links);}catch{conflict=true;}
  const w=ctx.workspaces.find(w=>w.id===id);
  const closed=["lost","converted","dismissed"].includes(r.stage);
@@ -45,6 +46,11 @@ export function listRelationships(ctx:Context,q:unknown,view:string,page:number)
  if(!matchesSearch({person:r.name,company:r.company,role_title:r.role},query,extra))return[];
  const latest=ctx.values.filter(v=>v.workspace_id===id).sort((a,b)=>String(b.recorded_at).localeCompare(String(a.recorded_at))||String(b.id).localeCompare(String(a.id)))[0];
  return [{...r,refs:undefined,founderIds:undefined,locator:id?`workspace_${id}`:r.locator,retention:String(w?.retention||"active"),conflict,value:latest?.result||null}];});
+ return items;
+}
+export function listRelationships(ctx:Context,q:unknown,view:string,page:number) {
+ if(!Number.isInteger(page)||page<0)throw Error("Invalid search page.");
+ const items=relationshipListInventory(ctx,q,view);
  return {items:items.slice(page*25,page*25+25),total:items.length,page,storageAvailable:ctx.storageAvailable};
 }
 export async function getRelationship(tenant:RelationshipTenant,locator:string) {
