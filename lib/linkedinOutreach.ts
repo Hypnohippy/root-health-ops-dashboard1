@@ -95,10 +95,11 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
     if (first && (truth.hasConfirmedSend || rows.some(r => r.linkedin_previously_contacted || r.contacted_at || r.last_replied_at || r.last_action_at || r.manual_completion || r.status === "replied"))) return reject("conflicting lifecycle: prior contact prevents first message");
     if (!first && (!truth.hasConfirmedSend || !previousOutbound)) return reject("outbound history incomplete");
     if (!first && (contact.followUpStatus !== "due" || row.stage === "connection")) return reject("follow-up not due or connection stage");
-    if (!first && !(firstSendEvidence(row.manual_completion,now).status !== "verified" && firstSendEvidence(row.linkedin_cadence_anchor,now).status === "verified") && date(row.last_action_at) !== previousOutbound?.sentAt) return reject("conflicting lifecycle: cadence timestamp differs from confirmed send");
-    if (!date(acceptance.created_at_platform || acceptance.inserted_at) || Date.parse(String(acceptance.created_at_platform || acceptance.inserted_at)) > now) return reject("acceptance timing unverified");
+    if (!first && !(firstSendEvidence(row.manual_completion,now).status !== "verified" && firstSendEvidence(row.linkedin_cadence_anchor,now).status === "verified") && date(row.last_action_at) !== date(previousOutbound?.sentAt)) return reject("conflicting lifecycle: cadence timestamp differs from confirmed send");
+    // Import time is not evidence of when the connection was accepted.
+    if (!date(acceptance.created_at_platform) || Date.parse(String(acceptance.created_at_platform)) > now) return reject("acceptance timing unverified");
     if (!planManualCompletion(organisationId, input, table, row.id).allowed) return reject("manual governor refused");
-    const connectedAt = date(acceptance?.created_at_platform || acceptance?.inserted_at);
+    const connectedAt = date(acceptance.created_at_platform);
     const fresh = linkedInConnectionMode(connectedAt, now) === "fresh";
     const mode = first ? fresh ? "fresh" : "catchup" : "followups";
     if (view !== "all" && view !== mode) return reject("different view");

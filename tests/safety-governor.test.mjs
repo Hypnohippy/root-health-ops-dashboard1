@@ -4,6 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import { PGlite } from "@electric-sql/pglite";
+import { loadTruthModule } from "./relationship-truth-loader.mjs";
 function load(file, deps = {}) {
  const mod = { exports: {} };
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
@@ -195,6 +196,35 @@ test("real SQL: reconciliation appends immutable receipts, stores two clocks, bl
   row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(new Date(row.first_outbound_at).toISOString(),old);assert.notEqual(row.manual_completion.sent_at,row.manual_completion.confirmed_at);assert.equal(row.manual_completion.history.length,2);assert.equal(row.manual_completion.history[0].key,K);
   await assert.rejects(run("88888888-8888-4888-8888-888888888888",{...base,choice:"now",correction:false},B),/record_not_found/);
  } finally {await db.close();}
+});
+
+test("real SQL now-send drops first contact on fresh reload and anchors Day 3 to DB confirmation",async()=>{
+ const db=await database();
+ try {
+  await db.exec(fs.readFileSync("supabase/migrations/20261009100000_linkedin_absolute_cadence.sql","utf8"));
+  await db.exec(fs.readFileSync("supabase/migrations/20261009120000_linkedin_external_send_evidence.sql","utf8"));
+  const queue=loadTruthModule("lib/linkedinOutreach.ts");
+  const acceptedAt=new Date(Date.now()-86400000).toISOString();
+  const accepted={...acceptance(),created_at_platform:acceptedAt};
+  const other={...accepted,id:"other",author_name:"Other",linkedin_identity:"linkedin.com/in/other"};
+  await db.query(`insert into growth_targets(id,organisation_id,target_name,stage,status,linkedin_identity) values($1,$2,'Test','connection','active','linkedin.com/in/test')`,[T,A]);
+  // Supabase transports timestamps as JSON strings; PGlite returns Date objects.
+  const read=async()=>input({inbox_items:[accepted,other],growth_targets:JSON.parse(JSON.stringify((await db.query("select * from growth_targets where id=$1",[T])).rows))});
+  const before=queue.linkedInOutreachQueue(A,await read());assert.equal(before.total,2);
+  const start=Date.now();
+  const result=(await db.query(`select record_linkedin_send_evidence($1,$2,'growth_targets',$3,$4,$5,$6::jsonb) result`,[A,A,T,await revision(db),K,JSON.stringify({choice:"now",sentAt:null,sentStage:"connection",message:"Exact sent text",timezone:"UTC",precision:"time",source:"Manually confirmed LinkedIn send"})])).rows[0].result;
+  const stored=(await read()).growth_targets[0],receipt=stored.manual_completion;
+  assert.equal(receipt.sent_at,receipt.confirmed_at);assert.ok(Date.parse(receipt.sent_at)>=start&&Date.parse(receipt.sent_at)<=Date.now());
+  assert.equal(new Date(stored.last_action_at).toISOString(),new Date(result.sentAt).toISOString());
+  assert.equal(new Date(stored.first_outbound_at).toISOString(),new Date(result.sentAt).toISOString());
+  const projected=lifecycle.buildContactLifecycle(A,await read()).find(c=>c.identity==="linkedin:linkedin.com/in/test");
+  assert.equal(projected.lastAction.at,new Date(result.sentAt).toISOString());
+  assert.equal(projected.nextDueDate,new Date(Date.parse(result.sentAt)+3*86400000).toISOString());
+  for(let i=0;i<2;i++){
+   const after=queue.linkedInOutreachQueue(A,await read());assert.equal(after.total,1);
+   assert.equal(after.items[0].name,"Other");assert.equal(after.items.some(c=>c.id===T),false);
+  }
+ }finally{await db.close();}
 });
 
 test("real SQL: append-only conversation messages atomically suspend cadence without replacing receipts",async()=>{const db=await database();try{
