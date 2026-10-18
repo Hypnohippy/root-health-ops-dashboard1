@@ -1,0 +1,3712 @@
+{
+  "base": "977ba517ca67ba033b04fcb06ef30fe9395083b8",
+  "captureAt": "2026-10-16T11:27:40.25936+00:00",
+  "decision": "NEEDS IDENTITY REPAIR FIRST",
+  "readOnly": true,
+  "baseline": {
+    "relationshipsEvaluated": 2411,
+    "fieldComparisons": 34888,
+    "agreements": 33064,
+    "differences": 1824,
+    "agreementRate": 0.9477184132079798,
+    "knownComparisons": 27980,
+    "knownAgreements": 26156,
+    "knownAgreementRate": 0.9348105789849893,
+    "disagreementCounts": {
+      "current_output_correct_shadow_wrong": 64,
+      "shadow_correct_current_output_wrong": 1170,
+      "insufficient_evidence": 325,
+      "historical_evidence_gap": 199,
+      "identity_ambiguity": 66
+    },
+    "newlyDiscoverableRecordCount": 1231,
+    "qualifiedActionRelationshipCount": 135,
+    "unavailableSearchFacetCount": 3688,
+    "identitySplitCount": 66,
+    "ambiguousJoinPairsWithheld": 85,
+    "currentRelationshipsShadowRefusesToAssociate": 66,
+    "proposedShadowJoinCount": 0,
+    "shadowOverlappingMembershipCount": 0,
+    "newlyDiscoverableRelationshipCount": 1175,
+    "unprojectedVerifiedFounderContacts": 4
+  },
+  "after": {
+    "relationshipsEvaluated": 2411,
+    "fieldComparisons": 34888,
+    "agreements": 33062,
+    "differences": 1826,
+    "agreementRate": 0.9476610869066728,
+    "knownComparisons": 27981,
+    "knownAgreements": 26155,
+    "knownAgreementRate": 0.9347414316857868,
+    "disagreementCounts": {
+      "current_output_correct_shadow_wrong": 64,
+      "shadow_correct_current_output_wrong": 1170,
+      "insufficient_evidence": 328,
+      "historical_evidence_gap": 199,
+      "identity_ambiguity": 65
+    },
+    "newlyDiscoverableRecordCount": 1231,
+    "qualifiedActionRelationshipCount": 135,
+    "unavailableSearchFacetCount": 3688,
+    "identitySplitCount": 65,
+    "ambiguousJoinPairsWithheld": 84,
+    "currentRelationshipsShadowRefusesToAssociate": 65,
+    "proposedShadowJoinCount": 0,
+    "shadowOverlappingMembershipCount": 0,
+    "newlyDiscoverableRelationshipCount": 1175,
+    "unprojectedVerifiedFounderContacts": 4
+  },
+  "beforeInventory": 2411,
+  "afterInventory": 2411,
+  "shadowGroupsBefore": 2481,
+  "shadowGroupsAfter": 2480,
+  "missingBridgePrimary": {
+    "canonical_linkedin_identity_absent": 0,
+    "verified_email_absent": 62,
+    "explicit_source_reference_absent": 0,
+    "founder_nested_contact_only": 0,
+    "gmail_thread_linkage_absent": 9,
+    "conflicting_aliases": 0,
+    "historical_record_shape": 1,
+    "other": 13
+  },
+  "missingBridgeFlags": {
+    "canonical_linkedin_identity_absent": 85,
+    "verified_email_absent": 78,
+    "explicit_source_reference_absent": 84,
+    "founder_nested_contact_only": 0,
+    "gmail_thread_linkage_absent": 9,
+    "conflicting_aliases": 0,
+    "historical_record_shape": 80,
+    "other": 13
+  },
+  "pairResolutions": {
+    "human_reconciliation": 71,
+    "separate": 13,
+    "deterministic": 1
+  },
+  "groupResolutions": {
+    "deterministic": 1,
+    "human_reconciliation": 52,
+    "separate": 13
+  },
+  "newJoinCount": 1,
+  "newUnsafeJoinCount": 0,
+  "newAliasConflictCount": 0,
+  "newJoins": [
+    {
+      "sourceRefs": [
+        "acquisition_items:c800346b-ac3b-40f8-b187-ec45af95b97e",
+        "growth_targets:b2cafdb7-87ce-4636-86a1-2c6c53dcd902"
+      ],
+      "evidenceBacked": true
+    }
+  ],
+  "deterministicEvidence": [
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "c800346b-ac3b-40f8-b187-ec45af95b97e"
+        },
+        {
+          "table": "growth_targets",
+          "id": "b2cafdb7-87ce-4636-86a1-2c6c53dcd902"
+        }
+      ],
+      "alias": {
+        "type": "source_ref",
+        "value": "acquisition_items:c800346b-ac3b-40f8-b187-ec45af95b97e"
+      },
+      "verificationBasis": "persisted_acquisition_fk_and_exact_source_tuple",
+      "evidenceIds": [
+        "acquisition_items:c800346b-ac3b-40f8-b187-ec45af95b97e",
+        "growth_targets:b2cafdb7-87ce-4636-86a1-2c6c53dcd902"
+      ],
+      "confidenceClass": "deterministic",
+      "ambiguityReason": null,
+      "humanReviewRequired": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "acc24f86-4763-4511-98e8-c14d0ea7eb5d"
+        },
+        {
+          "table": "growth_targets",
+          "id": "fe160700-1a9c-4de6-9cd7-ab24d16d8880"
+        }
+      ],
+      "alias": {
+        "type": "source_ref",
+        "value": "acquisition_items:acc24f86-4763-4511-98e8-c14d0ea7eb5d"
+      },
+      "verificationBasis": "persisted_acquisition_fk_and_exact_source_tuple",
+      "evidenceIds": [
+        "acquisition_items:acc24f86-4763-4511-98e8-c14d0ea7eb5d",
+        "growth_targets:fe160700-1a9c-4de6-9cd7-ab24d16d8880"
+      ],
+      "confidenceClass": "deterministic",
+      "ambiguityReason": null,
+      "humanReviewRequired": false
+    }
+  ],
+  "rejectedEvidence": [],
+  "groupReviews": [
+    {
+      "currentRelationshipId": "acquisition_bbda5971-b374-4b48-a9ba-96f0c8fac9fb",
+      "sourceRefs": [
+        "acquisition_items:3ae6a1a4-3b07-49f4-9c19-1c3f1d146b48",
+        "acquisition_items:bbda5971-b374-4b48-a9ba-96f0c8fac9fb"
+      ],
+      "pairIds": [
+        "acquisition_items:3ae6a1a4-3b07-49f4-9c19-1c3f1d146b48|acquisition_items:bbda5971-b374-4b48-a9ba-96f0c8fac9fb"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_021f48ea-622b-42be-84dd-88457b2eba27",
+      "sourceRefs": [
+        "acquisition_items:021f48ea-622b-42be-84dd-88457b2eba27",
+        "acquisition_items:7efd7377-5e1a-4fbb-85f6-c08c537387fb"
+      ],
+      "pairIds": [
+        "acquisition_items:021f48ea-622b-42be-84dd-88457b2eba27|acquisition_items:7efd7377-5e1a-4fbb-85f6-c08c537387fb"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_262a0569-74c8-4c38-8305-99733698dded",
+      "sourceRefs": [
+        "acquisition_items:166068cd-cbb6-4f93-81b8-980e37a9dac9",
+        "acquisition_items:262a0569-74c8-4c38-8305-99733698dded"
+      ],
+      "pairIds": [
+        "acquisition_items:166068cd-cbb6-4f93-81b8-980e37a9dac9|acquisition_items:262a0569-74c8-4c38-8305-99733698dded"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_fab959eb-c24d-4ce4-99cd-9ded0d163c1d",
+      "sourceRefs": [
+        "acquisition_items:32248123-259d-405a-a436-a85830e61089",
+        "acquisition_items:fab959eb-c24d-4ce4-99cd-9ded0d163c1d"
+      ],
+      "pairIds": [
+        "acquisition_items:32248123-259d-405a-a436-a85830e61089|acquisition_items:fab959eb-c24d-4ce4-99cd-9ded0d163c1d"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_be838eb4-8eb3-4a8f-949c-5aee704e8dff",
+      "sourceRefs": [
+        "acquisition_items:094edc1e-4109-46c8-a6ff-7f043c60ab4e",
+        "acquisition_items:be838eb4-8eb3-4a8f-949c-5aee704e8dff"
+      ],
+      "pairIds": [
+        "acquisition_items:094edc1e-4109-46c8-a6ff-7f043c60ab4e|acquisition_items:be838eb4-8eb3-4a8f-949c-5aee704e8dff"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "inbox_bc43605d-2663-4a2a-af97-df4af4bcc552",
+      "sourceRefs": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "inbox_items:1721cfdd-2eee-48c4-a3e1-70058a12f1d6",
+        "inbox_items:21fa4ecd-1ad7-40b8-960c-b2400cd92057",
+        "inbox_items:85d9b80f-bbb9-4392-a88e-4d451e002d90",
+        "inbox_items:aa9de9e5-d03b-41ee-8295-2fbe3cf52139",
+        "inbox_items:acc37042-8d5d-4b63-9f42-8955efe09fff",
+        "inbox_items:b921ee53-c8d5-48b0-b77f-628dbe7f0756",
+        "inbox_items:bc43605d-2663-4a2a-af97-df4af4bcc552"
+      ],
+      "pairIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:1721cfdd-2eee-48c4-a3e1-70058a12f1d6",
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:21fa4ecd-1ad7-40b8-960c-b2400cd92057",
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:85d9b80f-bbb9-4392-a88e-4d451e002d90",
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:aa9de9e5-d03b-41ee-8295-2fbe3cf52139",
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:acc37042-8d5d-4b63-9f42-8955efe09fff",
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:b921ee53-c8d5-48b0-b77f-628dbe7f0756",
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:bc43605d-2663-4a2a-af97-df4af4bcc552"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_c35f5437-7b76-4179-a5bb-beb834070e4c",
+      "sourceRefs": [
+        "acquisition_items:036bdaae-9a1a-43dc-ba57-fb067c7a17e3",
+        "acquisition_items:c35f5437-7b76-4179-a5bb-beb834070e4c"
+      ],
+      "pairIds": [
+        "acquisition_items:036bdaae-9a1a-43dc-ba57-fb067c7a17e3|acquisition_items:c35f5437-7b76-4179-a5bb-beb834070e4c"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_27bd06ff-c88a-4050-b44f-f2e206e0ca06",
+      "sourceRefs": [
+        "acquisition_items:27bd06ff-c88a-4050-b44f-f2e206e0ca06",
+        "acquisition_items:fc37e363-15e0-4a86-a34d-3e374b8e5a46"
+      ],
+      "pairIds": [
+        "acquisition_items:27bd06ff-c88a-4050-b44f-f2e206e0ca06|acquisition_items:fc37e363-15e0-4a86-a34d-3e374b8e5a46"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_8757758a-cb86-44c2-b932-b8da7a8ca185",
+      "sourceRefs": [
+        "acquisition_items:5142bfab-f4f4-421a-b327-18703108aa88",
+        "acquisition_items:8757758a-cb86-44c2-b932-b8da7a8ca185"
+      ],
+      "pairIds": [
+        "acquisition_items:5142bfab-f4f4-421a-b327-18703108aa88|acquisition_items:8757758a-cb86-44c2-b932-b8da7a8ca185"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_1384346e-8ea5-45b8-86f8-57ab77acf6af",
+      "sourceRefs": [
+        "acquisition_items:1384346e-8ea5-45b8-86f8-57ab77acf6af",
+        "acquisition_items:61091096-1f38-404c-bd34-00a99630eac7"
+      ],
+      "pairIds": [
+        "acquisition_items:1384346e-8ea5-45b8-86f8-57ab77acf6af|acquisition_items:61091096-1f38-404c-bd34-00a99630eac7"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_b9fdfa41-c2a2-4f38-b324-9ceef1cdc942",
+      "sourceRefs": [
+        "acquisition_items:43d9d404-c097-434c-93d4-6058d1f88fd1",
+        "acquisition_items:b9fdfa41-c2a2-4f38-b324-9ceef1cdc942"
+      ],
+      "pairIds": [
+        "acquisition_items:43d9d404-c097-434c-93d4-6058d1f88fd1|acquisition_items:b9fdfa41-c2a2-4f38-b324-9ceef1cdc942"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_1f5a5acc-f318-4f8d-98c2-1ddcd76f1ced",
+      "sourceRefs": [
+        "acquisition_items:1f5a5acc-f318-4f8d-98c2-1ddcd76f1ced",
+        "acquisition_items:788c974b-ac50-4690-a4a6-3d1a0e0d1917"
+      ],
+      "pairIds": [
+        "acquisition_items:1f5a5acc-f318-4f8d-98c2-1ddcd76f1ced|acquisition_items:788c974b-ac50-4690-a4a6-3d1a0e0d1917"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_dcd22b6f-9ab7-4877-b699-60704aeafb44",
+      "sourceRefs": [
+        "acquisition_items:3b873559-ae93-4664-95da-683fe5eeb3bb",
+        "acquisition_items:dcd22b6f-9ab7-4877-b699-60704aeafb44",
+        "acquisition_items:e926f241-1927-4e01-b219-73d4138450f3"
+      ],
+      "pairIds": [
+        "acquisition_items:3b873559-ae93-4664-95da-683fe5eeb3bb|acquisition_items:dcd22b6f-9ab7-4877-b699-60704aeafb44",
+        "acquisition_items:3b873559-ae93-4664-95da-683fe5eeb3bb|acquisition_items:e926f241-1927-4e01-b219-73d4138450f3",
+        "acquisition_items:dcd22b6f-9ab7-4877-b699-60704aeafb44|acquisition_items:e926f241-1927-4e01-b219-73d4138450f3"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_0806a3b0-7dd1-4972-9ff9-4535d016cf2c",
+      "sourceRefs": [
+        "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c",
+        "inbox_items:bf4b827e-8d70-43c7-a4e9-96cd64da8805",
+        "inbox_items:c5b69e30-dcc0-4b8f-9791-0cc9c255891d"
+      ],
+      "pairIds": [
+        "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c|inbox_items:bf4b827e-8d70-43c7-a4e9-96cd64da8805",
+        "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c|inbox_items:c5b69e30-dcc0-4b8f-9791-0cc9c255891d"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_6e0297ac-4a0b-4c62-ac4f-ed2c9be544d0",
+      "sourceRefs": [
+        "acquisition_items:6e0297ac-4a0b-4c62-ac4f-ed2c9be544d0",
+        "acquisition_items:d252d7ba-5d2d-42a2-a5b4-d7696490d177"
+      ],
+      "pairIds": [
+        "acquisition_items:6e0297ac-4a0b-4c62-ac4f-ed2c9be544d0|acquisition_items:d252d7ba-5d2d-42a2-a5b4-d7696490d177"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_d7b7bf8f-730f-4043-b977-4545bf2dec59",
+      "sourceRefs": [
+        "acquisition_items:bf825386-73bf-4a64-b877-3d0131967a77",
+        "acquisition_items:d7b7bf8f-730f-4043-b977-4545bf2dec59"
+      ],
+      "pairIds": [
+        "acquisition_items:bf825386-73bf-4a64-b877-3d0131967a77|acquisition_items:d7b7bf8f-730f-4043-b977-4545bf2dec59"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_5ffcfb22-134c-4891-9509-1b8bd87f1537",
+      "sourceRefs": [
+        "acquisition_items:5ffcfb22-134c-4891-9509-1b8bd87f1537",
+        "acquisition_items:dcd8e542-d87c-4797-a5b3-2c66fb71f3b9"
+      ],
+      "pairIds": [
+        "acquisition_items:5ffcfb22-134c-4891-9509-1b8bd87f1537|acquisition_items:dcd8e542-d87c-4797-a5b3-2c66fb71f3b9"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_559b0da8-8609-46c2-8054-8ce2a5389596",
+      "sourceRefs": [
+        "acquisition_items:559b0da8-8609-46c2-8054-8ce2a5389596",
+        "acquisition_items:f65ca189-1234-4225-9c18-7cacaebb5b98"
+      ],
+      "pairIds": [
+        "acquisition_items:559b0da8-8609-46c2-8054-8ce2a5389596|acquisition_items:f65ca189-1234-4225-9c18-7cacaebb5b98"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_134c569c-dbc9-470d-8ad2-37f06f39eba6",
+      "sourceRefs": [
+        "acquisition_items:134c569c-dbc9-470d-8ad2-37f06f39eba6",
+        "acquisition_items:4e2945dc-4b39-4e70-847a-5a19594c0847"
+      ],
+      "pairIds": [
+        "acquisition_items:134c569c-dbc9-470d-8ad2-37f06f39eba6|acquisition_items:4e2945dc-4b39-4e70-847a-5a19594c0847"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_fb75affc-cea8-46dc-9918-798f8f8f4a6d",
+      "sourceRefs": [
+        "acquisition_items:5d83efed-0164-49d6-806f-010c1b249599",
+        "acquisition_items:fb75affc-cea8-46dc-9918-798f8f8f4a6d"
+      ],
+      "pairIds": [
+        "acquisition_items:5d83efed-0164-49d6-806f-010c1b249599|acquisition_items:fb75affc-cea8-46dc-9918-798f8f8f4a6d"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_d093b45c-bee8-44a1-ada7-9bae27037c05",
+      "sourceRefs": [
+        "acquisition_items:ce97dcc1-f3bd-41e4-948e-391a236cd25f",
+        "acquisition_items:d093b45c-bee8-44a1-ada7-9bae27037c05"
+      ],
+      "pairIds": [
+        "acquisition_items:ce97dcc1-f3bd-41e4-948e-391a236cd25f|acquisition_items:d093b45c-bee8-44a1-ada7-9bae27037c05"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_968d12bc-b913-4293-8cfc-57677eab5303",
+      "sourceRefs": [
+        "acquisition_items:333ec284-812e-426d-9e84-3ca251e98611",
+        "acquisition_items:968d12bc-b913-4293-8cfc-57677eab5303"
+      ],
+      "pairIds": [
+        "acquisition_items:333ec284-812e-426d-9e84-3ca251e98611|acquisition_items:968d12bc-b913-4293-8cfc-57677eab5303"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_0d02c0b8-af6b-45e9-a706-cf159d2911e8",
+      "sourceRefs": [
+        "acquisition_items:0d02c0b8-af6b-45e9-a706-cf159d2911e8",
+        "acquisition_items:6e4ff625-f9c9-476c-afe6-9769126492c4"
+      ],
+      "pairIds": [
+        "acquisition_items:0d02c0b8-af6b-45e9-a706-cf159d2911e8|acquisition_items:6e4ff625-f9c9-476c-afe6-9769126492c4"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_d21fce0d-5395-4388-89ae-cd2365b5c142",
+      "sourceRefs": [
+        "acquisition_items:d21fce0d-5395-4388-89ae-cd2365b5c142",
+        "acquisition_items:ec017664-ffe2-47a0-ab92-989f3e6fe39f"
+      ],
+      "pairIds": [
+        "acquisition_items:d21fce0d-5395-4388-89ae-cd2365b5c142|acquisition_items:ec017664-ffe2-47a0-ab92-989f3e6fe39f"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_dfcae627-a7f9-40b9-bb52-f4cc5564bf09",
+      "sourceRefs": [
+        "acquisition_items:a4bcbfaf-bb8e-46f2-83be-ec235547f842",
+        "acquisition_items:dfcae627-a7f9-40b9-bb52-f4cc5564bf09"
+      ],
+      "pairIds": [
+        "acquisition_items:a4bcbfaf-bb8e-46f2-83be-ec235547f842|acquisition_items:dfcae627-a7f9-40b9-bb52-f4cc5564bf09"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_ca68b40e-16a2-4f88-beb6-890d6da0086e",
+      "sourceRefs": [
+        "acquisition_items:1e14b428-bdf4-4774-aaed-ff6d0517ce59",
+        "acquisition_items:ca68b40e-16a2-4f88-beb6-890d6da0086e"
+      ],
+      "pairIds": [
+        "acquisition_items:1e14b428-bdf4-4774-aaed-ff6d0517ce59|acquisition_items:ca68b40e-16a2-4f88-beb6-890d6da0086e"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_0c506c45-316f-466d-9f52-07068dbeb5fe",
+      "sourceRefs": [
+        "acquisition_items:0c506c45-316f-466d-9f52-07068dbeb5fe",
+        "acquisition_items:39b0a564-a670-4857-abfe-9432f3f5e646"
+      ],
+      "pairIds": [
+        "acquisition_items:0c506c45-316f-466d-9f52-07068dbeb5fe|acquisition_items:39b0a564-a670-4857-abfe-9432f3f5e646"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_7a5c6c10-feda-4206-8d89-b465142be605",
+      "sourceRefs": [
+        "acquisition_items:345e448a-329c-4cee-a595-88753fdce023",
+        "acquisition_items:7a5c6c10-feda-4206-8d89-b465142be605"
+      ],
+      "pairIds": [
+        "acquisition_items:345e448a-329c-4cee-a595-88753fdce023|acquisition_items:7a5c6c10-feda-4206-8d89-b465142be605"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_aca277be-6002-4fe8-b318-45e4a4724031",
+      "sourceRefs": [
+        "acquisition_items:5947e6ee-46bd-4434-95e8-3461c3754a99",
+        "acquisition_items:aca277be-6002-4fe8-b318-45e4a4724031"
+      ],
+      "pairIds": [
+        "acquisition_items:5947e6ee-46bd-4434-95e8-3461c3754a99|acquisition_items:aca277be-6002-4fe8-b318-45e4a4724031"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_704a470a-0e39-4267-8c49-543d913aef58",
+      "sourceRefs": [
+        "acquisition_items:704a470a-0e39-4267-8c49-543d913aef58",
+        "acquisition_items:8868ef73-d791-43bf-970d-fd0b79a99c06",
+        "acquisition_items:93677425-e29f-4999-9667-9b38ed41f2db"
+      ],
+      "pairIds": [
+        "acquisition_items:704a470a-0e39-4267-8c49-543d913aef58|acquisition_items:8868ef73-d791-43bf-970d-fd0b79a99c06",
+        "acquisition_items:704a470a-0e39-4267-8c49-543d913aef58|acquisition_items:93677425-e29f-4999-9667-9b38ed41f2db",
+        "acquisition_items:8868ef73-d791-43bf-970d-fd0b79a99c06|acquisition_items:93677425-e29f-4999-9667-9b38ed41f2db"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_9f715bb2-2615-4473-a477-7d8a7013f423",
+      "sourceRefs": [
+        "acquisition_items:057bf6be-54a8-4c39-8a94-6226bb3da7f4",
+        "acquisition_items:9f715bb2-2615-4473-a477-7d8a7013f423",
+        "acquisition_items:e6ba1428-cdd6-4df1-9a50-1888e32aa3dd"
+      ],
+      "pairIds": [
+        "acquisition_items:057bf6be-54a8-4c39-8a94-6226bb3da7f4|acquisition_items:9f715bb2-2615-4473-a477-7d8a7013f423",
+        "acquisition_items:057bf6be-54a8-4c39-8a94-6226bb3da7f4|acquisition_items:e6ba1428-cdd6-4df1-9a50-1888e32aa3dd",
+        "acquisition_items:9f715bb2-2615-4473-a477-7d8a7013f423|acquisition_items:e6ba1428-cdd6-4df1-9a50-1888e32aa3dd"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_78af73e9-ad33-4ad4-86ef-ad4276439619",
+      "sourceRefs": [
+        "acquisition_items:7518f25d-8440-4d3f-a670-bbd606370f19",
+        "acquisition_items:78af73e9-ad33-4ad4-86ef-ad4276439619"
+      ],
+      "pairIds": [
+        "acquisition_items:7518f25d-8440-4d3f-a670-bbd606370f19|acquisition_items:78af73e9-ad33-4ad4-86ef-ad4276439619"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_12f6f6d9-0a16-4438-9201-ad407f0fdeed",
+      "sourceRefs": [
+        "acquisition_items:12f6f6d9-0a16-4438-9201-ad407f0fdeed",
+        "acquisition_items:c3b784b1-52ee-4591-b97b-40bd0eeacc5d"
+      ],
+      "pairIds": [
+        "acquisition_items:12f6f6d9-0a16-4438-9201-ad407f0fdeed|acquisition_items:c3b784b1-52ee-4591-b97b-40bd0eeacc5d"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_6c2cafcc-20e8-4787-9b34-d94e50792758",
+      "sourceRefs": [
+        "acquisition_items:6469e058-8208-4977-9a95-ae7d7f829796",
+        "acquisition_items:6c2cafcc-20e8-4787-9b34-d94e50792758"
+      ],
+      "pairIds": [
+        "acquisition_items:6469e058-8208-4977-9a95-ae7d7f829796|acquisition_items:6c2cafcc-20e8-4787-9b34-d94e50792758"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_91de61b4-3bdb-4eba-9b30-954a708d07bb",
+      "sourceRefs": [
+        "acquisition_items:91de61b4-3bdb-4eba-9b30-954a708d07bb",
+        "acquisition_items:cdef7bff-abc2-4254-b09c-9470a1dbbdbc"
+      ],
+      "pairIds": [
+        "acquisition_items:91de61b4-3bdb-4eba-9b30-954a708d07bb|acquisition_items:cdef7bff-abc2-4254-b09c-9470a1dbbdbc"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_1555272e-1197-403c-bb0e-cc7495cf5da5",
+      "sourceRefs": [
+        "acquisition_items:1555272e-1197-403c-bb0e-cc7495cf5da5",
+        "acquisition_items:e48ad2dd-1b6a-4c0e-918f-e9668db6be0b"
+      ],
+      "pairIds": [
+        "acquisition_items:1555272e-1197-403c-bb0e-cc7495cf5da5|acquisition_items:e48ad2dd-1b6a-4c0e-918f-e9668db6be0b"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_67c440e7-e51f-4737-a24a-94ad518a273d",
+      "sourceRefs": [
+        "acquisition_items:67c440e7-e51f-4737-a24a-94ad518a273d",
+        "acquisition_items:cc8bf5a5-11a7-4e9d-ad8d-5ec98cf64d03"
+      ],
+      "pairIds": [
+        "acquisition_items:67c440e7-e51f-4737-a24a-94ad518a273d|acquisition_items:cc8bf5a5-11a7-4e9d-ad8d-5ec98cf64d03"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_01c80cf9-f070-4170-93cb-d7a4f567a1b7",
+      "sourceRefs": [
+        "acquisition_items:01c80cf9-f070-4170-93cb-d7a4f567a1b7",
+        "acquisition_items:d76dbcfd-4f45-4644-b22c-408ffd6fb6de"
+      ],
+      "pairIds": [
+        "acquisition_items:01c80cf9-f070-4170-93cb-d7a4f567a1b7|acquisition_items:d76dbcfd-4f45-4644-b22c-408ffd6fb6de"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_14894e81-0d2e-4069-a149-a5d10ac92db4",
+      "sourceRefs": [
+        "acquisition_items:14894e81-0d2e-4069-a149-a5d10ac92db4",
+        "acquisition_items:5b9f138d-d317-4e6c-9afd-95933cbc4c9e"
+      ],
+      "pairIds": [
+        "acquisition_items:14894e81-0d2e-4069-a149-a5d10ac92db4|acquisition_items:5b9f138d-d317-4e6c-9afd-95933cbc4c9e"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_edbcc7c2-c3d6-4bdd-906e-4b6465928e9b",
+      "sourceRefs": [
+        "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf",
+        "acquisition_items:8e9e8b97-dacd-4300-9f87-2e632a083413",
+        "acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6",
+        "acquisition_items:edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+      ],
+      "pairIds": [
+        "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf|acquisition_items:8e9e8b97-dacd-4300-9f87-2e632a083413",
+        "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf|acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6",
+        "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf|acquisition_items:edbcc7c2-c3d6-4bdd-906e-4b6465928e9b",
+        "acquisition_items:8e9e8b97-dacd-4300-9f87-2e632a083413|acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6",
+        "acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6|acquisition_items:edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_fc82a184-b584-43bb-9770-2b3d469adfbb",
+      "sourceRefs": [
+        "acquisition_items:51f2aeb0-69dd-4d19-a02e-ca3fbd13fde6",
+        "acquisition_items:fc82a184-b584-43bb-9770-2b3d469adfbb"
+      ],
+      "pairIds": [
+        "acquisition_items:51f2aeb0-69dd-4d19-a02e-ca3fbd13fde6|acquisition_items:fc82a184-b584-43bb-9770-2b3d469adfbb"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_7d6a276b-64c4-4a9f-a1e9-5d3d77158ae4",
+      "sourceRefs": [
+        "acquisition_items:7d6a276b-64c4-4a9f-a1e9-5d3d77158ae4",
+        "acquisition_items:a295e9b8-1653-4bfc-ba3d-cf0924b1eb49"
+      ],
+      "pairIds": [
+        "acquisition_items:7d6a276b-64c4-4a9f-a1e9-5d3d77158ae4|acquisition_items:a295e9b8-1653-4bfc-ba3d-cf0924b1eb49"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_8c826075-7cf9-4c57-9cd0-27ba50b991ae",
+      "sourceRefs": [
+        "acquisition_items:8c826075-7cf9-4c57-9cd0-27ba50b991ae",
+        "acquisition_items:b639678e-479c-4f2d-8421-a1bf393317ce"
+      ],
+      "pairIds": [
+        "acquisition_items:8c826075-7cf9-4c57-9cd0-27ba50b991ae|acquisition_items:b639678e-479c-4f2d-8421-a1bf393317ce"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_d26e90a3-7cf6-49b9-b50d-6b10ab8d2228",
+      "sourceRefs": [
+        "acquisition_items:23a7822b-dc76-4d8b-844a-31981372ed4e",
+        "acquisition_items:d26e90a3-7cf6-49b9-b50d-6b10ab8d2228"
+      ],
+      "pairIds": [
+        "acquisition_items:23a7822b-dc76-4d8b-844a-31981372ed4e|acquisition_items:d26e90a3-7cf6-49b9-b50d-6b10ab8d2228"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_882fa572-d689-478c-8761-3dc6a4f2c567",
+      "sourceRefs": [
+        "acquisition_items:882fa572-d689-478c-8761-3dc6a4f2c567",
+        "acquisition_items:eec74a05-3bf6-41ba-9fb0-b57128e923e3"
+      ],
+      "pairIds": [
+        "acquisition_items:882fa572-d689-478c-8761-3dc6a4f2c567|acquisition_items:eec74a05-3bf6-41ba-9fb0-b57128e923e3"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_05b8bed2-6018-4cdb-ae39-ffc1163e5f9f",
+      "sourceRefs": [
+        "acquisition_items:05b8bed2-6018-4cdb-ae39-ffc1163e5f9f",
+        "acquisition_items:7e8541ec-b04c-4fcd-b82d-f54ca43157dc"
+      ],
+      "pairIds": [
+        "acquisition_items:05b8bed2-6018-4cdb-ae39-ffc1163e5f9f|acquisition_items:7e8541ec-b04c-4fcd-b82d-f54ca43157dc"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_fc7d78ef-8dfc-46cc-a0be-3ed2fc4a737e",
+      "sourceRefs": [
+        "acquisition_items:47793fa2-9570-44e4-84cc-29007393ea66",
+        "acquisition_items:fc7d78ef-8dfc-46cc-a0be-3ed2fc4a737e"
+      ],
+      "pairIds": [
+        "acquisition_items:47793fa2-9570-44e4-84cc-29007393ea66|acquisition_items:fc7d78ef-8dfc-46cc-a0be-3ed2fc4a737e"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_757139de-fe95-475a-a0bc-44eaaa73ac04",
+      "sourceRefs": [
+        "acquisition_items:757139de-fe95-475a-a0bc-44eaaa73ac04",
+        "acquisition_items:d125ea08-7bdb-4945-aab1-7709b62c9078"
+      ],
+      "pairIds": [
+        "acquisition_items:757139de-fe95-475a-a0bc-44eaaa73ac04|acquisition_items:d125ea08-7bdb-4945-aab1-7709b62c9078"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_8035dc41-d029-4a94-b167-aabde5789402",
+      "sourceRefs": [
+        "acquisition_items:5df5fbe6-85fb-4c36-90aa-f149ac9f5939",
+        "acquisition_items:8035dc41-d029-4a94-b167-aabde5789402"
+      ],
+      "pairIds": [
+        "acquisition_items:5df5fbe6-85fb-4c36-90aa-f149ac9f5939|acquisition_items:8035dc41-d029-4a94-b167-aabde5789402"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_86438617-4fa8-464a-9a0f-3d55b7c27d5a",
+      "sourceRefs": [
+        "acquisition_items:86438617-4fa8-464a-9a0f-3d55b7c27d5a",
+        "acquisition_items:c2b73dd5-d527-462e-ace0-ade63680bcc6"
+      ],
+      "pairIds": [
+        "acquisition_items:86438617-4fa8-464a-9a0f-3d55b7c27d5a|acquisition_items:c2b73dd5-d527-462e-ace0-ade63680bcc6"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_731652fa-c453-41b1-b59b-836dc952f674",
+      "sourceRefs": [
+        "acquisition_items:731652fa-c453-41b1-b59b-836dc952f674",
+        "acquisition_items:f06d5900-2fc2-4b3c-830d-45a56872078e"
+      ],
+      "pairIds": [
+        "acquisition_items:731652fa-c453-41b1-b59b-836dc952f674|acquisition_items:f06d5900-2fc2-4b3c-830d-45a56872078e"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_ffb8ae0d-c00d-4387-af17-154e748907c3",
+      "sourceRefs": [
+        "acquisition_items:f774a2e4-2129-4144-9c85-888dff744108",
+        "acquisition_items:ffb8ae0d-c00d-4387-af17-154e748907c3"
+      ],
+      "pairIds": [
+        "acquisition_items:f774a2e4-2129-4144-9c85-888dff744108|acquisition_items:ffb8ae0d-c00d-4387-af17-154e748907c3"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_80ccb675-3612-4230-a234-c6cdf1addfbc",
+      "sourceRefs": [
+        "acquisition_items:2cf7f171-769b-434c-b3c8-3a5d261d69cc",
+        "acquisition_items:80ccb675-3612-4230-a234-c6cdf1addfbc"
+      ],
+      "pairIds": [
+        "acquisition_items:2cf7f171-769b-434c-b3c8-3a5d261d69cc|acquisition_items:80ccb675-3612-4230-a234-c6cdf1addfbc"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_eb5c75d6-24e2-4c09-9380-b910f6954202",
+      "sourceRefs": [
+        "acquisition_items:8b01e1a1-3be9-495e-bb1f-4d6a17f09c24",
+        "acquisition_items:eb5c75d6-24e2-4c09-9380-b910f6954202"
+      ],
+      "pairIds": [
+        "acquisition_items:8b01e1a1-3be9-495e-bb1f-4d6a17f09c24|acquisition_items:eb5c75d6-24e2-4c09-9380-b910f6954202"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_2f3df6dd-100e-48e3-97e1-1cb8e5a03cad",
+      "sourceRefs": [
+        "acquisition_items:2f3df6dd-100e-48e3-97e1-1cb8e5a03cad",
+        "acquisition_items:f3c822a8-8fc1-4c13-b3ce-02904bf0738f"
+      ],
+      "pairIds": [
+        "acquisition_items:2f3df6dd-100e-48e3-97e1-1cb8e5a03cad|acquisition_items:f3c822a8-8fc1-4c13-b3ce-02904bf0738f"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_1eefcc8c-3684-4439-a478-84d227612913",
+      "sourceRefs": [
+        "acquisition_items:0a1961e9-1d24-49eb-b1b1-39c7ecb81b22",
+        "acquisition_items:1eefcc8c-3684-4439-a478-84d227612913",
+        "acquisition_items:abe93633-e4a1-49ac-993a-b437b938dc21"
+      ],
+      "pairIds": [
+        "acquisition_items:0a1961e9-1d24-49eb-b1b1-39c7ecb81b22|acquisition_items:1eefcc8c-3684-4439-a478-84d227612913",
+        "acquisition_items:0a1961e9-1d24-49eb-b1b1-39c7ecb81b22|acquisition_items:abe93633-e4a1-49ac-993a-b437b938dc21"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_e3e25449-553c-40d9-9609-5ad31b3ecfbe",
+      "sourceRefs": [
+        "acquisition_items:38a15a76-fb7b-402d-9239-e3d078441719",
+        "acquisition_items:e3e25449-553c-40d9-9609-5ad31b3ecfbe"
+      ],
+      "pairIds": [
+        "acquisition_items:38a15a76-fb7b-402d-9239-e3d078441719|acquisition_items:e3e25449-553c-40d9-9609-5ad31b3ecfbe"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_9d05addf-e294-4cca-8d06-d245460c97e9",
+      "sourceRefs": [
+        "acquisition_items:9d05addf-e294-4cca-8d06-d245460c97e9",
+        "acquisition_items:a6005634-b30b-428c-80b4-2ea11b9af9e2"
+      ],
+      "pairIds": [
+        "acquisition_items:9d05addf-e294-4cca-8d06-d245460c97e9|acquisition_items:a6005634-b30b-428c-80b4-2ea11b9af9e2"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_de64b795-6029-4643-af9e-06c939da1b78",
+      "sourceRefs": [
+        "acquisition_items:b56551d6-2ff7-4ddf-83ce-09b44e54e8c5",
+        "acquisition_items:de64b795-6029-4643-af9e-06c939da1b78"
+      ],
+      "pairIds": [
+        "acquisition_items:b56551d6-2ff7-4ddf-83ce-09b44e54e8c5|acquisition_items:de64b795-6029-4643-af9e-06c939da1b78"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_4694af80-1016-4fc0-bb88-8879f0838cdd",
+      "sourceRefs": [
+        "acquisition_items:4694af80-1016-4fc0-bb88-8879f0838cdd",
+        "acquisition_items:b004897a-6174-4479-9f64-60e3a162ece0",
+        "acquisition_items:f02b8eef-0b97-4473-a0b1-756af9178950"
+      ],
+      "pairIds": [
+        "acquisition_items:4694af80-1016-4fc0-bb88-8879f0838cdd|acquisition_items:f02b8eef-0b97-4473-a0b1-756af9178950",
+        "acquisition_items:b004897a-6174-4479-9f64-60e3a162ece0|acquisition_items:f02b8eef-0b97-4473-a0b1-756af9178950"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_e6f6e8a6-eec0-4858-b799-f147978c6a1a",
+      "sourceRefs": [
+        "acquisition_items:1017dd86-fe86-445d-9f2b-8c62d1d22dee",
+        "acquisition_items:e6f6e8a6-eec0-4858-b799-f147978c6a1a"
+      ],
+      "pairIds": [
+        "acquisition_items:1017dd86-fe86-445d-9f2b-8c62d1d22dee|acquisition_items:e6f6e8a6-eec0-4858-b799-f147978c6a1a"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_c800346b-ac3b-40f8-b187-ec45af95b97e",
+      "sourceRefs": [
+        "acquisition_items:c800346b-ac3b-40f8-b187-ec45af95b97e",
+        "growth_targets:b2cafdb7-87ce-4636-86a1-2c6c53dcd902"
+      ],
+      "pairIds": [
+        "acquisition_items:c800346b-ac3b-40f8-b187-ec45af95b97e|growth_targets:b2cafdb7-87ce-4636-86a1-2c6c53dcd902"
+      ],
+      "resolution": "deterministic"
+    },
+    {
+      "currentRelationshipId": "acquisition_de5d3c98-fa0b-41f0-b0c8-a5a636c596b2",
+      "sourceRefs": [
+        "acquisition_items:de5d3c98-fa0b-41f0-b0c8-a5a636c596b2",
+        "acquisition_items:f7d32e4b-3eff-4ac9-8cc6-a0532329af20"
+      ],
+      "pairIds": [
+        "acquisition_items:de5d3c98-fa0b-41f0-b0c8-a5a636c596b2|acquisition_items:f7d32e4b-3eff-4ac9-8cc6-a0532329af20"
+      ],
+      "resolution": "human_reconciliation"
+    },
+    {
+      "currentRelationshipId": "acquisition_a129c231-928a-4019-bab7-7379860161d2",
+      "sourceRefs": [
+        "acquisition_items:70db2172-ef1f-4ec9-9631-3f74c6bf629a",
+        "acquisition_items:a129c231-928a-4019-bab7-7379860161d2"
+      ],
+      "pairIds": [
+        "acquisition_items:70db2172-ef1f-4ec9-9631-3f74c6bf629a|acquisition_items:a129c231-928a-4019-bab7-7379860161d2"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "acquisition_6140c380-b103-4adc-aa63-5e1878262864",
+      "sourceRefs": [
+        "acquisition_items:6140c380-b103-4adc-aa63-5e1878262864",
+        "acquisition_items:cff2392f-828b-4171-8e3f-7d4b66336cbf"
+      ],
+      "pairIds": [
+        "acquisition_items:6140c380-b103-4adc-aa63-5e1878262864|acquisition_items:cff2392f-828b-4171-8e3f-7d4b66336cbf"
+      ],
+      "resolution": "separate"
+    },
+    {
+      "currentRelationshipId": "target_1059d1f8-a8b0-49a7-855e-9b420100d759",
+      "sourceRefs": [
+        "growth_targets:1059d1f8-a8b0-49a7-855e-9b420100d759",
+        "growth_targets:bce9122f-4839-4b23-aa84-1c25ebb40eb8"
+      ],
+      "pairIds": [
+        "growth_targets:1059d1f8-a8b0-49a7-855e-9b420100d759|growth_targets:bce9122f-4839-4b23-aa84-1c25ebb40eb8"
+      ],
+      "resolution": "human_reconciliation"
+    }
+  ],
+  "pairs": [
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "01c80cf9-f070-4170-93cb-d7a4f567a1b7"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "d76dbcfd-4f45-4644-b22c-408ffd6fb6de"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:01c80cf9-f070-4170-93cb-d7a4f567a1b7",
+        "acquisition_items:d76dbcfd-4f45-4644-b22c-408ffd6fb6de"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:01c80cf9-f070-4170-93cb-d7a4f567a1b7|acquisition_items:d76dbcfd-4f45-4644-b22c-408ffd6fb6de",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "021f48ea-622b-42be-84dd-88457b2eba27"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "7efd7377-5e1a-4fbb-85f6-c08c537387fb"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "biz-dev@gxo.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:021f48ea-622b-42be-84dd-88457b2eba27",
+        "acquisition_items:7efd7377-5e1a-4fbb-85f6-c08c537387fb"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:021f48ea-622b-42be-84dd-88457b2eba27|acquisition_items:7efd7377-5e1a-4fbb-85f6-c08c537387fb",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "other"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "036bdaae-9a1a-43dc-ba57-fb067c7a17e3"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "c35f5437-7b76-4179-a5bb-beb834070e4c"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "chris.bampton@macro-group.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:036bdaae-9a1a-43dc-ba57-fb067c7a17e3",
+        "acquisition_items:c35f5437-7b76-4179-a5bb-beb834070e4c"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:036bdaae-9a1a-43dc-ba57-fb067c7a17e3|acquisition_items:c35f5437-7b76-4179-a5bb-beb834070e4c",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "057bf6be-54a8-4c39-8a94-6226bb3da7f4"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "9f715bb2-2615-4473-a477-7d8a7013f423"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "info@altruistuk.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:057bf6be-54a8-4c39-8a94-6226bb3da7f4",
+        "acquisition_items:9f715bb2-2615-4473-a477-7d8a7013f423"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:057bf6be-54a8-4c39-8a94-6226bb3da7f4|acquisition_items:9f715bb2-2615-4473-a477-7d8a7013f423",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "057bf6be-54a8-4c39-8a94-6226bb3da7f4"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e6ba1428-cdd6-4df1-9a50-1888e32aa3dd"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "info@altruistuk.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:057bf6be-54a8-4c39-8a94-6226bb3da7f4",
+        "acquisition_items:e6ba1428-cdd6-4df1-9a50-1888e32aa3dd"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:057bf6be-54a8-4c39-8a94-6226bb3da7f4|acquisition_items:e6ba1428-cdd6-4df1-9a50-1888e32aa3dd",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "05b8bed2-6018-4cdb-ae39-ffc1163e5f9f"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "7e8541ec-b04c-4fcd-b82d-f54ca43157dc"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "info@stepnell.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:05b8bed2-6018-4cdb-ae39-ffc1163e5f9f",
+        "acquisition_items:7e8541ec-b04c-4fcd-b82d-f54ca43157dc"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:05b8bed2-6018-4cdb-ae39-ffc1163e5f9f|acquisition_items:7e8541ec-b04c-4fcd-b82d-f54ca43157dc",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "0806a3b0-7dd1-4972-9ff9-4535d016cf2c"
+        },
+        {
+          "table": "inbox_items",
+          "id": "bf4b827e-8d70-43c7-a4e9-96cd64da8805"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "content@nutritionist-resource.org.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c",
+        "inbox_items:bf4b827e-8d70-43c7-a4e9-96cd64da8805"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "Gmail evidence verifies its own sender/thread, not the unverified Acquisition association.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c|inbox_items:bf4b827e-8d70-43c7-a4e9-96cd64da8805",
+      "missingBridge": "gmail_thread_linkage_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "gmail_thread_linkage_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "0806a3b0-7dd1-4972-9ff9-4535d016cf2c"
+        },
+        {
+          "table": "inbox_items",
+          "id": "c5b69e30-dcc0-4b8f-9791-0cc9c255891d"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "content@nutritionist-resource.org.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c",
+        "inbox_items:c5b69e30-dcc0-4b8f-9791-0cc9c255891d"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "Gmail evidence verifies its own sender/thread, not the unverified Acquisition association.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:0806a3b0-7dd1-4972-9ff9-4535d016cf2c|inbox_items:c5b69e30-dcc0-4b8f-9791-0cc9c255891d",
+      "missingBridge": "gmail_thread_linkage_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "gmail_thread_linkage_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "094edc1e-4109-46c8-a6ff-7f043c60ab4e"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "be838eb4-8eb3-4a8f-949c-5aee704e8dff"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:094edc1e-4109-46c8-a6ff-7f043c60ab4e",
+        "acquisition_items:be838eb4-8eb3-4a8f-949c-5aee704e8dff"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:094edc1e-4109-46c8-a6ff-7f043c60ab4e|acquisition_items:be838eb4-8eb3-4a8f-949c-5aee704e8dff",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "0a1961e9-1d24-49eb-b1b1-39c7ecb81b22"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "1eefcc8c-3684-4439-a478-84d227612913"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "politicalaffairs.uk@airbus.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:0a1961e9-1d24-49eb-b1b1-39c7ecb81b22",
+        "acquisition_items:1eefcc8c-3684-4439-a478-84d227612913"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:0a1961e9-1d24-49eb-b1b1-39c7ecb81b22|acquisition_items:1eefcc8c-3684-4439-a478-84d227612913",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "0a1961e9-1d24-49eb-b1b1-39c7ecb81b22"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "abe93633-e4a1-49ac-993a-b437b938dc21"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "politicalaffairs.uk@airbus.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:0a1961e9-1d24-49eb-b1b1-39c7ecb81b22",
+        "acquisition_items:abe93633-e4a1-49ac-993a-b437b938dc21"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:0a1961e9-1d24-49eb-b1b1-39c7ecb81b22|acquisition_items:abe93633-e4a1-49ac-993a-b437b938dc21",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "0c506c45-316f-466d-9f52-07068dbeb5fe"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "39b0a564-a670-4857-abfe-9432f3f5e646"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:0c506c45-316f-466d-9f52-07068dbeb5fe",
+        "acquisition_items:39b0a564-a670-4857-abfe-9432f3f5e646"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:0c506c45-316f-466d-9f52-07068dbeb5fe|acquisition_items:39b0a564-a670-4857-abfe-9432f3f5e646",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "0d02c0b8-af6b-45e9-a706-cf159d2911e8"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "6e4ff625-f9c9-476c-afe6-9769126492c4"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "enquiries@wardhadaway.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:0d02c0b8-af6b-45e9-a706-cf159d2911e8",
+        "acquisition_items:6e4ff625-f9c9-476c-afe6-9769126492c4"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:0d02c0b8-af6b-45e9-a706-cf159d2911e8|acquisition_items:6e4ff625-f9c9-476c-afe6-9769126492c4",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "other"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "1017dd86-fe86-445d-9f2b-8c62d1d22dee"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e6f6e8a6-eec0-4858-b799-f147978c6a1a"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:1017dd86-fe86-445d-9f2b-8c62d1d22dee",
+        "acquisition_items:e6f6e8a6-eec0-4858-b799-f147978c6a1a"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:1017dd86-fe86-445d-9f2b-8c62d1d22dee|acquisition_items:e6f6e8a6-eec0-4858-b799-f147978c6a1a",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "12f6f6d9-0a16-4438-9201-ad407f0fdeed"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "c3b784b1-52ee-4591-b97b-40bd0eeacc5d"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:12f6f6d9-0a16-4438-9201-ad407f0fdeed",
+        "acquisition_items:c3b784b1-52ee-4591-b97b-40bd0eeacc5d"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:12f6f6d9-0a16-4438-9201-ad407f0fdeed|acquisition_items:c3b784b1-52ee-4591-b97b-40bd0eeacc5d",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "134c569c-dbc9-470d-8ad2-37f06f39eba6"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "4e2945dc-4b39-4e70-847a-5a19594c0847"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:134c569c-dbc9-470d-8ad2-37f06f39eba6",
+        "acquisition_items:4e2945dc-4b39-4e70-847a-5a19594c0847"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:134c569c-dbc9-470d-8ad2-37f06f39eba6|acquisition_items:4e2945dc-4b39-4e70-847a-5a19594c0847",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "1384346e-8ea5-45b8-86f8-57ab77acf6af"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "61091096-1f38-404c-bd34-00a99630eac7"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:1384346e-8ea5-45b8-86f8-57ab77acf6af",
+        "acquisition_items:61091096-1f38-404c-bd34-00a99630eac7"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:1384346e-8ea5-45b8-86f8-57ab77acf6af|acquisition_items:61091096-1f38-404c-bd34-00a99630eac7",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "14894e81-0d2e-4069-a149-a5d10ac92db4"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "5b9f138d-d317-4e6c-9afd-95933cbc4c9e"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:14894e81-0d2e-4069-a149-a5d10ac92db4",
+        "acquisition_items:5b9f138d-d317-4e6c-9afd-95933cbc4c9e"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:14894e81-0d2e-4069-a149-a5d10ac92db4|acquisition_items:5b9f138d-d317-4e6c-9afd-95933cbc4c9e",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "1555272e-1197-403c-bb0e-cc7495cf5da5"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e48ad2dd-1b6a-4c0e-918f-e9668db6be0b"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "info@graham.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:1555272e-1197-403c-bb0e-cc7495cf5da5",
+        "acquisition_items:e48ad2dd-1b6a-4c0e-918f-e9668db6be0b"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:1555272e-1197-403c-bb0e-cc7495cf5da5|acquisition_items:e48ad2dd-1b6a-4c0e-918f-e9668db6be0b",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "166068cd-cbb6-4f93-81b8-980e37a9dac9"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "262a0569-74c8-4c38-8305-99733698dded"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:166068cd-cbb6-4f93-81b8-980e37a9dac9",
+        "acquisition_items:262a0569-74c8-4c38-8305-99733698dded"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:166068cd-cbb6-4f93-81b8-980e37a9dac9|acquisition_items:262a0569-74c8-4c38-8305-99733698dded",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "1e14b428-bdf4-4774-aaed-ff6d0517ce59"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "ca68b40e-16a2-4f88-beb6-890d6da0086e"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "glasgow@rjmcleod.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:1e14b428-bdf4-4774-aaed-ff6d0517ce59",
+        "acquisition_items:ca68b40e-16a2-4f88-beb6-890d6da0086e"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:1e14b428-bdf4-4774-aaed-ff6d0517ce59|acquisition_items:ca68b40e-16a2-4f88-beb6-890d6da0086e",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "1f5a5acc-f318-4f8d-98c2-1ddcd76f1ced"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "788c974b-ac50-4690-a4a6-3d1a0e0d1917"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:1f5a5acc-f318-4f8d-98c2-1ddcd76f1ced",
+        "acquisition_items:788c974b-ac50-4690-a4a6-3d1a0e0d1917"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:1f5a5acc-f318-4f8d-98c2-1ddcd76f1ced|acquisition_items:788c974b-ac50-4690-a4a6-3d1a0e0d1917",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "23a7822b-dc76-4d8b-844a-31981372ed4e"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "d26e90a3-7cf6-49b9-b50d-6b10ab8d2228"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "info@southwestcarehomes.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:23a7822b-dc76-4d8b-844a-31981372ed4e",
+        "acquisition_items:d26e90a3-7cf6-49b9-b50d-6b10ab8d2228"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:23a7822b-dc76-4d8b-844a-31981372ed4e|acquisition_items:d26e90a3-7cf6-49b9-b50d-6b10ab8d2228",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "27bd06ff-c88a-4050-b44f-f2e206e0ca06"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "fc37e363-15e0-4a86-a34d-3e374b8e5a46"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "communications@mearsgroup.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:27bd06ff-c88a-4050-b44f-f2e206e0ca06",
+        "acquisition_items:fc37e363-15e0-4a86-a34d-3e374b8e5a46"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:27bd06ff-c88a-4050-b44f-f2e206e0ca06|acquisition_items:fc37e363-15e0-4a86-a34d-3e374b8e5a46",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "other",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        },
+        {
+          "table": "inbox_items",
+          "id": "1721cfdd-2eee-48c4-a3e1-70058a12f1d6"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "chair@isma.org.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "inbox_items:1721cfdd-2eee-48c4-a3e1-70058a12f1d6"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "Gmail evidence verifies its own sender/thread, not the unverified Acquisition association.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:1721cfdd-2eee-48c4-a3e1-70058a12f1d6",
+      "missingBridge": "gmail_thread_linkage_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "gmail_thread_linkage_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        },
+        {
+          "table": "inbox_items",
+          "id": "21fa4ecd-1ad7-40b8-960c-b2400cd92057"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "chair@isma.org.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "inbox_items:21fa4ecd-1ad7-40b8-960c-b2400cd92057"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "Gmail evidence verifies its own sender/thread, not the unverified Acquisition association.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:21fa4ecd-1ad7-40b8-960c-b2400cd92057",
+      "missingBridge": "gmail_thread_linkage_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "gmail_thread_linkage_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        },
+        {
+          "table": "inbox_items",
+          "id": "85d9b80f-bbb9-4392-a88e-4d451e002d90"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "chair@isma.org.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "inbox_items:85d9b80f-bbb9-4392-a88e-4d451e002d90"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "Gmail evidence verifies its own sender/thread, not the unverified Acquisition association.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:85d9b80f-bbb9-4392-a88e-4d451e002d90",
+      "missingBridge": "gmail_thread_linkage_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "gmail_thread_linkage_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        },
+        {
+          "table": "inbox_items",
+          "id": "aa9de9e5-d03b-41ee-8295-2fbe3cf52139"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "chair@isma.org.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "inbox_items:aa9de9e5-d03b-41ee-8295-2fbe3cf52139"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "Gmail evidence verifies its own sender/thread, not the unverified Acquisition association.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:aa9de9e5-d03b-41ee-8295-2fbe3cf52139",
+      "missingBridge": "gmail_thread_linkage_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "gmail_thread_linkage_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        },
+        {
+          "table": "inbox_items",
+          "id": "acc37042-8d5d-4b63-9f42-8955efe09fff"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "chair@isma.org.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "inbox_items:acc37042-8d5d-4b63-9f42-8955efe09fff"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "Gmail evidence verifies its own sender/thread, not the unverified Acquisition association.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:acc37042-8d5d-4b63-9f42-8955efe09fff",
+      "missingBridge": "gmail_thread_linkage_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "gmail_thread_linkage_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        },
+        {
+          "table": "inbox_items",
+          "id": "b921ee53-c8d5-48b0-b77f-628dbe7f0756"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "chair@isma.org.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "inbox_items:b921ee53-c8d5-48b0-b77f-628dbe7f0756"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "Gmail evidence verifies its own sender/thread, not the unverified Acquisition association.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:b921ee53-c8d5-48b0-b77f-628dbe7f0756",
+      "missingBridge": "gmail_thread_linkage_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "gmail_thread_linkage_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "2beb3f21-51fa-4a5d-bf95-faa4652c6799"
+        },
+        {
+          "table": "inbox_items",
+          "id": "bc43605d-2663-4a2a-af97-df4af4bcc552"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "chair@isma.org.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799",
+        "inbox_items:bc43605d-2663-4a2a-af97-df4af4bcc552"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "Gmail evidence verifies its own sender/thread, not the unverified Acquisition association.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:2beb3f21-51fa-4a5d-bf95-faa4652c6799|inbox_items:bc43605d-2663-4a2a-af97-df4af4bcc552",
+      "missingBridge": "gmail_thread_linkage_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "gmail_thread_linkage_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "2cf7f171-769b-434c-b3c8-3a5d261d69cc"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "80ccb675-3612-4230-a234-c6cdf1addfbc"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:2cf7f171-769b-434c-b3c8-3a5d261d69cc",
+        "acquisition_items:80ccb675-3612-4230-a234-c6cdf1addfbc"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:2cf7f171-769b-434c-b3c8-3a5d261d69cc|acquisition_items:80ccb675-3612-4230-a234-c6cdf1addfbc",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "2f3df6dd-100e-48e3-97e1-1cb8e5a03cad"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f3c822a8-8fc1-4c13-b3ce-02904bf0738f"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:2f3df6dd-100e-48e3-97e1-1cb8e5a03cad",
+        "acquisition_items:f3c822a8-8fc1-4c13-b3ce-02904bf0738f"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:2f3df6dd-100e-48e3-97e1-1cb8e5a03cad|acquisition_items:f3c822a8-8fc1-4c13-b3ce-02904bf0738f",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "32248123-259d-405a-a436-a85830e61089"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "fab959eb-c24d-4ce4-99cd-9ded0d163c1d"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "businessmembership@travelodge.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:32248123-259d-405a-a436-a85830e61089",
+        "acquisition_items:fab959eb-c24d-4ce4-99cd-9ded0d163c1d"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:32248123-259d-405a-a436-a85830e61089|acquisition_items:fab959eb-c24d-4ce4-99cd-9ded0d163c1d",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "other"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "333ec284-812e-426d-9e84-3ca251e98611"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "968d12bc-b913-4293-8cfc-57677eab5303"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "enquiries@jbs-ltd.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:333ec284-812e-426d-9e84-3ca251e98611",
+        "acquisition_items:968d12bc-b913-4293-8cfc-57677eab5303"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:333ec284-812e-426d-9e84-3ca251e98611|acquisition_items:968d12bc-b913-4293-8cfc-57677eab5303",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "345e448a-329c-4cee-a595-88753fdce023"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "7a5c6c10-feda-4206-8d89-b465142be605"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:345e448a-329c-4cee-a595-88753fdce023",
+        "acquisition_items:7a5c6c10-feda-4206-8d89-b465142be605"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:345e448a-329c-4cee-a595-88753fdce023|acquisition_items:7a5c6c10-feda-4206-8d89-b465142be605",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "38a15a76-fb7b-402d-9239-e3d078441719"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e3e25449-553c-40d9-9609-5ad31b3ecfbe"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "press.office@suntory.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:38a15a76-fb7b-402d-9239-e3d078441719",
+        "acquisition_items:e3e25449-553c-40d9-9609-5ad31b3ecfbe"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:38a15a76-fb7b-402d-9239-e3d078441719|acquisition_items:e3e25449-553c-40d9-9609-5ad31b3ecfbe",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "other"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "3ae6a1a4-3b07-49f4-9c19-1c3f1d146b48"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "bbda5971-b374-4b48-a9ba-96f0c8fac9fb"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "adultcare.hqadmin@derbyshire.gov.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:3ae6a1a4-3b07-49f4-9c19-1c3f1d146b48",
+        "acquisition_items:bbda5971-b374-4b48-a9ba-96f0c8fac9fb"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:3ae6a1a4-3b07-49f4-9c19-1c3f1d146b48|acquisition_items:bbda5971-b374-4b48-a9ba-96f0c8fac9fb",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "other",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "3b873559-ae93-4664-95da-683fe5eeb3bb"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "dcd22b6f-9ab7-4877-b699-60704aeafb44"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "contactus@unipart.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:3b873559-ae93-4664-95da-683fe5eeb3bb",
+        "acquisition_items:dcd22b6f-9ab7-4877-b699-60704aeafb44"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:3b873559-ae93-4664-95da-683fe5eeb3bb|acquisition_items:dcd22b6f-9ab7-4877-b699-60704aeafb44",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "3b873559-ae93-4664-95da-683fe5eeb3bb"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e926f241-1927-4e01-b219-73d4138450f3"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "contactus@unipart.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:3b873559-ae93-4664-95da-683fe5eeb3bb",
+        "acquisition_items:e926f241-1927-4e01-b219-73d4138450f3"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:3b873559-ae93-4664-95da-683fe5eeb3bb|acquisition_items:e926f241-1927-4e01-b219-73d4138450f3",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "43d9d404-c097-434c-93d4-6058d1f88fd1"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "b9fdfa41-c2a2-4f38-b324-9ceef1cdc942"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "contact@anchorhanover.org.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:43d9d404-c097-434c-93d4-6058d1f88fd1",
+        "acquisition_items:b9fdfa41-c2a2-4f38-b324-9ceef1cdc942"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:43d9d404-c097-434c-93d4-6058d1f88fd1|acquisition_items:b9fdfa41-c2a2-4f38-b324-9ceef1cdc942",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "other",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "4694af80-1016-4fc0-bb88-8879f0838cdd"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f02b8eef-0b97-4473-a0b1-756af9178950"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:4694af80-1016-4fc0-bb88-8879f0838cdd",
+        "acquisition_items:f02b8eef-0b97-4473-a0b1-756af9178950"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:4694af80-1016-4fc0-bb88-8879f0838cdd|acquisition_items:f02b8eef-0b97-4473-a0b1-756af9178950",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "47793fa2-9570-44e4-84cc-29007393ea66"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "fc7d78ef-8dfc-46cc-a0be-3ed2fc4a737e"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:47793fa2-9570-44e4-84cc-29007393ea66",
+        "acquisition_items:fc7d78ef-8dfc-46cc-a0be-3ed2fc4a737e"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:47793fa2-9570-44e4-84cc-29007393ea66|acquisition_items:fc7d78ef-8dfc-46cc-a0be-3ed2fc4a737e",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "5142bfab-f4f4-421a-b327-18703108aa88"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "8757758a-cb86-44c2-b932-b8da7a8ca185"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:5142bfab-f4f4-421a-b327-18703108aa88",
+        "acquisition_items:8757758a-cb86-44c2-b932-b8da7a8ca185"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:5142bfab-f4f4-421a-b327-18703108aa88|acquisition_items:8757758a-cb86-44c2-b932-b8da7a8ca185",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "51e81749-a3de-4a6e-8cc2-62e3a9875bbf"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "8e9e8b97-dacd-4300-9f87-2e632a083413"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf",
+        "acquisition_items:8e9e8b97-dacd-4300-9f87-2e632a083413"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf|acquisition_items:8e9e8b97-dacd-4300-9f87-2e632a083413",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "51e81749-a3de-4a6e-8cc2-62e3a9875bbf"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "a36196f6-2a0f-4572-877f-c13f73d385a6"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf",
+        "acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf|acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "51e81749-a3de-4a6e-8cc2-62e3a9875bbf"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf",
+        "acquisition_items:edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:51e81749-a3de-4a6e-8cc2-62e3a9875bbf|acquisition_items:edbcc7c2-c3d6-4bdd-906e-4b6465928e9b",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "51f2aeb0-69dd-4d19-a02e-ca3fbd13fde6"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "fc82a184-b584-43bb-9770-2b3d469adfbb"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:51f2aeb0-69dd-4d19-a02e-ca3fbd13fde6",
+        "acquisition_items:fc82a184-b584-43bb-9770-2b3d469adfbb"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:51f2aeb0-69dd-4d19-a02e-ca3fbd13fde6|acquisition_items:fc82a184-b584-43bb-9770-2b3d469adfbb",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "559b0da8-8609-46c2-8054-8ce2a5389596"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f65ca189-1234-4225-9c18-7cacaebb5b98"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:559b0da8-8609-46c2-8054-8ce2a5389596",
+        "acquisition_items:f65ca189-1234-4225-9c18-7cacaebb5b98"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:559b0da8-8609-46c2-8054-8ce2a5389596|acquisition_items:f65ca189-1234-4225-9c18-7cacaebb5b98",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "5947e6ee-46bd-4434-95e8-3461c3754a99"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "aca277be-6002-4fe8-b318-45e4a4724031"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:5947e6ee-46bd-4434-95e8-3461c3754a99",
+        "acquisition_items:aca277be-6002-4fe8-b318-45e4a4724031"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:5947e6ee-46bd-4434-95e8-3461c3754a99|acquisition_items:aca277be-6002-4fe8-b318-45e4a4724031",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "5d83efed-0164-49d6-806f-010c1b249599"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "fb75affc-cea8-46dc-9918-798f8f8f4a6d"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "enquiries@creativesupport.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:5d83efed-0164-49d6-806f-010c1b249599",
+        "acquisition_items:fb75affc-cea8-46dc-9918-798f8f8f4a6d"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:5d83efed-0164-49d6-806f-010c1b249599|acquisition_items:fb75affc-cea8-46dc-9918-798f8f8f4a6d",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "5df5fbe6-85fb-4c36-90aa-f149ac9f5939"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "8035dc41-d029-4a94-b167-aabde5789402"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "info@universalcareservices.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:5df5fbe6-85fb-4c36-90aa-f149ac9f5939",
+        "acquisition_items:8035dc41-d029-4a94-b167-aabde5789402"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:5df5fbe6-85fb-4c36-90aa-f149ac9f5939|acquisition_items:8035dc41-d029-4a94-b167-aabde5789402",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "other",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "5ffcfb22-134c-4891-9509-1b8bd87f1537"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "dcd8e542-d87c-4797-a5b3-2c66fb71f3b9"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "customerserviceeu@leviton.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:5ffcfb22-134c-4891-9509-1b8bd87f1537",
+        "acquisition_items:dcd8e542-d87c-4797-a5b3-2c66fb71f3b9"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:5ffcfb22-134c-4891-9509-1b8bd87f1537|acquisition_items:dcd8e542-d87c-4797-a5b3-2c66fb71f3b9",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "6140c380-b103-4adc-aa63-5e1878262864"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "cff2392f-828b-4171-8e3f-7d4b66336cbf"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "sales@web-international.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:6140c380-b103-4adc-aa63-5e1878262864",
+        "acquisition_items:cff2392f-828b-4171-8e3f-7d4b66336cbf"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:6140c380-b103-4adc-aa63-5e1878262864|acquisition_items:cff2392f-828b-4171-8e3f-7d4b66336cbf",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "other",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "6469e058-8208-4977-9a95-ae7d7f829796"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "6c2cafcc-20e8-4787-9b34-d94e50792758"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:6469e058-8208-4977-9a95-ae7d7f829796",
+        "acquisition_items:6c2cafcc-20e8-4787-9b34-d94e50792758"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:6469e058-8208-4977-9a95-ae7d7f829796|acquisition_items:6c2cafcc-20e8-4787-9b34-d94e50792758",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "67c440e7-e51f-4737-a24a-94ad518a273d"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "cc8bf5a5-11a7-4e9d-ad8d-5ec98cf64d03"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "info@macegroup.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:67c440e7-e51f-4737-a24a-94ad518a273d",
+        "acquisition_items:cc8bf5a5-11a7-4e9d-ad8d-5ec98cf64d03"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:67c440e7-e51f-4737-a24a-94ad518a273d|acquisition_items:cc8bf5a5-11a7-4e9d-ad8d-5ec98cf64d03",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "other",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "6e0297ac-4a0b-4c62-ac4f-ed2c9be544d0"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "d252d7ba-5d2d-42a2-a5b4-d7696490d177"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "corporate.enquiries@miller.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:6e0297ac-4a0b-4c62-ac4f-ed2c9be544d0",
+        "acquisition_items:d252d7ba-5d2d-42a2-a5b4-d7696490d177"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:6e0297ac-4a0b-4c62-ac4f-ed2c9be544d0|acquisition_items:d252d7ba-5d2d-42a2-a5b4-d7696490d177",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "704a470a-0e39-4267-8c49-543d913aef58"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "8868ef73-d791-43bf-970d-fd0b79a99c06"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "hello@healthpartnersgroup.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:704a470a-0e39-4267-8c49-543d913aef58",
+        "acquisition_items:8868ef73-d791-43bf-970d-fd0b79a99c06"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:704a470a-0e39-4267-8c49-543d913aef58|acquisition_items:8868ef73-d791-43bf-970d-fd0b79a99c06",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "704a470a-0e39-4267-8c49-543d913aef58"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "93677425-e29f-4999-9667-9b38ed41f2db"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "hello@healthpartnersgroup.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:704a470a-0e39-4267-8c49-543d913aef58",
+        "acquisition_items:93677425-e29f-4999-9667-9b38ed41f2db"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:704a470a-0e39-4267-8c49-543d913aef58|acquisition_items:93677425-e29f-4999-9667-9b38ed41f2db",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "70db2172-ef1f-4ec9-9631-3f74c6bf629a"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "a129c231-928a-4019-bab7-7379860161d2"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "sales@rdjohns.lls.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:70db2172-ef1f-4ec9-9631-3f74c6bf629a",
+        "acquisition_items:a129c231-928a-4019-bab7-7379860161d2"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:70db2172-ef1f-4ec9-9631-3f74c6bf629a|acquisition_items:a129c231-928a-4019-bab7-7379860161d2",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "other"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "731652fa-c453-41b1-b59b-836dc952f674"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f06d5900-2fc2-4b3c-830d-45a56872078e"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:731652fa-c453-41b1-b59b-836dc952f674",
+        "acquisition_items:f06d5900-2fc2-4b3c-830d-45a56872078e"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:731652fa-c453-41b1-b59b-836dc952f674|acquisition_items:f06d5900-2fc2-4b3c-830d-45a56872078e",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "7518f25d-8440-4d3f-a670-bbd606370f19"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "78af73e9-ad33-4ad4-86ef-ad4276439619"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:7518f25d-8440-4d3f-a670-bbd606370f19",
+        "acquisition_items:78af73e9-ad33-4ad4-86ef-ad4276439619"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:7518f25d-8440-4d3f-a670-bbd606370f19|acquisition_items:78af73e9-ad33-4ad4-86ef-ad4276439619",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "757139de-fe95-475a-a0bc-44eaaa73ac04"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "d125ea08-7bdb-4945-aab1-7709b62c9078"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:757139de-fe95-475a-a0bc-44eaaa73ac04",
+        "acquisition_items:d125ea08-7bdb-4945-aab1-7709b62c9078"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:757139de-fe95-475a-a0bc-44eaaa73ac04|acquisition_items:d125ea08-7bdb-4945-aab1-7709b62c9078",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "7d6a276b-64c4-4a9f-a1e9-5d3d77158ae4"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "a295e9b8-1653-4bfc-ba3d-cf0924b1eb49"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "info@seren.wales"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:7d6a276b-64c4-4a9f-a1e9-5d3d77158ae4",
+        "acquisition_items:a295e9b8-1653-4bfc-ba3d-cf0924b1eb49"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:7d6a276b-64c4-4a9f-a1e9-5d3d77158ae4|acquisition_items:a295e9b8-1653-4bfc-ba3d-cf0924b1eb49",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "86438617-4fa8-464a-9a0f-3d55b7c27d5a"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "c2b73dd5-d527-462e-ace0-ade63680bcc6"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "information@emc-dnl.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:86438617-4fa8-464a-9a0f-3d55b7c27d5a",
+        "acquisition_items:c2b73dd5-d527-462e-ace0-ade63680bcc6"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:86438617-4fa8-464a-9a0f-3d55b7c27d5a|acquisition_items:c2b73dd5-d527-462e-ace0-ade63680bcc6",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "other"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "882fa572-d689-478c-8761-3dc6a4f2c567"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "eec74a05-3bf6-41ba-9fb0-b57128e923e3"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "info@springfieldhealthcare.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:882fa572-d689-478c-8761-3dc6a4f2c567",
+        "acquisition_items:eec74a05-3bf6-41ba-9fb0-b57128e923e3"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:882fa572-d689-478c-8761-3dc6a4f2c567|acquisition_items:eec74a05-3bf6-41ba-9fb0-b57128e923e3",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "8868ef73-d791-43bf-970d-fd0b79a99c06"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "93677425-e29f-4999-9667-9b38ed41f2db"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "hello@healthpartnersgroup.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:8868ef73-d791-43bf-970d-fd0b79a99c06",
+        "acquisition_items:93677425-e29f-4999-9667-9b38ed41f2db"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:8868ef73-d791-43bf-970d-fd0b79a99c06|acquisition_items:93677425-e29f-4999-9667-9b38ed41f2db",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "8b01e1a1-3be9-495e-bb1f-4d6a17f09c24"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "eb5c75d6-24e2-4c09-9380-b910f6954202"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "pem@pem.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:8b01e1a1-3be9-495e-bb1f-4d6a17f09c24",
+        "acquisition_items:eb5c75d6-24e2-4c09-9380-b910f6954202"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "Person and company evidence remain separate; a shared address does not establish the same entity.",
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:8b01e1a1-3be9-495e-bb1f-4d6a17f09c24|acquisition_items:eb5c75d6-24e2-4c09-9380-b910f6954202",
+      "missingBridge": "other",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "other"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "8c826075-7cf9-4c57-9cd0-27ba50b991ae"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "b639678e-479c-4f2d-8421-a1bf393317ce"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "info@smeoh.co.uk"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:8c826075-7cf9-4c57-9cd0-27ba50b991ae",
+        "acquisition_items:b639678e-479c-4f2d-8421-a1bf393317ce"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:8c826075-7cf9-4c57-9cd0-27ba50b991ae|acquisition_items:b639678e-479c-4f2d-8421-a1bf393317ce",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "8e9e8b97-dacd-4300-9f87-2e632a083413"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "a36196f6-2a0f-4572-877f-c13f73d385a6"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:8e9e8b97-dacd-4300-9f87-2e632a083413",
+        "acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:8e9e8b97-dacd-4300-9f87-2e632a083413|acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "91de61b4-3bdb-4eba-9b30-954a708d07bb"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "cdef7bff-abc2-4254-b09c-9470a1dbbdbc"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:91de61b4-3bdb-4eba-9b30-954a708d07bb",
+        "acquisition_items:cdef7bff-abc2-4254-b09c-9470a1dbbdbc"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:91de61b4-3bdb-4eba-9b30-954a708d07bb|acquisition_items:cdef7bff-abc2-4254-b09c-9470a1dbbdbc",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "9d05addf-e294-4cca-8d06-d245460c97e9"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "a6005634-b30b-428c-80b4-2ea11b9af9e2"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "rail.enquiries@hitachirail.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:9d05addf-e294-4cca-8d06-d245460c97e9",
+        "acquisition_items:a6005634-b30b-428c-80b4-2ea11b9af9e2"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:9d05addf-e294-4cca-8d06-d245460c97e9|acquisition_items:a6005634-b30b-428c-80b4-2ea11b9af9e2",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "9f715bb2-2615-4473-a477-7d8a7013f423"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e6ba1428-cdd6-4df1-9a50-1888e32aa3dd"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "info@altruistuk.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:9f715bb2-2615-4473-a477-7d8a7013f423",
+        "acquisition_items:e6ba1428-cdd6-4df1-9a50-1888e32aa3dd"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:9f715bb2-2615-4473-a477-7d8a7013f423|acquisition_items:e6ba1428-cdd6-4df1-9a50-1888e32aa3dd",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "a36196f6-2a0f-4572-877f-c13f73d385a6"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6",
+        "acquisition_items:edbcc7c2-c3d6-4bdd-906e-4b6465928e9b"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:a36196f6-2a0f-4572-877f-c13f73d385a6|acquisition_items:edbcc7c2-c3d6-4bdd-906e-4b6465928e9b",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "a4bcbfaf-bb8e-46f2-83be-ec235547f842"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "dfcae627-a7f9-40b9-bb52-f4cc5564bf09"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "frank.rourke@ineos.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:a4bcbfaf-bb8e-46f2-83be-ec235547f842",
+        "acquisition_items:dfcae627-a7f9-40b9-bb52-f4cc5564bf09"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:a4bcbfaf-bb8e-46f2-83be-ec235547f842|acquisition_items:dfcae627-a7f9-40b9-bb52-f4cc5564bf09",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "b004897a-6174-4479-9f64-60e3a162ece0"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f02b8eef-0b97-4473-a0b1-756af9178950"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:b004897a-6174-4479-9f64-60e3a162ece0",
+        "acquisition_items:f02b8eef-0b97-4473-a0b1-756af9178950"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:b004897a-6174-4479-9f64-60e3a162ece0|acquisition_items:f02b8eef-0b97-4473-a0b1-756af9178950",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "b56551d6-2ff7-4ddf-83ce-09b44e54e8c5"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "de64b795-6029-4643-af9e-06c939da1b78"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:b56551d6-2ff7-4ddf-83ce-09b44e54e8c5",
+        "acquisition_items:de64b795-6029-4643-af9e-06c939da1b78"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:b56551d6-2ff7-4ddf-83ce-09b44e54e8c5|acquisition_items:de64b795-6029-4643-af9e-06c939da1b78",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "bf825386-73bf-4a64-b877-3d0131967a77"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "d7b7bf8f-730f-4043-b977-4545bf2dec59"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:bf825386-73bf-4a64-b877-3d0131967a77",
+        "acquisition_items:d7b7bf8f-730f-4043-b977-4545bf2dec59"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:bf825386-73bf-4a64-b877-3d0131967a77|acquisition_items:d7b7bf8f-730f-4043-b977-4545bf2dec59",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "c800346b-ac3b-40f8-b187-ec45af95b97e"
+        },
+        {
+          "table": "growth_targets",
+          "id": "b2cafdb7-87ce-4636-86a1-2c6c53dcd902"
+        }
+      ],
+      "alias": {
+        "type": "source_ref",
+        "value": "acquisition_items:c800346b-ac3b-40f8-b187-ec45af95b97e"
+      },
+      "verificationBasis": "persisted_acquisition_fk_and_exact_source_tuple",
+      "evidenceIds": [
+        "acquisition_items:c800346b-ac3b-40f8-b187-ec45af95b97e",
+        "growth_targets:b2cafdb7-87ce-4636-86a1-2c6c53dcd902"
+      ],
+      "confidenceClass": "deterministic",
+      "ambiguityReason": null,
+      "humanReviewRequired": false,
+      "pairId": "acquisition_items:c800346b-ac3b-40f8-b187-ec45af95b97e|growth_targets:b2cafdb7-87ce-4636-86a1-2c6c53dcd902",
+      "missingBridge": "historical_record_shape",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": true
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "ce97dcc1-f3bd-41e4-948e-391a236cd25f"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "d093b45c-bee8-44a1-ada7-9bae27037c05"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:ce97dcc1-f3bd-41e4-948e-391a236cd25f",
+        "acquisition_items:d093b45c-bee8-44a1-ada7-9bae27037c05"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:ce97dcc1-f3bd-41e4-948e-391a236cd25f|acquisition_items:d093b45c-bee8-44a1-ada7-9bae27037c05",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "d21fce0d-5395-4388-89ae-cd2365b5c142"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "ec017664-ffe2-47a0-ab92-989f3e6fe39f"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:d21fce0d-5395-4388-89ae-cd2365b5c142",
+        "acquisition_items:ec017664-ffe2-47a0-ab92-989f3e6fe39f"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:d21fce0d-5395-4388-89ae-cd2365b5c142|acquisition_items:ec017664-ffe2-47a0-ab92-989f3e6fe39f",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "dcd22b6f-9ab7-4877-b699-60704aeafb44"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "e926f241-1927-4e01-b219-73d4138450f3"
+        }
+      ],
+      "alias": {
+        "type": "email",
+        "value": "contactus@unipart.com"
+      },
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:dcd22b6f-9ab7-4877-b699-60704aeafb44",
+        "acquisition_items:e926f241-1927-4e01-b219-73d4138450f3"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:dcd22b6f-9ab7-4877-b699-60704aeafb44|acquisition_items:e926f241-1927-4e01-b219-73d4138450f3",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "de5d3c98-fa0b-41f0-b0c8-a5a636c596b2"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "f7d32e4b-3eff-4ac9-8cc6-a0532329af20"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:de5d3c98-fa0b-41f0-b0c8-a5a636c596b2",
+        "acquisition_items:f7d32e4b-3eff-4ac9-8cc6-a0532329af20"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:de5d3c98-fa0b-41f0-b0c8-a5a636c596b2|acquisition_items:f7d32e4b-3eff-4ac9-8cc6-a0532329af20",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "acquisition_items",
+          "id": "f774a2e4-2129-4144-9c85-888dff744108"
+        },
+        {
+          "table": "acquisition_items",
+          "id": "ffb8ae0d-c00d-4387-af17-154e748907c3"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "acquisition_items:f774a2e4-2129-4144-9c85-888dff744108",
+        "acquisition_items:ffb8ae0d-c00d-4387-af17-154e748907c3"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "acquisition_items:f774a2e4-2129-4144-9c85-888dff744108|acquisition_items:ffb8ae0d-c00d-4387-af17-154e748907c3",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "historical_record_shape",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "growth_targets",
+          "id": "1059d1f8-a8b0-49a7-855e-9b420100d759"
+        },
+        {
+          "table": "growth_targets",
+          "id": "bce9122f-4839-4b23-aa84-1c25ebb40eb8"
+        }
+      ],
+      "alias": null,
+      "verificationBasis": "candidate_only_not_join_authority",
+      "evidenceIds": [
+        "growth_targets:1059d1f8-a8b0-49a7-855e-9b420100d759",
+        "growth_targets:bce9122f-4839-4b23-aa84-1c25ebb40eb8"
+      ],
+      "confidenceClass": "human_reconciliation",
+      "ambiguityReason": "No verified alias or explicit source bridge establishes this association; names/company/domain are not authority.",
+      "humanReviewRequired": true,
+      "pairId": "growth_targets:1059d1f8-a8b0-49a7-855e-9b420100d759|growth_targets:bce9122f-4839-4b23-aa84-1c25ebb40eb8",
+      "missingBridge": "verified_email_absent",
+      "missingBridges": [
+        "canonical_linkedin_identity_absent",
+        "explicit_source_reference_absent",
+        "verified_email_absent"
+      ],
+      "resolvedInShadow": false
+    }
+  ],
+  "nestedFounderReview": [
+    {
+      "sourceRefs": [
+        {
+          "table": "founder_research_records",
+          "id": "4c4435f6-dc89-406e-a18c-b65b8793e381"
+        }
+      ],
+      "alias": {
+        "type": "founder_contact",
+        "value": "[protected value omitted; use authorised source]"
+      },
+      "verificationBasis": "verified_nested_contact_not_company_identity",
+      "evidenceIds": [
+        "founder_research_records:4c4435f6-dc89-406e-a18c-b65b8793e381#contacts/0"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "No existing person source anchor established; keep nested evidence without creating a person.",
+      "humanReviewRequired": false,
+      "missingBridge": "founder_nested_contact_only"
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "founder_research_records",
+          "id": "4c4435f6-dc89-406e-a18c-b65b8793e381"
+        }
+      ],
+      "alias": {
+        "type": "founder_contact",
+        "value": "[protected value omitted; use authorised source]"
+      },
+      "verificationBasis": "verified_nested_contact_not_company_identity",
+      "evidenceIds": [
+        "founder_research_records:4c4435f6-dc89-406e-a18c-b65b8793e381#contacts/1"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "No existing person source anchor established; keep nested evidence without creating a person.",
+      "humanReviewRequired": false,
+      "missingBridge": "founder_nested_contact_only"
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "founder_research_records",
+          "id": "d3abef12-73b0-41f2-8f4d-0d9553e69979"
+        }
+      ],
+      "alias": {
+        "type": "founder_contact",
+        "value": "[protected value omitted; use authorised source]"
+      },
+      "verificationBasis": "verified_nested_contact_not_company_identity",
+      "evidenceIds": [
+        "founder_research_records:d3abef12-73b0-41f2-8f4d-0d9553e69979#contacts/0"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "No existing person source anchor established; keep nested evidence without creating a person.",
+      "humanReviewRequired": false,
+      "missingBridge": "founder_nested_contact_only"
+    },
+    {
+      "sourceRefs": [
+        {
+          "table": "founder_research_records",
+          "id": "d3abef12-73b0-41f2-8f4d-0d9553e69979"
+        }
+      ],
+      "alias": {
+        "type": "founder_contact",
+        "value": "[protected value omitted; use authorised source]"
+      },
+      "verificationBasis": "verified_nested_contact_not_company_identity",
+      "evidenceIds": [
+        "founder_research_records:d3abef12-73b0-41f2-8f4d-0d9553e69979#contacts/2"
+      ],
+      "confidenceClass": "separate",
+      "ambiguityReason": "No existing person source anchor established; keep nested evidence without creating a person.",
+      "humanReviewRequired": false,
+      "missingBridge": "founder_nested_contact_only"
+    }
+  ],
+  "limitations": [
+    "Same atomic Phase 2 snapshot: not a fresh mailbox/Production scan.",
+    "No source identity/link writes; disposable projection only.",
+    "All 66 groups and 85 source pairs classified.",
+    "No message bodies in this report.",
+    "Shadow display/timing/history defects are deliberately not repaired here."
+  ]
+}
