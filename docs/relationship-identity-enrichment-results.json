@@ -1,0 +1,54 @@
+{
+  "mode": "READ_ONLY_STORED_EVIDENCE_ENRICHMENT",
+  "atomic": true,
+  "scope": "Stored Ops evidence only. No live Gmail/LinkedIn/external lookup. No decisions or grouping changes.",
+  "sourceCounts": {
+    "ledger": 1,
+    "inbox_items": 179,
+    "growth_targets": 199,
+    "acquisition_items": 2267,
+    "relationship_tasks": 2,
+    "response_item_events": 12,
+    "acquisition_item_events": 37,
+    "founder_activity_events": 2,
+    "relationship_workspaces": 4,
+    "founder_research_records": 13,
+    "relationship_source_links": 4,
+    "email_conversation_messages": 68,
+    "relationship_activity_events": 9,
+    "linkedin_conversation_messages": 8
+  },
+  "originalReviewGroups": 52,
+  "originalReviewPairs": 71,
+  "alreadyConfirmedPairsExcluded": 1,
+  "unresolvedGroupsReviewed": 51,
+  "unresolvedPairsReviewed": 70,
+  "groupClassifications": {
+    "NOW_SAFE_FOR_HUMAN_REVIEW": 0,
+    "STILL_AMBIGUOUS": 29,
+    "MUST_REMAIN_SEPARATE": 5,
+    "DEFER_DUE_TO_ACTIVE_WORKFLOW": 17
+  },
+  "pairClassifications": {
+    "NOW_SAFE_FOR_HUMAN_REVIEW": 0,
+    "STILL_AMBIGUOUS": 35,
+    "MUST_REMAIN_SEPARATE": 8,
+    "DEFER_DUE_TO_ACTIVE_WORKFLOW": 27
+  },
+  "groupsWithNewAuthority": 0,
+  "pairsWithNewAuthority": 0,
+  "upgrades": [],
+  "operationalWrites": 0,
+  "newDecisions": 0,
+  "newJoins": 0,
+  "sourceMutation": false,
+  "consumerMigration": false,
+  "limitations": [
+    "Deliverability PASSED does not prove a named person owns a shared mailbox.",
+    "Absence of captured evidence does not establish absence in Gmail.",
+    "Historical activity alone is not pair-level identity authority.",
+    "Recorded outbound/reply/due dependencies are conservatively deferred; no assertion that they are currently overdue.",
+    "No shadow identity graph was changed; discoverability cannot improve until defensible evidence and a separately authorised decision exist."
+  ],
+  "recommendation": "INSUFFICIENT EVIDENCE — KEEP HUMAN REVIEW MANUAL"
+}
