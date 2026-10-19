@@ -34,7 +34,9 @@ are unchanged. The verifier accepts no connection URL and performs no network
 operations. It starts an in-memory empty PostgreSQL database, installs the
 versioned managed-platform SQL contract, restores the canonical app migration,
 compares catalogs, then applies the exact PR84 migration as a compatibility
-check. No feature workflow is executed. CI runs the same path without secrets.
+check. A separate synthetic workflow suite then exercises PR84's pinned source
+against fresh canonical databases. CI runs both paths without secrets. See
+`WORKFLOW-VERIFICATION.md` for scope and hosted boundaries.
 
 `generate.cjs` renders exclusively from catalog definitions. `integrity.cjs`
 checks all 25 legacy migration checksums, the PR84 fixture, source/generated
@@ -95,7 +97,13 @@ are deliberately not cloned. Managed-platform service versions and migration
 ledgers are not recreated as runtime state. An approved temporary Supabase branch
 must verify the same app SQL against its actual managed platform and services.
 
-## Next isolated branch, after separate cost approval
+## Optional future isolated branch, only with separate cost approval
+
+No paid branch is required for the current local/CI verification. The backend/data
+workflow is covered by the baseline-backed suite. PR84's remaining deployment
+checks can use an approved controlled Production migration and minimal synthetic
+smoke test, as described in `WORKFLOW-VERIFICATION.md`. The following is an optional
+future infrastructure path, not a prerequisite or authorization to create a branch.
 
 1. Keep data copying disabled; branch bootstrap may still fail because the parent
    ledger is incomplete. Confirm the target is isolated and inspect it rather

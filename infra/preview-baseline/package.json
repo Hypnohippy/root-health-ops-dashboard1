@@ -5,9 +5,14 @@
   "scripts": {
     "generate": "node generate.cjs",
     "verify": "node verify.cjs",
-    "test": "node generate.cjs && node verify.cjs && node integrity.cjs"
+    "test:workflow": "node --test --test-concurrency=1 workflow/*.test.mjs",
+    "test": "node generate.cjs && node verify.cjs && node integrity.cjs && npm run test:workflow"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.8"
+    "@electric-sql/pglite": "0.5.8",
+    "typescript": "5.9.3",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-test-renderer": "19.2.0"
   }
 }

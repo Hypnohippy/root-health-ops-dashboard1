@@ -1,0 +1,81 @@
+{
+  "head": "7ec8c3e5c5998386eee17eca345163964dcfb4dc",
+  "files": [
+    {
+      "file": "lib/solutionBrief.ts",
+      "sha256": "21c5141879de43e626142433cab843e67e6246a15866eda866512818df8ac0c7"
+    },
+    {
+      "file": "lib/presentationAudience.ts",
+      "sha256": "766931ff344296abcd62d07d080105ba1372eae4d830c067cb0a08d5b2327ab2"
+    },
+    {
+      "file": "lib/tenantAuth.ts",
+      "sha256": "6c4baaf4e4827eabf5aa9894f71c211db192cd6f7cdd354a7b5700d370cd7e9b"
+    },
+    {
+      "file": "lib/tenantRoute.server.ts",
+      "sha256": "37e74cfe42e6cb0e574dbcdefa0d7cbf7f8567573df860a442947ee75b0a9294"
+    },
+    {
+      "file": "lib/tenantGeneration.ts",
+      "sha256": "e8f3f2eadc38bc01efe329d730af752582635c53ad6569b58730a1c9fb730428"
+    },
+    {
+      "file": "lib/organisationProfile.server.ts",
+      "sha256": "d1e018542db9a857b38409e1060f14d4449c730e59fdd683086a6459debf9b38"
+    },
+    {
+      "file": "lib/brandGrowthProfile.ts",
+      "sha256": "7bb01c1ddb1c8e4e4c6527ff97f0f9d20e8214c71f34d9c00b0ad3616cb68c4e"
+    },
+    {
+      "file": "lib/profileDiagnostics.server.ts",
+      "sha256": "dce8ba174622a36e677748c27031814a65570fdf1211d4b69c8bce6311618c44"
+    },
+    {
+      "file": "lib/usage.ts",
+      "sha256": "36f9aca26f42cfa61ed03966c8811f715697ac95dd1320846cdc8deb61699c32"
+    },
+    {
+      "file": "app/api/solution-briefs/route.ts",
+      "sha256": "abcd73b945b71d005c76686461974161ff9b0fc330fb508d71b6ffb948e25633"
+    },
+    {
+      "file": "app/api/proposal-requests/route.ts",
+      "sha256": "7b34f2529220ff76d45e613eeeb21d8d203f11127e76544d724c61630348dce6"
+    },
+    {
+      "file": "app/api/resource-library/route.ts",
+      "sha256": "2161c43088ba2ef8eb2e5d27455fa738d2572998cc888f93205a9e061f58bd72"
+    },
+    {
+      "file": "app/api/resources/[id]/route.ts",
+      "sha256": "5c1178c8834c5ba27831a6d01967c6f3e2a9bdcafcda757800ae21ec950b822e"
+    },
+    {
+      "file": "app/api/ai/presentation-outline/route.ts",
+      "sha256": "a6b2063a32b49c8d486841ac3a66d9fc7dc98a24f7b9f0e06be0c34f702f9794"
+    },
+    {
+      "file": "app/dashboard/resources/page.tsx",
+      "sha256": "a7276a51f481ca1f147de2243ff85c6f953ec3298779d97d01574c817b44af8c"
+    },
+    {
+      "file": "app/dashboard/resources/present/[id]/page.tsx",
+      "sha256": "35be0733e2cffc0c02d81b32fa661b428d578af95062979927507709cc876826"
+    },
+    {
+      "file": "app/dashboard/resources/presenter/[id]/page.tsx",
+      "sha256": "495c6ac0af8c6dc2aed09d2bb45b564e12c8c382e067239b92e4511f004139ca"
+    },
+    {
+      "file": "app/dashboard/resources/SolutionSlide.tsx",
+      "sha256": "2f5553108d4c33a5911c0cf1f132f715d1f6dc7bd79c0d42f5971a759de62fde"
+    },
+    {
+      "file": "app/dashboard/solution-briefs/page.tsx",
+      "sha256": "f8a090001e29d4a81d50593f6ed1760531b1f901f048ef0720976be77cdfe40f"
+    }
+  ]
+}

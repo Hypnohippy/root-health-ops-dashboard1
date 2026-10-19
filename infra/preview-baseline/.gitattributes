@@ -3,3 +3,5 @@
 local-platform.sql -text whitespace=-blank-at-eol
 migrations/*.sql -text whitespace=-blank-at-eol
 compatibility/*.sql -text
+# Preserve whitespace in the exact PR84 source snapshots used by verification.
+workflow/pr84/** whitespace=-blank-at-eol

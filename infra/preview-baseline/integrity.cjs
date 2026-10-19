@@ -13,6 +13,9 @@ assert.equal(manifest.retainedSubsequent.length,0);
 for (const item of manifest.artifacts) assert.equal(hash(path.join(root,item.file)),item.sha256,`${item.file} changed`);
 const report=JSON.parse(fs.readFileSync(path.join(root,'verification.json')));
 assert.equal(report.structuralMismatches,0);
+const workflowSource=JSON.parse(fs.readFileSync(path.join(root,'workflow/pr84-source-manifest.json')));
+assert.equal(workflowSource.head,'7ec8c3e5c5998386eee17eca345163964dcfb4dc');
+for(const item of workflowSource.files) assert.equal(hash(path.join(root,'workflow/pr84',item.file+'.snapshot')),item.sha256,`Pinned PR84 source changed: ${item.file}`);
 // Metadata files must never acquire key material, raw auth users, or provider credentials.
 for (const file of ['source/catalog.json','source/extra.json','migrations/00000000000000_root_ops_schema_baseline.sql','local-platform.sql']) {
   const text=fs.readFileSync(path.join(root,file),'utf8');
