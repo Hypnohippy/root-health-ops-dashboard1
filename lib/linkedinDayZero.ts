@@ -46,7 +46,8 @@ export function linkedInDayZeroMessage(context: DayZeroContext): string {
   const area = /\b(hr|human resources|people)\b/i.test(role) ? "your work in people and HR" : /\b(college|education|training|university)\b/i.test(role) ? "your work in education and training" : /\b(care|health|nurs\w*|clinical)\b/i.test(role) ? "your work in care and health" : `your work as ${role}`;
   // Prefer a natural role area; a company-only record stays grounded in the actual company.
   const anchor = role ? area : company ? `your work at ${company}` : "";
-  if (!anchor && category === "other") return `Hi ${first}, thanks for connecting. Just wanted to say hello.`;
+  // Approved Root/David positioning: sender facts only, with no claim of recent activity or recipient interest.
+  if (!anchor && category === "other") return `Hi ${first}, thanks for connecting. My work focuses on workplace wellbeing and how organisations measure whether their wellbeing initiatives are actually making a difference.`;
   return `Hi ${first}, thanks for connecting. I noticed ${anchor || "your recorded professional background"} and ${angles[category]}. Good to be connected.`;
 }
 export function safeDayZeroMessage(draft: string, context: DayZeroContext) {

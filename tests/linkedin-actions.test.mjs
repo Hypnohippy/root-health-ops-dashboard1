@@ -22,7 +22,8 @@ async function fixture({request, timer=false, popup=true, copyFailure=false,cloc
  const props={item:{contactId:"a",id:"a",table:"inbox_items",name:"Tara",stage:"connection",mode:"fresh",reason:"Accepted",lifecycle:"outreach_ready",destination:"https://www.linkedin.com/messaging/thread/123/"},queue:{organisationId:"tenant",revision:"3"},initialMessage:"",onDraft:()=>{},onNext:async()=>{},onReload:async()=>{},onWorking:()=>{},suspended:false};
  let renderer;await act(async()=>{renderer=create(React.createElement(ContactCard,props));});
  const button=name=>renderer.root.findAllByType("button").find(n=>n.children.join("")===name);
- const status=()=>renderer.root.findAll(n=>n.props.role==="status").map(n=>n.children.join("")).join(" ");
+ const text=node=>typeof node==="string"?node:node.children.map(text).join("");
+ const status=()=>renderer.root.findAll(n=>n.props.role==="status"||n.props.role==="alert").map(text).join(" ");
  return {renderer,props,ContactCard,button,status,calls,copies,opened,requests,deadline:()=>deadline(),unmount:async()=>act(async()=>renderer.unmount())};
 }
 for(const status of [200,409,503,500]) test(`real React generation ${status} clears busy and allows retry`,async()=>{

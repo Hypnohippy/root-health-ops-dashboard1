@@ -5,17 +5,18 @@ import LinkedInHistoricalSend from "./LinkedInHistoricalSend";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openAndCopyLinkedIn } from "@/lib/linkedinClipboard";
 import { tenantFetch } from "@/lib/tenantFetch";
-import { selectedBatchId, removeBatchContact, outreachDraftKey, outreachDateTime } from "@/lib/linkedinWorkbench";
+import { selectedBatchId, removeBatchContact, outreachDraftKey, outreachDateTime, generateOutreachDraft, DraftStateChangedError } from "@/lib/linkedinWorkbench";
 import type { LinkedInOutreachItem, OutreachView } from "@/lib/linkedinOutreach";
 
-type Queue = { audit?: Record<string, unknown>[]; reconciliationReasons?: Record<string, number>; identityReviewNeeded: number; unreconciledFollowups: number; items: LinkedInOutreachItem[]; revision: string; total: number; repliesNeedingAttention: number; organisationId: string };
+type Queue = { view?: OutreachView; audit?: Record<string, unknown>[]; reconciliationReasons?: Record<string, number>; identityReviewNeeded: number; unreconciledFollowups: number; recoveryItem?: LinkedInOutreachItem | null; items: LinkedInOutreachItem[]; revision: string; total: number; repliesNeedingAttention: number; organisationId: string };
 const button = "rounded-lg border border-white/20 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-40";
 const when = outreachDateTime;
 
-export function ContactCard({ item, queue, onNext, onReload, suspended, onWorking, initialMessage, onDraft }: { initialMessage: string; onDraft: (message: string) => void; onWorking: (working: boolean) => void; suspended: boolean; item: LinkedInOutreachItem; queue: Queue; onNext: (id: string, completed: boolean) => Promise<void>; onReload: () => Promise<void> }) {
+export function ContactCard({ item, queue, onNext, onReload, suspended, onWorking, initialMessage, onDraft, onQueueRecovered }: { onQueueRecovered?: (queue: Queue) => void; initialMessage: string; onDraft: (message: string) => void; onWorking: (working: boolean) => void; suspended: boolean; item: LinkedInOutreachItem; queue: Queue; onNext: (id: string, completed: boolean) => Promise<void>; onReload: () => Promise<void> }) {
   const [message, setMessage] = useState(initialMessage);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const [generationError, setGenerationError] = useState("");
   const [historical, setHistorical] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const receipt = useRef<{ key: string; message: string; revision: string } | null>(null);
@@ -38,17 +39,20 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
     const timeout = setTimeout(() => {
       if (token !== generation.current) return;
       generation.current++; controller.abort(); setBusy("");
-      setNotice("Draft generation timed out. Retry Refresh draft or type your message below.");
+      setGenerationError("Draft generation timed out. Retry Refresh draft or type your message below.");
     }, 45000);
     controller.signal.addEventListener("abort", () => clearTimeout(timeout), { once: true });
-    setBusy("generate"); setNotice("");
+    setBusy("generate"); setNotice(""); setGenerationError("");
     try {
-      const data = await post({ action: "generate" }, controller.signal);
+      const data = await generateOutreachDraft(item, queue, tenantFetch, controller.signal, () => token === generation.current && !receipt.current && !locked.current);
       if (typeof data.message !== "string" || !data.message.trim()) throw Error("No draft was returned. Retry or type your message below.");
-      if (token === generation.current) { currentDraft.current = data.message; setMessage(data.message); onDraft(data.message); }
-    } catch (e) { if (token === generation.current) setNotice(e instanceof Error ? e.message : "Generation failed; write a message below."); }
+      if (token === generation.current) { currentDraft.current = data.message; setMessage(data.message); onDraft(data.message); if (data.refreshedQueue) onQueueRecovered?.(data.refreshedQueue); }
+    } catch (e) { if (token === generation.current) {
+      if (e instanceof DraftStateChangedError) { currentDraft.current = ""; setMessage(""); onDraft(""); }
+      setGenerationError(e instanceof Error ? e.message : "Generation failed; write a message below.");
+    } }
     finally { clearTimeout(timeout); if (token === generation.current) { generationRequest.current = null; setBusy(""); } }
-  }, [post, onDraft]);
+  }, [item, queue, onDraft, onQueueRecovered]);
   useEffect(() => {
     setBusy(current => current === "generate" ? "" : current);
     if (!suspended && !currentDraft.current && !receipt.current) void generate();
@@ -108,7 +112,9 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
       }} />}
       {item.previousOutbound && <section aria-label="Confirmed previous outbound" className="rounded border border-white/15 p-3 text-sm"><h3 className="font-semibold">{item.previousOutbound.contentKind === "conversation_history_pasted" ? "Conversation history pasted" : "Previous message"}</h3><blockquote className="mt-2 whitespace-pre-wrap">{item.previousOutbound.message}</blockquote><p className="mt-2 text-slate-400">{item.previousOutbound.contentKind === "conversation_history_pasted" ? "Earliest verified outbound:" : "Sent:"} {when(item.previousOutbound.sentAt)} · {item.previousOutbound.source} · {item.previousOutbound.table}:{item.previousOutbound.id}</p><p>Current stage: {item.stage.replaceAll("_", " ")}</p></section>}
       <label className="block text-sm font-medium" htmlFor="linkedin-message">{item.previousOutbound ? "Next draft" : "Message"} for {item.name}</label>
-      <textarea id="linkedin-message" ref={textarea} value={message} disabled={suspended || historical || busy === "complete" || uncertain} onChange={e => { generation.current++; generationRequest.current?.abort(); setBusy(""); currentDraft.current = e.target.value; setMessage(e.target.value); onDraft(e.target.value); }} className="min-h-32 w-full resize-y rounded-lg border border-white/20 bg-slate-950 p-3 text-sm leading-relaxed" />
+      {generationError && <div role="alert" id="linkedin-generation-error" className="rounded-lg border border-red-400 bg-red-950 p-3 text-sm text-white"><p className="font-semibold">Draft could not be generated</p><p>{generationError}</p><button className={`${button} mt-2`} disabled={suspended || !!busy} onClick={() => void onReload()}>Reload queue and retry draft</button></div>}
+      {busy === "generate" && <p role="status">Preparing draft for {item.name}…</p>}
+      <textarea aria-describedby={generationError ? "linkedin-generation-error" : undefined} aria-invalid={!!generationError} id="linkedin-message" ref={textarea} value={message} disabled={suspended || historical || busy === "complete" || uncertain} onChange={e => { generation.current++; generationRequest.current?.abort(); setBusy(""); currentDraft.current = e.target.value; setMessage(e.target.value); onDraft(e.target.value); }} className="min-h-32 w-full resize-y rounded-lg border border-white/20 bg-slate-950 p-3 text-sm leading-relaxed" />
       <div className="flex flex-wrap gap-2"><button className={button} disabled={suspended || historical || !!busy || uncertain} onClick={() => void generate()}>{busy === "generate" ? "Preparing draft…" : "Refresh draft"}</button><button className={button} disabled={suspended || busy === "complete" || !message.trim()} onClick={() => void copy(false)}>Copy message</button></div>
       {notice && <p role="status" className="rounded-lg border border-amber-300/30 p-3 text-sm">{notice}</p>}
       {uncertain && <button className={button} onClick={() => void onReload()}>Reload current state safely</button>}
@@ -160,6 +166,12 @@ export default function LinkedInConsole() {
   const selected = queue?.items.find(i => i.contactId === selectedBatchId(queue.items, selection));
   const draftKey = selected ? outreachDraftKey(selected) : "";
   const saveDraft = useCallback((message: string) => { drafts.current.set(draftKey, message); }, [draftKey]);
+  const recoverQueue = useCallback((fresh: Queue) => {
+    const items = fresh.items.filter(item => batchIds.current?.has(item.contactId));
+    if (fresh.recoveryItem && !items.some(item => item.contactId === fresh.recoveryItem?.contactId)) items.push(fresh.recoveryItem);
+    batchIds.current = new Set(items.map(item => item.contactId));
+    setQueue({ ...fresh, items });
+  }, []);
   const org = queue?.organisationId || "";
   const inbox = `/dashboard/responses${org ? `?organisationId=${encodeURIComponent(org)}` : ""}`;
   function newBatch(includeSkipped = false) { if (includeSkipped) skipped.current = []; batchIds.current = null; void load(); }
@@ -170,7 +182,7 @@ export default function LinkedInConsole() {
     <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
       <span>{queue?.items.length || 0} in this batch · {queue?.total || 0} eligible</span>
       {queue && queue.repliesNeedingAttention > 0 && <span>{queue.repliesNeedingAttention} inbound replies need attention in Responses</span>}
-      <details><summary className="cursor-pointer">Queue diagnostics{queue && queue.identityReviewNeeded > 0 ? ` · ${queue.identityReviewNeeded} identity checks` : ""}</summary><div className="mt-2 max-w-2xl space-y-2 rounded border border-white/10 p-3"><p>{queue?.identityReviewNeeded || 0} first-message records need verified LinkedIn identity; {queue?.unreconciledFollowups || 0} legacy follow-ups need reconciliation. Valid contacts remain available.</p><p>{Object.entries(queue?.reconciliationReasons || {}).filter(([, count]) => count > 0).map(([reason, count]) => `${count} ${reason}`).join(" · ")}</p><details><summary>Recorded evidence and exclusion audit</summary><pre className="max-h-96 overflow-auto whitespace-pre-wrap">{JSON.stringify(queue?.audit || [], null, 2)}</pre></details><a className="underline" href={`/dashboard/growth?organisationId=${encodeURIComponent(org)}`}>Review Growth reconciliation</a><p>Fresh means verified acceptance detected within seven days. Older verified acceptances use catch-up wording. Follow-ups require confirmed sent text and matching cadence time. Only records captured in Ops appear; intake may miss connections.</p></div></details>
+      <details><summary className="cursor-pointer">Queue diagnostics{queue && queue.identityReviewNeeded > 0 ? ` · ${queue.identityReviewNeeded} identity checks` : ""}</summary><div className="mt-2 max-w-2xl space-y-2 rounded border border-white/10 p-3"><p>Queue revision: {queue?.revision || "Not loaded"}</p><p>{queue?.identityReviewNeeded || 0} first-message records need verified LinkedIn identity; {queue?.unreconciledFollowups || 0} legacy follow-ups need reconciliation. Valid contacts remain available.</p><p>{Object.entries(queue?.reconciliationReasons || {}).filter(([, count]) => count > 0).map(([reason, count]) => `${count} ${reason}`).join(" · ")}</p><details><summary>Recorded evidence and exclusion audit</summary><pre className="max-h-96 overflow-auto whitespace-pre-wrap">{JSON.stringify(queue?.audit || [], null, 2)}</pre></details><a className="underline" href={`/dashboard/growth?organisationId=${encodeURIComponent(org)}`}>Review Growth reconciliation</a><p>Fresh means verified acceptance detected within seven days. Older verified acceptances use catch-up wording. Follow-ups require confirmed sent text and matching cadence time. Only records captured in Ops appear; intake may miss connections.</p></div></details>
     </div>
     {error && <div role="alert" className="text-sm"><p>{error}</p><button className={button} onClick={() => void load()}>Reload safely</button></div>}
     {loading && <p role="status" className="text-xs text-slate-400">Checking current lifecycle…</p>}
@@ -180,7 +192,7 @@ export default function LinkedInConsole() {
         <BatchList items={queue?.items || []} selectedId={selected?.contactId || null} disabled={working || loading} onSelect={setSelection} />
         {!queue?.items.length && !loading && <p className="p-4 text-sm text-slate-400">No contacts in this batch.</p>}
       </section>
-      {selected && queue ? <ContactCard key={draftKey} item={selected} initialMessage={drafts.current.get(draftKey) || ""} onDraft={saveDraft} suspended={loading || !!error} onWorking={setWorking} queue={queue} onNext={next} onReload={load} /> : <section className="rounded-xl border border-white/15 p-6"><h2 className="text-xl">{loading ? "Loading batch…" : "Batch complete or no eligible contacts"}</h2><div className="mt-4 flex flex-wrap gap-2"><button className={button} disabled={loading} onClick={() => newBatch()}>Work next 10</button><button className={button} disabled={loading} onClick={() => newBatch(true)}>Include skipped contacts again</button></div></section>}
+      {selected && queue ? <ContactCard key={draftKey} item={selected} initialMessage={drafts.current.get(draftKey) || ""} onDraft={saveDraft} onQueueRecovered={recoverQueue} suspended={loading || !!error} onWorking={setWorking} queue={queue} onNext={next} onReload={load} /> : <section className="rounded-xl border border-white/15 p-6"><h2 className="text-xl">{loading ? "Loading batch…" : "Batch complete or no eligible contacts"}</h2><div className="mt-4 flex flex-wrap gap-2"><button className={button} disabled={loading} onClick={() => newBatch()}>Work next 10</button><button className={button} disabled={loading} onClick={() => newBatch(true)}>Include skipped contacts again</button></div></section>}
     </div>
     </>}
   </main>;
