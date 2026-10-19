@@ -1,0 +1,26 @@
+name: Reproducible Preview baseline
+on:
+  pull_request:
+    paths:
+      - 'infra/preview-baseline/**'
+      - '.github/workflows/preview-baseline.yml'
+      - 'supabase/migrations/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/preview-baseline
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: infra/preview-baseline/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: git diff --exit-code -- local-platform.sql migrations/ source/ migration-map.json compatibility/

@@ -1,0 +1,5 @@
+* text eol=lf
+# Preserve catalog function-body bytes, including legacy CRLF/trailing spaces.
+local-platform.sql -text whitespace=-blank-at-eol
+migrations/*.sql -text whitespace=-blank-at-eol
+compatibility/*.sql -text
