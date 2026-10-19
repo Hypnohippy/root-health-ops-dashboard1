@@ -1,0 +1,231 @@
+{
+  "format": 1,
+  "productionProject": "bechmxbywqhsauhctewo",
+  "snapshotDate": "2026-10-19",
+  "main": "702f2b7ab1ac2a41ca6e8c320fdcc138417e7077",
+  "pr84": "7ec8c3e5c5998386eee17eca345163964dcfb4dc",
+  "hashEncoding": "UTF-8, CRLF normalized to LF (canonical Git text)",
+  "activeFreshInstallChain": [
+    "migrations/00000000000000_root_ops_schema_baseline.sql"
+  ],
+  "retainedSubsequent": [],
+  "legacy": [
+    {
+      "file": "20260923090000_organisation_profiles.sql",
+      "version": "20260923090000",
+      "sha256": "f282346528cc0fccc142b2bdb0b3be4c79bc5440f9620551676ae8d13a135244",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Organisation profiles and merge RPC captured in final form; base organisations/members now included."
+    },
+    {
+      "file": "20260923120000_growth_tenant_ownership.sql",
+      "version": "20260923120000",
+      "sha256": "90c991c444c0177a0a82b67304dd3bbbd32e0bb41dac2e8340d6b6143858b0c9",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final ownership columns, constraints and policies captured. Historical row attribution is not replayed."
+    },
+    {
+      "file": "20260923140000_acquisition_ingestion.sql",
+      "version": "20260923140000",
+      "sha256": "fa1fc02ca72ea306566e8a1e43a5ecc3649969adb0baa91ae4cee1bafd001627",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Acquisition tables, keys, indexes and policies captured."
+    },
+    {
+      "file": "20260924100000_actionable_acquisition_queue.sql",
+      "version": "20260924100000",
+      "sha256": "4fb13e9cbb47b07a5acf431ebfd3118390a17bc5f49df695c8c5ecadad41ff45",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final acquisition status constraints/action functions captured; later replacements win."
+    },
+    {
+      "file": "20260924130000_email_response_intake.sql",
+      "version": "20260924130000",
+      "sha256": "b842a218e8e7d43ddfd2575aee6c14d656608674639baae92fe0ac22e7306023",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final inbox/email fields, constraints, indexes, tables and policies captured."
+    },
+    {
+      "file": "20260924170000_human_approved_email_sending.sql",
+      "version": "20260924170000",
+      "sha256": "1c53f76354b06de60bc0a30f6daf315d4756249609ac373ce6033e4f3adfd3a4",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final send-request schema, RPCs, grants and triggers captured."
+    },
+    {
+      "file": "20260924190000_consolidated_linkedin_growth.sql",
+      "version": "20260924190000",
+      "sha256": "e49eaa58e02cd5dfe131ae8b52525ea941ad409c2be8eee29ee66d9608870e98",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final LinkedIn target columns/identity constraints captured; no data consolidation replay."
+    },
+    {
+      "file": "20260924193000_linkedin_acceptance_identity.sql",
+      "version": "20260924193000",
+      "sha256": "b46a771857f335aa51e86b59272dbe643778b3b9a5b200917edc018bed963959",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final inbox acceptance/identity columns captured; no historical acceptance update replay."
+    },
+    {
+      "file": "20260924210000_lifecycle_reconciliation.sql",
+      "version": "20260924210000",
+      "sha256": "4414ee5e89c53a8c1af0173cfe8f4f0daa7dbda097b8a15dd8f92e3f3a170bfe",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final revision/repair tables, functions and triggers captured. Legacy lifecycle SQL views are absent in Production and are not resurrected."
+    },
+    {
+      "file": "20260925100000_acquisition_engine_state.sql",
+      "version": "20260925100000",
+      "sha256": "033f2206135882d5232c16484438eae2db3532af5fef8784adccaaad594a2fb1",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final engine-state columns and trigger/function definitions captured."
+    },
+    {
+      "file": "20260926100000_manual_completion_recovery.sql",
+      "version": "20260926100000",
+      "sha256": "97411000a7b2f51608466098e21036a9176a01bd4490ff76b1bd4fba4310570c",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final manual-completion columns, guards and RPCs captured."
+    },
+    {
+      "file": "20260927100000_acquisition_handoff.sql",
+      "version": "20260927100000",
+      "sha256": "9a0383b45cd609447323d34eaa994a66fd478531adc39170531a8b5a97115c07",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final acquisition action replacement captured; historical function definition superseded."
+    },
+    {
+      "file": "20260927110000_canonical_target_import.sql",
+      "version": "20260927110000",
+      "sha256": "c579e74d3266327f56e610aef517bc17d6d50d5bcf5f9239d566ca7f32a56b1d",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final email column and canonical import RPC captured."
+    },
+    {
+      "file": "20261001120000_email_conversation_timeline.sql",
+      "version": "20261001120000",
+      "sha256": "77288888ef860e6b799ba742b3e2ed49ba22de59bbbca744cad42d72465e6fc4",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final conversation-message schema, keys and policies captured."
+    },
+    {
+      "file": "20261001193000_email_send_requests_multiple_replies.sql",
+      "version": "20261001193000",
+      "sha256": "29b3c2d2a82869f4f5c30afc7f608ba0e128fd18a73115c2bbd961521c51aab7",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final reply/request unique keys and indexes captured; old unique constraint not restored."
+    },
+    {
+      "file": "20261007100000_acquisition_target_promotion.sql",
+      "version": "20261007100000",
+      "sha256": "c9c913cec7b3a96262881f1befbf5b74f2b9758909b96920718dfa83dff06445",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final promotion function/grants captured."
+    },
+    {
+      "file": "20261009100000_linkedin_absolute_cadence.sql",
+      "version": "20261009100000",
+      "sha256": "40bdaac32400ac6a48f5a0b463616bb68f11763b08f54722661b15fd2079e94b",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final cadence columns/functions captured. No historical cadence backfill on empty data."
+    },
+    {
+      "file": "20261009120000_linkedin_external_send_evidence.sql",
+      "version": "20261009120000",
+      "sha256": "283ad65f5e5006a06df57241d235175f0a589794f74f18dca7c79a3dfc5e413b",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final external-send evidence RPC captured without recording evidence."
+    },
+    {
+      "file": "20261009140000_linkedin_conversation_log.sql",
+      "version": "20261009140000",
+      "sha256": "909b4892d4e68cb4134b273740bd55c1b765ece6b8094a52905d24b18d159ad8",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final LinkedIn conversation schema/functions/guards captured."
+    },
+    {
+      "file": "20261009160000_linkedin_conversation_snapshots.sql",
+      "version": "20261009160000",
+      "sha256": "56681a6472a5da07208d7b28d6e1bb3503629731e20a5710800d353b42adb073",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final snapshot/direction constraints and RPC captured, not earlier constraint version."
+    },
+    {
+      "file": "20261009170000_personal_signal_acquisition_actions.sql",
+      "version": "20261009170000",
+      "sha256": "7f38820747f4c100ade88990a136c56e39385032601698645d402395f33c3071",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final action RPC captured. Production ledger records this SQL under 20261010054821; no ledger rewrite."
+    },
+    {
+      "file": "20261013170000_founder_memory.sql",
+      "version": "20261013170000",
+      "sha256": "871795b004973e80a35fa89fbc6fdae0f0bda13952dd9a6a7859e66a039d75c4",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final Founder tables/functions/constraints/policies captured, no research rows."
+    },
+    {
+      "file": "20261014063937_relationship_workspaces.sql",
+      "version": "20261014063937",
+      "sha256": "8592271ef42175534db1dce647a6af0b728a8b0125c56797cb9ed827f9b47e0e",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final relationship workspace schema/guards/policies captured, no workspaces seeded."
+    },
+    {
+      "file": "20261016154246_relationship_identity_decisions.sql",
+      "version": "20261016154246",
+      "sha256": "3d3e0e0aa9a67bf3f7f59e919a898564479e130af3b21896e3c81a5675aac866",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final identity decision schema/identity sequence/guards captured, no decisions seeded."
+    },
+    {
+      "file": "20261018203554_social_response_cleanup.sql",
+      "version": "20261018203554",
+      "sha256": "7d6ac9d6090b11968d2947eef0f2d600da8b950045fe00d2ec58b11a280fd829",
+      "treatment": "superseded-for-fresh-preview-only",
+      "reason": "Final social dismissal RPC captured, no cleanup action executed."
+    }
+  ],
+  "pending": [
+    {
+      "file": "20261019120000_solution_brief_foundation.sql",
+      "sha256": "c92ea5b28aee901cb8290493a0af1ccdc5977ea247a36c1ce8482b1ead7202a7",
+      "treatment": "exact PR84 compatibility fixture only; not active until separately approved",
+      "sourceHead": "7ec8c3e5c5998386eee17eca345163964dcfb4dc"
+    }
+  ],
+  "productionLedger": [
+    {
+      "version": "20261010054821",
+      "name": "personal_signal_acquisition_actions",
+      "repositoryVersion": "20261009170000",
+      "treatment": "unchanged; native dashboard replay remains incomplete until separate ledger reconciliation"
+    }
+  ],
+  "artifacts": [
+    {
+      "file": "source/catalog.json",
+      "sha256": "1f99119d75a487ee285fb37a8d0d458502743bb3e9d47c261533a02c6b53b11a"
+    },
+    {
+      "file": "source/catalog.sql",
+      "sha256": "97ff1bbef3ba406a191b3aa781710a30934a2d8724688185d254d73c59f24529"
+    },
+    {
+      "file": "source/extra.json",
+      "sha256": "b7e975f8bfb8bc415da3daff410c59dd1e11ae71653dec3967c4226ac168f99a"
+    },
+    {
+      "file": "source/extra-catalog.sql",
+      "sha256": "7869f74704f12e9ebf2e25305038214ed234788475de2c825039e3aaf2842f00"
+    },
+    {
+      "file": "local-platform.sql",
+      "sha256": "6c5bdc06635cdcf1a81b857f6a24722ebec83e5b1eaf2b851c6681bd3c9d2936"
+    },
+    {
+      "file": "migrations/00000000000000_root_ops_schema_baseline.sql",
+      "sha256": "22860f2374c8ec1755e62b4691fc576dcdad48d552f6563ca3ea750cb14f41df"
+    }
+  ]
+}

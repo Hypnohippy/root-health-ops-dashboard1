@@ -1,0 +1,1020 @@
+{
+  "roles": [
+    {
+      "name": "anon",
+      "inherit": true,
+      "bypassrls": false
+    },
+    {
+      "name": "authenticated",
+      "inherit": true,
+      "bypassrls": false
+    },
+    {
+      "name": "dashboard_user",
+      "inherit": true,
+      "bypassrls": false
+    },
+    {
+      "name": "pg_database_owner",
+      "inherit": true,
+      "bypassrls": false
+    },
+    {
+      "name": "postgres",
+      "inherit": true,
+      "bypassrls": true
+    },
+    {
+      "name": "service_role",
+      "inherit": true,
+      "bypassrls": true
+    },
+    {
+      "name": "supabase_admin",
+      "inherit": true,
+      "bypassrls": true
+    },
+    {
+      "name": "supabase_auth_admin",
+      "inherit": false,
+      "bypassrls": false
+    },
+    {
+      "name": "supabase_storage_admin",
+      "inherit": false,
+      "bypassrls": false
+    }
+  ],
+  "relations": [
+    {
+      "kind": "r",
+      "name": "audit_log_entries",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "custom_oauth_providers",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "flow_state",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "identities",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "instances",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "mfa_amr_claims",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "mfa_challenges",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "mfa_factors",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "mfa_recovery_code_sets",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "mfa_recovery_codes",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "oauth_authorizations",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "oauth_client_states",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "oauth_clients",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "oauth_consents",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "one_time_tokens",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "refresh_tokens",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "saml_providers",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "saml_relay_states",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "schema_migrations",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "scim_tokens",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "scim_users",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "sessions",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "sso_domains",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "sso_providers",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "users",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "webauthn_challenges",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "webauthn_credentials",
+      "schema": "auth",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "acquisition_item_events",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "acquisition_items",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "campaign_variant_metrics",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "campaign_variants",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "campaigns",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "college_activation_codes",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "college_cohort_redemptions",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "college_cohorts",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "college_partners",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "content_items",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "content_media",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "email_conversation_messages",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "email_send_events",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "email_send_requests",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "founder_activity_events",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "founder_research_records",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "growth_experiment_events",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "growth_experiment_outcomes",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "growth_experiments",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "growth_patterns",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "growth_plans",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "growth_targets",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "hook_patterns",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "inbox_items",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "journal_entries",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "lifecycle_revisions",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "linkedin_conversation_messages",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "media_assets",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "organisation_members",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "organisation_plans",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "organisation_post_usage",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "organisation_profiles",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "organisation_subscriptions",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "organisations",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "post_events",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "posts",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "proposal_requests",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "relationship_activity_events",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "relationship_identity_decisions",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "relationship_pricing_models",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "relationship_source_links",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "relationship_tasks",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "relationship_value_assessments",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "relationship_workspaces",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "resource_library",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "response_item_events",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "scheduled_posts",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "sequences",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "social_accounts",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "social_profiles",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "social_responses",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "social_sync_state",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "user_ai_usage",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "user_credits",
+      "schema": "public",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "buckets",
+      "schema": "storage",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "buckets_analytics",
+      "schema": "storage",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "buckets_vectors",
+      "schema": "storage",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "migrations",
+      "schema": "storage",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "objects",
+      "schema": "storage",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "s3_multipart_uploads",
+      "schema": "storage",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "s3_multipart_uploads_parts",
+      "schema": "storage",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    },
+    {
+      "kind": "r",
+      "name": "vector_indexes",
+      "schema": "storage",
+      "partition": false,
+      "tablespace": "0",
+      "persistence": "p",
+      "replica_identity": "d"
+    }
+  ],
+  "sequences": [
+    {
+      "acl": [
+        {
+          "grantee": "postgres",
+          "grantable": false,
+          "privilege": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantable": false,
+          "privilege": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantable": false,
+          "privilege": "USAGE"
+        },
+        {
+          "grantee": "supabase_auth_admin",
+          "grantable": false,
+          "privilege": "SELECT"
+        },
+        {
+          "grantee": "supabase_auth_admin",
+          "grantable": false,
+          "privilege": "UPDATE"
+        },
+        {
+          "grantee": "supabase_auth_admin",
+          "grantable": false,
+          "privilege": "USAGE"
+        },
+        {
+          "grantee": "dashboard_user",
+          "grantable": false,
+          "privilege": "SELECT"
+        },
+        {
+          "grantee": "dashboard_user",
+          "grantable": false,
+          "privilege": "UPDATE"
+        },
+        {
+          "grantee": "dashboard_user",
+          "grantable": false,
+          "privilege": "USAGE"
+        }
+      ],
+      "name": "refresh_tokens_id_seq",
+      "schema": "auth"
+    },
+    {
+      "acl": [
+        {
+          "grantee": "postgres",
+          "grantable": false,
+          "privilege": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantable": false,
+          "privilege": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantable": false,
+          "privilege": "USAGE"
+        }
+      ],
+      "name": "relationship_identity_decisions_sequence_seq",
+      "schema": "public"
+    },
+    {
+      "acl": [
+        {
+          "grantee": "postgres",
+          "grantable": false,
+          "privilege": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantable": false,
+          "privilege": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantable": false,
+          "privilege": "USAGE"
+        },
+        {
+          "grantee": "anon",
+          "grantable": false,
+          "privilege": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantable": false,
+          "privilege": "UPDATE"
+        },
+        {
+          "grantee": "anon",
+          "grantable": false,
+          "privilege": "USAGE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantable": false,
+          "privilege": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantable": false,
+          "privilege": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantable": false,
+          "privilege": "USAGE"
+        },
+        {
+          "grantee": "service_role",
+          "grantable": false,
+          "privilege": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantable": false,
+          "privilege": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantable": false,
+          "privilege": "USAGE"
+        }
+      ],
+      "name": "user_credits_voice_credits_seq",
+      "schema": "public"
+    }
+  ],
+  "column_acl": null,
+  "extensions": [
+    {
+      "name": "pg_stat_statements",
+      "schema": "extensions",
+      "version": "1.11"
+    },
+    {
+      "name": "pgcrypto",
+      "schema": "extensions",
+      "version": "1.3"
+    },
+    {
+      "name": "plpgsql",
+      "schema": "pg_catalog",
+      "version": "1.0"
+    },
+    {
+      "name": "supabase_vault",
+      "schema": "vault",
+      "version": "0.3.1"
+    },
+    {
+      "name": "uuid-ossp",
+      "schema": "extensions",
+      "version": "1.1"
+    }
+  ]
+}
