@@ -28,7 +28,7 @@ export async function generateOutreachDraft<Q extends { organisationId: string; 
   async function attempt(revision: string) {
     const response = await request("/api/growth/linkedin-console", { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: queue.organisationId, table: item.table, id: item.id, revision, action: "generate" }) });
     const data = await response.json();
-    if (!response.ok) console.debug("LinkedIn draft generation rejected", { contactId: item.contactId, table: item.table, id: item.id, mode: item.mode, stage: item.stage, revision, status: response.status, body: data });
+    if (!response.ok) console.debug("LinkedIn draft generation rejected", JSON.stringify({ contactId: item.contactId, table: item.table, id: item.id, mode: item.mode, stage: item.stage, revision, status: response.status, body: data }));
     return { response, data };
   }
   let result = await attempt(queue.revision), refreshedQueue: Q | null = null;
@@ -37,7 +37,7 @@ export async function generateOutreachDraft<Q extends { organisationId: string; 
     const response = await request(`/api/growth/linkedin-console?${query}`, { signal });
     const fresh: Q & { error?: string } = await response.json();
     if (!response.ok) throw Error(fresh.error || "Unable to refresh the queue for this draft.");
-    console.debug("LinkedIn draft queue refreshed", { previousRevision: queue.revision, revision: fresh.revision, status: response.status });
+    console.debug("LinkedIn draft queue refreshed", JSON.stringify({ previousRevision: queue.revision, revision: fresh.revision, status: response.status }));
     const resolved = fresh.recoveryItem || fresh.items?.find(candidate => candidate.contactId === item.contactId);
     if (!canRecover() || signal.aborted) throw Error("Draft recovery was cancelled.");
     if (fresh.organisationId !== queue.organisationId || typeof fresh.revision !== "string" || !resolved || resolved.table !== item.table || resolved.id !== item.id || outreachDraftKey(resolved) !== outreachDraftKey(item)) {
