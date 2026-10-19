@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -42,9 +43,12 @@ function buildStoragePath(resourceTitle: string, slideTitle: string, ext: string
   return `uploaded-artwork/${resourceSlug}/${slideSlug}-${stamp}-${id}.${ext}`;
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     const formData = await req.formData();
+    const ownedId = safe(formData.get("resourceId"));
+    const { data: owned } = await supabaseAdmin.from("resource_library").select("id").eq("id", ownedId).eq("organisation_id", tenant.organisationId).maybeSingle();
+    if (!owned) return NextResponse.json({ error: "Resource not found." }, { status: 404 });
 
     const file = formData.get("file");
     const resourceTitle = safe(formData.get("resourceTitle"));
@@ -81,6 +85,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (file.size > 10 * 1024 * 1024) return NextResponse.json({ error: "Maximum image size is 10MB." }, { status: 400 });
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
@@ -92,7 +97,7 @@ export async function POST(req: NextRequest) {
     }
 
     const ext = getExtension(contentType, file.name || "");
-    const storagePath = buildStoragePath(resourceTitle, slideTitle, ext);
+    const storagePath = `${tenant.organisationId}/${ownedId}/${buildStoragePath(resourceTitle, slideTitle, ext)}`;
 
     const uploadResult = await supabaseAdmin.storage
       .from(STORAGE_BUCKET)
@@ -134,4 +139,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { write: true });

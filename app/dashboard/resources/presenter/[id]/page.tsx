@@ -2,6 +2,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { tenantFetch } from "@/lib/tenantFetch";
+import SolutionSlide from "../../SolutionSlide";
 
 type Resource = {
   id: string;
@@ -22,32 +24,8 @@ type SyncState = {
 };
 
 const SYNC_PREFIX = "root-health-presentation-sync:";
-const RESOURCE_CACHE_PREFIX = "root-health-presentation-resource:";
-
-function syncKey(resourceId: string) {
-  return `${SYNC_PREFIX}${resourceId}`;
-}
-
-function resourceCacheKey(resourceId: string) {
-  return `${RESOURCE_CACHE_PREFIX}${resourceId}`;
-}
-
-function norm(v: any) {
-  return String(v || "").trim();
-}
-
-function readCachedResource(resourceId: string): Resource | null {
-  try {
-    const raw = localStorage.getItem(resourceCacheKey(resourceId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed?.id || String(parsed.id) !== resourceId) return null;
-    if (!Array.isArray(parsed?.content?.slides)) return null;
-    return parsed as Resource;
-  } catch {
-    return null;
-  }
-}
+function syncKey(resourceId: string) { return `${SYNC_PREFIX}${resourceId}`; }
+function norm(v: any) { return String(v || "").trim(); }
 
 function readSyncState(resourceId: string): SyncState {
   try {
@@ -169,50 +147,14 @@ export default function PresenterConsolePage() {
       setError(null);
 
       try {
-        const cached = readCachedResource(resourceId);
-        if (cached) {
-          setResource(cached);
-          const initial = readSyncState(resourceId);
-          setSync(initial);
-          pushSyncState(resourceId, initial);
-          setLoading(false);
-          return;
-        }
-
-        const orgRes = await fetch("/api/social-accounts", {
-          cache: "no-store",
-        });
-        const orgData = await orgRes.json().catch(() => null);
-
-        if (!orgRes.ok || !orgData?.organisationId) {
-          throw new Error(orgData?.error || "Failed to load organisation");
-        }
-
-        const libRes = await fetch(
-          `/api/resource-library?organisationId=${orgData.organisationId}`,
-          { cache: "no-store" }
-        );
-        const libData = await libRes.json().catch(() => null);
-
-        if (!libRes.ok) {
-          throw new Error(libData?.error || "Failed to load presentation");
-        }
-
-        const rows = Array.isArray(libData?.resources) ? libData.resources : [];
-        const found =
-          rows.find((r: Resource) => String(r.id) === resourceId) || null;
-
-        if (!found) {
-          throw new Error("Presentation not found.");
-        }
+        const res = await tenantFetch(`/api/resources/${resourceId}?view=presenter`, { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok || !data.resource) throw new Error(data.error || "Presentation not found.");
+        const found = data.resource as Resource;
 
         if (!Array.isArray(found?.content?.slides) || !found.content.slides.length) {
           throw new Error("This resource does not contain presentation slides.");
         }
-
-        try {
-          localStorage.setItem(resourceCacheKey(resourceId), JSON.stringify(found));
-        } catch {}
 
         setResource(found);
 
@@ -297,14 +239,7 @@ export default function PresenterConsolePage() {
     }
 
     function onStorage(e: StorageEvent) {
-      if (e.key === resourceCacheKey(resourceId) && e.newValue) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed?.content?.slides)) {
-            setResource(parsed as Resource);
-          }
-        } catch {}
-      }
+
     }
 
     window.addEventListener("keydown", onKeyDown);
@@ -322,11 +257,8 @@ export default function PresenterConsolePage() {
   function openAudienceScreen() {
     if (!resource) return;
 
-    try {
-      localStorage.setItem(resourceCacheKey(resource.id), JSON.stringify(resource));
-    } catch {}
-
-    window.open(`/dashboard/resources/present/${resource.id}`, "_blank");
+    const org = new URLSearchParams(window.location.search).get("organisationId");
+    window.open(`/dashboard/resources/present/${resource.id}${org ? `?organisationId=${encodeURIComponent(org)}` : ""}`, "_blank");
   }
 
   if (loading) {
@@ -349,6 +281,8 @@ export default function PresenterConsolePage() {
       </div>
     );
   }
+
+  if (slide?.layout) return <main className="solution-present"><nav className="solution-present-controls" aria-label="Presentation navigation"><button onClick={goPrev} disabled={safeIndex === 0}>Previous</button><span>Slide {safeIndex + 1} / {slides.length}</span><button onClick={goNext} disabled={safeIndex >= slides.length - 1}>Next</button><button onClick={openAudienceScreen}>Open audience screen</button></nav><SolutionSlide slide={slide} /><aside className="solution-present-notes"><h2>Private presenter guidance</h2><p>Script · prompts · facilitation · transitions · timing</p><div style={{ whiteSpace: "pre-wrap" }}>{String(slide.speaker_notes || "Review presenter guidance before delivery.")}</div></aside></main>;
 
   const generatedImageUrl = norm(slide?.generated_image_url);
 

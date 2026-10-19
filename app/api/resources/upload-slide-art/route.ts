@@ -1,3 +1,4 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -60,11 +61,14 @@ function buildStoragePath(params: {
   )}/${resourceSlug}/slide-${params.slideIndex + 1}-${slideSlug}-${stamp}-${id}.${ext}`;
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     const formData = await req.formData();
+    const ownedId = safe(formData.get("resourceId"));
+    const { data: owned } = await supabaseAdmin.from("resource_library").select("id").eq("id", ownedId).eq("organisation_id", tenant.organisationId).maybeSingle();
+    if (!owned) return NextResponse.json({ error: "Resource not found." }, { status: 404 });
 
-    const organisationId = safe(formData.get("organisationId"));
+    const organisationId = tenant.organisationId;
     const resourceId = safe(formData.get("resourceId"));
     const resourceTitle = safe(formData.get("resourceTitle"));
     const slideTitle = safe(formData.get("slideTitle"));
@@ -173,4 +177,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { write: true });

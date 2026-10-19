@@ -112,6 +112,7 @@ if (usage + cost > monthlyLimit) {
       `Tone: ${tone}`,
       `Fill level: ${fillLevel}`,
       `Delivery mode: ${deliveryMode}`,
+      ...(body.solutionBriefLayout ? ["Use this eight-slide order: hero, section divider, practical framework, proposed measurement/evidence plan, applied framework, audience exercise, reflection, summary/close. Do not invent statistics, studies, quotations or client outcomes. Speaker notes must contain Script, Facilitation, Transition and Timing sections; timing is guidance for the supplied session duration. Audience-facing bullets and prompts must never include private facilitator instructions."] : []),
       "",
       "Create a teaching-ready presentation that includes:",
       "- title",

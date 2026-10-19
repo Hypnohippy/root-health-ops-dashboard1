@@ -1,3 +1,5 @@
+import { withTenantRoute } from "@/lib/tenantRoute.server";
+import { accessErrorResponse, requireOwnedRecord } from "@/lib/tenantAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -64,7 +66,7 @@ function sanitizeContentForStorage(content: unknown): unknown {
   return next;
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withTenantRoute(async function POST(req: NextRequest, tenant) {
   try {
     const body = await req.json().catch(() => ({}));
     const bodyObj = body as JsonMap;
@@ -72,7 +74,7 @@ export async function POST(req: NextRequest) {
     const mode = norm(bodyObj?.mode || "create").toLowerCase();
 
     if (mode === "duplicate") {
-      const organisationId = norm(bodyObj?.organisationId);
+      const organisationId = tenant.organisationId;
       const resourceId = norm(bodyObj?.resourceId);
 
       if (!organisationId) {
@@ -133,8 +135,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const organisationId = norm(bodyObj?.organisationId);
+    const organisationId = tenant.organisationId;
     const sequenceId = norm(bodyObj?.sequenceId) || null;
+    await requireOwnedRecord("sequences", sequenceId, organisationId);
     const title = norm(bodyObj?.title);
     const resourceType = norm(bodyObj?.resource_type);
     const content = sanitizeContentForStorage(bodyObj?.content ?? null);
@@ -179,16 +182,16 @@ export async function POST(req: NextRequest) {
       resource: data,
     });
   } catch (e: any) {
-    return NextResponse.json(
+    return accessErrorResponse(e) || NextResponse.json(
       { error: e?.message || "Failed to create resource" },
       { status: 500 }
     );
   }
-}
+}, { write: true });
 
-export async function GET(req: NextRequest) {
+export const GET = withTenantRoute(async function GET(req: NextRequest, tenant) {
   try {
-    const organisationId = req.nextUrl.searchParams.get("organisationId");
+    const organisationId = tenant.organisationId;
 
     if (!organisationId) {
       return NextResponse.json(
@@ -212,19 +215,19 @@ export async function GET(req: NextRequest) {
       resources: data || [],
     });
   } catch (e: any) {
-    return NextResponse.json(
+    return accessErrorResponse(e) || NextResponse.json(
       { error: e?.message || "Failed to load library" },
       { status: 500 }
     );
   }
-}
+}, { write: false });
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = withTenantRoute(async function PATCH(req: NextRequest, tenant) {
   try {
     const body = await req.json().catch(() => ({}));
     const bodyObj = body as JsonMap;
 
-    const organisationId = norm(bodyObj?.organisationId);
+    const organisationId = tenant.organisationId;
     const resourceId = norm(bodyObj?.resourceId);
     const title = norm(bodyObj?.title);
 
@@ -389,19 +392,19 @@ export async function PATCH(req: NextRequest) {
       resource: data,
     });
   } catch (e: any) {
-    return NextResponse.json(
+    return accessErrorResponse(e) || NextResponse.json(
       { error: e?.message || "Failed to update resource" },
       { status: 500 }
     );
   }
-}
+}, { write: true });
 
-export async function DELETE(req: NextRequest) {
+export const DELETE = withTenantRoute(async function DELETE(req: NextRequest, tenant) {
   try {
     const body = await req.json().catch(() => ({}));
     const bodyObj = body as JsonMap;
 
-    const organisationId = norm(bodyObj?.organisationId);
+    const organisationId = tenant.organisationId;
     const resourceId = norm(bodyObj?.resourceId);
 
     if (!organisationId) {
@@ -433,9 +436,9 @@ export async function DELETE(req: NextRequest) {
       deleted: true,
     });
   } catch (e: any) {
-    return NextResponse.json(
+    return accessErrorResponse(e) || NextResponse.json(
       { error: e?.message || "Failed to delete resource" },
       { status: 500 }
     );
   }
-}
+}, { write: true });
