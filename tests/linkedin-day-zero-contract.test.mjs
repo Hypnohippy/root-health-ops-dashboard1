@@ -248,3 +248,28 @@ test("Responses catch-up rechecks lifecycle after provider generation", async ()
   const response = await route.POST({ json: async () => ({ inboxItemId: id }) });
   assert.equal(response.status, 409);assert.equal(response.body.coachMessage, undefined);assert.equal(h.calls, 1);assert.equal(h.canonicalCalls, 0);
 });
+
+test('actual GET-to-POST lifecycle revision race rejects eligible fresh contact before generation',async(t)=>{
+ const input=fixture(null,null,null);let revision='100',providerCalls=0;
+ const mocks={
+  'next/server':{NextResponse:{json}},
+  '@/lib/tenantRoute.server':{withTenantRoute:handler=>req=>handler(req,{organisationId:org,userId:'actor'})},
+  '@/lib/outreachSelfIdentity.server':{readOutreachSelfIdentity:async()=>({names:[],emails:[],linkedinProfiles:[],linkedinAccountIds:[]})},
+  '@/lib/lifecycleSnapshot.server':{readLifecycleInput:async()=>input},
+  '@/lib/supabaseAdmin':{supabaseAdmin:{from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{revision}})})})})}},
+  '@/lib/linkedinSendReconciliation.server':{reconcileLinkedInSend:()=>assert.fail('no writes')},
+  '@/lib/organisationProfile.server':{getOrganisationGenerationProfile:()=>assert.fail('fresh needs no profile')},
+ };
+ const api=load('app/api/growth/linkedin-console/route.ts',mocks,{fetch:()=>{providerCalls++;assert.fail('no provider');}});
+ const before=await api.GET({url:'https://preview.test/api/growth/linkedin-console?view=fresh'});
+ assert.equal(before.body.revision,'100');assert.equal(before.body.items[0].mode,'fresh');
+ revision='101';
+ const request={action:'generate',table:'inbox_items',id,revision:before.body.revision};
+ const rejected=await api.POST({json:async()=>request});
+ assert.equal(rejected.status,409);assert.equal(rejected.body.error,'Queue state changed. Reload before taking action.');assert.equal(rejected.body.code,'STALE_QUEUE_REVISION');
+ const refreshed=await api.GET({url:'https://preview.test/api/growth/linkedin-console?view=all&recoveryContactId='+encodeURIComponent(before.body.items[0].contactId)});
+ assert.equal(refreshed.body.recoveryItem.contactId,before.body.items[0].contactId);
+ const recovered=await api.POST({json:async()=>({...request,revision:refreshed.body.revision})});
+ assert.equal(recovered.status,200);assert.equal(recovered.body.message,strategy.linkedInDayZeroMessage(refreshed.body.recoveryItem.context));assert.equal(providerCalls,0);
+ t.diagnostic(JSON.stringify({GETRevision:before.body.revision,DBRevision:revision,POST:request,response:rejected,retryRevision:refreshed.body.revision,retryResponse:recovered}));
+});

@@ -27,7 +27,9 @@ export const GET = withTenantRoute(async (req, tenant) => {
   if (!["all", "fresh", "catchup", "followups"].includes(view)) return NextResponse.json({ error: "Invalid view." }, { status: 400 });
   const [state, self] = await Promise.all([snapshot(tenant.organisationId), readOutreachSelfIdentity(tenant.organisationId, tenant.userId)]);
   const queue = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), view as OutreachView, q.getAll("skip").slice(0,500), 10, self);
-  return NextResponse.json({ ...queue, revision: state.revision, organisationId: tenant.organisationId }, { headers: { "Cache-Control": "private, no-store" } });
+  const recoveryContactId = q.get("recoveryContactId");
+  const recoveryItem = recoveryContactId ? linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self).items.find(item => item.contactId === recoveryContactId) || null : undefined;
+  return NextResponse.json({ ...queue, view, ...(recoveryContactId ? { recoveryItem } : {}), revision: state.revision, organisationId: tenant.organisationId }, { headers: { "Cache-Control": "private, no-store" } });
 }, { write: true });
 export const POST = withTenantRoute(async (req, tenant) => {
   const body = await req.json();
@@ -39,14 +41,14 @@ export const POST = withTenantRoute(async (req, tenant) => {
   if (body.action !== "generate" || !["inbox_items", "growth_targets"].includes(body.table) || typeof body.id !== "string" || typeof body.revision !== "string") return NextResponse.json({ error: "Invalid action." }, { status: 400 });
   const [state, self] = await Promise.all([snapshot(tenant.organisationId), readOutreachSelfIdentity(tenant.organisationId, tenant.userId)]);
   const selected = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self).items.find(i => i.table === body.table && i.id === body.id);
-  if (!selected || state.revision !== body.revision) return NextResponse.json({ error: "Queue state changed. Reload before taking action." }, { status: 409 });
+  if (!selected || state.revision !== body.revision) return NextResponse.json({ error: "Queue state changed. Reload before taking action.", code: selected ? "STALE_QUEUE_REVISION" : "CONTACT_NOT_ELIGIBLE" }, { status: 409 });
   const current = selected!;
   if (current.stage === "connection" && !current.context.name?.trim()) return NextResponse.json({ error: "This connection has no saved name. Resolve the person’s name before generating a first message." }, { status: 409 });
   if (current.stage === "connection" && current.mode === "fresh") {
     let message: string;
     try { message = linkedInDayZeroMessage(current.context); }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Review the contact context." }, { status: 409 }); }
-    if (state.revision !== await revision(tenant.organisationId)) return NextResponse.json({ error: "Lifecycle changed while generating. Reload the queue." }, { status: 409 });
+    if (state.revision !== await revision(tenant.organisationId)) return NextResponse.json({ error: "Lifecycle changed while generating. Reload the queue.", code: "STALE_QUEUE_REVISION" }, { status: 409 });
     return NextResponse.json({ message });
   }
   const key = process.env.OPENAI_API_KEY;
@@ -77,6 +79,6 @@ export const POST = withTenantRoute(async (req, tenant) => {
     if (attempt === 1) return NextResponse.json({ error: "Generated suggestion did not meet the message rules. Retry Refresh draft or type your message below. Your draft is unchanged." }, { status: 409 });
     messages.push({ role: "user", content: "The suggestion failed validation. Rewrite from the supplied facts. For a first message use at most 240 characters, no question, emoji, pitch or meeting/call ask, and no networking filler listed above. For catch-up never imply a recent connection. Return only the complete message." });
   }
-  if (state.revision !== await revision(tenant.organisationId)) return NextResponse.json({ error: "Lifecycle changed while generating. Reload the queue." }, { status: 409 });
+  if (state.revision !== await revision(tenant.organisationId)) return NextResponse.json({ error: "Lifecycle changed while generating. Reload the queue.", code: "STALE_QUEUE_REVISION" }, { status: 409 });
   return NextResponse.json({ message });
 }, { write: true });
