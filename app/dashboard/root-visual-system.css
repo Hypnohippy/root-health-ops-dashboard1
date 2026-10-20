@@ -212,7 +212,7 @@
 [data-visual-system=root] {
  --ops-warning-ink: #79520e;
 }
-[data-visual-system=root] :is(.home-workspace,.responses-workspace,.acquisition-workspace,.publishing-workspace,.relationship-workspace,.relationship-list)
+[data-visual-system=root] :is(.home-workspace,.growth-today,.growth-pipeline,.responses-workspace,.acquisition-workspace,.publishing-workspace,.relationship-workspace,.relationship-list)
  :is([class*="text-amber-"],[class*="text-yellow-"]):not(:is([class*="bg-amber-9"],[class*="bg-yellow-9"],[class*="bg-amber-9"] *,[class*="bg-yellow-9"] *)) {
  color: var(--ops-warning-ink);
 }
