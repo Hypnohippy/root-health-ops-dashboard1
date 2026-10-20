@@ -24,7 +24,7 @@ export function blockedRelationshipAction(question: unknown) {
 }
 export function relationshipCandidateName(question: unknown): string | null {
   if (typeof question !== "string" || question.length > 600) return null;
-  if (/(?:https?:|www\.|@|\b[a-z0-9-]+\.(?:com|org|net|co|uk|io)\b)/i.test(question)) return null;
+  if (/(?:https?:|www\.|@|\b[\p{L}0-9-]+\.[\p{L}0-9-]+\b)/iu.test(question)) return null;
   const patterns = [/(?:respond to|reply to|say to|call with|know about|think about)\s+(.+?)(?:[?.!]|$)/i, /what do you think\s+(.+?)\s+(?:is|wants|needs)\b/i];
   const name = patterns.map(p=>question.match(p)?.[1]).find(Boolean)?.trim();
   if (!name || /^(?:this|our|the|them|him|her|a|an)\b/i.test(name) || !/^[\p{L}][\p{L} '’-]{1,100}$/u.test(name)) return null;
