@@ -46,14 +46,15 @@ export function guideWorkspace(route: unknown): GuideWorkspace | null {
   return null;
 }
 
-export function guideDestination(id: unknown, organisationId: string, founderAllowed = false) {
+export function guideDestination(id: unknown, organisationId: string, founderAllowed = false, relationshipRoute?: string) {
   if (typeof id !== "string" || !Object.prototype.hasOwnProperty.call(guideDestinations, id) || (id === "founder" && !founderAllowed)) return null;
   if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(organisationId)) return null;
   const destination = guideDestinations[id as GuideDestination];
-  return { id: id as GuideDestination, label: destination.label, href: `${destination.path}?organisationId=${encodeURIComponent(organisationId)}` };
+  const path = id === "relationships" && relationshipRoute && /^\/dashboard\/growth\/relationships\/(?:inbox|target|acquisition|founder|workspace)_[a-f0-9-]{36}$/i.test(relationshipRoute) ? relationshipRoute : destination.path;
+  return { id: id as GuideDestination, label: destination.label, href: `${path}?organisationId=${encodeURIComponent(organisationId)}` };
 }
 export type GuideLink = NonNullable<ReturnType<typeof guideDestination>>;
-export type GuideAnswer = { workspace: string; message: string; destinations: GuideLink[] };
+export type GuideAnswer = { workspace: string; message: string; destinations: GuideLink[]; relationshipRoute?: string; relationshipChoices?: { label: string; route: string }[] };
 // Only server-verified evidence may be passed here; client counts are never trusted by /api/coach.
 export type GuideEvidence = { responseAttentionCount: number };
 export function guideAnswer(route: unknown, question: unknown, organisationId: string, founderAllowed: boolean, evidence?: GuideEvidence): GuideAnswer {

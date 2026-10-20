@@ -1,3 +1,4 @@
+import { RELATIONSHIP_MODEL, relationshipReasoningMessages, relationshipReasoningText } from "@/lib/relationshipCoach.server";
 import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/coach/route.ts
 import { NextRequest, NextResponse } from "next/server";
@@ -200,7 +201,38 @@ const guidancePOST = withTenantRoute(async (req: NextRequest, tenant) => {
     const text = await req.text();
     if (text.length > 4096) return NextResponse.json({ error: "Keep guidance requests short." }, { status: 400 });
     const body = JSON.parse(text);
-    const answer = await rootCoachGuidance(body, tenant);
+    const answer = await rootCoachGuidance(body, tenant, async (question, evidence, intent) => {
+      const messages = relationshipReasoningMessages(question,evidence,intent);
+      // At most one corrected read-only model attempt, never an action/send retry.
+      for(let attempt=0;attempt<2;attempt++) {
+        let diagnostic = "relationship_reasoning_provider_error";
+        try {
+          const completion=await client.chat.completions.create({model:RELATIONSHIP_MODEL,messages,response_format:{type:"json_object"},max_tokens:1100,temperature:0.2});
+          diagnostic = "relationship_reasoning_invalid_json";
+          const value: unknown = JSON.parse(completion.choices?.[0]?.message?.content || "");
+          diagnostic = "relationship_reasoning_other_validation_error";
+          try { return relationshipReasoningText(value,intent); }
+          catch (error) {
+            const message = error instanceof Error ? error.message : "";
+            if (message === "Advice unavailable.") diagnostic = "relationship_reasoning_missing_required_field";
+            if (message.startsWith("Unsafe history claim.")) {
+              if(attempt===0){
+                console.warn("relationship_reasoning_history_safety_retry");
+                messages.push({role:"system",content:"The response was rejected for an unsupported absence-of-history claim. Regenerate the complete JSON object. Do not mention missing/no/prior conversation or email history in any field. Start reasoning and interpretation with the exact words: Within the supplied evidence only, . Keep each to one sentence. Keep uncertainty as questions to confirm. Source availability is appended separately by the server. Do not claim you sent or saved anything."});
+                continue;
+              }
+              diagnostic = "relationship_reasoning_history_safety_rejection";
+            }
+            throw error;
+          }
+        } catch {
+          // Category only: never log prompts, evidence, model output or provider errors.
+          console.warn(diagnostic);
+          throw Error("Relationship reasoning unavailable.");
+        }
+      }
+      throw Error("Relationship reasoning unavailable.");
+    });
     return NextResponse.json(answer, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json({ error: "Ask a question of 1–600 characters using a recognized workspace context." }, { status: 400 });
@@ -212,7 +244,7 @@ export async function POST(req: NextRequest) {
   return body?.mode === "guidance" ? guidancePOST(req) : legacyCoachPOST(req);
 }
 
-function safeJsonForPrompt(v: any) {
+function safeJsonForPrompt(v: unknown) {
   try {
     const s = JSON.stringify(v);
     // keep prompts small
