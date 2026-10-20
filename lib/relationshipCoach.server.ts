@@ -31,14 +31,14 @@ export async function relationshipCoachAnswer(tenant: RelationshipTenant, locato
   const events = [...data.conversation.dated, ...data.conversation.undated].sort((a,b)=>String(b.at || "").localeCompare(String(a.at || "")));
   const evidence = events.slice(0, 8).map(event => ({kind:clip(event.kind,80),channel:clip(event.channel,40),at:event.at ? clip(event.at,40) : null,text:clip(event.text,360)}));
   const email = events.filter(event => /email|gmail/i.test(event.channel)).slice(0,8).map(event => ({kind:clip(event.kind,80),at:event.at ? clip(event.at,40) : null,text:clip(event.text,360)}));
-  const name = clip(truth.displayLabel,120);
+  const name = clip(data.relationship.name || truth.displayLabel,120);
   const actionRequest = /^(?:please\s+)?(?:send|publish|approve|delete|dismiss|create|generate|schedule|change|update|merge|mark)\b/i.test(question.trim());
   const lines = [
     `About ${name} — read-only recorded context.`,
     actionRequest ? "No action taken. Ask Root cannot send or change records." : "",
     `Recorded facts: ${[name,clip(data.relationship.company),clip(data.relationship.role)].join(" · ")}.`,
     `Recorded contacts: ${truth.recordedContacts?.slice(0,6).map(contact=>clip(contact.name,100)).join(", ") || "Not recorded"}.`,
-    `Derived relationship state: ${clip(data.relationship.stage,80)}. Recorded next action: ${clip(data.relationship.nextAction,120)}.`,
+    `Derived relationship state: ${clip(data.relationship.stage,80)}. Canonical Truth display: ${clip(truth.displayLabel,120)}. Recorded next action: ${clip(data.relationship.nextAction,120)}.`,
     `Sources (up to eight): ${data.relationship.refs.slice(0,8).map(ref => `${ref.table}:${ref.id}`).join(", ")}.`,
     /email|gmail/i.test(question) ? email.length ? `Linked email evidence (not a delivery guarantee): ${email.map(e=>`${e.at || "Actual date unknown"} · ${e.kind}: ${e.text}`).join("; ")}` : "Email evidence: no linked email evidence is available in this bounded relationship view. This does not prove no email exists; no mailbox was searched or read." : `Recorded conversation evidence: ${evidence.length ? evidence.map(e=>`${e.at || "Actual date unknown"} · ${e.channel} · ${e.kind}: ${e.text}`).join("; ") : "No linked conversation text available."}`,
     `Latest recorded action: ${data.relationship.lastAction ? `${clip(data.relationship.lastAction.action,80)} · ${clip(data.relationship.lastAction.at,40)}` : "Not recorded"}.`,
