@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import "./root-visual-system.css";
 import { OpsNavigationIcon } from "./components/visual/OpsSurface";
@@ -33,24 +33,29 @@ type SecondaryNavItem = {
   attentionCount?: number;
 };
 
+function subscribeRouteSearch(notify: () => void) {
+  window.addEventListener("popstate", notify);
+  return () => window.removeEventListener("popstate", notify);
+}
+const readRouteSearch = () => window.location.search;
+const emptyRouteSearch = () => "";
+
 export default function ClientDashboardLayout({
   children,
 }: DashboardLayoutProps) {
   const pathname = usePathname();
   const [mobileGrowthMenuOpen, setMobileGrowthMenuOpen] = useState(false);
-    const relationshipsSearchActive = pathname.startsWith("/dashboard/growth/relationships");
-  const [workspaceSearch, setWorkspaceSearch] = useState("");
-
-  useEffect(() => {
-    if (!relationshipsSearchActive) {
-      setWorkspaceSearch("");
-      return;
-    }
-
-    setWorkspaceSearch(
-      new URLSearchParams(window.location.search).get("q") || "",
-    );
-  }, [pathname, relationshipsSearchActive]);
+  const relationshipsSearchActive = pathname.startsWith("/dashboard/growth/relationships");
+  // Read the browser URL after hydration without copying it into state in an effect.
+  const routeSearch = useSyncExternalStore(subscribeRouteSearch, readRouteSearch, emptyRouteSearch);
+  const [searchDraft, setSearchDraft] = useState<{ pathname: string; value: string | null }>({ pathname, value: null });
+  if (searchDraft.pathname !== pathname) {
+    setSearchDraft({ pathname, value: null });
+  }
+  const workspaceSearch = searchDraft.pathname === pathname && searchDraft.value !== null
+    ? searchDraft.value
+    : relationshipsSearchActive ? new URLSearchParams(routeSearch).get("q") || "" : "";
+  const setWorkspaceSearch = (value: string) => setSearchDraft({ pathname, value });
 
   function updateWorkspaceSearch(value: string) {
     setWorkspaceSearch(value);

@@ -194,3 +194,22 @@ test("Value and activity graphics require actual evidence and are labelled as co
  const C=load("app/dashboard/growth/cadence-report/page.tsx",{"@/lib/tenantAuth":{requireOrganisation:async()=>({organisationId:"tenant"})},"@/lib/linkedinCadenceReport.server":{readLinkedInCadenceReport:async()=>report},"@/lib/linkedinCadenceBackfill":labels,"./SendDateReview":{__esModule:true,default:()=>null}}).default;
  let tree;await renderer.act(async()=>tree=renderer.create(await C({searchParams:Promise.resolve({})})));const text=JSON.stringify(tree.toJSON());for(const label of Object.values(labels.cadenceLabels))assert.ok(text.includes(label));assert.match(text,/No send-date reviews available/);assert.doesNotMatch(text,/Momentum: High|92\/100|£150k/);await renderer.act(async()=>tree.unmount());
  });
+
+test("workspace search initializes from route query, stays typeable and retains tenant navigation",async()=>{
+ const org="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",events={},dispatched=[];
+ let pathname="/dashboard/growth",destination="";
+ const location={search:`?organisationId=${org}`,href:`https://ops.test${pathname}?organisationId=${org}`,assign:value=>destination=value};
+ const win={location,history:{state:null,replaceState:(_,__,url)=>{location.href=String(url);location.search=new URL(String(url)).search;}},addEventListener:(n,f)=>events[n]=f,removeEventListener:n=>delete events[n],dispatchEvent:e=>dispatched.push(e)};
+ const C=load("app/dashboard/ClientDashboardLayout.tsx",{"next/navigation":{usePathname:()=>pathname},"next/link":({children,...props})=>React.createElement("a",props,children),"./components/AcquisitionHandoff":()=>null},{window:win,CustomEvent:class{constructor(type,options){this.type=type;this.detail=options.detail;}},fetch:async url=>({ok:true,json:async()=>url==="/api/org/current"?{organisationId:org}:{}})}).default;
+ let tree;try{
+ await renderer.act(async()=>{tree=renderer.create(React.createElement(C));});
+ const input=()=>tree.root.findByProps({"aria-label":"Search people, companies, email or LinkedIn"});
+ await renderer.act(async()=>input().props.onChange({target:{value:"Matthew Morrow"}}));
+ await renderer.act(async()=>tree.root.findByProps({role:"search"}).props.onSubmit({preventDefault(){}}));
+ assert.equal(new URL(destination,"https://ops.test").searchParams.get("organisationId"),org);assert.equal(new URL(destination,"https://ops.test").searchParams.get("q"),"Matthew Morrow");
+ pathname="/dashboard/growth/relationships";location.search=`?organisationId=${org}&q=Existing`;location.href=`https://ops.test${pathname}${location.search}`;
+ await renderer.act(async()=>tree.update(React.createElement(C)));assert.equal(input().props.value,"Existing");
+ await renderer.act(async()=>input().props.onChange({target:{value:"Matthew"}}));assert.equal(input().props.value,"Matthew");assert.equal(new URL(location.href).searchParams.get("q"),"Matthew");assert.equal(dispatched.at(-1).type,"ops-relationship-search");
+ pathname="/dashboard/growth";await renderer.act(async()=>tree.update(React.createElement(C)));assert.equal(input().props.value,"");
+ }finally{if(tree)await renderer.act(async()=>tree.unmount());}
+});
