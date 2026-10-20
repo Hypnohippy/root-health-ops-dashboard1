@@ -1,4 +1,7 @@
 "use client";
+
+import CreativeControls from "./CreativeControls";
+import PresenterGuidance from "./PresenterGuidance";
 import "./resources.css";
 import SolutionSlide from "./SolutionSlide";
 import { audienceSlide } from "@/lib/presentationAudience";
@@ -2352,7 +2355,7 @@ if (content && Array.isArray(content.sections)) {
     });
   }
 
-  function updateSlideField(index: number, key: string, value: string) {
+  function updateSlideField(index: number, key: string, value: unknown) {
     setDraftContent((prev: any) => {
       const next = deepClone(prev || {});
       next.slides = Array.isArray(next.slides) ? next.slides : [];
@@ -5750,6 +5753,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                                   </label>
                                 )}
 
+                                {editMode && !isTemplate(selected) && selectedContent?.creative_direction && <CreativeControls value={slide.creative_direction} onChange={value => updateSlideField(idx, "creative_direction", value)} />}
                                 {editMode && !isTemplate(selected) ? (
                                   <input
                                     value={String(slide?.slide_title || "")}
@@ -5763,7 +5767,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                                     className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xl font-semibold text-slate-100"
                                   />
                                 ) : (
-                                  slide.layout ? <SolutionSlide slide={slide} /> : <div className="mt-3 text-2xl md:text-3xl font-semibold leading-tight max-w-3xl">
+                                  slide.layout ? <SolutionSlide slide={slide} index={idx} total={selectedContent.slides.length} /> : <div className="mt-3 text-2xl md:text-3xl font-semibold leading-tight max-w-3xl">
                                     {slide?.slide_title || `Slide ${idx + 1}`}
                                   </div>
                                 )}
@@ -5940,7 +5944,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                                           className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300"
                                         />
                                       </>
-                                    ) : presentationMode === "presenter" ? (
+                                    ) : presentationMode === "presenter" ? (slide.creative_direction ? <PresenterGuidance notes={slide.speaker_notes} /> :
                                       <div
                                         className={[
                                           "rounded-2xl border p-4 max-w-4xl mt-2",

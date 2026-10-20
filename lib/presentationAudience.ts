@@ -1,3 +1,4 @@
+import { creativeDirection, rootCreative, ROOT_PRESET } from "@/lib/creativeDirection";
 type Json = Record<string, unknown>;
 const object = (value: unknown): Json => value && typeof value === "object" && !Array.isArray(value) ? value as Json : {};
 const string = (value: unknown) => typeof value === "string" ? value : "";
@@ -10,13 +11,14 @@ export function audienceSlide(input: unknown) {
     audience_prompt: string(s.audience_prompt),
     generated_image_url: string(s.generated_image_url), uploaded_image_url: string(s.uploaded_image_url),
     active_image_source: string(s.active_image_source),
+    ...(creativeDirection(s.creative_direction) ? { creative_direction: creativeDirection(s.creative_direction) } : {}),
   };
 }
 export function audienceResource(input: unknown) {
   const r = object(input), c = object(r.content);
   return { id: string(r.id), title: string(r.title), resource_type: string(r.resource_type),
     created_at: string(r.created_at), updated_at: string(r.updated_at),
-    content: { slides: Array.isArray(c.slides) ? c.slides.map(audienceSlide) : [] } };
+    content: { ...(creativeDirection(c.creative_direction) ? { creative_direction: creativeDirection(c.creative_direction) } : {}), slides: Array.isArray(c.slides) ? c.slides.map(audienceSlide) : [] } };
 }
 export function withSolutionLayouts(input: unknown, measurement: string) {
   const p = object(input);
@@ -30,5 +32,5 @@ export function withSolutionLayouts(input: unknown, measurement: string) {
   // No verified statistics were supplied by this intake: use an honest measurement
   // plan rather than letting a generated number masquerade as client evidence.
   slides[3] = { ...slides[3], slide_title: "Evidence to collect", bullets: ["Measurement plan for review", measurement], audience_prompt: "", speaker_notes: "Explain that this is a proposed evaluation plan, not a measured result." };
-  return { ...p, slides };
+  return { ...p, creative_direction: ROOT_PRESET, slides: slides.map(s => ({ ...s, creative_direction: rootCreative(String(s.layout)) })) };
 }

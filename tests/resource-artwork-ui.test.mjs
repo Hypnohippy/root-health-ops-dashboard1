@@ -6,8 +6,9 @@ import { fixture, ids, load } from "./helpers/solution-brief-fixture.mjs";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-for (const linked of [false, true]) test(`${linked ? "Source-linked" : "Standalone"} presentation exposes per-slide PNG upload and replacement in both review modes`, async () => {
+for (const linked of [false, true, "premium"]) test(`${linked ? "Source-linked" : "Standalone"} presentation exposes per-slide PNG upload and replacement in both review modes`, async () => {
   let resource = { id: ids.request, title: "Controlled presentation", resource_type: "presentation", created_at: "2026-10-20", source_solution_brief_id: linked ? ids.foreign : null, content: { slides: [{ slide_title: "One", layout: linked ? "hero" : undefined, bullets: ["Visible"], speaker_notes: "Private" }, { slide_title: "Two", bullets: ["Untouched"] }] } };
+  if (linked === "premium") { const c = load("lib/creativeDirection.ts"); resource.content.creative_direction = c.ROOT_PRESET; resource.content.slides[0].creative_direction = c.rootCreative("hero"); resource.content.slides[0].speaker_notes = "**Script:** Private instruction"; }
   const calls = [];
   const request = async (url, options = {}) => {
     calls.push({ url, options });
@@ -33,6 +34,7 @@ for (const linked of [false, true]) test(`${linked ? "Source-linked" : "Standalo
     assert.equal(inputs().length, 2); assert.equal(inputs()[0].props.accept, "image/png");
     const button = label => tree.root.findAllByType("button").find(n => n.children.join("").trim() === label);
     await renderer.act(async () => button("Presenter View").props.onClick()); assert.equal(inputs().length, 2);
+    if (linked === "premium") { assert.match(JSON.stringify(tree.toJSON()), /Private presenter guidance/); assert.doesNotMatch(JSON.stringify(tree.toJSON()), /\*\*Script/); }
     for (let i = 0; i < 2; i++) {
       const target = { files: [new File(["synthetic png"], "controlled.png", { type: "image/png" })], value: "controlled.png" };
       await renderer.act(async () => { inputs()[0].props.onChange({ currentTarget: target }); });
