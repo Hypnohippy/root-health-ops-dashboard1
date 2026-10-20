@@ -21,5 +21,7 @@ test("Founder handlers, permissions, search and exact memory evidence are unchan
  const file="app/dashboard/founder-intelligence/page.tsx",page=fs.readFileSync(file,"utf8").replaceAll("\r\n","\n"),baseline=before(file);
  assert.equal(page.slice(page.indexOf("export default"),page.indexOf("if(allowed===null)")),baseline.slice(baseline.indexOf("export default"),baseline.indexOf("if(allowed===null)")));
  const callbacks=source=>{const f=ts.createSourceFile("page.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),values=[];const visit=node=>{if(ts.isJsxAttribute(node)&&/^on[A-Z]/.test(node.name.getText(f)))values.push(node.initializer?.getText(f));ts.forEachChild(node,visit)};visit(f);return values};assert.deepEqual(callbacks(page),callbacks(baseline));
- const memory="app/dashboard/founder-intelligence/FounderMemoryPanel.tsx";assert.equal(fs.readFileSync(memory,"utf8").replaceAll("\r\n","\n").replace('className="founder-memory space-y-3','className="space-y-3'),before(memory));
+ const memory="app/dashboard/founder-intelligence/FounderMemoryPanel.tsx";
+ const summaryOnly=fs.readFileSync(memory,"utf8").replaceAll("\r\n","\n").replace('import FounderResearchSummary from "./FounderResearchSummary";\n','').replace(' <FounderResearchSummary record={record}/>',' <details><summary>Stored research and provenance</summary><pre className="whitespace-pre-wrap text-xs">{JSON.stringify({research:record.research_snapshot,sources:record.sources,contacts:record.contacts},null,2)}</pre></details>').replace('className="founder-memory space-y-3','className="space-y-3');
+ assert.equal(summaryOnly,before(memory));
 });

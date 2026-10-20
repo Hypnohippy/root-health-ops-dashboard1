@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { guideDestination, guideWorkspace, type GuideAnswer } from "@/lib/rootCoachGuide";
 import "./root-coach.css";
+import RootCoachAdvisor from "./RootCoachAdvisor";
 
 export default function RootCoach({ pathname, organisationId, founderAllowed }: { pathname: string; organisationId: string | null; founderAllowed: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -13,6 +14,7 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [answerContext, setAnswerContext] = useState("");
+  const [mode, setMode] = useState<"guide" | "advisor">("guide");
   const context = `${organisationId}:${pathname}`;
   const currentAnswer = answerContext === context ? answer : null;
 
@@ -21,8 +23,9 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
     return () => { request.current?.abort(); element?.close(); };
   }, [context]);
 
-  function close() { request.current?.abort(); dialog.current?.close(); }
+  function close() { request.current?.abort(); setMode("guide"); dialog.current?.close(); }
   function open() {
+    setMode("guide");
     setQuestion(""); setAnswer(null); setError(""); setBusy(false);
     dialog.current?.showModal();
   }
@@ -43,8 +46,10 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
 
   return <>
     <button ref={launcher} type="button" className="root-coach-launcher" disabled={!organisationId} aria-haspopup="dialog" aria-controls="root-coach-dialog" onClick={open}><span aria-hidden="true">✦</span> Ask Root</button>
-    <dialog ref={dialog} id="root-coach-dialog" className="root-coach-dialog" aria-labelledby="root-coach-title" aria-describedby="root-coach-boundary" onClose={() => { request.current?.abort(); launcher.current?.focus(); }} onCancel={close}>
+    <dialog ref={dialog} id="root-coach-dialog" className="root-coach-dialog" aria-labelledby="root-coach-title" aria-describedby={mode === "guide" ? "root-coach-boundary" : undefined} onClose={() => { request.current?.abort(); setMode("guide"); launcher.current?.focus(); }} onCancel={close}>
       <header className="root-coach-heading"><div><p>YOUR CONTEXTUAL GUIDE</p><h2 id="root-coach-title"><span aria-hidden="true">✦</span> Ask Root</h2></div><button type="button" autoFocus aria-label="Close Ask Root" onClick={close}>×</button></header>
+      <nav className="root-coach-modes" aria-label="Ask Root mode"><button aria-pressed={mode === "guide"} onClick={() => { request.current?.abort(); setBusy(false); setMode("guide"); }}>Guide</button><button aria-pressed={mode === "advisor"} onClick={() => { request.current?.abort(); setBusy(false); setMode("advisor"); }}>Relationship advice</button></nav>
+      {mode === "advisor" && organisationId ? <div className="root-coach-scroll"><RootCoachAdvisor organisationId={organisationId} pathname={pathname} /></div> : <>
       <div className="root-coach-scroll">
         <p className="root-coach-context">{workspace?.key === "founder" && !founderAllowed ? "Restricted workspace" : workspace?.title || "Current workspace"}</p>
         <p id="root-coach-boundary">Explain, orient, find the right place. Ask Root cannot send, publish, approve, draft outreach or change records.</p>
@@ -59,6 +64,7 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
         })}</nav></section>}
       </div>
       <form className="root-coach-form" onSubmit={event => { event.preventDefault(); void ask(question); }}><label htmlFor="root-coach-question">Ask about this workspace</label><textarea id="root-coach-question" rows={2} maxLength={600} value={question} onChange={event => setQuestion(event.target.value)} placeholder="What does this mean, or where should I go?"/><div><small>Current figures and status are always shown in the source workspace.</small><button type="submit" disabled={busy || !organisationId || !question.trim()}>Ask Root <span aria-hidden="true">→</span></button></div></form>
+      </>}
     </dialog>
   </>;
 }
