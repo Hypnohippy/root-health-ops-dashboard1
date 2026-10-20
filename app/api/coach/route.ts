@@ -202,8 +202,24 @@ const guidancePOST = withTenantRoute(async (req: NextRequest, tenant) => {
     if (text.length > 4096) return NextResponse.json({ error: "Keep guidance requests short." }, { status: 400 });
     const body = JSON.parse(text);
     const answer = await rootCoachGuidance(body, tenant, async (question, evidence, intent) => {
-      const completion=await client.chat.completions.create({model:RELATIONSHIP_MODEL,messages:relationshipReasoningMessages(question,evidence,intent),response_format:{type:"json_object"},max_tokens:1100,temperature:0.2});
-      return relationshipReasoningText(JSON.parse(completion.choices?.[0]?.message?.content || "{}"),intent);
+      let diagnostic = "relationship_reasoning_provider_error";
+      try {
+        const completion=await client.chat.completions.create({model:RELATIONSHIP_MODEL,messages:relationshipReasoningMessages(question,evidence,intent),response_format:{type:"json_object"},max_tokens:1100,temperature:0.2});
+        diagnostic = "relationship_reasoning_invalid_json";
+        const value: unknown = JSON.parse(completion.choices?.[0]?.message?.content || "");
+        diagnostic = "relationship_reasoning_other_validation_error";
+        try { return relationshipReasoningText(value,intent); }
+        catch (error) {
+          const message = error instanceof Error ? error.message : "";
+          if (message === "Advice unavailable.") diagnostic = "relationship_reasoning_missing_required_field";
+          if (message === "Unsafe history claim.") diagnostic = "relationship_reasoning_history_safety_rejection";
+          throw error;
+        }
+      } catch {
+        // Category only: never log prompts, evidence, model output or provider errors.
+        console.warn(diagnostic);
+        throw Error("Relationship reasoning unavailable.");
+      }
     });
     return NextResponse.json(answer, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
