@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { tenantFetch } from "@/lib/tenantFetch";
 import SolutionSlide from "../../SolutionSlide";
+import { creativeDirection } from "@/lib/creativeDirection";
+import PresenterGuidance from "../../PresenterGuidance";
 
 type Resource = {
   id: string;
@@ -281,6 +283,8 @@ export default function PresenterConsolePage() {
       </div>
     );
   }
+
+  if (creativeDirection(slide?.creative_direction)) return <main className="solution-present"><nav className="solution-present-controls root-presentation-controls" aria-label="Presentation navigation"><button onClick={goPrev} disabled={safeIndex === 0}>Previous</button><label>Slide <select aria-label="Jump to slide" value={safeIndex} onChange={e => goToSlide(Number(e.target.value))}>{slides.map((_: unknown, i: number) => <option key={i} value={i}>{i + 1} / {slides.length}</option>)}</select></label><button onClick={goNext} disabled={safeIndex >= slides.length - 1}>Next</button><button onClick={() => { if (!document.fullscreenElement) void document.documentElement.requestFullscreen().catch(() => {}); else void document.exitFullscreen().catch(() => {}); }}>Fullscreen</button><button onClick={() => updateSync({showArtwork: !sync.showArtwork})} aria-pressed={sync.showArtwork}>Artwork {sync.showArtwork ? "on" : "off"}</button><button onClick={openAudienceScreen}>Open audience screen</button></nav><SolutionSlide slide={slide} showArtwork={sync.showArtwork} index={safeIndex} total={slides.length} /><PresenterGuidance notes={slide.speaker_notes} /></main>;
 
   if (slide?.layout) return <main className="solution-present"><nav className="solution-present-controls" aria-label="Presentation navigation"><button onClick={goPrev} disabled={safeIndex === 0}>Previous</button><span>Slide {safeIndex + 1} / {slides.length}</span><button onClick={goNext} disabled={safeIndex >= slides.length - 1}>Next</button><button onClick={openAudienceScreen}>Open audience screen</button></nav><SolutionSlide slide={slide} /><aside className="solution-present-notes"><h2>Private presenter guidance</h2><p>Script · prompts · facilitation · transitions · timing</p><div style={{ whiteSpace: "pre-wrap" }}>{String(slide.speaker_notes || "Review presenter guidance before delivery.")}</div></aside></main>;
 
