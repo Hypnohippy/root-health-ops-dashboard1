@@ -43,6 +43,43 @@
 [data-visual-system=root] .ops-workspace-topbar { display: flex; gap: 1rem; align-items: center; justify-content: space-between; background: var(--ops-canvas); color: var(--ops-ink); padding: .7rem 1.5rem; }
 [data-visual-system=root] .ops-workspace-topbar p { font-size: 1rem; font-weight: 600; letter-spacing: -.02em; margin-top: .1rem; }
 [data-visual-system=root] .ops-search-entry { display: flex; align-items: center; gap: .65rem; width: min(560px,65%); padding: .8rem 1rem; border: 1px solid var(--ops-border); border-radius: 1.1rem; background: var(--ops-glass); box-shadow: inset 0 0 0 4px rgba(255,255,255,.5); color: var(--ops-ink); font-size: .85rem; }
+[data-visual-system=root] .ops-search-entry input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ops-ink);
+  font: inherit;
+}
+
+[data-visual-system=root] .ops-search-entry input::placeholder {
+  color: #607091;
+  opacity: .9;
+}
+
+[data-visual-system=root] .ops-search-entry:focus-within {
+  border-color: #76a8e6;
+  box-shadow:
+    0 0 0 4px rgba(93,151,222,.16),
+    inset 0 1px 5px rgba(171,197,226,.24);
+}
+
+[data-visual-system=root] .ops-search-submit {
+  flex: 0 0 auto;
+  border: 1px solid rgba(77,112,164,.18);
+  border-radius: .65rem;
+  padding: .38rem .7rem;
+  background: linear-gradient(180deg,#ffffff,#dce9fb);
+  color: #29466f;
+  font-size: .7rem;
+  font-weight: 650;
+  box-shadow: 0 2px 7px rgba(38,76,126,.1);
+}
+
+[data-visual-system=root] .ops-search-submit:hover {
+  background: linear-gradient(180deg,#fff,#cfe1fa);
+}
 [data-visual-system=root] .ops-search-hint { margin-left: auto; color: var(--ops-muted); font-size: .7rem; }
 [data-visual-system=root] > main { min-width: 0; }
 [data-visual-system=root] > main:has(.relationship-workspace) { background: radial-gradient(ellipse at 100% 0,rgba(193,211,250,.5),transparent 60%),var(--ops-canvas); padding: 0 1rem; color: var(--ops-ink); }
@@ -168,4 +205,14 @@
  [data-visual-system=root] .ops-sidebar-ambient > span { color:#c5d8eb; font-size:10px; margin-top:12px; }
  [data-visual-system=root] .ops-command-brand { display:none; }
  [data-visual-system=root] .ops-workspace-topbar { padding:10px 12px; background:linear-gradient(110deg,#b8d6f1,#e6f1ff); }
+}
+
+/* Warning text on the explicitly pale workspaces only. Dark panels stay excluded;
+   existing amber backgrounds/borders and semantic warning classes are unchanged. */
+[data-visual-system=root] {
+ --ops-warning-ink: #79520e;
+}
+[data-visual-system=root] :is(.home-workspace,.growth-today,.growth-pipeline,.responses-workspace,.acquisition-workspace,.publishing-workspace,.relationship-workspace,.relationship-list)
+ :is([class*="text-amber-"],[class*="text-yellow-"]):not(:is([class*="bg-amber-9"],[class*="bg-yellow-9"],[class*="bg-amber-9"] *,[class*="bg-yellow-9"] *)) {
+ color: var(--ops-warning-ink);
 }

@@ -47,13 +47,13 @@ test("view briefings count stored evidence and tasks without inferring content o
 test("list retains tenant-scoped server search, pagination and existing locator links without writes",async()=>{
  const destination=`/dashboard/growth/relationships/${r.locator}?organisationId=${org}`;
  const primary={canonicalRelationshipId:r.contactId,displayLabel:r.name,entityKind:"person_with_company",company:r.company,verifiedAliases:[],recordedContacts:[],sourceCoverage:{count:1,channels:["LinkedIn"]},ambiguity:{state:"established",possibleRecords:1,reasons:[]},reconciliationStatus:"unreviewed",emailCoverage:"not_established",sourceChoices:[],destination,contextDestination:destination,operational:{state:"single",current:{label:r.name,destination,stage:r.stage,nextAction:r.nextAction,nextDueDate:null,retention:"active",workspaceExists:false,value:null},choices:[]}};
- const requests=[],scheduled=[],result={items:[primary],total:30,page:0,storageAvailable:true,available:true,notice:"",comparison:null,operationalAmbiguity:0};
- const List=load("app/dashboard/growth/relationships/components/RelationshipsList.tsx",{}, {AbortController,setTimeout:fn=>{scheduled.push(fn);return 1;},clearTimeout(){},fetch:async(url,opts)=>{requests.push({url,opts});return {ok:true,json:async()=>result};}}).default;
+ const events={};const requests=[],scheduled=[],result={items:[primary],total:30,page:0,storageAvailable:true,available:true,notice:"",comparison:null,operationalAmbiguity:0};
+ const List=load("app/dashboard/growth/relationships/components/RelationshipsList.tsx",{}, {window:{location:{search:""},addEventListener:(name,fn)=>events[name]=fn,removeEventListener:name=>delete events[name]},AbortController,setTimeout:fn=>{scheduled.push(fn);return 1;},clearTimeout(){},fetch:async(url,opts)=>{requests.push({url,opts});return {ok:true,json:async()=>result};}}).default;
  let tree;await renderer.act(async()=>{tree=renderer.create(React.createElement(List,{organisationId:org,initial:result}));});
  await renderer.act(async()=>{scheduled.pop()();await Promise.resolve();});
  assert.equal(requests.length,1);assert.equal(new URL(requests[0].url,"https://ops.test").searchParams.get("organisationId"),org);
  assert.ok(tree.root.findAllByType("a").some(a=>a.props.href===`/dashboard/growth/relationships/${r.locator}?organisationId=${org}`));
- const search=tree.root.findAllByType("input").find(i=>i.props["aria-label"]==="Search relationships");await renderer.act(async()=>search.props.onChange({target:{value:"Company exact"}}));await renderer.act(async()=>{scheduled.pop()();await Promise.resolve();});
+ assert.equal(tree.root.findAllByType("input").length,0);await renderer.act(async()=>events["ops-relationship-search"]({detail:{query:"Company exact"}}));await renderer.act(async()=>{scheduled.pop()();await Promise.resolve();});
  assert.equal(new URL(requests.at(-1).url,"https://ops.test").searchParams.get("q"),"Company exact");
  await renderer.act(async()=>button(tree,"Next").props.onClick());await renderer.act(async()=>{scheduled.pop()();await Promise.resolve();});assert.equal(new URL(requests.at(-1).url,"https://ops.test").searchParams.get("page"),"1");assert.ok(requests.every(r=>!r.opts.method));await renderer.act(async()=>tree.unmount());
 });

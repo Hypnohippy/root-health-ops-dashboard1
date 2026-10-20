@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import "./root-visual-system.css";
 import { OpsNavigationIcon } from "./components/visual/OpsSurface";
@@ -33,11 +33,82 @@ type SecondaryNavItem = {
   attentionCount?: number;
 };
 
+function subscribeRouteSearch(notify: () => void) {
+  window.addEventListener("popstate", notify);
+  return () => window.removeEventListener("popstate", notify);
+}
+const readRouteSearch = () => window.location.search;
+const emptyRouteSearch = () => "";
+
 export default function ClientDashboardLayout({
   children,
 }: DashboardLayoutProps) {
   const pathname = usePathname();
   const [mobileGrowthMenuOpen, setMobileGrowthMenuOpen] = useState(false);
+  const relationshipsSearchActive = pathname.startsWith("/dashboard/growth/relationships");
+  // Read the browser URL after hydration without copying it into state in an effect.
+  const routeSearch = useSyncExternalStore(subscribeRouteSearch, readRouteSearch, emptyRouteSearch);
+  const [searchDraft, setSearchDraft] = useState<{ pathname: string; value: string | null }>({ pathname, value: null });
+  if (searchDraft.pathname !== pathname) {
+    setSearchDraft({ pathname, value: null });
+  }
+  const workspaceSearch = searchDraft.pathname === pathname && searchDraft.value !== null
+    ? searchDraft.value
+    : relationshipsSearchActive ? new URLSearchParams(routeSearch).get("q") || "" : "";
+  const setWorkspaceSearch = (value: string) => setSearchDraft({ pathname, value });
+
+  function updateWorkspaceSearch(value: string) {
+    setWorkspaceSearch(value);
+
+    if (!relationshipsSearchActive) return;
+
+    const url = new URL(window.location.href);
+
+    if (value.trim()) {
+      url.searchParams.set("q", value.trim());
+    } else {
+      url.searchParams.delete("q");
+    }
+
+    window.history.replaceState(window.history.state, "", url);
+
+    window.dispatchEvent(
+      new CustomEvent("ops-relationship-search", {
+        detail: { query: value },
+      }),
+    );
+  }
+
+  function submitWorkspaceSearch(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const query = workspaceSearch.trim();
+
+    if (relationshipsSearchActive) {
+      window.dispatchEvent(
+        new CustomEvent("ops-relationship-search", {
+          detail: { query },
+        }),
+      );
+      return;
+    }
+
+    const params = new URLSearchParams();
+
+    if (orgId) {
+      params.set("organisationId", orgId);
+    }
+
+    if (query) {
+      params.set("q", query);
+    }
+
+    const suffix = params.toString();
+
+    window.location.assign(
+      `/dashboard/growth/relationships${suffix ? `?${suffix}` : ""}`,
+    );
+  }
 
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportEmail, setSupportEmail] = useState("");
@@ -373,8 +444,53 @@ export default function ClientDashboardLayout({
         {relationshipVisualPilot && <button className="ops-mobile-menu-close" aria-label="Close navigation" onClick={() => setMobileGrowthMenuOpen(false)}>×</button>}
       </header>
 
-      {relationshipVisualPilot && <div className="ops-workspace-topbar"><div className="ops-command-brand"><span className="ops-eyebrow">Root Health Ops</span><p>Growth Operations Centre</p></div><Link className="ops-search-entry" href={`/dashboard/growth/relationships${orgId ? `?organisationId=${encodeURIComponent(orgId)}` : ""}`}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>Search people, companies, or what’s happening in your growth operations…<span className="ops-search-hint">Search</span></Link><div className="ops-command-context"><span className="ops-command-orb" aria-hidden="true"/><span>Growth workspace<small>Relationships &amp; intelligence</small></span></div></div>}
+            {relationshipVisualPilot && (
+        <div className="ops-workspace-topbar">
+          <div className="ops-command-brand">
+            <span className="ops-eyebrow">Root Health Ops</span>
+            <p>Growth Operations Centre</p>
+          </div>
 
+          <form
+            className="ops-search-entry ops-search-form"
+            role="search"
+            onSubmit={submitWorkspaceSearch}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              aria-hidden="true"
+            >
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <path d="m16 16 4.5 4.5" />
+            </svg>
+
+            <input
+              aria-label="Search people, companies, email or LinkedIn"
+              value={workspaceSearch}
+              onChange={(event) => updateWorkspaceSearch(event.target.value)}
+              placeholder="Search people, companies, email, LinkedIn or source…"
+              autoComplete="off"
+            />
+
+            <button type="submit" className="ops-search-submit">
+              Search
+            </button>
+          </form>
+
+          <div className="ops-command-context">
+            <span className="ops-command-orb" aria-hidden="true" />
+            <span>
+              Growth workspace
+              <small>Relationships &amp; intelligence</small>
+            </span>
+          </div>
+        </div>
+      )}
       <main className="flex-1 p-6"><AcquisitionHandoff key={pathname} />{children}</main>
       <RootCoach pathname={pathname} organisationId={orgId} founderAllowed={founderAccess} />
 
