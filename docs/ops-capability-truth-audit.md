@@ -2,6 +2,8 @@
 
 Audit baseline: GitHub main `56c37cad95b24de40800e91fd0652d31d27097d6` (20 October 2026). Previous Creative Phase 2 task completed as unmerged Draft PR86; its implementation is not included. Dedicated branch: `codex/capability-truth-audit-repair1`.
 
+Update baseline: main `a351028ad9cd42ab72e7ad26473c503c5088d89d` merged into this branch after PR #88. Only the Contact Support finding and focused regression evidence were reassessed; the original audit inventory and classifications remain historical.
+
 ## Scope and evidence
 
 Static product-truth audit, not provider/runtime certification. WORKING means an implementation exists, not a successful live send. Mechanical inventory: **38 dashboard routes, 53 supporting TSX files, 688 button/link/form/textarea elements, 428 buttons, 12 forms**. Counts are source elements, not expanded runtime instances. Three buttons without onClick are legitimate follow-ups/tracker server-action submits. A route-aware AST pass validates 121 dashboard href/path references after repair, including dynamic relationships/presentation routes; zero unmatched destinations. Import paths, comments and match prefixes are excluded. Legacy /connect and its /org-setup entry were inspected only to establish reachability. No docs/migration/infra crawl, live business queries or provider tests.
@@ -79,7 +81,7 @@ Classification totals below count the **56 meaningful facilities at audit baseli
 | Admin / legacy | /content/new upload utility | RETIRE_CANDIDATE | Media upload/copy utility with a real handler; overlaps modern Publishing media workflow. | Legacy overlap, not an inert button. | RETIRE CANDIDATE; preserve until usage decision. | no |
 | Admin / legacy | /growth-lab alias | WORKING | Re-exports campaigns page and is linked by shell. | Overlap is intentional; not missing implementation. | KEEP alias; no duplicate rebuild. | no |
 | Admin / legacy | Cohort administration | CONDITIONAL | Create, pause and activate handlers exist. | Known authorization/RLS review belongs to separate security track. | Do not invoke or enable RLS here. | no |
-| Admin / legacy | M6: Contact Support diagnostic submission (REVIEW BLOCKER) | MISLEADING | Active shell posts to /api/support/report; route forwards failed scheduled-post text/meta/error to Formspree. | No membership check; trusts supplied organisationId or latest-org fallback. Proxy refreshes auth but does not enforce membership. Copy says error details yet includes message content. | Separate security review: authenticated tenant boundary, remove global fallback, minimize/approve diagnostic payload. Do not invoke or repair in this navigation-only pack. | no |
+| Admin / legacy | M6: Contact Support diagnostic submission (RESOLVED BY MAIN) | MISLEADING | PR #88 now authorizes membership through withTenantRoute/requireOrganisation before diagnostics or Formspree. | Original tenant/privacy defect resolved; no live provider certification claimed. | KEEP merged fix: exact supplied membership, sole verified membership when omitted, otherwise fail closed; bounded diagnostics without post body/meta/error_info. | no — resolved separately by PR #88 |
 
 ## Confirmed broken items — complete list
 
@@ -95,7 +97,7 @@ No other broken internal destination was established. /dashboard/stories in Clie
 - **M3** Legacy connection tests promise verification; non-Facebook is an alert stub, Facebook publishes a test post. Repaired disabled/copy treatment only.
 - **M4** Legacy readiness summary infers posting readiness from stored connections. Repaired label only.
 - **M5** Legacy GBP/WhatsApp descriptions conflict with canonical capabilities. Deferred legacy retirement/redirect decision.
-- **M6 — review blocker** Contact Support lacks a server-verified tenant boundary and automatically forwards post text/metadata externally. Deferred to explicit security review; no live request was made.
+- **M6 — resolved by main / PR #88** The original tenant/privacy blocker is cleared. Exact supplied organisation requires membership; omitted organisation resolves only a sole verified membership, with no global/latest-org fallback. Diagnostics and Formspree execute only after authorization. Post text, raw metadata and provider errors are excluded. No live support request was made.
 
 ## Direct implementation evidence
 
@@ -104,10 +106,12 @@ No other broken internal destination was established. /dashboard/stories in Clie
 - Ask Root: app/dashboard/components/RootCoach.tsx passes only organisationId/route/question; lib/rootCoachGuide.ts guideDestination always builds catalogue URL. No relationship evidence fetch.
 - Storage fallbacks: lib/relationshipWorkspace.server.ts missing-schema branch (42P01/PGRST205); lib/linkedinConversation.server.ts missing-schema branch; client text retention unchanged.
 - Direct Post: app/dashboard/publishing/tiktok/page.tsx gates AuditComposer on TIKTOK_DIRECT_POST_AUDIT_ENABLED; default UI clearly says disabled.
-- Support blocker: app/dashboard/ClientDashboardLayout.tsx sendSupport + app/api/support/report/route.ts POST/getOrganisationIdFallback/getLatestFailedPostForOrg. proxy.ts calls lib/supabaseProxy.ts updateSession; it refreshes cookies but does not reject unauthorised callers or enforce membership. Reviewed only because the current live-looking Support button directly invokes this route. No support report sent.
+- Support resolution: main PR #88, commit `22b9318d9bf3bab7969675bc72d10979df09facc`, merged as `a351028ad9cd42ab72e7ad26473c503c5088d89d`. app/api/support/report/route.ts uses withTenantRoute/requireOrganisation before latestFailure or fetch. Diagnostics select only id/status/platforms/scheduled_for/posted_at/updated_at for the authorized organisation, limited to one failed post. Generic errors conceal foreign membership/provider details; browser pathname excludes query/hash. tests/support-report.test.mjs executes the real tenant helper/wrapper with synthetic database/provider boundaries. Formspree configuration is unchanged; no live support report sent.
 
 ## Verification / boundaries
 
 Focused tests and 1280×900 / 390×844 synthetic UI checks cover only the three repaired surfaces. No shared navigation/layout modified. Provider gates, auth/configuration, RelationshipTruth/discovery, send handlers/cadence, storage and migrations are unchanged. Current feature behaviour is audited statically; live provider outcomes remain explicitly unverified. Results: **63/63 tests pass** across capability-truth-repairs, navigation-connect, relationship-workspace-ui, connect-visual-system, linkedin-invitations and linkedin-actions. TypeScript passes. RelationshipDetail and LinkedInToConnect lint clean; legacy Connect retains exactly two baseline no-explicit-any findings (zero new diagnostics). Seven send/invitation/retention-related handler bodies exactly match baseline. All three repaired surfaces pass synthetic 1280×900 and 390×844 checks: no horizontal overflow or clipped repaired controls; strategy AI remains disabled. The harness uses actual components, compiled CSS and the matching dashboard content wrapper; GET fixtures only, no credentials/database or outbound calls. Shared shell is not modified or claimed re-certified.
 
-Recommendation: **AUDIT FOUND A BLOCKER REQUIRING REVIEW** — support diagnostic authorization/privacy boundary, outside repair pack 1.
+Post-main update verification: focused Support authorization tests and the existing six repair/regression suites were rerun: **75/75 pass** (12 Support + 63 existing repair/regression tests). git diff --check passes. No full audit or UI recertification was repeated. The merge introduced only PR #88’s two reviewed files; this follow-up edits only this audit document.
+
+Recommendation: **READY FOR CAPABILITY TRUTH REPAIR PACK 1 REVIEW** — Contact Support security blocker resolved by main / PR #88. Deferred capability findings and unverified live provider outcomes remain as documented; no provider readiness or delivery certification is implied.
