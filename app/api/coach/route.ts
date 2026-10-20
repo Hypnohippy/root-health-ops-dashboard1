@@ -218,7 +218,7 @@ const guidancePOST = withTenantRoute(async (req: NextRequest, tenant) => {
             if (message.startsWith("Unsafe history claim.")) {
               if(attempt===0){
                 console.warn("relationship_reasoning_history_safety_retry");
-                messages.push({role:"system",content:"The response was rejected for an unsupported absence-of-history claim. Regenerate the complete JSON object. Do not mention missing/no/prior conversation or email history in any field. Keep uncertainty as questions to confirm. Source availability is appended separately by the server. Do not claim you sent or saved anything."});
+                messages.push({role:"system",content:"The response was rejected for an unsupported absence-of-history claim. Regenerate the complete JSON object. Do not mention missing/no/prior conversation or email history in any field. Start reasoning and interpretation with the exact words: Within the supplied evidence only, . Keep each to one sentence. Keep uncertainty as questions to confirm. Source availability is appended separately by the server. Do not claim you sent or saved anything."});
                 continue;
               }
               diagnostic = "relationship_reasoning_history_safety_rejection";
