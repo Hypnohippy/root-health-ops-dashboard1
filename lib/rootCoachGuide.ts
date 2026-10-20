@@ -54,7 +54,7 @@ export function guideDestination(id: unknown, organisationId: string, founderAll
   return { id: id as GuideDestination, label: destination.label, href: `${path}?organisationId=${encodeURIComponent(organisationId)}` };
 }
 export type GuideLink = NonNullable<ReturnType<typeof guideDestination>>;
-export type GuideAnswer = { workspace: string; message: string; destinations: GuideLink[] };
+export type GuideAnswer = { workspace: string; message: string; destinations: GuideLink[]; relationshipRoute?: string };
 // Only server-verified evidence may be passed here; client counts are never trusted by /api/coach.
 export type GuideEvidence = { responseAttentionCount: number };
 export function guideAnswer(route: unknown, question: unknown, organisationId: string, founderAllowed: boolean, evidence?: GuideEvidence): GuideAnswer {

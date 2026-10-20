@@ -58,14 +58,14 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
       <header className="root-coach-heading"><div><p>YOUR CONTEXTUAL GUIDE</p><h2 id="root-coach-title"><span aria-hidden="true">✦</span> Ask Root</h2></div><button type="button" autoFocus aria-label="Close Ask Root" onClick={close}>×</button></header>
       <div className="root-coach-scroll">
         <p className="root-coach-context">{currentAnswer?.workspace || (pathname.startsWith("/dashboard/growth/relationships/") ? "Current relationship · read-only evidence" : workspace?.key === "founder" && !founderAllowed ? "Restricted workspace" : workspace?.title || "Current workspace")}</p>
-        <p id="root-coach-boundary">Explain, orient, find the right place. Ask Root cannot send, publish, approve, draft outreach or change records.</p>
+        <p id="root-coach-boundary">Explain, summarize, interpret, prepare and suggest drafts for review. Ask Root cannot send, save, publish, approve or change records.</p>
         <section className="root-coach-intro"><h3>How can I help you here?</h3><p>{workspace?.key === "founder" && !founderAllowed ? "Founder access has not been confirmed. I can help you find your available workspaces." : workspace?.explanation || "I can help you find the existing Ops workspaces. This page has no verified guide yet."}</p></section>
         <div className="root-coach-prompts" aria-label="Suggested questions">{(workspace?.questions || ["Where are my replies?", "Where do I find Relationships?"]).map(prompt => <button key={prompt} type="button" disabled={busy || !organisationId} onClick={() => void ask(prompt)}>{prompt}<span aria-hidden="true">↗</span></button>)}</div>
         {!organisationId && <p role="status">Waiting for the current organisation. Guidance requests remain disabled until it is verified.</p>}
         {busy && <p role="status">Finding the right guidance…</p>}
         {error && <p role="alert" className="root-coach-error">{error}</p>}
         {currentAnswer && <section className="root-coach-answer" aria-label="Ask Root answer" aria-live="polite"><h3>{currentAnswer.workspace}</h3>{currentAnswer.message.split("\n\n").map((paragraph,index)=><p key={index}>{paragraph}</p>)}<nav aria-label="Suggested destinations">{currentAnswer.destinations.map(destination => {
-          const safe = guideDestination(destination.id, organisationId || "", founderAllowed, pathname);
+          const safe = guideDestination(destination.id, organisationId || "", founderAllowed, currentAnswer.relationshipRoute || pathname);
           return safe ? <a key={safe.id} href={safe.href} onClick={close}>{safe.label}<span aria-hidden="true">→</span></a> : null;
         })}</nav></section>}
       </div>

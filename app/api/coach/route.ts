@@ -1,3 +1,4 @@
+import { RELATIONSHIP_MODEL, relationshipReasoningMessages, relationshipReasoningText } from "@/lib/relationshipCoach.server";
 import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/coach/route.ts
 import { NextRequest, NextResponse } from "next/server";
@@ -200,7 +201,10 @@ const guidancePOST = withTenantRoute(async (req: NextRequest, tenant) => {
     const text = await req.text();
     if (text.length > 4096) return NextResponse.json({ error: "Keep guidance requests short." }, { status: 400 });
     const body = JSON.parse(text);
-    const answer = await rootCoachGuidance(body, tenant);
+    const answer = await rootCoachGuidance(body, tenant, async (question, evidence, intent) => {
+      const completion=await client.chat.completions.create({model:RELATIONSHIP_MODEL,messages:relationshipReasoningMessages(question,evidence,intent),response_format:{type:"json_object"},max_tokens:1100,temperature:0.2});
+      return relationshipReasoningText(JSON.parse(completion.choices?.[0]?.message?.content || "{}"),intent);
+    });
     return NextResponse.json(answer, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json({ error: "Ask a question of 1–600 characters using a recognized workspace context." }, { status: 400 });
@@ -212,7 +216,7 @@ export async function POST(req: NextRequest) {
   return body?.mode === "guidance" ? guidancePOST(req) : legacyCoachPOST(req);
 }
 
-function safeJsonForPrompt(v: any) {
+function safeJsonForPrompt(v: unknown) {
   try {
     const s = JSON.stringify(v);
     // keep prompts small

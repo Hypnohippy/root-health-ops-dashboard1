@@ -1,13 +1,27 @@
-import { relationshipCoachAnswer, relationshipGuideLocator } from "@/lib/relationshipCoach.server";
+import { relationshipCoachAnswer, relationshipGuideLocator, relationshipCandidateName, resolveGlobalRelationship, relationshipIntent, blockedRelationshipAction } from "@/lib/relationshipCoach.server";
 import type { RelationshipTenant } from "@/lib/relationshipWorkspace.server";
 import { guideAnswer, type GuideAnswer } from "@/lib/rootCoachGuide";
 import { requireFounderIntelligence } from "@/lib/founderIntelligenceAuth.server";
 
-export async function rootCoachGuidance(body: Record<string, unknown>, tenant: RelationshipTenant): Promise<GuideAnswer> {
+export async function rootCoachGuidance(body: Record<string, unknown>, tenant: RelationshipTenant, reason?: (question: string, evidence: string, intent: ReturnType<typeof relationshipIntent>) => Promise<string>): Promise<GuideAnswer> {
   const allowed = new Set(["mode", "organisationId", "organisation_id", "route", "question"]);
   if (Object.keys(body).some(key => !allowed.has(key))) throw Error("Guidance accepts only a workspace route and a question.");
-  const locator = relationshipGuideLocator(body.route);
-  if (locator) return relationshipCoachAnswer(tenant, locator, body.question);
+  if (typeof body.question !== "string" || !body.question.trim() || body.question.length > 600) throw Error("Invalid question.");
+  if (blockedRelationshipAction(body.question)) return {workspace:"Read-only boundary",message:"No action taken. I can explain, interpret, prepare or suggest a draft for review, but cannot send, save, schedule or change records.",destinations:[]};
+  const name=relationshipCandidateName(body.question);
+  let locator = relationshipGuideLocator(body.route);
+  if (!locator && name) locator=await resolveGlobalRelationship(tenant,name);
+  const intent=relationshipIntent(body.question);
+  if (!locator && (name || intent!=="factual"))return {workspace:"Choose a relationship",message:"I could not establish one unique safe relationship for this question. Open Relationships and choose the correct record; I will not guess from a name, company or domain.",destinations:[{id:"relationships",label:"Relationships",href:`/dashboard/growth/relationships?organisationId=${encodeURIComponent(tenant.organisationId)}`}]};
+  if (locator) {
+    const answer=await relationshipCoachAnswer(tenant,locator,body.question);
+    if (intent!=="factual") {
+      if (!reason) return {...answer,message:answer.message+"\n\nAdvice is unavailable. No draft was sent or saved."};
+      try { const advice=await reason(body.question,answer.message,intent);return {...answer,message:advice+"\n\nRecorded grounding:\n"+answer.message}; }
+      catch { return {...answer,message:answer.message+"\n\nAdvice is temporarily unavailable. Please review the linked evidence; no draft was sent or saved."}; }
+    }
+    return answer;
+  }
   if (typeof body.route === "string" && body.route.startsWith("/dashboard/growth/relationships/")) throw Error("Relationship unavailable.");
   let founderAllowed = false;
   try { await requireFounderIntelligence(tenant.organisationId); founderAllowed = true; }

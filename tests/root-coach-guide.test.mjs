@@ -55,10 +55,11 @@ test("questions are bounded and never echoed as HTML or destinations",()=>{
 });
 function endpoint(founder=false){
  const options=[],calls={ai:0,founder:0};
- const service=load("lib/rootCoachGuide.server.ts",{"@/lib/relationshipCoach.server":{relationshipGuideLocator:()=>null,relationshipCoachAnswer:()=>assert.fail("Generic guidance must not load relationships")},"@/lib/rootCoachGuide":guide,"@/lib/founderIntelligenceAuth.server":{requireFounderIntelligence:async id=>{calls.founder++;assert.equal(id,org);if(!founder)throw Error("Denied");return {organisationId:id}}}});
+ const service=load("lib/rootCoachGuide.server.ts",{"@/lib/relationshipCoach.server":{relationshipGuideLocator:()=>null,relationshipCandidateName:()=>null,relationshipIntent:()=>"factual",blockedRelationshipAction:()=>false,relationshipCoachAnswer:()=>assert.fail("Generic guidance must not load relationships")},"@/lib/rootCoachGuide":guide,"@/lib/founderIntelligenceAuth.server":{requireFounderIntelligence:async id=>{calls.founder++;assert.equal(id,org);if(!founder)throw Error("Denied");return {organisationId:id}}}});
  const routes=load("app/api/coach/route.ts",{
   "@/lib/tenantRoute.server":{withTenantRoute:(fn,opts)=>{options.push(opts);return req=>fn(req,{organisationId:org,messages:[],profile:{business:{name:"Tenant"}}})}},
   "@/lib/rootCoachGuide.server":service,
+  "@/lib/relationshipCoach.server":{RELATIONSHIP_MODEL:"gpt-4o-mini"},
   "next/server":{NextResponse:{json:(body,opts={})=>({body,status:opts.status||200,headers:opts.headers})}},
   openai:{default:class{chat={completions:{create:async()=>{calls.ai++;return {choices:[{message:{content:"Existing legacy coach answer."}}]}}}}}},
  });
