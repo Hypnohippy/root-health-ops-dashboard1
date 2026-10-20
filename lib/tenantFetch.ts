@@ -2,7 +2,7 @@
 // by the server; browser storage and record IDs are not organisation authority.
 export function tenantFetch(input: string, init?: RequestInit) {
   const url = new URL(input, window.location.origin);
-  if (url.origin === window.location.origin && /^\/api\/(ai\/|growth\/|coach$|social-accounts$|usage$)/.test(url.pathname)) {
+  if (url.origin === window.location.origin && /^\/api\/(ai\/|growth\/|coach$|social-accounts$|usage$|proposal-requests$|solution-briefs$|resource-library$|resources\/)/.test(url.pathname)) {
     const selected = new URLSearchParams(window.location.search).get("organisationId");
     if (selected && !url.searchParams.has("organisationId") && !url.searchParams.has("organisation_id")) {
       url.searchParams.set("organisationId", selected);

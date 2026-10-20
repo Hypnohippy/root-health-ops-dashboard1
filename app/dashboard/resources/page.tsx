@@ -1,5 +1,8 @@
 "use client";
 import "./resources.css";
+import SolutionSlide from "./SolutionSlide";
+import { audienceSlide } from "@/lib/presentationAudience";
+import ResourceOrigin from "./ResourceOrigin";
 
 import { tenantFetch } from "@/lib/tenantFetch";
 
@@ -14,6 +17,7 @@ type Resource = {
   content: any;
   created_at: string;
   updated_at?: string | null;
+  source_solution_brief_id?: string | null;
 };
 
 type FilterType =
@@ -76,9 +80,6 @@ const GROWTH_SEED_KEYS = [
   "rh_growth_seed_brainstorm_v1",
 ];
 
-const PRESENTATION_RESOURCE_CACHE_PREFIX =
-  "root-health-presentation-resource:";
-
 function setLocalStorageMulti(keys: string[], payload: any) {
   try {
     const raw = JSON.stringify(payload);
@@ -116,13 +117,8 @@ function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
-function cachePresentationResource(resource: Resource) {
-  try {
-    localStorage.setItem(
-      `${PRESENTATION_RESOURCE_CACHE_PREFIX}${resource.id}`,
-      JSON.stringify(resource)
-    );
-  } catch {}
+function cachePresentationResource(_resource: Resource) {
+  // Presentation windows always fetch the correct authorized projection.
 }
 
 function normaliseText(v: any) {
@@ -857,7 +853,8 @@ const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
       setResources(rows);
 
       if (rows.length > 0 && !selected && libraryTab === "saved") {
-        setSelected(rows[0]);
+        const requested = new URLSearchParams(window.location.search).get("resourceId");
+        setSelected(rows.find((r: Resource) => r.id === requested) || rows[0]);
       }
     } catch (e: any) {
       setError(e?.message || "Failed to load resources");
@@ -2778,7 +2775,7 @@ if (content && Array.isArray(content.sections)) {
   }
 
   const contentCards = isPresentationLike
-    ? (Array.isArray(content?.slides) ? content.slides : [])
+    ? (Array.isArray(content?.slides) ? content.slides.map(audienceSlide) : [])
         .slice(0, 6)
         .map((slide: any, index: number) => {
           const slideTitle = String(
@@ -3300,7 +3297,7 @@ ${
   try {
     const content = resource?.content || {};
     const sections = Array.isArray(content?.sections) ? content.sections : [];
-    const slides = Array.isArray(content?.slides) ? content.slides : [];
+    const slides = Array.isArray(content?.slides) ? content.slides.map(audienceSlide) : [];
     const learningOutcomes = Array.isArray(content?.learning_outcomes)
       ? content.learning_outcomes
       : [];
@@ -3354,7 +3351,6 @@ ${
         const itemSummary = String(
           item?.summary ||
             item?.slide_goal ||
-            item?.speaker_notes ||
             ""
         ).trim();
 
@@ -3721,7 +3717,7 @@ async function downloadCoursePack(
 
     const content = selectedContent || {};
     const sections = Array.isArray(content?.sections) ? content.sections : [];
-    const slides = Array.isArray(content?.slides) ? content.slides : [];
+    const slides = Array.isArray(content?.slides) ? content.slides.map(audienceSlide) : [];
     const learningOutcomes = Array.isArray(content?.learning_outcomes)
       ? content.learning_outcomes
       : [];
@@ -3742,7 +3738,6 @@ async function downloadCoursePack(
         const summary = String(
           item?.summary ||
             item?.slide_goal ||
-            item?.speaker_notes ||
             ""
         ).trim();
 
@@ -4240,7 +4235,8 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                     </h2>
                   )}
 
-                  {isTemplate(selected) ? (
+                  {!isTemplate(selected) && <ResourceOrigin key={(selected as Resource).id} resource={selected as Resource} organisationId={organisationId || ""} />}
+                {isTemplate(selected) ? (
                     <div className="mt-2 space-y-1 text-xs text-slate-400">
                       <div>Audience: {selected.audience}</div>
                       <div>
@@ -4343,7 +4339,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                         const resource = selected as Resource;
                         cachePresentationResource(resource);
                         window.open(
-                          `/dashboard/resources/present/${resource.id}`,
+                          `/dashboard/resources/present/${resource.id}?organisationId=${organisationId}`,
                           "_blank"
                         );
                       }}
@@ -4358,7 +4354,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                         const resource = selected as Resource;
                         cachePresentationResource(resource);
                         window.open(
-                          `/dashboard/resources/presenter/${resource.id}`,
+                          `/dashboard/resources/presenter/${resource.id}?organisationId=${organisationId}`,
                           "_blank"
                         );
                       }}
@@ -5735,6 +5731,25 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                                   </div>
                                 </div>
 
+                                {!editMode && !isTemplate(selected) && (
+                                  <label className="mt-4 block text-sm">
+                                    <span className="block font-semibold">Slide {idx + 1} artwork · {uploadedImageUrl ? "replace" : "upload"} PNG</span>
+                                    <input
+                                      type="file"
+                                      accept="image/png"
+                                      aria-label={`Upload or replace PNG artwork for slide ${idx + 1}`}
+                                      disabled={!organisationId || !!busyAction}
+                                      className="mt-2 block w-full min-w-0 max-w-full text-sm file:mr-3 file:rounded file:border-0 file:px-3 file:py-2"
+                                      onChange={(event) => {
+                                        const file = event.currentTarget.files?.[0];
+                                        event.currentTarget.value = "";
+                                        if (file) void uploadSlideArtwork(selected as Resource, idx, file);
+                                      }}
+                                    />
+                                    <small className="mt-1 block">{isUploadingImage ? "Uploading artwork…" : "PNG · maximum 10MB. Replaces artwork on this slide only."}</small>
+                                  </label>
+                                )}
+
                                 {editMode && !isTemplate(selected) ? (
                                   <input
                                     value={String(slide?.slide_title || "")}
@@ -5748,7 +5763,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                                     className="mt-3 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xl font-semibold text-slate-100"
                                   />
                                 ) : (
-                                  <div className="mt-3 text-2xl md:text-3xl font-semibold leading-tight max-w-3xl">
+                                  slide.layout ? <SolutionSlide slide={slide} /> : <div className="mt-3 text-2xl md:text-3xl font-semibold leading-tight max-w-3xl">
                                     {slide?.slide_title || `Slide ${idx + 1}`}
                                   </div>
                                 )}
@@ -5870,7 +5885,7 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                                 ) : null}
 
                                 <div className="mt-6 space-y-3 max-w-3xl">
-                                  {Array.isArray(slide?.bullets) &&
+                                  {(editMode || !slide.layout) && Array.isArray(slide?.bullets) &&
                                     slide.bullets.map(
                                       (bullet: any, bulletIdx: number) =>
                                         editMode && !isTemplate(selected) ? (

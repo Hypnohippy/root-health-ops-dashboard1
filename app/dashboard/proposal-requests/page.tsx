@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { tenantFetch } from "@/lib/tenantFetch";
 
 type ProposalRequest = {
   id: string;
@@ -33,14 +34,7 @@ export default function ProposalRequestsPage() {
     setError("");
 
     try {
-      const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/proposal_requests?select=*&order=created_at.desc`;
-
-      const res = await fetch(url, {
-        headers: {
-          apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
-        },
-      });
+      const res = await tenantFetch("/api/proposal-requests", { cache: "no-store" });
 
       const data = await res.json();
 
@@ -48,7 +42,7 @@ export default function ProposalRequestsPage() {
         throw new Error(data?.message || "Failed to load proposal requests");
       }
 
-      setRequests(Array.isArray(data) ? data : []);
+      setRequests(Array.isArray(data.requests) ? data.requests : []);
     } catch (e: any) {
       setError(e?.message || "Failed to load proposal requests");
     } finally {
@@ -61,17 +55,9 @@ export default function ProposalRequestsPage() {
   }, []);
   async function updateRequestStatus(id: string, status: string) {
   try {
-    const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/proposal_requests?id=eq.${id}`;
-
-    const res = await fetch(url, {
-      method: "PATCH",
-      headers: {
-        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
-        Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-        Prefer: "return=minimal",
-      },
-      body: JSON.stringify({ status }),
+    const res = await tenantFetch("/api/proposal-requests", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status }),
     });
 
     if (!res.ok) {
@@ -89,15 +75,9 @@ async function deleteRequest(id: string) {
   if (!ok) return;
 
   try {
-    const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/proposal_requests?id=eq.${id}`;
-
-    const res = await fetch(url, {
-      method: "DELETE",
-      headers: {
-        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
-        Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
-        Prefer: "return=minimal",
-      },
+    const res = await tenantFetch("/api/proposal-requests", {
+      method: "DELETE", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
     });
 
     if (!res.ok) {
@@ -118,6 +98,7 @@ async function deleteRequest(id: string) {
         <p style={styles.subtitle}>
           Workshop and presentation requests generated from Root Health workforce insights.
         </p>
+        <p style={styles.subtitle}>Only requests with verified ownership in this organisation appear. Unassigned legacy requests need an explicit ownership review before use.</p>
 
         <button style={styles.button} onClick={loadRequests}>
           Refresh
@@ -128,7 +109,7 @@ async function deleteRequest(id: string) {
 
         <div style={styles.grid}>
          {requests.map((item) => (
-  <article key={item.id} style={styles.card}>
+  <article id={`request-${item.id}`} key={item.id} style={styles.card}>
     <div style={styles.pipelineTop}>
       <div>
         <p style={styles.statusBadge}>{item.status || "pending"}</p>
@@ -193,27 +174,11 @@ async function deleteRequest(id: string) {
       <button
         style={styles.button}
         onClick={() => {
-          localStorage.setItem(
-            "rootops_proposal_request_seed_v1",
-            JSON.stringify({
-              requestId: item.id,
-              title: item.workshop_title || item.initiative,
-              initiative: item.initiative,
-              goal: `Create a tailored workplace presentation responding to ${item.initiative}.`,
-              audience: item.audience,
-              duration: item.duration,
-              deliveryPreference: item.delivery_preference,
-              deliveryFormat: item.delivery_format,
-              location: item.location,
-              investment: item.estimated_investment,
-              notes: item.notes,
-            })
-          );
-
-          window.location.href = "/dashboard/resources";
+          const org = new URLSearchParams(window.location.search).get("organisationId");
+          window.location.href = `/dashboard/solution-briefs?requestId=${encodeURIComponent(item.id)}${org ? `&organisationId=${encodeURIComponent(org)}` : ""}`;
         }}
       >
-        Generate Proposal
+        Review Solution Brief
       </button>
 
       <button
