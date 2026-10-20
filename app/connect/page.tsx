@@ -98,7 +98,7 @@ const connectUrls: Record<ProviderId, string> = {
   tiktok: "/api/social/connect/start?provider=tiktok",
   linkedin: "/api/social/connect/start?provider=linkedin",
   google: "/api/social/connect/start?provider=google",
-  email: "/dashboard/connect/email/setup",
+  email: "/dashboard/connect",
   whatsapp: "/api/social/connect/start?provider=whatsapp",
   threads: "/api/social/connect/start?provider=threads",
 };
@@ -194,9 +194,10 @@ function ProviderCard({
             <button
               type="button"
               onClick={onTest}
+              disabled={provider.id !== "facebook"}
               className="rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-100 hover:bg-emerald-500/20"
             >
-              Test connection
+              {provider.id === "facebook" ? "Send Facebook test post" : "Connection test — coming soon"}
             </button>
             <button
               type="button"
@@ -212,9 +213,10 @@ function ProviderCard({
           <button
             type="button"
             onClick={onTest}
+            disabled={provider.id !== "facebook"}
             className="rounded-full border border-amber-500/70 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-500/20"
           >
-            Refresh status
+            {provider.id === "facebook" ? "Send Facebook test post" : "Status refresh — coming soon"}
           </button>
         )}
       </div>
@@ -290,7 +292,10 @@ export default function ConnectPage() {
     // UX
     setProviders((prev) => prev.map((p) => (p.id === provider.id ? { ...p, status: "pending" } : p)));
 
-    window.location.href = url;
+    const org = new URLSearchParams(window.location.search).get("organisationId");
+    window.location.href = provider.id === "email" && org
+      ? `${url}?${new URLSearchParams({ organisationId: org })}`
+      : url;
   };
 
   const handleDisconnectClick = (provider: Provider) => {
@@ -374,7 +379,7 @@ export default function ConnectPage() {
             value={`${providers.filter((p) => p.status === "connected").length} / ${providers.length}`}
           />
           <SummaryCard
-            label="Ready for posting"
+            label="Connection recorded"
             value={providers.some((p) => p.status === "connected") ? "Yes" : "Not yet"}
           />
           <SummaryCard label="Next step" value="Connect Facebook first, then pick your Page." />
