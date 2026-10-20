@@ -5731,6 +5731,25 @@ const selectedType = String((selected as any)?.resource_type || "").trim();
                                   </div>
                                 </div>
 
+                                {!editMode && !isTemplate(selected) && (
+                                  <label className="mt-4 block text-sm">
+                                    <span className="block font-semibold">Slide {idx + 1} artwork · {uploadedImageUrl ? "replace" : "upload"} PNG</span>
+                                    <input
+                                      type="file"
+                                      accept="image/png"
+                                      aria-label={`Upload or replace PNG artwork for slide ${idx + 1}`}
+                                      disabled={!organisationId || !!busyAction}
+                                      className="mt-2 block w-full min-w-0 max-w-full text-sm file:mr-3 file:rounded file:border-0 file:px-3 file:py-2"
+                                      onChange={(event) => {
+                                        const file = event.currentTarget.files?.[0];
+                                        event.currentTarget.value = "";
+                                        if (file) void uploadSlideArtwork(selected as Resource, idx, file);
+                                      }}
+                                    />
+                                    <small className="mt-1 block">{isUploadingImage ? "Uploading artwork…" : "PNG · maximum 10MB. Replaces artwork on this slide only."}</small>
+                                  </label>
+                                )}
+
                                 {editMode && !isTemplate(selected) ? (
                                   <input
                                     value={String(slide?.slide_title || "")}
