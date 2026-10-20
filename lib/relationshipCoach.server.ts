@@ -32,7 +32,7 @@ export function relationshipCandidateName(question: unknown): string | null {
 }
 const personLabel = (value: unknown) => typeof value === "string" ? value.normalize("NFKC").trim().replace(/\s+/g," ").toLowerCase() : "";
 /** Names find candidates only; never join, establish or repair identity. */
-export async function resolveGlobalRelationship(tenant: RelationshipTenant, name: string) {
+export async function relationshipQuestionCandidates(tenant: RelationshipTenant, name: string) {
   const ctx = await relationshipContext(tenant);
   const ledger = await readTenantHistory("relationship_identity_decisions", tenant.organisationId, "*", ["sequence"]) as IdentityLedgerRow[];
   const inventory = relationshipDiscoveryInventory({input:{lifecycle:ctx.input,founder:ctx.founder as TruthRow[],workspaces:ctx.workspaces as TruthRow[],links:ctx.links as TruthRow[],founderActivities:[],emailMessages:[],linkedinMessages:[],activities:[],tasks:[],acquisitionEvents:[],responseEvents:[]},policy:{organisationId:tenant.organisationId,founderAllowed:ctx.canFounder,asOf:new Date().toISOString()},ledger});
@@ -44,13 +44,24 @@ export async function resolveGlobalRelationship(tenant: RelationshipTenant, name
     const terms=personLabel(name).split(" ");
     return labels.some(label=>{const words=personLabel(label).split(" ");return terms.every(term=>words.includes(term));});
   });
-  if (matches.length !== 1) return null;
-  const result=matches[0].result;
-  if (result.ambiguity.state !== "established" || (!result.verifiedAliases.length && result.reconciliationStatus !== "confirmed")) return null;
-  const url=new URL(result.destination,"https://ops.invalid");
-  if(url.searchParams.get("organisationId")!==tenant.organisationId)return null;
-  const locator=relationshipGuideLocator(url.pathname);
-  return locator;
+  const choices = matches.flatMap(entry => {
+    const url=new URL(entry.result.destination,"https://ops.invalid");
+    const locator=relationshipGuideLocator(url.pathname);
+    // Only existing tenant-owned source records may become explicit choices.
+    const owned=entry.refs.flatMap(ref=>(rows[ref.table] || []).filter(row=>row.id===ref.id&&row.organisation_id===tenant.organisationId));
+    if(!owned.length||!locator||url.searchParams.get("organisationId")!==tenant.organisationId)return [];
+    const row=owned[0],person=row.person||row.person_name||row.author_name||row.target_name;
+    return [{label:clip(person,100)+" · "+clip(row.role||row.company,80)+" · "+locator.split("_")[0]+" "+locator.split("_")[1].slice(0,8),route:url.pathname}];
+  }).slice(0,5);
+  let locator: string | null = null;
+  if(matches.length===1&&choices.length===1){
+    const result=matches[0].result;
+    if(result.ambiguity.state==="established"&&(result.verifiedAliases.length||result.reconciliationStatus==="confirmed"))locator=relationshipGuideLocator(choices[0].route);
+  }
+  return {locator,choices};
+}
+export async function resolveGlobalRelationship(tenant: RelationshipTenant, name: string) {
+  return (await relationshipQuestionCandidates(tenant,name)).locator;
 }
 export const RELATIONSHIP_MODEL = "gpt-4o-mini";
 export function relationshipReasoningMessages(question: string, evidence: string, intent: RelationshipIntent) {
@@ -67,7 +78,11 @@ export function relationshipReasoningText(value: unknown, intent: RelationshipIn
   if (/\b(?:I|we) (?:have |just )?(?:sent|saved|scheduled|published|read your mailbox|searched your mailbox)\b/i.test(text))throw Error("Unsafe advice.");
   for (const sentence of text.split(/[.!?\n]+/)) {
     const deniesHistory=/\bno (?:prior |previous |existing )?(?:conversation(?: history)?|email(?:s)?|communication(?:s)?)(?:\b)/i.test(sentence);
-    if (deniesHistory&&!/\b(?:linked|recorded|supplied|bounded)\b/i.test(sentence))throw Error("Unsafe history claim.");
+    if (deniesHistory&&!/\b(?:linked|recorded|supplied|bounded)\b/i.test(sentence)) {
+      // Bounded classifier only; never attach the sentence or model output.
+      const scope=/\bprovided (?:evidence|context|records|history)\b/i.test(sentence)?"provided_scope":/\b(?:available|existing) (?:evidence|context|records)\b/i.test(sentence)?"available_scope":"unqualified";
+      throw Error("Unsafe history claim."+scope);
+    }
   }
   return text;
 }

@@ -212,7 +212,10 @@ const guidancePOST = withTenantRoute(async (req: NextRequest, tenant) => {
         catch (error) {
           const message = error instanceof Error ? error.message : "";
           if (message === "Advice unavailable.") diagnostic = "relationship_reasoning_missing_required_field";
-          if (message === "Unsafe history claim.") diagnostic = "relationship_reasoning_history_safety_rejection";
+          if (message.startsWith("Unsafe history claim.")) {
+            diagnostic = "relationship_reasoning_history_safety_rejection";
+            for(const scope of ["provided_scope","available_scope","unqualified"])if(message==="Unsafe history claim."+scope)diagnostic+="_"+scope;
+          }
           throw error;
         }
       } catch {

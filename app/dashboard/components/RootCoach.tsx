@@ -64,7 +64,10 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
         {!organisationId && <p role="status">Waiting for the current organisation. Guidance requests remain disabled until it is verified.</p>}
         {busy && <p role="status">Finding the right guidance…</p>}
         {error && <p role="alert" className="root-coach-error">{error}</p>}
-        {currentAnswer && <section className="root-coach-answer" aria-label="Ask Root answer" aria-live="polite"><h3>{currentAnswer.workspace}</h3>{currentAnswer.message.split("\n\n").map((paragraph,index)=><p key={index}>{paragraph}</p>)}<nav aria-label="Suggested destinations">{currentAnswer.destinations.map(destination => {
+        {currentAnswer && <section className="root-coach-answer" aria-label="Ask Root answer" aria-live="polite"><h3>{currentAnswer.workspace}</h3>{currentAnswer.message.split("\n\n").map((paragraph,index)=><p key={index}>{paragraph}</p>)}{currentAnswer.relationshipChoices?.length ? <nav aria-label="Choose a relationship">{currentAnswer.relationshipChoices.slice(0,5).map(choice=>{
+          const safe=guideDestination("relationships",organisationId||"",founderAllowed,choice.route);
+          return safe&&safe.href.split("?")[0]===choice.route ? <a key={choice.route} href={safe.href} onClick={close}>{choice.label}<span aria-hidden="true">→</span></a> : null;
+        })}</nav> : null}<nav aria-label="Suggested destinations">{currentAnswer.destinations.map(destination => {
           const safe = guideDestination(destination.id, organisationId || "", founderAllowed, currentAnswer.relationshipRoute || pathname);
           return safe ? <a key={safe.id} href={safe.href} onClick={close}>{safe.label}<span aria-hidden="true">→</span></a> : null;
         })}</nav></section>}
