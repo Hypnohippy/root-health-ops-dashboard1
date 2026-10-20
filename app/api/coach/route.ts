@@ -202,27 +202,36 @@ const guidancePOST = withTenantRoute(async (req: NextRequest, tenant) => {
     if (text.length > 4096) return NextResponse.json({ error: "Keep guidance requests short." }, { status: 400 });
     const body = JSON.parse(text);
     const answer = await rootCoachGuidance(body, tenant, async (question, evidence, intent) => {
-      let diagnostic = "relationship_reasoning_provider_error";
-      try {
-        const completion=await client.chat.completions.create({model:RELATIONSHIP_MODEL,messages:relationshipReasoningMessages(question,evidence,intent),response_format:{type:"json_object"},max_tokens:1100,temperature:0.2});
-        diagnostic = "relationship_reasoning_invalid_json";
-        const value: unknown = JSON.parse(completion.choices?.[0]?.message?.content || "");
-        diagnostic = "relationship_reasoning_other_validation_error";
-        try { return relationshipReasoningText(value,intent); }
-        catch (error) {
-          const message = error instanceof Error ? error.message : "";
-          if (message === "Advice unavailable.") diagnostic = "relationship_reasoning_missing_required_field";
-          if (message.startsWith("Unsafe history claim.")) {
-            diagnostic = "relationship_reasoning_history_safety_rejection";
-            for(const scope of ["provided_scope","available_scope","unqualified"])if(message==="Unsafe history claim."+scope)diagnostic+="_"+scope;
+      const messages = relationshipReasoningMessages(question,evidence,intent);
+      // At most one corrected read-only model attempt, never an action/send retry.
+      for(let attempt=0;attempt<2;attempt++) {
+        let diagnostic = "relationship_reasoning_provider_error";
+        try {
+          const completion=await client.chat.completions.create({model:RELATIONSHIP_MODEL,messages,response_format:{type:"json_object"},max_tokens:1100,temperature:0.2});
+          diagnostic = "relationship_reasoning_invalid_json";
+          const value: unknown = JSON.parse(completion.choices?.[0]?.message?.content || "");
+          diagnostic = "relationship_reasoning_other_validation_error";
+          try { return relationshipReasoningText(value,intent); }
+          catch (error) {
+            const message = error instanceof Error ? error.message : "";
+            if (message === "Advice unavailable.") diagnostic = "relationship_reasoning_missing_required_field";
+            if (message.startsWith("Unsafe history claim.")) {
+              if(attempt===0){
+                console.warn("relationship_reasoning_history_safety_retry");
+                messages.push({role:"system",content:"The response was rejected for an unsupported absence-of-history claim. Regenerate the complete JSON object. Do not mention missing/no/prior conversation or email history in any field. Keep uncertainty as questions to confirm. Source availability is appended separately by the server. Do not claim you sent or saved anything."});
+                continue;
+              }
+              diagnostic = "relationship_reasoning_history_safety_rejection";
+            }
+            throw error;
           }
-          throw error;
+        } catch {
+          // Category only: never log prompts, evidence, model output or provider errors.
+          console.warn(diagnostic);
+          throw Error("Relationship reasoning unavailable.");
         }
-      } catch {
-        // Category only: never log prompts, evidence, model output or provider errors.
-        console.warn(diagnostic);
-        throw Error("Relationship reasoning unavailable.");
       }
+      throw Error("Relationship reasoning unavailable.");
     });
     return NextResponse.json(answer, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
