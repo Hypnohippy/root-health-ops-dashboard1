@@ -13,7 +13,7 @@ test("drawer is modal, labelled, keyboard-dismissable and restores focus",()=>{
  assert.match(component,/<dialog /);assert.match(component,/aria-labelledby="root-coach-title"/);assert.match(component,/aria-describedby="root-coach-boundary"/);assert.match(component,/\.showModal\(\)/);assert.match(component,/onCancel=\{close\}/);assert.match(component,/launcher\.current\?\.focus\(\)/);assert.match(component,/aria-label="Close Ask Root"/);
 });
 test("drawer revalidates links, requires explicit clicks and bounds question input",()=>{
- assert.match(component,/guideDestination\(destination.id/);assert.match(component,/href=\{safe.href\}/);assert.match(component,/maxLength=\{600\}/);assert.match(component,/mode: "guidance"/);assert.match(component,/role="status"/);assert.match(component,/role="alert"/);assert.match(component,/AbortController/);
+ assert.match(component,/guideAnswerDestination\(destination/);assert.match(component,/href=\{safe.href\}/);assert.match(component,/maxLength=\{600\}/);assert.match(component,/mode: "guidance"/);assert.match(component,/role="status"/);assert.match(component,/role="alert"/);assert.match(component,/AbortController/);
  const urls=[...component.matchAll(/fetch\("([^"]+)"/g)].map(m=>m[1]);assert.deepEqual(urls,["/api/coach"]);assert.doesNotMatch(component,/dangerouslySetInnerHTML/);
 });
 test("drawer uses bounded viewport and its own scrolling surface on mobile",()=>{
