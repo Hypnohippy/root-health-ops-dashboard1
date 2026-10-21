@@ -20,7 +20,8 @@ function profiles(row: LifecycleRow) {
 export function linkedInDestination(rows: LifecycleRow[]) {
   for (const row of rows) {
     const raw = object(row.raw);
-    for (const value of [row.linkedin_message_url, raw.message_url]) try {
+    const metadata = object(row.metadata), nested = object(raw.metadata);
+    for (const value of [row.linkedin_message_url, row.message_url, raw.message_url, raw.linkedin_message_url, metadata.linkedin_message_url, metadata.message_url, nested.linkedin_message_url, nested.message_url]) try {
       const url = new URL(String(value || ""));
       const path = url.pathname.replace(/^\/comm\//, "/");
       const addressed = /^\/messaging\/(?:thread|compose)\/[^/]+/.test(path) ||

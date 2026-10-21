@@ -12,7 +12,7 @@ type Queue = { view?: OutreachView; audit?: Record<string, unknown>[]; reconcili
 const button = "rounded-lg border border-white/20 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-40";
 const when = outreachDateTime;
 
-export function ContactCard({ item, queue, onNext, onReload, suspended, onWorking, initialMessage, onDraft, onQueueRecovered }: { onQueueRecovered?: (queue: Queue) => void; initialMessage: string; onDraft: (message: string) => void; onWorking: (working: boolean) => void; suspended: boolean; item: LinkedInOutreachItem; queue: Queue; onNext: (id: string, completed: boolean) => Promise<void>; onReload: () => Promise<void> }) {
+export function ContactCard({ item, queue, onNext, onReload, suspended, onWorking, initialMessage, onDraft, onQueueRecovered, pending, onOpened, onKeep }: { pending?: { message: string; draftKey: string }; onOpened?: (message: string) => void; onKeep?: () => void; onQueueRecovered?: (queue: Queue) => void; initialMessage: string; onDraft: (message: string) => void; onWorking: (working: boolean) => void; suspended: boolean; item: LinkedInOutreachItem; queue: Queue; onNext: (id: string, completed: boolean) => Promise<void>; onReload: () => Promise<void> }) {
   const [message, setMessage] = useState(initialMessage);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
@@ -67,7 +67,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
         open: url => {
           const tab = window.open("about:blank", "_blank");
           if (!tab) return false;
-          tab.opener = null; tab.location.replace(url); return true;
+          tab.opener = null; tab.location.replace(url); onOpened?.(message); return true;
         },
         copy: value => navigator.clipboard.writeText(value),
       }));
@@ -80,7 +80,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
   async function complete() {
     if (locked.current) return;
     locked.current = true; setBusy("complete"); setNotice("");
-    receipt.current ||= { key: crypto.randomUUID(), message, revision: queue.revision };
+    receipt.current ||= { key: crypto.randomUUID(), message: pending?.message || message, revision: queue.revision };
     try {
       const data = await post({ action: "record_send", sendChoice: "now", confirmed: true, ...receipt.current });
       if (data.reconciliationErrors?.length) {
@@ -95,9 +95,20 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
     <header className="sticky top-0 z-10 shrink-0 space-y-3 border-b border-white/10 bg-slate-900 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="text-xl font-semibold">{item.name}</h2><p className="text-sm">{item.role || "Role not recorded"}</p><p className="text-sm text-slate-300">{item.company || "Company not recorded"}</p></div><span className="rounded bg-emerald-900 px-2 py-1 text-xs">{item.mode === "catchup" ? "Catch-up" : item.mode === "fresh" ? "Fresh" : "Follow-up"} · {item.stage.replaceAll("_", " ")}</span></div>
       <p className="text-sm text-emerald-200">{item.reason}</p>
+      {pending && !historical && <section aria-label="Pending LinkedIn send confirmation" className="space-y-2 rounded-lg border border-emerald-400 bg-emerald-950 p-3 text-white">
+        <h3 className="font-semibold">Did you send this message in LinkedIn?</h3>
+        <p className="text-sm">Opening LinkedIn or returning here does not record a send.</p>
+        <blockquote className="whitespace-pre-wrap break-words text-sm">{pending.message}</blockquote>
+        {pending.draftKey !== outreachDraftKey(item) && <p role="alert">This contact’s outreach state changed. Review its recorded history before confirming.</p>}
+        <div className="flex flex-wrap gap-2">
+          <button className={`${button} bg-emerald-800`} disabled={suspended || !!busy || pending.draftKey !== outreachDraftKey(item)} onClick={() => void complete()}>{uncertain ? "Retry confirmation safely" : "Yes — record send & next"}</button>
+          <button className={button} disabled={!!busy || uncertain} onClick={onKeep}>No — keep this contact</button>
+          <button className={button} disabled={suspended || !!busy || uncertain} onClick={() => setHistorical(true)}>Already sent previously</button>
+        </div>
+      </section>}
       <div className="flex flex-wrap gap-2" role="toolbar" aria-label={`Outreach actions for ${item.name}`}>
         <button className={`${button} bg-sky-800`} disabled={suspended || historical || !!busy || !message.trim() || !item.destination || uncertain} onClick={() => void copy(true)}>{item.destinationKind === "profile" ? "Open profile & Copy — use Message" : "Open & Copy"}</button>
-        <button className={`${button} bg-emerald-800`} disabled={suspended || historical || !!busy || !message.trim()} onClick={() => void complete()}>{uncertain ? "Retry confirmation safely" : "Sent now & next"}</button>
+        <button className={`${button} bg-emerald-800`} disabled={suspended || historical || !!busy || !message.trim() || !!pending && pending.draftKey !== outreachDraftKey(item)} onClick={() => void complete()}>{uncertain ? "Retry confirmation safely" : "Sent now & next"}</button>
         <button className={button} disabled={suspended || !!busy || uncertain || !message.trim()} onClick={() => setHistorical(true)}>Already sent previously</button>
         <button className={button} disabled={suspended || historical || busy === "complete" || uncertain} onClick={() => void onNext(item.contactId, false)}>Skip</button>
       </div>
@@ -134,19 +145,24 @@ export default function LinkedInConsole() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [connectionView, setConnectionView] = useState<"to_connect" | "pending" | null>(null);
+  const [pending, setPending] = useState<Record<string, { message: string; draftKey: string }>>({});
+  const returnRefresh = useRef(false);
+  const openedContact = useRef<string | null>(null);
   const skipped = useRef<string[]>([]);
   const batchIds = useRef<Set<string> | null>(null);
   const drafts = useRef(new Map<string, string>());
   const sequence = useRef(0);
-  const load = useCallback(async () => {
+  const load = useCallback(async (recoveryContactId?: string) => {
     const token = ++sequence.current;
     setLoading(true); setError("");
     try {
       const q = new URLSearchParams({ view }); skipped.current.forEach(id => q.append("skip", id));
+      if (recoveryContactId) q.set("recoveryContactId", recoveryContactId);
       const res = await tenantFetch(`/api/growth/linkedin-console?${q}`), data: Queue & { error?: string } = await res.json();
       if (!res.ok) throw Error(data.error || "Unable to load current lifecycle.");
       if (token === sequence.current) {
         const items = data.items.filter(i => !batchIds.current || batchIds.current.has(i.contactId)).slice(0,10);
+        if (recoveryContactId && data.recoveryItem?.contactId === recoveryContactId && batchIds.current?.has(recoveryContactId) && (view === "all" || data.recoveryItem.mode === view) && !items.some(item => item.contactId === recoveryContactId)) items.push(data.recoveryItem);
         batchIds.current = new Set(items.map(i => i.contactId));
         setQueue({ ...data, items });
         setSelection(current => selectedBatchId(items, current));
@@ -155,7 +171,19 @@ export default function LinkedInConsole() {
     finally { if (token === sequence.current) setLoading(false); }
   }, [view]);
   useEffect(() => { batchIds.current = null; void load(); const counter = sequence; return () => { counter.current++; }; }, [load]);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    const returned = () => {
+      if (!returnRefresh.current || document.visibilityState === "hidden" || working) return;
+      returnRefresh.current = false; // Consume before loading: focus + visibility can fire together.
+      void load(openedContact.current || undefined);
+    };
+    window.addEventListener("focus", returned);
+    document.addEventListener("visibilitychange", returned);
+    return () => { window.removeEventListener("focus", returned); document.removeEventListener("visibilitychange", returned); };
+  }, [load, working]);
   async function next(id: string, completed: boolean) {
+    setPending(current => { const next = { ...current }; delete next[id]; return next; });
     skipped.current.push(id);
     const remaining = removeBatchContact(queue?.items || [], id);
     batchIds.current = new Set(remaining.items.map(i => i.contactId));
@@ -192,7 +220,7 @@ export default function LinkedInConsole() {
         <BatchList items={queue?.items || []} selectedId={selected?.contactId || null} disabled={working || loading} onSelect={setSelection} />
         {!queue?.items.length && !loading && <p className="p-4 text-sm text-slate-400">No contacts in this batch.</p>}
       </section>
-      {selected && queue ? <ContactCard key={draftKey} item={selected} initialMessage={drafts.current.get(draftKey) || ""} onDraft={saveDraft} onQueueRecovered={recoverQueue} suspended={loading || !!error} onWorking={setWorking} queue={queue} onNext={next} onReload={load} /> : <section className="rounded-xl border border-white/15 p-6"><h2 className="text-xl">{loading ? "Loading batch…" : "Batch complete or no eligible contacts"}</h2><div className="mt-4 flex flex-wrap gap-2"><button className={button} disabled={loading} onClick={() => newBatch()}>Work next 10</button><button className={button} disabled={loading} onClick={() => newBatch(true)}>Include skipped contacts again</button></div></section>}
+      {selected && queue ? <ContactCard key={draftKey} item={selected} initialMessage={drafts.current.get(draftKey) || ""} onDraft={saveDraft} onQueueRecovered={recoverQueue} pending={pending[selected.contactId]} onOpened={message => { returnRefresh.current = true; openedContact.current = selected.contactId; setPending(current => ({ ...current, [selected.contactId]: { message, draftKey } })); }} onKeep={() => setPending(current => { const next = { ...current }; delete next[selected.contactId]; return next; })} suspended={loading || !!error} onWorking={setWorking} queue={queue} onNext={next} onReload={load} /> : <section className="rounded-xl border border-white/15 p-6"><h2 className="text-xl">{loading ? "Loading batch…" : "Batch complete or no eligible contacts"}</h2><div className="mt-4 flex flex-wrap gap-2"><button className={button} disabled={loading} onClick={() => newBatch()}>Work next 10</button><button className={button} disabled={loading} onClick={() => newBatch(true)}>Include skipped contacts again</button></div></section>}
     </div>
     </>}
   </main>;
