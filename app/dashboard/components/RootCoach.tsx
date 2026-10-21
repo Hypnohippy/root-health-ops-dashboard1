@@ -56,7 +56,7 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
     const retained=conversation.current?.scope===context ? conversation.current.answer : currentAnswer;
     try {
       const response = await fetch("/api/coach", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", signal: controller.signal,
-        body: JSON.stringify({ mode: "guidance", organisationId, route: pathname, question: text, ...(retained?.relationshipRoute ? { relationshipRoute: retained.relationshipRoute } : {}), ...((retained?.context || selection.current) ? {context:retained?.context || selection.current} : {}) }) });
+        body: JSON.stringify({ mode: "guidance", organisationId, route: pathname, question: text, ...(retained?.relationshipRoute ? { relationshipRoute: retained.relationshipRoute } : {}), ...(retained?.draftOnly ? {draftOnly:true}:{}), ...((retained?.context || selection.current) ? {context:retained?.context || selection.current} : {}) }) });
       const data = await response.json();
       if (!response.ok) throw Error(data.error || "Guidance is unavailable. Continue in the existing workspace.");
       if (!controller.signal.aborted) { setAnswer(data); conversation.current={scope:context,answer:data}; }
