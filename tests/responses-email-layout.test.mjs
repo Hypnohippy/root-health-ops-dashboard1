@@ -9,7 +9,7 @@ const React=require("react"), renderer=require("react-test-renderer");
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 function load(file,mocks={},globals={}) {
  const m={exports:{}};
- vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:m,exports:m.exports,URL,URLSearchParams,AbortController,Event,console,setTimeout,clearTimeout,...globals,require:n=>n in mocks?mocks[n]:n.endsWith(".css")?{}:require(n)});
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:m,exports:m.exports,URL,URLSearchParams,AbortController,Event,crypto:globalThis.crypto,console,setTimeout,clearTimeout,...globals,require:n=>n==="@/lib/responseCleanup"?load("lib/responseCleanup.ts"):n in mocks?mocks[n]:n.endsWith(".css")?{}:require(n)});
  return m.exports;
 }
 const bodyComponent=load("app/dashboard/responses/EmailMessageBody.tsx");
@@ -27,14 +27,20 @@ test("unrecognised body and opening disclaimer remain fully visible; HTML stays 
  }
  const html=require("react-dom/server").renderToStaticMarkup(React.createElement(bodyComponent.default,{body:"<script>alert(1)</script>"}));assert.ok(!html.includes("<script>"));
 });
-async function page(platform="email",messages=[],failed=false,lifecycleOverrides={}) {
+async function page(platform="email",messages=[],failed=false,lifecycleOverrides={}, actions=null) {
  const search=`?platform=${platform}&status=needs_reply&itemId=selected`;
  const calls=[];
  const fetch=async(url,options={})=>{
-  calls.push({url,method:options.method||"GET"});assert.equal(options.method||"GET","GET","layout mount must never write or send");
+  calls.push({url,method:options.method||"GET"});if(options.method==="POST"){
+   assert.ok(actions,"layout mount must never write or send");
+   assert.ok(!url.includes("approve-send")&&!url.endsWith("/reply"),"test must not send");
+   if(url==="/api/ai/root-coach")return {ok:true,json:async()=>({coachMessage:"Synthetic editable reply"})};
+   if(url.endsWith("/check-reply")){actions.checked=true;return {ok:true,json:async()=>({verified:actions.verified,message:actions.verified?"Recorded outbound verified":"Cannot verify. Nothing marked handled."})};}
+   throw Error("Unexpected mutation "+url);
+  }
   let data;
   if(url==="/api/social-accounts") data={organisationId:"org"};
-  else if(url.startsWith("/api/responses/list")) data={success:true,configured:true,items:[{id:"selected",platform,status:"needs_reply",kind:platform==="email"?"email_reply":"connection_accepted",authorName:"Example Person",text:"Original source message",createdAt:"2026-10-12T12:00:00Z",subject:"Long thread",senderEmail:"business@example.test",lifecycle:{currentStage:"needs_reply",label:"Needs reply",canDraft:true,humanActionRequired:true,nextAction:"Prepare reply",contactId:"contact",...lifecycleOverrides}}]};
+  else if(url.startsWith("/api/responses/list")) data={success:true,configured:true,items:actions?.checked && actions?.verified ? [] : [{id:"selected",platform,status:"needs_reply",kind:platform==="email"?"email_reply":"connection_accepted",authorName:"Example Person",emailReplyDraft:actions?.savedDraft||null,text:"Original source message",createdAt:"2026-10-12T12:00:00Z",subject:"Long thread",senderEmail:"business@example.test",lifecycle:{currentStage:"needs_reply",label:"Needs reply",canDraft:true,humanActionRequired:true,nextAction:"Prepare reply",contactId:"contact",...lifecycleOverrides}}]};
   else if(url.startsWith("/api/growth/linkedin-conversation?")) data=failed?{success:false,error:"Conversation unavailable"}:{success:true,contactId:"contact",messages:Array.isArray(messages)?{dated:[],undated:messages}:messages};
   else if(url.includes("/conversation?")) data=failed?{success:false,error:"Conversation unavailable"}:{success:true,messages};
   else if(url.includes("/context?")) data={context:{name:"Example Person",whatWeKnow:[],history:[],whyRelevant:"Relevant recorded context",relationship:"Conversation",objective:"Review and reply"}};
@@ -110,4 +116,46 @@ test("contact switches hide earlier history immediately and reject a mismatched 
  await renderer.act(async()=>pending[1].resolve({ok:true,json:async()=>({success:true,contactId:"contact-a",messages:{dated:[],undated:[{id:"wrong",direction:"snapshot",message:"Must never appear",message_at:null}]}})}));
  assert.match(JSON.stringify(tree.toJSON()),/Could not load LinkedIn conversation history/);assert.doesNotMatch(JSON.stringify(tree.toJSON()),/Must never appear/);
  await renderer.act(async()=>tree.unmount());
+});
+
+test("email composer reuses editable draft and leaves approval explicit; check does not send",async()=>{
+ const actions={verified:false};const {tree,calls}=await page("email",[],false,{},actions);
+ let ai=tree.root.findAllByType("button").find(b=>b.children.includes("AI Suggest"));
+ await renderer.act(async()=>{await ai.props.onClick();});
+ const draft=tree.root.findByProps({id:"response-reply-draft"});assert.equal(draft.props.value,"Synthetic editable reply");
+ await renderer.act(async()=>{draft.props.onChange({target:{value:"Human edit"}})});
+ assert.equal(tree.root.findByProps({id:"response-reply-draft"}).props.value,"Human edit");
+ assert.ok(tree.root.findAllByType("button").some(b=>b.children.includes("Regenerate")));
+ assert.ok(tree.root.findAllByType("button").some(b=>b.children.includes("Approve & Send")));
+ const check=tree.root.findAllByType("button").find(b=>b.children.includes("Already replied — check current email history"));
+ await renderer.act(async()=>{check.props.onClick();await new Promise(resolve=>setTimeout(resolve,0));});
+ assert.equal(actions.checked,true);assert.ok(JSON.stringify(tree.toJSON()).includes("Cannot verify. Nothing marked handled."));
+ assert.equal(calls.some(c=>c.url.includes("approve-send")),false);
+ await renderer.act(async()=>tree.unmount());
+});
+
+test("verified history check removes active card, reduces count, and reload does not restore it",async()=>{
+ const actions={verified:true};let {tree}=await page("email",[],false,{},actions);
+ assert.equal(tree.root.findByProps({"aria-label":"Response state briefing"}).findAllByType("strong")[0].props.children,1);
+ const check=tree.root.findAllByType("button").find(b=>b.children.includes("Already replied — check current email history"));
+ await renderer.act(async()=>{check.props.onClick();await new Promise(resolve=>setTimeout(resolve,0));});
+ assert.equal(tree.root.findByProps({"aria-label":"Response state briefing"}).findAllByType("strong")[0].props.children,0);
+ assert.equal(tree.root.findAllByProps({"aria-label":"Selected email workspace"}).length,0);
+ await renderer.act(async()=>tree.unmount());
+ ({tree}=await page("email",[],false,{},actions));
+ assert.equal(tree.root.findByProps({"aria-label":"Response state briefing"}).findAllByType("strong")[0].props.children,0);
+ assert.equal(tree.root.findAllByProps({"aria-label":"Selected email workspace"}).length,0);
+ await renderer.act(async()=>tree.unmount());
+});
+
+test("direct email link hydrates persisted draft after the item arrives and refresh preserves active edits",async()=>{
+ const {tree}=await page("email",[],false,{}, {savedDraft:"Previously saved reply"});
+ assert.equal(tree.root.findByProps({id:"response-reply-draft"}).props.value,"Previously saved reply");
+ await renderer.act(async()=>tree.root.findByProps({id:"response-reply-draft"}).props.onChange({target:{value:"Unsaved active edit"}}));
+ await renderer.act(async()=>{tree.root.findAllByType("button").find(b=>b.children.includes("Refresh")).props.onClick();await new Promise(resolve=>setTimeout(resolve,0));});
+ assert.equal(tree.root.findByProps({id:"response-reply-draft"}).props.value,"Unsaved active edit");
+ await renderer.act(async()=>tree.unmount());
+ const reloaded=await page("email",[],false,{}, {savedDraft:"Previously saved reply"});
+ assert.equal(reloaded.tree.root.findByProps({id:"response-reply-draft"}).props.value,"Previously saved reply");
+ await renderer.act(async()=>reloaded.tree.unmount());
 });

@@ -53,8 +53,20 @@ export function listRelationships(ctx:Context,q:unknown,view:string,page:number)
  const items=relationshipListInventory(ctx,q,view);
  return {items:items.slice(page*25,page*25+25),total:items.length,page,storageAvailable:ctx.storageAvailable};
 }
-export async function getRelationship(tenant:RelationshipTenant,locator:string) {
- const ctx=await relationshipContext(tenant),{relationship,workspace}=selected(ctx,locator),id=workspace?.id;
+export async function getRelationship(tenant:RelationshipTenant,locator:string, exactSource = false) {
+ const ctx=await relationshipContext(tenant);
+ if (exactSource) {
+  const parsed=parseRelationshipLocator(locator);
+  if (!["inbox", "target", "acquisition"].includes(parsed.prefix)) throw new AccessError("Record unavailable.",404);
+  const table=({inbox:"inbox_items",target:"growth_targets",acquisition:"acquisition_items"} as const)[parsed.prefix as "inbox"|"target"|"acquisition"];
+  const row=ctx.input[table].find(r=>r.id===parsed.id&&r.organisation_id===tenant.organisationId);
+  if(!row)throw new AccessError("Record unavailable.",404);
+  // Scope BEFORE projection/history: explicit record selection is not identity authority.
+  ctx.input={inbox_items:[],growth_targets:[],acquisition_items:[],[table]:[row]};
+  ctx.founder=[];ctx.links=[];ctx.workspaces=[];ctx.values=[];
+  ctx.items=projectRelationships(tenant.organisationId,ctx.input,[]);
+ }
+ const {relationship,workspace}=selected(ctx,locator),id=workspace?.id;
  const [allEvents,allTasks]=id?await Promise.all([readTenantHistory("relationship_activity_events",tenant.organisationId),readTenantHistory("relationship_tasks",tenant.organisationId)]):[[],[]];
  const visible=(r:Row)=>r.workspace_id===id&&(!r.organisation_id||r.organisation_id===tenant.organisationId)&&(ctx.canFounder||!r.founder_only);
  const events=allEvents.filter(visible),tasks=allTasks.filter(visible);

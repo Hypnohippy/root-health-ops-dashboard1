@@ -6,7 +6,7 @@ import ts from "typescript";
 import { execFileSync } from "node:child_process";
 function load(file, deps = {}, globals = {}) {
  const mod={exports:{}};
- vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,URL,Request,Set,console,process:{env:{}},require:n=>{assert.ok(n in deps,n);return deps[n]},...globals},{filename:file});
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,URL,Request,Set,Error,SyntaxError,console,process:{env:{}},require:n=>{assert.ok(n in deps,n);return deps[n]},...globals},{filename:file});
  return mod.exports;
 }
 const guide=load("lib/rootCoachGuide.ts"),org="78fa2ac8-e7b6-4b9b-9604-035723ece6b1";
@@ -60,7 +60,7 @@ function endpoint(founder=false){
   "@/lib/tenantRoute.server":{withTenantRoute:(fn,opts)=>{options.push(opts);return req=>fn(req,{organisationId:org,messages:[],profile:{business:{name:"Tenant"}}})}},
   "@/lib/rootCoachGuide.server":service,
   "@/lib/opsCoachContext.server":{opsCoachContextAnswer:async()=>null,opsQuestionSubject:()=>null,pageHelpQuestion:q=>/What does this page do/i.test(q),contextFollowup:()=>false,parseOpsContext:v=>{if(v!==undefined)throw Error("Invalid context");return null;}},"@/lib/relationshipCoach.server":{RELATIONSHIP_MODEL:"gpt-4o-mini"},
-  "next/server":{NextResponse:{json:(body,opts={})=>({body,status:opts.status||200,headers:opts.headers})}},
+  "@/lib/tenantAuth":{accessErrorResponse:()=>null},"next/server":{NextResponse:{json:(body,opts={})=>({body,status:opts.status||200,headers:opts.headers})}},
   openai:{default:class{chat={completions:{create:async()=>{calls.ai++;return {choices:[{message:{content:"Existing legacy coach answer."}}]}}}}}},
  });
  const post=body=>routes.POST(new Request("https://roothealthops.com/api/coach",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}));

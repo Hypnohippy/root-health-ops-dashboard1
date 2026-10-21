@@ -14,7 +14,7 @@ function load(file, dependencies = {}) {
   } }, { filename: file });
   return mod.exports;
 }
-const outreach = load("lib/growthOutreach.ts");
+const outreach = load("lib/growthOutreach.ts", {"@/lib/linkedinSendEvidence":load("lib/linkedinSendEvidence.ts")});
 const model = load("lib/contactLifecycle.ts", { "@/lib/engineState": load("lib/engineState.ts"), "@/lib/growthOutreach": outreach });
 const planner = load("lib/lifecycleReconciliation.ts", { "@/lib/contactLifecycle": model, "@/lib/growthOutreach": outreach });
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -43,7 +43,7 @@ test("acceptance creates one target and repeat runs are no-ops", () => {
   assert.equal(repeated.duplicatesAvoided, 1);
 });
 
-test("Mark Contacted advances once and uses the existing three-day follow-up date", () => {
+test("legacy Mark Contacted advances once without inventing a confirmed cadence anchor", () => {
   for (const growth_targets of [[], [target()]]) {
     const data = input({ inbox_items: [acceptance({ status: "replied", contacted_at: "2026-09-24T12:00:00Z" })], growth_targets });
     const updated = apply(data, plan(data).repairs);
@@ -51,8 +51,8 @@ test("Mark Contacted advances once and uses the existing three-day follow-up dat
     assert.equal(updated.inbox_items[0].response_state, "waiting_for_human");
     const [before] = model.buildContactLifecycle(A, updated, Date.parse("2026-09-26"));
     const [due] = model.buildContactLifecycle(A, updated, Date.parse("2026-09-28"));
-    assert.equal(before.nextDueDate, "2026-09-27T12:00:00.000Z");
-    assert.equal(before.followUpStatus, "waiting"); assert.equal(due.followUpStatus, "due");
+    // A legacy contacted_at is not a confirmed outbound receipt under the current absolute cadence contract.
+    assert.equal(before.nextDueDate, null); assert.equal(due.nextDueDate, null);
     assert.equal(plan(updated).repairs.length, 0);
   }
   const legacy = plan(input({ inbox_items: [acceptance({ status: "replied" })] }));
@@ -91,7 +91,7 @@ test("automatic acknowledgements stay waiting and cannot overwrite a human reply
 });
 
 test("sequence completion repairs parked status but elapsed time never implies a send", () => {
-  const data = input({ growth_targets: [target({ stage: outreach.nextGrowthStage("day14_insight"), status: "active" })] });
+  const data = input({ growth_targets: [target({ stage: outreach.nextGrowthStage("day42_close"), status: "active" })] });
   const updated = apply(data, plan(data).repairs);
   assert.equal(updated.growth_targets[0].status, "parked");
   assert.equal(model.buildContactLifecycle(A, updated)[0].currentStage, "nurture");

@@ -22,5 +22,12 @@ test("drawer uses bounded viewport and its own scrolling surface on mobile",()=>
 test("shell behaviour and all page-specific helpers remain unchanged",()=>{
  const base=execFileSync("git",["show","1aee8d03a5cdcb0c9a0042d9342c2779a0949dc4:app/dashboard/ClientDashboardLayout.tsx"],{encoding:"utf8"});
  const callbacks=s=>{const file=ts.createSourceFile("shell.tsx",s,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),out=[];const visit=n=>{if(ts.isJsxAttribute(n)&&/^on[A-Z]/.test(n.name.getText(file)))out.push(n.initializer.getText(file));ts.forEachChild(n,visit)};visit(file);return out};assert.deepEqual(callbacks(shell),callbacks(base));
- for(const f of ["app/dashboard/page.tsx","app/dashboard/sequences/page.tsx","app/dashboard/growth/page.tsx","app/dashboard/resources/page.tsx","app/dashboard/connect/page.tsx","app/dashboard/growth/acquisition/page.tsx","app/dashboard/responses/page.tsx","app/org-setup/page.tsx","app/connect/page.tsx"]){assert.equal(fs.readFileSync(f,"utf8").replaceAll("\r\n","\n"),execFileSync("git",["show",`1aee8d03a5cdcb0c9a0042d9342c2779a0949dc4:${f}`],{encoding:"utf8"}).replaceAll("\r\n","\n"),f);}
+ for(const f of ["app/dashboard/page.tsx","app/dashboard/sequences/page.tsx","app/dashboard/growth/page.tsx","app/dashboard/resources/page.tsx","app/dashboard/connect/page.tsx","app/dashboard/growth/acquisition/page.tsx","app/org-setup/page.tsx","app/connect/page.tsx"]){assert.equal(fs.readFileSync(f,"utf8").replaceAll("\r\n","\n"),execFileSync("git",["show",`1aee8d03a5cdcb0c9a0042d9342c2779a0949dc4:${f}`],{encoding:"utf8"}).replaceAll("\r\n","\n"),f);}
+});
+
+test("email UX repair preserves existing drafting, approval/send and other response actions",()=>{
+ const current=fs.readFileSync("app/dashboard/responses/page.tsx","utf8");
+ const base=execFileSync("git",["show","77c1fe2b803e2c041aad2c678e8f881ad3581892:app/dashboard/responses/page.tsx"],{encoding:"utf8"});
+ const functions=raw=>{const s=raw.replaceAll("\r\n","\n");const ast=ts.createSourceFile("responses.tsx",s,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),out={};const visit=n=>{if(ts.isVariableDeclaration(n)&&["sendReply","approveAndSendEmail","applyEmailAction"].includes(n.name.getText(ast)))out[n.name.getText(ast)]=n.initializer.getText(ast);if(ts.isFunctionDeclaration(n)&&n.name?.text==="runAiSuggest")out.runAiSuggest=n.getText(ast);ts.forEachChild(n,visit)};visit(ast);return out;};
+ assert.equal(Object.keys(functions(current)).length,4);assert.deepEqual(functions(current),functions(base));
 });

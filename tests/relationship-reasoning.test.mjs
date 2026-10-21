@@ -28,7 +28,7 @@ function reasoningEndpoint(output=completeAdvice,{providerFailure=false,outputs}
  const routes=load('app/api/coach/route.ts',{
   '@/lib/relationshipCoach.server':f.service,'@/lib/rootCoachGuide.server':f.guidance,
   '@/lib/tenantRoute.server':{withTenantRoute:(fn,opts)=>{assert.ok(opts.write===false||opts.generation===true);return req=>fn(req,tenant);}},
-  'next/server':{NextResponse:{json:(body,opts={})=>Response.json(body,opts)}},
+  '@/lib/tenantAuth':{accessErrorResponse:()=>null},'next/server':{NextResponse:{json:(body,opts={})=>Response.json(body,opts)}},
   openai:{default:class{chat={completions:{create:async input=>{calls.push(input);if(providerFailure)throw Error('PRIVATE PROVIDER DETAILS');const next=outputs?outputs[calls.length-1]:output;return {choices:[{message:{content:typeof next==='string'?next:JSON.stringify(next)}}]};}}};}}
  },{console:{warn:value=>logs.push(value)}});
  return {logs,calls,post:question=>routes.POST(new Request('https://ops.invalid/api/coach',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode:'guidance',organisationId:org,route,question})}))};

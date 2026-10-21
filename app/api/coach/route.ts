@@ -1,3 +1,4 @@
+import { accessErrorResponse } from "@/lib/tenantAuth";
 import { RELATIONSHIP_MODEL, relationshipReasoningMessages, relationshipReasoningText } from "@/lib/relationshipCoach.server";
 import { withTenantRoute } from "@/lib/tenantRoute.server";
 // app/api/coach/route.ts
@@ -234,8 +235,15 @@ const guidancePOST = withTenantRoute(async (req: NextRequest, tenant) => {
       throw Error("Relationship reasoning unavailable.");
     });
     return NextResponse.json(answer, { headers: { "Cache-Control": "private, no-store" } });
-  } catch {
-    return NextResponse.json({ error: "Ask a question of 1–600 characters using a recognized workspace context." }, { status: 400 });
+  } catch (error) {
+    const access=accessErrorResponse(error);
+    if(access)return access;
+    const message=error instanceof Error?error.message:"";
+    if (/Invalid question|Ask a question/.test(message))return NextResponse.json({error:"Ask a question of 1–600 characters."},{status:400});
+    if(error instanceof SyntaxError || /Invalid .*context|Invalid context|Guidance accepts|valid relationship link/.test(message))return NextResponse.json({error:"Choose a valid workspace or record."},{status:400});
+    if(/ambiguous|identity/.test(message))return NextResponse.json({error:"The wider identity is ambiguous. Choose the exact source record; no identities were merged."},{status:409});
+    if(/Relationship unavailable|not found|Record unavailable/.test(message))return NextResponse.json({error:"This record is unavailable in your workspace. Reopen it and try again."},{status:404});
+    return NextResponse.json({ error: "Reasoning is temporarily unavailable. Your question was valid; no action was taken." }, { status: 503 });
   }
 }, { write: false });
 

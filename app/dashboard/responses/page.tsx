@@ -449,14 +449,19 @@ if (kindFilter && it.kind !== kindFilter) return false;
     finally { setCleanupBusy(false); }
   };
 
+  const hydratedDraftSelection = useRef<string | null>(null);
   useEffect(() => {
+    const boundary = `${organisationId || ""}:${selectedId || ""}`;
+    if (hydratedDraftSelection.current === boundary) return;
     const item = items.find((candidate) => candidate.id === selectedId);
+    // Direct links select before the async list arrives. Hydrate once when available,
+    // then preserve active edits across refreshes of that same tenant/source.
+    if (selectedId && (!organisationId || !item)) return;
+    hydratedDraftSelection.current = boundary;
     setReplyDraft(item?.platform === "email" ? item.emailReplyDraft || item.proposedResponse || "" : "");
     setAiStatus(null);
     setCopied(false);
-    // The selected ID is the intentional reset boundary; list refreshes must not overwrite active edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [selectedId, organisationId, items]);
 
   useEffect(() => {
     if (!selectedId || !organisationId) { setContactContext(null); return; }
@@ -695,6 +700,21 @@ useEffect(() => {
     } finally {
       setSendingReply(false);
     }
+  };
+
+  const checkExternalEmailReply = async () => {
+    if (!selected || selected.platform !== "email") return;
+    const selection=selectionRef.current;
+    setEmailActionBusy(true); setError(null);
+    try {
+      const org=organisationId || await resolveOrg();
+      const res=await fetch(`/api/responses/email/${encodeURIComponent(selected.id)}/check-reply`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({organisationId:org,key:crypto.randomUUID()})});
+      const data=await res.json();
+      if(!res.ok)throw new Error(data.error || "Could not verify the external reply.");
+      if(selectionRef.current===selection)setAiStatus(data.message);
+      if(data.verified){if(selectionRef.current===selection){setReplyDraft("");setContactContext(null);}await load();}
+    } catch(e){if(selectionRef.current===selection)setError(e instanceof Error?e.message:"Could not verify the external reply.");}
+    finally{setEmailActionBusy(false);}
   };
 
   const saveDraft = async () => {
@@ -1377,6 +1397,16 @@ const deleteSelectedResponse = async () => {
                     ) : null}
                   </div>
 
+                  {selected.platform === "email" && <>
+                  <label className="block text-sm font-semibold" htmlFor="response-reply-draft">{selected.platform === "email" ? "AI Suggested Reply" : "Message draft"}</label>
+                  <textarea
+                    id="response-reply-draft"
+                    className="w-full min-h-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
+                    placeholder={selected.lifecycle?.canDraft ? "Your current-stage message draft will appear here…" : "No message due for this lifecycle state."}
+                    value={replyDraft}
+                    onChange={(e) => setReplyDraft(e.target.value)}
+                  />
+                  </>}
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -1384,9 +1414,10 @@ const deleteSelectedResponse = async () => {
                       disabled={!selected.lifecycle?.canDraft || (selected.kind === "comment" && !contactContext?.socialOpportunity?.eligible)}
                       className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
                     >
-                      {selected.lifecycle?.draftOnRequest ? "AI Suggest (on request)" : "AI Suggest"}
+                      {selected.platform === "email" && replyDraft ? "Regenerate" : selected.lifecycle?.draftOnRequest ? "AI Suggest (on request)" : "AI Suggest"}
                     </button>
 
+                    {selected.platform === "email" && <button type="button" onClick={() => void saveDraft()} disabled={emailActionBusy || !replyDraft.trim() || !selected.lifecycle?.canDraft} className="rounded-2xl border border-emerald-300/30 px-4 py-3 text-sm font-semibold disabled:opacity-50">Save draft</button>}
                     {selected.platform !== "email" && !isLinkedInAcceptance(selected) && <button
                       type="button"
                       onClick={sendReply}
@@ -1401,6 +1432,7 @@ const deleteSelectedResponse = async () => {
 
                   {selected.platform === "email" ? (
   <div className="grid grid-cols-2 gap-2">
+    <button type="button" disabled={emailActionBusy} onClick={() => void checkExternalEmailReply()} className="col-span-2 rounded-2xl border border-amber-300/40 px-4 py-3 text-sm font-semibold disabled:opacity-50">Already replied — check current email history</button>
     <button
       type="button"
       disabled={
@@ -1462,14 +1494,14 @@ const deleteSelectedResponse = async () => {
                       {copied ? "Copied" : "Copy"}
                     </button>
 
-                    <button
+                    {selected.platform !== "email" && <button
                       type="button"
                       onClick={() => void saveDraft()}
                       disabled={!replyDraft.trim() || !selected.lifecycle?.canDraft}
                       className="rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-semibold text-emerald-50 hover:bg-emerald-300/15 disabled:opacity-60 disabled:cursor-not-allowed transition"
                     >
                       Save draft
-                    </button>
+                    </button>}
                   </div>
 
                   {selected.platform === "email" && selected.emailReplyDraft ? (
@@ -1503,13 +1535,15 @@ const deleteSelectedResponse = async () => {
                       {aiStatus}
                     </div>
                   )}
-
+                  {selected.platform !== "email" && <>
                   <textarea
+                    id="response-reply-draft"
                     className="w-full min-h-[180px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/30"
                     placeholder={selected.lifecycle?.canDraft ? "Your current-stage message draft will appear here…" : "No message due for this lifecycle state."}
                     value={replyDraft}
                     onChange={(e) => setReplyDraft(e.target.value)}
                   />
+                  </>}
                 </div>
               )}
             </div>
