@@ -4,6 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 function load(file, deps = {}, globals = {}) {
+ deps["@/lib/linkedinOutreachDisplay.server"] ||= {linkedInOutreachDisplay:async(_tenant,items)=>items};
  const mod={exports:{}};
  if (!deps["@/lib/linkedinDayZero"]) deps["@/lib/linkedinDayZero"] = file === "lib/linkedinDayZero.ts" ? {} : load("lib/linkedinDayZero.ts", {"@/lib/linkedinDayZero": {}});
  if (file === "lib/linkedinOutreach.ts") deps["@/lib/linkedinRecipientContext"] = load("lib/linkedinRecipientContext.ts", {"@/lib/contactLifecycle": lifecycle});

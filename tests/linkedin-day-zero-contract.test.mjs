@@ -4,6 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 function load(file, mocks = {}, globals = {}) {
+  mocks["@/lib/linkedinOutreachDisplay.server"] ||= {linkedInOutreachDisplay:async(_tenant,items)=>items};
   const mod = { exports: {} };
   const code = ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   vm.runInNewContext(code, { module: mod, exports: mod.exports, URL, URLSearchParams, AbortSignal, console, process, ...globals,

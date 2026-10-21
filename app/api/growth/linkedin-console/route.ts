@@ -1,3 +1,4 @@
+import { linkedInOutreachDisplay } from "@/lib/linkedinOutreachDisplay.server";
 import { reconcileLinkedInSend } from "@/lib/linkedinSendReconciliation.server";
 import { cadenceIntent } from "@/lib/growthOutreach";
 import { readOutreachSelfIdentity } from "@/lib/outreachSelfIdentity.server";
@@ -29,7 +30,11 @@ export const GET = withTenantRoute(async (req, tenant) => {
   const queue = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), view as OutreachView, q.getAll("skip").slice(0,500), 10, self);
   const recoveryContactId = q.get("recoveryContactId");
   const recoveryItem = recoveryContactId ? linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self).items.find(item => item.contactId === recoveryContactId) || null : undefined;
-  return NextResponse.json({ ...queue, view, ...(recoveryContactId ? { recoveryItem } : {}), revision: state.revision, organisationId: tenant.organisationId }, { headers: { "Cache-Control": "private, no-store" } });
+  const enriched = await linkedInOutreachDisplay(tenant, [...queue.items, ...(recoveryItem ? [recoveryItem] : [])]);
+  if (state.revision !== await revision(tenant.organisationId)) throw Error("State changed; reload the queue.");
+  queue.items = enriched.slice(0, queue.items.length);
+  const displayRecovery = recoveryItem ? enriched[enriched.length - 1] : recoveryItem;
+  return NextResponse.json({ ...queue, view, ...(recoveryContactId ? { recoveryItem: displayRecovery } : {}), revision: state.revision, organisationId: tenant.organisationId }, { headers: { "Cache-Control": "private, no-store" } });
 }, { write: true });
 export const POST = withTenantRoute(async (req, tenant) => {
   const body = await req.json();
