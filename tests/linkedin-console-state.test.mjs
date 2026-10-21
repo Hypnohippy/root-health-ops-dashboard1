@@ -26,7 +26,7 @@ async function mount(){
  const components=load('app/dashboard/responses/linkedin/LinkedInWorkbench.tsx',{'react':React,'react/jsx-runtime':jsx,'./KnownRelationshipSearch':{default:()=>null},'./LinkedInToConnect':{default:()=>null},'./LinkedInHistoricalSend':{default:()=>null},'@/lib/tenantFetch':{tenantFetch:api},'@/lib/linkedinWorkbench':helpers,'@/lib/linkedinClipboard':{openAndCopyLinkedIn:async(message,url,browser)=>{browser.open(url);await browser.copy(message);return 'Copied';}}},environment),C=components.default;
  let tree;await act(async()=>{tree=create(React.createElement(C));});
  const button=name=>tree.root.findAllByType('button').find(b=>b.children.join('')===name);
- return {returned:async()=>act(async()=>{listeners.get('focus')?.();listeners.get('visibilitychange')?.();}),setNext:patch=>{items=[items[0],{...items[1],...patch}];revision++;},staleGenerations:count=>{staleCount=count;},failGeneration:message=>{generationFailure=message;},tree,C,BatchList:components.BatchList,calls,button,holdReload:()=>{let release;loadGate=new Promise(resolve=>{release=()=>{loadGate=null;resolve();};});return release;},setFirst:patch=>{items=[{...items[0],...patch},...items.slice(1)];revision++;},reload:async()=>act(async()=>button('Work next 10').props.onClick()),unmount:async()=>act(async()=>tree.unmount())};
+ return {recordElsewhere:()=>{items=items.slice(1);revision++;},returned:async()=>act(async()=>{listeners.get('focus')?.();listeners.get('visibilitychange')?.();}),setNext:patch=>{items=[items[0],{...items[1],...patch}];revision++;},staleGenerations:count=>{staleCount=count;},failGeneration:message=>{generationFailure=message;},tree,C,BatchList:components.BatchList,calls,button,holdReload:()=>{let release;loadGate=new Promise(resolve=>{release=()=>{loadGate=null;resolve();};});return release;},setFirst:patch=>{items=[{...items[0],...patch},...items.slice(1)];revision++;},reload:async()=>act(async()=>button('Work next 10').props.onClick()),unmount:async()=>act(async()=>tree.unmount())};
 }
 test('same contact/stage cannot retain a fresh draft after mode or recipient context changes',async()=>{
  const f=await mount();try{
@@ -214,5 +214,23 @@ test('pending Yes uses existing record_send receipt with copied text and selects
   assert.equal(sent[0].message,'fresh connection draft');assert.equal(sent[0].confirmed,true);assert.equal(sent[0].sendChoice,'now');
   assert.ok(sent[0].key);await f.reload();
   assert.ok(!f.tree.root.findAllByType('h2').some(n=>n.children.join('')==='First'));
+ }finally{await f.unmount();}
+});
+
+test('return refresh removes a contact recorded elsewhere without recording another send',async()=>{
+ const f=await mount();try{
+  await act(async()=>f.button('Open profile & Copy \u2014 use Message').props.onClick());
+  f.recordElsewhere();await f.returned();
+  assert.ok(!f.tree.root.findAllByType('h2').some(n=>n.children.join('')==='First'));
+  assert.equal(f.calls.filter(c=>c.action==='record_send').length,0);
+ }finally{await f.unmount();}
+});
+test('pending copied text cannot confirm after an incompatible mode/stage change',async()=>{
+ const f=await mount();try{
+  await act(async()=>f.button('Open profile & Copy \u2014 use Message').props.onClick());
+  f.setFirst({mode:'catchup'});await f.returned();
+  assert.equal(f.button('Yes \u2014 record send & next').props.disabled,true);
+  assert.equal(f.button('Sent now & next').props.disabled,true);
+  assert.equal(f.calls.filter(c=>c.action==='record_send').length,0);
  }finally{await f.unmount();}
 });
