@@ -449,14 +449,19 @@ if (kindFilter && it.kind !== kindFilter) return false;
     finally { setCleanupBusy(false); }
   };
 
+  const hydratedDraftSelection = useRef<string | null>(null);
   useEffect(() => {
+    const boundary = `${organisationId || ""}:${selectedId || ""}`;
+    if (hydratedDraftSelection.current === boundary) return;
     const item = items.find((candidate) => candidate.id === selectedId);
+    // Direct links select before the async list arrives. Hydrate once when available,
+    // then preserve active edits across refreshes of that same tenant/source.
+    if (selectedId && (!organisationId || !item)) return;
+    hydratedDraftSelection.current = boundary;
     setReplyDraft(item?.platform === "email" ? item.emailReplyDraft || item.proposedResponse || "" : "");
     setAiStatus(null);
     setCopied(false);
-    // The selected ID is the intentional reset boundary; list refreshes must not overwrite active edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [selectedId, organisationId, items]);
 
   useEffect(() => {
     if (!selectedId || !organisationId) { setContactContext(null); return; }

@@ -40,7 +40,7 @@ async function page(platform="email",messages=[],failed=false,lifecycleOverrides
   }
   let data;
   if(url==="/api/social-accounts") data={organisationId:"org"};
-  else if(url.startsWith("/api/responses/list")) data={success:true,configured:true,items:actions?.checked && actions?.verified ? [] : [{id:"selected",platform,status:"needs_reply",kind:platform==="email"?"email_reply":"connection_accepted",authorName:"Example Person",text:"Original source message",createdAt:"2026-10-12T12:00:00Z",subject:"Long thread",senderEmail:"business@example.test",lifecycle:{currentStage:"needs_reply",label:"Needs reply",canDraft:true,humanActionRequired:true,nextAction:"Prepare reply",contactId:"contact",...lifecycleOverrides}}]};
+  else if(url.startsWith("/api/responses/list")) data={success:true,configured:true,items:actions?.checked && actions?.verified ? [] : [{id:"selected",platform,status:"needs_reply",kind:platform==="email"?"email_reply":"connection_accepted",authorName:"Example Person",emailReplyDraft:actions?.savedDraft||null,text:"Original source message",createdAt:"2026-10-12T12:00:00Z",subject:"Long thread",senderEmail:"business@example.test",lifecycle:{currentStage:"needs_reply",label:"Needs reply",canDraft:true,humanActionRequired:true,nextAction:"Prepare reply",contactId:"contact",...lifecycleOverrides}}]};
   else if(url.startsWith("/api/growth/linkedin-conversation?")) data=failed?{success:false,error:"Conversation unavailable"}:{success:true,contactId:"contact",messages:Array.isArray(messages)?{dated:[],undated:messages}:messages};
   else if(url.includes("/conversation?")) data=failed?{success:false,error:"Conversation unavailable"}:{success:true,messages};
   else if(url.includes("/context?")) data={context:{name:"Example Person",whatWeKnow:[],history:[],whyRelevant:"Relevant recorded context",relationship:"Conversation",objective:"Review and reply"}};
@@ -146,4 +146,16 @@ test("verified history check removes active card, reduces count, and reload does
  assert.equal(tree.root.findByProps({"aria-label":"Response state briefing"}).findAllByType("strong")[0].props.children,0);
  assert.equal(tree.root.findAllByProps({"aria-label":"Selected email workspace"}).length,0);
  await renderer.act(async()=>tree.unmount());
+});
+
+test("direct email link hydrates persisted draft after the item arrives and refresh preserves active edits",async()=>{
+ const {tree}=await page("email",[],false,{}, {savedDraft:"Previously saved reply"});
+ assert.equal(tree.root.findByProps({id:"response-reply-draft"}).props.value,"Previously saved reply");
+ await renderer.act(async()=>tree.root.findByProps({id:"response-reply-draft"}).props.onChange({target:{value:"Unsaved active edit"}}));
+ await renderer.act(async()=>{tree.root.findAllByType("button").find(b=>b.children.includes("Refresh")).props.onClick();await new Promise(resolve=>setTimeout(resolve,0));});
+ assert.equal(tree.root.findByProps({id:"response-reply-draft"}).props.value,"Unsaved active edit");
+ await renderer.act(async()=>tree.unmount());
+ const reloaded=await page("email",[],false,{}, {savedDraft:"Previously saved reply"});
+ assert.equal(reloaded.tree.root.findByProps({id:"response-reply-draft"}).props.value,"Previously saved reply");
+ await renderer.act(async()=>reloaded.tree.unmount());
 });
