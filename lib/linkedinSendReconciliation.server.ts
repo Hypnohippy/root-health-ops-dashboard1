@@ -55,6 +55,6 @@ export async function reconcileLinkedInSend(org: string, actor: string, body: Re
  // Historical dates retain explicit application and SQL validation.
  const { data, error } = await supabaseAdmin.rpc("record_linkedin_send_evidence", { p_organisation_id: org, p_actor: actor, p_table: table, p_id: body.id, p_revision: body.retryConfirmation === true && stateMatches ? revision : body.revision, p_key: body.key, p_details: { ...details, sentAt: details.choice === "now" ? null : details.sentAt, correction, sentStage: selected?.stage || "connection" } });
  if (error && String(error.message || "").includes("stale_send_plan")) throw stale();
- if (error) throw Error("Confirmation was not recorded. Reload and retry with the same receipt key. This Preview requires the reconciliation schema; do not repeat the LinkedIn send.");
+ if (error) throw Error("Ops could not verify this confirmation. Retry recording the same receipt or reload current state. No LinkedIn message will be sent.");
  return data;
 }
