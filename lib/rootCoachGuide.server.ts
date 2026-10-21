@@ -1,23 +1,36 @@
+import { opsCoachContextAnswer, opsQuestionSubject, pageHelpQuestion, contextFollowup, parseOpsContext } from "@/lib/opsCoachContext.server";
 import { relationshipCoachAnswer, relationshipGuideLocator, relationshipCandidateName, relationshipQuestionCandidates, relationshipIntent, blockedRelationshipAction } from "@/lib/relationshipCoach.server";
 import type { RelationshipTenant } from "@/lib/relationshipWorkspace.server";
 import { guideAnswer, type GuideAnswer } from "@/lib/rootCoachGuide";
 import { requireFounderIntelligence } from "@/lib/founderIntelligenceAuth.server";
 
 export async function rootCoachGuidance(body: Record<string, unknown>, tenant: RelationshipTenant, reason?: (question: string, evidence: string, intent: ReturnType<typeof relationshipIntent>) => Promise<string>): Promise<GuideAnswer> {
-  const allowed = new Set(["mode", "organisationId", "organisation_id", "route", "question", "relationshipRoute"]);
+  const allowed = new Set(["mode", "organisationId", "organisation_id", "route", "question", "relationshipRoute", "context"]);
   if (Object.keys(body).some(key => !allowed.has(key))) throw Error("Guidance accepts only a workspace route and a question.");
   if (typeof body.question !== "string" || !body.question.trim() || body.question.length > 600) throw Error("Invalid question.");
   if (blockedRelationshipAction(body.question)) return {workspace:"Read-only boundary",message:"No action taken. I can explain, interpret, prepare or suggest a draft for review, but cannot send, save, schedule or change records.",destinations:[]};
-  const name=relationshipCandidateName(body.question);
-  let locator = relationshipGuideLocator(body.route);
+  const context=parseOpsContext(body.context);
+  const explicit=opsQuestionSubject(body.question) || relationshipCandidateName(body.question);
+  const pageHelp=pageHelpQuestion(body.question);
+  const hint=body.relationshipRoute===undefined?null:relationshipGuideLocator(body.relationshipRoute);
+  if(body.relationshipRoute!==undefined&&!hint)throw Error("Invalid relationship context.");
+  let locator = pageHelp ? null : relationshipGuideLocator(body.route) || (!explicit && hint && contextFollowup(body.question) ? hint : null);
+  // Explicit subjects always outrank the current page or a previous conversation.
+  const contextual=(!locator || explicit || context) && !pageHelp ? await opsCoachContextAnswer(tenant,body.question,explicit?null:contextFollowup(body.question)?context:null,explicit,body.route) : null;
+  if(contextual) {
+    const {grounding,...answer}=contextual;
+    const intent=/draft/i.test(body.question)?"draft":/what should|what do I do|reply|respond|next/i.test(body.question)?"advice":"factual";
+    if(intent!=="factual" && reason)try{return {...answer,message:(await reason(body.question,grounding||answer.message,intent)).replace(/^Recommendation \(for review\): /,"").replace(/\n\nEvidence-based reasoning: /g,"\n\n").replace(/\n\nInterpretation — not recorded fact: /g,"\n\nPossible interpretation: ").replace(/\n\nUncertainty \/ questions to check: /g,"\n\nTo confirm: ")+"\n\nOpen the linked records to review the recorded evidence. Drafts remain unsent."};}catch{return {...answer,message:answer.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
+    return answer;
+  }
+  const name=pageHelp?null:explicit;
+  if(name)locator=null;
   const candidates = !locator && name ? await relationshipQuestionCandidates(tenant,name) : null;
   if(candidates)locator=candidates.locator;
   const intent=relationshipIntent(body.question);
-  const hint=body.relationshipRoute===undefined?null:relationshipGuideLocator(body.relationshipRoute);
-  if(body.relationshipRoute!==undefined&&!hint)throw Error("Invalid relationship context.");
   // A global follow-up may retain a previously selected exact locator; it is
   // re-authorized and re-checked against Truth on every request, never trusted.
-  if(!locator&&!name&&hint&&(intent!=="factual"||/this relationship|our history|latest interaction|emailed (?:him|her|them)|what is uncertain/i.test(body.question)))locator=hint;
+  if(!pageHelp&&!locator&&!name&&hint&&(intent!=="factual"||/this relationship|our history|latest interaction|emailed (?:him|her|them)|what is uncertain|saved|record|due|where.*(?:it|this)/i.test(body.question)))locator=hint;
   if (!locator && (name || intent!=="factual"))return {workspace:"Choose a relationship",message:"I could not establish one unique safe relationship for this question. Open Relationships and choose the correct record; I will not guess from a name, company or domain.",destinations:[{id:"relationships",label:"Relationships",href:`/dashboard/growth/relationships?organisationId=${encodeURIComponent(tenant.organisationId)}`}],...(candidates?.choices.length?{relationshipChoices:candidates.choices,message:"I found possible tenant-owned records, but have not established a unique identity. Choose the relationship record you mean; opening it does not confirm or merge identity."}:{})};
   if (locator) {
     const answer=await relationshipCoachAnswer(tenant,locator,body.question);
@@ -28,11 +41,11 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
     }
     return answer;
   }
-  if (typeof body.route === "string" && body.route.startsWith("/dashboard/growth/relationships/")) throw Error("Relationship unavailable.");
+  if (!pageHelp && typeof body.route === "string" && body.route.startsWith("/dashboard/growth/relationships/")) throw Error("Relationship unavailable.");
   let founderAllowed = false;
   try { await requireFounderIntelligence(tenant.organisationId); founderAllowed = true; }
   catch { /* Unavailable permission evidence never exposes a protected destination. */ }
   // No page HTML, conversation text, user-provided URLs, counts or operational tools.
-  // Until server-verified attention evidence is supplied by the existing path, counts remain unavailable.
+  // Generic workspace fallback follows the contextual evidence paths above.
   return guideAnswer(body.route, body.question, tenant.organisationId, founderAllowed);
 }

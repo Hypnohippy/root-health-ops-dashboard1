@@ -55,11 +55,11 @@ test("questions are bounded and never echoed as HTML or destinations",()=>{
 });
 function endpoint(founder=false){
  const options=[],calls={ai:0,founder:0};
- const service=load("lib/rootCoachGuide.server.ts",{"@/lib/relationshipCoach.server":{relationshipGuideLocator:()=>null,relationshipCandidateName:()=>null,relationshipIntent:()=>"factual",blockedRelationshipAction:()=>false,relationshipCoachAnswer:()=>assert.fail("Generic guidance must not load relationships")},"@/lib/rootCoachGuide":guide,"@/lib/founderIntelligenceAuth.server":{requireFounderIntelligence:async id=>{calls.founder++;assert.equal(id,org);if(!founder)throw Error("Denied");return {organisationId:id}}}});
+ const service=load("lib/rootCoachGuide.server.ts",{"@/lib/opsCoachContext.server":{opsCoachContextAnswer:async()=>null,opsQuestionSubject:()=>null,pageHelpQuestion:q=>/What does this page do/i.test(q),contextFollowup:()=>false,parseOpsContext:v=>{if(v!==undefined)throw Error("Invalid context");return null;}},"@/lib/relationshipCoach.server":{relationshipGuideLocator:()=>null,relationshipCandidateName:()=>null,relationshipIntent:()=>"factual",blockedRelationshipAction:()=>false,relationshipCoachAnswer:()=>assert.fail("Generic guidance must not load relationships")},"@/lib/rootCoachGuide":guide,"@/lib/founderIntelligenceAuth.server":{requireFounderIntelligence:async id=>{calls.founder++;assert.equal(id,org);if(!founder)throw Error("Denied");return {organisationId:id}}}});
  const routes=load("app/api/coach/route.ts",{
   "@/lib/tenantRoute.server":{withTenantRoute:(fn,opts)=>{options.push(opts);return req=>fn(req,{organisationId:org,messages:[],profile:{business:{name:"Tenant"}}})}},
   "@/lib/rootCoachGuide.server":service,
-  "@/lib/relationshipCoach.server":{RELATIONSHIP_MODEL:"gpt-4o-mini"},
+  "@/lib/opsCoachContext.server":{opsCoachContextAnswer:async()=>null,opsQuestionSubject:()=>null,pageHelpQuestion:q=>/What does this page do/i.test(q),contextFollowup:()=>false,parseOpsContext:v=>{if(v!==undefined)throw Error("Invalid context");return null;}},"@/lib/relationshipCoach.server":{RELATIONSHIP_MODEL:"gpt-4o-mini"},
   "next/server":{NextResponse:{json:(body,opts={})=>({body,status:opts.status||200,headers:opts.headers})}},
   openai:{default:class{chat={completions:{create:async()=>{calls.ai++;return {choices:[{message:{content:"Existing legacy coach answer."}}]}}}}}},
  });
@@ -84,5 +84,5 @@ test("legacy Coach body and protected Day 0 files remain unchanged",()=>{
  const base=execFileSync("git",["show","9a30798:app/api/coach/route.ts"],{encoding:"utf8"}).replaceAll("\r\n","\n"),current=fs.readFileSync("app/api/coach/route.ts","utf8").replaceAll("\r\n","\n");
  const oldBody=base.slice(base.indexOf('export const POST = withTenantRoute'),base.indexOf('function safeJsonForPrompt')).trim().replace('export const POST =','const legacyCoachPOST =');
  const newBody=current.slice(current.indexOf('const legacyCoachPOST ='),current.indexOf('const guidancePOST =')).trim();assert.equal(newBody,oldBody);
- for(const f of ["app/api/ai/root-coach/route.ts","lib/linkedinDayZero.ts","lib/linkedinOutreach.ts","lib/linkedinRecipientContext.ts","lib/responseContactContext.ts","lib/responseContactContext.server.ts","app/api/growth/linkedin-console/route.ts"]){assert.equal(fs.readFileSync(f,"utf8").replaceAll("\r\n","\n"),execFileSync("git",["show",`1aee8d03a5cdcb0c9a0042d9342c2779a0949dc4:${f}`],{encoding:"utf8"}).replaceAll("\r\n","\n"),f);}
+ for(const f of ["app/api/ai/root-coach/route.ts","lib/linkedinDayZero.ts","lib/linkedinOutreach.ts","lib/linkedinRecipientContext.ts","lib/responseContactContext.ts","lib/responseContactContext.server.ts","app/api/growth/linkedin-console/route.ts"]){assert.equal(fs.readFileSync(f,"utf8").replaceAll("\r\n","\n"),execFileSync("git",["show",`41d96bfbd8c16f347efddc69cc0b21f7198e21f3:${f}`],{encoding:"utf8"}).replaceAll("\r\n","\n"),f);}
 });

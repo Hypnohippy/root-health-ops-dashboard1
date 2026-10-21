@@ -1,12 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { guideDestination, guideWorkspace, type GuideAnswer } from "@/lib/rootCoachGuide";
+import { guideDestination, guideAnswerDestination, guideWorkspace, type GuideAnswer, type OpsCoachContext } from "@/lib/rootCoachGuide";
 import "./root-coach.css";
 
 export default function RootCoach({ pathname, organisationId, founderAllowed }: { pathname: string; organisationId: string | null; founderAllowed: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const launcher = useRef<HTMLButtonElement>(null);
   const request = useRef<AbortController | null>(null);
+  const selection=useRef<OpsCoachContext|null>(null);
+  const conversation = useRef<{ scope: string; answer: GuideAnswer } | null>(null);
   const workspace = guideWorkspace(pathname);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<GuideAnswer | null>(null);
@@ -18,7 +20,7 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
 
   useEffect(() => {
     const element = dialog.current;
-    return () => { request.current?.abort(); element?.close(); };
+    return () => { request.current?.abort(); selection.current=null; conversation.current=null; element?.close(); };
   }, [context]);
 
   useEffect(() => {
@@ -34,7 +36,16 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
 
   function close() { request.current?.abort(); dialog.current?.close(); }
   function open() {
-    setQuestion(""); setAnswer(null); setError(""); setBusy(false);
+    const url=new URL(document.URL),id=url.searchParams.get("resourceId")||url.searchParams.get("itemId")||url.searchParams.get("targetId")||url.searchParams.get("id");
+    selection.current=null;
+    if(id && /^[a-f0-9-]{36}$/i.test(id)) {
+      if(pathname==="/dashboard/responses")selection.current={kind:"source",table:"inbox_items",id};
+      else if(pathname==="/dashboard/growth/acquisition")selection.current={kind:"source",table:"acquisition_items",id};
+      else if(pathname==="/dashboard/growth/pipeline")selection.current={kind:"source",table:"growth_targets",id};
+      else if(pathname==="/dashboard/resources")selection.current={kind:"object",table:"resource_library",id};
+      else if(pathname==="/dashboard/sequences")selection.current={kind:"object",table:"sequences",id};
+    }
+    conversation.current=null; setQuestion(""); setAnswer(null); setError(""); setBusy(false);
     dialog.current?.showModal();
   }
   async function ask(text: string) {
@@ -42,12 +53,13 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
     request.current?.abort();
     const controller = new AbortController(); request.current = controller;
     setQuestion(text); setBusy(true); setError(""); setAnswer(null); setAnswerContext(context);
+    const retained=conversation.current?.scope===context ? conversation.current.answer : currentAnswer;
     try {
       const response = await fetch("/api/coach", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", signal: controller.signal,
-        body: JSON.stringify({ mode: "guidance", organisationId, route: pathname, question: text, ...(currentAnswer?.relationshipRoute ? { relationshipRoute: currentAnswer.relationshipRoute } : {}) }) });
+        body: JSON.stringify({ mode: "guidance", organisationId, route: pathname, question: text, ...(retained?.relationshipRoute ? { relationshipRoute: retained.relationshipRoute } : {}), ...((retained?.context || selection.current) ? {context:retained?.context || selection.current} : {}) }) });
       const data = await response.json();
       if (!response.ok) throw Error(data.error || "Guidance is unavailable. Continue in the existing workspace.");
-      if (!controller.signal.aborted) setAnswer(data);
+      if (!controller.signal.aborted) { setAnswer(data); conversation.current={scope:context,answer:data}; }
     } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Guidance is unavailable. Continue in the existing workspace."); }
     finally { if (!controller.signal.aborted) setBusy(false); }
   }
@@ -68,11 +80,11 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
           const safe=guideDestination("relationships",organisationId||"",founderAllowed,choice.route);
           return safe&&safe.href.split("?")[0]===choice.route ? <a key={choice.route} href={safe.href} onClick={close}>{choice.label}<span aria-hidden="true">→</span></a> : null;
         })}</nav> : null}<nav aria-label="Suggested destinations">{currentAnswer.destinations.map(destination => {
-          const safe = guideDestination(destination.id, organisationId || "", founderAllowed, currentAnswer.relationshipRoute || pathname);
-          return safe ? <a key={safe.id} href={safe.href} onClick={close}>{safe.label}<span aria-hidden="true">→</span></a> : null;
+          const safe = guideAnswerDestination(destination, organisationId || "", founderAllowed, currentAnswer.relationshipRoute || pathname);
+          return safe ? <a key={safe.href} href={safe.href} onClick={close}>{safe.label}<span aria-hidden="true">→</span></a> : null;
         })}</nav></section>}
       </div>
-      <form className="root-coach-form" onSubmit={event => { event.preventDefault(); void ask(question); }}><label htmlFor="root-coach-question">Ask about this workspace</label><textarea id="root-coach-question" rows={2} maxLength={600} value={question} onChange={event => setQuestion(event.target.value)} placeholder="What does this mean, or where should I go?"/><div><small>Current figures and status are always shown in the source workspace.</small><button type="submit" disabled={busy || !organisationId || !question.trim()}>Ask Root <span aria-hidden="true">→</span></button></div></form>
+      <form className="root-coach-form" onSubmit={event => { event.preventDefault(); void ask(question); }}><label htmlFor="root-coach-question">Ask about your work</label><textarea id="root-coach-question" rows={2} maxLength={600} value={question} onChange={event => setQuestion(event.target.value)} placeholder="What does this mean, or where should I go?"/><div><small>Answers use recorded evidence; drafts remain unsent.</small><button type="submit" disabled={busy || !organisationId || !question.trim()}>Ask Root <span aria-hidden="true">→</span></button></div></form>
     </dialog>
   </>;
 }
