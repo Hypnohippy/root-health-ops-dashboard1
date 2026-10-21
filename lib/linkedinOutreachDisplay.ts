@@ -1,4 +1,9 @@
-import { relationshipDiscoveryInventory, type DiscoveryContext } from "@/lib/relationshipDiscovery";
+import type { DiscoveryContext } from "@/lib/relationshipDiscovery";
+import { identityDecisionPartition, truthWithIdentityDecisions } from "@/lib/relationshipIdentityReconciliation";
+import { ledgerDecisions } from "@/lib/relationshipIdentityLedger";
+import { visibleTruthInput, type TruthInput } from "@/lib/relationshipTruth";
+import { relationshipIdentityPresentation } from "@/lib/relationshipIdentityPresentation";
+import { projectRelationships } from "@/lib/relationshipWorkspace";
 import { linkedInDestination, type LinkedInOutreachItem } from "@/lib/linkedinOutreach";
 import type { LifecycleRow } from "@/lib/contactLifecycle";
 
@@ -11,12 +16,26 @@ const consensus = (values: unknown[]) => {
 };
 /** Existing Truth partitions authorize display only. Never changes eligibility, context or receipts. */
 export function enrichLinkedInOutreachDisplay(items: LinkedInOutreachItem[], context: DiscoveryContext) {
-  const inventory = relationshipDiscoveryInventory(context);
-  const safe = inventory.partition.input;
+  const visible = visibleTruthInput(context.input, context.policy);
+  const tables = ["inbox_items", "growth_targets", "acquisition_items"] as const;
+  const keys = new Set([...tables.flatMap(table => visible.lifecycle[table].map(row => table + ":" + row.id)), ...visible.founder.map(row => "founder_research_records:" + row.id)]);
+  const decisions = ledgerDecisions(context.ledger, context.policy).filter(d => keys.has(d.sourceRefA.table + ":" + d.sourceRefA.id) && keys.has(d.sourceRefB.table + ":" + d.sourceRefB.id));
+  const partition = identityDecisionPartition(visible, context.policy, decisions), safe = partition.input;
+  const current = projectRelationships(context.policy.organisationId, visible.lifecycle, visible.founder);
+  const ambiguousGroups = new Set<number>();
+  for (const relationship of current) {
+    const groups = new Set(relationship.refs.map(ref => partition.byRef.get(ref.table + ":" + ref.id)).filter((id): id is number => id !== undefined));
+    if (groups.size > 1) groups.forEach(id => ambiguousGroups.add(id));
+  }
   return items.map(item => {
-    const entry = inventory.entries.find(entry => entry.refs.some(ref => ref.table === item.table && ref.id === item.id));
-    if (!entry || entry.result.ambiguity.state !== "established") return { ...item, role: null, company: null };
-    const rows: LifecycleRow[] = entry.refs.flatMap(ref => ref.table === "founder_research_records" ? safe.founder.filter(row => row.id === ref.id) : (safe.lifecycle[ref.table as keyof typeof safe.lifecycle] || []).filter(row => row.id === ref.id));
+    const group = partition.byRef.get(item.table + ":" + item.id);
+    if (group === undefined || ambiguousGroups.has(group)) return { ...item, role: null, company: null };
+    const included = new Set(partition.groups[group]);
+    const subset: TruthInput = { ...safe, lifecycle: Object.fromEntries(tables.map(table => [table, safe.lifecycle[table].filter(row => included.has(table + ":" + row.id))])) as TruthInput["lifecycle"], founder: safe.founder.filter(row => included.has("founder_research_records:" + row.id)) };
+    const truth = truthWithIdentityDecisions(subset, { table: item.table, id: item.id }, context.policy, decisions, { ...partition, input: subset });
+    const presentation = relationshipIdentityPresentation(truth);
+    if (presentation.name.disputed || presentation.entityShape.entity_kind === "ambiguous") return { ...item, role: null, company: null };
+    const rows: LifecycleRow[] = [...Object.values(subset.lifecycle).flat(), ...subset.founder];
     const fields = rows.map(row => ({ row, meta: { ...object(row.raw), ...object(object(row.raw).metadata), ...object(row.metadata) } }));
     const role = consensus(fields.map(({ row, meta }) => text(row.role_title) || text(meta.role_title) || text(meta.headline)));
     const company = consensus(fields.map(({ row, meta }) => text(row.company) || text(meta.company)));
