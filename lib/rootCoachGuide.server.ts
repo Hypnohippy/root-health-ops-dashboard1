@@ -18,9 +18,9 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
   // Explicit subjects always outrank the current page or a previous conversation.
   const contextual=(!locator || explicit || context) && !pageHelp ? await opsCoachContextAnswer(tenant,body.question,explicit?null:contextFollowup(body.question)?context:null,explicit,body.route) : null;
   if(contextual) {
-    const {grounding,...answer}=contextual;
+    const {grounding,stateSummary,...answer}=contextual;
     const intent=/draft/i.test(body.question)?"draft":/what should|what do I do|reply|respond|next/i.test(body.question)?"advice":"factual";
-    if(intent!=="factual" && reason)try{return {...answer,message:(await reason(body.question,grounding||answer.message,intent)).replace(/^Recommendation \(for review\): /,"").replace(/\n\nEvidence-based reasoning: /g,"\n\n").replace(/\n\nInterpretation — not recorded fact: /g,"\n\nPossible interpretation: ").replace(/\n\nUncertainty \/ questions to check: /g,"\n\nTo confirm: ")+"\n\nOpen the linked records to review the recorded evidence. Drafts remain unsent."};}catch{return {...answer,message:answer.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
+    if(intent!=="factual" && reason)try{return {...answer,message:(stateSummary?stateSummary+"\n\n":"")+(await reason(body.question,grounding||answer.message,intent)).replace(/^Recommendation \(for review\): /,"").replace(/\n\nEvidence-based reasoning: /g,"\n\n").replace(/\n\nInterpretation — not recorded fact: /g,"\n\nPossible interpretation: ").replace(/\n\nUncertainty \/ questions to check: /g,"\n\nTo confirm: ")+"\n\nOpen the linked records to review the recorded evidence. Drafts remain unsent."};}catch{return {...answer,message:answer.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
     return answer;
   }
   const name=pageHelp?null:explicit;
