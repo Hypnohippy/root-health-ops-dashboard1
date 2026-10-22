@@ -4,6 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 function load(file, deps = {}, globals = {}) {
+ if (file === "app/api/growth/linkedin-console/route.ts") deps["@/lib/linkedinCadenceDraft"] ||= load("lib/linkedinCadenceDraft.ts", {"@/lib/linkedinDayZero":{}});
  deps["@/lib/linkedinOutreachDisplay.server"] ||= {linkedInOutreachDisplay:async(_tenant,items)=>items};
  const mod={exports:{}};
  if (!deps["@/lib/linkedinDayZero"]) deps["@/lib/linkedinDayZero"] = file === "lib/linkedinDayZero.ts" ? {} : load("lib/linkedinDayZero.ts", {"@/lib/linkedinDayZero": {}});
@@ -124,6 +125,7 @@ test("console API revalidates due eligibility and revision, retries receipts and
  const retry=await api.POST(req({...base,action:"complete",confirmed:true,key:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",message:"Hello",completedAt:"2026-01-01"}));assert.equal(retry.status,409);assert.equal(completionCalls,0);
  data=followup();
  const fbase={id:"target",table:"growth_targets",revision:"4"};
+ replies=["Hi Sarah, does that wellbeing resource focus more on prevention or on support once someone is struggling?"];
  assert.equal((await api.POST(req({...fbase,action:"generate"}))).status,200);assert.ok(prompt.includes(receipt().message));assert.match(prompt,/lifecycle stage is never provider truth/);assert.doesNotMatch(prompt,/unified current lifecycle is authoritative/);
  // Provider/retry safety remains exercised on catch-up; fresh Day 0 is code-owned.
  replies=["x".repeat(350), "Hi Sarah, we connected a while ago and I realised I hadn't said hello properly."];

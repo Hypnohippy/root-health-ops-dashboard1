@@ -644,7 +644,7 @@ export default function GrowthPage() {
                 </a>
               )}
 
-              <details className="growth-followup-detail"><summary><OverviewIcon kind="conversation"/>Review message &amp; reply tracking</summary><div style={messageBox}>
+              <details className="growth-followup-detail"><summary><OverviewIcon kind="conversation"/>Review message &amp; reply tracking</summary>{target.suggested_message ? <><div style={messageBox}>
                 {target.suggested_message}
               </div>
 
@@ -655,7 +655,15 @@ export default function GrowthPage() {
                 style={copyButton}
               >
                 Copy Message
-              </button>
+              </button></> : <div style={messageBox}>
+                Generate a contextual draft from the recorded previous message in LinkedIn Outreach.
+                <button style={copyButton} onClick={() => {
+                  const destination = new URL("/dashboard/responses/linkedin", window.location.origin);
+                  const organisationId = new URLSearchParams(window.location.search).get("organisationId");
+                  if (organisationId) destination.searchParams.set("organisationId", organisationId);
+                  window.location.assign(destination.toString());
+                }}>Open LinkedIn Outreach</button>
+              </div>}
 
               <ManualTakeover organisationId="" table="growth_targets" id={target.id} onComplete={async () => { setQueue(previous => previous.filter(row => row.id !== target.id)); await loadFollowups(); }} />
 
