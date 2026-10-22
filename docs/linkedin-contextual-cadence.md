@@ -20,8 +20,8 @@ No change to Day 0 strategy, cadence dates, queue eligibility, revision recovery
 
 ## Automated verification
 
-- 47 new contextual drafting tests.
-- 312/312 tests across all 13 `tests/linkedin-*.test.mjs` suites plus `contact-lifecycle` and `lifecycle-responses`.
+- 48 new contextual drafting tests.
+- 313/313 tests across all 13 `tests/linkedin-*.test.mjs` suites plus `contact-lifecycle` and `lifecycle-responses`.
 - TypeScript passes; targeted lint passes for changed API/library/test files.
 - Growth page lint: nine pre-existing errors in both base and current, identical rule/message signatures; no additional errors.
 - `git diff --check` passes.
@@ -29,3 +29,9 @@ No change to Day 0 strategy, cadence dates, queue eligibility, revision recovery
 - The capture suite fixture now states its existing catch-up mode explicitly and returns valid catch-up wording; production Responses code is unchanged.
 
 Authenticated Preview results are recorded in the PR after verification. Until then, do not treat generated examples in unit fixtures as live evidence.
+
+## Preview finding
+
+The first authenticated Day 14 generation claimed an approach “we’ve seen help organisations” without outcome evidence in the supplied outbound. The policy now rejects unsupported witnessed-outcome/client-result wording and retries as a practical idea. This adds a regression for that exact observed failure.
+
+Fiona’s live state on 22 October has advanced to Day 7, with a confirmed action at 09:26 UK and next due 25 October 13:52:53 UK. She is not currently eligible. Do not change dates or force queue inclusion to manufacture a positive live Day 3 test; the exact recorded Day 0 remains covered by the deterministic API/validation fixture.
