@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
-function load(file,deps={}){const m={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:m,exports:m.exports,Date,URL,Set,Map,console,require:n=>{assert.ok(n in deps,n);return deps[n];}});return m.exports;}
+function load(file,deps={}){const m={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:m,exports:m.exports,Date,URL,Set,Map,console,require:n=>{if(n==="@/lib/diary")return {diaryQuestion:()=>null};if(n==="@/lib/diary.server")return {diaryAnswer:()=>assert.fail("Unexpected Diary dispatch")};assert.ok(n in deps,n);return deps[n];}});return m.exports;}
 const org="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",foreign="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",id="cccccccc-cccc-4ccc-8ccc-cccccccccccc",second="dddddddd-dddd-4ddd-8ddd-dddddddddddd",tenant={organisationId:org,userId:"owner",role:"owner"};
 const growth=load("lib/growthOutreach.ts",{"@/lib/linkedinSendEvidence":load("lib/linkedinSendEvidence.ts")}),engine=load("lib/engineState.ts"),lifecycle=load("lib/contactLifecycle.ts",{"@/lib/growthOutreach":growth,"@/lib/engineState":engine}),guide=load("lib/rootCoachGuide.ts");
 function fixture({rows,emails=[],objects=[],now=Date.now()}={}){

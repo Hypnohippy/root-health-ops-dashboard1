@@ -246,6 +246,7 @@ export default function ClientDashboardLayout({
       href: "/dashboard",
       match: (p) => p === "/dashboard",
     },
+    { label: "Diary", href: "/dashboard/diary", match: (p) => p.startsWith("/dashboard/diary") },
     {
       label: "Acquisition",
       href: "/dashboard/growth/acquisition",
@@ -407,7 +408,7 @@ export default function ClientDashboardLayout({
                   className={primaryLinkClasses(item)}
                 >
                   {relationshipVisualPilot && <OpsNavigationIcon label={item.label} />}
-                  {relationshipVisualPilot ? <span className="ops-nav-copy"><span>{item.label}</span><small>{{Home: "Your daily briefing", Founder: "Intelligence & research", Acquisition: "New opportunities", Responses: "People & conversations", Campaigns: "Coordinated outreach", Publishing: "Content & distribution", Growth: "Relationships & progress", Resources: "Knowledge & tools", Connect: "Channels & accounts"}[item.label]}</small></span> : item.label}
+                  {relationshipVisualPilot ? <span className="ops-nav-copy"><span>{item.label}</span><small>{{Diary: "Dated work & commitments", Home: "Your daily briefing", Founder: "Intelligence & research", Acquisition: "New opportunities", Responses: "People & conversations", Campaigns: "Coordinated outreach", Publishing: "Content & distribution", Growth: "Relationships & progress", Resources: "Knowledge & tools", Connect: "Channels & accounts"}[item.label]}</small></span> : item.label}
                   {item.label === "Responses" ? <ResponseAttentionBadge count={responseAttention.count} /> : item.badge !== undefined ? <span className="ml-2 rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]" aria-label={`${item.badge} items`}>{item.badge}</span> : null}
                 </Link>
               ))}

@@ -1,3 +1,5 @@
+import { diaryQuestion } from "@/lib/diary";
+import { diaryAnswer } from "@/lib/diary.server";
 import { opsCoachContextAnswer, opsQuestionSubject, pageHelpQuestion, contextFollowup, parseOpsContext } from "@/lib/opsCoachContext.server";
 import { relationshipCoachAnswer, relationshipGuideLocator, relationshipCandidateName, relationshipQuestionCandidates, relationshipIntent, blockedRelationshipAction } from "@/lib/relationshipCoach.server";
 import type { RelationshipTenant } from "@/lib/relationshipWorkspace.server";
@@ -10,6 +12,8 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
   if (typeof body.question !== "string" || !body.question.trim() || body.question.length > 600) throw Error("Invalid question.");
   if (blockedRelationshipAction(body.question)) return {workspace:"Read-only boundary",message:"No action taken. I can explain, interpret, prepare or suggest a draft for review, but cannot send, save, schedule or change records.",destinations:[]};
   if(body.draftOnly!==undefined && typeof body.draftOnly!=="boolean")throw Error("Invalid draft context.");
+  const diaryIntent=diaryQuestion(body.question);
+  if(diaryIntent)return diaryAnswer(tenant,diaryIntent);
   const context=parseOpsContext(body.context);
   const explicit=opsQuestionSubject(body.question) || relationshipCandidateName(body.question);
   const pageHelp=pageHelpQuestion(body.question);
