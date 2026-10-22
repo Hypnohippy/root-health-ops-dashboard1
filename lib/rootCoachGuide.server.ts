@@ -29,7 +29,7 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
     // Subject labels only determine whether to keep the explicit selection; never join identities.
     if(!subject || subject.split(/\s+/).every(term=>label.split(/\s+/).includes(term))) {
       if(draftState)return {...selected,draftOnly:true,message:draftMessage};
-      if(reason)try{return {...selected,message:await reason(body.question,selected.message,relationshipIntent(body.question))+"\n\nRecorded grounding:\n"+selected.message};}catch{return {...selected,message:selected.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
+      if(reason)try{return {...selected,message:await reason(body.question,selected.grounding||selected.message,relationshipIntent(body.question))+"\n\nRecorded grounding:\n"+selected.message};}catch{return {...selected,message:selected.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
       return selected;
     }
   }
@@ -37,7 +37,7 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
     const matches=await relationshipQuestionCandidates(tenant,explicit.replace(/\s+(?:today|yesterday|now)$/i,""));
     if(matches.locator) {
       const selected=await relationshipCoachAnswer(tenant,matches.locator,body.question);
-      if(reason)try{return {...selected,message:await reason(body.question,selected.message,relationshipIntent(body.question))+"\n\nRecorded grounding:\n"+selected.message};}catch{return {...selected,message:selected.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
+      if(reason)try{return {...selected,message:await reason(body.question,selected.grounding||selected.message,relationshipIntent(body.question))+"\n\nRecorded grounding:\n"+selected.message};}catch{return {...selected,message:selected.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
       return selected;
     }
     if(matches.choices.length)return {workspace:"Choose a relationship",message:"Choose the recorded relationship you mean. I have not established a unique safe identity. These source associations remain unresolved; no identities have been merged.",relationshipChoices:matches.choices,destinations:[]};
@@ -48,7 +48,7 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
     const prefix=({inbox_items:"inbox",growth_targets:"target",acquisition_items:"acquisition"} as const)[contextual.context.table];
     const selected={...await relationshipCoachAnswer(tenant,`${prefix}_${contextual.context.id}`,body.question),context:contextual.context};
     if(draftState)return {...selected,draftOnly:true,message:draftMessage};
-    if(reason)try{return {...selected,message:await reason(body.question,selected.message,relationshipIntent(body.question))+"\n\nRecorded grounding:\n"+selected.message};}catch{return {...selected,message:selected.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
+    if(reason)try{return {...selected,message:await reason(body.question,selected.grounding||selected.message,relationshipIntent(body.question))+"\n\nRecorded grounding:\n"+selected.message};}catch{return {...selected,message:selected.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
     return selected;
   }
   if(contextual) {
@@ -72,7 +72,7 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
     if(draftState)return {...answer,draftOnly:true,message:draftMessage};
     if (reason || intent!=="factual") {
       if (!reason) return {...answer,message:answer.message+"\n\nAdvice is unavailable. No draft was sent or saved."};
-      try { const advice=await reason(body.question,answer.message,intent);return {...answer,draftOnly:intent==="draft"||intent==="advice",message:advice+"\n\nRecorded grounding:\n"+answer.message}; }
+      try { const advice=await reason(body.question,answer.grounding||answer.message,intent);return {...answer,draftOnly:intent==="draft"||intent==="advice",message:advice+"\n\nRecorded grounding:\n"+answer.message}; }
       catch { return {...answer,message:answer.message+"\n\nAdvice is temporarily unavailable. Please review the linked evidence; no draft was sent or saved."}; }
     }
     return answer;

@@ -53,7 +53,7 @@ test('foreign source and unresolved workspace fail closed; exact unresolved sour
 });
 test('Relationship detail and Ask Root share latest event; arbitrary selected-context question reaches model and fact/interpretation stay separate',async()=>{
  const f=fixture(),data=await f.reader.readOperationalIntelligence(f.tenant,'inbox_'+id);
- const coach=load('lib/relationshipCoach.server.ts',{...f.mocks,'@/lib/operationalIntelligence.server':f.reader});const answer=await coach.relationshipCoachAnswer(f.tenant,'inbox_'+id,'What trade-off does this record suggest?');assert.ok(answer.message.includes(data.intelligence.latestRelationshipEvent.text));assert.match(answer.message,/Lifecycle last action/);assert.match(answer.message,/manual activity is not delivery/);
+ const coach=load('lib/relationshipCoach.server.ts',{...f.mocks,'@/lib/operationalIntelligence.server':f.reader});const answer=await coach.relationshipCoachAnswer(f.tenant,'inbox_'+id,'What trade-off does this record suggest?');assert.ok(answer.message.includes(data.intelligence.latestRelationshipEvent.text));assert.match(answer.message,/Lifecycle last action/);assert.match(answer.grounding,/manual activity is not delivery/);assert.doesNotMatch(answer.message,/Canonical operational evidence/);
  const service=load('lib/rootCoachGuide.server.ts',{...f.mocks,'@/lib/relationshipCoach.server':coach,'@/lib/diary':{diaryQuestion:()=>null},'@/lib/diary.server':{},'@/lib/opsCoachContext.server':{parseOpsContext:()=>null,opsQuestionSubject:()=>null,pageHelpQuestion:()=>false,contextFollowup:()=>false,opsCoachContextAnswer:()=>assert.fail('Selected context must use canonical evidence')}});
  let calls=0;const response=await service.rootCoachGuidance({route:'/dashboard/growth/relationships/inbox_'+id,question:'Which tension in this record deserves care?'},f.tenant,async(q,e)=>{calls++;assert.ok(e.includes(data.intelligence.latestRelationshipEvent.text));return 'Recorded fact: call recorded. Interpretation: review commercial fit.';});assert.equal(calls,1);assert.match(response.message,/Recorded fact.*Interpretation/);
  const blocked=await service.rootCoachGuidance({route:'/dashboard/growth/relationships/inbox_'+id,question:'Send an email'},f.tenant,()=>assert.fail('No AI write'));assert.match(blocked.message,/No action taken/);
@@ -78,4 +78,11 @@ test('search shares latest memory and never borrows an unresolved or foreign wor
  const summary=core.operationalSearchSummary(org,sources,[workspace],links,[activity,{...activity,id:'foreign',organisation_id:'foreign',message:'FOREIGN SECRET'}],false);
  assert.equal(summary.latestRelationshipEvent.id,'workspace:latest');assert.equal(summary.retention,'stale');assert.doesNotMatch(JSON.stringify(summary),/SECRET/);
  const unresolved=core.operationalSearchSummary(org,sources,[workspace],[...links,{...links[0],source_id:'unresolved-other'}],[activity],false);assert.equal(unresolved.latestRelationshipEvent.kind,'Source event');assert.equal(unresolved.retention,null);
+});
+
+test('factual questions request a direct recorded answer and private machine grounding stays out of the displayed message',async()=>{
+ const f=fixture(),coach=load('lib/relationshipCoach.server.ts',{...f.mocks,'@/lib/operationalIntelligence.server':f.reader});
+ const answer=await coach.relationshipCoachAnswer(f.tenant,'inbox_'+id,'What happened today?');assert.doesNotMatch(answer.message,/Canonical operational evidence|"workspaceRefs"/);assert.match(answer.grounding,/workspace:call/);
+ const prompt=coach.relationshipReasoningMessages('What happened today?',answer.grounding,'factual');assert.match(prompt[0].content,/directly answer the question/);
+ const text=coach.relationshipReasoningText({recommendation:'A call was manually recorded.',reasoning:'Within the supplied evidence only, a call entry exists.',interpretation:'Within the supplied evidence only, commercial fit needs review.',uncertainty:'What did the recipient agree to?'},'factual');assert.match(text,/^Answer \(recorded evidence\)/);
 });
