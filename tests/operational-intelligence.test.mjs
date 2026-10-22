@@ -83,6 +83,6 @@ test('search shares latest memory and never borrows an unresolved or foreign wor
 test('factual questions request a direct recorded answer and private machine grounding stays out of the displayed message',async()=>{
  const f=fixture(),coach=load('lib/relationshipCoach.server.ts',{...f.mocks,'@/lib/operationalIntelligence.server':f.reader});
  const answer=await coach.relationshipCoachAnswer(f.tenant,'inbox_'+id,'What happened today?');assert.doesNotMatch(answer.message,/Canonical operational evidence|"workspaceRefs"/);assert.match(answer.grounding,/workspace:call/);
- const prompt=coach.relationshipReasoningMessages('What happened today?',answer.grounding,'factual');assert.match(prompt[0].content,/directly answer the question/);
+ const prompt=coach.relationshipReasoningMessages('What happened today?',answer.grounding,'factual');assert.match(prompt[0].content,/directly answer the question/);assert.match(prompt[0].content,/NEVER establishes that the counterpart is open/);assert.match(prompt[0].content,/surface that mismatch explicitly/);assert.match(prompt[0].content,/do not recommend another immediate follow-up/);
  const text=coach.relationshipReasoningText({recommendation:'A call was manually recorded.',reasoning:'Within the supplied evidence only, a call entry exists.',interpretation:'Within the supplied evidence only, commercial fit needs review.',uncertainty:'What did the recipient agree to?'},'factual');assert.match(text,/^Answer \(recorded evidence\)/);
 });
