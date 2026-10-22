@@ -1,11 +1,22 @@
 import { buildContactLifecycle, type LifecycleInput } from "@/lib/contactLifecycle";
 
+/** Source adapters carry ownership/provenance, never credentials or an inferred identity. */
+export type DiaryProvenance = { organisationId: string; dateSource: string } & (
+  | { provider: "ops"; table: "acquisition_items" | "inbox_items" | "growth_targets" | "relationship_tasks"; recordId: string }
+  | { provider: "google_calendar" | "microsoft_calendar"; externalEventId: string; accountId: string; ownerUserId: string }
+);
+/** Future tenant-owned calendar adapter contract only: no connection, ingestion or OAuth in Phase 1. */
+export type DiaryCalendarEvidence = {
+  source: Extract<DiaryProvenance, { externalEventId: string }>;
+  title: string; start: string; end: string | null; timeZone: string; dateOnly: boolean;
+  linkedRelationship: { organisationId: string; locator: string; verifiedSourceLinkId: string } | null;
+};
 export type DiaryItem = {
-  id: string; title: string; company: string | null; at: string; dateOnly: boolean;
+  id: string; title: string; company: string | null; at: string; endAt: string | null; timeZone: string | null; dateOnly: boolean;
   type: "Follow-up" | "Waiting" | "Nurture" | "Task" | "Call";
   status: string; action: string; workspace: string; href: string;
   actionable: boolean;
-  source: { organisationId: string; table: string; recordId: string; dateSource: string };
+  source: DiaryProvenance;
 };
 export type DiarySnapshot = { asOf: string; today: string; timezone: "Europe/London"; items: DiaryItem[] };
 export type DiaryRow = Record<string, unknown>;
@@ -42,21 +53,21 @@ export function buildDiary(organisationId: string, input: LifecycleInput, tasks:
     if (!type || !contact.nextDueDate) continue;
     if (type === "Call" && validDate(row.call_date) !== contact.nextDueDate) type = "Task";
     if (type === "Call" && ["won", "lost", "cancelled", "completed"].includes(text(row.call_outcome))) continue;
-    add({ id: `${table}:${id}:due`, title: contact.name || contact.company || "Recorded contact", company: contact.company, at: contact.nextDueDate, dateOnly: false, type, status: contact.currentStage.replaceAll("_", " "), action: contact.nextAction?.replaceAll("_", " ") || "Review source", workspace: table === "inbox_items" ? "Responses" : table === "growth_targets" ? "Growth" : "Acquisition", href, actionable: type !== "Call" && type !== "Waiting", source: { organisationId, table, recordId: id, dateSource: "lifecycle.nextDueDate" } });
+    add({ id: `${table}:${id}:due`, title: contact.name || contact.company || "Recorded contact", company: contact.company, at: contact.nextDueDate, endAt: null, timeZone: null, dateOnly: false, type, status: contact.currentStage.replaceAll("_", " "), action: contact.nextAction?.replaceAll("_", " ") || "Review source", workspace: table === "inbox_items" ? "Responses" : table === "growth_targets" ? "Growth" : "Acquisition", href, actionable: type !== "Call" && type !== "Waiting", source: { provider: "ops", organisationId, table, recordId: id, dateSource: "lifecycle.nextDueDate" } });
   }
   // call_date is structured evidence; free text and ordinary messages never create appointments.
   const meetings = new Set(contacts.filter(c => !["converted", "lost", "dismissed"].includes(c.currentStage)).flatMap(c => c.records.filter(r => r.table === "growth_targets" && r.stage === "meeting").map(r => r.id)));
   for (const row of input.growth_targets.filter(r => r.organisation_id === organisationId && meetings.has(r.id) && !["won", "lost", "cancelled", "completed"].includes(text(r.call_outcome)) && !["lost", "closed", "converted"].includes(text(r.status)))) {
     const at = validDate(row.call_date); if (!at) continue;
-    const existing = items.find(i => i.source.table === "growth_targets" && i.source.recordId === row.id && i.at === at);
+    const existing = items.find(i => i.source.provider === "ops" && i.source.table === "growth_targets" && i.source.recordId === row.id && i.at === at);
     if (existing) { existing.type = "Call"; existing.actionable = false; existing.source.dateSource = "call_date"; continue; }
-    add({ id: `growth_targets:${row.id}:call_date`, title: text(row.target_name) || "Recorded call", company: text(row.company) || null, at, dateOnly: false, type: "Call", status: "Recorded meeting", action: "Review recorded call", workspace: "Growth", href: `/dashboard/growth/relationships/target_${encodeURIComponent(row.id)}?organisationId=${org}`, actionable: false, source: { organisationId, table: "growth_targets", recordId: row.id, dateSource: "call_date" } });
+    add({ id: `growth_targets:${row.id}:call_date`, title: text(row.target_name) || "Recorded call", company: text(row.company) || null, at, endAt: null, timeZone: null, dateOnly: false, type: "Call", status: "Recorded meeting", action: "Review recorded call", workspace: "Growth", href: `/dashboard/growth/relationships/target_${encodeURIComponent(row.id)}?organisationId=${org}`, actionable: false, source: { provider: "ops", organisationId, table: "growth_targets", recordId: row.id, dateSource: "call_date" } });
   }
   for (const row of tasks) {
     const workspace = workspaces.find(w => w.id === row.workspace_id && w.organisation_id === organisationId);
     const at = validDate(row.due_at);
     if (row.organisation_id !== organisationId || row.status !== "open" || !at || !workspace) continue;
-    add({ id: `relationship_tasks:${text(row.id)}:due_at`, title: text(row.task), company: null, at, dateOnly: false, type: "Task", status: "Open", action: "Review relationship task", workspace: "Relationships", href: `/dashboard/growth/relationships/workspace_${encodeURIComponent(text(row.workspace_id))}?organisationId=${org}`, actionable: true, source: { organisationId, table: "relationship_tasks", recordId: text(row.id), dateSource: "due_at" } });
+    add({ id: `relationship_tasks:${text(row.id)}:due_at`, title: text(row.task), company: null, at, endAt: null, timeZone: null, dateOnly: false, type: "Task", status: "Open", action: "Review relationship task", workspace: "Relationships", href: `/dashboard/growth/relationships/workspace_${encodeURIComponent(text(row.workspace_id))}?organisationId=${org}`, actionable: true, source: { provider: "ops", organisationId, table: "relationship_tasks", recordId: text(row.id), dateSource: "due_at" } });
   }
   return { asOf, today: diaryDay(asOf), timezone: "Europe/London", items: items.sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id)) };
 }
