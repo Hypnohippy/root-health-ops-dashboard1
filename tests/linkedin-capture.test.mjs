@@ -300,12 +300,12 @@ test("LinkedIn Acquisition view references accepted inbox records and dedupes re
 });
 
 test("Responses AI first-message route blocks missing name before contacting the provider", async () => {
- let providerCalls = 0, contact = { name: null, interactionType: "linkedin_connection_first_message", lifecycle: { canDraft: true, currentStage: "outreach_ready" } };
+ let providerCalls = 0, contact = { name: null, connectionMode: "catchup", interactionType: "linkedin_connection_first_message", lifecycle: { canDraft: true, currentStage: "outreach_ready" } };
  const route = load("app/api/ai/root-coach/route.ts", {
   "next/server": { NextResponse: { json: (body, opts = {}) => ({ body, status: opts.status || 200 }) } },
   "@/lib/tenantRoute.server": { withTenantRoute: fn => req => fn(req, { organisationId: org, profile: {}, messages: [] }) },
   "@/lib/responseContactContext.server": { getResponseContactContext: async () => contact },
- }, { process: { env: { OPENAI_API_KEY: "fixture" } }, fetch: async (url, opts) => { providerCalls++; assert.match(JSON.parse(opts.body).messages.at(-1).content, /Alex Smith/); return { ok: true, json: async () => ({ choices: [{ message: { content: "Hi Alex, good to connect. Thought I'd say hello properly." } }] }) }; } });
+ }, { process: { env: { OPENAI_API_KEY: "fixture" } }, fetch: async (url, opts) => { providerCalls++; assert.match(JSON.parse(opts.body).messages.at(-1).content, /Alex Smith/); return { ok: true, json: async () => ({ choices: [{ message: { content: "Hi Alex, we connected a while ago and I realised I hadn't said hello properly." } }] }) }; } });
  const req = { json: async () => ({ inboxItemId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", context: "responses_linkedin" }) };
  assert.equal((await route.POST(req)).status, 409); assert.equal(providerCalls, 0);
  contact = { ...contact, name: "Alex Smith" }; assert.equal((await route.POST(req)).status, 200); assert.equal(providerCalls, 1);
