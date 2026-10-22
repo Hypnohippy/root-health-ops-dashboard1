@@ -1,3 +1,4 @@
+import { readProactiveRetention } from "@/lib/operationalRetention.server";
 import { cadenceContinuationRules, cadenceDraftIssue, outboundConversationFacts } from "@/lib/linkedinCadenceDraft";
 import { linkedInOutreachDisplay } from "@/lib/linkedinOutreachDisplay.server";
 import { reconcileLinkedInSend } from "@/lib/linkedinSendReconciliation.server";
@@ -20,17 +21,18 @@ async function revision(org: string) {
 }
 async function snapshot(org: string) {
   const before = await revision(org), input = await readLifecycleInput(org);
+  const stale = await readProactiveRetention(org, input);
   if (before !== await revision(org)) throw Error("State changed; reload the queue.");
-  return { input, revision: before };
+  return { input, stale, revision: before };
 }
 export const GET = withTenantRoute(async (req, tenant) => {
   const q = new URL(req.url).searchParams;
   const view = q.get("view") || "all";
   if (!["all", "fresh", "catchup", "followups"].includes(view)) return NextResponse.json({ error: "Invalid view." }, { status: 400 });
   const [state, self] = await Promise.all([snapshot(tenant.organisationId), readOutreachSelfIdentity(tenant.organisationId, tenant.userId)]);
-  const queue = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), view as OutreachView, q.getAll("skip").slice(0,500), 10, self);
+  const queue = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), view as OutreachView, q.getAll("skip").slice(0,500), 10, self, state.stale);
   const recoveryContactId = q.get("recoveryContactId");
-  const recoveryItem = recoveryContactId ? linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self).items.find(item => item.contactId === recoveryContactId) || null : undefined;
+  const recoveryItem = recoveryContactId ? linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self, state.stale).items.find(item => item.contactId === recoveryContactId) || null : undefined;
   const enriched = await linkedInOutreachDisplay(tenant, [...queue.items, ...(recoveryItem ? [recoveryItem] : [])]);
   if (state.revision !== await revision(tenant.organisationId)) throw Error("State changed; reload the queue.");
   queue.items = enriched.slice(0, queue.items.length);
@@ -46,7 +48,7 @@ export const POST = withTenantRoute(async (req, tenant) => {
   if (body.action === "complete") return NextResponse.json({ error: "Reload the console and choose Sent now or Already sent previously." }, { status: 409 });
   if (body.action !== "generate" || !["inbox_items", "growth_targets"].includes(body.table) || typeof body.id !== "string" || typeof body.revision !== "string") return NextResponse.json({ error: "Invalid action." }, { status: 400 });
   const [state, self] = await Promise.all([snapshot(tenant.organisationId), readOutreachSelfIdentity(tenant.organisationId, tenant.userId)]);
-  const selected = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self).items.find(i => i.table === body.table && i.id === body.id);
+  const selected = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self, state.stale).items.find(i => i.table === body.table && i.id === body.id);
   if (!selected || state.revision !== body.revision) return NextResponse.json({ error: "Queue state changed. Reload before taking action.", code: selected ? "STALE_QUEUE_REVISION" : "CONTACT_NOT_ELIGIBLE" }, { status: 409 });
   const current = selected!;
   if (current.stage === "connection" && !current.context.name?.trim()) return NextResponse.json({ error: "This connection has no saved name. Resolve the person’s name before generating a first message." }, { status: 409 });

@@ -3,7 +3,7 @@ import {findRelationships as findIdentities,relationshipDiscoveryInventory,type 
 import type {calculateValue} from '@/lib/relationshipValue';
 
 export type CurrentRelationshipOperation={refs:TruthRef[];label:string;destination:string;stage:string;nextAction:string|null;nextDueDate:string|null;retention:string;workspaceExists:boolean;conflict:boolean;value:ReturnType<typeof calculateValue>|null};
-export type PrimaryRelationshipResult=Omit<RelationshipDiscoveryResult,'destination'>&{destination:string|null;contextDestination:string;operational:{state:'single'|'multiple'|'none';current:Omit<CurrentRelationshipOperation,'refs'|'conflict'>|null;choices:{label:string;destination:string}[]};emailCoverage:'verified_alias_recorded'|'not_established'};
+export type PrimaryRelationshipResult=Omit<RelationshipDiscoveryResult,'destination'>&{destination:string|null;contextDestination:string;operational:{state:'single'|'multiple'|'none';current:Omit<CurrentRelationshipOperation,'refs'|'conflict'>|null;choices:{label:string;destination:string}[]};intelligenceSummary?:{latestRelationshipEvent:import("@/lib/relationshipWorkspace").EvidenceEvent|null;retention:string|null};sourceSummary?:{source:string;channel:string;actualAt:string|null;recordedAt:string|null;subject:string|null;mailbox:string|null}[];emailCoverage:'verified_alias_recorded'|'not_established'};
 const key=(r:TruthRef)=>r.table+':'+r.id;
 function allowedDestination(value:string,result:RelationshipDiscoveryResult){
  if(!value.startsWith('/dashboard/growth/relationships/'))return false;
@@ -48,5 +48,8 @@ export function findRelationships(query:unknown,context:DiscoveryContext&{operat
    return {entry:single,result:{...single.result,ambiguity:{...result.ambiguity,possibleRecords:Math.max(result.ambiguity.possibleRecords,entry.refs.length)},reconciliationStatus:result.reconciliationStatus,sourceChoices:result.sourceChoices[index]?[result.sourceChoices[index]]:[]}};
   });
  });
- return display.map(({result,entry})=>{const relevant=[...new Set(entry.refs.flatMap(r=>byRef.get(key(r))||[]))];return attachRelationshipOperations(result,entry,context.operations,relevant);});
+ return display.map(({result,entry})=>{const relevant=[...new Set(entry.refs.flatMap(r=>byRef.get(key(r))||[]))];const attached=attachRelationshipOperations(result,entry,context.operations,relevant);
+ const rows:Record<string,Record<string,unknown>[]>={...context.input.lifecycle,founder_research_records:context.input.founder};
+ const sourceSummary=entry.refs.flatMap(ref=>(rows[ref.table]||[]).filter(row=>row.id===ref.id&&row.organisation_id===context.policy.organisationId).map(row=>({source:key(ref),channel:String(row.platform||ref.table),actualAt:typeof row.created_at_platform==="string"?row.created_at_platform:null,recordedAt:typeof row.inserted_at==="string"?row.inserted_at:typeof row.created_at==="string"?row.created_at:null,subject:typeof row.subject==="string"?row.subject:null,mailbox:row.platform==="email"&&typeof row.author_handle==="string"?row.author_handle:typeof row.author_email==="string"?row.author_email:typeof row.email==="string"?row.email:null})));
+ return {...attached,sourceSummary};});
 }

@@ -53,8 +53,8 @@ export function listRelationships(ctx:Context,q:unknown,view:string,page:number)
  const items=relationshipListInventory(ctx,q,view);
  return {items:items.slice(page*25,page*25+25),total:items.length,page,storageAvailable:ctx.storageAvailable};
 }
-export async function getRelationship(tenant:RelationshipTenant,locator:string, exactSource = false) {
- const ctx=await relationshipContext(tenant);
+export async function getRelationship(tenant:RelationshipTenant,locator:string, exactSource = false, prepared?:Context) {
+ const ctx=prepared || await relationshipContext(tenant);
  if (exactSource) {
   const parsed=parseRelationshipLocator(locator);
   if (!["inbox", "target", "acquisition"].includes(parsed.prefix)) throw new AccessError("Record unavailable.",404);

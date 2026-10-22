@@ -1,3 +1,4 @@
+import { operationalSearchSummary } from "@/lib/operationalIntelligence";
 import {readTenantHistory} from '@/lib/opsSearch.server';
 import {listRelationships,relationshipListInventory,relationshipContext} from '@/lib/relationshipWorkspace.server';
 import {relationshipDiscoveryInventory,findRelationships,compareRelationshipDiscovery,type RelationshipDiscoveryResult} from '@/lib/relationshipDiscovery';
@@ -24,7 +25,9 @@ export async function listPrimaryRelationships(ctx:Context,q:unknown,view:string
  const matches=findRelationships(q,{input,policy,ledger},scoped);
  const operations:CurrentRelationshipOperation[]=allVisible.flatMap(row=>ctx.items.filter(r=>forRow(r,row)).map(r=>({refs:r.refs,label:row.name,destination:`/dashboard/growth/relationships/${row.locator}?organisationId=${encodeURIComponent(ctx.tenant.organisationId)}`,stage:row.stage,nextAction:row.nextAction,nextDueDate:row.nextDueDate,retention:row.retention,workspaceExists:row.locator.startsWith('workspace_'),conflict:row.conflict,value:row.value as CurrentRelationshipOperation['value']})));
  const items=findPrimaryRelationships(q,{input,policy,ledger,currentSearchRefs:currentSources.flatMap(r=>r.refs),operations},scoped);
- return {items:items.slice(page*25,page*25+25),total:items.length,page,storageAvailable:current.storageAvailable,available:true,notice:'People and companies from your recorded relationships.',comparison:compareRelationshipDiscovery(scoped,matches,currentSources),operationalAmbiguity:items.filter(r=>r.operational.state==='multiple').length};
+ const events=items.length?await readTenantHistory('relationship_activity_events',ctx.tenant.organisationId):[];
+ const pageItems=items.slice(page*25,page*25+25).map(item=>({...item,intelligenceSummary:operationalSearchSummary(ctx.tenant.organisationId,item.sourceSummary||[],ctx.workspaces,ctx.links,events,ctx.canFounder)}));
+ return {items:pageItems,total:items.length,page,storageAvailable:current.storageAvailable,available:true,notice:'People and companies from your recorded relationships.',comparison:compareRelationshipDiscovery(scoped,matches,currentSources),operationalAmbiguity:items.filter(r=>r.operational.state==='multiple').length};
 }
 
 /** Read-only ledger consumption is independent of the decision-writing feature gate. */
