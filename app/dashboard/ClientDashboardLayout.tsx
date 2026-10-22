@@ -240,13 +240,14 @@ export default function ClientDashboardLayout({
     }
   }
 
+  const diarySelection = new URLSearchParams(routeSearch).get("organisationId") || orgId;
   const primaryNav: PrimaryNavItem[] = [
     {
       label: "Home",
       href: "/dashboard",
       match: (p) => p === "/dashboard",
     },
-    { label: "Diary", href: "/dashboard/diary", match: (p) => p.startsWith("/dashboard/diary") },
+    { label: "Diary", href: `/dashboard/diary${diarySelection ? `?organisationId=${encodeURIComponent(diarySelection)}` : ""}`, match: (p) => p.startsWith("/dashboard/diary") },
     {
       label: "Acquisition",
       href: "/dashboard/growth/acquisition",
