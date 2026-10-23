@@ -1,6 +1,8 @@
 import { object, words, type Row, type SourceRef, type EvidenceEvent } from "@/lib/relationshipWorkspace";
 
 export const strategyPrompts = ["Understand latest response", "What are they looking for?", "What opportunities do you see?", "What are the risks?", "Recommend next move", "Prepare me for a call"] as const;
+/** Avoid treating the generic words “a call” as a newly named subject in the existing coach parser. */
+export function strategyQuestion(prompt:string){return prompt==="Prepare me for a call"?"Prepare a call briefing for this relationship using its recorded evidence.":prompt;}
 export type CommandSnapshot = { actor:string; storageAvailable:boolean; workspace:{revision:unknown}|null; relationship:{name:string;refs:SourceRef[]}; founder:Row[]; tasks:Row[]; history?:{dated:EvidenceEvent[];undated:EvidenceEvent[]}; intelligence:{identity:{humanReviewRequired:boolean}} };
 export type RelationshipProposal = { actionType:"note"|"activity"|"task_created"|"retention"; targetRelationship:string; organisationId:string; actor:string; revision:unknown; sourceRefs:SourceRef[]; request:string; details:Row; consequence:string; evidenceBasis:string; confirmationRequired:true };
 export function recordedConnectionEvidence(data:Pick<CommandSnapshot,"relationship"|"history">) {
