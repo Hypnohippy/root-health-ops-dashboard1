@@ -86,3 +86,24 @@ test('factual questions request a direct recorded answer and private machine gro
  const prompt=coach.relationshipReasoningMessages('What happened today?',answer.grounding,'factual');assert.match(prompt[0].content,/directly answer the question/);assert.match(prompt[0].content,/NEVER establishes that the counterpart is open/);assert.match(prompt[0].content,/surface that mismatch explicitly/);assert.match(prompt[0].content,/do not recommend another immediate follow-up/);
  const text=coach.relationshipReasoningText({recommendation:'A call was manually recorded.',reasoning:'Within the supplied evidence only, a call entry exists.',interpretation:'Within the supplied evidence only, commercial fit needs review.',uncertainty:'What did the recipient agree to?'},'factual');assert.match(text,/^Answer \(recorded evidence\)/);
 });
+
+
+test('bulk canonical collection reads history/membership once and uses the same detail composition for every source',async()=>{
+ const added=Array.from({length:8},(_,n)=>({id:`eeeeeeee-eeee-4eee-8eee-${String(n).padStart(12,'0')}`,organisation_id:org,platform:'linkedin',kind:'connection_accepted',status:'needs_reply',author_name:'Controlled '+n,linkedin_identity:'linkedin.com/in/controlled-'+n,created_at_platform:new Date(Date.now()-86400000).toISOString()}));
+ input.inbox_items.push(...added);
+ try{const f=fixture(),counts={},read=f.mocks['@/lib/opsSearch.server'].readTenantHistory;f.mocks['@/lib/opsSearch.server'].readTenantHistory=async(...args)=>{counts[args[0]]=(counts[args[0]]||0)+1;return read(...args);};let members=0;const from=f.mocks['@/lib/supabaseAdmin'].supabaseAdmin.from;f.mocks['@/lib/supabaseAdmin'].supabaseAdmin.from=table=>{members++;return from(table);};
+ const result=await f.reader.readOperationalCollection(f.tenant);assert.equal(result.records.length,9);assert.equal(members,1);for(const table of ['relationship_activity_events','relationship_tasks','linkedin_conversation_messages'])assert.equal(counts[table],1,table);assert.equal(result.records[0].intelligence.state.retention,'stale');assert.doesNotMatch(JSON.stringify(result.records),/FOREIGN SECRET/);
+ }finally{input.inbox_items.splice(1);}
+});
+
+test('canonical Diary and Waiting actionable LinkedIn count equals the unchanged real queue; stale preserves history and reply authority',async()=>{
+ const initial=structuredClone(input.inbox_items[0]),retention=workspace.retention;
+ const first=new Date(Date.now()-10*86400000).toISOString(),target='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+ input.inbox_items[0].created_at_platform=new Date(Date.now()-20*86400000).toISOString();
+ input.growth_targets.push({id:target,organisation_id:org,target_name:'Controlled person',linkedin_identity:initial.linkedin_identity,status:'active',stage:'day3_followup',last_action_at:first,manual_completion:{key:'ffffffff-ffff-4fff-8fff-ffffffffffff',actor:'operator',stage:'connection',message:'Exact controlled manual message',evidence:'Actual send confirmed',sent_at:first,confirmed_at:first,historical_send_date_status:'verified'}});
+ try{workspace.retention='active';const f=fixture(),collection=await f.reader.readOperationalCollection(f.tenant),work=load('lib/operationalWork.ts').buildOperationalWork(collection);assert.equal(collection.linkedInFollowups,1);assert.equal(work.items.filter(i=>i.type==='Follow-up'&&i.channel==='linkedin'&&i.actionable).length,collection.linkedInFollowups);assert.equal(work.summary.actionableFollowups,1);
+ workspace.retention='stale';const blocked=await fixture().reader.readOperationalCollection(f.tenant),snapshot=load('lib/operationalWork.ts').buildOperationalWork(blocked);assert.equal(blocked.linkedInFollowups,0);assert.equal(snapshot.summary.actionableFollowups,0);assert.ok(snapshot.items.some(i=>i.type==='Follow-up'&&i.suppressionReason==='Relationship marked stale'));assert.ok(snapshot.items.some(i=>i.type==='Manual activity'));
+ }finally{input.growth_targets.length=0;input.inbox_items[0]=initial;workspace.retention=retention;}
+});
+
+test('bulk canonical reader filters Founder/private evidence before Diary projection',async()=>{const f=fixture({privateEvent:true}),data=await f.reader.readOperationalCollection(f.tenant),snapshot=load('lib/operationalWork.ts').buildOperationalWork(data);assert.equal(snapshot.items.some(i=>i.source.provider==='ops'&&i.source.table==='relationship_activity_events'),false);assert.doesNotMatch(JSON.stringify(snapshot),/FOREIGN SECRET/);});

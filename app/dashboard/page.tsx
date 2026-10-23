@@ -5,16 +5,18 @@ import { useEffect, useState } from "react";
 import ControlOverview from "./ControlOverview";
 import type { HomeControl } from "@/lib/homeControl";
 
-type Counts={newOpportunities:number;linkedInConnections:number;outreachReady:number;repliesNeedingResponse:number;followupsDue:number;waiting:number;warmOpportunities:number;meetingsOrConversions:number;contentApprovals:number;connectionProblems:number};
+type Counts={meetingsThisWeek:number;overdueTasks:number;newOpportunities:number;linkedInConnections:number;outreachReady:number;repliesNeedingResponse:number;followupsDue:number;waiting:number;warmOpportunities:number;meetingsOrConversions:number;contentApprovals:number;connectionProblems:number};
 type AttentionCard={key:keyof Counts;label:string;why:string;href:string;tone:string};
 const cards:AttentionCard[]=[
+ {key:"meetingsThisWeek",label:"Meetings this UK week",why:"Structured schedules, separate from follow-ups.",href:"/dashboard/diary",tone:"sky"},
+ {key:"overdueTasks",label:"Overdue tasks",why:"Open dated tasks from earlier UK dates.",href:"/dashboard/diary",tone:"amber"},
  {key:"repliesNeedingResponse",label:"Replies need you",why:"People are waiting for a human response.",href:"/dashboard/responses?status=needs_reply",tone:"violet"},
  {key:"linkedInConnections",label:"New LinkedIn connections",why:"Work through first messages and due follow-ups.",href:"/dashboard/responses/linkedin",tone:"sky"},
- {key:"followupsDue",label:"Follow-ups due today",why:"Continue outreach while the conversation is current.",href:"/dashboard/growth?view=due",tone:"amber"},
+ {key:"followupsDue",label:"Actionable follow-ups",why:"Existing governors permit these follow-ups now.",href:"/dashboard/diary",tone:"amber"},
  {key:"newOpportunities",label:"New opportunities",why:"Qualify, accept or dismiss new discoveries.",href:"/dashboard/growth/acquisition?status=new",tone:"emerald"},
  {key:"outreachReady",label:"Outreach ready",why:"Approved contacts are ready for their first action.",href:"/dashboard/growth/followups?stage=connection",tone:"cyan"},
  {key:"contentApprovals",label:"Posts awaiting approval",why:"Approve, edit or reject prepared content.",href:"/dashboard/approvals?state=pending",tone:"pink"},
- {key:"waiting",label:"Contacts waiting",why:"See contacted people and their next due date.",href:"/dashboard/growth/waiting",tone:"slate"},
+ {key:"waiting",label:"Waiting / future / suppressed items",why:"Recorded dependencies and exclusions; not a people total.",href:"/dashboard/growth/waiting",tone:"slate"},
  {key:"warmOpportunities",label:"Active opportunities",why:"Keep warm replies and live opportunities moving.",href:"/dashboard/growth/pipeline?view=warm",tone:"emerald"},
  {key:"meetingsOrConversions",label:"Meetings and conversions",why:"Review commercial outcomes and next steps.",href:"/dashboard/growth/pipeline?view=meetings",tone:"emerald"},
  {key:"connectionProblems",label:"Connections need attention",why:"Reconnect channels before work is interrupted.",href:"/dashboard/connect?section=attention",tone:"red"},

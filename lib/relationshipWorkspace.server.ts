@@ -53,7 +53,7 @@ export function listRelationships(ctx:Context,q:unknown,view:string,page:number)
  const items=relationshipListInventory(ctx,q,view);
  return {items:items.slice(page*25,page*25+25),total:items.length,page,storageAvailable:ctx.storageAvailable};
 }
-export async function getRelationship(tenant:RelationshipTenant,locator:string, exactSource = false, prepared?:Context) {
+export async function getRelationship(tenant:RelationshipTenant,locator:string, exactSource = false, prepared?:Context,helpers?:{history:typeof readTenantHistory;members:Row[]}) {
  const ctx=prepared || await relationshipContext(tenant);
  if (exactSource) {
   const parsed=parseRelationshipLocator(locator);
@@ -67,16 +67,16 @@ export async function getRelationship(tenant:RelationshipTenant,locator:string, 
   ctx.items=projectRelationships(tenant.organisationId,ctx.input,[]);
  }
  const {relationship,workspace}=selected(ctx,locator),id=workspace?.id;
- const [allEvents,allTasks]=id?await Promise.all([readTenantHistory("relationship_activity_events",tenant.organisationId),readTenantHistory("relationship_tasks",tenant.organisationId)]):[[],[]];
+ const [allEvents,allTasks]=id?await Promise.all([(helpers?.history||readTenantHistory)("relationship_activity_events",tenant.organisationId),(helpers?.history||readTenantHistory)("relationship_tasks",tenant.organisationId)]):[[],[]];
  const visible=(r:Row)=>r.workspace_id===id&&(!r.organisation_id||r.organisation_id===tenant.organisationId)&&(ctx.canFounder||!r.founder_only);
  const events=allEvents.filter(visible),tasks=allTasks.filter(visible);
  // Do not return raw workspace metadata (private creator/timestamps or a protected company link).
  const publicWorkspace=workspace?{id:workspace.id,revision:workspace.revision,retention:workspace.retention,owner_user_id:workspace.owner_user_id,related_company_id:ctx.workspaces.some(w=>w.id===workspace.related_company_id)?workspace.related_company_id:null}:null;
- const evidence=await relationshipHistory(tenant.organisationId,relationship,ctx.input,ctx.founder,events);
+ const evidence=await relationshipHistory(tenant.organisationId,relationship,ctx.input,ctx.founder,events,helpers?.history);
  const assessment=ctx.values.filter(v=>v.workspace_id===id).sort((a,b)=>String(b.recorded_at).localeCompare(String(a.recorded_at))||String(b.id).localeCompare(String(a.id)))[0]||null;
  const model=ctx.models.find(m=>m.is_default)||null;
- const {data:members,error:memberError}=await supabaseAdmin.from("organisation_members").select("user_id,role").eq("organisation_id",tenant.organisationId).order("user_id");if(memberError)throw memberError;
- return {relationship,recordedActionKeys:events.map(e=>words(e.idempotency_key)).filter(Boolean),workspace:publicWorkspace,storageAvailable:ctx.storageAvailable,conversation:evidence.conversation,history:evidence.history,notes:events.filter(e=>e.activity_type==="note"),tasks,assessment,pricingDefaults:pricingDefaults(model),pricingChanged:!!assessment&&(object(assessment.input).pricingModelId||null)!==(model?.id||null),canSetPricing:["owner","admin"].includes(tenant.role.toLowerCase()),actor:tenant.userId,members:(members||[]).map((m:{user_id:string;role:string})=>({id:m.user_id,role:m.role})),founder:ctx.canFounder?ctx.founder.filter(f=>relationship.founderIds.includes(String(f.id))):[],companyOptions:ctx.workspaces.filter(w=>w.entity_kind==="company").map(w=>({id:w.id,label:ctx.items.find(r=>r.refs.some(ref=>ctx.links.some(l=>l.workspace_id===w.id&&l.source_id===ref.id&&l.source_table===ref.table)))?.name||"Company"})),pipelineValues:relationship.refs.filter(r=>r.table==="growth_targets").flatMap(r=>ctx.input.growth_targets.filter(t=>t.id===r.id&&t.deal_value!=null).map(t=>({targetId:t.id,value:t.deal_value,label:"Recorded pipeline deal value; not subscription revenue"})))};
+ const {data:members,error:memberError}=helpers?{data:helpers.members,error:null}:await supabaseAdmin.from("organisation_members").select("user_id,role").eq("organisation_id",tenant.organisationId).order("user_id");if(memberError)throw memberError;
+ return {relationship,recordedActionKeys:events.map(e=>words(e.idempotency_key)).filter(Boolean),workspace:publicWorkspace,storageAvailable:ctx.storageAvailable,conversation:evidence.conversation,history:evidence.history,notes:events.filter(e=>e.activity_type==="note"),tasks,assessment,pricingDefaults:pricingDefaults(model),pricingChanged:!!assessment&&(object(assessment.input).pricingModelId||null)!==(model?.id||null),canSetPricing:["owner","admin"].includes(tenant.role.toLowerCase()),actor:tenant.userId,members:(members||[]).map(m=>({id:String(m.user_id),role:String(m.role)})),founder:ctx.canFounder?ctx.founder.filter(f=>relationship.founderIds.includes(String(f.id))):[],companyOptions:ctx.workspaces.filter(w=>w.entity_kind==="company").map(w=>({id:w.id,label:ctx.items.find(r=>r.refs.some(ref=>ctx.links.some(l=>l.workspace_id===w.id&&l.source_id===ref.id&&l.source_table===ref.table)))?.name||"Company"})),pipelineValues:relationship.refs.filter(r=>r.table==="growth_targets").flatMap(r=>ctx.input.growth_targets.filter(t=>t.id===r.id&&t.deal_value!=null).map(t=>({targetId:t.id,value:t.deal_value,label:"Recorded pipeline deal value; not subscription revenue"})))};
 }
 export async function saveRelationship(tenant:RelationshipTenant,locator:string,body:Row,canonicalRefs?:import("@/lib/relationshipWorkspace").SourceRef[]) {
  if(!/^[a-f0-9-]{36}$/i.test(words(body.key)))throw Error("A stable action key is required.");

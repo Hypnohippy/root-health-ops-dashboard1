@@ -3,19 +3,23 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
+import {workFixture,task} from "./operational-work-fixtures.mjs";
+import {loadTruthModule} from "./relationship-truth-loader.mjs";
+const workModel=loadTruthModule("lib/operationalWork.ts");
 import * as React from "react";
 import * as jsx from "react/jsx-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
 function load(file, deps = {}) {
   const mod = { exports: {} };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
-    { module: mod, exports: mod.exports, URL, URLSearchParams, require: name => { assert.ok(name in deps, `Unexpected dependency ${name}`); return deps[name]; } });
+    { module: mod, exports: mod.exports, URL, URLSearchParams, require: name => { if(name in deps)return deps[name]; if(name.startsWith("@/lib/"))return loadTruthModule(name.replace("@/","")+".ts",deps); throw Error(`Unexpected dependency ${name}`); } });
   return mod.exports;
 }
-const engine = load("lib/engineState.ts"), outreach = load("lib/growthOutreach.ts"), health = load("lib/connectionHealth.ts");
+const engine = load("lib/engineState.ts"), outreach = loadTruthModule("lib/growthOutreach.ts"), health = load("lib/connectionHealth.ts");
 const lifecycle = load("lib/contactLifecycle.ts", { "@/lib/engineState": engine, "@/lib/growthOutreach": outreach });
 const home = load("lib/homeControl.ts", { "@/lib/contactLifecycle": lifecycle, "@/lib/connectionHealth": health, "@/lib/channelCapabilities": load("lib/channelCapabilities.ts") });
 const command = load("lib/commandCentre.ts", { "@/lib/growthOutreach": outreach });
+const canonicalHome=load("lib/homeOperational.ts", {"@/lib/homeControl":home});
 const responses = load("lib/responseLifecycle.ts", { "@/lib/contactLifecycle": lifecycle });
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const now = Date.parse("2026-09-25T12:00:00Z"), recent = "2026-09-24T12:00:00Z";
@@ -25,7 +29,7 @@ const run = changes => home.buildHomeControl(A, { ...empty(), ...changes }, now)
 const current = result => result.items.filter(i => i.group !== "done");
 
 test("contact lifecycle deduplicates current work and separates recent receipts from future manual cadence", () => {
-  const result = run({ inbox_items: [row("acceptance", { platform: "linkedin", kind: "connection_accepted", status: "replied", contacted_at: recent, linkedin_identity: "linkedin.com/in/test", author_name: "Contact", inserted_at: recent })], growth_targets: [row("target", { target_name: "Contact", linkedin_identity: "linkedin.com/in/test", stage: "day3_dm", status: "active", last_action_at: recent })] });
+  const result = run({ inbox_items: [row("acceptance", { platform: "linkedin", kind: "connection_accepted", status: "replied", contacted_at: recent, linkedin_identity: "linkedin.com/in/test", author_name: "Contact", inserted_at: recent })], growth_targets: [row("target", { target_name: "Contact", linkedin_identity: "linkedin.com/in/test", stage: "day3_dm", status: "active", last_action_at: recent, manual_completion:{key:"controlled",actor:"operator",stage:"connection",message:"Controlled sent message",evidence:"Manual confirmation",sent_at:recent,confirmed_at:recent,historical_send_date_status:"verified"} })] });
   assert.equal(current(result).length, 1); assert.equal(current(result)[0].group, "in_hand");
   assert.match(current(result)[0].owner, /Your team/); assert.doesNotMatch(current(result)[0].owner, /automatic/i);
   assert.equal(current(result)[0].nextDueDate, "2026-09-27T12:00:00.000Z");
@@ -110,14 +114,14 @@ test("focused record list APIs authorize first and retain tenant filters", async
       const query = { select() { return query; }, eq(key, value) { filters.push([key, value]); return query; }, order() { return query; }, range: async () => ({ data: [], count: 0 }), limit: async () => ({ data: [] }) };
       const admin = { from() { assert.ok(authorized); reads++; return query; } };
       const auth = { requireOrganisation: async requested => { assert.equal(requested, A); if (!allowed) throw Error("DENIED"); authorized = true; return { organisationId: A }; }, accessErrorResponse: error => error.message === "DENIED" ? { status: 403 } : null };
-      const route = load(file, { "next/server": server, "@/lib/tenantAuth": auth, "@/lib/supabaseAdmin": { supabaseAdmin: admin }, "../../../../lib/supabaseAdmin": { supabaseAdmin: admin }, "@/lib/growthIngestion.server": { statuses: ["new"], uuid: /^[a-f0-9-]{36}$/ } });
+      const route = load(file, { "next/server": server, "@/lib/tenantAuth": auth, "@/lib/supabaseAdmin": { supabaseAdmin: admin }, "../../../../lib/supabaseAdmin": { supabaseAdmin: admin }, "@/lib/personalDistribution.server": {personalPerformance:async()=>({})}, "@/lib/linkedinCapture.server": {linkedInRecommendationStates:async()=>({})}, "@/lib/growthIngestion.server": { recordTypes:["personal_opportunity"], statuses: ["new"], uuid: /^[a-f0-9-]{36}$/ } });
       const url = new URL(`https://ops.example/api/list?organisationId=${A}&itemId=${id}`);
       const result = await route.GET({ url: url.href, nextUrl: url });
       assert.equal(result.status, allowed ? 200 : 403);
       if (allowed) assert.deepEqual(filters, [["organisation_id", A], ["id", id]]); else assert.equal(reads, 0);
     }
   }
-  const route = load("app/api/responses/list/route.ts", { "next/server": server, "@/lib/tenantAuth": { requireOrganisation: async () => ({ organisationId: A }), accessErrorResponse: () => null }, "@/lib/responseLifecycle": responses, "@/lib/lifecycleSnapshot.server": { readLifecycleInput: async tenant => { assert.equal(tenant, A); return { ...empty(), inbox_items: [row(id, { status: "needs_reply", inserted_at: "2020-01-01" }), row("newer", { status: "needs_reply", inserted_at: recent }), row(id, { organisation_id: B, author_name: "FOREIGN" })] }; } } });
+  const route = load("app/api/responses/list/route.ts", { "@/lib/opsSearch.server":{readTenantHistory:async()=>[]}, "next/server": server, "@/lib/tenantAuth": { requireOrganisation: async () => ({ organisationId: A }), accessErrorResponse: () => null }, "@/lib/responseLifecycle": responses, "@/lib/lifecycleSnapshot.server": { readLifecycleInput: async tenant => { assert.equal(tenant, A); return { ...empty(), inbox_items: [row(id, { status: "needs_reply", inserted_at: "2020-01-01" }), row("newer", { status: "needs_reply", inserted_at: recent }), row(id, { organisation_id: B, author_name: "FOREIGN" })] }; } } });
   const result = await route.GET(new Request(`https://ops.example/api/list?organisationId=${A}&itemId=${id}&limit=1`));
   assert.equal(result.body.items.length, 1); assert.equal(result.body.items[0].id, id); assert.doesNotMatch(JSON.stringify(result), /FOREIGN/);
   const filters = [];
@@ -137,7 +141,7 @@ test("Home API authorizes before reads, pages all records and fails closed witho
     } }; return q; } };
     const route = load("app/api/home/attention/route.ts", { "next/server": { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200, headers: options.headers }) } },
       "@/lib/tenantAuth": { requireOrganisation: async requested => { assert.equal(requested, A); if (!access) throw Error("DENIED"); return { organisationId: A }; }, accessErrorResponse: error => error.message === "DENIED" ? { status: 403 } : null },
-      "@/lib/supabaseAdmin": { supabaseAdmin: admin }, "@/lib/lifecycleSnapshot.server": { readLifecycleInput: async tenant => { assert.equal(tenant, A); reads.push(["lifecycle"]); return { acquisition_items: [], inbox_items: [], growth_targets: [] }; } },
+      "@/lib/supabaseAdmin": { supabaseAdmin: admin }, "@/lib/operationalIntelligence.server": {readOperationalCollection:async tenant=>{assert.equal(tenant.organisationId,A);reads.push(["canonical"]);const c=workFixture();c.records=[];c.input={acquisition_items:[],inbox_items:[],growth_targets:[]};return c;}}, "@/lib/operationalWork":workModel, "@/lib/homeOperational":canonicalHome,
       "@/lib/homeControl": home, "@/lib/connectionHealth": health, "@/lib/commandCentre": command, "@/lib/responseLifecycle": responses });
     const result = await route.GET(new Request(`https://ops.example/api/home/attention?organisationId=${A}`));
     assert.equal(result.status, access ? 200 : 403);
@@ -158,7 +162,20 @@ test("Home renders operational detail and manual fallback while retaining existi
   const overview = renderToStaticMarkup(jsx.jsx(view.default, { control: result }));
   for (const label of ["Done / recently handled", "In hand / scheduled", "Needs human", "Blocked / fallback"]) assert.ok(overview.includes(label));
   const page = fs.readFileSync("app/dashboard/page.tsx", "utf8");
-  assert.equal((page.match(/key:"/g) || []).length, 10);
+  assert.equal((page.match(/key:"/g) || []).length, 12);
   for (const route of ["/dashboard/publishing", "/dashboard/growth/acquisition", "/dashboard/responses", "/dashboard/growth/pipeline", "/dashboard/connect", "/dashboard/approvals"]) assert.ok(page.includes(route));
   assert.match(page, /Counts are unavailable/); assert.match(page, /AbortController/); assert.doesNotMatch(page, /method:\s*["']POST/);
+});
+
+
+test("Home uses the same canonical follow-up, reply, waiting and task summary as Diary",()=>{
+ const c=workFixture();c.records[0].tasks=[task()];const work=workModel.buildOperationalWork(c);
+ const control=canonicalHome.canonicalHomeControl(A,home.buildHomeControl(A,{...c.input,scheduled_posts:[],social_accounts:[]},Date.parse(c.asOf)),c,work);
+ assert.equal(work.summary.actionableFollowups,1);assert.equal(work.summary.repliesNeedingResponse,2);
+ assert.ok(control.items.some(i=>i.id.startsWith('canonical:relationship_tasks:')));
+ const suppressed=structuredClone(c);suppressed.records[0].intelligence.actionability.linkedInActionSources=[];suppressed.records[0].intelligence.actionability.suppressionReasons=['Relationship marked stale'];suppressed.records[0].intelligence.state.retention='stale';
+ const stale=workModel.buildOperationalWork(suppressed);assert.equal(stale.summary.actionableFollowups,0);assert.equal(stale.summary.waiting,1);assert.equal(stale.summary.repliesNeedingResponse,2);
+ const result=canonicalHome.canonicalHomeControl(A,home.buildHomeControl(A,{...c.input,scheduled_posts:[],social_accounts:[]},Date.parse(c.asOf)),suppressed,stale);
+ assert.ok(result.items.filter(i=>i.stage==='follow_up').every(i=>i.group!=='human'));
+ const route=fs.readFileSync('app/api/home/attention/route.ts','utf8');assert.match(route,/followupsDue: work.summary!.actionableFollowups/);assert.match(route,/const replies = attention.count/);assert.match(route,/waiting: work.summary!.waiting/);
 });

@@ -1,21 +1,22 @@
-import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
-import { readTenantHistory } from "@/lib/opsSearch.server";
-import { founderAllowed, type RelationshipTenant } from "@/lib/relationshipWorkspace.server";
-import { buildDiary, diaryDay, diaryLabel, diaryShift, type DiarySnapshot } from "@/lib/diary";
+import { readOperationalCollection } from "@/lib/operationalIntelligence.server";
+import { buildOperationalWork } from "@/lib/operationalWork";
+import type { RelationshipTenant } from "@/lib/relationshipWorkspace.server";
+import { diaryDay,diaryLabel,diaryShift,diaryWeek,type DiaryIntent,type DiarySnapshot } from "@/lib/diary";
 import type { GuideAnswer } from "@/lib/rootCoachGuide";
-
-/** Called only after existing membership authorization, by both Diary and Ask Root. */
-export async function readDiary(tenant: RelationshipTenant): Promise<DiarySnapshot> {
-  const org = tenant.organisationId;
-  const [input, tasks, workspaces, canFounder] = await Promise.all([readLifecycleInput(org), readTenantHistory("relationship_tasks", org, "id,organisation_id,workspace_id,task,founder_only,due_at,status"), readTenantHistory("relationship_workspaces", org, "id,organisation_id,founder_only"), founderAllowed(org)]);
-  // Fail closed for protected tasks/workspaces rather than expose private research text.
-  return buildDiary(org, input, tasks.filter(t => canFounder || !t.founder_only), workspaces.filter(w => canFounder || !w.founder_only));
-}
-export async function diaryAnswer(tenant: RelationshipTenant, intent: NonNullable<ReturnType<typeof import("./diary").diaryQuestion>>): Promise<GuideAnswer> {
-  const link = { id: "diary" as const, label: "Diary", href: `/dashboard/diary?organisationId=${encodeURIComponent(tenant.organisationId)}` };
-  if (intent === "where") return { workspace: "Diary", message: "Open Diary in the primary navigation for Today, Week and Month. It reads existing dated Ops work; it does not sync an external calendar or create appointments from messages.", destinations: [link] };
-  const snapshot = await readDiary(tenant), day = intent === "tomorrow" ? diaryShift(snapshot.today, 1) : snapshot.today;
-  const items = snapshot.items.filter(i => typeof intent === "object" ? i.type === "Call" && diaryDay(i.at) >= snapshot.today && (` ${i.title.toLocaleLowerCase().replace(/\s+/g, " ")} `).includes(` ${intent.person.toLocaleLowerCase().replace(/\s+/g, " ")} `) : intent === "overdue" ? i.actionable && diaryDay(i.at) < day : intent === "week" ? diaryDay(i.at) >= day && diaryDay(i.at) < diaryShift(day, 7) : diaryDay(i.at) === day);
-  const message = items.length ? `${items.length} recorded ${items.length === 1 ? "item" : "items"}${typeof intent === "object" ? " matching that name (not an identity confirmation)" : ` for ${intent}`} (Europe/London):\n${items.slice(0, 12).map(i => `• ${diaryLabel(i.at, !i.dateOnly)} — ${i.title}: ${i.type}; ${i.action}.`).join("\n")}${items.length > 12 ? "\nOpen Diary for the full list." : ""}` : typeof intent === "object" ? "No upcoming structured call/meeting matching that name is recorded in the available Diary sources. Conversation text alone does not establish an appointment." : `No recorded dated items ${intent === "overdue" ? "remain overdue" : `for ${intent}`} in the available Diary sources.`;
-  return { workspace: "Diary", message, destinations: [link] };
+export async function readDiary(tenant:RelationshipTenant):Promise<DiarySnapshot>{return buildOperationalWork(await readOperationalCollection(tenant));}
+export async function diaryAnswer(tenant:RelationshipTenant,intent:DiaryIntent,question?:string,reason?:(question:string,evidence:string,intent:"factual"|"interpretive")=>Promise<string>):Promise<GuideAnswer>{
+ const link={id:"diary" as const,label:"Diary",href:`/dashboard/diary?organisationId=${encodeURIComponent(tenant.organisationId)}`};
+ if(intent==="where")return {workspace:"Diary",message:"Open Diary in the primary navigation for Today, Week and Month. It reads canonical Ops work, not external calendars or appointments inferred from messages.",destinations:[link]};
+ const snapshot=await readDiary(tenant),day=intent==="tomorrow"?diaryShift(snapshot.today,1):snapshot.today,week=diaryWeek(day);
+ const items=snapshot.items.filter(i=>typeof intent==="object"? (intent.kind==="all"||i.type==="Meeting")&&(` ${i.title.toLowerCase()} `).includes(` ${intent.person.toLowerCase()} `):intent==="overdue"?i.actionable&&!!i.at&&diaryDay(i.at)<day:intent==="week"?week.includes(diaryDay(i.at)):intent==="actionable"?i.actionable:intent==="waiting"?i.type==="Waiting"||i.type==="Follow-up"&&!i.actionable:intent==="overview"?true:diaryDay(i.at)===day);
+ const summary=snapshot.summary;
+ const facts=`Recorded canonical facts (Europe/London; as of ${snapshot.asOf}):${summary?` ${summary.repliesNeedingResponse} replies need attention; ${summary.actionableFollowups} actionable follow-ups; ${summary.futureFollowups} future follow-ups; ${summary.suppressedFollowups} suppressed follow-ups; ${summary.meetingsToday} meetings today; ${summary.tasksToday} tasks today; ${summary.overdueTasks} overdue tasks from earlier UK dates.`:""}`;
+ const chosen=intent==="overview"?[...new Map([...items.filter(i=>i.actionable).slice(0,10),...items.filter(i=>i.type==="Meeting"&&i.at&&diaryDay(i.at)>=day).slice(0,5),...items.filter(i=>!i.actionable&&i.suppressionReason).slice(0,5),...items.filter(i=>i.type==="Follow-up"&&i.at&&diaryDay(i.at)>day).slice(0,5),...items.filter(i=>i.type==="Waiting").slice(0,5)].map(i=>[i.id,i])).values()]:items;
+ const detail=chosen.length?chosen.slice(0,30).map(i=>`• ${diaryLabel(i.at,!i.dateOnly)} — ${i.title}: ${i.type}; ${i.status}; actionable ${i.actionable?"yes":"no"}${i.suppressionReason?`; ${i.suppressionReason}`:""}.`).join("\n"):typeof intent==="object"?"No matching structured items in the available Diary evidence. A name filter is not identity confirmation.":"No recorded dated items in this selection.";
+ let message=facts+"\n\n"+detail;
+ if(intent==="overview"&&question&&reason){
+  const evidence=JSON.stringify({asOf:snapshot.asOf,timezone:snapshot.timezone,summary,selection:chosen.slice(0,30),countMeanings:{waiting:"A count of explicit Waiting events PLUS non-actionable follow-up events, including future or suppressed cadence. These are operational items, not unique people, and NOT all waiting for a response.",futureFollowups:"Future dated follow-up events; may overlap suppressed follow-ups.",suppressedFollowups:"Non-actionable follow-up history with an exclusion; never permission to send."},coverage:"Use the count meanings exactly. Never describe the waiting total as replies expected or items waiting for a response. Bounded canonical evidence. Unknown dates stay unknown. Manual activity is not delivery/acceptance/booking. Suppressed work is not permission to send. Names filter sources, never merge identities. No priority scores, writes, sends or calendar actions."});
+  try{message+="\n\nRecommendation / interpretation for review:\n"+await reason(question,evidence,"interpretive");}catch{message+="\n\nInterpretation is temporarily unavailable. The recorded facts above remain available; no action was taken.";}
+ }
+ return {workspace:"Diary · canonical operational evidence",message,destinations:[link,...(summary?.repliesNeedingResponse?[{id:"responses" as const,label:"Replies needing attention",href:`/dashboard/responses?organisationId=${encodeURIComponent(tenant.organisationId)}`}]:[])]};
 }
