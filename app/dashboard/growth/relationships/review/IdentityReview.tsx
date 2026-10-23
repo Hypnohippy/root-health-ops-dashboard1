@@ -15,7 +15,7 @@ export default function IdentityReview({organisationId,locator}:{organisationId:
   if(result?.intake)throw Error("An existing or review-required destination is present. Search and review the exact source before continuing.");
  }
  const source=(value:string)=>sources.find(s=>s.ref.table+":"+s.ref.id===value)?.ref;
- return <main className="mx-auto w-full max-w-5xl space-y-5 p-4 text-slate-900 md:p-8">
+ return <main className="mx-auto w-full max-w-5xl space-y-5 rounded-xl bg-white p-4 text-slate-900 md:p-8">
   <a className="underline" href={`/dashboard/growth/relationships?organisationId=${encodeURIComponent(organisationId)}`}>← Relationships</a><h1 className="text-2xl font-semibold">Reviewed identity &amp; research decisions</h1><p>Preview the exact source, review it, then confirm. Nothing is sent. Public similarity never establishes identity.</p>
   {error&&<p role="alert" className="rounded-lg border border-red-400 bg-red-50 p-3">{error}</p>}{notice&&<p role="status">{notice}</p>}
   {reviewed.controls}
