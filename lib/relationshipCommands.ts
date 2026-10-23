@@ -1,8 +1,11 @@
-import { object, words, type Row, type SourceRef } from "@/lib/relationshipWorkspace";
+import { object, words, type Row, type SourceRef, type EvidenceEvent } from "@/lib/relationshipWorkspace";
 
 export const strategyPrompts = ["Understand latest response", "What are they looking for?", "What opportunities do you see?", "What are the risks?", "Recommend next move", "Prepare me for a call"] as const;
-export type CommandSnapshot = { actor:string; storageAvailable:boolean; workspace:{revision:unknown}|null; relationship:{name:string;refs:SourceRef[]}; founder:Row[]; tasks:Row[]; intelligence:{identity:{humanReviewRequired:boolean}} };
+export type CommandSnapshot = { actor:string; storageAvailable:boolean; workspace:{revision:unknown}|null; relationship:{name:string;refs:SourceRef[]}; founder:Row[]; tasks:Row[]; history?:{dated:EvidenceEvent[];undated:EvidenceEvent[]}; intelligence:{identity:{humanReviewRequired:boolean}} };
 export type RelationshipProposal = { actionType:"note"|"activity"|"task_created"|"retention"; targetRelationship:string; organisationId:string; actor:string; revision:unknown; sourceRefs:SourceRef[]; request:string; details:Row; consequence:string; evidenceBasis:string; confirmationRequired:true };
+export function recordedConnectionEvidence(data:Pick<CommandSnapshot,"relationship"|"history">) {
+ return [...(data.history?.dated||[]),...(data.history?.undated||[])].find(e=>e.kind==="Connection accepted"&&e.channel==="LinkedIn"&&data.relationship.refs.some(ref=>ref.table==="inbox_items"&&e.id===`acceptance:${ref.id}`))||null;
+}
 export type ProposalAnswer = { proposals:RelationshipProposal[]; explanations:string[] };
 /** Bounded intent adapter. No model tools, database calls or free-form execution. */
 export function relationshipProposals(request:unknown,organisationId:string,locator:string,data:CommandSnapshot):ProposalAnswer {
@@ -11,7 +14,7 @@ export function relationshipProposals(request:unknown,organisationId:string,loca
  const q=text.toLowerCase();
  if(/\b(?:send|publish|delete|merge|convert|mark (?:as )?(?:won|lost)|set (?:the )?(?:lifecycle|stage)|calendar|provider)\b/.test(q))return {proposals,explanations:["That action is unavailable through Ask Root. No action taken. Use the existing governed workflow."]};
  if(/research/.test(q))explanations.push(data.founder.length?"Linked Founder research is already recorded. Open its protected source to review it; no research stage will be changed.":"Research is not recorded on this exact source. Open Founder to start or review research; a statement cannot create research evidence or link identities.");
- if(/connected|connection|acceptance/.test(q))explanations.push("Manual contact is not connection acceptance. Review the recorded LinkedIn source evidence. A new user-confirmed connection requires a separately reviewed provenance contract; no acceptance date or receipt is created here.");
+ if(/connected|connection|acceptance/.test(q))explanations.push(recordedConnectionEvidence(data)?"An accepted-connection source is already recorded on this exact relationship. Review its History/source provenance; no new acceptance, send receipt or date will be created.":"Manual contact is not connection acceptance. Review the recorded LinkedIn source evidence. A new user-confirmed connection requires a separately reviewed provenance contract; no acceptance date or receipt is created here.");
  const assertion=!/\?|^(?:have|has|did|do|does|can|should|what|why|when|how)\b|\b(?:not|never|haven.t|hasn.t|didn.t)\b/i.test(text);
  const manual= !assertion?null: /\b(?:emailed|email sent)\b/.test(q)?"emailed":/\b(?:linkedin contacted|messaged (?:them |her |him )?on linkedin)\b/.test(q)?"linkedin_contacted":/\b(?:called|phone call)\b/.test(q)?"called":/\b(?:had a meeting|record (?:a )?meeting)\b/.test(q)?"meeting":null;
  let action:RelationshipProposal["actionType"]|null=null,details:Row={},consequence="";

@@ -32,6 +32,8 @@ Authenticated Ops evidence, no external search or writes:
 - Founder search does find company KBR research `1aa5031f-d6cb-4de4-bc99-b94e11b6bbd5`. It has a research snapshot, no person name, no contacts, no LinkedIn identity and no linked acquisition ID. It cannot safely be silently attached to the person.
 - That company record has manual `emailed` activity `1bda9459-48e8-4f7d-8714-e8e764957254`, actual `2026-10-07T07:22:00+00:00`, addressed to the recorded Jenni mailbox. It has no Gmail message ID or linked provider evidence. This explains where the user's recorded email/research resides without promoting it into verified person delivery.
 
+The full canonical History also contains `acceptance:fccecc86-1157-447b-aa0e-073bf78eeb25`, a stored accepted-connection source at `2026-10-17T10:02:53.683+00:00`. The card and proposal explanation acknowledge that recorded source. This is distinct from inferring acceptance from outgoing text; the payload does not establish an external provider verification method.
+
 No Jenni records, reconciliation decisions or identity links were changed. Connection acceptance was not inferred from the outgoing text.
 
 ## Source-owned fields and bounded gaps
