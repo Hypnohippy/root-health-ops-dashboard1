@@ -13,7 +13,7 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
   if (blockedRelationshipAction(body.question)) return {workspace:"Read-only boundary",message:"No action taken. I can explain, interpret, prepare or suggest a draft for review, but cannot send, save, schedule or change records.",destinations:[]};
   if(body.draftOnly!==undefined && typeof body.draftOnly!=="boolean")throw Error("Invalid draft context.");
   const diaryIntent=diaryQuestion(body.question);
-  if(diaryIntent)return diaryAnswer(tenant,diaryIntent);
+  if(diaryIntent || body.route==="/dashboard/diary")return diaryAnswer(tenant,diaryIntent||"overview",body.question,reason);
   const context=parseOpsContext(body.context);
   const explicit=opsQuestionSubject(body.question) || relationshipCandidateName(body.question);
   const pageHelp=pageHelpQuestion(body.question);

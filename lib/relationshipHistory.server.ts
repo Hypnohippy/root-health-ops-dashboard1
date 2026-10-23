@@ -2,9 +2,9 @@ import { readTenantHistory } from "@/lib/opsSearch.server";
 import { lifecycleLinkedInIdentity, type LifecycleInput } from "@/lib/contactLifecycle";
 import { externalSentAt, sendReceipts } from "@/lib/linkedinSendEvidence";
 import { chronologicalEvidence, workspaceActivityEvidence, object, words, sourceRows, type Row, type ProjectedRelationship, type EvidenceEvent } from "@/lib/relationshipWorkspace";
-export async function relationshipHistory(org:string,relationship:ProjectedRelationship,input:LifecycleInput,founder:Row[],events:Row[]) {
+export async function relationshipHistory(org:string,relationship:ProjectedRelationship,input:LifecycleInput,founder:Row[],events:Row[],readHistory:typeof readTenantHistory=readTenantHistory) {
  // Defence in depth around the tenant-scoped reader; never borrow protected provenance across tenants.
- const historyRows=async(table:string)=>(await readTenantHistory(table,org)).filter(r=>!r.organisation_id||r.organisation_id===org);
+ const historyRows=async(table:string)=>(await readHistory(table,org)).filter(r=>!r.organisation_id||r.organisation_id===org);
  founder=founder.filter(f=>f.organisation_id===org);
  const rows=sourceRows(input,relationship.refs).filter(r=>r.organisation_id===org), identities=new Set(rows.flatMap(r=>[r.linkedin_identity,r.linkedin_url,r.permalink].map(lifecycleLinkedInIdentity).filter(Boolean)));
  // The existing canonical projection may carry stronger identity than any one source row.
