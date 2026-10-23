@@ -4,6 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 function load(file, deps = {}, globals = {}) {
+ deps["@/lib/operationalRetention.server"] ||= {readProactiveRetention:async()=>new Set()};
  if (file === "app/api/growth/linkedin-console/route.ts") deps["@/lib/linkedinCadenceDraft"] ||= load("lib/linkedinCadenceDraft.ts", {"@/lib/linkedinDayZero":{}});
  deps["@/lib/linkedinOutreachDisplay.server"] ||= {linkedInOutreachDisplay:async(_tenant,items)=>items};
  const mod={exports:{}};
@@ -213,4 +214,12 @@ test("first-message context uses saved accepted name rather than a competing tar
  assert.equal(work(data).items[0].context.name,"Sarah Accepted");
  data.inbox_items[0].author_name=null;
  assert.equal(work(data).items[0].context.name,null);
+});
+
+test("stale follow-up retains recorded cadence/due history but is not actionable until restored",()=>{
+ const data=followup(),before=JSON.stringify(data),normal=queue.linkedInOutreachQueue(org,data,now);
+ assert.equal(normal.total,1);assert.ok(normal.items[0].dueAt);
+ const blocked=queue.linkedInOutreachQueue(org,data,now,"all",[],10,undefined,new Set(["growth_targets:target"]));
+ assert.equal(blocked.total,0);assert.equal(blocked.audit[0].eligibility,"Relationship marked stale");assert.equal(JSON.stringify(data),before);
+ const restored=queue.linkedInOutreachQueue(org,data,now,"all",[],10,undefined,new Set());assert.equal(restored.total,1);assert.equal(restored.items[0].dueAt,normal.items[0].dueAt);
 });
