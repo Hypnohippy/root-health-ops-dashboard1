@@ -6,7 +6,7 @@ import ts from "typescript";
 import { execFileSync } from "node:child_process";
 function load(file, deps = {}, globals = {}) {
  const mod={exports:{}};
- vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,URL,Request,Set,Error,SyntaxError,console,process:{env:{}},require:n=>{if(n==="@/lib/diary")return {diaryQuestion:()=>null};if(n==="@/lib/diary.server")return {diaryAnswer:()=>assert.fail("Unexpected Diary dispatch")};assert.ok(n in deps,n);return deps[n]},...globals},{filename:file});
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,URL,Request,Set,Error,SyntaxError,console,process:{env:{}},require:n=>{if(n==="@/lib/relationshipResearch")return {relationshipResearchQuestion:q=>/research|public|opportunit/i.test(q),relationshipResearchSubject:()=>null};if(n==="@/lib/relationshipResearch.server")return {relationshipResearchAnswer:()=>assert.fail("Unexpected public research")};if(n==="@/lib/diary")return {diaryQuestion:()=>null};if(n==="@/lib/diary.server")return {diaryAnswer:()=>assert.fail("Unexpected Diary dispatch")};assert.ok(n in deps,n);return deps[n]},...globals},{filename:file});
  return mod.exports;
 }
 const guide=load("lib/rootCoachGuide.ts"),org="78fa2ac8-e7b6-4b9b-9604-035723ece6b1";

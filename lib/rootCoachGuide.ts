@@ -57,7 +57,7 @@ export function guideDestination(id: unknown, organisationId: string, founderAll
 }
 export type GuideLink = {id:GuideDestination;label:string;href:string};
 export type OpsCoachContext = {kind:"source";table:"inbox_items"|"growth_targets"|"acquisition_items";id:string} | {kind:"company";name:string} | {kind:"object";table:"resource_library"|"campaigns"|"sequences"|"scheduled_posts";id:string};
-export type GuideAnswer = { draftOnly?: boolean; context?: OpsCoachContext; workspace: string; message: string; destinations: GuideLink[]; relationshipRoute?: string; relationshipChoices?: { label: string; route: string }[] };
+export type GuideAnswer = { publicSources?: import("@/lib/relationshipResearch").PublicResearchSource[]; draftOnly?: boolean; context?: OpsCoachContext; workspace: string; message: string; destinations: GuideLink[]; relationshipRoute?: string; relationshipChoices?: { label: string; route: string }[] };
 // Only server-verified evidence may be passed here; client counts are never trusted by /api/coach.
 export type GuideEvidence = { responseAttentionCount: number };
 export function guideAnswer(route: unknown, question: unknown, organisationId: string, founderAllowed: boolean, evidence?: GuideEvidence): GuideAnswer {

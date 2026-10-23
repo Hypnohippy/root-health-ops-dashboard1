@@ -1,3 +1,4 @@
+import { readRelationshipIntake } from "@/lib/relationshipIntake.server";
 import { NextResponse } from "next/server";
 import { requireOrganisation, accessErrorResponse } from "@/lib/tenantAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -13,8 +14,9 @@ export async function POST(req: Request) {
     const tenant = await requireOrganisation(body.organisationId, true);
     if (body.action === "review") {
       const input=parseManualInput(body.input), requestedResearch=body.requestedResearch===true;
+      const intake=await readRelationshipIntake(tenant,{entityKind:input.person?"person":"company",sourceType:"manual_acquisition",row:{id:"candidate",organisation_id:tenant.organisationId,person:input.person||null,company:input.company||null,linkedin_url:input.linkedin||null,email:input.email||null,website:input.website||null}});
       const review=requestedResearch ? await researchManualOpportunity(tenant.organisationId,input) : manualReview(input,false);
-      return NextResponse.json({ review }, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json({ review, intake }, { headers: { "Cache-Control": "no-store" } });
     }
     if (body.action === "people") {
       const input=parseManualInput(body.input);
@@ -30,6 +32,8 @@ export async function POST(req: Request) {
     }
     if (body.action !== "create") throw new IngestionError("Invalid manual opportunity action.");
     const record = manualRecord(tenant.organisationId, tenant.userId, body);
+    const intake=await readRelationshipIntake(tenant,{entityKind:record.person?"person":"company",sourceType:"manual_acquisition",row:{...record,id:"candidate"}});
+    if(!intake.creationPermitted&&!intake.sameSubmission)return NextResponse.json({error:"Review the existing relationship before creating another source. No opportunity was saved.",intake},{status:409,headers:{"Cache-Control":"no-store"}});
     const { data, error } = await supabaseAdmin.from("acquisition_items").upsert(record, { onConflict: "organisation_id,source_engine,source_record_id", ignoreDuplicates: true }).select("id");
     if (error) throw error;
     let id = data?.[0]?.id;

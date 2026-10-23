@@ -7,7 +7,7 @@ import {createRequire} from "node:module";
 import {randomUUID} from "node:crypto";
 import {PGlite} from "@electric-sql/pglite";
 const require=createRequire(import.meta.url);
-function load(file,mocks={}) {const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Date,console,require:name=>name in mocks?mocks[name]:name.startsWith("@/")?load(name.replace("@/","")+".ts",mocks):require(name)});return mod.exports;}
+function load(file,mocks={}) {const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Date,console,require:name=>name==="@/lib/relationshipIntake.server"&&!(name in mocks)?{readRelationshipIntake:async()=>assert.fail("Unexpected intake read")}:name in mocks?mocks[name]:name.startsWith("@/")?load(name.replace("@/","")+".ts",mocks):require(name)});return mod.exports;}
 const memory=load("lib/founderMemory.ts"),search=load("lib/opsSearch.ts");
 const org=randomUUID(),other=randomUUID(),actor=randomUUID(),recordId=randomUUID(),acquisitionId=randomUUID();
 const contact={name:"Alex",emailStatus:"verified",directEmail:"alex@example.org",linkedinUrl:"https://linkedin.com/in/alex-professional",sourceUrls:["https://linkedin.com/in/alex-professional"]};

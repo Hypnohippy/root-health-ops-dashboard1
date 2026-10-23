@@ -7,7 +7,7 @@ import ts from 'typescript';
 import {PGlite} from '@electric-sql/pglite';
 const require=createRequire(import.meta.url);
 const org='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',user='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',key='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-function load(file,mocks={},globals={}) { const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Buffer,Request,Response,...globals,require:n=>n in mocks?mocks[n]:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});return mod.exports; }
+function load(file,mocks={},globals={}) { const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Buffer,Request,Response,...globals,require:n=>n==="@/lib/relationshipIntake.server"&&!(n in mocks)?{readRelationshipIntake:async()=>({decision:"NEW_IDENTITY",creationPermitted:true})}:n in mocks?mocks[n]:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});return mod.exports; }
 const helpers=load('lib/manualAcquisition.ts');
 const body=(input={note:'  Barnardo’s\nFound at an event  '})=>({action:'create',organisationId:org,input,submissionId:key,recordType:'b2b_lead',confirmed:true,publicContextConfirmed:true});
 test('sparse manual input preserves exact user text and unknown fields without claiming research',()=>{
