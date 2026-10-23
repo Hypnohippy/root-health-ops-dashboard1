@@ -1,3 +1,5 @@
+import { readRelationshipIntake } from "@/lib/relationshipIntake.server";
+import { founderRecordInput } from "@/lib/founderMemory";
 import { NextResponse } from "next/server";
 import { requireFounderIntelligence } from "@/lib/founderIntelligenceAuth.server";
 import { accessErrorResponse } from "@/lib/tenantAuth";
@@ -17,7 +19,12 @@ export async function GET(req:Request) {try {
  (view!=="Saved"||row.saved) && (view!=="Companies"||row.entity_kind==="company") && (view!=="People"||row.entity_kind==="person") && (view!=="Partners"||["personal_partners","workplace_introducers","ops_distribution","health_referral","ops_user_channel"].includes(String(row.lane))) && (view!=="Sent to Acquisition"||row.linked_acquisition_item_id) && matchesSearch(row,q,history.filter(event=>event.research_record_id===row.id).map(event=>[event.route,event.subject,event.message].filter(Boolean).join(" ")).join(" "))).sort((a,b)=>String(b.updated_at).localeCompare(String(a.updated_at))||String(a.id).localeCompare(String(b.id)));
  return json({records:rows.slice(page*25,page*25+25),total:rows.length,page});
  }catch(error){return accessErrorResponse(error)||json({error:"Founder memory could not be loaded. Apply the reviewed local migration before enabling storage."},503);}}
-export async function POST(req:Request) {try {const body=await req.json(),tenant=await requireFounderIntelligence(body.organisationId);return json({record:await saveFounderRecord(tenant.organisationId,tenant.userId,body)});}catch(error){return accessErrorResponse(error)||json({error:error instanceof Error?error.message:"Research was not saved."},400);}}
+export async function POST(req:Request) {try {let body=await req.json();const tenant=await requireFounderIntelligence(body.organisationId);
+ if(!body.recordId){const input=founderRecordInput(body),intake=await readRelationshipIntake(tenant,{entityKind:input.entity_kind==="person"?"person":"company",sourceType:"founder_research",row:{...input,id:String(body.key||"candidate"),organisation_id:tenant.organisationId}});
+  if(intake.decision==="ESTABLISHED_EXISTING"&&intake.researchRecordIds.length===1)body={...body,recordId:intake.researchRecordIds[0]};
+  else if(!intake.creationPermitted)return json({error:"Existing or possible relationship requires review. Research remains an unsaved preview; no identity/source link was created.",intake},409);
+ }
+ return json({record:await saveFounderRecord(tenant.organisationId,tenant.userId,body)});}catch(error){return accessErrorResponse(error)||json({error:error instanceof Error?error.message:"Research was not saved."},400);}}
 export async function PATCH(req:Request) {try {const body=await req.json(),tenant=await requireFounderIntelligence(body.organisationId),record=await founderRecord(tenant.organisationId,String(body.recordId));
  if(body.updatedAt!==record.updated_at)throw Error("Stored research changed; reopen before saving.");
  const patch:Record<string,unknown>={updated_at:new Date().toISOString()};if(typeof body.saved==="boolean")patch.saved=body.saved;

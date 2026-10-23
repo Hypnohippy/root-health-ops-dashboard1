@@ -1,3 +1,4 @@
+import { relationshipResearchQuestion,relationshipResearchSubject } from "@/lib/relationshipResearch";
 import { diaryQuestion } from "@/lib/diary";
 import { diaryAnswer } from "@/lib/diary.server";
 import { opsCoachContextAnswer, opsQuestionSubject, pageHelpQuestion, contextFollowup, parseOpsContext } from "@/lib/opsCoachContext.server";
@@ -7,6 +8,7 @@ import { guideAnswer, type GuideAnswer } from "@/lib/rootCoachGuide";
 import { requireFounderIntelligence } from "@/lib/founderIntelligenceAuth.server";
 
 export async function rootCoachGuidance(body: Record<string, unknown>, tenant: RelationshipTenant, reason?: (question: string, evidence: string, intent: ReturnType<typeof relationshipIntent>) => Promise<string>): Promise<GuideAnswer> {
+  const research=async(locator:string)=>{const {relationshipResearchAnswer}=await import("@/lib/relationshipResearch.server");return relationshipResearchAnswer(tenant,locator,body.question as string,reason);};
   const allowed = new Set(["mode", "organisationId", "organisation_id", "route", "question", "relationshipRoute", "context", "draftOnly"]);
   if (Object.keys(body).some(key => !allowed.has(key))) throw Error("Guidance accepts only a workspace route and a question.");
   if (typeof body.question !== "string" || !body.question.trim() || body.question.length > 600) throw Error("Invalid question.");
@@ -15,7 +17,7 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
   const diaryIntent=diaryQuestion(body.question);
   if(diaryIntent || body.route==="/dashboard/diary")return diaryAnswer(tenant,diaryIntent||"overview",body.question,reason);
   const context=parseOpsContext(body.context);
-  const explicit=opsQuestionSubject(body.question) || relationshipCandidateName(body.question);
+  const explicit=(relationshipResearchQuestion(body.question)?relationshipResearchSubject(body.question):null) || opsQuestionSubject(body.question) || relationshipCandidateName(body.question);
   const pageHelp=pageHelpQuestion(body.question);
   const draftState=body.draftOnly===true && !explicit && !pageHelp && /saved|did.*(?:record|send|save)|already sent/i.test(body.question);
   const draftMessage=/saved|save/i.test(body.question)?"This Ask Root draft has not been saved by this workflow. It remains text for review. I cannot establish whether you separately saved a copy elsewhere.":"This Ask Root draft was not sent or recorded as a send by this workflow. A generated draft does not establish an external send. Review the linked stored receipts/history for any separately recorded message.";
@@ -28,6 +30,7 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
     const label=selected.workspace.replace(/^Relationship: /,"").toLowerCase();
     // Subject labels only determine whether to keep the explicit selection; never join identities.
     if(!subject || subject.split(/\s+/).every(term=>label.split(/\s+/).includes(term))) {
+      if(relationshipResearchQuestion(body.question))return research(locator);
       if(draftState)return {...selected,draftOnly:true,message:draftMessage};
       if(reason)try{return {...selected,message:await reason(body.question,grounding||selected.message,relationshipIntent(body.question))+"\n\nRecorded grounding:\n"+selected.message};}catch{return {...selected,message:selected.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
       return selected;
@@ -36,6 +39,7 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
   if(explicit && !pageHelp) {
     const matches=await relationshipQuestionCandidates(tenant,explicit.replace(/\s+(?:today|yesterday|now)$/i,""));
     if(matches.locator) {
+      if(relationshipResearchQuestion(body.question))return research(matches.locator);
       const {grounding,...selected}=await relationshipCoachAnswer(tenant,matches.locator,body.question);
       if(reason)try{return {...selected,message:await reason(body.question,grounding||selected.message,relationshipIntent(body.question))+"\n\nRecorded grounding:\n"+selected.message};}catch{return {...selected,message:selected.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
       return selected;
@@ -48,6 +52,7 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
     const prefix=({inbox_items:"inbox",growth_targets:"target",acquisition_items:"acquisition"} as const)[contextual.context.table];
     const {grounding,...canonical}=await relationshipCoachAnswer(tenant,`${prefix}_${contextual.context.id}`,body.question);
     const selected={...canonical,context:contextual.context};
+    if(relationshipResearchQuestion(body.question))return research(`${prefix}_${contextual.context.id}`);
     if(draftState)return {...selected,draftOnly:true,message:draftMessage};
     if(reason)try{return {...selected,message:await reason(body.question,grounding||selected.message,relationshipIntent(body.question))+"\n\nRecorded grounding:\n"+selected.message};}catch{return {...selected,message:selected.message+"\n\nAdvice is temporarily unavailable. No draft was sent or saved."};}
     return selected;
@@ -69,6 +74,7 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
   if(!pageHelp&&!locator&&!name&&hint&&(intent!=="factual"||/this relationship|our history|latest interaction|emailed (?:him|her|them)|what is uncertain|saved|record|due|where.*(?:it|this)/i.test(body.question)))locator=hint;
   if (!locator && (name || intent!=="factual"))return {workspace:"Choose a relationship",message:"I could not establish one unique safe relationship for this question. Open Relationships and choose the correct record; I will not guess from a name, company or domain.",destinations:[{id:"relationships",label:"Relationships",href:`/dashboard/growth/relationships?organisationId=${encodeURIComponent(tenant.organisationId)}`}],...(candidates?.choices.length?{relationshipChoices:candidates.choices,message:"I found possible tenant-owned records, but have not established a unique identity. Choose the relationship record you mean; opening it does not confirm or merge identity."}:{})};
   if (locator) {
+    if(relationshipResearchQuestion(body.question))return research(locator);
     const {grounding,...answer}=await relationshipCoachAnswer(tenant,locator,body.question);
     if(draftState)return {...answer,draftOnly:true,message:draftMessage};
     if (reason || intent!=="factual") {

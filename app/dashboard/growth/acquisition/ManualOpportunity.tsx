@@ -1,4 +1,5 @@
 "use client";
+import type { IntakeDecision } from "@/lib/relationshipIntake";
 import { useState } from "react";
 import type { ManualInput, ManualReview } from "@/lib/manualAcquisition";
 
@@ -10,11 +11,12 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
   const [recordType,setRecordType]=useState(""),[confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
   const [submissionId,setSubmissionId]=useState(""),[requestedResearch,setRequestedResearch]=useState(false),[attempted,setAttempted]=useState(false);
   const [emailFormatHint]=useState("");
+  const [intake,setIntake]=useState<IntakeDecision|null>(null);
   async function requestReview(research:boolean) {
     setBusy(true);setError("");
     try {
       const res=await fetch("/api/growth/acquisition/manual",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({organisationId,action:"review",input,requestedResearch:research})});
-      const data=await res.json();if(!res.ok)throw Error(data.error||"Unable to review input.");setReview(data.review);setRequestedResearch(research);setRecordType("");setConfirmed(false);
+      const data=await res.json();if(!res.ok)throw Error(data.error||"Unable to review input.");setReview(data.review);setIntake(data.intake||null);setRequestedResearch(research);setRecordType("");setConfirmed(false);
     } catch(e){setError(e instanceof Error?e.message:"Unable to review input.");} finally{setBusy(false);}
   }
   async function findPeople() {
@@ -35,7 +37,7 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
     setBusy(true);setError("");setAttempted(true);
     try {
       const res=await fetch("/api/growth/acquisition/manual",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({organisationId,action:"create",input:review?.userProvided,review,requestedResearch,recordType,confirmed:true,publicContextConfirmed:confirmed,submissionId})});
-      const data=await res.json();if(!res.ok){if(res.status===400||res.status===403)setAttempted(false);throw Error(data.error||"Unable to create opportunity.");}window.location.assign(data.destination);
+      const data=await res.json();if(!res.ok){if(data.intake)setIntake(data.intake);if(res.status===400||res.status===403||res.status===409)setAttempted(false);throw Error(data.error||"Unable to create opportunity.");}window.location.assign(data.destination);
     } catch(e){setError(e instanceof Error?e.message:"Unable to create opportunity. Retry this submission.");} finally{setBusy(false);}
   }
   if(!open)return <button type="button" onClick={()=>{setOpen(true);setSubmissionId(crypto.randomUUID());}} className="inline-flex items-center gap-2 rounded-lg border border-emerald-400/30 px-3 py-2 text-sm"><span aria-hidden>+</span>Add opportunity</button>;
@@ -47,7 +49,8 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
       <p className="text-xs text-slate-400">For public research, add a company, public website or LinkedIn profile where possible. Ops will not research private consumer-health prospects.</p>
       <div className="flex flex-wrap gap-3"><button type="button" disabled={busy} onClick={()=>void requestReview(true)} className="rounded border border-emerald-400/30 px-3 py-2">{busy?"Researching…":"Research & create opportunity"}</button><button type="button" disabled={busy} onClick={()=>void requestReview(false)} className="underline">Create without research</button></div>
     </>:<>
-      <h3 className="font-semibold">Review before creation</h3><p role="status">{review.research.message}</p>
+      <h3 className="font-semibold">Review before creation</h3>
+      {intake&&!intake.creationPermitted&&<div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><strong>{intake.decision==="ESTABLISHED_EXISTING"?"Existing canonical relationship":"Possible existing relationship found"}</strong><p>{intake.reason}</p>{intake.destination&&<a className="underline" href={intake.destination}>Open relationship to review / record evidence</a>}{intake.candidates.map(c=><p key={c.destination}><a className="underline" href={c.destination}>{c.label} · review source association</a></p>)}<p>No new opportunity or workspace has been saved. Cancel or review the existing sources before proceeding.</p></div>}<p role="status">{review.research.message}</p>
       {review.decision&&<p className="inline-flex rounded-full border border-white/15 bg-white/5 px-3 py-1 text-sm font-semibold">{decisionLabel[review.decision]||review.decision}</p>}
       <h4 className="font-semibold">User-provided information</h4><dl className="grid gap-2 sm:grid-cols-2">{Object.entries(review.userProvided).filter(([,v])=>v.trim()).map(([key,value])=><div key={key} className="min-w-0"><dt className="text-xs capitalize text-slate-400">{key}</dt><dd className="whitespace-pre-wrap break-words">{value}</dd></div>)}</dl>
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
@@ -97,7 +100,7 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
       <div><h4 className="font-semibold">Sources</h4>{review.publicSources.length?<ul className="mt-1 space-y-1 text-sm">{review.publicSources.map((source,i)=><li key={i}><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-sky-300 underline">{source.title}</a> <span className="text-slate-400">· {source.sourceType}{source.publishedAt?` · ${source.publishedAt}`:""}</span></li>)}</ul>:<p className="text-sm text-slate-400">No public sources checked.</p>}</div>
       <label className="grid gap-1 text-sm">Confirm opportunity type<select value={recordType} disabled={attempted} onChange={e=>setRecordType(e.target.value)} className="rounded border border-white/20 bg-slate-900 p-2"><option value="">Choose a type</option><option value="b2b_lead">B2B lead</option><option value="partner_opportunity">Partner opportunity</option><option value="personal_opportunity">Personal public demand</option><option value="social_opportunity">Social/content opportunity</option></select></label>
       <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} disabled={attempted} onChange={e=>setConfirmed(e.target.checked)}/>I have reviewed the evidence. This is public business/professional context or non-personal public demand, not sensitive health targeting or a consumer prospect list.</label>
-      <div className="flex flex-wrap gap-3"><button type="button" disabled={busy||!recordType||!confirmed} onClick={()=>void create()} className="rounded border border-emerald-400/30 px-3 py-2">{busy?"Creating...":attempted?"Retry same submission":"Confirm & create"}</button><button type="button" disabled={busy||attempted} onClick={()=>setReview(null)} className="underline">Edit</button><button type="button" disabled={busy||attempted} onClick={()=>{setReview(null);setOpen(false);}} className="underline">Cancel</button></div>
+      <div className="flex flex-wrap gap-3"><button type="button" disabled={busy||intake?.creationPermitted===false||!recordType||!confirmed} onClick={()=>void create()} className="rounded border border-emerald-400/30 px-3 py-2">{busy?"Creating...":attempted?"Retry same submission":"Confirm & create"}</button><button type="button" disabled={busy||attempted} onClick={()=>setReview(null)} className="underline">Edit</button><button type="button" disabled={busy||attempted} onClick={()=>{setReview(null);setOpen(false);}} className="underline">Cancel</button></div>
     </>}
     {error&&<p role="alert">{error}</p>}
   </section>;
