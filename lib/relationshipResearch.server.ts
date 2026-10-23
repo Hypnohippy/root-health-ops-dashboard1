@@ -12,7 +12,7 @@ import type { RelationshipIntent } from "@/lib/relationshipCoach.server";
 export async function relationshipResearchAnswer(tenant:RelationshipTenant,locator:string,question:string,reason?:(question:string,evidence:string,intent:RelationshipIntent)=>Promise<string>):Promise<GuideAnswer> {
  const data=await readOperationalIntelligence(tenant,locator),r=data.relationship;
  const input=relationshipPublicInput(r,data.sourceDetails);
- const linked=storedResearchContext(data.founder);
+ const linked=storedResearchContext([...data.founder,...(data.approvedResearch||[])]);
  // An explicitly named company can supply separate permission-visible context.
  // This is label-based context selection, NEVER person linkage or identity authority.
  const companyContext=[];

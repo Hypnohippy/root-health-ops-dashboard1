@@ -1,4 +1,5 @@
 "use client";
+import {useReviewedIdentity} from "../relationships/components/ReviewedIdentityConfirmation";
 import type { IntakeDecision } from "@/lib/relationshipIntake";
 import { useState } from "react";
 import type { ManualInput, ManualReview } from "@/lib/manualAcquisition";
@@ -12,6 +13,7 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
   const [submissionId,setSubmissionId]=useState(""),[requestedResearch,setRequestedResearch]=useState(false),[attempted,setAttempted]=useState(false);
   const [emailFormatHint]=useState("");
   const [intake,setIntake]=useState<IntakeDecision|null>(null);
+  const reviewed=useReviewedIdentity(organisationId,data=>{if(typeof data.destination==="string")window.location.assign(data.destination);});
   async function requestReview(research:boolean) {
     setBusy(true);setError("");
     try {
@@ -36,8 +38,8 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
   async function create() {
     setBusy(true);setError("");setAttempted(true);
     try {
-      const res=await fetch("/api/growth/acquisition/manual",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({organisationId,action:"create",input:review?.userProvided,review,requestedResearch,recordType,confirmed:true,publicContextConfirmed:confirmed,submissionId})});
-      const data=await res.json();if(!res.ok){if(data.intake)setIntake(data.intake);if(res.status===400||res.status===403||res.status===409)setAttempted(false);throw Error(data.error||"Unable to create opportunity.");}window.location.assign(data.destination);
+      const data=await reviewed.request("/api/growth/acquisition/manual",{organisationId,action:"create",input:review?.userProvided,review,requestedResearch,recordType,confirmed:true,publicContextConfirmed:confirmed,submissionId});
+      if(!data){setAttempted(false);return;}if(typeof data.destination==="string")window.location.assign(data.destination);
     } catch(e){setError(e instanceof Error?e.message:"Unable to create opportunity. Retry this submission.");} finally{setBusy(false);}
   }
   if(!open)return <button type="button" onClick={()=>{setOpen(true);setSubmissionId(crypto.randomUUID());}} className="inline-flex items-center gap-2 rounded-lg border border-emerald-400/30 px-3 py-2 text-sm"><span aria-hidden>+</span>Add opportunity</button>;
@@ -102,6 +104,6 @@ export default function ManualOpportunity({ organisationId }: { organisationId: 
       <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} disabled={attempted} onChange={e=>setConfirmed(e.target.checked)}/>I have reviewed the evidence. This is public business/professional context or non-personal public demand, not sensitive health targeting or a consumer prospect list.</label>
       <div className="flex flex-wrap gap-3"><button type="button" disabled={busy||intake?.creationPermitted===false||!recordType||!confirmed} onClick={()=>void create()} className="rounded border border-emerald-400/30 px-3 py-2">{busy?"Creating...":attempted?"Retry same submission":"Confirm & create"}</button><button type="button" disabled={busy||attempted} onClick={()=>setReview(null)} className="underline">Edit</button><button type="button" disabled={busy||attempted} onClick={()=>{setReview(null);setOpen(false);}} className="underline">Cancel</button></div>
     </>}
-    {error&&<p role="alert">{error}</p>}
+    {reviewed.controls}{error&&<p role="alert">{error}</p>}
   </section>;
 }
