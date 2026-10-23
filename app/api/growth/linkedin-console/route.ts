@@ -43,7 +43,10 @@ export const POST = withTenantRoute(async (req, tenant) => {
   const body = await req.json();
   if (["record_send", "classify_send"].includes(body.action)) {
     try { return NextResponse.json({ success: true, ...await reconcileLinkedInSend(tenant.organisationId, tenant.userId, body) }); }
-    catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Confirmation failed." }, { status: 409 }); }
+    catch (error) {
+      const code = error instanceof Error && "code" in error && ["STALE_SEND_REVISION", "SEND_STATE_CHANGED", "SEND_RECEIPT_MISMATCH"].includes(String(error.code)) ? String(error.code) : "CONFIRMATION_FAILED";
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Confirmation failed.", code }, { status: 409 });
+    }
   }
   if (body.action === "complete") return NextResponse.json({ error: "Reload the console and choose Sent now or Already sent previously." }, { status: 409 });
   if (body.action !== "generate" || !["inbox_items", "growth_targets"].includes(body.table) || typeof body.id !== "string" || typeof body.revision !== "string") return NextResponse.json({ error: "Invalid action." }, { status: 400 });

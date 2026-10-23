@@ -152,3 +152,37 @@ test("uncertain confirmation retry reuses exact key/message/revision and advance
  await act(async()=>f.button("Retry confirmation safely").props.onClick());
  const sends=f.calls.filter(c=>c.action==="record_send");assert.deepEqual(sends[1],sends[0]);assert.equal(sends[0].completedAt,undefined);assert.deepEqual(next,[["a",true]]);await f.unmount();
 });
+
+
+test("stale confirmation exposes explicit recording-only retry and preserves original key/text/scope despite parent revision update",async()=>{
+ let attempts=0;const f=await fixture({request:init=>{
+  const body=JSON.parse(init.body);if(body.action==='generate')return Promise.resolve(response(200));
+  if(++attempts===1)return Promise.resolve({ok:false,json:async()=>({code:'STALE_SEND_REVISION',error:'Ops refreshed the latest state. Your LinkedIn message will NOT be sent again. Retry recording this same send.'})});
+  return Promise.resolve({ok:true,json:async()=>({success:true})});
+ }});
+ const next=[];const props={...f.props,onNext:async(...args)=>next.push(args)};
+ await act(async()=>f.renderer.update(React.createElement(f.ContactCard,props)));
+ await act(async()=>f.renderer.root.findByType('textarea').props.onChange({target:{value:'  Exact manually sent text\n'}}));
+ await act(async()=>f.button('Sent now & next').props.onClick());
+ assert.equal(next.length,0);assert.match(f.status(),/will NOT be sent again/);assert.ok(f.renderer.root.findAll(n=>n.props.role==='alert').length);
+ assert.equal(f.calls.filter(c=>c.action==='record_send').length,1,'no automatic write retry');
+ await act(async()=>f.renderer.update(React.createElement(f.ContactCard,{...props,queue:{...props.queue,revision:'8'}})));
+ await act(async()=>f.button('Retry confirmation safely').props.onClick());
+ const sent=f.calls.filter(c=>c.action==='record_send');assert.equal(sent.length,2);
+ assert.equal(sent[1].key,sent[0].key);assert.equal(sent[1].message,sent[0].message);assert.equal(sent[1].confirmationState,sent[0].confirmationState);assert.equal(sent[1].revision,sent[0].revision);assert.equal(sent[1].retryConfirmation,true);
+ assert.equal(sent[1].sendChoice,'now');assert.deepEqual(next,[['a',true]]);assert.equal(f.opened.length,0);assert.equal(f.copies.length,0);
+ await f.unmount();
+});
+test('reconciliationErrors retains same receipt; idempotent acknowledgement advances even with residual errors',async()=>{
+ let count=0;const f=await fixture({request:init=>{const body=JSON.parse(init.body);if(body.action==='generate')return Promise.resolve(response(200));return Promise.resolve({ok:true,json:async()=>({duplicate:++count>1,reconciliationErrors:['needs attention']})});}});
+ const next=[];await act(async()=>f.renderer.update(React.createElement(f.ContactCard,{...f.props,onNext:async(...args)=>next.push(args)})));
+ await act(async()=>f.button('Sent now & next').props.onClick());assert.equal(next.length,0);assert.match(f.status(),/same receipt/);
+ await act(async()=>f.button('Retry confirmation safely').props.onClick());assert.deepEqual(next,[['a',true]]);
+ const calls=f.calls.filter(c=>c.action==='record_send');assert.equal(calls[0].key,calls[1].key);assert.equal(calls[0].message,calls[1].message);await f.unmount();
+});
+test('unsafe retry is blocked with visible reason and existing reload/historical recovery actions',async()=>{
+ const f=await fixture({request:init=>JSON.parse(init.body).action==='generate'?Promise.resolve(response(200)):Promise.resolve({ok:false,json:async()=>({code:'SEND_STATE_CHANGED',error:'The contact, stage or send evidence changed. The original confirmation cannot be safely retried.'})})});
+ await act(async()=>f.button('Sent now & next').props.onClick());assert.match(f.status(),/cannot be safely retried/);assert.equal(f.button('Retry confirmation safely').props.disabled,true);
+ assert.equal(f.button('Already sent previously').props.disabled,false);assert.ok(f.button('Reload current state safely'));
+ assert.equal(f.calls.filter(c=>c.action==='record_send').length,1);await f.unmount();
+});
