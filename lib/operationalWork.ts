@@ -26,9 +26,12 @@ export function buildOperationalWork(collection:Collection):DiarySnapshot {
   // Existing linked source governors own cadence eligibility; raw stage is history, not permission.
   for(const cadence of a.rawCadence){
    if(!cadence.isFollowUp)continue;
-   const projected=date(a.linkedInActionSources.some(s=>s.id===cadence.source.id&&s.table===cadence.source.table)?a.projectedDueDate:cadence.dueDate),at=projected&&cadence.dateOnly?diaryDay(projected):projected;
+   // A single cadence source owns the canonical relationship due projection even when suppressed.
+   // Multiple distinct source events retain their own dates unless the queue identifies the owner.
+   const ownsProjection=a.rawCadence.length===1||a.linkedInActionSources.some(s=>s.id===cadence.source.id&&s.table===cadence.source.table);
+   const projected=(ownsProjection?date(a.projectedDueDate):null)||date(cadence.dueDate),at=projected&&cadence.dateOnly?diaryDay(projected):projected;
    const eligible=a.linkedInActionSources.some(s=>s.id===cadence.source.id&&s.table===cadence.source.table);
-   add({...common,id:`growth_targets:${cadence.source.id}:cadence`,type:"Follow-up",eventType:"follow_up",at,dueDateTime:at,actualDateTime:null,dateOnly:at?.length===10,status:`Recorded stage: ${cadence.stage}; projected: ${r.stage}`,action:eligible?"Actionable in existing LinkedIn workflow":"Review recorded cadence; no send permission established",actionable:eligible,channel:"linkedin",recordedStage:String(cadence.stage),suppressionReason:eligible?null:record.intelligence.state.retention==="stale"?"Relationship marked stale":at&&future(at)?"Future due date; not actionable yet":suppressed||"Existing governor does not permit this proactive action",source:source({table:"growth_targets",id:cadence.source.id},"confirmed-send cadence projection")});
+   add({...common,id:`growth_targets:${cadence.source.id}:cadence`,type:"Follow-up",eventType:"follow_up",at,dueDateTime:at,actualDateTime:null,dateOnly:at?.length===10,status:`Recorded stage: ${cadence.stage}; projected: ${r.stage}`,action:eligible?"Actionable in existing LinkedIn workflow":"Review recorded cadence; no send permission established",actionable:eligible,channel:"linkedin",recordedStage:String(cadence.stage),suppressionReason:eligible?null:record.intelligence.state.retention==="stale"?"Relationship marked stale":at&&future(at)?"Future due date; not actionable yet":suppressed||"Existing governor does not permit this proactive action",source:source({table:"growth_targets",id:cadence.source.id},"canonical due projection (source cadence fallback where unassigned)")});
   }
   for(const response of a.responseItems){
    const row=rows.find(s=>s.ref.table==="inbox_items"&&s.ref.id===response.id)?.row;
