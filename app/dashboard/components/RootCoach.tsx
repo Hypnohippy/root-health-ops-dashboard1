@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { guideDestination, guideAnswerDestination, guideWorkspace, type GuideAnswer, type OpsCoachContext } from "@/lib/rootCoachGuide";
 import "./root-coach.css";
+import RelationshipProposalReview from "./RelationshipProposalReview";
 
 export default function RootCoach({ pathname, organisationId, founderAllowed }: { pathname: string; organisationId: string | null; founderAllowed: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -70,7 +71,7 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
       <header className="root-coach-heading"><div><p>YOUR CONTEXTUAL GUIDE</p><h2 id="root-coach-title"><span aria-hidden="true">✦</span> Ask Root</h2></div><button type="button" autoFocus aria-label="Close Ask Root" onClick={close}>×</button></header>
       <div className="root-coach-scroll">
         <p className="root-coach-context">{currentAnswer?.workspace || (pathname.startsWith("/dashboard/growth/relationships/") ? "Current relationship · read-only evidence" : workspace?.key === "founder" && !founderAllowed ? "Restricted workspace" : workspace?.title || "Current workspace")}</p>
-        <p id="root-coach-boundary">Explain, summarize, interpret, prepare and suggest drafts for review. Ask Root cannot send, save, publish, approve or change records.</p>
+        <p id="root-coach-boundary">Explain, summarize, interpret, prepare and suggest drafts for review. Ask Root cannot send, publish or execute autonomous updates. On an exact relationship, a separate reviewed proposal requires your explicit confirmation before the existing guarded record action.</p>
         <section className="root-coach-intro"><h3>How can I help you here?</h3><p>{workspace?.key === "founder" && !founderAllowed ? "Founder access has not been confirmed. I can help you find your available workspaces." : workspace?.explanation || "I can help you find the existing Ops workspaces. This page has no verified guide yet."}</p></section>
         <div className="root-coach-prompts" aria-label="Suggested questions">{(workspace?.questions || ["Where are my replies?", "Where do I find Relationships?"]).map(prompt => <button key={prompt} type="button" disabled={busy || !organisationId} onClick={() => void ask(prompt)}>{prompt}<span aria-hidden="true">↗</span></button>)}</div>
         {!organisationId && <p role="status">Waiting for the current organisation. Guidance requests remain disabled until it is verified.</p>}
@@ -83,6 +84,7 @@ export default function RootCoach({ pathname, organisationId, founderAllowed }: 
           const safe = guideAnswerDestination(destination, organisationId || "", founderAllowed, currentAnswer.relationshipRoute || pathname);
           return safe ? <a key={safe.href} href={safe.href} onClick={close}>{safe.label}<span aria-hidden="true">→</span></a> : null;
         })}</nav></section>}
+        {organisationId && /^\/dashboard\/growth\/relationships\/(?:inbox|target|acquisition|founder|workspace)_[a-f0-9-]{36}$/i.test(pathname) && <RelationshipProposalReview key={context} organisationId={organisationId} locator={pathname.split("/").pop()!} request={question}/>}
       </div>
       <form className="root-coach-form" onSubmit={event => { event.preventDefault(); void ask(question); }}><label htmlFor="root-coach-question">Ask about your work</label><textarea id="root-coach-question" rows={2} maxLength={600} value={question} onChange={event => setQuestion(event.target.value)} placeholder="What does this mean, or where should I go?"/><div><small>Answers use recorded evidence; drafts remain unsent.</small><button type="submit" disabled={busy || !organisationId || !question.trim()}>Ask Root <span aria-hidden="true">→</span></button></div></form>
     </dialog>
