@@ -1,5 +1,6 @@
 import type { ManualInput, ManualReview } from "@/lib/manualAcquisition";
 import { object, words, type Row } from "@/lib/relationshipWorkspace";
+import { lifecycleLinkedInIdentity } from "@/lib/contactLifecycle";
 
 export type PublicResearchSource={url:string;title:string;publishedAt:string|null;retrievedAt:string};
 export function relationshipResearchQuestion(question:string) {
@@ -29,6 +30,14 @@ export function publicResearchSources(review:ManualReview):PublicResearchSource[
 export function publicResearchFacts(review:ManualReview,sources:PublicResearchSource[]) {
  const allowed=new Set(sources.map(s=>s.url));
  return review.verifiedFacts.slice(0,8).flatMap(f=>{const urls=f.sourceUrls.filter(u=>allowed.has(u));return urls.length?[{claim:f.claim.slice(0,300),sourceUrls:urls}]:[];});
+}
+/** Research attribution only, never an internal identity decision. Namesake
+ * findings cannot enrich the selected person unless
+ * the search actually returned their exact supplied public profile. */
+export function publicResearchScopeNotice(input:ManualInput,review:ManualReview):string|null {
+ const profile=lifecycleLinkedInIdentity(input.linkedin);
+ if(!input.person||!profile||review.research.status!=="completed"||!review.publicSources.length)return null;
+ return review.publicSources.some(s=>lifecycleLinkedInIdentity(s.url)===profile)?null:"Unverified candidate sources only. Search did not establish the supplied public profile. Findings are withheld from this person's research and opportunity reasoning; verify the exact public context before using them.";
 }
 export function storedResearchContext(rows:Row[]) {
  return rows.slice(0,3).map(r=>({id:r.id,company:r.company,person:r.person_name,savedAt:r.updated_at||null,freshness:"Saved timestamp is not a research retrieval time; current accuracy is unverified.",sources:(Array.isArray(r.sources)?r.sources:[]).slice(0,4),summary:words(object(r.research_snapshot).recommendedApproach).slice(0,350)}));
