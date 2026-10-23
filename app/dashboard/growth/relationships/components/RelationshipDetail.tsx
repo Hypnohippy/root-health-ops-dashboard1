@@ -24,7 +24,7 @@ export default function RelationshipDetail({organisationId,locator,initial}:{org
  const askRoot=(question:string)=>window.dispatchEvent(new CustomEvent("ops-relationship-root",{detail:{organisationId,locator,question}}));
  const savedReceipt=useRef<SavedRelationshipAction|null>(null);
  const pending=useRef<Row|null>(null),inFlight=useRef(false),r=data.relationship;
- useEffect(()=>{const receive=(event:Event)=>{if((event as CustomEvent).detail?.organisationId!==organisationId)return;void fetch(`/api/growth/relationships/${locator}?organisationId=${organisationId}`,{cache:"no-store"}).then(async r=>{if(!r.ok)throw Error("Reload the relationship to verify the update.");setData(await r.json());}).catch(e=>setError(e.message));};window.addEventListener("ops-relationship-updated",receive);return()=>window.removeEventListener("ops-relationship-updated",receive);},[organisationId,locator]);
+ useEffect(()=>{let active=true;const receive=(event:Event)=>{if((event as CustomEvent).detail?.organisationId!==organisationId)return;void fetch(`/api/growth/relationships/${locator}?organisationId=${organisationId}`,{cache:"no-store"}).then(async r=>{if(!r.ok)throw Error("Reload the relationship to verify the update.");const snapshot=await r.json();if(active)setData(snapshot);}).catch(e=>{if(active)setError(e.message);});};window.addEventListener("ops-relationship-updated",receive);return()=>{active=false;window.removeEventListener("ops-relationship-updated",receive);};},[organisationId,locator]);
  function recordActivity(kind:string){setManual(true);setActivity(kind);setTab("Notes");}
  function recordNote(kind:string){setManual(false);setNoteType(kind);setTab("Notes");}
  async function perform(action:string,details:Row):Promise<boolean> {
