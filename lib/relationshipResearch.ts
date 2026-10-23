@@ -8,9 +8,9 @@ export function relationshipResearchQuestion(question:string) {
 }
 /** Discovery selector only; the existing candidate resolver still owns identity. */
 export function relationshipResearchSubject(question:string):string|null {
- const value=question.match(/\bresearch\s+([\p{L}][\p{L} ’'-]*?)(?=\s+(?:and|using|with|to|for)\b|[/?.,!]|$)/iu)?.[1]
-  ||question.match(/\bopportunities.*?\bwith\s+([\p{L}][\p{L} ’'-]*?)(?=[/?.,!]|$)/iu)?.[1];
- return value&&!/^(?:this|our|the|current|recent|public|external|their|anything)\b/i.test(value)?value.trim():null;
+ const patterns=[/\bknow about\s+([\p{L}][\p{L} ’'-]*?)(?=\s+(?:with|using|and|to|for)\b|[/?.,!]|$)/iu,/\bresearch\s+([\p{L}][\p{L} ’'-]*?)(?=\s+(?:and|using|with|to|for)\b|[/?.,!]|$)/iu,/\bopportunities.*?\bwith\s+([\p{L}][\p{L} ’'-]*?)(?=[/?.,!]|$)/iu];
+ const value=patterns.map(pattern=>question.match(pattern)?.[1]).find(v=>v&&!/^(?:this|our|the|current|recent|public|external|their|anything|and)\b/i.test(v));
+ return value?.trim()||null;
 }
 /** Public selectors only. Private notes, correspondence, email and the question
  * never enter the external search prompt. Company context is not person identity. */

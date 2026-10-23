@@ -17,7 +17,7 @@ export async function rootCoachGuidance(body: Record<string, unknown>, tenant: R
   const diaryIntent=diaryQuestion(body.question);
   if(diaryIntent || body.route==="/dashboard/diary")return diaryAnswer(tenant,diaryIntent||"overview",body.question,reason);
   const context=parseOpsContext(body.context);
-  const explicit=opsQuestionSubject(body.question) || relationshipCandidateName(body.question) || (relationshipResearchQuestion(body.question)?relationshipResearchSubject(body.question):null);
+  const explicit=(relationshipResearchQuestion(body.question)?relationshipResearchSubject(body.question):null) || opsQuestionSubject(body.question) || relationshipCandidateName(body.question);
   const pageHelp=pageHelpQuestion(body.question);
   const draftState=body.draftOnly===true && !explicit && !pageHelp && /saved|did.*(?:record|send|save)|already sent/i.test(body.question);
   const draftMessage=/saved|save/i.test(body.question)?"This Ask Root draft has not been saved by this workflow. It remains text for review. I cannot establish whether you separately saved a copy elsewhere.":"This Ask Root draft was not sent or recorded as a send by this workflow. A generated draft does not establish an external send. Review the linked stored receipts/history for any separately recorded message.";

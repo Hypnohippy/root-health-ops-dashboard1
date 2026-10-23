@@ -38,3 +38,5 @@ test('recorded company or website cannot authorise a different public person pro
 
 test('an exact public profile does not authorise a namesake in the same research batch',()=>{const r=review();r.publicSources.push({url:'https://linkedin.com/in/controlled',title:'Selected profile'},{url:'https://linkedin.com/in/namesake',title:'Namesake'});assert.match(pure.publicResearchScopeNotice({person:'Controlled',linkedin:'https://linkedin.com/in/controlled',company:'',website:''},r),/withheld/);});
 test('name/company/website without a recorded person profile do not authorise public-person attribution',()=>{assert.match(pure.publicResearchScopeNotice({person:'Controlled',linkedin:'',company:'Example',website:'https://example.org'},review()),/withheld/);});
+
+test('combined research question separates the selected name from the following clause',()=>{assert.equal(pure.relationshipResearchSubject('Combine what we know about Simon with current public research and tell me whether there is a useful opportunity now.'),'Simon');});
