@@ -48,3 +48,12 @@ test("draft then saved question refers to the unsaved suggestion, not persisted 
 test("draft then send-record question cannot borrow an earlier outbound acknowledgement",async()=>{const f=fixture({emails:[{organisation_id:org,gmail_thread_id:"thread-one",direction:"outbound",body:"Earlier acknowledgement",sent_at:"2026-10-01"}]}),a=await f.ask("Did that send record?",{context:{kind:"company",name:"Example Company"},draftOnly:true});assert.match(a.message,/draft was not sent or recorded/);assert.doesNotMatch(a.message,/An outbound message is recorded/);});
 test("an explicit source subject supersedes the previous draft pointer",async()=>{const f=fixture(),a=await f.ask("Is the Example Company email saved?",{context:{kind:"company",name:"Example Company"},draftOnly:true});assert.match(a.message,/^Saved/);assert.equal(a.draftOnly,undefined);});
 test("invalid draft flags fail closed rather than enabling persistence claims",async()=>{await assert.rejects(fixture().ask("Is it saved?",{draftOnly:"yes"}));});
+
+
+test("Strategy call briefing uses the exact selected relationship rather than searching for a call",async()=>{
+ const commands=load("lib/relationshipCommands.ts",{"@/lib/relationshipWorkspace":{}}),f=fixture();
+ assert.equal(f.service.opsQuestionSubject("Prepare me for a call"),"a call");
+ const question=commands.strategyQuestion("Prepare me for a call");assert.equal(f.service.opsQuestionSubject(question),null);let calls=0;
+ const answer=await f.ask(question,{route:`/dashboard/growth/relationships/inbox_${id}`},async(q,e)=>{calls++;assert.equal(q,question);assert.match(e,/procurement/);return "Review the recorded referral before a call.";});
+ assert.equal(calls,1);assert.match(answer.message,/Review the recorded referral/);assert.doesNotMatch(answer.message,/could not establish one unique/);
+});

@@ -76,11 +76,21 @@ export async function getRelationship(tenant:RelationshipTenant,locator:string, 
  const assessment=ctx.values.filter(v=>v.workspace_id===id).sort((a,b)=>String(b.recorded_at).localeCompare(String(a.recorded_at))||String(b.id).localeCompare(String(a.id)))[0]||null;
  const model=ctx.models.find(m=>m.is_default)||null;
  const {data:members,error:memberError}=await supabaseAdmin.from("organisation_members").select("user_id,role").eq("organisation_id",tenant.organisationId).order("user_id");if(memberError)throw memberError;
- return {relationship,workspace:publicWorkspace,storageAvailable:ctx.storageAvailable,conversation:evidence.conversation,history:evidence.history,notes:events.filter(e=>e.activity_type==="note"),tasks,assessment,pricingDefaults:pricingDefaults(model),pricingChanged:!!assessment&&(object(assessment.input).pricingModelId||null)!==(model?.id||null),canSetPricing:["owner","admin"].includes(tenant.role.toLowerCase()),actor:tenant.userId,members:(members||[]).map((m:{user_id:string;role:string})=>({id:m.user_id,role:m.role})),founder:ctx.canFounder?ctx.founder.filter(f=>relationship.founderIds.includes(String(f.id))):[],companyOptions:ctx.workspaces.filter(w=>w.entity_kind==="company").map(w=>({id:w.id,label:ctx.items.find(r=>r.refs.some(ref=>ctx.links.some(l=>l.workspace_id===w.id&&l.source_id===ref.id&&l.source_table===ref.table)))?.name||"Company"})),pipelineValues:relationship.refs.filter(r=>r.table==="growth_targets").flatMap(r=>ctx.input.growth_targets.filter(t=>t.id===r.id&&t.deal_value!=null).map(t=>({targetId:t.id,value:t.deal_value,label:"Recorded pipeline deal value; not subscription revenue"})))};
+ return {relationship,recordedActionKeys:events.map(e=>words(e.idempotency_key)).filter(Boolean),workspace:publicWorkspace,storageAvailable:ctx.storageAvailable,conversation:evidence.conversation,history:evidence.history,notes:events.filter(e=>e.activity_type==="note"),tasks,assessment,pricingDefaults:pricingDefaults(model),pricingChanged:!!assessment&&(object(assessment.input).pricingModelId||null)!==(model?.id||null),canSetPricing:["owner","admin"].includes(tenant.role.toLowerCase()),actor:tenant.userId,members:(members||[]).map((m:{user_id:string;role:string})=>({id:m.user_id,role:m.role})),founder:ctx.canFounder?ctx.founder.filter(f=>relationship.founderIds.includes(String(f.id))):[],companyOptions:ctx.workspaces.filter(w=>w.entity_kind==="company").map(w=>({id:w.id,label:ctx.items.find(r=>r.refs.some(ref=>ctx.links.some(l=>l.workspace_id===w.id&&l.source_id===ref.id&&l.source_table===ref.table)))?.name||"Company"})),pipelineValues:relationship.refs.filter(r=>r.table==="growth_targets").flatMap(r=>ctx.input.growth_targets.filter(t=>t.id===r.id&&t.deal_value!=null).map(t=>({targetId:t.id,value:t.deal_value,label:"Recorded pipeline deal value; not subscription revenue"})))};
 }
-export async function saveRelationship(tenant:RelationshipTenant,locator:string,body:Row) {
+export async function saveRelationship(tenant:RelationshipTenant,locator:string,body:Row,canonicalRefs?:import("@/lib/relationshipWorkspace").SourceRef[]) {
  if(!/^[a-f0-9-]{36}$/i.test(words(body.key)))throw Error("A stable action key is required.");
- const ctx=await relationshipContext(tenant),{relationship,workspace}=selected(ctx,locator);
+ const ctx=await relationshipContext(tenant);
+ if(canonicalRefs){
+  const contains=(table:unknown,id:unknown)=>canonicalRefs.some(r=>r.table===table&&r.id===id);
+  ctx.input={inbox_items:ctx.input.inbox_items.filter(r=>contains("inbox_items",r.id)),growth_targets:ctx.input.growth_targets.filter(r=>contains("growth_targets",r.id)),acquisition_items:ctx.input.acquisition_items.filter(r=>contains("acquisition_items",r.id))};
+  ctx.founder=ctx.founder.filter(r=>contains("founder_research_records",r.id));
+  // Never let the legacy projection widen a canonically selected write.
+  ctx.workspaces=ctx.workspaces.filter(w=>{const links=ctx.links.filter(l=>l.workspace_id===w.id);return links.length&&links.every(l=>contains(l.source_table,l.source_id));});
+  ctx.links=ctx.links.filter(l=>ctx.workspaces.some(w=>w.id===l.workspace_id));
+  ctx.items=projectRelationships(tenant.organisationId,ctx.input,ctx.founder);
+ }
+ const {relationship,workspace}=selected(ctx,locator);
  if(!ctx.storageAvailable)throw Error("Relationship storage is not enabled yet. Your text has been retained.");
  if(body.confirmed!==true)throw Error("Explicit confirmation is required.");
  const action=words(body.action),details=object(body.details);

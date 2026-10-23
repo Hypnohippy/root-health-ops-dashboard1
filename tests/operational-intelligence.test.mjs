@@ -60,7 +60,7 @@ test('Relationship detail and Ask Root share latest event; arbitrary selected-co
 });
 test('existing write/send/Responses identity safety services are not replaced by read orchestration',()=>{
  const reader=fs.readFileSync('lib/operationalIntelligence.server.ts','utf8');assert.doesNotMatch(reader,/\.(insert|update|delete|upsert|rpc)\(|fetch\(/);
- const ui=fs.readFileSync('app/dashboard/growth/relationships/components/RelationshipDetail.tsx','utf8');assert.match(ui,/buttons?|button/);assert.match(ui,/Strategy Room · Forthcoming/);
+ const ui=fs.readFileSync('app/dashboard/growth/relationships/components/RelationshipDetail.tsx','utf8');assert.match(ui,/buttons?|button/);assert.match(ui,/Strategy · read-only canonical reasoning/);
 });
 
 test('queue governor remains identical apart from optional retention suppression; reconciliation, receipts and Responses unchanged',()=>{
