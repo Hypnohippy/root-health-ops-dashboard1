@@ -36,8 +36,9 @@ export function publicResearchFacts(review:ManualReview,sources:PublicResearchSo
  * the search actually returned their exact supplied public profile. */
 export function publicResearchScopeNotice(input:ManualInput,review:ManualReview):string|null {
  const profile=lifecycleLinkedInIdentity(input.linkedin);
- if(!input.person||!profile||review.research.status!=="completed"||!review.publicSources.length)return null;
- return review.publicSources.some(s=>lifecycleLinkedInIdentity(s.url)===profile)?null:"Unverified candidate sources only. Search did not establish the supplied public profile. Findings are withheld from this person's research and opportunity reasoning; verify the exact public context before using them.";
+ if(!input.person||review.research.status!=="completed"||!review.publicSources.length)return null;
+ const profiles=review.publicSources.map(s=>lifecycleLinkedInIdentity(s.url)).filter(Boolean);
+ return profile&&profiles.includes(profile)&&profiles.every(p=>p===profile)?null:"Unverified candidate sources only. Search did not establish an unambiguous match to the supplied public profile. Findings are withheld from this person's research and opportunity reasoning; verify the exact public context before using them.";
 }
 export function storedResearchContext(rows:Row[]) {
  return rows.slice(0,3).map(r=>({id:r.id,company:r.company,person:r.person_name,savedAt:r.updated_at||null,freshness:"Saved timestamp is not a research retrieval time; current accuracy is unverified.",sources:(Array.isArray(r.sources)?r.sources:[]).slice(0,4),summary:words(object(r.research_snapshot).recommendedApproach).slice(0,350)}));
