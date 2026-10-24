@@ -2995,7 +2995,14 @@ ALTER TABLE "public"."social_responses" ADD CONSTRAINT "social_responses_organis
 ALTER TABLE "public"."social_sync_state" ADD CONSTRAINT "social_sync_state_organisation_id_fkey" FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
 ALTER TABLE "public"."user_credits" ADD CONSTRAINT "user_credits_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 CREATE TRIGGER on_auth_user_created_create_org AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_new_user_create_org();
-ALTER TABLE "auth"."users" ENABLE TRIGGER "on_auth_user_created_create_org";
+DO $auth_trigger_state$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
+  WHERE tgrelid = 'auth.users'::regclass AND tgname = 'on_auth_user_created_create_org'
+   AND NOT tgisinternal AND tgenabled = 'O'
+   AND tgfoid = 'public.handle_new_user_create_org()'::regprocedure) THEN
+  RAISE EXCEPTION 'Managed Auth signup trigger does not match the required enabled state';
+ END IF;
+END $auth_trigger_state$;
 CREATE TRIGGER lifecycle_revision_acquisition AFTER INSERT OR DELETE OR UPDATE ON public.acquisition_items FOR EACH ROW EXECUTE FUNCTION track_lifecycle_revision();
 ALTER TABLE "public"."acquisition_items" ENABLE TRIGGER "lifecycle_revision_acquisition";
 CREATE TRIGGER trg_college_cohorts_updated_at BEFORE UPDATE ON public.college_cohorts FOR EACH ROW EXECUTE FUNCTION set_updated_at();

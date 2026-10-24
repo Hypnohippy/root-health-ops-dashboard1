@@ -225,7 +225,7 @@
     },
     {
       "file": "migrations/00000000000000_root_ops_schema_baseline.sql",
-      "sha256": "22860f2374c8ec1755e62b4691fc576dcdad48d552f6563ca3ea750cb14f41df"
+      "sha256": "5b79337a99f52a1416dd4526c8106871cbc18414b43f868bebb9729f0e963141"
     }
   ]
 }

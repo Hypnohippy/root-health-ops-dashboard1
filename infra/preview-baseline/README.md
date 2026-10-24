@@ -64,6 +64,16 @@ artifact hashes, zero comparison drift, and credential-like strings.
   migration text (LF-normalized hash), pending and excluded from the active chain.
 - `verification.json`, `structural-diff.json`: reproducible SQL proof/results.
 
+The app-owned signup trigger on managed `auth.users` is created using the
+supported table `TRIGGER` privilege. For its captured normal/origin-enabled (`O`)
+state, the renderer verifies the newly created trigger and function target in
+`pg_trigger` instead of issuing a redundant ownership-dependent `ALTER TABLE
+auth.users ENABLE TRIGGER`. A missing, disabled or differently targeted trigger
+fails closed. Other trigger-state rendering is unchanged. See
+`AUTH-TRIGGER-HOSTED-COMPATIBILITY.md` for the read-only Production findings,
+history limits and non-owner-role regression. This resolves that specific
+hosted failure; it does not certify the full hosted baseline or Phase 2D writes.
+
 **Retained existing subsequent migrations: 0. Superseded fresh-install
 migrations: 25. Pending PR84 compatibility migration: 1.** Do not run both the
 legacy root migration chain and this baseline. Future approved deltas append

@@ -91,6 +91,20 @@ END $guard$;`);
   // The app owns one Auth trigger and six Storage policies, not the platform schema.
   for (const t of c.triggers.filter(t => isApp ? t.schema === 'public' || t.name === 'on_auth_user_created_create_org' : t.schema !== 'public' && t.name !== 'on_auth_user_created_create_org')) {
     out.push(terminate(t.definition));
+    if (isApp && t.schema === 'auth' && t.table === 'users' && t.name === 'on_auth_user_created_create_org') {
+      // CREATE TRIGGER defaults to origin-enabled. Hosted postgres has TRIGGER
+      // privilege, not ownership of Supabase's auth.users; do not ALTER it.
+      if (t.enabled !== 'O') throw Error('Managed Auth trigger needs a separately reviewed non-default state');
+      out.push(`DO $auth_trigger_state$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
+  WHERE tgrelid = 'auth.users'::regclass AND tgname = 'on_auth_user_created_create_org'
+   AND NOT tgisinternal AND tgenabled = 'O'
+   AND tgfoid = 'public.handle_new_user_create_org()'::regprocedure) THEN
+  RAISE EXCEPTION 'Managed Auth signup trigger does not match the required enabled state';
+ END IF;
+END $auth_trigger_state$;`);
+      continue;
+    }
     const enable = {O:'ENABLE',D:'DISABLE',R:'ENABLE REPLICA',A:'ENABLE ALWAYS'}[t.enabled];
     out.push(`ALTER TABLE ${q(t.schema)}.${q(t.table)} ${enable} TRIGGER ${q(t.name)};`);
   }
