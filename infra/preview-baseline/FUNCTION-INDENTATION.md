@@ -1,5 +1,13 @@
 # Attempt-five function indentation: local proof and bounded comparison
 
+**Final-review correction:** the two-pass implementation at c3f7326 did not fully
+meet its fail-closed claim. Its EOL pass could alter ambiguous literal data before
+the indentation guard ran. `FUNCTION-FAIL-CLOSED.md` supersedes the implementation
+and blanket safety claims below: original-text classification must finish before
+either transformation. The historical exact-case evidence remains valid. Attempt
+six subsequently reproduced the spacing loss through rendered `innerText`; its
+checksum-verified lossless capture preserved the stored indentation.
+
 ## Exact definitions and differences
 
 The affected functions are:
@@ -83,8 +91,9 @@ workflow groups and the explicit concurrency/lock tests before comparison stoppe
 
 ## Small comparison-only repair
 
-`functionCodeIndentation` operates only on the outer dollar-quoted **PL/pgSQL
-body** of a catalog function. At a code line start, it consumes spaces/tabs before
+The shared original-text classifier accepts only the supported outer dollar-quoted
+**PL/pgSQL body** of a catalog function. Only after it classifies the whole original
+prefix/body successfully does the renderer consume code line-leading spaces/tabs before
 the next token. It does not normalize blank lines, trailing spaces, wrapper SQL,
 function attributes or non-function SQL. It copies every protected lexical token
 verbatim; indentation before an opening quote/comment is outside that token,
@@ -92,7 +101,9 @@ while indentation *within* one remains strict. Unsupported languages, incomplete
 quotes/comments/dollar literals, and ambiguous plain-string backslash syntax
 fail closed and return the original definition.
 
-This is not generic trim/dedent, a whole-definition whitespace regex, or permission
+The former independent EOL/indentation composition has been removed; ambiguity in
+either rule now leaves the entire original definition unchanged. This is not
+generic trim/dedent, a whole-definition whitespace regex, or permission
 to collapse rendered SQL text. Existing body-code CRLF compatibility is retained.
 Owner, ACL, security, configuration, return types and signatures still use the
 same strict comparison. No capture, migration, generator, grant, RLS state or

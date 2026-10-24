@@ -1,5 +1,12 @@
 # Hosted function-body comparison
 
+**Final-review correction:** the original independent EOL scanner's blanket
+literal-preservation claim was too strong for plain backslash-escaped literals
+with standard strings off. See `FUNCTION-FAIL-CLOSED.md`. Both compatibility rules
+now require complete classification of the original supported PL/pgSQL body before
+rendering; ambiguous/unsupported definitions stay wholly strict. The exact safe
+85-CRLF case and its local PostgreSQL evidence below continue to pass.
+
 ## Exact evidence
 
 Attempt 3 (`pr101-phase2d-verification-3`, `baqqlkxvjiswsxcxsuhd`, PostgreSQL
@@ -65,12 +72,13 @@ claim of a second live hosted `pg_proc` query after deletion.
 
 ## Bounded correction
 
-`compare.cjs` extracts the existing comparison rules unchanged and adds only
-function-record body code EOL canonicalization. It recognizes the deparser's
-outer dollar-quoted body and preserves quoted SQL values/identifiers, escaped
-strings and nested dollar-quoted dynamic SQL. Unsupported/incomplete quoting
-stays strict. Only code CRLF pairs become LF; no bare CR, whitespace, blank line,
-header, security setting, owner, grant or other schema property is ignored.
+`compare.cjs` retains the structural comparison rules and adds bounded function
+representation compatibility. The corrected shared classifier first recognizes
+the supported PL/pgSQL wrapper and completes original-text lexical classification.
+Only then may code CRLF pairs become LF. Protected spans remain exact; ambiguous
+or unsupported text receives no normalization. The subsequent indentation rule
+is separately documented. Header, security setting, owner, grant and other schema
+contracts are not weakened by either rule.
 
 The historical capture, generator, baseline SQL, platform fixture, migrations and
 manifest are unchanged. No runtime/Phase 2D/LinkedIn behavior is changed.

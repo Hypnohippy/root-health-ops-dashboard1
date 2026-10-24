@@ -104,14 +104,19 @@ NOT NULL entries, because column `attnotnull` is compared independently. Functio
 bodies, column order, enum order and SQL string contents are not rewritten.
 Owner names and effective grants/grant options are compared; original grantor
 provenance/OIDs and runtime sequence counters are not portability targets.
-Function-body code indentation is compared lexically for PL/pgSQL only; literal,
-comment content, wrapper SQL and security metadata remain strict. See
+Function-body representation is normalized only after complete classification of
+the original PL/pgSQL prefix/body succeeds. Ambiguous or unsupported definitions
+receive strict comparison with no partial normalization. See
+`FUNCTION-FAIL-CLOSED.md` for the executable final-review regression and correction.
+Literal/comment content, wrapper SQL and security metadata remain strict in the
+supported grammar. See
 `FUNCTION-INDENTATION.md` for the exact attempt-five artifacts, local PostgreSQL
 proof, capture-attribution limitation and negative tests. Use lossless metadata
 transport for hosted evidence, not whitespace-collapsed rendered text.
 
 Function-body code line separators may be CRLF or LF after SQL-editor transport.
-The comparator canonicalizes only CRLF pairs in code inside the outer dollar-
+After successful classification, the comparator canonicalizes only CRLF pairs in
+code inside the supported PL/pgSQL outer dollar-
 quoted body. Quoted values/identifiers and nested dollar-quoted SQL retain exact
 bytes, including embedded newlines. Bare CR, indentation, blank lines, trailing
 spaces, wrapper/header/config/security text, owner and grants remain strict.
