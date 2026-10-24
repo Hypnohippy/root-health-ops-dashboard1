@@ -10,7 +10,7 @@ const item={table:'inbox_items',id:a,contactId:'contact',role:null,company:null,
 test('exact established Truth membership enriches display and reuses recorded destination without changing operations',()=>{
  const c=fixture(),before=JSON.stringify(c);const result=enrich([item],c)[0];
  assert.equal(result.role,'People Director');assert.equal(result.company,'Synthetic Employer');assert.equal(result.destination,'https://www.linkedin.com/messaging/thread/recorded-thread/');assert.equal(result.destinationKind,'messaging');
- assert.equal(result.context,item.context);assert.equal(result.stage,item.stage);assert.equal(result.mode,item.mode);assert.equal(JSON.stringify(c),before);
+ assert.equal(result.context.role,result.role);assert.equal(result.context.company,result.company);assert.equal(result.stage,item.stage);assert.equal(result.mode,item.mode);assert.equal(JSON.stringify(c),before);
 });
 test('name/company alone do not authorize borrowing context or destinations',()=>{
  const c=fixture();delete c.input.lifecycle.acquisition_items[0].linkedin_identity;
