@@ -31,8 +31,8 @@ test('executable statement and literal changes still fail', () => {
   assert.ok(compare(literal, { ...literal, definition: literal.definition.replace("'safe'", "'changed'") }).length);
 });
 
-test('indentation, trailing spaces, final newline and dollar tag differences are not erased', () => {
-  for (const definition of [hosted.definition + ' ', hosted.definition + '\n', hosted.definition.replace('declare', ' declare'), hosted.definition.replaceAll('$function$', '$changed$')]) {
+test('trailing spaces, final newline and dollar tag differences are not erased', () => {
+  for (const definition of [hosted.definition + ' ', hosted.definition + '\n', hosted.definition.replaceAll('$function$', '$changed$')]) {
     assert.ok(compare(expected, change({ definition })).length);
   }
 });

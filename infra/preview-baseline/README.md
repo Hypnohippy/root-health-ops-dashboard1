@@ -104,6 +104,12 @@ NOT NULL entries, because column `attnotnull` is compared independently. Functio
 bodies, column order, enum order and SQL string contents are not rewritten.
 Owner names and effective grants/grant options are compared; original grantor
 provenance/OIDs and runtime sequence counters are not portability targets.
+Function-body code indentation is compared lexically for PL/pgSQL only; literal,
+comment content, wrapper SQL and security metadata remain strict. See
+`FUNCTION-INDENTATION.md` for the exact attempt-five artifacts, local PostgreSQL
+proof, capture-attribution limitation and negative tests. Use lossless metadata
+transport for hosted evidence, not whitespace-collapsed rendered text.
+
 Function-body code line separators may be CRLF or LF after SQL-editor transport.
 The comparator canonicalizes only CRLF pairs in code inside the outer dollar-
 quoted body. Quoted values/identifiers and nested dollar-quoted SQL retain exact
