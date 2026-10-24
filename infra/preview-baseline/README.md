@@ -64,6 +64,25 @@ artifact hashes, zero comparison drift, and credential-like strings.
   migration text (LF-normalized hash), pending and excluded from the active chain.
 - `verification.json`, `structural-diff.json`: reproducible SQL proof/results.
 
+The app-owned signup trigger on managed `auth.users` is created using the
+supported table `TRIGGER` privilege. For its captured normal/origin-enabled (`O`)
+state, the renderer verifies the newly created trigger and function target in
+`pg_trigger` instead of issuing a redundant ownership-dependent `ALTER TABLE
+auth.users ENABLE TRIGGER`. A missing, disabled or differently targeted trigger
+fails closed. Other trigger-state rendering is unchanged. See
+`AUTH-TRIGGER-HOSTED-COMPATIBILITY.md` for the read-only Production findings,
+history limits and non-owner-role regression. This resolves that specific
+hosted failure; it does not certify the full hosted baseline or Phase 2D writes.
+
+Managed `supabase_admin` defaults for future public tables/functions/sequences
+are likewise platform prerequisites. The hosted application baseline **asserts**
+their captured schema grants and standard global defaults; it never changes
+them or impersonates the managed role. A mismatch fails closed. The local-only
+platform contract seeds those same defaults to model Supabase provisioning.
+Defaults owned by `postgres`, explicit existing-object ACLs and RLS rendering
+are unchanged. See `DEFAULT-ACL-HOSTED-COMPATIBILITY.md` for the scope, effective
+privilege equivalence and synthetic restricted-role tests.
+
 **Retained existing subsequent migrations: 0. Superseded fresh-install
 migrations: 25. Pending PR84 compatibility migration: 1.** Do not run both the
 legacy root migration chain and this baseline. Future approved deltas append
@@ -85,6 +104,24 @@ NOT NULL entries, because column `attnotnull` is compared independently. Functio
 bodies, column order, enum order and SQL string contents are not rewritten.
 Owner names and effective grants/grant options are compared; original grantor
 provenance/OIDs and runtime sequence counters are not portability targets.
+Function-body representation is normalized only after complete classification of
+the original PL/pgSQL prefix/body succeeds. Ambiguous or unsupported definitions
+receive strict comparison with no partial normalization. See
+`FUNCTION-FAIL-CLOSED.md` for the executable final-review regression and correction.
+Literal/comment content, wrapper SQL and security metadata remain strict in the
+supported grammar. See
+`FUNCTION-INDENTATION.md` for the exact attempt-five artifacts, local PostgreSQL
+proof, capture-attribution limitation and negative tests. Use lossless metadata
+transport for hosted evidence, not whitespace-collapsed rendered text.
+
+Function-body code line separators may be CRLF or LF after SQL-editor transport.
+After successful classification, the comparator canonicalizes only CRLF pairs in
+code inside the supported PL/pgSQL outer dollar-
+quoted body. Quoted values/identifiers and nested dollar-quoted SQL retain exact
+bytes, including embedded newlines. Bare CR, indentation, blank lines, trailing
+spaces, wrapper/header/config/security text, owner and grants remain strict.
+See `FUNCTION-LINE-ENDINGS.md` for the captured hosted evidence and regression
+proof. Source artifacts, generated SQL and manifest hashes are not rewritten.
 Engine versions and extension binaries are intentionally not compared as app DDL.
 Production's extensions (plpgsql, pg_stat_statements, uuid-ossp, pgcrypto,
 supabase_vault) remain managed platform prerequisites; no app catalog definition

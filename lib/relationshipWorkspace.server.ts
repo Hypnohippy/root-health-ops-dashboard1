@@ -13,7 +13,8 @@ const missing=(e:unknown)=>["42P01","PGRST205"].includes(String(object(e).code))
 export async function relationshipContext(tenant:RelationshipTenant) {
  const org=tenant.organisationId,canFounder=await founderAllowed(org);
  const [input,founderRows]=await Promise.all([readLifecycleInput(org),canFounder?readTenantHistory("founder_research_records",org):Promise.resolve([])]);
- const founder=founderRows.filter(f=>f.organisation_id===org);
+ // Approved research evidence is linked separately, never an identity source.
+ const founder=founderRows.filter(f=>f.organisation_id===org&&!f.linked_relationship_workspace_id);
  let workspaces:Row[]=[],links:Row[]=[],models:Row[]=[],values:Row[]=[],storageAvailable=true;
  try{[workspaces,links,models,values]=await Promise.all(["relationship_workspaces","relationship_source_links","relationship_pricing_models","relationship_value_assessments"].map(t=>t==="relationship_source_links"?readTenantHistory(t,org,"*",["source_table","source_id"]):readTenantHistory(t,org)));}catch(e){if(!missing(e))throw e;storageAvailable=false;workspaces=[];links=[];models=[];values=[];}
  // Filter protected references before resolution/search; hidden Founder links never influence a Growth payload.

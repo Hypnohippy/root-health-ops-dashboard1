@@ -85,7 +85,7 @@ test("SQL: additive Founder storage, tenant FKs, exact privileges, immutable his
  const rls=await db.query("select relrowsecurity from pg_class where relname in ('founder_research_records','founder_activity_events')");assert.ok(rls.rows.every(row=>row.relrowsecurity));await db.close();
 });
 test("Founder API access denial happens before persistence/search reads",async()=>{
- let reads=0;const route=load("app/api/founder-intelligence/records/route.ts",{"next/server":{NextResponse:{json:(body,options={})=>({body,status:options.status||200})}},"@/lib/founderIntelligenceAuth.server":{requireFounderIntelligence:async()=>{throw Error("Forbidden");}},"@/lib/tenantAuth":{accessErrorResponse:()=>({status:403})},"@/lib/opsSearch.server":{readTenantHistory:async()=>{reads++;return[];}},"@/lib/supabaseAdmin":{},"@/lib/founderMemory.server":{}});
+ let reads=0;const route=load("app/api/founder-intelligence/records/route.ts",{"next/server":{NextResponse:{json:(body,options={})=>({body,status:options.status||200})}},"@/lib/founderIntelligenceAuth.server":{requireFounderIntelligence:async()=>{throw Error("Forbidden");}},"@/lib/tenantAuth":{accessErrorResponse:()=>({status:403})},"@/lib/opsSearch.server":{readTenantHistory:async()=>{reads++;return[];}},"@/lib/supabaseAdmin":{},"@/lib/founderMemory.server":{},"@/lib/reviewedIdentity.server":{previewSourceCreation:()=>assert.fail("No review before tenant authorization")}});
  assert.equal((await route.GET({url:`https://ops.test/api?organisationId=${org}`})).status,403);assert.equal((await route.POST({json:async()=>({organisationId:org,research})})).status,403);assert.equal(reads,0);
 });
 test("Gmail linking rechecks authoritative stored IDs and appends a pointer rather than copying conversation",async()=>{

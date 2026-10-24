@@ -6,6 +6,7 @@ import {projectRelationships,relationshipHref,type SourceRef} from '@/lib/relati
 import {searchQuery} from '@/lib/opsSearch';
 import {lifecycleLinkedInIdentity} from '@/lib/contactLifecycle';
 import {sharedIdentityMailbox} from '@/lib/relationshipIdentityEnrichment';
+import {separationNeedsReview} from '@/lib/reviewedIdentity';
 
 export type RelationshipDiscoveryResult={
  canonicalRelationshipId:string;displayLabel:string;company:string|null;entityKind:'person'|'company'|'person_with_company'|'ambiguous';
@@ -50,8 +51,12 @@ export function relationshipDiscoveryInventory(ctx:DiscoveryContext){
    return [{name:text(contact.name)||null,verifiedEmail:verified?address:null}];}):[]).filter(c=>c.name||c.verifiedEmail);
   const relevant=partition.activeDecisions.filter(d=>included.has(key(d.sourceRefA))||included.has(key(d.sourceRefB)));
   const separated=relevant.some(d=>d.decision==='keep_separate'),confirmed=relevant.some(d=>d.decision==='same_relationship'&&included.has(key(d.sourceRefA))&&included.has(key(d.sourceRefB)));
-  const uncertain=(possible.get(index)||1)>1||p.name.disputed||p.entityShape.entity_kind==='ambiguous';
-  const reasons=unique([...(possible.has(index)?['Current source association is not fully established in Truth.']:[]),...(p.name.disputed?['Recorded names disagree.']:[]),...(p.entityShape.ambiguity_reason?[p.entityShape.ambiguity_reason]:[])]);
+  const sourceRows=[...tables.flatMap(table=>safe.lifecycle[table].map(row=>({ref:{table,id:row.id},row}))),...safe.founder.map(row=>({ref:{table:'founder_research_records',id:row.id},row}))];
+  const peerRefs=current.filter(group=>group.refs.some(ref=>included.has(key(ref)))).flatMap(group=>group.refs).filter(ref=>!included.has(key(ref)));
+  const reviewedPeer=(peer:TruthRef)=>ctx.ledger.some(d=>d.organisation_id===ctx.policy.organisationId&&(!d.founder_only||ctx.policy.founderAllowed)&&partition.activeDecisions.some(active=>active.id==='identity_decision:'+d.id&&active.decision==='keep_separate')&&((included.has(key(d.source_ref_a))&&key(d.source_ref_b)===key(peer))||(included.has(key(d.source_ref_b))&&key(d.source_ref_a)===key(peer)))&&!separationNeedsReview(d,sourceRows));
+  const unresolvedPossible=possible.has(index)&&(!peerRefs.length||peerRefs.some(ref=>!reviewedPeer(ref)));
+  const uncertain=unresolvedPossible||p.name.disputed||p.entityShape.entity_kind==='ambiguous';
+  const reasons=unique([...(unresolvedPossible?['Current source association is not fully established in Truth.']:[]),...(p.name.disputed?['Recorded names disagree.']:[]),...(p.entityShape.ambiguity_reason?[p.entityShape.ambiguity_reason]:[])]);
   const label=p.name.value||p.name.alternatives.join(' / ')||p.company.value||'Identity not established';
   const aliases=[...new Map(truth.verifiedAliases.map(a=>[a.value.type+':'+a.value.value,{...a.value}])).values()];
   const result:RelationshipDiscoveryResult={canonicalRelationshipId:truth.relationshipId,displayLabel:label,company:p.company.value,entityKind:p.entityShape.entity_kind,

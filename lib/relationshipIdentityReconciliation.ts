@@ -23,6 +23,10 @@ const tables=["inbox_items","growth_targets","acquisition_items"] as const;
 const aliasKey=(a:IdentityAlias)=>`${a.type}:${a.value}`;
 function aliases(ref:TruthRef,row:TruthRow):IdentityAlias[]{const f=identitySourceFacts(ref,row);return [...f.profiles.map(value=>({type:"linkedin" as const,value})),...f.emails.map(value=>({type:"email" as const,value}))];}
 const refOK=(r:TruthRef)=>r&&allowedTables.has(r.table)&&typeof r.id==="string"&&!!r.id&&r.id.length<=100;
+// Database clock_timestamp() and the reader's application clock can differ.
+// This private bound applies only to persisted ledger decision time, never to
+// hypothetical decisions, review-token expiry or evidence/provenance freshness.
+const persistedDecisionClockSkewMs=2_000;
 function sourceSummary(ref:TruthRef,row:TruthRow,input:TruthInput):IdentitySourceSummary {
  const meta=obj(row.metadata),raw=obj(row.raw),engine=obj(row.engine_state);
  return {ref:{...ref},name:txt(row.author_name)||txt(row.target_name)||txt(row.person_name)||txt(row.person)||txt(engine.person)||txt(row.company)||"Not established",company:txt(row.company)||txt(engine.company)||txt(meta.company)||null,kind:identitySourceFacts(ref,row).kind,channel:txt(row.platform)||txt(engine.channel)||"Ops",source:txt(row.source_engine)||txt(row.source_type)||txt(raw.source_engine)||ref.table,status:txt(row.response_state)||txt(row.status)||txt(row.stage)||"Not established",verifiedAliases:aliases(ref,row),evidenceIds:[key(ref),...input.emailMessages.filter(m=>m.organisation_id===row.organisation_id&&row.email_thread_id&&m.gmail_thread_id===row.email_thread_id&&m.sender_email===row.sender_email).map(m=>`email_conversation_messages:${m.id}`)],workspaceIds:uniq(input.links.filter(l=>l.source_table===ref.table&&l.source_id===ref.id).map(l=>txt(l.workspace_id)).filter(Boolean))};
@@ -36,7 +40,9 @@ export function identityDecisionPartition(input:TruthInput,policy:TruthPolicy,de
  const effective=new Map<string,RelationshipIdentityDecision>();
  const seenRevision=new Map<string,string>();
  for(const d of decisions) {
-  if(d.organisationId!==policy.organisationId||!(d.simulation===true||d.simulation===false&&d.authority==='persisted')||d.schemaVersion!==1||!refOK(d.sourceRefA)||!refOK(d.sourceRefB)||key(d.sourceRefA)===key(d.sourceRefB)||!Number.isInteger(d.revision)||d.revision<1||!Number.isFinite(Date.parse(d.decidedAt))||Date.parse(d.decidedAt)>Date.parse(policy.asOf)||!txt(d.actorUserId)||!d.evidenceIdsShown.length)throw Error("Invalid identity decision.");
+  const decidedAt=Date.parse(d.decidedAt),asOf=Date.parse(policy.asOf);
+  const clockSkew=d.simulation===false&&d.authority==='persisted'?persistedDecisionClockSkewMs:0;
+  if(d.organisationId!==policy.organisationId||!(d.simulation===true||d.simulation===false&&d.authority==='persisted')||d.schemaVersion!==1||!refOK(d.sourceRefA)||!refOK(d.sourceRefB)||key(d.sourceRefA)===key(d.sourceRefB)||!Number.isInteger(d.revision)||d.revision<1||!Number.isFinite(decidedAt)||!Number.isFinite(asOf)||decidedAt>asOf+clockSkew||!txt(d.actorUserId)||!d.evidenceIdsShown.length)throw Error("Invalid identity decision.");
   const a=nodeByKey.get(key(d.sourceRefA)),b=nodeByKey.get(key(d.sourceRefB));if(!a||!b)throw Error("Decision source unavailable in authorised tenant scope.");
   const pk=pairKey(d.sourceRefA,d.sourceRefB),revisionKey=pk+':'+d.revision;
   if(seenRevision.has(revisionKey)&&seenRevision.get(revisionKey)!==JSON.stringify(d))throw Error("Conflicting decision revision.");seenRevision.set(revisionKey,JSON.stringify(d));

@@ -13,6 +13,7 @@ export async function saveFounderRecord(org:string,actor:string,body:Record<stri
  else if(input.identity_key) {const {data,error}=await supabaseAdmin.from("founder_research_records").select("*").eq("organisation_id",org).eq("identity_key",input.identity_key).maybeSingle();if(error)throw error;existing=data as FounderRecord|null;}
  if(!existing && typeof body.key==="string") {const {data,error}=await supabaseAdmin.from("founder_research_records").select("*").eq("organisation_id",org).eq("id",body.key).maybeSingle();if(error)throw error;existing=data as FounderRecord|null;}
  if(existing?.identity_key && input.identity_key && existing.identity_key!==input.identity_key)throw Error("Research identity changed. Create a separate record or review the existing identity.");
+ if(existing&&body.updatedAt!==undefined&&body.updatedAt!==existing.updated_at)throw Error("Stored research changed; reopen before saving.");
  if(existing && existing.entity_kind!==input.entity_kind)throw Error("Person and company records must remain separate.");
  if(!existing&&!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(String(body.key||"")))throw Error("A stable capture key is required before saving research.");
  if(existing && researchFingerprint(existing.research_snapshot)===researchFingerprint(input.research_snapshot) && existing.person_name===input.person_name && existing.discovery_context===input.discovery_context)return existing;
