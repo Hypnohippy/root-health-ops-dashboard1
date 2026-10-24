@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { AccessError } from "@/lib/tenantAuth";
+import { requireFounderIntelligence } from "@/lib/founderIntelligenceAuth.server";
 import { relationshipContext, type RelationshipTenant } from "@/lib/relationshipWorkspace.server";
 import { readTenantHistory } from "@/lib/opsSearch.server";
 import { readOperationalIntelligence } from "@/lib/operationalIntelligence.server";
@@ -80,7 +81,8 @@ export async function previewResearchSave(tenant:RelationshipTenant,locator:stri
  return {...presented(envelope(tenant,stamp,key,{action:"save_research",label:data.relationship.name,locator,refs:data.relationship.refs,kind:data.relationship.kind,workspaceId:data.workspace?.id?String(data.workspace.id):null,workspaceRevision:data.workspace?Number(data.workspace.revision):null,sources,facts,matched})),notice:notice||(!matched?"No matched attributed findings are available to save.":null)};
 }
 /** Confirm is never called by render/research/Ask Root. The token binds the exact
- * reviewed proposal to tenant/actor; the DB digest closes read-to-write races. */
+ * reviewed proposal to tenant/actor; DB snapshots and locked Founder authorization
+ * protect the transaction against stale review and revoked eligibility. */
 export async function confirmReviewedDecision(tenant:RelationshipTenant,token:unknown,confirmed:unknown,urls?:unknown) {
  if(confirmed!==true)throw new AccessError("Explicit reviewed confirmation is required.",400);
  const proposal=openIdentityReview(token,secret(),tenant.organisationId,tenant.userId);
@@ -110,6 +112,10 @@ export async function confirmReviewedDecision(tenant:RelationshipTenant,token:un
    const data=await readOperationalIntelligence(tenant,proposal.locator!);
    if(!data.researchAccess||data.intelligence.identity.humanReviewRequired||JSON.stringify(data.relationship.refs)!==JSON.stringify(proposal.refs))throw new AccessError("Research destination changed; review again.",409);
   }
+ }
+ if((proposal.action==="create"&&proposal.table==="founder_research_records")||proposal.action==="save_research") {
+  const current=await requireFounderIntelligence(tenant.organisationId);
+  if(current.userId!==tenant.userId||current.organisationId!==tenant.organisationId)throw new AccessError("Protected review unavailable.");
  }
  const {data,error}=await supabaseAdmin.rpc("commit_reviewed_relationship_decision",{p_org:tenant.organisationId,p_actor:tenant.userId,p_key:proposal.key,p_snapshot:proposal.snapshot,p_payload:JSON.parse(JSON.stringify(payload))});
  if(error||!data)throw new AccessError("Review was not confirmed. Retry the same receipt or reload and review again.",409);

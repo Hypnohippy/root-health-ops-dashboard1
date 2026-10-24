@@ -11,10 +11,13 @@ before(async()=>{
  await db.exec(read('infra/preview-baseline/local-platform.sql'));
  await db.exec("SET root_ops.empty_preview_baseline='on'");
  await db.exec(read('infra/preview-baseline/migrations/00000000000000_root_ops_schema_baseline.sql'));
- await db.exec(read('supabase/migrations/20261019120000_solution_brief_foundation.sql'));await db.exec(read('supabase/migrations/20261023193032_reviewed_identity_decisions.sql'));
+ await db.exec(read('supabase/migrations/20261019120000_solution_brief_foundation.sql'));await db.exec(read('supabase/migrations/20261023193032_reviewed_identity_decisions.sql'));await db.exec(read('supabase/migrations/20261024184449_atomic_founder_authorization.sql'));
  await db.query('insert into auth.users(id) values ($1),($2)',[actor,member]);
  for(const id of [org,other])await db.query('insert into organisations(id,owner_id,name,slug) values($1,$2,$3,$4)',[id,actor,'PHASE 2D SYNTHETIC',id]);
  await db.query("insert into organisation_members(organisation_id,user_id,role) values($1,$2,'owner'),($1,$3,'member')",[org,actor,member]);
+ await db.query('update auth.users set email=$1 where id=$2',['phase2d_test_owner@example.test',actor]);
+ await db.query("insert into organisation_plans(organisation_id,plan,posts_per_month) values($1,'founder',100)",[org]);
+ await db.query("select root_ops_private.set_founder_authorization_policy('phase2d_test_owner@example.test')");
 });
 after(async()=>{await db?.close();});
 async function stamp(o=org,a=actor){return (await db.query('select relationship_review_snapshot($1,$2) v',[o,a])).rows[0].v;}
@@ -72,6 +75,12 @@ test('approved research links as evidence, not a new canonical identity source',
  researchResult=await commit(researchPayload);assert.equal(researchResult.workspaceId,first.workspaceId);
  assert.equal((await db.query("select count(*)::int n from relationship_source_links where source_id=$1",[researchResult.id])).rows[0].n,0);
  const row=(await db.query('select * from founder_research_records where id=$1',[researchResult.id])).rows[0];assert.equal(row.linked_relationship_workspace_id,first.workspaceId);assert.equal(row.linkedin_identity,null);assert.equal(row.company,null);assert.ok(row.research_snapshot.phase2d.approvedAt);assert.notEqual(row.research_snapshot.phase2d.approvedAt,'2024-01-01');assert.equal(row.sources[0].retrievedAt,'2026-10-23T12:00:00Z');
+});
+test('research revoked after preparation is denied transactionally with zero evidence/receipt/workspace writes',async()=>{
+ const before=await counts(),founderBefore=(await db.query('select count(*)::int n from founder_research_records')).rows[0].n,snapshot=await stamp();
+ await db.query("select root_ops_private.set_founder_authorization_policy('revoked@example.test')");
+ try{await assert.rejects(commit({...researchPayload,row:{...researchPayload.row,id:randomUUID()}},{snapshot}),/Protected review unavailable/);assert.deepEqual(await counts(),before);assert.equal((await db.query('select count(*)::int n from founder_research_records')).rows[0].n,founderBefore);}
+ finally{await db.query("select root_ops_private.set_founder_authorization_policy('phase2d_test_owner@example.test')");}
 });
 test('research retry does not duplicate saved evidence or revision',async()=>{const receipt=(await db.query('select request_id from relationship_review_receipts where result->>\'id\'=$1',[researchResult.id])).rows[0];const before=await counts();await commit(researchPayload,{key:receipt.request_id,snapshot:'old retry snapshot'});assert.deepEqual(await counts(),before);});
 test('research workspace revision drift blocks old destination',async()=>{const payload={...researchPayload,row:{...researchPayload.row,id:randomUUID()}};await assert.rejects(commit(payload),/Destination changed/);});
