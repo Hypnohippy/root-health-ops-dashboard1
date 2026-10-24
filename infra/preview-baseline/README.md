@@ -104,6 +104,13 @@ NOT NULL entries, because column `attnotnull` is compared independently. Functio
 bodies, column order, enum order and SQL string contents are not rewritten.
 Owner names and effective grants/grant options are compared; original grantor
 provenance/OIDs and runtime sequence counters are not portability targets.
+Function-body code line separators may be CRLF or LF after SQL-editor transport.
+The comparator canonicalizes only CRLF pairs in code inside the outer dollar-
+quoted body. Quoted values/identifiers and nested dollar-quoted SQL retain exact
+bytes, including embedded newlines. Bare CR, indentation, blank lines, trailing
+spaces, wrapper/header/config/security text, owner and grants remain strict.
+See `FUNCTION-LINE-ENDINGS.md` for the captured hosted evidence and regression
+proof. Source artifacts, generated SQL and manifest hashes are not rewritten.
 Engine versions and extension binaries are intentionally not compared as app DDL.
 Production's extensions (plpgsql, pg_stat_statements, uuid-ossp, pgcrypto,
 supabase_vault) remain managed platform prerequisites; no app catalog definition
