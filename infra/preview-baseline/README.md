@@ -74,6 +74,15 @@ fails closed. Other trigger-state rendering is unchanged. See
 history limits and non-owner-role regression. This resolves that specific
 hosted failure; it does not certify the full hosted baseline or Phase 2D writes.
 
+Managed `supabase_admin` defaults for future public tables/functions/sequences
+are likewise platform prerequisites. The hosted application baseline **asserts**
+their captured schema grants and standard global defaults; it never changes
+them or impersonates the managed role. A mismatch fails closed. The local-only
+platform contract seeds those same defaults to model Supabase provisioning.
+Defaults owned by `postgres`, explicit existing-object ACLs and RLS rendering
+are unchanged. See `DEFAULT-ACL-HOSTED-COMPATIBILITY.md` for the scope, effective
+privilege equivalence and synthetic restricted-role tests.
+
 **Retained existing subsequent migrations: 0. Superseded fresh-install
 migrations: 25. Pending PR84 compatibility migration: 1.** Do not run both the
 legacy root migration chain and this baseline. Future approved deltas append

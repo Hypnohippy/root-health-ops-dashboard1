@@ -91,7 +91,7 @@ Only local test-superuser setup induces the negative states; no such SQL runs
 against Production. This is not a substitute for a full fresh hosted restore.
 
 The migration artifact checksum is explicitly refreshed in `migration-map.json`;
-the source catalog, all historical migration hashes, local platform and PR84
+the source catalog, all historical migration hashes and PR84
 fixture are unchanged. Full structural comparison must remain zero. The
 Phase 2D migration remains unchanged and unapplied hosted. A newly authorised
 temporary branch is still needed to verify the remaining hosted chain and
@@ -115,3 +115,8 @@ Phase 2D persistence/concurrency. No branch is created in this audit.
 - TypeScript was not rerun: no application TypeScript/TSX or type contract changed.
 - No new hosted branch, Production write, Auth configuration change or Phase 2D
   migration application. Full hosted restore/persistence remains unverified.
+
+Subsequent default-ACL compatibility work separately moves platform-owned
+public default-ACL setup to the local-only platform fixture and replaces its
+application replay with assertions. See `DEFAULT-ACL-HOSTED-COMPATIBILITY.md`;
+the Auth trigger repair and its seven tests remain unchanged.
