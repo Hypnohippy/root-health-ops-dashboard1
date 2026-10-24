@@ -2,6 +2,7 @@ import {execFileSync} from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {createHash} from 'node:crypto';
 import {loadTruthModule} from './relationship-truth-loader.mjs';
 const load=(file,overrides={})=>loadTruthModule(file,overrides);
 const core=load('lib/operationalIntelligence.ts');
@@ -63,13 +64,16 @@ test('existing write/send/Responses identity safety services are not replaced by
  const ui=fs.readFileSync('app/dashboard/growth/relationships/components/RelationshipDetail.tsx','utf8');assert.match(ui,/buttons?|button/);assert.match(ui,/Strategy · read-only canonical reasoning/);
 });
 
-test('queue governor remains identical apart from optional retention suppression; reconciliation, receipts and Responses unchanged',()=>{
+test('queue governor remains identical apart from retention; reviewed decision clock guard is pinned; receipts and Responses unchanged',()=>{
  const base='26c590593dac644500cc0ba533c6cf6716dad3a6';
  const before=path=>execFileSync('git',['show',base+':'+path],{encoding:'utf8'}).replaceAll('\r\n','\n');
  let current=fs.readFileSync('lib/linkedinOutreach.ts','utf8').replaceAll('\r\n','\n');
  current=current.replace(', stale: ReadonlySet<string> = new Set()','').replace('    const retentionReason = refs.some(ref => stale.has(`${ref.table}:${ref.id}`)) ? "Relationship marked stale" : null;\n    if (retentionReason) return reject(retentionReason);\n','');
  assert.equal(current,before('lib/linkedinOutreach.ts'));
- for(const path of ['lib/linkedinSendReconciliation.server.ts','lib/linkedinSendEvidence.ts','lib/operationalGovernor.ts','lib/responseLifecycle.ts','lib/relationshipIdentityReconciliation.ts'])assert.equal(fs.readFileSync(path,'utf8').replaceAll('\r\n','\n'),before(path),path);
+ for(const path of ['lib/linkedinSendReconciliation.server.ts','lib/linkedinSendEvidence.ts','lib/operationalGovernor.ts','lib/responseLifecycle.ts'])assert.equal(fs.readFileSync(path,'utf8').replaceAll('\r\n','\n'),before(path),path);
+ // Review-pinned replacement for this file's old byte snapshot: the only
+ // approved runtime change is its bounded persisted-decision clock validation.
+ assert.equal(createHash('sha256').update(fs.readFileSync('lib/relationshipIdentityReconciliation.ts','utf8').replaceAll('\r\n','\n')).digest('hex'),'d260ff63c0a034638691f40ac53b8cd8c0d4912320168d96d252c260a4f9889e');
 });
 
 test('search shares latest memory and never borrows an unresolved or foreign workspace',()=>{

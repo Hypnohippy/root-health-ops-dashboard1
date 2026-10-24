@@ -158,13 +158,62 @@ UI tests exercise the actual React confirmation hook. No Production data is read
 or changed for these tests and there is no hosted test residue to clean up.
 
 Exact-HEAD authenticated desktop/mobile **write** verification is not claimed.
-The new migration is unapplied to hosted databases. It requires an explicitly
-authorised isolated database/migration before that proof can be completed; do not
+The new migration remains unapplied to Production. Attempt 4 applied it only to
+an authorised temporary branch, subsequently deleted. Full hosted verification
+remains incomplete and requires a newly authorised isolated database; do not
 click confirm against real business records or apply Production DDL to bypass it.
 Required hosted proof: synthetic create/attach and retry, symmetric separation and
 search, selected matched evidence and namesake rejection, stale review, canonical
 reread, 1280×900 / 390×844 controls and no horizontal overflow. Do not create a
 paid branch without cost approval.
+
+## Persisted-decision clock boundary
+
+Attempt 4's pending distinct-source KEEP_SEPARATE transaction committed its new
+source/workspace/link/receipt and separation ledger row, then the immediate
+canonical reread threw `Invalid identity decision.` No write rollback or missing
+receipt caused that failure; a later reread succeeded without a repair.
+
+The Phase 2D RPC calls the existing `append_relationship_identity_decision`.
+That function omits `decided_at` from its INSERT, so the existing ledger column's
+`clock_timestamp()` default supplies a PostgreSQL `timestamptz`. This is the
+database wall clock, not `now()`, transaction/statement time or a supplied fixture.
+PostgREST returns it as an ISO timestamp. `ledgerDecisions` maps it unchanged to
+`decidedAt`. After commit, `readOperationalIntelligence` prepares its read policy
+with application `new Date().toISOString()`. The partition previously rejected
+`Date.parse(decidedAt) > Date.parse(policy.asOf)` with no allowance.
+
+Observed 24 October 2026 UTC: persisted `decided_at` was
+`10:15:10.144084Z`, while the already-written failure report had local timestamp
+`10:15:09.476Z` (at least 667 ms ahead). A bounded read-only SQL clock probe
+independently put database time 808 ms ahead of the local after-response clock.
+The stored decision remained valid and a later canonical read succeeded. The
+failure is demonstrated for a hosted database with actual server modules running
+in the local verification harness; no Vercel reproduction is claimed.
+
+There is no existing authoritative database-clock read API for this projection.
+Adding one would require schema/API work; using the greatest stored decision time
+as a clock would hide arbitrarily future-dated rows. Instead the partition has a
+private, fixed **2,000 ms** maximum solely for the future-time check on existing
+`simulation === false && authority === 'persisted'` decisions. This covers the
+observed sub-second skew with a small bounded margin. Exactly 2,000 ms is accepted;
+2,001 ms and materially future timestamps fail. Hypothetical decisions retain
+zero allowance. Malformed decision/read timestamps fail closed. No timestamps are
+clamped, rewritten, saved or retried automatically.
+
+The allowance cannot relax tenant, actor, source, evidence, revision, provenance,
+permission, matching or separation checks. Review signatures, snapshot equality,
+replay receipts and the 15-minute token lifetime are unchanged. The constant is
+not exported as a general clock or freshness bypass. No SQL, migration, grant,
+RLS, source catalog, provider, UI or Ask Root behavior is changed.
+
+Deterministic fixtures cover equal/past/observed-skew/inside/exact/outside-bound
+and materially future decisions, strict hypothetical/untrusted input and invalid
+timestamps. The server/database test fixes the application read at exactly 808 ms
+behind the newly committed database timestamp, then asserts canonical success,
+receipt replay, one source/link and unchanged ledger evidence. It uses no sleep
+and no timestamp rewrite. Full hosted separation/research/concurrency verification
+still needs renewed explicit approval; no additional branch is part of this fix.
 
 ## Deferred
 
