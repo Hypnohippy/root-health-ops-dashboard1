@@ -141,7 +141,7 @@ test("Home API authorizes before reads, pages all records and fails closed witho
     } }; return q; } };
     const route = load("app/api/home/attention/route.ts", { "next/server": { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200, headers: options.headers }) } },
       "@/lib/tenantAuth": { requireOrganisation: async requested => { assert.equal(requested, A); if (!access) throw Error("DENIED"); return { organisationId: A }; }, accessErrorResponse: error => error.message === "DENIED" ? { status: 403 } : null },
-      "@/lib/supabaseAdmin": { supabaseAdmin: admin }, "@/lib/operationalIntelligence.server": {readOperationalCollection:async tenant=>{assert.equal(tenant.organisationId,A);reads.push(["canonical"]);const c=workFixture();c.records=[];c.input={acquisition_items:[],inbox_items:[],growth_targets:[]};return c;}}, "@/lib/operationalWork":workModel, "@/lib/homeOperational":canonicalHome,
+      "@/lib/diaryEntries.server":{extendDiary:async(_tenant,base)=>base}, "@/lib/supabaseAdmin": { supabaseAdmin: admin }, "@/lib/operationalIntelligence.server": {readOperationalCollection:async tenant=>{assert.equal(tenant.organisationId,A);reads.push(["canonical"]);const c=workFixture();c.records=[];c.input={acquisition_items:[],inbox_items:[],growth_targets:[]};return c;}}, "@/lib/operationalWork":workModel, "@/lib/homeOperational":canonicalHome,
       "@/lib/homeControl": home, "@/lib/connectionHealth": health, "@/lib/commandCentre": command, "@/lib/responseLifecycle": responses });
     const result = await route.GET(new Request(`https://ops.example/api/home/attention?organisationId=${A}`));
     assert.equal(result.status, access ? 200 : 403);

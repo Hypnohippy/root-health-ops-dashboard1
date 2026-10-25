@@ -1,0 +1,4 @@
+import {NextResponse} from 'next/server';
+import {consumeOAuthState} from '@/lib/oauthState';
+import {connectCalendar,calendarConfiguration} from '@/lib/diaryCalendar.server';
+export async function GET(req:Request){try{const url=new URL(req.url),configuration=calendarConfiguration();if(url.origin+url.pathname!==configuration.redirect)throw Error('Callback mismatch');const tenant=await consumeOAuthState('google_calendar',url.searchParams.get('state')),code=url.searchParams.get('code');if(!code||url.searchParams.get('error'))throw Error('Consent unavailable');await connectCalendar(tenant,code);return NextResponse.redirect(new URL(`/dashboard/diary?organisationId=${tenant.organisationId}&calendar=connected`,url.origin));}catch{return NextResponse.json({error:'Calendar connection was not completed. Return to Diary and reconnect.'},{status:400});}}

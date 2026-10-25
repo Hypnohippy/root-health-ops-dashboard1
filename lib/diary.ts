@@ -4,6 +4,8 @@
 export type DiaryProvenance = { organisationId: string; dateSource: string } & (
   | { provider: "ops"; table: "acquisition_items" | "inbox_items" | "growth_targets" | "relationship_tasks" | "relationship_activity_events"; recordId: string }
   | { provider: "google_calendar" | "microsoft_calendar"; externalEventId: string; accountId: string; ownerUserId: string }
+  | { provider: "manual_diary"; recordId: string; ownerUserId: string }
+  | { provider: "email_confirmation"; recordId: string; messageId: string; threadId: string }
 );
 /** Future tenant-owned calendar adapter contract only: no connection, ingestion or OAuth in Phase 1. */
 export type DiaryCalendarEvidence = {
@@ -13,7 +15,7 @@ export type DiaryCalendarEvidence = {
 };
 export type DiaryItem = {
   id: string; title: string; company: string | null; at: string | null; endAt: string | null; timeZone: string | null; dateOnly: boolean;
-  type: "Follow-up" | "Waiting" | "Nurture" | "Task" | "Meeting" | "Manual activity";
+  type: "Follow-up" | "Waiting" | "Nurture" | "Task" | "Meeting" | "Manual activity" | "Reminder";
   status: string; action: string; workspace: string; href: string;
   actionable: boolean;
   source: DiaryProvenance;
@@ -21,9 +23,12 @@ export type DiaryItem = {
   actualDateTime?:string|null;dueDateTime?:string|null;recordedAt?:string|null;owner?:string|null;
   suppressionReason?:string|null;sourceRefs?:{table:string;id:string}[];navigationReason?:string;
   channel?:string;recordedStage?:string;projectedStage?:string;retention?:string;lastAction?:{kind:string;at:string|null}|null;replyOverride?:boolean;meetingOverride?:boolean;
+  manualEntry?: { id:string; revision:number; notes:string; relationshipLocator:string|null };
+  provenance?: { source:string; id:string; detail?:string }[];
+  appointmentKey?:string; location?:string|null; meetingUrl?:string|null; readOnly?:boolean;
 
 };
-export type DiarySnapshot = { asOf: string; today: string; timezone: "Europe/London"; items: DiaryItem[]; summary?:{actionableFollowups:number;futureFollowups:number;suppressedFollowups:number;waiting:number;repliesNeedingResponse:number;meetingsThisWeek:number;overdueTasks:number;tasksToday:number;meetingsToday:number}; replyHref?:string };
+export type DiarySnapshot = { asOf: string; today: string; timezone: "Europe/London"; items: DiaryItem[]; summary?:{actionableFollowups:number;futureFollowups:number;suppressedFollowups:number;waiting:number;repliesNeedingResponse:number;meetingsThisWeek:number;overdueTasks:number;tasksToday:number;meetingsToday:number}; replyHref?:string; sourceNotices?:string[]; manualAvailable?:boolean; canWriteDiary?:boolean; calendarConnected?:boolean };
 export type DiaryRow = Record<string, unknown>;
 export function diaryDay(value: string|null): string {
   if(!value)return "";
@@ -45,10 +50,14 @@ export function diaryMonth(day: string) {
   for (let d = first; d.slice(0, 7) === first.slice(0, 7); d = diaryShift(d, 1)) days.push(d);
   return days;
 }
-export type DiaryIntent="today"|"tomorrow"|"week"|"overdue"|"where"|"overview"|"actionable"|"waiting"|{person:string;kind?:"all"|"meeting"};
+export type DiaryIntent="today"|"tomorrow"|"week"|"overdue"|"where"|"overview"|"actionable"|"waiting"|{person?:string;kind?:"all"|"meeting";source?:"google_calendar"|"email_confirmation";period?:"today"|"tomorrow"|"week"};
 export function diaryQuestion(question:string):DiaryIntent|null {
  const q=question.trim().replace(/[?!.]+$/,"");
  if(/where.*diary|find.*diary/i.test(q))return "where";
+ if(/google (?:calendar|diary)/i.test(q))return {source:"google_calendar",period:/this week/i.test(q)?"week":/tomorrow/i.test(q)?"tomorrow":"today"};
+ if(/meetings.*(?:by|from|in by) email/i.test(q))return {source:"email_confirmation",kind:"meeting"};
+ const anything=q.match(/^have I got anything with (.{1,80})$/i);if(anything)return {person:anything[1].trim(),kind:"all"};
+ if(/what meetings.*(?:today|tomorrow|this week)/i.test(q))return {kind:"meeting",period:/this week/i.test(q)?"week":/tomorrow/i.test(q)?"tomorrow":"today"};
  const person=q.match(/^when (?:am I|are we) (?:speaking to|meeting|calling) (.{1,80})$/i);
  if(person)return {person:person[1].trim(),kind:"meeting"};
  const due=q.match(/^what is due (?:with|for) (.{1,80})$/i)||q.match(/^(?:why does|what does) (.{1,80}?) (?:still appear(?: for)?|appear in my diary)$/i);
