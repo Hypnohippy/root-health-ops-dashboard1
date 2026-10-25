@@ -1,7 +1,7 @@
 begin;
 -- PROPOSED ONLY: private meeting workflow metadata; canonical memory remains relationship_activity_events.
 create table public.meeting_copilot_sessions (
- id uuid primary key, organisation_id uuid not null references public.organisations(id), user_id uuid not null references auth.users(id),
+ id uuid primary key, organisation_id uuid not null references public.organisations(id) on delete cascade, user_id uuid not null references auth.users(id) on delete cascade,
  appointment_id text not null, relationship_id text not null, context jsonb not null check(jsonb_typeof(context)='object'),
  status text not null default 'draft' check(status in ('draft','live','review','approved')), version integer not null default 1,
  started_at timestamptz not null default clock_timestamp(), ended_at timestamptz, approved_at timestamptz,
@@ -13,7 +13,7 @@ create table public.meeting_copilot_usage (
  sequence integer not null check(sequence>=0), seconds integer not null check(seconds between 0 and 10),
  reasoning_tokens integer not null default 0 check(reasoning_tokens>=0), transcription_tokens integer check(transcription_tokens>=0),
  created_at timestamptz not null default clock_timestamp(),
- foreign key(organisation_id,user_id,session_id) references public.meeting_copilot_sessions(organisation_id,user_id,id), unique(session_id,sequence)
+ foreign key(organisation_id,user_id,session_id) references public.meeting_copilot_sessions(organisation_id,user_id,id) on delete cascade, unique(session_id,sequence)
 );
 create index meeting_copilot_month on public.meeting_copilot_usage(user_id,created_at);
 alter table public.meeting_copilot_sessions enable row level security;
