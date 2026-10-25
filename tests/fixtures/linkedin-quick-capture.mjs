@@ -6,7 +6,7 @@ export const messages=[
  ['Wednesday','11:30 AM',selfName,'Hi Auriel,\nThanks for coming back to me. I would love that. Let me know when you are free and I will give you a call if you like.'],
  ['Thursday','3:12 PM','Auriel Wetherall',"Hi David\n\nApologies I didn't message you back, what is your schedule looking like for next week?\n\nAuriel"],
  ['Thursday','3:44 PM',selfName,'No problem Auriel, I am around on Tuesday fairly flexible and also Thursday at either 11am or 3pm, how does that sound to you?'],
- ['Friday','3:54 PM','Auriel Wetherall','Tuesday is good for me, how does 1pm sound?\n\nZoom/WhapApp call?\n\nHave a good weekend speak soon'],
+ ['Friday','3:54 PM','Auriel Wetherall','Hi David\n\nTuesday is good for me, how does 1pm sound?\n\nZoom/WhapApp call?\n\nHave a good weekend speak soon\n\nAuriel'],
  ['Friday','3:57 PM',selfName,"I do have zoom, but prefer whatsapp if that's ok? ... and 1pm is perfect thanks"],
  ['Friday','4:21 PM','Auriel Wetherall','That all Good I will call you on WhatsApp'],
  ['Friday','4:22 PM',selfName,'Fantastic, I am looking forward to meeting you Auriel']
