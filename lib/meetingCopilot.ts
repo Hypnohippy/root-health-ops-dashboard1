@@ -1,0 +1,22 @@
+import type {DiaryItem} from './diary';
+export type MeetingSegment={id:string;text:string;gap:boolean};
+export type MeetingCandidate={text:string;quote:string;segmentId:string};
+export type MeetingAnalysis={summary:string;notices:MeetingCandidate[];questions:MeetingCandidate[];actions:MeetingCandidate[];nextMeeting:MeetingCandidate[];email:string};
+export function meetingAttachment(item:DiaryItem,org:string){
+ if(item.type!=='Meeting'||!item.at||item.source.organisationId!==org||item.source.provider!=='conversation_confirmation'||!item.source.relationshipId||!item.provenance?.length)throw Error('An exact conversation-confirmed appointment is required.');
+ const url=new URL(item.href,'https://ops.invalid');if(url.searchParams.get('organisationId')!==org||!/^\/dashboard\/growth\/relationships\/(?:inbox|target|acquisition|workspace)_[a-f0-9-]{36}$/i.test(url.pathname))throw Error('Appointment relationship is unavailable.');
+ return {appointmentId:item.id,relationshipId:item.source.relationshipId,locator:url.pathname.split('/').at(-1)!,at:item.at,channel:item.channel||'Unspecified',title:item.title,source:item.source,provenance:item.provenance};
+}
+export function meetingSegments(value:unknown):MeetingSegment[]{if(!Array.isArray(value)||value.length>600)throw Error('Meeting transcript is too large.');const seen=new Set<string>();let total=0;return value.map(r=>{if(!r||typeof r!=='object'||typeof r.id!=='string'||seen.has(r.id)||typeof r.text!=='string'||r.text.length>6000||typeof r.gap!=='boolean')throw Error('Invalid transcript segment.');seen.add(r.id);total+=r.text.length;if(total>180000)throw Error('Meeting transcript is too large.');return {id:r.id,text:r.text,gap:r.gap};});}
+export function groundedMeetingAnalysis(value:unknown,segments:MeetingSegment[]):MeetingAnalysis{
+ const v=value&&typeof value==='object'?value as Record<string,unknown>:{};
+ const list=(key:string,max:number):MeetingCandidate[]=>Array.isArray(v[key])?(v[key] as unknown[]).flatMap(r=>{if(!r||typeof r!=='object')return [];const c=r as MeetingCandidate,s=segments.find(s=>s.id===c.segmentId&&!s.gap);return s&&typeof c.text==='string'&&c.text.length<=700&&typeof c.quote==='string'&&c.quote.trim().length>=8&&s.text.includes(c.quote)?[{text:c.text,quote:c.quote,segmentId:c.segmentId}]:[];}).slice(0,max):[];
+ // Summary/email are drafts, never evidence; every publishable candidate must cite an exact non-gap segment.
+ return {summary:typeof v.summary==='string'?v.summary.slice(0,5000):'',email:typeof v.email==='string'?v.email.slice(0,5000):'',notices:list('notices',4),questions:list('questions',2),actions:list('actions',12),nextMeeting:list('nextMeeting',2)};
+}
+export function pcmWav(samples:Float32Array,rate:number):ArrayBuffer{const out=new ArrayBuffer(44+samples.length*2),d=new DataView(out);const str=(at:number,s:string)=>[...s].forEach((c,i)=>d.setUint8(at+i,c.charCodeAt(0)));str(0,'RIFF');d.setUint32(4,out.byteLength-8,true);str(8,'WAVE');str(12,'fmt ');d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,1,true);d.setUint32(24,rate,true);d.setUint32(28,rate*2,true);d.setUint16(32,2,true);d.setUint16(34,16,true);str(36,'data');d.setUint32(40,samples.length*2,true);samples.forEach((s,i)=>d.setInt16(44+i*2,Math.max(-1,Math.min(1,s))*32767,true));return out;}
+export function wavSeconds(buffer:ArrayBuffer){const d=new DataView(buffer),str=(at:number,n:number)=>Array.from({length:n},(_,i)=>String.fromCharCode(d.getUint8(at+i))).join('');if(buffer.byteLength<46||buffer.byteLength>480044||str(0,4)!=='RIFF'||str(8,4)!=='WAVE'||str(12,4)!=='fmt '||str(36,4)!=='data'||d.getUint32(16,true)!==16||d.getUint16(20,true)!==1||d.getUint16(22,true)!==1||d.getUint32(24,true)!==24000||d.getUint16(34,true)!==16||d.getUint32(28,true)!==48000||d.getUint16(32,true)!==2||d.getUint32(40,true)!==buffer.byteLength-44||d.getUint32(4,true)!==buffer.byteLength-8)throw Error('A bounded mono PCM audio chunk is required.');return Math.ceil((buffer.byteLength-44)/48000);}
+
+export function meetingFingerprint(value:unknown):string{if(Array.isArray(value))return '['+value.map(meetingFingerprint).join(',')+']';if(value&&typeof value==='object')return '{'+Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>JSON.stringify(k)+':'+meetingFingerprint(v)).join(',')+'}';return JSON.stringify(value)??'null';}
+
+export function meetingEvidenceKey(attachment:Record<string,unknown>){return meetingFingerprint(Object.fromEntries(Object.entries(attachment).filter(([key])=>key!=='locator'&&key!=='title')));}
