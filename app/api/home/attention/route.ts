@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { connectionHealth } from "@/lib/connectionHealth";
 import { growthAttentionCounts } from "@/lib/commandCentre";
 import { readOperationalCollection } from "@/lib/operationalIntelligence.server";
+import { extendDiary } from "@/lib/diaryEntries.server";
 import { buildOperationalWork } from "@/lib/operationalWork";
 import { canonicalHomeControl } from "@/lib/homeOperational";
 import { buildHomeControl } from "@/lib/homeControl";
@@ -33,7 +34,7 @@ export async function GET(req: Request) {
       readAll("scheduled_posts", "id,organisation_id,message,platforms,status,meta,error_info,scheduled_for,posted_at,created_at", organisationId),
       readAll("social_accounts", "id,organisation_id,platform,is_active,page_access_token,token_expires_at,page_name", organisationId),
     ]);
-    const input=collection.input,work=buildOperationalWork(collection);
+    const input=collection.input,work=await extendDiary(tenant,buildOperationalWork(collection),collection);
     const inboxRows = input.inbox_items;
     const targetRows = input.growth_targets;
     const control = canonicalHomeControl(organisationId,buildHomeControl(organisationId, { ...input, scheduled_posts: postRows, social_accounts: accountRows }),collection,work);
@@ -44,7 +45,7 @@ export async function GET(req: Request) {
     const linkedInConnections = inboxRows.filter(row => responses.get(row.id)?.canMarkContacted).length;
     const attention = collection.responseAttention;
     const replies = attention.count;
-    return NextResponse.json({ success:true, organisationId, control, diarySummary:work.summary, responseAttention: attention, counts:{
+    return NextResponse.json({ success:true, organisationId, control, diarySummary:work.summary, diarySourceNotices:work.sourceNotices, responseAttention: attention, counts:{
       newOpportunities: input.acquisition_items.filter(row => row.status === "new").length, linkedInConnections, outreachReady: targetRows.filter(row => row.status === "active" && row.stage === "connection").length,
       repliesNeedingResponse: replies, followupsDue: work.summary!.actionableFollowups, waiting: work.summary!.waiting, meetingsThisWeek:work.summary!.meetingsThisWeek,overdueTasks:work.summary!.overdueTasks,
       warmOpportunities: growth.warmOpportunities, meetingsOrConversions: growth.meetingsOrConversions,

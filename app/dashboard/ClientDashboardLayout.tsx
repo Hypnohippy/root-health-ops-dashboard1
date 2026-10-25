@@ -302,7 +302,7 @@ export default function ClientDashboardLayout({
 
   const activePrimary = primaryNav.find((item) => item.match(pathname))?.label || "Home";
   // Growth owns one persistent shell; individual pages must not opt into a legacy frame.
-  const relationshipVisualPilot = pathname === "/dashboard" || pathname === "/dashboard/growth" || pathname.startsWith("/dashboard/growth/") || pathname === "/dashboard/founder-intelligence" || pathname === "/dashboard/responses" || pathname === "/dashboard/sequences" || pathname === "/dashboard/publishing" || pathname === "/dashboard/scheduled" || pathname === "/dashboard/approvals" || pathname === "/dashboard/stories/new" || pathname === "/dashboard/resources" || pathname === "/dashboard/connect" || pathname === "/dashboard/connect/threads-manual";
+  const relationshipVisualPilot = pathname === "/dashboard" || pathname === "/dashboard/diary" || pathname === "/dashboard/growth" || pathname.startsWith("/dashboard/growth/") || pathname === "/dashboard/founder-intelligence" || pathname === "/dashboard/responses" || pathname === "/dashboard/sequences" || pathname === "/dashboard/publishing" || pathname === "/dashboard/scheduled" || pathname === "/dashboard/approvals" || pathname === "/dashboard/stories/new" || pathname === "/dashboard/resources" || pathname === "/dashboard/connect" || pathname === "/dashboard/connect/threads-manual";
 
   const secondaryNav: SecondaryNavItem[] = (() => {
     if (activePrimary === "Responses") {
@@ -493,7 +493,7 @@ export default function ClientDashboardLayout({
           </div>
         </div>
       )}
-      <main className="flex-1 p-6"><AcquisitionHandoff key={pathname} />{children}</main>
+      <main className="flex-1 p-6"><div className="mb-4 flex justify-end"><Link href={`/dashboard/responses/linkedin/capture?organisationId=${encodeURIComponent(orgId)}`} style={{color:'#183b48',background:'#fff',border:'1px solid #91a7b2',borderRadius:8,padding:'8px 12px',fontSize:14,fontWeight:600}}>Capture LinkedIn conversation</Link></div><AcquisitionHandoff key={pathname} />{children}</main>
       <RootCoach pathname={pathname} organisationId={orgId} founderAllowed={founderAccess} />
 
       <footer className="border-t border-white/10 py-4 text-[12px] text-slate-400">
