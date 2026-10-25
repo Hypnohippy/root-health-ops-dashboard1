@@ -4,13 +4,13 @@ import { buildOperationalWork } from "@/lib/operationalWork";
 import type { RelationshipTenant } from "@/lib/relationshipWorkspace.server";
 import { diaryDay,diaryLabel,diaryShift,diaryWeek,type DiaryIntent,type DiarySnapshot } from "@/lib/diary";
 import type { GuideAnswer } from "@/lib/rootCoachGuide";
-export async function readDiary(tenant:RelationshipTenant):Promise<DiarySnapshot>{return extendDiary(tenant,buildOperationalWork(await readOperationalCollection(tenant)));}
+export async function readDiary(tenant:RelationshipTenant):Promise<DiarySnapshot>{const collection=await readOperationalCollection(tenant);return extendDiary(tenant,buildOperationalWork(collection),collection);}
 export async function diaryAnswer(tenant:RelationshipTenant,intent:DiaryIntent,question?:string,reason?:(question:string,evidence:string,intent:"factual"|"interpretive")=>Promise<string>):Promise<GuideAnswer>{
  const link={id:"diary" as const,label:"Diary",href:`/dashboard/diary?organisationId=${encodeURIComponent(tenant.organisationId)}`};
  if(intent==="where")return {workspace:"Diary",message:"Open Diary in the primary navigation for Today, Week and Month. It combines canonical Ops work, your manual entries, your connected read-only Google Calendar and confirmed stored email evidence.",destinations:[link]};
  const snapshot=await readDiary(tenant),day=intent==="tomorrow"?diaryShift(snapshot.today,1):snapshot.today,week=diaryWeek(day);
  const items=snapshot.items.filter(i=>{
- if(typeof intent==="object")return (!intent.kind||intent.kind==="all"||i.type==="Meeting")&&(!intent.person||(` ${i.title.toLowerCase()} `).includes(` ${intent.person.toLowerCase()} `))&&(!intent.source||i.source.provider===intent.source)&&(!intent.period||(intent.period==="week"?week.includes(diaryDay(i.at)):diaryDay(i.at)===(intent.period==="tomorrow"?diaryShift(snapshot.today,1):snapshot.today)));
+ if(typeof intent==="object")return (!intent.kind||intent.kind==="all"||i.type==="Meeting")&&(!intent.person||(` ${i.title.toLowerCase()} `).includes(` ${intent.person.toLowerCase()} `))&&(!intent.source||i.source.provider===intent.source||intent.source==='email_confirmation'&&i.source.provider==='conversation_confirmation'&&i.source.channel==='email')&&(intent.weekday===undefined||diaryDay(i.at)===diaryShift(snapshot.today,(intent.weekday-(new Date(snapshot.today+'T12:00:00Z').getUTCDay()+6)%7+7)%7))&&(!intent.period||(intent.period==="week"?week.includes(diaryDay(i.at)):diaryDay(i.at)===(intent.period==="tomorrow"?diaryShift(snapshot.today,1):snapshot.today)));
  return intent==="overdue"?i.actionable&&!!i.at&&diaryDay(i.at)<day:intent==="week"?week.includes(diaryDay(i.at)):intent==="actionable"?i.actionable:intent==="waiting"?i.type==="Waiting"||i.type==="Follow-up"&&!i.actionable:intent==="overview"?true:diaryDay(i.at)===day;
  });
  const summary=snapshot.summary;

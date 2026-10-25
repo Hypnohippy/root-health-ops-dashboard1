@@ -34,7 +34,7 @@ export async function GET(req: Request) {
       readAll("scheduled_posts", "id,organisation_id,message,platforms,status,meta,error_info,scheduled_for,posted_at,created_at", organisationId),
       readAll("social_accounts", "id,organisation_id,platform,is_active,page_access_token,token_expires_at,page_name", organisationId),
     ]);
-    const input=collection.input,work=await extendDiary(tenant,buildOperationalWork(collection));
+    const input=collection.input,work=await extendDiary(tenant,buildOperationalWork(collection),collection);
     const inboxRows = input.inbox_items;
     const targetRows = input.growth_targets;
     const control = canonicalHomeControl(organisationId,buildHomeControl(organisationId, { ...input, scheduled_posts: postRows, social_accounts: accountRows }),collection,work);

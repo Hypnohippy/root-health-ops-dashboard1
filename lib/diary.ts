@@ -6,6 +6,7 @@ export type DiaryProvenance = { organisationId: string; dateSource: string } & (
   | { provider: "google_calendar" | "microsoft_calendar"; externalEventId: string; accountId: string; ownerUserId: string }
   | { provider: "manual_diary"; recordId: string; ownerUserId: string }
   | { provider: "email_confirmation"; recordId: string; messageId: string; threadId: string }
+  | { provider: "conversation_confirmation"; relationshipId:string; conversationId:string; channel:'linkedin'|'email' }
 );
 /** Future tenant-owned calendar adapter contract only: no connection, ingestion or OAuth in Phase 1. */
 export type DiaryCalendarEvidence = {
@@ -50,13 +51,14 @@ export function diaryMonth(day: string) {
   for (let d = first; d.slice(0, 7) === first.slice(0, 7); d = diaryShift(d, 1)) days.push(d);
   return days;
 }
-export type DiaryIntent="today"|"tomorrow"|"week"|"overdue"|"where"|"overview"|"actionable"|"waiting"|{person?:string;kind?:"all"|"meeting";source?:"google_calendar"|"email_confirmation";period?:"today"|"tomorrow"|"week"};
+export type DiaryIntent="today"|"tomorrow"|"week"|"overdue"|"where"|"overview"|"actionable"|"waiting"|{person?:string;kind?:"all"|"meeting";source?:"google_calendar"|"email_confirmation";period?:"today"|"tomorrow"|"week";weekday?:number};
 export function diaryQuestion(question:string):DiaryIntent|null {
  const q=question.trim().replace(/[?!.]+$/,"");
  if(/where.*diary|find.*diary/i.test(q))return "where";
  if(/google (?:calendar|diary)/i.test(q))return {source:"google_calendar",period:/this week/i.test(q)?"week":/tomorrow/i.test(q)?"tomorrow":"today"};
  if(/meetings.*(?:by|from|in by) email/i.test(q))return {source:"email_confirmation",kind:"meeting"};
  const anything=q.match(/^have I got anything with (.{1,80})$/i);if(anything)return {person:anything[1].trim(),kind:"all"};
+ const weekday=q.match(/^what meetings.*\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);if(weekday)return {kind:'meeting',weekday:['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].indexOf(weekday[1].toLowerCase())};
  if(/what meetings.*(?:today|tomorrow|this week)/i.test(q))return {kind:"meeting",period:/this week/i.test(q)?"week":/tomorrow/i.test(q)?"tomorrow":"today"};
  const person=q.match(/^when (?:am I|are we) (?:speaking to|meeting|calling) (.{1,80})$/i);
  if(person)return {person:person[1].trim(),kind:"meeting"};
