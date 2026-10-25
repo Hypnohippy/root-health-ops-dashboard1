@@ -5,7 +5,7 @@ import LinkedInHistoricalSend from "./LinkedInHistoricalSend";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openAndCopyLinkedIn } from "@/lib/linkedinClipboard";
 import { tenantFetch } from "@/lib/tenantFetch";
-import { selectedBatchId, removeBatchContact, outreachDraftKey, outreachDateTime, generateOutreachDraft, DraftStateChangedError } from "@/lib/linkedinWorkbench";
+import { selectedBatchId, removeBatchContact, outreachDraftKey, outreachDateTime, generateOutreachDraft, DraftStateChangedError, outreachConfirmationState } from "@/lib/linkedinWorkbench";
 import type { LinkedInOutreachItem, OutreachView } from "@/lib/linkedinOutreach";
 
 type Queue = { view?: OutreachView; audit?: Record<string, unknown>[]; reconciliationReasons?: Record<string, number>; identityReviewNeeded: number; unreconciledFollowups: number; recoveryItem?: LinkedInOutreachItem | null; items: LinkedInOutreachItem[]; revision: string; total: number; repliesNeedingAttention: number; organisationId: string };
@@ -19,7 +19,8 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
   const [generationError, setGenerationError] = useState("");
   const [historical, setHistorical] = useState(false);
   const [uncertain, setUncertain] = useState(false);
-  const receipt = useRef<{ key: string; message: string; revision: string } | null>(null);
+  const [retryBlocked, setRetryBlocked] = useState(false);
+  const receipt = useRef<{ key: string; message: string; revision: string; confirmationState: string; retryConfirmation?: boolean } | null>(null);
   const currentDraft = useRef(initialMessage);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const generation = useRef(0);
@@ -28,7 +29,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
   const post = useCallback(async (body: Record<string, unknown>, signal?: AbortSignal) => {
     const res = await tenantFetch("/api/growth/linkedin-console", { signal, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: queue.organisationId, table: item.table, id: item.id, revision: queue.revision, ...body }) });
     const data = await res.json();
-    if (!res.ok) throw Error(data.error || "Action could not be confirmed. Reload safely.");
+    if (!res.ok) throw Object.assign(Error(data.error || "Action could not be confirmed. Reload safely."), { code: data.code });
     return data;
   }, [item.id, item.table, queue.organisationId, queue.revision]);
   const generate = useCallback(async () => {
@@ -80,14 +81,19 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
   async function complete() {
     if (locked.current) return;
     locked.current = true; setBusy("complete"); setNotice("");
-    receipt.current ||= { key: crypto.randomUUID(), message: pending?.message || message, revision: queue.revision };
+    receipt.current ||= { key: crypto.randomUUID(), message: pending?.message || message, revision: queue.revision, confirmationState: outreachConfirmationState(item) };
     try {
       const data = await post({ action: "record_send", sendChoice: "now", confirmed: true, ...receipt.current });
-      if (data.reconciliationErrors?.length) {
-        setNotice("Send recorded, but reconciliation needs attention. Reload safely before continuing; do not send again.");
+      if (data.reconciliationErrors?.length && data.duplicate !== true) {
+        setNotice("Send recorded, but reconciliation needs attention. Retry recording this same receipt to check its status; do not send the LinkedIn message again.");
         setUncertain(true);
       } else await onNext(item.contactId, true);
-    } catch (e) { setUncertain(true); setNotice(`${e instanceof Error ? e.message : "Completion uncertain."} Retry this confirmation with the same receipt; do not send the LinkedIn message again.`); }
+    } catch (e) {
+      if (e instanceof Error && "code" in e && e.code === "STALE_SEND_REVISION") receipt.current.retryConfirmation = true;
+      setRetryBlocked(e instanceof Error && "code" in e && ["SEND_STATE_CHANGED", "SEND_RECEIPT_MISMATCH"].includes(String(e.code)));
+      setUncertain(true);
+      setNotice(`${e instanceof Error ? e.message : "Completion uncertain."} Retry records only this same receipt; Ops will not send a LinkedIn message.`);
+    }
     finally { locked.current = false; setBusy(""); }
   }
   return <article className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-white/15 bg-slate-900 lg:h-full" aria-label="Selected LinkedIn contact" aria-busy={!!busy}>
@@ -101,20 +107,20 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
         <blockquote className="whitespace-pre-wrap break-words text-sm">{pending.message}</blockquote>
         {pending.draftKey !== outreachDraftKey(item) && <p role="alert">This contact’s outreach state changed. Review its recorded history before confirming.</p>}
         <div className="flex flex-wrap gap-2">
-          <button className={`${button} bg-emerald-800`} disabled={suspended || !!busy || pending.draftKey !== outreachDraftKey(item)} onClick={() => void complete()}>{uncertain ? "Retry confirmation safely" : "Yes — record send & next"}</button>
+          <button className={`${button} bg-emerald-800`} disabled={suspended || !!busy || retryBlocked || pending.draftKey !== outreachDraftKey(item)} onClick={() => void complete()}>{uncertain ? "Retry confirmation safely" : "Yes — record send & next"}</button>
           <button className={button} disabled={!!busy || uncertain} onClick={onKeep}>No — keep this contact</button>
-          <button className={button} disabled={suspended || !!busy || uncertain} onClick={() => setHistorical(true)}>Already sent previously</button>
+          <button className={button} disabled={suspended || !!busy} onClick={() => setHistorical(true)}>Already sent previously</button>
         </div>
       </section>}
       <div className="flex flex-wrap gap-2" role="toolbar" aria-label={`Outreach actions for ${item.name}`}>
         <button className={`${button} bg-sky-800`} disabled={suspended || historical || !!busy || !message.trim() || !item.destination || uncertain} onClick={() => void copy(true)}>{item.destinationKind === "profile" ? "Open profile & Copy — use Message" : "Open & Copy"}</button>
-        <button className={`${button} bg-emerald-800`} disabled={suspended || historical || !!busy || !message.trim() || !!pending && pending.draftKey !== outreachDraftKey(item)} onClick={() => void complete()}>{uncertain ? "Retry confirmation safely" : "Sent now & next"}</button>
-        <button className={button} disabled={suspended || !!busy || uncertain || !message.trim()} onClick={() => setHistorical(true)}>Already sent previously</button>
+        <button className={`${button} bg-emerald-800`} disabled={suspended || historical || !!busy || retryBlocked || !message.trim() || !!pending && pending.draftKey !== outreachDraftKey(item)} onClick={() => void complete()}>{uncertain ? "Retry confirmation safely" : "Sent now & next"}</button>
+        <button className={button} disabled={suspended || !!busy || !message.trim()} onClick={() => setHistorical(true)}>Already sent previously</button>
         <button className={button} disabled={suspended || historical || busy === "complete" || uncertain} onClick={() => void onNext(item.contactId, false)}>Skip</button>
       </div>
     </header>
     <div className="min-h-0 space-y-4 overflow-y-auto p-4 lg:flex-1">
-      {historical && <LinkedInHistoricalSend message={message} onCancel={() => setHistorical(false)} onConfirm={async body => {
+      {historical && <LinkedInHistoricalSend message={receipt.current?.message || message} onCancel={() => setHistorical(false)} onConfirm={async body => {
         if (locked.current) throw Error("A confirmation is already in progress.");
         locked.current = true; setBusy("complete");
         try { await post({ action: "record_send", ...body }); await onNext(item.contactId, true); }
@@ -127,7 +133,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
       {busy === "generate" && <p role="status">Preparing draft for {item.name}…</p>}
       <textarea aria-describedby={generationError ? "linkedin-generation-error" : undefined} aria-invalid={!!generationError} id="linkedin-message" ref={textarea} value={message} disabled={suspended || historical || busy === "complete" || uncertain} onChange={e => { generation.current++; generationRequest.current?.abort(); setBusy(""); currentDraft.current = e.target.value; setMessage(e.target.value); onDraft(e.target.value); }} className="min-h-32 w-full resize-y rounded-lg border border-white/20 bg-slate-950 p-3 text-sm leading-relaxed" />
       <div className="flex flex-wrap gap-2"><button className={button} disabled={suspended || historical || !!busy || uncertain} onClick={() => void generate()}>{busy === "generate" ? "Preparing draft…" : "Refresh draft"}</button><button className={button} disabled={suspended || busy === "complete" || !message.trim()} onClick={() => void copy(false)}>Copy message</button></div>
-      {notice && <p role="status" className="rounded-lg border border-amber-300/30 p-3 text-sm">{notice}</p>}
+      {notice && <p role={uncertain ? "alert" : "status"} className="rounded-lg border border-amber-300/30 p-3 text-sm">{notice}</p>}
       {uncertain && <button className={button} onClick={() => void onReload()}>Reload current state safely</button>}
       <p className="text-xs text-slate-400">Paste and send manually in the separate LinkedIn tab. Sent now confirms a message you just sent. Use Already sent previously to reconcile LinkedIn history.</p>
       {item.destination ? <a className="block text-sm underline text-sky-300" href={item.destination} target="_blank" rel="noreferrer">{item.destinationKind === "profile" ? "Open profile — use Message" : "Open recorded LinkedIn messaging destination"}</a> : <p className="text-sm">Destination missing — this contact requires reconciliation.</p>}

@@ -6,6 +6,7 @@ import ts from "typescript";
 import { PGlite } from "@electric-sql/pglite";
 import { loadTruthModule } from "./relationship-truth-loader.mjs";
 function load(file, deps = {}) {
+ if (file === "lib/linkedinSendReconciliation.server.ts") deps["@/lib/linkedinWorkbench"] = load("lib/linkedinWorkbench.ts");
  const mod = { exports: {} };
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
  {module:mod,exports:mod.exports,URL,URLSearchParams,require:name=>{assert.ok(name in deps, `Unexpected dependency/send path ${name}`);return deps[name];}});
@@ -171,7 +172,7 @@ test("real SQL: reconciliation appends immutable receipts, stores two clocks, bl
   const base={message:"  Exact message\n",source:"Manually confirmed LinkedIn send",timezone:"Europe/London",precision:"time",sentStage:"connection"};
   const rpcCalls=[];
   const service=load("lib/linkedinSendReconciliation.server.ts",{
-   "@/lib/supabaseAdmin":{supabaseAdmin:{rpc:async(name,p)=>{assert.equal(name,"record_linkedin_send_evidence");rpcCalls.push(p);try{return {data:(await db.query(`select record_linkedin_send_evidence($1,$2,$3,$4,$5,$6,$7::jsonb) as result`,[p.p_organisation_id,p.p_actor,p.p_table,p.p_id,p.p_revision,p.p_key,JSON.stringify(p.p_details)])).rows[0].result,error:null};}catch(error){return {data:null,error};}}}},
+   "@/lib/supabaseAdmin":{supabaseAdmin:{from:()=>({select:()=>({eq:(_column,org)=>({maybeSingle:async()=>({data:(await db.query("select revision from lifecycle_revisions where organisation_id=$1",[org])).rows[0]})})})}),rpc:async(name,p)=>{assert.equal(name,"record_linkedin_send_evidence");rpcCalls.push(p);try{return {data:(await db.query(`select record_linkedin_send_evidence($1,$2,$3,$4,$5,$6,$7::jsonb) as result`,[p.p_organisation_id,p.p_actor,p.p_table,p.p_id,p.p_revision,p.p_key,JSON.stringify(p.p_details)])).rows[0].result,error:null};}catch(error){return {data:null,error};}}}},
    "@/lib/lifecycleSnapshot.server":{readLifecycleInput:async(org,backfill)=>{assert.equal(org,A);assert.equal(backfill,false);return input({growth_targets:(await db.query(`select * from growth_targets where organisation_id=$1`,[org])).rows});}},
    "@/lib/linkedinCadenceBackfill":{planLinkedInCadenceBackfill:(org,data)=>({projected:data,review:[]})},
    "@/lib/linkedinOutreach":{linkedInOutreachQueue:()=>({items:[{table:"growth_targets",id:T,stage:"connection"}]})},
@@ -187,7 +188,7 @@ test("real SQL: reconciliation appends immutable receipts, stores two clocks, bl
   const skewedRetry=await service.reconcileLinkedInSend(A,A,{...body,completedAt:"2099-01-01T00:00:00Z"});assert.equal(skewedRetry.duplicate,true);assert.equal(rpcCalls.length,1);
   assert.deepEqual((await db.query(`select manual_completion from growth_targets where id=$1`,[T])).rows[0].manual_completion,original);
   await assert.rejects(service.reconcileLinkedInSend(A,A,{...body,key:K2,sendChoice:"historical",sentAt:new Date(Date.now()+86400000).toISOString(),timezone:"Europe/London"}),/cannot be in the future/);
-  await assert.rejects(service.reconcileLinkedInSend(A,A,{...body,key:"88888888-8888-4888-8888-888888888888"}),/Confirmation was not recorded/);
+  await assert.rejects(service.reconcileLinkedInSend(A,A,{...body,key:"88888888-8888-4888-8888-888888888888"}),/Reload current state/);
   assert.deepEqual((await db.query(`select manual_completion from growth_targets where id=$1`,[T])).rows[0].manual_completion,original);
   const unknown=await run(K2,{...base,choice:"conversation",status:"unknown",correction:true,source:"Manually reconciled from LinkedIn history"});assert.equal(unknown.sentAt,null);
   row=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(row.manual_completion.content_kind,"conversation_history_pasted");assert.equal(row.manual_completion.message,base.message);assert.equal(row.manual_completion.historical_send_date_status,"unknown");assert.equal(row.first_outbound_at,null);assert.equal(row.stage,"day3_followup");const {history: ignoredHistory,...originalWithoutHistory}=original;assert.equal(ignoredHistory.length,0);assert.deepEqual(row.manual_completion.history[0],originalWithoutHistory);
@@ -245,3 +246,71 @@ test("real SQL: append-only conversation messages atomically suspend cadence wit
  }finally{await db.close();}});
 
 test("real SQL: full-thread snapshots preserve receipt/history and atomically activate inbound conversation",async()=>{const db=await database();try{await db.exec(fs.readFileSync("supabase/migrations/20261009140000_linkedin_conversation_log.sql","utf8"));await db.exec(fs.readFileSync("supabase/migrations/20261009160000_linkedin_conversation_snapshots.sql","utf8"));const original={key:K,message:"Old audit",actor:A,evidence:"Original"};await db.query(`insert into growth_targets(id,organisation_id,stage,status,manual_completion)values($1,$2,'day3_followup','active',$3::jsonb)`,[T,A,JSON.stringify(original)]);const rev=(await db.query(`select revision from lifecycle_revisions where organisation_id=$1`,[A])).rows[0].revision;const thread="  Name\nToday\n👏 👍\nView profile\nMultiple messages\n";const args=[A,A,rev,K2,JSON.stringify({message:thread,containsInboundReply:true,earliestOutboundAt:"2026-09-01T12:00:00Z",timezone:"Europe/London",precision:"time"}),JSON.stringify([{table:"growth_targets",id:T}])];const call=()=>db.query(`select append_linkedin_conversation_snapshot($1,$2,'linkedin.com/in/test',$3,$4,$5::jsonb,$6::jsonb) as result`,args);await call();const target=(await db.query(`select * from growth_targets where id=$1`,[T])).rows[0];assert.equal(target.linkedin_conversation_active,true);assert.deepEqual(target.manual_completion,original);assert.equal(target.linkedin_cadence_anchor.content_kind,"conversation_history_pasted");const entries=(await db.query(`select * from linkedin_conversation_messages`)).rows;assert.equal(entries.length,1);assert.equal(entries[0].direction,"snapshot");assert.equal(entries[0].message,thread);assert.equal(entries[0].message_at,null);assert.equal(entries[0].contains_inbound_reply,true);assert.equal((await call()).rows[0].result.duplicate,true);}finally{await db.close();}});
+
+
+async function retryFixture() {
+ const db=await database();
+ await db.exec(fs.readFileSync("supabase/migrations/20261009100000_linkedin_absolute_cadence.sql","utf8"));
+ await db.exec(fs.readFileSync("supabase/migrations/20261009120000_linkedin_external_send_evidence.sql","utf8"));
+ await db.query("insert into growth_targets(id,organisation_id,target_name,stage,status,linkedin_identity) values($1,$2,'Test','connection','active','linkedin.com/in/test')",[T,A]);
+ await db.exec("alter table growth_targets add column updated_at timestamptz default now()");
+ const accepted={...acceptance(),created_at_platform:new Date(Date.now()-86400000).toISOString()};
+ const read=async org=>input({inbox_items:org===A?[accepted]:[],growth_targets:JSON.parse(JSON.stringify((await db.query("select * from growth_targets where organisation_id=$1",[org])).rows))});
+ const queue=loadTruthModule("lib/linkedinOutreach.ts"),backfill=loadTruthModule("lib/linkedinCadenceBackfill.ts"),helpers=load("lib/linkedinWorkbench.ts");
+ const calls=[],reads=[];let race=false;
+ const admin={from:table=>{assert.equal(table,'lifecycle_revisions');return {select:()=>({eq:(_column,org)=>({maybeSingle:async()=>{reads.push(org);return {data:(await db.query('select revision from lifecycle_revisions where organisation_id=$1',[org])).rows[0]};}})})};},rpc:async(name,p)=>{
+  assert.equal(name,'record_linkedin_send_evidence');calls.push(p);
+  if(race){race=false;await db.query('update lifecycle_revisions set revision=revision+1 where organisation_id=$1',[A]);}
+  try{return {data:(await db.query('select record_linkedin_send_evidence($1,$2,$3,$4,$5,$6,$7::jsonb) result',[p.p_organisation_id,p.p_actor,p.p_table,p.p_id,p.p_revision,p.p_key,JSON.stringify(p.p_details)])).rows[0].result};}catch(error){return {error};}
+ }};
+ const service=load('lib/linkedinSendReconciliation.server.ts',{'@/lib/supabaseAdmin':{supabaseAdmin:admin},'@/lib/lifecycleSnapshot.server':{readLifecycleInput:read},'@/lib/linkedinCadenceBackfill':backfill,'@/lib/linkedinOutreach':queue,'@/lib/outreachSelfIdentity.server':{readOutreachSelfIdentity:async()=>({names:[],emails:[],linkedinProfiles:[],linkedinAccountIds:[]})},'@/lib/linkedinSendEvidence':sendEvidence});
+ const selected=queue.linkedInOutreachQueue(A,backfill.planLinkedInCadenceBackfill(A,await read(A)).projected).items.find(item=>item.id===T);
+ assert.ok(selected,'synthetic contact must be eligible');
+ const body={action:'record_send',table:'growth_targets',id:T,revision:String(await revision(db)),key:K,sendChoice:'now',confirmed:true,message:'  Exact already-sent text\n',confirmationState:helpers.outreachConfirmationState(selected)};
+ return {db,calls,reads,read,queue,accepted,service,body,makeRace:()=>{race=true;},advance:()=>db.query('update lifecycle_revisions set revision=revision+1 where organisation_id=$1',[A])};
+}
+test('real SQL retry: stale snapshot rejects without recording; explicit same-key retry reads authoritative revision and records exactly once',async()=>{
+ const f=await retryFixture();try{
+  await f.advance();
+  await assert.rejects(f.service.reconcileLinkedInSend(A,A,f.body),error=>error.code==='STALE_SEND_REVISION');assert.equal(f.calls.length,0);
+  const current=String(await revision(f.db));
+  const result=await f.service.reconcileLinkedInSend(A,A,{...f.body,retryConfirmation:true});
+  assert.equal(f.calls.length,1);assert.equal(f.calls[0].p_revision,current);assert.notEqual(current,f.body.revision);
+  assert.equal(f.calls[0].p_key,f.body.key);assert.equal(f.calls[0].p_details.message,f.body.message);
+  const saved=(await f.read(A)).growth_targets[0].manual_completion;assert.equal(saved.history.length,0);assert.equal(saved.key,K);assert.equal(saved.message,f.body.message);
+  assert.equal((await f.service.reconcileLinkedInSend(A,A,{...f.body,retryConfirmation:true})).duplicate,true);assert.equal(f.calls.length,1);
+  const projected=lifecycle.buildContactLifecycle(A,await f.read(A)).find(row=>row.identity==='linkedin:linkedin.com/in/test');
+  assert.equal(projected.nextDueDate,new Date(Date.parse(result.sentAt)+3*86400000).toISOString());
+  for(let n=0;n<2;n++)assert.equal(f.queue.linkedInOutreachQueue(A,await f.read(A)).items.some(item=>item.id===T),false);
+  assert.ok(f.reads.length>=4);
+ }finally{await f.db.close();}
+});
+test('real SQL retry: revision changes between validation and RPC; no automatic write retry; next explicit retry recovers',async()=>{
+ const f=await retryFixture();try{
+  f.makeRace();await assert.rejects(f.service.reconcileLinkedInSend(A,A,f.body),error=>error.code==='STALE_SEND_REVISION');assert.equal(f.calls.length,1);
+  assert.equal((await f.read(A)).growth_targets[0].manual_completion,null);
+  await f.service.reconcileLinkedInSend(A,A,{...f.body,retryConfirmation:true});assert.equal(f.calls.length,2);assert.equal(f.calls[0].p_key,f.calls[1].p_key);assert.equal(f.calls[0].p_details.message,f.calls[1].p_details.message);
+  assert.equal((await f.read(A)).growth_targets[0].manual_completion.history.length,0);
+ }finally{await f.db.close();}
+});
+test('real SQL normal confirmation succeeds; existing receipt is recognised before stale eligibility/revision and rejects changed message/actor',async()=>{
+ const f=await retryFixture();try{
+  await f.service.reconcileLinkedInSend(A,A,f.body);assert.equal(f.calls.length,1);
+  assert.equal((await f.service.reconcileLinkedInSend(A,A,f.body)).duplicate,true);
+  await assert.rejects(f.service.reconcileLinkedInSend(A,A,{...f.body,message:'Different text'}),e=>e.code==='SEND_RECEIPT_MISMATCH');
+  await assert.rejects(f.service.reconcileLinkedInSend(A,B,f.body),e=>e.code==='SEND_RECEIPT_MISMATCH');
+  assert.equal(f.calls.length,1);
+ }finally{await f.db.close();}
+});
+for(const changed of ['closed','mode','identity','tenant','missing scope'])test('real SQL retry stops safely for '+changed,async()=>{
+ const f=await retryFixture();try{
+  await f.advance();await assert.rejects(f.service.reconcileLinkedInSend(A,A,f.body),e=>e.code==='STALE_SEND_REVISION');
+  let body={...f.body,retryConfirmation:true},org=A;
+  if(changed==='closed')await f.db.query("update growth_targets set status='parked' where id=$1",[T]);
+  if(changed==='mode')f.accepted.created_at_platform=new Date(Date.now()-20*86400000).toISOString();
+  if(changed==='identity')await f.db.query("update growth_targets set linkedin_identity='linkedin.com/in/someone-else' where id=$1",[T]);
+  if(changed==='tenant')org=B;
+  if(changed==='missing scope')delete body.confirmationState;
+  await assert.rejects(f.service.reconcileLinkedInSend(org,A,body));assert.equal(f.calls.length,0);assert.equal((await f.read(A)).growth_targets[0].manual_completion,null);
+ }finally{await f.db.close();}
+});

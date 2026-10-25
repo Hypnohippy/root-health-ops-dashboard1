@@ -51,3 +51,8 @@ export async function generateOutreachDraft<Q extends { organisationId: string; 
   if (typeof result.data.message !== "string" || !result.data.message.trim()) throw Error("No draft was returned. Retry or type your message below.");
   return { message: result.data.message, refreshedQueue };
 }
+
+/** Immutable operational scope of one explicit manual-send confirmation, not a display/draft revision. */
+export function outreachConfirmationState(item: LinkedInOutreachItem) {
+  return JSON.stringify([item.contactId, item.table, item.id, item.stage, item.mode, item.connectedAt, item.previousOutbound ?? null, item.lastAction ?? null]);
+}
