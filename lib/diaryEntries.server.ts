@@ -5,12 +5,17 @@ import {readGoogleCalendar} from './diaryCalendar.server';
 import type {DiarySnapshot} from './diary';
 import {AccessError} from './tenantAuth';
 const missing=(error:{code?:string}|null)=>['42P01','PGRST205'].includes(error?.code||'');
+async function readOwnedRows(table:'diary_entries'|'email_conversation_messages',tenant:RelationshipTenant){
+ const rows:Record<string,unknown>[]=[];
+ for(let offset=0;offset<2000;offset+=500){let q=supabaseAdmin.from(table).select('*').eq('organisation_id',tenant.organisationId);if(table==='diary_entries')q=q.eq('owner_user_id',tenant.userId);const r=await q.order(table==='diary_entries'?'starts_at':'sent_at',{ascending:table==='diary_entries'}).order('id').range(offset,offset+499);if(r.error)return {data:[],error:r.error};rows.push(...r.data);if(r.data.length<500)break;}
+ return {data:rows,error:null};
+}
 export async function extendDiary(tenant:RelationshipTenant,base:DiarySnapshot):Promise<DiarySnapshot>{
  const notices:string[]=[],now=Date.parse(base.asOf);
  const [entries,accounts,mail]=await Promise.all([
-  supabaseAdmin.from('diary_entries').select('*').eq('organisation_id',tenant.organisationId).eq('owner_user_id',tenant.userId).order('starts_at').limit(2000),
+  readOwnedRows('diary_entries',tenant),
   supabaseAdmin.from('diary_calendar_accounts').select('*').eq('organisation_id',tenant.organisationId).eq('owner_user_id',tenant.userId).eq('provider','google_calendar').limit(10),
-  supabaseAdmin.from('email_conversation_messages').select('id,organisation_id,gmail_message_id,gmail_thread_id,sender_email,subject,body,inbox_item_id').eq('organisation_id',tenant.organisationId).order('sent_at',{ascending:false}).limit(2000)
+  readOwnedRows('email_conversation_messages',tenant)
  ]);
  for(const result of [entries,accounts])if(result.error&&!missing(result.error))throw Error('Diary sources could not be loaded.');
  if(mail.error)throw Error('Stored email evidence could not be loaded.');

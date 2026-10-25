@@ -45,7 +45,7 @@ export async function GET(req: Request) {
     const linkedInConnections = inboxRows.filter(row => responses.get(row.id)?.canMarkContacted).length;
     const attention = collection.responseAttention;
     const replies = attention.count;
-    return NextResponse.json({ success:true, organisationId, control, diarySummary:work.summary, responseAttention: attention, counts:{
+    return NextResponse.json({ success:true, organisationId, control, diarySummary:work.summary, diarySourceNotices:work.sourceNotices, responseAttention: attention, counts:{
       newOpportunities: input.acquisition_items.filter(row => row.status === "new").length, linkedInConnections, outreachReady: targetRows.filter(row => row.status === "active" && row.stage === "connection").length,
       repliesNeedingResponse: replies, followupsDue: work.summary!.actionableFollowups, waiting: work.summary!.waiting, meetingsThisWeek:work.summary!.meetingsThisWeek,overdueTasks:work.summary!.overdueTasks,
       warmOpportunities: growth.warmOpportunities, meetingsOrConversions: growth.meetingsOrConversions,
