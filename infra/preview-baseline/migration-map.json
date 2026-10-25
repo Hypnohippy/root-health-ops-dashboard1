@@ -221,11 +221,11 @@
     },
     {
       "file": "local-platform.sql",
-      "sha256": "6c5bdc06635cdcf1a81b857f6a24722ebec83e5b1eaf2b851c6681bd3c9d2936"
+      "sha256": "325e2dea0acdf2d2af0be1709656a513ea1d3cf225996afca602452789789b3f"
     },
     {
       "file": "migrations/00000000000000_root_ops_schema_baseline.sql",
-      "sha256": "22860f2374c8ec1755e62b4691fc576dcdad48d552f6563ca3ea750cb14f41df"
+      "sha256": "4491cd2f2edb5f76842fd5e29d996f8af26e2e8545a03e0e2322c6f31b978777"
     }
   ]
 }

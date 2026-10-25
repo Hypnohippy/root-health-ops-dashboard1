@@ -12,29 +12,7 @@ const source = JSON.parse(read('source/catalog.json'));
 const extra = JSON.parse(read('source/extra.json'));
 const results = [];
 const check = (name, fn) => { fn(); results.push({ name, pass:true }); };
-function normalize(value, key = '') {
-  if (Array.isArray(value)) {
-    // PG18 catalogs NOT NULL constraints separately; attnotnull remains compared on every column.
-    const items=value.filter(v=>key !== 'constraints' || v.type !== 'n').map(v=>normalize(v));
-    if (['columns','labels'].includes(key)) return items; // order has semantic meaning
-    return items.sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
-  }
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(k=>[k,normalize(k === 'definition' && value.type === 'c' ? value[k].replace(/\n[ \t]+/g,'\n') : value[k],k)]));
-  // Only deparser indentation after newlines is normalized, never literals or function bodies.
-  if (typeof value === 'string' && ['qual','with_check'].includes(key)) return value.replace(/\n[ \t]+/g,'\n');
-  return value;
-}
-function compare(expected, actual, prefix = '') {
-  const mismatches = [];
-  const walk = (a,b,p) => {
-    if (JSON.stringify(a) === JSON.stringify(b)) return;
-    if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
-      for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) walk(a[k],b[k],p+'.'+k);
-    } else mismatches.push({path:p,expected:a,actual:b});
-  };
-  walk(normalize(expected),normalize(actual),prefix);
-  return mismatches;
-}
+const { compare } = localRequire(path.join(root, 'compare.cjs'));
 (async()=>{
   const db = new PGlite(); await db.waitReady;
   let phase = 'empty';

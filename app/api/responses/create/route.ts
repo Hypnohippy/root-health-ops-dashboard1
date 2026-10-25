@@ -1,8 +1,7 @@
 // app/api/responses/create/route.ts
 import { requireOrganisation,accessErrorResponse } from "@/lib/tenantAuth";
-import { readRelationshipIntake } from "@/lib/relationshipIntake.server";
+import { previewSourceCreation,reviewRequestKey } from "@/lib/reviewedIdentity.server";
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
 function cleanStr(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
@@ -55,44 +54,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const intake=await readRelationshipIntake(tenant,{entityKind:"person",sourceType:"manual_response",row:{id:"candidate",organisation_id:organisationId,person:authorName,linkedin_url:platform==="linkedin"?permalink:null}});
-    if(!intake.creationPermitted)return NextResponse.json({success:false,error:"Review the existing relationship before adding manual evidence. No response was created.",intake},{status:409});
-    const createdAt =
-      cleanStr(body?.createdAt) || new Date().toISOString();
-
-    const { data, error } = await supabaseAdmin
-      .from("inbox_items")
-      .insert({
-        organisation_id: organisationId,
-        platform,
-        kind: "comment",
-        status,
-        text,
-        author_name: authorName,
-        author_id: null,
-        created_at: createdAt,
-        permalink,
-        ayrshare_post_id: null,
-        social_post_id: null,
-        social_comment_id: null,
-        parent_social_comment_id: null,
-        raw: body?.raw ?? null,
-      })
-      .select("id")
-      .single();
-
-    if (error) {
-      console.error("[responses/create] supabase error", error);
-      return NextResponse.json(
-        { success: false, error: "Failed to create inbox item" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json(
-      { success: true, id: data?.id },
-      { status: 200 }
-    );
+    const key=reviewRequestKey(body.submissionId);
+    const preview=await previewSourceCreation(tenant,"inbox_items",{id:key,organisation_id:organisationId,platform,kind:"comment",status,text,author_name:authorName,permalink,created_at:cleanStr(body.createdAt)||new Date().toISOString()},"person",key,body.keepSeparate===true);
+    if(!("reviewToken" in preview))return NextResponse.json({success:false,error:"Review the existing relationship before adding manual evidence.",...preview},{status:409});
+    return NextResponse.json(preview,{status:202,headers:{"Cache-Control":"private, no-store"}});
   } catch (err) {
     const denied=accessErrorResponse(err);if(denied)return denied;
     console.error("[responses/create] unexpected error", err);

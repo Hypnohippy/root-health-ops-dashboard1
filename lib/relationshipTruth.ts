@@ -49,7 +49,8 @@ const prefix: Record<string, string> = { inbox_items: "inbox", growth_targets: "
 export function visibleTruthInput(input: TruthInput, policy: TruthPolicy): TruthInput {
   const scoped = (rows: TruthRow[], privateRows = false) => rows.filter(r => r.organisation_id === policy.organisationId && (!privateRows || policy.founderAllowed || r.founder_only !== true));
   const lifecycle = Object.fromEntries(tables.map(t => [t, scoped(input.lifecycle[t])])) as LifecycleInput;
-  const founder = policy.founderAllowed ? scoped(input.founder) : [];
+  // Approved evidence-only research never participates in identity partitioning.
+  const founder = policy.founderAllowed ? scoped(input.founder).filter(row=>!row.linked_relationship_workspace_id) : [];
   const operationalKeys = new Set(tables.flatMap(t => lifecycle[t].map(r => `${t}:${r.id}`)));
   const allLinks = scoped(input.links).filter(l => policy.founderAllowed || l.source_table !== "founder_research_records");
   const workspaces = scoped(input.workspaces).filter(w => policy.founderAllowed || !w.founder_only || allLinks.some(l => l.workspace_id === w.id && operationalKeys.has(`${l.source_table}:${l.source_id}`)));

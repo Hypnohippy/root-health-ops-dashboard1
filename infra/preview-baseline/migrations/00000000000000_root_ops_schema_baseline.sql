@@ -2995,7 +2995,14 @@ ALTER TABLE "public"."social_responses" ADD CONSTRAINT "social_responses_organis
 ALTER TABLE "public"."social_sync_state" ADD CONSTRAINT "social_sync_state_organisation_id_fkey" FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
 ALTER TABLE "public"."user_credits" ADD CONSTRAINT "user_credits_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 CREATE TRIGGER on_auth_user_created_create_org AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_new_user_create_org();
-ALTER TABLE "auth"."users" ENABLE TRIGGER "on_auth_user_created_create_org";
+DO $auth_trigger_state$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
+  WHERE tgrelid = 'auth.users'::regclass AND tgname = 'on_auth_user_created_create_org'
+   AND NOT tgisinternal AND tgenabled = 'O'
+   AND tgfoid = 'public.handle_new_user_create_org()'::regprocedure) THEN
+  RAISE EXCEPTION 'Managed Auth signup trigger does not match the required enabled state';
+ END IF;
+END $auth_trigger_state$;
 CREATE TRIGGER lifecycle_revision_acquisition AFTER INSERT OR DELETE OR UPDATE ON public.acquisition_items FOR EACH ROW EXECUTE FUNCTION track_lifecycle_revision();
 ALTER TABLE "public"."acquisition_items" ENABLE TRIGGER "lifecycle_revision_acquisition";
 CREATE TRIGGER trg_college_cohorts_updated_at BEFORE UPDATE ON public.college_cohorts FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -5764,28 +5771,33 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT USAGE ON S
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT SELECT ON SEQUENCES TO "service_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT UPDATE ON SEQUENCES TO "service_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT USAGE ON SEQUENCES TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON SEQUENCES FROM PUBLIC;
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON SEQUENCES FROM "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON SEQUENCES FROM "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON SEQUENCES FROM "dashboard_user";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON SEQUENCES FROM "pg_database_owner";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON SEQUENCES FROM "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON SEQUENCES FROM "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON SEQUENCES FROM "supabase_admin";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON SEQUENCES FROM "supabase_auth_admin";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON SEQUENCES FROM "supabase_storage_admin";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT SELECT ON SEQUENCES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT UPDATE ON SEQUENCES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT USAGE ON SEQUENCES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT SELECT ON SEQUENCES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT UPDATE ON SEQUENCES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT USAGE ON SEQUENCES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT SELECT ON SEQUENCES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT UPDATE ON SEQUENCES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT USAGE ON SEQUENCES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT SELECT ON SEQUENCES TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT UPDATE ON SEQUENCES TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT USAGE ON SEQUENCES TO "service_role";
+DO $managed_default_acl$
+DECLARE role_id oid := pg_catalog.to_regrole('supabase_admin'); actual jsonb; expected jsonb;
+BEGIN
+ IF role_id IS NULL THEN RAISE EXCEPTION 'Managed default ACL role unavailable'; END IF;
+ SELECT coalesce(jsonb_agg(entry ORDER BY entry COLLATE "C"), '[]'::jsonb)
+ FROM (SELECT (CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END)
+  || ':' || x.privilege_type || ':' || x.is_grantable::text AS entry
+  FROM pg_catalog.aclexplode(coalesce((SELECT defaclacl FROM pg_catalog.pg_default_acl
+   WHERE defaclrole=role_id AND defaclnamespace='public'::regnamespace AND defaclobjtype='S'), '{}'::aclitem[])) x) entries INTO actual;
+ IF actual IS DISTINCT FROM '["anon:SELECT:false","anon:UPDATE:false","anon:USAGE:false","authenticated:SELECT:false","authenticated:UPDATE:false","authenticated:USAGE:false","postgres:SELECT:false","postgres:UPDATE:false","postgres:USAGE:false","service_role:SELECT:false","service_role:UPDATE:false","service_role:USAGE:false"]'::jsonb THEN
+  RAISE EXCEPTION 'Managed public default ACL S differs from the captured contract';
+ END IF;
+ -- Production has no custom global defaults for this role. Per-schema defaults
+ -- are additive, so a broadened global ACL must not pass this assertion.
+ SELECT coalesce(jsonb_agg(entry ORDER BY entry COLLATE "C"), '[]'::jsonb)
+ FROM (SELECT (CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END)
+  || ':' || x.privilege_type || ':' || x.is_grantable::text AS entry
+  FROM pg_catalog.aclexplode(coalesce((SELECT defaclacl FROM pg_catalog.pg_default_acl
+   WHERE defaclrole=role_id AND defaclnamespace=0 AND defaclobjtype='S'), pg_catalog.acldefault('s',role_id))) x) entries INTO actual;
+ SELECT coalesce(jsonb_agg(entry ORDER BY entry COLLATE "C"), '[]'::jsonb)
+ FROM (SELECT (CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END)
+  || ':' || x.privilege_type || ':' || x.is_grantable::text AS entry
+  FROM pg_catalog.aclexplode(pg_catalog.acldefault('s',role_id)) x) entries INTO expected;
+ IF actual IS DISTINCT FROM expected THEN
+  RAISE EXCEPTION 'Managed global default ACL S differs from the captured contract';
+ END IF;
+END $managed_default_acl$;
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "authenticated";
@@ -5800,20 +5812,33 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT EXECUTE ON
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT EXECUTE ON FUNCTIONS TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT EXECUTE ON FUNCTIONS TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT EXECUTE ON FUNCTIONS TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM PUBLIC;
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "dashboard_user";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "pg_database_owner";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "supabase_admin";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "supabase_auth_admin";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "supabase_storage_admin";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT EXECUTE ON FUNCTIONS TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT EXECUTE ON FUNCTIONS TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT EXECUTE ON FUNCTIONS TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT EXECUTE ON FUNCTIONS TO "service_role";
+DO $managed_default_acl$
+DECLARE role_id oid := pg_catalog.to_regrole('supabase_admin'); actual jsonb; expected jsonb;
+BEGIN
+ IF role_id IS NULL THEN RAISE EXCEPTION 'Managed default ACL role unavailable'; END IF;
+ SELECT coalesce(jsonb_agg(entry ORDER BY entry COLLATE "C"), '[]'::jsonb)
+ FROM (SELECT (CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END)
+  || ':' || x.privilege_type || ':' || x.is_grantable::text AS entry
+  FROM pg_catalog.aclexplode(coalesce((SELECT defaclacl FROM pg_catalog.pg_default_acl
+   WHERE defaclrole=role_id AND defaclnamespace='public'::regnamespace AND defaclobjtype='f'), '{}'::aclitem[])) x) entries INTO actual;
+ IF actual IS DISTINCT FROM '["anon:EXECUTE:false","authenticated:EXECUTE:false","postgres:EXECUTE:false","service_role:EXECUTE:false"]'::jsonb THEN
+  RAISE EXCEPTION 'Managed public default ACL f differs from the captured contract';
+ END IF;
+ -- Production has no custom global defaults for this role. Per-schema defaults
+ -- are additive, so a broadened global ACL must not pass this assertion.
+ SELECT coalesce(jsonb_agg(entry ORDER BY entry COLLATE "C"), '[]'::jsonb)
+ FROM (SELECT (CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END)
+  || ':' || x.privilege_type || ':' || x.is_grantable::text AS entry
+  FROM pg_catalog.aclexplode(coalesce((SELECT defaclacl FROM pg_catalog.pg_default_acl
+   WHERE defaclrole=role_id AND defaclnamespace=0 AND defaclobjtype='f'), pg_catalog.acldefault('f',role_id))) x) entries INTO actual;
+ SELECT coalesce(jsonb_agg(entry ORDER BY entry COLLATE "C"), '[]'::jsonb)
+ FROM (SELECT (CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END)
+  || ':' || x.privilege_type || ':' || x.is_grantable::text AS entry
+  FROM pg_catalog.aclexplode(pg_catalog.acldefault('f',role_id)) x) entries INTO expected;
+ IF actual IS DISTINCT FROM expected THEN
+  RAISE EXCEPTION 'Managed global default ACL f differs from the captured contract';
+ END IF;
+END $managed_default_acl$;
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON TABLES FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "authenticated";
@@ -5856,48 +5881,33 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT SELECT ON 
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT TRIGGER ON TABLES TO "service_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT TRUNCATE ON TABLES TO "service_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT UPDATE ON TABLES TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON TABLES FROM PUBLIC;
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "dashboard_user";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "pg_database_owner";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "supabase_admin";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "supabase_auth_admin";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "supabase_storage_admin";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT DELETE ON TABLES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT INSERT ON TABLES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT MAINTAIN ON TABLES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT REFERENCES ON TABLES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT SELECT ON TABLES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT TRIGGER ON TABLES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT TRUNCATE ON TABLES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT UPDATE ON TABLES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT DELETE ON TABLES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT INSERT ON TABLES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT MAINTAIN ON TABLES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT REFERENCES ON TABLES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT SELECT ON TABLES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT TRIGGER ON TABLES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT TRUNCATE ON TABLES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT UPDATE ON TABLES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT DELETE ON TABLES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT INSERT ON TABLES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT MAINTAIN ON TABLES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT REFERENCES ON TABLES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT SELECT ON TABLES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT TRIGGER ON TABLES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT TRUNCATE ON TABLES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT UPDATE ON TABLES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT DELETE ON TABLES TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT INSERT ON TABLES TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT MAINTAIN ON TABLES TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT REFERENCES ON TABLES TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT SELECT ON TABLES TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT TRIGGER ON TABLES TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT TRUNCATE ON TABLES TO "service_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "public" GRANT UPDATE ON TABLES TO "service_role";
+DO $managed_default_acl$
+DECLARE role_id oid := pg_catalog.to_regrole('supabase_admin'); actual jsonb; expected jsonb;
+BEGIN
+ IF role_id IS NULL THEN RAISE EXCEPTION 'Managed default ACL role unavailable'; END IF;
+ SELECT coalesce(jsonb_agg(entry ORDER BY entry COLLATE "C"), '[]'::jsonb)
+ FROM (SELECT (CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END)
+  || ':' || x.privilege_type || ':' || x.is_grantable::text AS entry
+  FROM pg_catalog.aclexplode(coalesce((SELECT defaclacl FROM pg_catalog.pg_default_acl
+   WHERE defaclrole=role_id AND defaclnamespace='public'::regnamespace AND defaclobjtype='r'), '{}'::aclitem[])) x) entries INTO actual;
+ IF actual IS DISTINCT FROM '["anon:DELETE:false","anon:INSERT:false","anon:MAINTAIN:false","anon:REFERENCES:false","anon:SELECT:false","anon:TRIGGER:false","anon:TRUNCATE:false","anon:UPDATE:false","authenticated:DELETE:false","authenticated:INSERT:false","authenticated:MAINTAIN:false","authenticated:REFERENCES:false","authenticated:SELECT:false","authenticated:TRIGGER:false","authenticated:TRUNCATE:false","authenticated:UPDATE:false","postgres:DELETE:false","postgres:INSERT:false","postgres:MAINTAIN:false","postgres:REFERENCES:false","postgres:SELECT:false","postgres:TRIGGER:false","postgres:TRUNCATE:false","postgres:UPDATE:false","service_role:DELETE:false","service_role:INSERT:false","service_role:MAINTAIN:false","service_role:REFERENCES:false","service_role:SELECT:false","service_role:TRIGGER:false","service_role:TRUNCATE:false","service_role:UPDATE:false"]'::jsonb THEN
+  RAISE EXCEPTION 'Managed public default ACL r differs from the captured contract';
+ END IF;
+ -- Production has no custom global defaults for this role. Per-schema defaults
+ -- are additive, so a broadened global ACL must not pass this assertion.
+ SELECT coalesce(jsonb_agg(entry ORDER BY entry COLLATE "C"), '[]'::jsonb)
+ FROM (SELECT (CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END)
+  || ':' || x.privilege_type || ':' || x.is_grantable::text AS entry
+  FROM pg_catalog.aclexplode(coalesce((SELECT defaclacl FROM pg_catalog.pg_default_acl
+   WHERE defaclrole=role_id AND defaclnamespace=0 AND defaclobjtype='r'), pg_catalog.acldefault('r',role_id))) x) entries INTO actual;
+ SELECT coalesce(jsonb_agg(entry ORDER BY entry COLLATE "C"), '[]'::jsonb)
+ FROM (SELECT (CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END)
+  || ':' || x.privilege_type || ':' || x.is_grantable::text AS entry
+  FROM pg_catalog.aclexplode(pg_catalog.acldefault('r',role_id)) x) entries INTO expected;
+ IF actual IS DISTINCT FROM expected THEN
+  RAISE EXCEPTION 'Managed global default ACL r differs from the captured contract';
+ END IF;
+END $managed_default_acl$;
 -- Declarative bucket configuration only; no object bytes or object records.
 DO $buckets$ BEGIN IF EXISTS (SELECT 1 FROM storage.buckets) THEN RAISE EXCEPTION 'Expected empty Preview bucket configuration'; END IF; END $buckets$;
 INSERT INTO storage.buckets (id,name,public,file_size_limit,allowed_mime_types) VALUES ('public-media','public-media',true,NULL,NULL);

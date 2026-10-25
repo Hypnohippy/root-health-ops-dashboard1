@@ -1,0 +1,11 @@
+{
+  "name": "root-ops-founder-authorization-proof",
+  "private": true,
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "embedded-postgres": "18.4.0-beta.17",
+    "pg": "8.23.1"
+  }
+}

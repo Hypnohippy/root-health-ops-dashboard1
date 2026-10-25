@@ -1,0 +1,32 @@
+name: Atomic Founder authorization
+on:
+  pull_request:
+    paths:
+      - 'lib/founderIntelligenceAuth.server.ts'
+      - 'lib/reviewedIdentity.server.ts'
+      - 'tests/founder-*'
+      - 'tests/reviewed-identity*'
+      - 'supabase/migrations/**'
+      - 'infra/founder-authorization/**'
+      - '.github/workflows/founder-authorization.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            infra/founder-authorization/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/founder-atomic-authorization.test.mjs tests/reviewed-identity-server.test.mjs tests/reviewed-identity-db.test.mjs tests/reviewed-identity-token.test.mjs tests/reviewed-identity.test.mjs tests/reviewed-identity-ui.test.mjs tests/founder-memory.test.mjs tests/founder-intelligence.test.mjs
+      - run: npm ci --prefix infra/founder-authorization
+      - run: npm --prefix infra/founder-authorization test
+      - run: npx tsc --noEmit
+      - run: npx eslint lib/founderIntelligenceAuth.server.ts lib/reviewedIdentity.server.ts tests/founder-atomic-authorization.test.mjs tests/founder-authorization-races.test.mjs tests/reviewed-identity-db.test.mjs tests/reviewed-identity-server.test.mjs infra/founder-authorization/run.mjs

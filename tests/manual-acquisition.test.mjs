@@ -4,10 +4,9 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {createRequire} from 'node:module';
 import ts from 'typescript';
-import {PGlite} from '@electric-sql/pglite';
 const require=createRequire(import.meta.url);
 const org='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',user='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',key='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-function load(file,mocks={},globals={}) { const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Buffer,Request,Response,...globals,require:n=>n==="@/lib/relationshipIntake.server"&&!(n in mocks)?{readRelationshipIntake:async()=>({decision:"NEW_IDENTITY",creationPermitted:true})}:n in mocks?mocks[n]:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});return mod.exports; }
+function load(file,mocks={},globals={}) { const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,{module:mod,exports:mod.exports,URL,URLSearchParams,Buffer,Request,Response,...globals,require:n=>n.endsWith('ReviewedIdentityConfirmation')&&!(n in mocks)?{useReviewedIdentity:()=>({controls:null,request:async(path,body)=>{const response=await globals.fetch(path,{body:JSON.stringify(body)}),data=await response.json();if(!response.ok)throw Error(data.error||'Unable to create');return data;}})}:n==='@/lib/reviewedIdentity.server'&&!(n in mocks)?{previewSourceCreation:async()=>({reviewToken:'signed',review:{label:'Controlled'}})}:n==="@/lib/relationshipIntake.server"&&!(n in mocks)?{readRelationshipIntake:async()=>({decision:"NEW_IDENTITY",creationPermitted:true})}:n in mocks?mocks[n]:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',mocks,globals):require(n)});return mod.exports; }
 const helpers=load('lib/manualAcquisition.ts');
 const body=(input={note:'  Barnardo’s\nFound at an event  '})=>({action:'create',organisationId:org,input,submissionId:key,recordType:'b2b_lead',confirmed:true,publicContextConfirmed:true});
 test('sparse manual input preserves exact user text and unknown fields without claiming research',()=>{
@@ -37,22 +36,13 @@ test('malformed and unsafe URLs and multiple email recipients fail closed withou
 });
 test('manual API requires tenant write access before review or database work',async()=>{
   let accessed=false;
-  const api=load('app/api/growth/acquisition/manual/route.ts',{'@/lib/tenantAuth':{requireOrganisation:async(selected,write)=>{assert.equal(selected,org);assert.equal(write,true);throw Error('denied');},accessErrorResponse:()=>({status:403})},'@/lib/supabaseAdmin':{supabaseAdmin:{from(){accessed=true;throw Error();}}},'next/server':{NextResponse:{json:(b,o)=>({body:b,status:o?.status||200})}}});
+  const api=load('app/api/growth/acquisition/manual/route.ts',{'@/lib/manualAcquisitionResearch.server':{},'@/lib/tenantAuth':{requireOrganisation:async(selected,write)=>{assert.equal(selected,org);assert.equal(write,true);throw Error('denied');},accessErrorResponse:()=>({status:403})},'@/lib/supabaseAdmin':{supabaseAdmin:{from(){accessed=true;throw Error();}}},'next/server':{NextResponse:{json:(b,o)=>({body:b,status:o?.status||200})}}});
   for(const action of ['review','create'])assert.equal((await api.POST(new Request('https://ops.test/api/growth/acquisition/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body(),action})}))).status,403);
   assert.equal(accessed,false);
 });
-test('real acquisition table: manual create and retries use existing tenant unique key; no target or sender writes',async()=>{
-  const db=new PGlite();try {
-    await db.exec(`create role anon;create role authenticated;create role service_role;create table organisations(id uuid primary key);insert into organisations values('${org}');`);
-    await db.exec(fs.readFileSync('supabase/migrations/20260923140000_acquisition_ingestion.sql','utf8'));
-    const adapter={from(table){assert.equal(table,'acquisition_items');let record,filters=[];const q={upsert(value,options){record=value;assert.equal(options.ignoreDuplicates,true);return q;},select(){if(record)return db.query('insert into acquisition_items(organisation_id,source_engine,source_record_id,record_type,status,metadata,evidence) values($1,$2,$3,$4,$5,$6,$7) on conflict(organisation_id,source_engine,source_record_id) do nothing returning id',[record.organisation_id,record.source_engine,record.source_record_id,record.record_type,record.status,record.metadata,record.evidence]).then(r=>({data:r.rows}));return q;},eq(k,v){filters.push([k,v]);return q;},async maybeSingle(){assert.deepEqual(filters,[['organisation_id',org],['source_engine','manual_ops'],['source_record_id',`manual:${key}`]]);return {data:(await db.query('select * from acquisition_items where organisation_id=$1 and source_engine=$2 and source_record_id=$3',filters.map(([,v])=>v))).rows[0]};}};return q;}};
-    const api=load('app/api/growth/acquisition/manual/route.ts',{'@/lib/supabaseAdmin':{supabaseAdmin:adapter},'@/lib/tenantAuth':{requireOrganisation:async()=>({organisationId:org,userId:user}),accessErrorResponse:()=>null},'next/server':{NextResponse:{json:(b,o)=>({body:b,status:o?.status||200})}}});
-    const post=data=>api.POST(new Request('https://ops.test/api/growth/acquisition/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}));
-    for(const requestedResearch of [false,true])assert.equal((await post({...body(),action:'review',requestedResearch})).status,200);
-    const first=await post(body());assert.equal(first.status,200);const retry=await post(body());assert.equal(retry.body.id,first.body.id);assert.equal(retry.body.duplicate,true);assert.match(first.body.destination,/\/dashboard\/growth\/acquisition\?/);
-    assert.equal((await post({...body(),input:{note:'Different'}})).status,409);
-    const rows=(await db.query('select * from acquisition_items')).rows;assert.equal(rows.length,1);assert.equal(rows[0].metadata.user_provided.note,body().input.note);
-  }finally{await db.close();}
+test('manual API prepares a reviewed domain source without direct persistence',async()=>{
+ let row;const api=load('app/api/growth/acquisition/manual/route.ts',{'@/lib/manualAcquisitionResearch.server':{},'@/lib/tenantAuth':{requireOrganisation:async()=>({organisationId:org,userId:user,role:'owner'}),accessErrorResponse:()=>null},'@/lib/reviewedIdentity.server':{previewSourceCreation:async(t,table,value,kind,request)=>{assert.equal(table,'acquisition_items');assert.equal(request,key);assert.equal(t.organisationId,org);row=value;return {reviewToken:'signed',review:{label:'Controlled'}};}},'next/server':{NextResponse:{json:(b,o)=>({body:b,status:o?.status||200})}}});
+ const result=await api.POST(new Request('https://ops.test/api/growth/acquisition/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body())}));assert.equal(result.status,202);assert.equal(row.metadata.user_provided.note,body().input.note);assert.equal(row.source_record_id,'manual:'+key);
 });
 
 test('manual form reviews sparse input, requires type confirmation and retries the same submission without sending',async()=>{

@@ -11,6 +11,36 @@ const role = s => s === 'PUBLIC' ? 'PUBLIC' : q(s);
 const app = s => s === 'public';
 const seqOptions = s => `START WITH ${s.start} INCREMENT BY ${s.increment} MINVALUE ${s.min} MAXVALUE ${s.max} CACHE ${s.cache} ${s.cycle ? 'CYCLE' : 'NO CYCLE'}`;
 const terminate = s => s.trim().replace(/;?$/, ';');
+const managedPublicDefault = d => d.owner === 'supabase_admin' && d.schema === 'public';
+// Compare effective entries, not grantor OIDs or catalog array order.
+const normalizedAcl = expression => `SELECT coalesce(jsonb_agg(entry ORDER BY entry COLLATE "C"), '[]'::jsonb)
+ FROM (SELECT (CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END)
+  || ':' || x.privilege_type || ':' || x.is_grantable::text AS entry
+  FROM pg_catalog.aclexplode(${expression}) x) entries`;
+function managedDefaultAssertion(d) {
+  const defaultKind = d.type === 'S' ? 's' : d.type; // pg_default_acl uses S; acldefault uses s.
+  const expected = JSON.stringify((d.acl || []).map(a => `${a.grantee}:${a.privilege}:${a.grantable}`).sort());
+  const schemaAcl = `coalesce((SELECT defaclacl FROM pg_catalog.pg_default_acl
+   WHERE defaclrole=role_id AND defaclnamespace='public'::regnamespace AND defaclobjtype=${lit(d.type)}), '{}'::aclitem[])`;
+  const globalAcl = `coalesce((SELECT defaclacl FROM pg_catalog.pg_default_acl
+   WHERE defaclrole=role_id AND defaclnamespace=0 AND defaclobjtype=${lit(d.type)}), pg_catalog.acldefault(${lit(defaultKind)},role_id))`;
+  return `DO $managed_default_acl$
+DECLARE role_id oid := pg_catalog.to_regrole('supabase_admin'); actual jsonb; expected jsonb;
+BEGIN
+ IF role_id IS NULL THEN RAISE EXCEPTION 'Managed default ACL role unavailable'; END IF;
+ ${normalizedAcl(schemaAcl)} INTO actual;
+ IF actual IS DISTINCT FROM ${lit(expected)}::jsonb THEN
+  RAISE EXCEPTION 'Managed public default ACL ${d.type} differs from the captured contract';
+ END IF;
+ -- Production has no custom global defaults for this role. Per-schema defaults
+ -- are additive, so a broadened global ACL must not pass this assertion.
+ ${normalizedAcl(globalAcl)} INTO actual;
+ ${normalizedAcl(`pg_catalog.acldefault(${lit(defaultKind)},role_id)`)} INTO expected;
+ IF actual IS DISTINCT FROM expected THEN
+  RAISE EXCEPTION 'Managed global default ACL ${d.type} differs from the captured contract';
+ END IF;
+END $managed_default_acl$;`;
+}
 function acl(kind, target, entries) {
   const grantees = new Set(['PUBLIC', ...e.roles.map(r => r.name)]);
   return [
@@ -91,6 +121,20 @@ END $guard$;`);
   // The app owns one Auth trigger and six Storage policies, not the platform schema.
   for (const t of c.triggers.filter(t => isApp ? t.schema === 'public' || t.name === 'on_auth_user_created_create_org' : t.schema !== 'public' && t.name !== 'on_auth_user_created_create_org')) {
     out.push(terminate(t.definition));
+    if (isApp && t.schema === 'auth' && t.table === 'users' && t.name === 'on_auth_user_created_create_org') {
+      // CREATE TRIGGER defaults to origin-enabled. Hosted postgres has TRIGGER
+      // privilege, not ownership of Supabase's auth.users; do not ALTER it.
+      if (t.enabled !== 'O') throw Error('Managed Auth trigger needs a separately reviewed non-default state');
+      out.push(`DO $auth_trigger_state$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
+  WHERE tgrelid = 'auth.users'::regclass AND tgname = 'on_auth_user_created_create_org'
+   AND NOT tgisinternal AND tgenabled = 'O'
+   AND tgfoid = 'public.handle_new_user_create_org()'::regprocedure) THEN
+  RAISE EXCEPTION 'Managed Auth signup trigger does not match the required enabled state';
+ END IF;
+END $auth_trigger_state$;`);
+      continue;
+    }
     const enable = {O:'ENABLE',D:'DISABLE',R:'ENABLE REPLICA',A:'ENABLE ALWAYS'}[t.enabled];
     out.push(`ALTER TABLE ${q(t.schema)}.${q(t.table)} ${enable} TRIGGER ${q(t.name)};`);
   }
@@ -109,7 +153,13 @@ END $guard$;`);
   }
   for (const s of c.schemas.filter(s=>include(s.name)))
     out.push(`ALTER SCHEMA ${q(s.name)} OWNER TO ${q(s.owner)};`, ...acl('SCHEMA',q(s.name),s.acl));
-  for (const d of c.defaults.filter(d=>include(d.schema))) {
+  // A hosted platform already supplies managed-role defaults. The local-only
+  // platform contract seeds them; the application restore can only verify them.
+  for (const d of c.defaults.filter(d=>include(d.schema) || !isApp && managedPublicDefault(d))) {
+    if (isApp && managedPublicDefault(d)) {
+      out.push(managedDefaultAssertion(d));
+      continue;
+    }
     const kind = {r:'TABLES',f:'FUNCTIONS',S:'SEQUENCES'}[d.type];
     if (!kind) throw Error('Unsupported default ACL');
     for (const r of ['PUBLIC', ...e.roles.map(r=>r.name)])
