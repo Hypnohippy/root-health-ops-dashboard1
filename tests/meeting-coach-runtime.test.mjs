@@ -230,6 +230,10 @@ test('competent forward progress stays quiet and sales motion remains provisiona
  const configured=runtime.coachingOpportunity([segment(0,'We should discuss this with procurement.')],0,{intensity:'balanced',motion:'relationship_growth',desiredOutcome:''});assert.equal(configured.salesMotion,'relationship_growth');
 });
 
+test('a negative readiness statement cannot be mistaken for a same-call booking signal',()=>{
+ const rows=[segment(0,'I am not ready to proceed and am not interested in booking anything today.')],state=runtime.buildConversationState(rows),opportunity=runtime.coachingOpportunity(rows,0,undefined,false,state);
+ assert.equal(state.callGoal,'qualify_out_gracefully');assert.equal(opportunity.callGoal,'qualify_out_gracefully');assert.equal(opportunity.signals.includes('one_call_close'),false);
+});
 test('a later positive readiness signal resets an earlier cautious call goal',()=>{
  const rows=[segment(0,'We are not ready to proceed and need time to think.'),segment(1,'After reviewing it, we are ready to book the service appointment.')],state=runtime.buildConversationState(rows),opportunity=runtime.coachingOpportunity(rows,1,undefined,false,state);
  assert.equal(state.salesMotion,'one_call_transactional');assert.equal(state.callGoal,'book_service_appointment');assert.equal(state.goalChangeReason,'buying_readiness_increased');assert.ok(opportunity.signals.includes('call_goal_changed'));assert.match(runtime.deterministicCoachingFallback(rows,opportunity,1).questions[0].wording,/what they would like to do next/i);
