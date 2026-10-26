@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { diaryDay, diaryGroups, diaryLabel, diaryMonth, diaryShift, diaryWeek, type DiaryItem, type DiarySnapshot } from "@/lib/diary";
+import { PRACTICE_ID } from "@/lib/meetingCoaching";
 import "./diary.css";
 import DiaryEntryForm from "./DiaryEntryForm";
 type View = "Today" | "Week" | "Month";
@@ -26,6 +27,7 @@ export default function Diary({organisationId,initial,initialSearch=""}:{organis
  const period=view==="Week"?`${diaryLabel(week[0])} – ${diaryLabel(week[6])}`:new Intl.DateTimeFormat("en-GB",{month:"long",year:"numeric",timeZone:"Europe/London"}).format(new Date(day+"T12:00:00Z"));
  return <main className="diary-root" aria-busy={loading}>
  <header className="diary-header"><div><p className="diary-eyebrow">YOUR DATED OPS WORK</p><h1>Diary</h1><p>Commitments and next steps, together in one place.</p></div><p className="diary-updated">Europe/London<br/>Updated {diaryLabel(snapshot.asOf,true)}</p></header>
+ <section className="diary-practice-entry" aria-label="Synthetic practice appointment"><div><p className="diary-eyebrow">SYNTHETIC PRACTICE APPOINTMENT</p><h2>Practice with Alex · Brookfield Learning Studio</h2><p>A stable practice fixture for testing Meeting Copilot. It is not a real booking or client record.</p></div><a href={`/dashboard/meetings?${new URLSearchParams({organisationId,appointmentId:PRACTICE_ID})}`}>Start Meeting Copilot</a></section>
  <div className="diary-toolbar"><div role="group" aria-label="Diary view">{(["Today","Week","Month"] as const).map(v=><button key={v} aria-pressed={view===v} onClick={()=>choose(v)}>{v}</button>)}</div><button onClick={()=>setEditing(null)} disabled={!snapshot.manualAvailable||!snapshot.canWriteDiary}>+ Add entry</button><button onClick={refresh} disabled={loading}>{loading?"Refreshing…":"Refresh"}</button></div>
  <p className="diary-calendar-status">{snapshot.calendarConnected?'Your Google Calendar is connected · read-only':<a href={`/api/oauth/google-calendar/start?organisationId=${encodeURIComponent(organisationId)}`}>Connect your Google Calendar · read-only</a>}</p>{snapshot.sourceNotices?.map(message=><p className="diary-notice" role="status" key={message}>{message}</p>)}{editing!==undefined&&<DiaryEntryForm key={editing?.id||'new'} organisationId={organisationId} item={editing||undefined} onSaved={refresh} onCancel={()=>setEditing(undefined)}/>}
  {notice&&<p role="alert" className="diary-notice">{notice}</p>}

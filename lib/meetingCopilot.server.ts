@@ -1,5 +1,6 @@
 import {buildConversationState,coachingOpportunity,defaultCoachingConfig,inspectLiveCoaching,type CoachTrace,type CoachOpportunity,type CoachingConfig,type ConversationState} from './meetingCoachRuntime';
 import {PRACTICE_ID,practiceMeeting,meetingCoachingMessages,meetingEmailMessages,coachingHistory} from './meetingCoaching';
+import {RELATIONSHIP_CALL_PREFIX} from './meetingLaunch';
 import {readMeetingFacts,readMeetingSender} from './meetingCoaching.server';
 import OpenAI from 'openai';
 import {supabaseAdmin} from './supabaseAdmin';
@@ -9,14 +10,32 @@ import {type RelationshipTenant} from './relationshipWorkspace.server';
 import {meetingAttachment,meetingSegments,groundedMeetingAnalysis,wavSeconds,meetingEvidenceKey,type MeetingSegment,type MeetingCandidate} from './meetingCopilot';
 import {RELATIONSHIP_MODEL} from './relationshipCoach.server';
 const uuid=/^[a-f0-9-]{36}$/i;
+const object=(value:unknown):Record<string,unknown>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{};
+function meetingPrepContext(record:Awaited<ReturnType<typeof readOperationalIntelligence>>){
+ const research=record.researchAccess?record.approvedResearch.map(row=>{
+  const saved=object(object(row.research_snapshot).phase2d),facts=Array.isArray(saved.facts)?saved.facts.map(value=>String(object(value).claim||'')).filter(Boolean).slice(0,8):[];
+  return {savedAt:typeof row.created_at==='string'?row.created_at:null,facts};
+ }):[];
+ return {person:{name:record.relationship.name,role:record.relationship.role,company:record.relationship.company},opportunity:{stage:record.relationship.stage,nextAction:record.relationship.nextAction,dueDate:record.relationship.nextDueDate,facts:record.relationship.facts,interpretation:record.relationship.interpretation},notes:record.notes.filter(note=>record.researchAccess||note.founder_only!==true).slice(-8).map(note=>({kind:note.activity_type,at:note.recorded_at,text:typeof note.message==='string'?note.message.slice(0,1200):''})).filter(note=>note.text),research};
+}
 export async function prepareMeeting(tenant:RelationshipTenant,id:string){
  if(id===PRACTICE_ID)return practiceMeeting(tenant.organisationId);
+ if(id.startsWith(RELATIONSHIP_CALL_PREFIX)){
+  const locator=id.slice(RELATIONSHIP_CALL_PREFIX.length);
+  if(!/^(?:inbox|target|acquisition|workspace)_[a-f0-9-]{36}$/i.test(locator))throw Error('Exact relationship call context is unavailable.');
+  const before=await supabaseAdmin.from('lifecycle_revisions').select('revision').eq('organisation_id',tenant.organisationId).maybeSingle();if(before.error)throw Error('Relationship revision unavailable.');
+  const record=await readOperationalIntelligence(tenant,locator);
+  if(!record.relationship.contactId||record.intelligence.identity.humanReviewRequired)throw Error('Exact relationship identity requires review.');
+  const after=await supabaseAdmin.from('lifecycle_revisions').select('revision').eq('organisation_id',tenant.organisationId).maybeSingle();if(after.error||String(before.data?.revision)!==String(after.data?.revision))throw Error('Relationship evidence changed; reload.');
+  const evidence=[...record.conversation.dated,...record.conversation.undated].filter(r=>r.direction!=='snapshot').slice(-20).map(r=>({id:r.id,at:r.at,text:r.text.slice(0,3000),direction:r.direction}));
+  return {lifecycleRevision:String(after.data?.revision||0),kind:record.relationship.kind,workspaceId:record.workspace?.id||null,canFounder:record.researchAccess,meetingContext:meetingPrepContext(record),meetingObjective:null,knownNextStep:record.relationship.nextAction,attachment:{appointmentId:id,relationshipId:record.relationship.contactId,locator,at:null,channel:'Call',title:`Call with ${record.relationship.name}`,source:{provider:'relationship_call',organisationId:tenant.organisationId,relationshipId:record.relationship.contactId},provenance:[]},evidence,name:record.relationship.name,revision:record.workspace?.revision??null,refs:record.relationship.refs};
+ }
  const before=await supabaseAdmin.from('lifecycle_revisions').select('revision').eq('organisation_id',tenant.organisationId).maybeSingle();if(before.error)throw Error('Appointment revision unavailable.');
  const snapshot=await readDiary(tenant),item=snapshot.items.find(i=>i.id===id);if(!item)throw Error('Appointment unavailable.');const attachment=meetingAttachment(item,tenant.organisationId),record=await readOperationalIntelligence(tenant,attachment.locator);
  if(record.relationship.contactId!==attachment.relationshipId||record.intelligence.identity.humanReviewRequired)throw Error('Exact relationship identity requires review.');
  const evidence=[...record.conversation.dated,...record.conversation.undated].filter(r=>r.direction!=='snapshot').slice(-20).map(r=>({id:r.id,at:r.at,text:r.text.slice(0,3000),direction:r.direction}));
  const after=await supabaseAdmin.from('lifecycle_revisions').select('revision').eq('organisation_id',tenant.organisationId).maybeSingle();if(after.error||String(before.data?.revision)!==String(after.data?.revision))throw Error('Appointment evidence changed; reload.');
- return {lifecycleRevision:String(after.data?.revision||0),kind:record.relationship.kind,workspaceId:record.workspace?.id||null,canFounder:record.researchAccess,attachment,evidence,name:record.relationship.name||item.title,revision:record.workspace?.revision??null,refs:record.relationship.refs};
+ return {lifecycleRevision:String(after.data?.revision||0),kind:record.relationship.kind,workspaceId:record.workspace?.id||null,canFounder:record.researchAccess,meetingContext:meetingPrepContext(record),meetingObjective:null,knownNextStep:record.relationship.nextAction,attachment,evidence,name:record.relationship.name||item.title,revision:record.workspace?.revision??null,refs:record.relationship.refs};
 }
 async function command(t:RelationshipTenant,id:string,kind:string,data:Record<string,unknown>){const result=await supabaseAdmin.rpc('meeting_copilot_command',{p_org:t.organisationId,p_actor:t.userId,p_id:id,p_command:kind,p_data:data});if(result.error)throw Error('Meeting capture is unavailable for this workspace or its allowance has been reached. Your transcript remains available; nothing was sent to your contact.');return result.data;}
 async function session(t:RelationshipTenant,id:unknown){if(typeof id!=='string'||!uuid.test(id))throw Error('Meeting unavailable.');const {data,error}=await supabaseAdmin.from('meeting_copilot_sessions').select('*').eq('id',id).eq('organisation_id',t.organisationId).eq('user_id',t.userId).maybeSingle();if(error||!data)throw Error('Meeting unavailable.');return data;}
