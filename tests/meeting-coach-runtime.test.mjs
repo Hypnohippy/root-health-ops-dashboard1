@@ -183,3 +183,18 @@ test('close fast path respects an explicit agreed review point and contact bound
  const boundary=segment(2,"Please don't contact me again. Thanks, goodbye."),blocked=runtime.buildConversationState([request,boundary]),opportunity=runtime.coachingOpportunity([request,boundary],2,undefined,false,blocked),fallback=runtime.deterministicCoachingFallback([request,boundary],opportunity,2);
  assert.ok(opportunity.signals.includes('contact_boundary'));assert.equal(opportunity.priority,'critical');assert.equal(fallback.questions[0].branch,'graceful_exit');assert.match(fallback.questions[0].wording,/follow up/);
 });
+
+test('unsupported format claims are replaced with a neutral format clarification',()=>{
+ const rows=[segment(0,"We are exploring this, but have not settled on an approach.")],item={text:'They want a workshop pilot.',wording:'I can put together a workshop pilot for you.',lead:'The prospect is interested in a workshop.',goal:'Plan the workshop pilot.',quote:rows[0].text,segmentId:'0',evidenceKind:'transcript'},opportunity={run:true,signals:['vague_intent'],reason:'conversation_signal',priority:'normal'};
+ const result=runtime.inspectLiveCoaching({questions:[item]},rows,[],[],0,100,opportunity),candidate=result.candidates[0];
+ assert.equal(result.candidates.length,1);assert.match(candidate.wording,/When you say you’re exploring this/);assert.match(candidate.wording,/workshop, a pilot, ongoing access/);assert.match(candidate.wording,/[?]$/);assert.match(candidate.goal,/Clarify the format/);assert.equal(candidate.evidenceKind,'transcript');assert.ok(result.trace.some(e=>e.reason==='unsupported_product_format_assumption'));assert.ok(result.trace.some(e=>e.reason==='format_clarification_fallback'));
+});
+
+test('only an exact recorded prospect request or confirmed purpose establishes a product format',()=>{
+ const fact={id:'purpose',kind:'recorded',text:'Confirmed meeting purpose: prospect requested information about a short workshop pilot.'},candidate={text:'You requested information about a workshop pilot.',wording:'I can outline what that workshop pilot could involve.',lead:'The confirmed purpose mentions this format.',goal:'Explain the requested workshop pilot.',quote:fact.text,segmentId:fact.id,evidenceKind:'recorded'};
+ assert.equal(coach.unsupportedProductFormat(candidate,[fact]),false);
+ const note={...fact,id:'note',kind:'user_note',text:'User-recorded observation (not independently verified): prospect may want a workshop pilot.'};
+ assert.equal(coach.unsupportedProductFormat({...candidate,quote:note.text,segmentId:note.id},[note]),true);
+ assert.equal(coach.unsupportedProductFormat({...candidate,evidenceKind:'transcript',text:'They want a workshop. When you say you’re exploring this, are you thinking about a workshop?',wording:'When you say you’re exploring this, are you thinking about a workshop?',lead:'The prospect wants a workshop.'},[]),true);
+ assert.doesNotMatch(JSON.stringify(coach.practiceFacts),/workshop|pilot|demo|subscription/i);
+});

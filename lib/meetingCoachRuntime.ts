@@ -1,5 +1,5 @@
 import type {MeetingCandidate,MeetingSegment} from './meetingCopilot';
-import {coachingSuppression,groundedCoachingList,type MeetingFact} from './meetingCoaching';
+import {coachingSuppression,groundedCoachingList,unsupportedProductFormat,type MeetingFact} from './meetingCoaching';
 
 export type CoachingConfig={intensity:'close'|'balanced'|'important';motion:string;desiredOutcome:string};
 export const defaultCoachingConfig:CoachingConfig={intensity:'balanced',motion:'unconfigured',desiredOutcome:''};
@@ -96,16 +96,28 @@ export function inspectLiveCoaching(raw:unknown,segments:MeetingSegment[],facts:
  const value=raw&&typeof raw==='object'?raw as Record<string,unknown>:{},trace:CoachTrace[]=[],candidates:MeetingCandidate[]=[];
  const list=Array.isArray(value.questions)?value.questions.slice(0,6):[];
  for(const [index,item] of list.entries()){
-  const promptId=`${sequence}:q${index}`;
+  const promptId=`${sequence}:q${index}`;let effectivePromptId=promptId,replacedFormat=false;
   trace.push({stage:'prompt_generated',at,sequence,promptId,priority:opportunity?.priority||'normal'});
-  const candidate=groundedCoachingList([item],segments,facts,1)[0];
+  let candidate:MeetingCandidate|undefined=groundedCoachingList([item],segments,facts,1)[0];
+  const unsupportedFormat=!!candidate&&unsupportedProductFormat(candidate,facts);
+  if(unsupportedFormat){
+   replacedFormat=true;
+   trace.push({stage:'prompt_suppressed',at,sequence,promptId,reason:'unsupported_product_format_assumption'});
+   const source=segments.filter(s=>!s.gap&&s.text.trim()).at(-1);
+   if(source){
+    const wording=/explor|looking into|having a look/i.test(source.text)?'When you say you’re exploring this, are you thinking about a workshop, a pilot, ongoing access, or are you not that far along yet?':'What sort of approach, if any, are you considering at this stage?';
+    candidate={text:wording,wording,lead:'The format is not established in the supplied context. Clarify before framing a solution.',goal:'Clarify the format before discussing a solution.',quote:source.text.trim().slice(0,600),segmentId:source.id,evidenceKind:'transcript',angle:'criteria'};
+    effectivePromptId=`${sequence}:format${index}`;
+    trace.push({stage:'prompt_generated',at,sequence,promptId:effectivePromptId,priority:opportunity?.priority||'normal',reason:'format_clarification_fallback'});
+   }else candidate=undefined;
+  }
   const row=item&&typeof item==='object'?item as Record<string,unknown>:null;
-  const allowedBranches=new Set(['consequence','priority','trigger','stakeholder','criteria','workaround','funding','operational_impact','personal_impact','next_step','graceful_exit','follow_up']),branch=allowedBranches.has(String(row?.branch))?row?.branch as MeetingCandidate['branch']:opportunity?.branch,priority=opportunity?.priority||candidate?.priority||'normal',enriched=candidate?{...candidate,branch,priority}:null;
+  const allowedBranches=new Set(['consequence','priority','trigger','stakeholder','criteria','workaround','funding','operational_impact','personal_impact','next_step','graceful_exit','follow_up']),branch=replacedFormat?'criteria':allowedBranches.has(String(row?.branch))?row?.branch as MeetingCandidate['branch']:opportunity?.branch,priority=opportunity?.priority||candidate?.priority||'normal',enriched=candidate?{...candidate,branch,priority}:null;
   const source= row&&typeof row.segmentId==='string'?(row.evidenceKind==='recorded'?facts.find(f=>f.id===row.segmentId)?.text:segments.find(s=>s.id===row.segmentId&&!s.gap)?.text):undefined;
   const reason=!candidate?(!row||typeof row.text!=='string'||!row.text.trim()?'malformed_candidate':!source?'unknown_or_gap_source':typeof row.quote!=='string'||row.quote.trim().length<8||!source.includes(row.quote)?'quote_not_in_source':'invalid_candidate'):typeof candidate.goal!=='string'||!candidate.goal.trim()||candidate.goal.length>120?'missing_call_goal':(!candidate.wording&&!candidate.text.includes('?')||/^(?:try|explore|choose|change|shift|switch|move).{0,32}(?:direction|branch|topic|something else)[.!]?$/i.test(candidate.wording||candidate.text))?'missing_usable_wording':coachingSuppression(enriched!,[...history,...candidates]);
   if(reason){trace.push({stage:'prompt_suppressed',at,sequence,promptId,reason});continue;}
   if(candidates.length>=2){trace.push({stage:'prompt_suppressed',at,sequence,promptId,reason:'display_capacity'});continue;}
-  candidates.push({...enriched!,promptId});
+  candidates.push({...enriched!,promptId:effectivePromptId});
  }
  if(!list.length)trace.push({stage:'no_prompt_generated',at,sequence,reason:'model_abstained'});
  const resolved=Array.isArray(value.resolvedSuggestions)?value.resolvedSuggestions:[];
