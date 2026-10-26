@@ -143,3 +143,43 @@ test('a coaching suggestion without an explicit current call goal is rejected',(
  const rows=[segment(0,'We are exploring a possible pilot.')],result=runtime.inspectLiveCoaching({questions:[{text:'What would make it useful?',wording:'What would make it useful?',quote:rows[0].text,segmentId:'0'}]},rows,[],[],0);
  assert.equal(result.candidates.length,0);assert.equal(result.trace.at(-1).reason,'missing_call_goal');
 });
+
+test('bounded fallback survives model failure and surfaces a high-priority unresolved close',async()=>{
+ const events=[];class OpenAI{audio={transcriptions:{create:async()=>({text:"I'll send the brief you asked for. Thanks, we can leave it there.",usage:{total_tokens:3}})}};chat={completions:{create:async()=>{events.push('model');throw Error('private provider detail');}}};}
+ const db={rpc:async(_,{p_command})=>{events.push(p_command);return {data:{},error:null};},from:()=>{const q={select:()=>q,eq:()=>q,maybeSingle:async()=>({data:{id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',context:{synthetic:true}},error:null}),update:()=>q,then:resolve=>resolve({error:null})};return q;}};
+ const service=loadMeeting('lib/meetingCopilot.server.ts',{'openai':OpenAI,'./supabaseAdmin':{supabaseAdmin:db},'./meetingCoaching.server':{readMeetingFacts:async()=>[],readMeetingSender:async()=>''},'./diary.server':{},'./operationalIntelligence.server':{},'./relationshipCoach.server':{RELATIONSHIP_MODEL:'gpt-4o-mini'}},{process:{env:{OPENAI_API_KEY:'SYNTHETIC_TEST_KEY'}}});
+ const prior=[segment(1,'Could you send me what it is, effort, ballpark cost and what happens next?'),segment(2,'No budget has been signed off and I am only exploring.')],state=runtime.buildConversationState(prior),form=new FormData();form.set('id','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');form.set('sequence','3');form.set('segments',JSON.stringify(prior));form.set('conversationState',JSON.stringify(state));form.set('coachingHistory','[]');form.set('audio',new File([core.pcmWav(new Float32Array(24000),24000)],'test.wav'));
+ const result=await service.transcribeMeeting({organisationId:'org-a',userId:'actor'},form);
+ assert.deepEqual(events,['reserve','model']);assert.equal(result.analysisError,false);assert.equal(result.analysis.questions.length,1);assert.match(result.analysis.questions[0].goal,/review point/i);assert.match(result.analysis.questions[0].wording,/When might you get a chance to look/);assert.ok(result.coachingTrace.some(e=>e.stage==='generation_failed'&&e.reason==='provider_timeout_or_failure'));assert.ok(result.coachingTrace.some(e=>e.stage==='generation_fallback'&&e.priority==='critical'));assert.equal(result.coachingTrace.find(e=>e.stage==='opportunity_detected').priority,'critical');assert.doesNotMatch(JSON.stringify(result.coachingTrace),/private provider detail|send me what it is/);
+});
+
+test('Alex-style synthetic simulation redirects exhausted routes, advances the goal and reports actually visible high-priority coaching',()=>{
+ const scenes=[
+  "I've only got a few minutes. I'm not buying today, there is no defined project, no signed-off budget and I have not thought deeply about it.",
+  'When do you think you might act? I am not sure. When would this happen? I do not know.',
+  'I want to explain the whole programme in detail. We have spent years developing a broad range of materials, different pathways, several delivery formats, a lot of background research, a number of options, and many possible ways to adapt the content for different teams. The framework has multiple stages and we could talk through every element, the history, the rationale, all the modules, the exercises, the supporting resources and the measurement approach. There is quite a lot to cover and I could keep going through each part now.',
+  'We have wear and tear in the team, but I am cautious about making a big project of it.',
+  'Could you send a brief covering what it is, effort for my team, ballpark cost and what happens next?',
+  'There is no date I can commit to, but I would look at something brief.',
+  "I'll send the brief you asked for. Thanks, we can leave it there."
+ ];
+ let rows=[],state=runtime.createCoachRuntime(),conversation=runtime.buildConversationState([]),high=[];
+ for(const [i,text] of scenes.entries()){
+  rows=[...rows,segment(i,text)];conversation=runtime.buildConversationState([segment(i,text)],conversation);const opportunity=runtime.coachingOpportunity(rows,i,undefined,false,conversation);if(opportunity.priority==='high'||opportunity.priority==='critical')high.push(opportunity);
+  const raw=runtime.deterministicCoachingFallback(rows,opportunity,i);if(raw){const result=runtime.inspectLiveCoaching(raw,rows,[],state.history,i,i*15000,opportunity);state=runtime.receiveCoach(state,result.candidates,[{stage:'opportunity_detected',at:i*15000,sequence:i,signals:opportunity.signals,priority:opportunity.priority},...result.trace],i*15000);if(state.current){state=runtime.markCoachDisplayed(state,state.current.promptId,i*15000+500);}}
+ }
+ const summary=runtime.coachingDiagnostics(state.trace),shown=state.trace.filter(e=>e.stage==='prompt_visible');
+ assert.ok(high.length>=3);assert.ok(shown.length>=3);assert.equal(summary.promptsVisible,shown.length);assert.ok(summary.highPriorityVisible>=3);assert.equal(summary.highPriorityMissCount,summary.highPriorityOpportunities-summary.highPriorityVisible);assert.ok(summary.highPriorityMissReasons.every(m=>m.causes.length>0));assert.ok(summary.medianHighPriorityDetectionToVisibleMs>=0);assert.ok(state.history.some(p=>p.branch==='trigger'));assert.ok(state.history.some(p=>p.branch==='consequence'&&/Stop explaining/i.test(p.goal)));assert.ok(state.history.some(p=>p.branch==='follow_up'&&/review point/i.test(p.goal)&&!/effort required from the buyer/i.test(p.wording)));assert.ok(state.history.some(p=>p.priority==='critical'));assert.ok(state.trace.some(e=>e.stage==='prompt_replaced'&&e.reason==='new_relevant_prompt'));assert.ok(state.trace.some(e=>e.stage==='prompt_suppressed'&&e.reason==='duplicate_text'));
+});
+
+test('a materially different route is allowed on the same quote while true duplicate text remains suppressed',()=>{
+ const quote='There is no budget signed off and timing is unclear.',old={...candidate(1,'When might the budget be approved?',quote,'decision'),branch:'funding',goal:'Find a timing for approval.'},next={...candidate(2,'What would need to happen internally for this to become a priority?',quote,'decision'),branch:'trigger',goal:'Find the trigger for action.'};
+ assert.equal(coach.coachingSuppression(next,[old]),null);assert.equal(coach.coachingSuppression({...next,text:old.text,wording:old.wording},[old]),'duplicate_text');
+});
+
+test('close fast path respects an explicit agreed review point and contact boundary',()=>{
+ const request=segment(0,'Could you send a brief with the effort and cost?'),review=segment(1,'Thanks, we will review it Tuesday; yes, that works.'),state=runtime.buildConversationState([request,review]);
+ assert.ok(!runtime.coachingOpportunity([request,review],1,undefined,false,state).signals.includes('check_close'));
+ const boundary=segment(2,"Please don't contact me again. Thanks, goodbye."),blocked=runtime.buildConversationState([request,boundary]),opportunity=runtime.coachingOpportunity([request,boundary],2,undefined,false,blocked),fallback=runtime.deterministicCoachingFallback([request,boundary],opportunity,2);
+ assert.ok(opportunity.signals.includes('contact_boundary'));assert.equal(opportunity.priority,'critical');assert.equal(fallback.questions[0].branch,'graceful_exit');assert.match(fallback.questions[0].wording,/follow up/);
+});
