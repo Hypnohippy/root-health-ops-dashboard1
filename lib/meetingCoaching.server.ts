@@ -16,3 +16,12 @@ export async function readMeetingFacts(t:RelationshipTenant,context:Record<strin
  }
  return facts.slice(0,16);
 }
+
+// Display identity only, never authorization. No email or other Auth fields reach the writer.
+export async function readMeetingSender(t:RelationshipTenant):Promise<string>{
+ const {data,error}=await supabaseAdmin.auth.admin.getUserById(t.userId);
+ if(error||data.user?.id!==t.userId)return '';
+ const metadata=object(data.user.user_metadata);
+ const name=[metadata.full_name,metadata.name,metadata.display_name].find(v=>typeof v==='string'&&v.trim());
+ return typeof name==='string'&&/^[\p{L}][\p{L} .’'-]{0,79}$/u.test(name.trim())?name.trim().split(/\s+/)[0]:'';
+}

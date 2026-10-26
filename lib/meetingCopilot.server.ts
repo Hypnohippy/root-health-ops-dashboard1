@@ -1,5 +1,5 @@
 import {PRACTICE_ID,practiceMeeting,meetingCoachingMessages,meetingEmailMessages} from './meetingCoaching';
-import {readMeetingFacts} from './meetingCoaching.server';
+import {readMeetingFacts,readMeetingSender} from './meetingCoaching.server';
 import OpenAI from 'openai';
 import {supabaseAdmin} from './supabaseAdmin';
 import {readDiary} from './diary.server';
@@ -27,8 +27,8 @@ export async function analyzeMeeting(t:RelationshipTenant,context:Record<string,
  const analysis=groundedMeetingAnalysis(parsed,segments,facts);let tokens=response.usage?.total_tokens||0,emailError=false;
  if(review)try{
   // Separate provider request: no internal summary, notes or research is passed to email generation.
-  const external=await client().chat.completions.create({model:RELATIONSHIP_MODEL,temperature:0.2,max_tokens:900,response_format:{type:'json_object'},messages:meetingEmailMessages(typeof context.name==='string'?context.name:'',segments)});tokens+=external.usage?.total_tokens||0;const value=JSON.parse(external.choices[0]?.message.content||'{}');
-  if(typeof value.email!=='string'||!value.email.trim()||/relationship score|confidence score|internal (?:analysis|coaching|research)|inferred motive/i.test(value.email))throw Error('External draft unavailable');analysis.email=value.email.slice(0,5000);
+  const external=await client().chat.completions.create({model:RELATIONSHIP_MODEL,temperature:0.2,max_tokens:900,response_format:{type:'json_object'},messages:meetingEmailMessages(typeof context.name==='string'?context.name:'',segments,await readMeetingSender(t))});tokens+=external.usage?.total_tokens||0;const value=JSON.parse(external.choices[0]?.message.content||'{}');
+  if(typeof value.email!=='string'||!value.email.trim()||/relationship score|confidence score|internal (?:analysis|coaching|research)|inferred motive|\[(?:your|insert|sender)[^\]]*\]/i.test(value.email))throw Error('External draft unavailable');analysis.email=value.email.slice(0,5000);
  }catch{emailError=true;}
  return {analysis,tokens,emailError};
 }
