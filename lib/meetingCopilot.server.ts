@@ -1,4 +1,5 @@
-import {PRACTICE_ID,practiceMeeting,meetingCoachingMessages,meetingEmailMessages,coachingHistory,freshCoaching} from './meetingCoaching';
+import {coachingOpportunity,defaultCoachingConfig,inspectLiveCoaching,type CoachTrace,type CoachOpportunity,type CoachingConfig} from './meetingCoachRuntime';
+import {PRACTICE_ID,practiceMeeting,meetingCoachingMessages,meetingEmailMessages,coachingHistory} from './meetingCoaching';
 import {readMeetingFacts,readMeetingSender} from './meetingCoaching.server';
 import OpenAI from 'openai';
 import {supabaseAdmin} from './supabaseAdmin';
@@ -20,17 +21,17 @@ export async function prepareMeeting(tenant:RelationshipTenant,id:string){
 async function command(t:RelationshipTenant,id:string,kind:string,data:Record<string,unknown>){const result=await supabaseAdmin.rpc('meeting_copilot_command',{p_org:t.organisationId,p_actor:t.userId,p_id:id,p_command:kind,p_data:data});if(result.error)throw Error('Meeting capture is unavailable for this workspace or its allowance has been reached. Your transcript remains available; nothing was sent to your contact.');return result.data;}
 async function session(t:RelationshipTenant,id:unknown){if(typeof id!=='string'||!uuid.test(id))throw Error('Meeting unavailable.');const {data,error}=await supabaseAdmin.from('meeting_copilot_sessions').select('*').eq('id',id).eq('organisation_id',t.organisationId).eq('user_id',t.userId).maybeSingle();if(error||!data)throw Error('Meeting unavailable.');return data;}
 const client=()=>{if(!process.env.OPENAI_API_KEY)throw Error('Meeting AI is currently unavailable.');return new OpenAI({apiKey:process.env.OPENAI_API_KEY,timeout:45000,maxRetries:0});};
-export async function analyzeMeeting(t:RelationshipTenant,context:Record<string,unknown>,segments:MeetingSegment[],review:boolean,history:MeetingCandidate[]=[]){
- if(!segments.some(s=>!s.gap&&s.text.trim()))return {analysis:groundedMeetingAnalysis({},segments),tokens:0,emailError:false};
- const facts=await readMeetingFacts(t,context),response=await client().chat.completions.create({model:RELATIONSHIP_MODEL,temperature:0.2,max_tokens:1800,response_format:{type:'json_object'},messages:meetingCoachingMessages(facts,segments,review,history)}).catch(()=>{throw Error('Meeting analysis unavailable. Transcript is preserved for manual review.');});
+export async function analyzeMeeting(t:RelationshipTenant,context:Record<string,unknown>,segments:MeetingSegment[],review:boolean,history:MeetingCandidate[]=[],live:{sequence:number;opportunity:CoachOpportunity;config:CoachingConfig}={sequence:-1,opportunity:{run:true,signals:[],reason:'direct'},config:defaultCoachingConfig}){
+ if(!segments.some(s=>!s.gap&&s.text.trim()))return {analysis:groundedMeetingAnalysis({},segments),tokens:0,emailError:false,coachingTrace:[] as CoachTrace[],resolvedPrompts:[] as string[]};
+ const facts=await readMeetingFacts(t,context),response=await client().chat.completions.create({model:RELATIONSHIP_MODEL,temperature:0.2,max_tokens:review?1800:700,response_format:{type:'json_object'},messages:meetingCoachingMessages(facts,segments,review,history,{...live.config,opportunity:live.opportunity})},{timeout:review?45000:6000}).catch(()=>{throw Error('Meeting analysis unavailable. Transcript is preserved for manual review.');});
  let parsed:unknown;try{parsed=JSON.parse(response.choices[0]?.message.content||'{}');}catch{throw Error('Analysis unavailable. Transcript is preserved for manual review.');}
- const analysis=groundedMeetingAnalysis(parsed,segments,facts);if(!review){analysis.questions=freshCoaching(analysis.questions,history);analysis.notices=freshCoaching(analysis.notices,history);}let tokens=response.usage?.total_tokens||0,emailError=false;
+ const analysis=groundedMeetingAnalysis(parsed,segments,facts),coaching=!review?inspectLiveCoaching(parsed,segments,facts,history,live.sequence):null;if(coaching)analysis.questions=coaching.candidates;let tokens=response.usage?.total_tokens||0,emailError=false;
  if(review)try{
   // Separate provider request: no internal summary, notes or research is passed to email generation.
   const external=await client().chat.completions.create({model:RELATIONSHIP_MODEL,temperature:0.2,max_tokens:900,response_format:{type:'json_object'},messages:meetingEmailMessages(typeof context.name==='string'?context.name:'',segments,await readMeetingSender(t))});tokens+=external.usage?.total_tokens||0;const value=JSON.parse(external.choices[0]?.message.content||'{}');
   if(typeof value.email!=='string'||!value.email.trim()||/relationship score|confidence score|internal (?:analysis|coaching|research)|inferred motive|\[(?:your|insert|sender)[^\]]*\]/i.test(value.email))throw Error('External draft unavailable');analysis.email=value.email.slice(0,5000);
  }catch{emailError=true;}
- return {analysis,tokens,emailError};
+ return {analysis,tokens,emailError,coachingTrace:coaching?.trace||[],resolvedPrompts:coaching?.resolvedPrompts||[]};
 }
 export async function meetingRequest(t:RelationshipTenant,body:Record<string,unknown>){
  if(body.action==='start'){if(body.consent!==true||typeof body.appointmentId!=='string'||typeof body.id!=='string'||!uuid.test(body.id))throw Error('Confirm microphone/transcription consent and exact appointment.');const context=await prepareMeeting(t,body.appointmentId);client();const s=await command(t,body.id,'start',{appointmentId:context.attachment.appointmentId,relationshipId:context.attachment.relationshipId,context:{...context,evidence:context.evidence.map(({id,at,direction})=>({id,at,direction}))}});return {id:s.id,version:s.version};}
@@ -53,11 +54,17 @@ export async function meetingRequest(t:RelationshipTenant,body:Record<string,unk
 }
 export async function transcribeMeeting(t:RelationshipTenant,form:FormData){const id=form.get('id'),s=await session(t,id),sequence=Number(form.get('sequence')),audio=form.get('audio');if(!(audio instanceof File)||!Number.isInteger(sequence)||sequence<0||sequence>600)throw Error('Invalid microphone chunk.');const bytes=await audio.arrayBuffer(),seconds=wavSeconds(bytes);await command(t,s.id,'reserve',{sequence,seconds});
  const transcription=await client().audio.transcriptions.create({model:'gpt-transcribe',file:new File([bytes],'meeting.wav',{type:'audio/wav'})}).catch(()=>{throw Error('Transcription failed. This chunk is a gap; no missing speech was invented.');});
- const text=transcription.text;let analysis=null,analysisError=false,tokens=0;
- // Bounded context and supplied recent transcript; client text is untrusted, never canonical evidence.
- if(sequence%3===2)try{const prior=meetingSegments(JSON.parse(String(form.get('segments')||'[]'))).slice(-18),result=await analyzeMeeting(t,s.context,[...prior,{id:String(sequence),text,gap:false}],false,coachingHistory(JSON.parse(String(form.get('coachingHistory')||'[]'))));if('analysis' in result){analysis=result.analysis;tokens=result.tokens;}}catch{analysisError=true;}
+ const text=transcription.text,coachingTrace:CoachTrace[]=[];let analysis=null,analysisError=false,tokens=0,resolvedPrompts:string[]=[];
+ // Same metered/sequence-guarded chunk; signals permit a live check before the periodic fallback.
+ try{const prior=meetingSegments(JSON.parse(String(form.get('segments')||'[]'))).slice(-18),segments=[...prior,{id:String(sequence),text,gap:false}],history=coachingHistory(JSON.parse(String(form.get('coachingHistory')||'[]'))),open=JSON.parse(String(form.get('openCoachingPrompts')||'[]')),checkingOpen=Array.isArray(open)&&open.slice(0,2).some(id=>typeof id==='string'&&history.some(h=>h.promptId===id)),opportunity=coachingOpportunity(segments,sequence,defaultCoachingConfig,checkingOpen);
+  coachingTrace.push({stage:opportunity.signals.length?'opportunity_detected':'opportunity_checked',at:Date.now(),sequence,signals:opportunity.signals,reason:opportunity.reason});
+  if(opportunity.run){const result=await analyzeMeeting(t,s.context,segments,false,history,{sequence,opportunity,config:defaultCoachingConfig});if('analysis' in result){analysis=result.analysis;tokens=result.tokens;coachingTrace.push(...(result.coachingTrace||[]));resolvedPrompts=result.resolvedPrompts||[];}}
+  else coachingTrace.push({stage:'generation_skipped',at:Date.now(),sequence,reason:opportunity.reason});
+ }catch{analysisError=true;coachingTrace.push({stage:'generation_failed',at:Date.now(),sequence,reason:'analysis_unavailable'});}
  {const usage=(transcription as unknown as {usage?:{total_tokens?:number}}).usage;const {error}=await supabaseAdmin.from('meeting_copilot_usage').update({reasoning_tokens:tokens,transcription_tokens:Number.isInteger(usage?.total_tokens)?usage!.total_tokens:null}).eq('organisation_id',t.organisationId).eq('user_id',t.userId).eq('session_id',s.id).eq('sequence',sequence);if(error)analysisError=true;}
- return {text,analysis,analysisError,seconds};
+ // Metadata only: never transcript, prompt text, context, names or credentials.
+ console.info('meeting_coach',JSON.stringify({sessionId:s.id,sequence,events:coachingTrace}));
+ return {text,analysis,analysisError,seconds,coachingTrace,resolvedPrompts};
 }
 
 async function promote(t:RelationshipTenant,id:string,data:Record<string,unknown>){const {data:result,error}=await supabaseAdmin.rpc('meeting_copilot_promote',{p_org:t.organisationId,p_actor:t.userId,p_id:id,p_data:data});if(error)throw Error('Meeting approval was not confirmed. Current appointment, identity, source revision and review must match.');const href=`/dashboard/growth/relationships/workspace_${result.workspaceId}?organisationId=${t.organisationId}`;return {saved:true,...result,href};}
