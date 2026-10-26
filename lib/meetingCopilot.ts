@@ -1,7 +1,7 @@
 import {groundedCoachingList,meetingSummary,type MeetingFact} from './meetingCoaching';
 import type {DiaryItem} from './diary';
 export type MeetingSegment={id:string;text:string;gap:boolean};
-export type MeetingCandidate={text:string;quote:string;segmentId:string;evidenceKind?:'transcript'|'recorded';promptId?:string;lead?:string;wording?:string;angle?:'outcome'|'concern'|'criteria'|'decision'|'timing'|'next_step'};
+export type MeetingCandidate={text:string;quote:string;segmentId:string;evidenceKind?:'transcript'|'recorded';promptId?:string;lead?:string;goal?:string;stance?:'open_exploratory'|'time_poor_cautious'|'interested_noncommittal'|'commercially_curious'|'low_intent'|'ready_next_step'|'uncertain';wording?:string;angle?:'outcome'|'concern'|'criteria'|'decision'|'timing'|'next_step'};
 export type MeetingAnalysis={summary:string;notices:MeetingCandidate[];questions:MeetingCandidate[];actions:MeetingCandidate[];nextMeeting:MeetingCandidate[];updates:MeetingCandidate[];email:string};
 export function meetingAttachment(item:DiaryItem,org:string){
  if(item.type!=='Meeting'||!item.at||item.source.organisationId!==org||item.source.provider!=='conversation_confirmation'||!item.source.relationshipId||!item.provenance?.length)throw Error('An exact conversation-confirmed appointment is required.');
