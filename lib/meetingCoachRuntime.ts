@@ -4,8 +4,8 @@ import {coachingSuppression,groundedCoachingList,unsupportedProductFormat,type M
 export type CoachingConfig={intensity:'close'|'balanced'|'important';motion:string;desiredOutcome:string};
 export const defaultCoachingConfig:CoachingConfig={intensity:'balanced',motion:'unconfigured',desiredOutcome:''};
 export type CoachTrace={stage:string;at:number;sequence:number;promptId?:string;reason?:string;signals?:string[];priority?:'low'|'normal'|'high'|'critical';durationMs?:number};
-export type CoachOpportunity={run:boolean;signals:string[];reason:string;priority?:'low'|'normal'|'high'|'critical';branch?:MeetingCandidate['branch']};
-export type ConversationStateHint={kind:'time_constraint'|'exploration'|'budget_uncertainty'|'timeframe_uncertainty'|'problem_language'|'follow_up_request'|'contact_boundary';segmentId:string;quote:string};
+export type CoachOpportunity={run:boolean;signals:string[];reason:string;priority?:'low'|'normal'|'high'|'critical';branch?:MeetingCandidate['branch'];followUpAccepted?:boolean;dateRefused?:boolean;relativeSendTiming?:string};
+export type ConversationStateHint={kind:'time_constraint'|'exploration'|'budget_uncertainty'|'timeframe_uncertainty'|'problem_language'|'follow_up_request'|'follow_up_agreement'|'relative_send_timing'|'date_refusal'|'contact_boundary';segmentId:string;quote:string};
 export type ConversationState={observations:ConversationStateHint[];questionTrail:{segmentId:string;text:string}[]};
 const stateMatchers:[ConversationStateHint['kind'],RegExp][]=[
  ['time_constraint',/only\s+(?:(?:got|have)\s+)?(?:a\s+)?few\s+minutes|short\s+on\s+time|time\s+is\s+tight|busy\s+today/i],
@@ -14,6 +14,9 @@ const stateMatchers:[ConversationStateHint['kind'],RegExp][]=[
  ['timeframe_uncertainty',/no\s+(?:clear\s+)?(?:timeframe|timeline)|not\s+sure.{0,20}(?:when|timing)|no\s+date\s+in\s+mind/i],
  ['problem_language',/wear\s+and\s+tear|people.{0,35}tired|struggling|difficult|impact|problem/i],
  ['follow_up_request',/(?:send|email|receive|include|cover).{0,110}(?:summary|brief|purpose|effort|ballpark|cost|price|next\s+step|what\s+happens)/i],
+ ['follow_up_agreement',/(?:follow[ -]?up|catch[ -]?up|check[ -]?in|speak again|talk again|another (?:call|chat|conversation)|review).{0,80}(?:works|sounds good|sounds fine|happy to|agreed|yes|okay|fine by me)|(?:works|sounds good|sounds fine|happy to|agreed|yes|okay|fine by me).{0,80}(?:follow[ -]?up|catch[ -]?up|check[ -]?in|speak again|talk again|another (?:call|chat|conversation)|review)/i],
+ ['relative_send_timing',/(?:i(?:'ll| will)|we(?:'ll| will)|can)\s+(?:send|email|get|share|forward|put).{0,70}\b(?:tomorrow|in the next (?:couple|few) of days|over the next few days|in a few days|by (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|next (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|in \d+ days?)\b/i],
+ ['date_refusal',/(?:can(?:not|'t) (?:give|commit to|agree to) (?:you )?(?:a )?(?:date|time)|no (?:specific )?(?:date|time)(?: (?:i can commit to|in mind|agreed))?|(?:do not|don't) have (?:a )?(?:date|time) (?:i can commit to|agreed)?|hard to say when|not able to commit to (?:a )?(?:date|time)|won't commit to (?:a )?(?:date|time)|can't say when)/i],
  ['contact_boundary',/do\s+not\s+(?:contact|follow\s+up)|don.t\s+(?:contact|email|call|follow\s+up)|no\s+more\s+(?:calls|emails|contact)/i],
 ];
 /** Session-only evidence pointers. They contain no speaker attribution or inferred fact. */
@@ -21,11 +24,11 @@ export function buildConversationState(segments:MeetingSegment[],priorValue?:unk
  const speech=segments.filter(s=>!s.gap&&s.text.trim()),prior=normalizeConversationState(priorValue),observations=[...prior.observations];
  for(const [kind,matcher] of stateMatchers){const matches=speech.filter(s=>matcher.test(s.text)),existing=observations.findIndex(h=>h.kind===kind),picked=kind==='time_constraint'||kind==='exploration'?(!observations.some(h=>h.kind===kind)?matches[0]:undefined):matches.at(-1);if(picked){const hint={kind,segmentId:picked.id,quote:picked.text.trim().slice(0,260)};if(existing>=0)observations[existing]=hint;else observations.push(hint);}}
  const fresh=speech.flatMap(s=>(s.text.match(/[^.!?]*\?/g)||[]).map(text=>({segmentId:s.id,text:text.trim().slice(-220)}))).filter(q=>q.text.length>=8),questionTrail=[...prior.questionTrail,...fresh].filter((q,i,a)=>a.findIndex(x=>x.segmentId===q.segmentId&&x.text===q.text)===i).slice(-8);
- return {observations:observations.slice(-7),questionTrail};
+ return {observations:observations.slice(-10),questionTrail};
 }
 export function normalizeConversationState(value:unknown):ConversationState{
  if(!value||typeof value!=='object')return {observations:[],questionTrail:[]};const row=value as Record<string,unknown>,allowed=new Set(stateMatchers.map(([kind])=>kind));
- const observations=Array.isArray(row.observations)?row.observations.slice(-7).flatMap(item=>{if(!item||typeof item!=='object')return[];const r=item as Record<string,unknown>;return typeof r.kind==='string'&&allowed.has(r.kind as ConversationStateHint['kind'])&&typeof r.segmentId==='string'&&r.segmentId.length<=80&&typeof r.quote==='string'&&r.quote.trim().length>=8?[{kind:r.kind as ConversationStateHint['kind'],segmentId:r.segmentId,quote:r.quote.trim().slice(0,260)}]:[];}):[];
+ const observations=Array.isArray(row.observations)?row.observations.slice(-10).flatMap(item=>{if(!item||typeof item!=='object')return[];const r=item as Record<string,unknown>;return typeof r.kind==='string'&&allowed.has(r.kind as ConversationStateHint['kind'])&&typeof r.segmentId==='string'&&r.segmentId.length<=80&&typeof r.quote==='string'&&r.quote.trim().length>=8?[{kind:r.kind as ConversationStateHint['kind'],segmentId:r.segmentId,quote:r.quote.trim().slice(0,260)}]:[];}):[];
  const questionTrail=Array.isArray(row.questionTrail)?row.questionTrail.slice(-8).flatMap(item=>{if(!item||typeof item!=='object')return[];const r=item as Record<string,unknown>;return typeof r.segmentId==='string'&&r.segmentId.length<=80&&typeof r.text==='string'&&r.text.trim().length>=8?[{segmentId:r.segmentId,text:r.text.trim().slice(0,220)}]:[];}):[];
  return {observations,questionTrail};
 }
@@ -48,18 +51,24 @@ export function coachingOpportunity(segments:MeetingSegment[],sequence:number,co
  const budgetQuestions=questions.filter(q=>/budget|spend|fund|afford|price|cost/i.test(q)).length;if(budgetQuestions>1&&hints.some(h=>h.kind==='budget_uncertainty'))signals.push('budget_route_exhausted');
  if(hints.some(h=>h.kind==='follow_up_request')&&!signals.includes('follow_up_requirements'))signals.push('follow_up_requirements');
  const material=hints.some(h=>h.kind==='follow_up_request')||/(?:send|email|receive|include|cover).{0,120}(?:summary|brief|material|proposal|quot|pricing|information|document|details|follow.up|purpose|effort|next step)/i.test(recent);
+ const followUpDiscussed=/(?:follow[ -]?up|catch[ -]?up|check[ -]?in|speak again|talk again|another (?:call|chat|conversation)|review)/i.test(recent);
+ const followUpAccepted=hints.some(h=>h.kind==='follow_up_agreement')||followUpDiscussed&&/(?:that|it|this) works|sounds (?:good|fine)|happy to|agreed|yes[, ]|okay[, ]|fine by me/i.test(recent);
+ const relativeSendTimingHint=hints.find(h=>h.kind==='relative_send_timing');
+ const relativeSendTimingSource=relativeSendTimingHint?.quote||spoken.map(s=>s.text).reverse().find(text=>stateMatchers.find(([kind])=>kind==='relative_send_timing')?.[1].test(text));
+ const relativeSendTiming=relativeSendTimingSource?.match(/\b(?:tomorrow|in the next (?:couple|few) of days|over the next few days|in a few days|by (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|next (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|in \d+ days?)\b/i)?.[0];
+ const dateRefused=hints.some(h=>h.kind==='date_refusal')||stateMatchers.find(([kind])=>kind==='date_refusal')?.[1].test(recent)===true;
  const explicitReview=/\b(?:review|read|look at|check in|check back|follow up|speak).{0,60}\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week|next month|in \d+ (?:days?|weeks?)|by \d{1,2}(?:st|nd|rd|th)?\b)/i.test(recent)&&/\b(?:agreed|agree|shall we|let's|that works|yes[, ]+(?:monday|tuesday|wednesday|thursday|friday|tomorrow|next week)|works for me)\b/i.test(recent);
  const contactBoundary=hints.some(h=>h.kind==='contact_boundary')||/do not (?:contact|follow up)|don't (?:contact|email|call|follow up)|no more (?:calls|emails|contact)/i.test(recent);
  const closing=/(?:thanks|thank you|wrap(?:ping)? up|finish(?:ing)?|end(?:ing)? (?:the|this) call|before.{0,25}(?:go|leave)|(?:give|send|email).{0,80}(?:brief )?(?:summary|outline)|sounds (?:fine|good)|keep it brief|that's all|that is all|speak soon|goodbye)/i.test(latest);
  if(contactBoundary&&!signals.includes('contact_boundary'))signals.push('contact_boundary');
- if(material&&closing&&!explicitReview)signals.push('check_close');
+ if(material&&!explicitReview&&(closing||followUpAccepted||dateRefused))signals.push('check_close');
  if((latest.trim().split(/\s+/).length>=75||recent.trim().split(/\s+/).length>=100&&/what (?:we|i)(?:'ve| have) (?:done|built|developed)|the reason (?:i|we)|in terms of|what i wanted to explain/i.test(recent))&&/not sure|don't know|do not know|no idea|keep it brief/i.test(recent))signals.push('possible_long_explanation_after_stall');
  const branch:MeetingCandidate['branch']=signals.includes('contact_boundary')?'graceful_exit':signals.includes('check_close')||signals.includes('follow_up_requirements')?'follow_up':signals.includes('budget_route_exhausted')?'funding':signals.includes('possible_stall')||signals.includes('possible_pause_after_nonprogress')?'trigger':signals.includes('possible_long_explanation_after_stall')?'consequence':signals.includes('problem_signal')?'operational_impact':undefined;
  const priority:CoachOpportunity['priority']=signals.includes('contact_boundary')||signals.includes('check_close')?'critical':signals.some(s=>['possible_stall','possible_pause_after_nonprogress','possible_long_explanation_after_stall','budget_route_exhausted','follow_up_requirements'].includes(s))?'high':signals.some(s=>['problem_signal','concern','budget'].includes(s))?'normal':'low';
  const important=priority==='critical'||priority==='high'||priority==='normal';
  const every=config.intensity==='close'?2:config.intensity==='important'?6:3;
  const event=config.intensity==='important'?important:signals.length>0;
- return {run:event||checkingOpenPrompt||sequence%every===every-1,signals,priority,branch,reason:event?'conversation_signal':checkingOpenPrompt?'active_prompt_resolution':sequence%every===every-1?'periodic_check':'quiet'};
+ return {run:event||checkingOpenPrompt||sequence%every===every-1,signals,priority,branch,followUpAccepted,dateRefused,relativeSendTiming,reason:event?'conversation_signal':checkingOpenPrompt?'active_prompt_resolution':sequence%every===every-1?'periodic_check':'quiet'};
 }
 
 /** A high-priority live fallback grounded only in exact, current non-gap speech. */
@@ -68,7 +77,7 @@ export function deterministicCoachingFallback(segments:MeetingSegment[],opportun
  const signals=opportunity.signals,has=(signal:string)=>signals.includes(signal),boundary=/do not (?:contact|follow up)|don't (?:contact|email|call|follow up)|no more (?:calls|emails|contact)/i.test(segments.filter(s=>!s.gap).map(s=>s.text).join(' '));
  let goal:string,lead:string,wording:string,branch:MeetingCandidate['branch'],angle:MeetingCandidate['angle'],priority:MeetingCandidate['priority'];
  if(boundary){goal='Respect the contact boundary and end cleanly.';lead='Further contact has been declined. Do not pursue a review point or follow-up.';wording='Understood. I’ll leave it there and won’t follow up.';branch='graceful_exit';angle='next_step';priority='critical';}
- else if(has('check_close')){goal='Secure a clear review point, not a sale today.';lead='A follow-up brief was requested and the conversation is closing, but no review point is recorded. Clarify how it continues now.';wording='I’ll cover what it is, the effort, ballpark cost and next step. When might you get a chance to look? If a date is difficult, what would be a useful point for me to check back?';branch='follow_up';angle='next_step';priority='critical';}
+ else if(has('check_close')){goal='Secure a clear review point, not a sale today.';branch='follow_up';angle='next_step';priority='critical';const sendWindow=opportunity.relativeSendTiming,reviewAfterSend=sendWindow?`If the brief goes over ${sendWindow}, would a short review a few days after that be useful?`:'We mentioned picking this up again after the brief. What would be a useful window to review it once you have had time to look?';if(opportunity.dateRefused){lead='A date was declined. Do not press for one; agree a useful trigger or review window after the requested material is sent.';wording=sendWindow?`No problem. If the brief goes over ${sendWindow}, what would be a useful point to check back after you have had a chance to look?`:'No problem. Rather than pin down a date, what would be a useful point for me to check back after you have had a chance to look?';}else if(opportunity.followUpAccepted){lead='The requested material and a further conversation have both been discussed, but no review window is agreed. Secure the follow-up without reopening the brief.';wording=reviewAfterSend;}else{lead='The requested brief is clear and the conversation is closing, but no review point is agreed. Secure how it continues now.';wording=sendWindow?`If the brief goes over ${sendWindow}, would a short review a few days after that be useful?`:'When would it be useful to review the brief once you have had a chance to look?';}}
  else if(has('follow_up_requirements')){goal='Secure the follow-up brief and a realistic review point.';lead='The requested brief is now clear. Stop asking the buyer to design it; reflect the brief and agree how it will be reviewed.';wording='I’ll cover what it is, the effort, ballpark cost and next step. When would it be useful to review it?';branch='follow_up';angle='next_step';priority='high';}
  else if(has('possible_long_explanation_after_stall')){goal='Stop explaining and return to one useful discovery point.';lead='A long explanation follows little new information. Pause, then return to one grounded question.';wording='I may be over-explaining. What would be most useful to focus on from here?';branch='consequence';angle='concern';priority='high';}
  else if(has('possible_stall')||has('possible_pause_after_nonprogress')||has('budget_route_exhausted')){
@@ -127,7 +136,7 @@ export function inspectLiveCoaching(raw:unknown,segments:MeetingSegment[],facts:
 
 export type CoachRuntime={current:MeetingCandidate|null;pending:MeetingCandidate|null;shownAt:number;queuedAt:number;visiblePromptId:string|null;visibleAt:number;history:MeetingCandidate[];trace:CoachTrace[]};
 export const createCoachRuntime=():CoachRuntime=>({current:null,pending:null,shownAt:0,queuedAt:0,visiblePromptId:null,visibleAt:0,history:[],trace:[]});
-const READ_MS=12000,EXPIRE_MS=40000,QUEUE_MS=24000;
+const EXPIRE_MS=40000,QUEUE_MS=24000;
 function note(s:CoachRuntime,stage:string,at:number,c:MeetingCandidate|null,reason?:string,durationMs?:number){s.trace=[...s.trace,{stage,at,sequence:Number(c?.promptId?.split(':')[0]??-1),promptId:c?.promptId,reason,priority:c?.priority||'normal',durationMs}].slice(-1200);}
 function endVisibility(s:CoachRuntime,at:number,c:MeetingCandidate,reason:string){if(s.visiblePromptId===c.promptId){note(s,'prompt_visibility_ended',at,c,reason,Math.max(0,at-s.visibleAt));s.visiblePromptId=null;s.visibleAt=0;}}
 function show(s:CoachRuntime,c:MeetingCandidate,at:number){if(s.current){endVisibility(s,at,s.current,'replaced');note(s,'prompt_replaced',at,s.current,'new_relevant_prompt');}s.current=c;s.shownAt=at;note(s,'prompt_selected',at,c);}
@@ -135,7 +144,7 @@ export function advanceCoach(state:CoachRuntime,at:number):CoachRuntime{
  const s={...state};
  if(s.pending&&at-s.queuedAt>=QUEUE_MS){note(s,'prompt_expired',at,s.pending,'queue_age');s.pending=null;}
  if(s.current&&at-s.shownAt>=EXPIRE_MS){endVisibility(s,at,s.current,'expired');note(s,'prompt_expired',at,s.current,'display_age');s.current=null;}
- if(s.pending&&(!s.current||at-s.shownAt>=READ_MS)){const c=s.pending;s.pending=null;show(s,c,at);}
+ if(s.pending&&!s.current){const c=s.pending;s.pending=null;show(s,c,at);}
  return s.current===state.current&&s.pending===state.pending?state:s;
 }
 export function receiveCoach(state:CoachRuntime,candidates:MeetingCandidate[],trace:CoachTrace[],at:number,resolved:string[]=[],closed=false):CoachRuntime{
@@ -148,7 +157,7 @@ export function receiveCoach(state:CoachRuntime,candidates:MeetingCandidate[],tr
   if(reason){note(s,'prompt_suppressed',at,c,reason);continue;}
   note(s,'prompt_queued',at,c);
   const currentRank=priorityRank[priorityOf(s.current)],nextRank=priorityRank[priorityOf(c)];
-  if(!s.current||at-s.shownAt>=READ_MS||(nextRank>=2&&nextRank>currentRank))show(s,c,at);
+  if(!s.current||(nextRank>=2&&nextRank>currentRank))show(s,c,at);
   else{if(s.pending)note(s,'prompt_suppressed',at,s.pending,'superseded_while_queued');s.pending=c;s.queuedAt=at;}
  }
  return s;
