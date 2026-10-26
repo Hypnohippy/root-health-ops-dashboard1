@@ -20,7 +20,7 @@ test('relationship-only call IDs require an exact supported tenant locator',()=>
 test('Diary offers a stable synthetic practice launch and relationship page has direct call entry',()=>{
  const diary=fs.readFileSync('app/dashboard/diary/Diary.tsx','utf8'),relationship=fs.readFileSync('app/dashboard/growth/relationships/components/RelationshipDetail.tsx','utf8');
  assert.match(diary,/SYNTHETIC PRACTICE APPOINTMENT/);assert.match(diary,/PRACTICE_ID/);assert.match(diary,/Start Meeting Copilot/);
- assert.match(relationship,/Start Call/);assert.match(relationship,/relationshipCallId\(locator\)/);assert.match(relationship,/meetingAppointments\.map/);
+ assert.match(relationship,/Start Call/);assert.match(relationship,/relationshipCallId\(locator\)/);assert.match(relationship,/meetingAppointments\.map/);assert.match(relationship,/!r\.contactId\?null/);assert.match(relationship,/Review relationship identity/);
 });
 test('known appointment context is auto-loaded; microphone still requires explicit consent',()=>{
  const ui=fs.readFileSync('app/dashboard/meetings/MeetingCopilot.tsx','utf8');
