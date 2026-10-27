@@ -38,11 +38,28 @@ function coachingBranch(value:unknown){return coachingBranches.find(b=>b===value
 export function coachingHistory(value:unknown):MeetingCandidate[]{if(!Array.isArray(value))return [];return value.slice(-24).flatMap(c=>c&&typeof c.text==='string'&&typeof c.quote==='string'&&typeof c.segmentId==='string'?[{text:c.text.slice(0,180),quote:c.quote.slice(0,160),segmentId:c.segmentId.slice(0,80),angle:coachingAngle(c.angle),branch:coachingBranch(c.branch),priority:['low','normal','high','critical'].find(p=>p===c.priority) as MeetingCandidate['priority'],goal:typeof c.goal==='string'?c.goal.slice(0,120):undefined,lead:typeof c.lead==='string'?c.lead.slice(0,180):undefined,stance:coachingStance(c.stance),promptId:typeof c.promptId==='string'?c.promptId.slice(0,80):undefined}]:[]);}
 const filler=new Set(['what','would','could','should','they','their','that','this','with','about','which','does','have','your','you','the','and','how','ask','clarify','please','them','there']);
 function words(text:string){return new Set((text.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[]).filter(w=>!filler.has(w)));}
+export type MeetingClosePromptStep='in_principle'|'window'|'day'|'time'|'acceptance'|'complete';
+/** Classify the unresolved close action, not just its broad sales objective. */
+export function meetingClosePromptStep(candidate:Pick<MeetingCandidate,'text'|'wording'|'goal'>):MeetingClosePromptStep|null{
+ const value=`${candidate.goal||''} ${candidate.wording||candidate.text}`;
+ if(/(?:specific time|what time|which time)/i.test(value))return 'time';
+ if(/(?:specific day|which day|what day|pin down a day)/i.test(value))return 'day';
+ if(/(?:confirm|confirmation|affirm).{0,45}(?:day|time|slot|second meeting|second conversation)|(?:does|would) the proposed (?:day|time|day and time|slot) work/i.test(value))return 'acceptance';
+ if(/(?:which|what|when).{0,55}(?:week|window|timeframe|time frame)|(?:would|does) (?:earlier|later|next week|a week|two weeks|that window).{0,35}(?:work|suit|be better)|(?:earlier|later|next week|a week|two weeks).{0,35}(?:work|suit|be better|is better)|(?:specific|agree a) (?:second |follow.up )?(?:meeting|conversation|review) (?:window|time)/i.test(value))return 'window';
+ if(/(?:whether|ask if|check if|is another|would another|another (?:meeting|conversation).{0,35}(?:useful|appropriate|worthwhile|make sense)|(?:meeting|conversation).{0,35}(?:useful|appropriate|worthwhile|make sense))/i.test(value))return 'in_principle';
+ return null;
+}
 export function coachingSuppression(candidate:MeetingCandidate,history:MeetingCandidate[]):string|null{
  for(const old of history){
-  const closeContext=(value:MeetingCandidate)=>/second (?:meeting|conversation)/i.test(`${value.goal||''} ${value.wording||value.text}`),closeStep=(value:MeetingCandidate)=>{const goal=value.goal||'';return /specific day/i.test(goal)?'day':/specific time/i.test(goal)?'time':/mutual acceptance|proposed second-meeting time/i.test(goal)?'acceptance':null;};
-  const candidateStep=closeStep(candidate),oldStep=closeStep(old);
-  if(closeContext(candidate)&&closeContext(old)&&(candidateStep||oldStep)&&candidateStep!==oldStep)continue;
+  const closeContext=(value:MeetingCandidate)=>value.branch==='follow_up'&&/second (?:meeting|conversation)/i.test(`${value.goal||''} ${value.wording||value.text}`),candidateStep=meetingClosePromptStep(candidate),oldStep=meetingClosePromptStep(old);
+  if(closeContext(candidate)&&closeContext(old)&&candidateStep&&oldStep){
+   // A new missing close detail is a new action, even when the broad goal and topic match.
+   if(candidateStep!==oldStep)continue;
+   const currentEvidence=words(`${candidate.quote} ${candidate.lead||''}`),priorEvidence=words(`${old.quote} ${old.lead||''}`),shared=[...currentEvidence].filter(word=>priorEvidence.has(word)).length,overlap=shared/Math.max(1,new Set([...currentEvidence,...priorEvidence]).size);
+   // Re-prompt only when both the unresolved step and its supporting evidence are materially unchanged.
+   if(overlap<0.8)continue;
+   return (candidate.wording||candidate.text).trim().toLowerCase()===(old.wording||old.text).trim().toLowerCase()?'duplicate_text':'same_strategy_same_evidence';
+  }
   if((candidate.wording||candidate.text).trim().toLowerCase()===(old.wording||old.text).trim().toLowerCase())return 'duplicate_text';
   const a=words(candidate.wording||candidate.text),b=words(old.wording||old.text),overlap=[...a].filter(w=>b.has(w)).length,union=new Set([...a,...b]).size;
   const sameStrategy=candidate.branch&&old.branch?candidate.branch===old.branch&&(!candidate.goal||!old.goal||(()=>{const x=words(candidate.goal!),y=words(old.goal!),shared=[...x].filter(w=>y.has(w)).length;return Math.min(x.size,y.size)<2||shared/Math.max(1,new Set([...x,...y]).size)>=0.6;})()):!candidate.branch&&!old.branch&&old.quote===candidate.quote&&(!candidate.angle||!old.angle||candidate.angle===old.angle);

@@ -1,7 +1,7 @@
 import {pcmWav} from './meetingCopilot';
 /** Six 5-second packets bound transient in-memory backlog to 30 seconds. */
 export const MAX_PENDING_AUDIO_CHUNKS=6;
-export async function startMeetingMicrophone(onChunk:(audio:Blob)=>void,onFailure:(message:string)=>void,signal?:AbortSignal){
+export async function startMeetingMicrophone(onChunk:(audio:Blob,pauseDetectedAt?:number)=>void,onFailure:(message:string)=>void,signal?:AbortSignal){
  // Resume from the explicit Start gesture, before permission/network awaits lose activation.
  const context=new AudioContext({sampleRate:24000});let stream:MediaStream|undefined,finished=false;
  let rejectStartup:(error:Error)=>void=()=>{};
@@ -19,7 +19,7 @@ export async function startMeetingMicrophone(onChunk:(audio:Blob)=>void,onFailur
   if(signal?.aborted)throw Error('Microphone start cancelled.');
   clearTimeout(timeout);signal?.removeEventListener('abort',cancel);
   const source=context.createMediaStreamSource(stream!),node=new AudioWorkletNode(context,'meeting-pcm'),silent=context.createGain();silent.gain.value=0;source.connect(node);node.connect(silent);silent.connect(context.destination);
-  node.port.onmessage=e=>{if(e.data instanceof Float32Array&&e.data.length)onChunk(new Blob([pcmWav(e.data,24000)],{type:'audio/wav'}));};
+  node.port.onmessage=e=>{if(e.data instanceof Float32Array&&e.data.length)onChunk(new Blob([pcmWav(e.data,24000)],{type:'audio/wav'}));else if(e.data?.type==='silence_pause'&&e.data.samples instanceof Float32Array&&e.data.samples.length)onChunk(new Blob([pcmWav(e.data.samples,24000)],{type:'audio/wav'}),Date.now());};
   const disconnect=()=>stream!.getTracks().forEach(t=>{t.onended=null;t.stop();});
   const abortCapture=()=>{disconnect();source.disconnect();node.port.onmessage=null;node.disconnect();silent.disconnect();void context.close().catch(()=>{});};
   signal?.addEventListener('abort',abortCapture,{once:true});stream!.getAudioTracks().forEach(track=>track.onended=()=>onFailure('Microphone disconnected. Transcript gap; end or restart the meeting.'));
