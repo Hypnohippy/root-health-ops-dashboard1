@@ -1,4 +1,6 @@
 import {pcmWav} from './meetingCopilot';
+/** Six 5-second packets bound transient in-memory backlog to 30 seconds. */
+export const MAX_PENDING_AUDIO_CHUNKS=6;
 export async function startMeetingMicrophone(onChunk:(audio:Blob)=>void,onFailure:(message:string)=>void,signal?:AbortSignal){
  // Resume from the explicit Start gesture, before permission/network awaits lose activation.
  const context=new AudioContext({sampleRate:24000});let stream:MediaStream|undefined,finished=false;
