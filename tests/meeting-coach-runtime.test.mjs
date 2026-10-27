@@ -6,9 +6,23 @@ const segment=(id,text)=>({id:String(id),text,gap:false});
 const candidate=(id,text,quote,angle='outcome')=>({promptId:`${id}:q0`,text,wording:text,goal:'Clarify a useful next step.',quote,segmentId:String(id),angle});
 
 test('signals run on the current chunk, not only every third chunk',()=>{
- for(const [text,signal] of [["I've only a few minutes; just seeing what's out there.",'time_pressure'],['No budget is signed off; spend is tight.','budget'],['People have been tired. Wear and tear.','problem_signal'],['Please send purpose, effort required, ballpark cost and next step.','follow_up_requirements'],["I'll email a summary. Thanks, that sounds fine.",'check_close']]){
+ for(const [text,signal] of [["I've only a few minutes; just seeing what's out there.",'time_pressure'],['No budget is signed off; spend is tight.','budget'],['Our team is struggling with sustained workload and it is affecting delivery.','problem_signal'],['Please send purpose, effort required, ballpark cost and next step.','follow_up_requirements'],["I'll email a summary. Thanks, that sounds fine.",'check_close']]){
   const result=runtime.coachingOpportunity([segment(0,text)],0);assert.equal(result.run,true);assert.ok(result.signals.includes(signal));
  }
+});
+test('social opening and seller small talk cannot become a work-family problem or coaching prompt',()=>{
+ const rows=[segment(0,'Busy, but fine.'),segment(1,'Looking forward to half term.'),segment(2,'Some time with the kids, right?'),segment(3,'We arranged this meeting to talk about your wellbeing requirements.')],state=runtime.buildConversationState(rows),opportunity=runtime.coachingOpportunity(rows,3,undefined,false,state);
+ assert.equal(state.salesMotion,'unconfigured');assert.equal(state.materialFacts.some(f=>f.kind==='problem'),false);assert.equal(state.observations.some(h=>h.kind==='problem_language'),false);assert.equal(opportunity.signals.includes('problem_signal'),false);
+ assert.match(coach.meetingCoachingMessages([],rows,false)[0].content,/Ordinary rapport and social preamble do not establish discovery evidence/);
+ const quote=rows[1].text,unsupported={text:'Are you thinking about how to balance work and family time?',wording:'Are you thinking about how to balance work and family time?',goal:'Explore work and family balance.',lead:'The social opening may point to a work-family balance problem.',quote,segmentId:'1',angle:'concern',branch:'personal_impact'},checked=runtime.inspectLiveCoaching({questions:[unsupported]},rows,[],[],3,100,opportunity);
+ assert.equal(checked.candidates.length,0);assert.ok(checked.trace.some(event=>event.reason==='ungrounded_problem_probe'));
+});
+test('an explicitly connected work-wellbeing issue is grounded discovery evidence',()=>{
+ const quote="Actually, work is spilling into evenings and I'm struggling to balance it with family life; that's one of the wellbeing issues I want help with.";
+ const rows=[segment(0,'Busy, but fine.'),segment(1,'Looking forward to half term.'),segment(2,'Some time with the kids, right?'),segment(3,'We arranged this meeting to talk about your wellbeing requirements.'),segment(4,quote)],state=runtime.buildConversationState(rows),opportunity=runtime.coachingOpportunity(rows,4,undefined,false,state),fact=state.materialFacts.find(item=>item.kind==='problem');
+ assert.ok(fact);assert.equal(fact.segmentId,'4');assert.ok(fact.quote.includes('work is spilling into evenings'));assert.ok(state.observations.some(h=>h.kind==='problem_language'&&h.segmentId==='4'));assert.ok(opportunity.signals.includes('problem_signal'));
+ const grounded={text:'Where is the work-life strain having the biggest effect?',wording:'Where is the work-life strain having the biggest effect?',goal:'Understand the impact of the expressed work-wellbeing issue.',lead:'You connected work spilling into evenings with a wellbeing issue you want help with.',quote,segmentId:'4',angle:'concern',branch:'personal_impact'},checked=runtime.inspectLiveCoaching({questions:[grounded]},rows,[],[],4,100,opportunity);
+ assert.equal(checked.candidates.length,1);assert.equal(checked.candidates[0].segmentId,'4');
 });
 test('repeated questions with vague responses flag a possible stall, not an identified-speaker fact',()=>{
  const rows=[segment(0,'When might you start? I do not know.'),segment(1,'When do you expect to decide? I am not sure yet.')];
@@ -70,7 +84,7 @@ test('equivalent cautious-prospect simulation traces six distinct useful moves f
   ['I only have a few minutes; just seeing what is out there.','What made this worth a few minutes today?','outcome'],
   ['There is no budget signed off; spend is tight.','If this proved useful, is there normally a route to funding?','decision'],
   ['When might you act? I do not know. When would you decide? Still not sure.','What is happening with the current approach that you would most like to change?','concern'],
-  ['People have been tired. It is wear and tear; I would not call it burnout.','Where are you seeing that wear and tear have the most effect?','criteria'],
+  ['Our team has been feeling the wear and tear in the workload; I would not call it burnout.','Where are you seeing that wear and tear have the most effect?','criteria'],
   ['Send purpose, effort required, ballpark cost and what the next step involves.','What would make that short outline useful enough for you to consider the next step?','criteria'],
   ["I'll send a summary. Yes, thanks, keep it brief. Goodbye.",'When are you likely to look at it, and would a short check-in afterwards be useful?','next_step'],
  ];

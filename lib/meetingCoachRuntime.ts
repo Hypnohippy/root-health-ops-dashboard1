@@ -16,7 +16,7 @@ const stateMatchers:[ConversationStateHint['kind'],RegExp][]=[
  ['exploration',/just\s+(?:looking|exploring|seeing)|just\s+having\s+a\s+look|not\s+sure\s+what\s+we\s+need/i],
  ['budget_uncertainty',/no\s+(?:signed[- ]off\s+)?budget|budget.{0,35}(?:not\s+approved|not\s+signed|unclear)|keep\s+(?:the\s+)?spend\s+tight|not\s+sure.{0,20}budget/i],
  ['timeframe_uncertainty',/no\s+(?:clear\s+)?(?:timeframe|timeline)|not\s+sure.{0,20}(?:when|timing)|no\s+date\s+in\s+mind/i],
- ['problem_language',/wear\s+and\s+tear|people.{0,35}tired|struggling|difficult|impact|problem/i],
+ ['problem_language',/(?:(?:work|workplace|workload|job|role|team|staff|employees|organisation|organization|colleagues).{0,100}(?:struggl|problem|issue|impact|difficult|wear and tear|pain point|spill|balance)|(?:struggl|problem|issue|impact|difficult|wear and tear|pain point|spill|balance).{0,100}(?:work|workplace|workload|job|role|team|staff|employees|organisation|organization|colleagues))/i],
  ['follow_up_request',/(?:send|email|receive|include|cover).{0,110}(?:summary|brief|purpose|effort|ballpark|cost|price|next\s+step|what\s+happens)/i],
  ['follow_up_agreement',/(?:follow[ -]?up|catch[ -]?up|check[ -]?in|speak again|talk again|another (?:call|chat|conversation)|review).{0,80}(?:works|sounds good|sounds fine|happy to|agreed|yes|okay|fine by me)|(?:works|sounds good|sounds fine|happy to|agreed|yes|okay|fine by me).{0,80}(?:follow[ -]?up|catch[ -]?up|check[ -]?in|speak again|talk again|another (?:call|chat|conversation)|review)/i],
  ['second_meeting_intent',/(?:purpose|point|aim).{0,100}(?:whether|if).{0,60}(?:worth|makes sense|useful).{0,60}(?:proper )?(?:second|another) (?:conversation|meeting|call)|(?:worth|useful|makes sense).{0,50}(?:proper )?(?:second|another) (?:conversation|meeting|call)|(?:proper )?(?:second|another) (?:conversation|meeting|call).{0,60}(?:worth|useful|makes sense)/i],
@@ -39,6 +39,21 @@ const callFactPatterns:[MaterialCallFact['kind'],RegExp][]=[
  ['timing',/(?:by (?:the end of|next |monday|tuesday|wednesday|thursday|friday)|next (?:week|month|quarter)|in (?:the next |a few |\d+ )(?:days?|weeks?|months?)|this quarter|before .{1,35})/i],
  ['stakeholder',/(?:need to (?:check|speak|talk) with|approval from|decision maker|board|committee|procurement|my (?:manager|colleague|director|team)).{0,100}/i],
 ];
+const workContext=String.raw`(?:work(?:place|load)?|job|role|team|staff|employees|colleagues|organisation|organization|company)`;
+const problemLanguage=String.raw`(?:struggl\w*|problem|issue|challenge|difficult\w*|impact|wear and tear|pain point|spill\w*|balance)`;
+/** A problem is material only when the utterance itself connects it to work or asks for relevant help. */
+function groundedProblemText(text:string){
+ const statements=text.split(/(?<=[.!?])\s+/).filter(part=>part.trim()&&!/\?\s*$/.test(part.trim()));
+ return statements.some(statement=>{
+  const relational=new RegExp(`\\b${workContext}\\b[^.!?]{0,120}\\b${problemLanguage}\\b|\\b${problemLanguage}\\b[^.!?]{0,120}\\b${workContext}\\b`,'i');
+  const explicitHelp=new RegExp(String.raw`\b(?:i|we|my|our)\b[^.!?]{0,70}\b(?:want|need|looking for|asking for)\b[^.!?]{0,80}\b(?:help|support|explore|address|wellbeing|stress|burnout|work.?life balance)\b|\b(?:wellbeing|stress|burnout|work.?life balance)\b[^.!?]{0,80}\b(?:issue|problem|challenge)\b[^.!?]{0,80}\b(?:i|we|my|our)\b[^.!?]{0,45}\b(?:want|need|help|support|address|explore)\b`,'i');
+  return relational.test(statement)||explicitHelp.test(statement);
+ });
+}
+function problemDiscoveryProbe(candidate:MeetingCandidate,row:Record<string,unknown>|null){
+ const fields=[candidate.text,candidate.wording,candidate.lead,candidate.goal].filter(Boolean).join(' ');
+ return row?.branch==='personal_impact'||row?.branch==='operational_impact'||candidate.angle==='concern'&&/(?:problem|issue|challenge|impact|struggl|difficult|wellbeing|work.?life|balance)/i.test(fields);
+}
 function inferSalesMotion(text:string,configured:string,previous:SalesMotion):SalesMotion{
  const explicit=configured.toLowerCase().replace(/[\s-]+/g,'_');if(motions.includes(explicit as SalesMotion)&&explicit!=='unconfigured')return explicit as SalesMotion;
  if(/enterprise|procurement|board|committee|security review|multiple stakeholders|several departments|implementation team/i.test(text))return 'complex_enterprise';
@@ -73,7 +88,7 @@ function deriveStage(text:string,previous:ConversationStage):ConversationStage{
  return previous;
 }
 function materialFacts(segments:MeetingSegment[],prior:MaterialCallFact[]=[]):MaterialCallFact[]{
-  const facts=[...prior];for(const segment of segments.filter(row=>!row.gap&&row.text.trim()))for(const [kind,pattern] of callFactPatterns){if(kind==='timing'&&/(?:i|we)(?:'ll| will)\s+(?:send|email|share|forward|put)/i.test(segment.text))continue;const match=segment.text.match(pattern);if(!match)continue;const quote=match[0].trim().slice(0,240);if(quote.length<12||facts.some(f=>f.segmentId===segment.id&&f.kind===kind))continue;facts.push({kind,segmentId:segment.id,quote});}
+  const facts=[...prior];for(const segment of segments.filter(row=>!row.gap&&row.text.trim()))for(const [kind,pattern] of callFactPatterns){if(kind==='timing'&&/(?:i|we)(?:'ll| will)\s+(?:send|email|share|forward|put)/i.test(segment.text))continue;if(kind==='problem'&&!groundedProblemText(segment.text))continue;const match=segment.text.match(pattern);if(!match)continue;const quote=(kind==='problem'?segment.text:match[0]).trim().slice(0,240);if(quote.length<12||facts.some(f=>f.segmentId===segment.id&&f.kind===kind))continue;facts.push({kind,segmentId:segment.id,quote});}
  return facts.slice(-16);
 }
 function reflected(fact:string,closeText:string){const stop=new Set(['that','this','have','with','from','they','them','their','were','what','when','where','which','would','could','should','about','into','need','want','your','you','our','we','the','and','for','are','was']);const words=(s:string)=>new Set((s.toLowerCase().match(/[a-z]{4,}/g)||[]).filter(w=>!stop.has(w)));const a=words(fact),b=words(closeText);return a.size>0&&[...a].filter(w=>b.has(w)).length/Math.max(1,a.size)>=0.38;}
@@ -109,7 +124,7 @@ export function coachingOpportunity(segments:MeetingSegment[],sequence:number,co
  if(/just (?:looking|exploring|seeing)|not sure|don.t (?:really )?know|no (?:clear )?timeline/i.test(latest))signals.push('vague_intent');
  if(/budget|spend|funding|afford|cost|price/i.test(latest))signals.push('budget');
  if(/don.t want|not (?:ready|interested)|too (?:corporate|expensive)|keep it (?:brief|simple)|pressure|commit/i.test(latest))signals.push('concern');
- if(/tired|wear and tear|struggl|problem|quality|impact|difficult/i.test(latest))signals.push('problem_signal');
+ if(groundedProblemText(speech.slice(-2).map(row=>row.text).join(' '))&&/(?:tired|wear and tear|struggl|problem|issue|challenge|quality|impact|difficult|spill|balance)/i.test(latest))signals.push('problem_signal');
  if(stateMatchers.find(([kind])=>kind==='follow_up_request')?.[1].test(latest)||/(?:send|email|receive|include|cover).{0,100}(?:summary|brief|purpose|effort|ballpark|cost|price|next step|what happens)/i.test(latest))signals.push('follow_up_requirements');
  }
  const questions=Array.from(new Set(state.questionTrail.map(q=>q.text).concat(recent.match(/[^.!?]*\?/g)||[]).map(q=>q.trim().toLowerCase())));
@@ -209,7 +224,7 @@ export function inspectLiveCoaching(raw:unknown,segments:MeetingSegment[],facts:
   const row=item&&typeof item==='object'?item as Record<string,unknown>:null;
   const allowedBranches=new Set(['consequence','priority','trigger','stakeholder','criteria','workaround','funding','operational_impact','personal_impact','next_step','graceful_exit','follow_up']),branch=replacedFormat?'criteria':allowedBranches.has(String(row?.branch))?row?.branch as MeetingCandidate['branch']:opportunity?.branch,priority=opportunity?.priority||candidate?.priority||'normal',enriched=candidate?{...candidate,branch,priority}:null;
   const source= row&&typeof row.segmentId==='string'?(row.evidenceKind==='recorded'?facts.find(f=>f.id===row.segmentId)?.text:segments.find(s=>s.id===row.segmentId&&!s.gap)?.text):undefined;
-  const reason=!candidate?(!row||typeof row.text!=='string'||!row.text.trim()?'malformed_candidate':!source?'unknown_or_gap_source':typeof row.quote!=='string'||row.quote.trim().length<8||!source.includes(row.quote)?'quote_not_in_source':'invalid_candidate'):typeof candidate.goal!=='string'||!candidate.goal.trim()||candidate.goal.length>120?'missing_call_goal':(!candidate.wording&&!candidate.text.includes('?')||/^(?:try|explore|choose|change|shift|switch|move).{0,32}(?:direction|branch|topic|something else)[.!]?$/i.test(candidate.wording||candidate.text))?'missing_usable_wording':coachingSuppression(enriched!,[...history,...candidates]);
+  const reason=!candidate?(!row||typeof row.text!=='string'||!row.text.trim()?'malformed_candidate':!source?'unknown_or_gap_source':typeof row.quote!=='string'||row.quote.trim().length<8||!source.includes(row.quote)?'quote_not_in_source':'invalid_candidate'):problemDiscoveryProbe(candidate,row)&&!segments.some(segment=>!segment.gap&&groundedProblemText(segment.text))?'ungrounded_problem_probe':typeof candidate.goal!=='string'||!candidate.goal.trim()||candidate.goal.length>120?'missing_call_goal':(!candidate.wording&&!candidate.text.includes('?')||/^(?:try|explore|choose|change|shift|switch|move).{0,32}(?:direction|branch|topic|something else)[.!]?$/i.test(candidate.wording||candidate.text))?'missing_usable_wording':coachingSuppression(enriched!,[...history,...candidates]);
   if(reason){trace.push({stage:'prompt_suppressed',at,sequence,promptId,reason});continue;}
   if(candidates.length>=2){trace.push({stage:'prompt_suppressed',at,sequence,promptId,reason:'display_capacity'});continue;}
   candidates.push({...enriched!,promptId:effectivePromptId});
