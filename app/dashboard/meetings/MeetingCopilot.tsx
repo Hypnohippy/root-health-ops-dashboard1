@@ -7,35 +7,27 @@ import type {MeetingAnalysis,MeetingSegment} from '@/lib/meetingCopilot';
 import {buildConversationState,coachingDiagnostics,createCoachRuntime,advanceCoach,receiveCoach,markCoachRenderAttempted,markCoachDisplayed,markCoachNotVisible,type CoachRuntime} from '@/lib/meetingCoachRuntime';
 import './meeting.css';
 import DiaryEntryForm from '@/app/dashboard/diary/DiaryEntryForm';
+type PendingAudioChunk={index:number;audio:Blob;enqueuedAt:number;coalesced:boolean};
 type Brief={synthetic?:boolean;name:string;meetingObjective?:string|null;knownNextStep?:string|null;meetingContext?:{person:{name:string;role:string|null;company:string|null};opportunity:{stage:string;nextAction:string|null;dueDate:string|null;facts:string[];interpretation:string[]};notes:{kind:string;at:string|null;text:string}[];research:{savedAt:string|null;facts:string[]}[]};attachment:{appointmentId:string;title:string;at:string|null;channel:string;locator:string;source?:{provider:string}};evidence:{id:string;at:string|null;text:string;direction:string}[]};
 export default function MeetingCopilot({organisationId,appointmentId}:{organisationId:string;appointmentId:string}){
  const [brief,setBrief]=useState<Brief|null>(null),[phase,setPhase]=useState<'before'|'starting'|'live'|'ending'|'review'|'approved'|'close_failed'>('before'),[consent,setConsent]=useState(false),[notice,setNotice]=useState(''),[preparing,setPreparing]=useState(false),[segments,setSegments]=useState<MeetingSegment[]>([]),[analysis,setAnalysis]=useState<MeetingAnalysis|null>(null),[summary,setSummary]=useState(''),[email,setEmail]=useState(''),[retain,setRetain]=useState(false),[approve,setApprove]=useState(false),[savedHref,setSavedHref]=useState(''),[elapsed,setElapsed]=useState(0),[diaryForm,setDiaryForm]=useState(false),[nextVerified,setNextVerified]=useState(false),[tasks,setTasks]=useState<{text:string;key:string;saved:boolean}[]>([]);
  const startAbort=useRef<AbortController|null>(null),coachingCardRef=useRef<HTMLElement|null>(null);
  const [liveCoach,setLiveCoach]=useState(createCoachRuntime),coachRef=useRef(liveCoach);
  const changeCoach=useCallback((change:(value:CoachRuntime)=>CoachRuntime)=>{const next=change(coachRef.current);coachRef.current=next;setLiveCoach(next);},[]);
- const capture=useRef<Awaited<ReturnType<typeof startMeetingMicrophone>>|null>(null),session=useRef(''),version=useRef(0),sequence=useRef(0),rows=useRef<MeetingSegment[]>([]),active=useRef(false),mounted=useRef(true),busy=useRef(false),queue=useRef(Promise.resolve()),pending=useRef(0),startAt=useRef(0);
+ const capture=useRef<Awaited<ReturnType<typeof startMeetingMicrophone>>|null>(null),session=useRef(''),version=useRef(0),sequence=useRef(0),rows=useRef<MeetingSegment[]>([]),active=useRef(false),mounted=useRef(true),busy=useRef(false),audioQueue=useRef<PendingAudioChunk[]>([]),drainPromise=useRef<Promise<void>|null>(null),pending=useRef(0),startAt=useRef(0);
  const endpoint=`/api/meetings?organisationId=${encodeURIComponent(organisationId)}`;
  useEffect(()=>{mounted.current=true;const stop=()=>{startAbort.current?.abort();active.current=false;void capture.current?.stop();if(session.current)void fetch(endpoint,{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({organisationId,id:session.current,action:'end'})});};window.addEventListener('pagehide',stop);return()=>{mounted.current=false;stop();window.removeEventListener('pagehide',stop);};},[endpoint,organisationId]);
  useEffect(()=>{if(phase!=='live')return;const timer=setInterval(()=>{const now=Date.now();setElapsed(Math.floor((now-startAt.current)/1000));changeCoach(s=>advanceCoach(s,now));},1000);return()=>clearInterval(timer);},[phase,changeCoach]);
  const displayedPromptId=liveCoach.current?.promptId||'';
  useLayoutEffect(()=>{if(!displayedPromptId||!coachingCardRef.current||typeof IntersectionObserver==='undefined')return;changeCoach(s=>markCoachRenderAttempted(s,displayedPromptId,Date.now(),sequence.current));if(coachRef.current.current?.promptId!==displayedPromptId)return;const observer=new IntersectionObserver(entries=>{const entry=entries[0];if(!entry)return;const rect=entry.target.getBoundingClientRect();if(entry.isIntersecting&&entry.intersectionRatio>=0.5&&rect.width>0&&rect.height>0)changeCoach(s=>markCoachDisplayed(s,displayedPromptId,Date.now(),sequence.current));else changeCoach(s=>markCoachNotVisible(s,displayedPromptId,Date.now()));}, {threshold:0.5});observer.observe(coachingCardRef.current);return()=>observer.disconnect();},[displayedPromptId,changeCoach]);
  async function json(body:Record<string,unknown>){const r=await tenantFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,organisationId})}),data=await r.json();if(!r.ok||data.success!==true)throw Error(data.error||'Meeting unavailable. Your transcript remains on this page.');return data;}
- function append(row:MeetingSegment){rows.current=[...rows.current,row];if(mounted.current)setSegments(rows.current);}
+ function append(row:MeetingSegment){const all=[...rows.current,row],numeric=(value:string)=>/^\d+$/.test(value)?Number(value):Number.MAX_SAFE_INTEGER;rows.current=all.map((value,index)=>({value,index})).sort((a,b)=>numeric(a.value.id)-numeric(b.value.id)||a.index-b.index).map(item=>item.value);if(mounted.current)setSegments(rows.current);}
  const prepare=useCallback(async()=>{if(busy.current||!appointmentId)return;busy.current=true;setPreparing(true);setNotice(appointmentId===PRACTICE_ID?'Preparing synthetic practice...':'Preparing recorded context...');try{const r=await tenantFetch(`${endpoint}&appointmentId=${encodeURIComponent(appointmentId)}`),data=await r.json();if(!r.ok||!data.success)throw Error(data.error||'Exact appointment unavailable.');setBrief(data.brief);setNotice('');}catch(e){setNotice(e instanceof Error?e.message:'Brief unavailable.');}finally{busy.current=false;setPreparing(false);}},[appointmentId,endpoint]);
  const autoPreparedId=useRef('');
  useEffect(()=>{if(appointmentId&&!brief&&autoPreparedId.current!==appointmentId){autoPreparedId.current=appointmentId;void prepare();}},[appointmentId,brief,prepare]);
- function chunk(audio:Blob){
-  if(!active.current||!mounted.current)return;
-  if(Date.now()-startAt.current>90*60*1000){setNotice('The 90-minute session limit was reached. Capture is ending.');void end();return;}
-  const index=sequence.current++,enqueuedAt=Date.now();
-  if(pending.current>=MAX_PENDING_AUDIO_CHUNKS){
-   append({id:String(index),text:'Transcript gap: connection could not keep up. No audio retained.',gap:true});
-   setNotice('Transcription backlog reached its safe in-memory limit. This chunk was marked missing; end and restart when ready.');
-   changeCoach(s=>({...s,trace:[...s.trace,{stage:'audio_chunk_dropped',at:Date.now(),sequence:index,reason:'bounded_backpressure_limit'}].slice(-1200)}));
-   return;
-  }
-  pending.current++;
-  queue.current=queue.current.then(async()=>{
+ function markChunkGap(index:number,reason:string){append({id:String(index),text:'Transcript gap: this captured speech was not transcribed because a newer live chunk replaced pending audio. Speech is unknown.',gap:true});setNotice('Audio processing fell behind. Older pending speech is marked as a transcript gap; the newest audio continues.');changeCoach(s=>({...s,trace:[...s.trace,{stage:'audio_chunk_dropped',at:Date.now(),sequence:index,reason}].slice(-1200)}));}
+  async function processAudioChunk(item:PendingAudioChunk){
+   const {index,audio,enqueuedAt}=item;
    if(!mounted.current){pending.current--;return;}
    const requestStartedAt=Date.now();let requestEndedAt=requestStartedAt;
    try{
@@ -52,11 +44,20 @@ export default function MeetingCopilot({organisationId,appointmentId}:{organisat
    }catch{
     requestEndedAt=Date.now();if(mounted.current){append({id:String(index),text:'Transcript gap: this audio chunk could not be transcribed.',gap:true});setNotice('Transcription failed. Missing speech was not invented. End and restart safely; earlier transcript remains.');}
    }finally{
-    if(mounted.current)changeCoach(s=>({...s,trace:[...s.trace,{stage:'audio_chunk_queue_wait',at:requestStartedAt,sequence:index,durationMs:Math.max(0,requestStartedAt-enqueuedAt),reason:'bounded_fifo'},{stage:'audio_chunk_request',at:requestEndedAt,sequence:index,durationMs:Math.max(0,requestEndedAt-requestStartedAt),reason:'transcription_plus_live_analysis'}].slice(-1200)}));
+    if(mounted.current)changeCoach(s=>({...s,trace:[...s.trace,{stage:'audio_chunk_queue_wait',at:requestStartedAt,sequence:index,durationMs:Math.max(0,requestStartedAt-enqueuedAt),reason:item.coalesced?'superseded_pending_audio':'single_inflight_request'},{stage:'audio_chunk_request',at:requestEndedAt,sequence:index,durationMs:Math.max(0,requestEndedAt-requestStartedAt),reason:'transcription_plus_live_analysis'}].slice(-1200)}));
     pending.current--;
    }
-  });
- } async function closeSession(){if(!session.current)return;const r=await json({action:'end',id:session.current});if(r.status!=='review'&&r.status!=='approved')throw Error('Hosted session closure was not confirmed.');version.current=r.version;}
+  }
+  function drainAudioQueue():Promise<void>{if(drainPromise.current)return drainPromise.current;const task=(async()=>{while(audioQueue.current.length){const item=audioQueue.current.shift()!;await processAudioChunk(item);}})();const tracked=task.finally(()=>{if(drainPromise.current===tracked)drainPromise.current=null;if(audioQueue.current.length)void drainAudioQueue();});drainPromise.current=tracked;return tracked;}
+  function chunk(audio:Blob){
+   if(!active.current||!mounted.current)return;
+   if(Date.now()-startAt.current>90*60*1000){setNotice('The 90-minute session limit was reached. Capture is ending.');void end();return;}
+   const index=sequence.current++,enqueuedAt=Date.now();
+   if(pending.current>=MAX_PENDING_AUDIO_CHUNKS){markChunkGap(index,'bounded_backpressure_limit');return;}
+   let coalesced=false;if(drainPromise.current&&audioQueue.current.length){const stale=audioQueue.current.splice(0);pending.current-=stale.length;coalesced=stale.length>0;for(const item of stale)markChunkGap(item.index,'superseded_by_newer_chunk');}
+   audioQueue.current.push({index,audio,enqueuedAt,coalesced});pending.current++;void drainAudioQueue();
+  }
+  async function closeSession(){if(!session.current)return;const r=await json({action:'end',id:session.current});if(r.status!=='review'&&r.status!=='approved')throw Error('Hosted session closure was not confirmed.');version.current=r.version;}
  async function start(){if(busy.current||!brief||!consent)return;busy.current=true;const controller=new AbortController();startAbort.current=controller;session.current='';changeCoach(()=>createCoachRuntime());setAnalysis(null);setPhase('starting');setNotice('');try{
   // Actual click starts browser audio readiness; no hosted session/quota before it succeeds.
   const microphone=await startMeetingMicrophone(chunk,message=>{if(mounted.current){setNotice(message);append({id:'gap-'+crypto.randomUUID(),text:message,gap:true});void end();}},controller.signal);capture.current=microphone;
@@ -69,7 +70,7 @@ export default function MeetingCopilot({organisationId,appointmentId}:{organisat
   catch{if(mounted.current){setNotice('Microphone stopped, but hosted session closure is not confirmed. Retry End before starting another meeting.');setPhase('close_failed');}}
  }finally{busy.current=false;}}
  async function cancelStart(){startAbort.current?.abort();active.current=false;void capture.current?.stop();setPhase('ending');setNotice('Stopping microphone and confirming hosted session closure...');}
- async function end(){if(busy.current)return;busy.current=true;const retry=phase==='close_failed';setPhase('ending');setNotice('');try{await capture.current?.stop();capture.current=null;active.current=false;changeCoach(s=>receiveCoach(s,[],[],Date.now(),[],true));await queue.current;await closeSession();}catch{setNotice('Microphone stopped, but hosted session closure is not confirmed. Retry End before continuing.');setPhase('close_failed');busy.current=false;return;}
+ async function end(){if(busy.current)return;busy.current=true;const retry=phase==='close_failed';setPhase('ending');setNotice('');try{await capture.current?.stop();capture.current=null;active.current=false;changeCoach(s=>receiveCoach(s,[],[],Date.now(),[],true));if(drainPromise.current)await drainPromise.current;await closeSession();}catch{setNotice('Microphone stopped, but hosted session closure is not confirmed. Retry End before continuing.');setPhase('close_failed');busy.current=false;return;}
  setPhase('review');try{if(rows.current.some(r=>!r.gap&&r.text.trim())){const result=await json({action:'review',id:session.current,segments:rows.current});if(result.emailError)setNotice('Internal review is ready. The recipient email draft could not be generated; nothing was sent.');if(result.analysis){setAnalysis(result.analysis);setSummary(result.analysis.summary);setEmail(result.analysis.email);setTasks(result.analysis.actions.map((a:{text:string})=>({text:a.text,key:crypto.randomUUID(),saved:false})));}}else setNotice('Hosted session ended. No captured speech is available for review.');}catch(e){setNotice(e instanceof Error?e.message:'Analysis unavailable. Transcript remains available for manual review.');}finally{busy.current=false;if(retry&&!rows.current.length)setPhase('before');}}
  async function save(){if(busy.current||!approve)return;busy.current=true;setNotice('');try{const r=await json({action:'approve',id:session.current,version:version.current,confirmed:true,summary,retainTranscript:retain,segments:rows.current});setSavedHref(r.href);setPhase('approved');setNotice('Approved meeting note saved to the exact relationship. Nothing was sent.');}catch(e){setNotice(e instanceof Error?e.message:'Save not confirmed. Review before retrying.');}finally{busy.current=false;}}
  async function saveTask(index:number){if(busy.current)return;busy.current=true;try{await json({action:'task',id:session.current,confirmed:true,task:tasks[index].text,key:tasks[index].key});setTasks(old=>old.map((t,i)=>i===index?{...t,saved:true}:t));setNotice('Reviewed task saved to your exact relationship; no due date inferred.');}catch(e){setNotice(e instanceof Error?e.message:'Task save not confirmed.');}finally{busy.current=false;}}
