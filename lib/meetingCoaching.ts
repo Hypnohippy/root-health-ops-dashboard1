@@ -40,6 +40,9 @@ const filler=new Set(['what','would','could','should','they','their','that','thi
 function words(text:string){return new Set((text.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[]).filter(w=>!filler.has(w)));}
 export function coachingSuppression(candidate:MeetingCandidate,history:MeetingCandidate[]):string|null{
  for(const old of history){
+  const closeContext=(value:MeetingCandidate)=>/second (?:meeting|conversation)/i.test(`${value.goal||''} ${value.wording||value.text}`),closeStep=(value:MeetingCandidate)=>{const goal=value.goal||'';return /specific day/i.test(goal)?'day':/specific time/i.test(goal)?'time':/mutual acceptance|proposed second-meeting time/i.test(goal)?'acceptance':null;};
+  const candidateStep=closeStep(candidate),oldStep=closeStep(old);
+  if(closeContext(candidate)&&closeContext(old)&&(candidateStep||oldStep)&&candidateStep!==oldStep)continue;
   if((candidate.wording||candidate.text).trim().toLowerCase()===(old.wording||old.text).trim().toLowerCase())return 'duplicate_text';
   const a=words(candidate.wording||candidate.text),b=words(old.wording||old.text),overlap=[...a].filter(w=>b.has(w)).length,union=new Set([...a,...b]).size;
   const sameStrategy=candidate.branch&&old.branch?candidate.branch===old.branch&&(!candidate.goal||!old.goal||(()=>{const x=words(candidate.goal!),y=words(old.goal!),shared=[...x].filter(w=>y.has(w)).length;return Math.min(x.size,y.size)<2||shared/Math.max(1,new Set([...x,...y]).size)>=0.6;})()):!candidate.branch&&!old.branch&&old.quote===candidate.quote&&(!candidate.angle||!old.angle||candidate.angle===old.angle);
