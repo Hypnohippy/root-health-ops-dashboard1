@@ -7,6 +7,7 @@ const specificTiming=/\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sun
 const exactTime=/\b(?:around|about|at)\s+(?:\d{1,2}(?::\d{2})?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?:\s+o['’]?clock)?(?:\s*(?:a\.?m\.?|p\.?m\.?)?)\b/i;
 const timeOfDay=/\b(?:morning|afternoon|evening)\b/i;
 const ambiguousTime=/\b(?:sometime|some time|at some point|later)\b/i;
+const deliveryDeadline=/\b(?:send|email|share|deliver|forward|provide)\b[^.!?]{0,70}\b(?:by|before|no later than)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:january|february|march|april|may|june|july|august|september|october|november|december))\b/i;
 const affirmative=/^(?:yeah|yes|yep|that works|that would work|works for me|sounds good|agreed|okay|ok|fine by me|perfect)[.! ,]?(?:\s+(?:that works|works for me|sounds good))?[.! ]*$/i;
 const refusal=/(?:do not|don't|cannot|can't) (?:want|need) (?:another|a further|any more) (?:meeting|call|conversation)|no need for (?:another|a further) (?:meeting|call|conversation)|not looking to (?:book|schedule) (?:another|a further) (?:meeting|call)/i;
 
@@ -19,7 +20,7 @@ export function apparentMeetingAgreement(segments:MeetingSegment[]):ApparentMeet
   const proposal=speech[i],text=proposal.text.trim();
   // Specific times qualify directly (for example, “Thursday at 2”). A day with
   // vague timing is still surfaced for human review, never treated as schedulable.
-  if(!meetingWasDiscussedBefore(i)||!specificTiming.test(text)||!(exactTime.test(text)||timeOfDay.test(text)||ambiguousTime.test(text)))continue;
+  if(!meetingWasDiscussedBefore(i)||deliveryDeadline.test(text)||!specificTiming.test(text)||!(exactTime.test(text)||timeOfDay.test(text)||ambiguousTime.test(text)))continue;
   for(const acceptance of speech.slice(i+1,i+4)){
    if(affirmative.test(acceptance.text.trim())){
     const timing=[text.match(specificTiming)?.[0],exactTime.exec(text)?.[0]||text.match(timeOfDay)?.[0]||ambiguousTime.exec(text)?.[0]].filter(Boolean).join(' ');
