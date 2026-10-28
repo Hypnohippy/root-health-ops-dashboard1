@@ -53,11 +53,15 @@ export function coachingSuppression(candidate:MeetingCandidate,history:MeetingCa
  for(const old of history){
   const closeContext=(value:MeetingCandidate)=>value.branch==='follow_up'&&/second (?:meeting|conversation)/i.test(`${value.goal||''} ${value.wording||value.text}`),candidateStep=meetingClosePromptStep(candidate),oldStep=meetingClosePromptStep(old);
   if(closeContext(candidate)&&closeContext(old)&&candidateStep&&oldStep){
-   // A new missing close detail is a new action, even when the broad goal and topic match.
+   // A close step is the unresolved action, not the broad follow-up strategy.
    if(candidateStep!==oldStep)continue;
-   const currentEvidence=words(`${candidate.quote} ${candidate.lead||''}`),priorEvidence=words(`${old.quote} ${old.lead||''}`),shared=[...currentEvidence].filter(word=>priorEvidence.has(word)).length,overlap=shared/Math.max(1,new Set([...currentEvidence,...priorEvidence]).size);
-   // Re-prompt only when both the unresolved step and its supporting evidence are materially unchanged.
-   if(overlap<0.8)continue;
+   const sourceChanged=candidate.segmentId!==old.segmentId&&candidate.quote.trim()!==old.quote.trim(),sourceIsSchedulingEvidence=/(?:\b(?:later|earlier|next|this)\s+(?:week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:morning|afternoon|evening))?\b|\b(?:meet|meeting|conversation|call|review|talk|speak|schedule|pencil|appointment)\b)/i.test(candidate.quote)&&!/(?:send|email|share|deliver|forward|provide)\b[^.!?]{0,70}\b(?:by|before|no later than)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(candidate.quote);
+   // A fresh transcript segment that advances or evades scheduling may reopen
+   // the same unresolved step. Repeated checks against the same segment remain
+   // suppressed, so the deterministic guard cannot flash duplicate cards.
+   if(sourceChanged&&sourceIsSchedulingEvidence)continue;
+   const currentEvidence=words(candidate.quote),priorEvidence=words(old.quote),shared=[...currentEvidence].filter(word=>priorEvidence.has(word)).length,overlap=shared/Math.max(1,new Set([...currentEvidence,...priorEvidence]).size);
+   if(candidate.segmentId!==old.segmentId&&overlap<0.8)return 'same_strategy_same_evidence';
    return (candidate.wording||candidate.text).trim().toLowerCase()===(old.wording||old.text).trim().toLowerCase()?'duplicate_text':'same_strategy_same_evidence';
   }
   if((candidate.wording||candidate.text).trim().toLowerCase()===(old.wording||old.text).trim().toLowerCase())return 'duplicate_text';
