@@ -7,6 +7,9 @@ const meetingIntent=/(?:second|another|follow[ -]?up)\s+(?:meeting|call|conversa
 const specificTiming=/\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:january|february|march|april|may|june|july|august|september|october|november|december))\b/i;
 const exactTime=/\b(?:around|about|at)\s+(?:\d{1,2}(?::\d{2})?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?:\s+o['’]?clock)?(?:\s*(?:a\.?m\.?|p\.?m\.?)?)\b/i;
 const deliveryDeadline=/\b(?:send|email|share|deliver|forward|provide)\b[^.!?]{0,70}\b(?:by|before|no later than)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:january|february|march|april|may|june|july|august|september|october|november|december))\b/i;
+const acceptedSpecificDay=/\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b(?:\s+(?:morning|afternoon|evening))?\s+(?:would be|is|works?)(?:\s+(?:better|best|fine|good|easier|for me))?\b|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b(?:\s+(?:morning|afternoon|evening))?\s+(?:suits? me|works? for me|is better for me|would suit me)\b/i;
+const sellerDayWafflePattern=/\b(?:i(?:'ll| will)|we(?:'ll| will))\s+(?:pencil|put|book|schedule|sort|arrange)\b|\b(?:sometime|towards the end|end of the week|pencil you in|we'll sort something|we will sort something)\b/i;
+export function isSellerDayWaffle(text:string):boolean{return sellerDayWafflePattern.test(text);}
 const affirmative=/^(?:yeah|yes|yep|that works|that would work|works for me|sounds good|agreed|okay|ok|fine by me|perfect)[.! ,]?(?:\s+(?:that works|works for me|sounds good))?[.! ]*$/i;
 const refusal=/(?:do not|don't|cannot|can't) (?:want|need) (?:another|a further|any more) (?:meeting|call|conversation)|no need for (?:another|a further) (?:meeting|call|conversation)|not looking to (?:book|schedule) (?:another|a further) (?:meeting|call)/i;
 
@@ -38,7 +41,10 @@ export function meetingCloseStep(segments:MeetingSegment[]):MeetingCloseStep{
  const intentAt=speech.findIndex(segment=>meetingIntent.test(segment.text));
  if(intentAt<0)return null;
  const timing=speech.slice(intentAt).filter(segment=>!deliveryDeadline.test(segment.text));
- const hasDay=timing.some(segment=>specificTiming.test(segment.text));
+ // A seller's proposed/pencilled-in day is not a buyer-confirmed close step.
+ // Require a grounded preference/acceptance phrase, and reject vague seller
+ // wrap-up language even when it happens to contain a weekday token.
+ const hasDay=timing.some(segment=>acceptedSpecificDay.test(segment.text)&&!isSellerDayWaffle(segment.text));
  if(!hasDay)return 'day';
  return timing.some(segment=>exactTime.test(segment.text))?'acceptance':'time';
 }
