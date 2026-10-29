@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {loadMeeting} from './meeting-copilot-loader.mjs';
 const runtime=loadMeeting('lib/meetingCoachRuntime.ts'),coach=loadMeeting('lib/meetingCoaching.ts'),core=loadMeeting('lib/meetingCopilot.ts');
+const adaptive=loadMeeting('lib/meetingAdaptiveCoach.ts');
 const segment=(id,text)=>({id:String(id),text,gap:false});
 const candidate=(id,text,quote,angle='outcome')=>({promptId:`${id}:q0`,text,wording:text,goal:'Clarify a useful next step.',quote,segmentId:String(id),angle});
 
@@ -469,4 +470,96 @@ test('live server and coach runtime enter the review-window close ladder, re-pro
  rows=[...rows,segment(13,'Yes, that works.')];result=await live(13);assert.ok(result.coachingTrace.some(event=>event.stage==='goal_completed'));assert.equal(result.coachingTrace.find(event=>event.stage==='practice_conversation_state')?.secondMeetingCloseStep,'complete');assert.equal(result.analysis.questions.length,0);await see(result,13);assert.equal(state.current,null,'coaching retires only after the specific slot is affirmed');
  assert.ok(updates.length>=9,'all simulated live server calls passed through the real orchestration path');assert.equal(rows.filter(row=>!row.gap&&row.text.trim()).length,14);assert.equal(state.trace.filter(event=>event.stage==='prompt_visible').length>=2,true,'initial coaching and the distinct close re-prompt became visible');
  assert.equal(updates.some(update=>JSON.stringify(update).includes('diary')||JSON.stringify(update).includes('calendar')),false,'the synthetic runtime test performs no Diary or Calendar writes');
+});
+
+const approvedScript=`# Brookfield call guide
+## Opening
+- Set a calm purpose for the conversation.
+## Discovery
+- Ask what outcome would be useful.
+## Objections
+### Price concern
+Objection: This seems expensive for us.
+Approved response: I can explain the value and options, then we can decide whether it is a fit.
+### Budget already committed
+Objection: We have already spent this year's budget.
+Approved response: Understood. We can check whether a later planning window is more appropriate.
+## Approved Claims
+- The service has a published implementation guide.
+## Prohibited Claims
+- Never claim a guaranteed result.
+## Escalation Rules
+- Escalate clinical questions to the qualified lead.
+`;
+const validAdaptive=(mode,quote,extra={})=>({currentObjective:mode==='one_call_close'?'Secure an immediate appropriate commitment':'Resolve the current concern and agree a useful next step',conversationStage:'objection',salesMode:mode,prospectIntent:'Assess whether the option is suitable',activeObjection:'The prospect is concerned about fit or cost',unresolvedCommitment:'A next step remains open',progressAssessment:'circling',recommendedNextMove:'Acknowledge the concern and respond to its actual cause.',staySilent:false,confidence:0.91,evidence:[{segmentId:'0',quote}],...extra});
+function adaptiveService(response){
+ const sessionId='cccccccc-cccc-4ccc-8ccc-cccccccccccc',updates=[],requests=[];
+ const query={select:()=>query,eq:()=>query,maybeSingle:async()=>({data:{id:sessionId,status:'live',context:{synthetic:true}},error:null}),update:value=>{updates.push(value);return query;},then:resolve=>Promise.resolve({error:null}).then(resolve)};
+ const db={from:()=>query,rpc:async()=>({data:{},error:null})};
+ class OpenAI{chat={completions:{create:async input=>{requests.push(input);return {choices:[{message:{content:JSON.stringify(typeof response==='function'?response(input):response)}}],usage:{total_tokens:12}};}}};}
+ const service=loadMeeting('lib/meetingCopilot.server.ts',{'openai':OpenAI,'./supabaseAdmin':{supabaseAdmin:db},'./meetingCoaching.server':{readMeetingFacts:async()=>[],readMeetingSender:async()=>''},'./diary.server':{},'./operationalIntelligence.server':{},'./relationshipCoach.server':{RELATIONSHIP_MODEL:'gpt-4o-mini'}},{process:{env:{OPENAI_API_KEY:'SYNTHETIC_TEST_KEY'}}});
+ return {service,updates,requests,sessionId};
+}
+async function adaptiveLive(text,mode,response,playbookText=''){
+ const harness=adaptiveService(response),segments=[segment(0,text)],conversationState=runtime.buildConversationState(segments);
+ const result=await harness.service.meetingRequest({organisationId:'org-a',userId:'actor'},{action:'coach',id:harness.sessionId,sequence:0,segments,conversationState,sourceEvidenceSegments:[],openCoachingPrompts:[],coachingHistory:[],salesMode:mode,playbookText});
+ return {...harness,result};
+}
+
+test('playbook ingestion is bounded, structures sections and keeps objection branches distinct',()=>{
+ const playbook=adaptive.parseSalesPlaybook(approvedScript);
+ assert.equal(playbook.version,1);assert.ok(playbook.sections.opening);assert.ok(playbook.sections.discovery);assert.ok(playbook.sections.close===undefined);assert.ok(playbook.scriptSteps.some(step=>step.id==='opening-1'&&step.text==='Set a calm purpose for the conversation.'));assert.ok(playbook.scriptSteps.every(step=>!playbook.prohibitedClaims.some(claim=>step.text.includes(claim.replace(/^Never claim /,'')))));
+ assert.equal(playbook.objectionBranches.length,2);assert.notEqual(playbook.objectionBranches[0].id,playbook.objectionBranches[1].id);assert.match(playbook.objectionBranches[0].response,/explain the value/);assert.match(playbook.prohibitedClaims[0],/guaranteed result/);assert.match(playbook.escalationRules[0],/qualified lead/);
+ assert.throws(()=>adaptive.parseSalesPlaybook('x'.repeat(50001)),/50 KB or smaller/);
+ const unsafe=adaptive.parseSalesPlaybook(`# Test\n## Objections\n### Unsafe\nObjection: Concern\nApproved response: Never claim a guaranteed result.\n## Prohibited Claims\n- Never claim a guaranteed result.`);
+ assert.equal(unsafe.objectionBranches.length,0,'a response that repeats a prohibited claim is excluded at ingestion');
+ const inline=adaptive.parseSalesPlaybook(`# Short guide\n## Objections\nObjection: We cannot fit it into this year’s budget.\nResponse: We can check whether next year's planning window is more appropriate.`);assert.equal(inline.objectionBranches.length,1);assert.match(inline.objectionBranches[0].response,/planning window/);
+});
+
+test('adaptive contract retains equivalent consultative intent across paraphrases and cites each live source',async()=>{
+ const a='We are interested in a further conversation after you send the short summary.',b='Once the brief arrives, let us pick this up in another meeting.';
+ const responseFor=quote=>({summary:'A further conversation is being considered.',adaptiveReasoning:validAdaptive('consultative',quote,{currentObjective:'Agree a useful follow-up conversation'}),questions:[{text:'Ask which day works for the follow-up.',wording:'Ask: “Which day would suit a follow-up conversation?”',goal:'Agree a useful follow-up conversation.',lead:'They have raised continuing the conversation.',quote,segmentId:'0',angle:'next_step',branch:'next_step'}]});
+ const first=await adaptiveLive(a,'consultative',responseFor(a)),second=await adaptiveLive(b,'consultative',responseFor(b));
+ assert.equal(first.result.analysis.questions.length,1);assert.equal(second.result.analysis.questions.length,1);assert.equal(first.result.analysis.questions[0].goal,second.result.analysis.questions[0].goal);assert.equal(first.result.analysis.questions[0].wording,second.result.analysis.questions[0].wording);
+ for(const item of [first,second]){assert.ok(item.result.coachingTrace.some(event=>event.reason==='adaptive_live_reasoning'));const user=JSON.parse(item.requests[0].messages[1].content);assert.equal(user.salesMode,'consultative');assert.equal(user.neutralTranscript[0].text,item===first?a:b);assert.ok(item.requests[0].messages[0].content.includes('semantically')||item.requests[0].messages[0].content.includes('adaptively'));}
+});
+
+test('adaptive coach stays silent during progress and rejects uncited AI advice',async()=>{
+ const progress='I will send the summary on Wednesday, and we have agreed to review it next Thursday.';
+ const silent={summary:'The next step is clear.',adaptiveReasoning:{currentObjective:'Complete the agreed next step',conversationStage:'follow_up',salesMode:'consultative',prospectIntent:null,activeObjection:null,unresolvedCommitment:null,progressAssessment:'progressing',recommendedNextMove:null,staySilent:true,confidence:0.95,evidence:[]},questions:[]};
+ const quiet=await adaptiveLive(progress,'consultative',silent);assert.equal(quiet.result.analysis.questions.length,0);assert.equal(JSON.parse(quiet.requests[0].messages[1].content).salesMode,'consultative');
+ const hallucinated={summary:'',adaptiveReasoning:validAdaptive('consultative','This phrase is not in the transcript.'),questions:[{text:'Invented next move?',wording:'Ask an invented question.',goal:'Invented.',lead:'Unfounded.',quote:'This phrase is not in the transcript.',segmentId:'0'}]};
+ const rejected=await adaptiveLive('We are making good progress.', 'consultative',hallucinated);assert.equal(rejected.result.analysis.questions.length,0);assert.equal(rejected.result.analysisError,true);assert.ok(rejected.result.coachingTrace.some(event=>event.stage==='generation_failed'&&event.reason==='invalid_model_response'));
+});
+
+test('adaptive coach distinguishes circling from progress and one-call close prioritises a current commitment',async()=>{
+ const circling='We have talked about the same risks twice and still have not decided what happens next.';
+ const circleResponse={summary:'The conversation is circling.',adaptiveReasoning:validAdaptive('consultative',circling,{currentObjective:'Break the loop and agree a next step',progressAssessment:'circling',unresolvedCommitment:'Choose a next step'}),questions:[{text:'Name the repeated issue and ask what would resolve it.',wording:'Say: “We have covered the risk twice. What would you need to decide the next step?”',goal:'Break the loop and agree a next step.',lead:'The same risk has been repeated without a decision.',quote:circling,segmentId:'0',angle:'decision',branch:'criteria'}]};
+ const circled=await adaptiveLive(circling,'consultative',circleResponse);assert.equal(circled.result.analysis.questions.length,1);assert.match(circled.result.analysis.questions[0].wording,/covered the risk twice/);
+ const ready='The requirements fit, the decision maker is here, and we are ready to choose today.';
+ const closeResponse={summary:'Readiness to decide is explicit.',adaptiveReasoning:validAdaptive('one_call_close',ready,{currentObjective:'Ask for the appropriate immediate commitment',prospectIntent:'Choose today',activeObjection:null,unresolvedCommitment:'Confirm whether to proceed'}),questions:[{text:'Ask whether they are ready to proceed today.',wording:'Ask: “Would you like to go ahead today?”',goal:'Ask for the appropriate immediate commitment.',lead:'The stated requirements fit and readiness is explicit.',quote:ready,segmentId:'0',angle:'next_step',branch:'next_step',priority:'high'}]};
+ const oneCall=await adaptiveLive(ready,'one_call_close',closeResponse);assert.equal(oneCall.result.analysis.questions.length,1);assert.equal(JSON.parse(oneCall.requests[0].messages[1].content).salesMode,'one_call_close');assert.match(oneCall.result.analysis.questions[0].wording,/go ahead today/);
+});
+
+test('scripted mode uses the semantically selected approved response and never exposes model wording or prohibited claims',async()=>{
+ const priceText='That looks expensive compared with what we expected.';
+ const priceBranch=adaptive.parseSalesPlaybook(approvedScript).objectionBranches[0];
+ const priceResponse={summary:'A price concern is present.',adaptiveReasoning:validAdaptive('scripted',priceText,{scriptBranchId:priceBranch.id,activeObjection:'The prospect questions value relative to cost'}),questions:[{text:'UNAPPROVED MODEL TEXT: promise guaranteed results',wording:'Never surface this model-written script response.',goal:'Do not use this.',lead:'Model wording must not surface.',quote:priceText,segmentId:'0'}]};
+ const price=await adaptiveLive(priceText,'scripted',priceResponse,approvedScript);assert.equal(price.result.analysis.questions.length,1);assert.match(price.result.analysis.questions[0].wording,/explain the value and options/);assert.doesNotMatch(price.result.analysis.questions[0].wording,/UNAPPROVED|guaranteed result/i);
+ const budgetText='We already committed this year’s budget elsewhere.';
+ const budgetBranch=adaptive.parseSalesPlaybook(approvedScript).objectionBranches[1];
+ const budgetResponse={summary:'A timing/budget objection is present.',adaptiveReasoning:validAdaptive('scripted',budgetText,{scriptBranchId:budgetBranch.id,activeObjection:'The budget is already allocated'}),questions:[]};
+ const budget=await adaptiveLive(budgetText,'scripted',budgetResponse,approvedScript);assert.equal(budget.result.analysis.questions.length,1);assert.match(budget.result.analysis.questions[0].wording,/later planning window/);assert.notEqual(price.result.analysis.questions[0].wording,budget.result.analysis.questions[0].wording);assert.equal(JSON.parse(price.requests[0].messages[1].content).approvedPlaybook.objectionBranches.length,2);
+});
+
+test('scripted mode fails closed for unknown branches and never falls back to unapproved deterministic text',async()=>{
+ const text='We need to pause this discussion.';
+ const response={summary:'',adaptiveReasoning:validAdaptive('scripted',text,{scriptBranchId:'not-in-playbook'}),questions:[{text:'Generated response',wording:'Unapproved wording',quote:text,segmentId:'0'}]};
+ const result=await adaptiveLive(text,'scripted',response,approvedScript);assert.equal(result.result.analysis.questions.length,0);assert.equal(result.result.analysisError,true);assert.ok(result.result.coachingTrace.some(event=>event.reason==='invalid_model_response'));
+});
+
+test('scripted mode can surface an uncovered approved section step without paraphrasing it',async()=>{
+ const text='We have not discussed how the team currently handles this.';const playbook=adaptive.parseSalesPlaybook(approvedScript),step=playbook.scriptSteps.find(item=>item.id==='discovery-1');
+ const response={summary:'The discovery step remains open.',adaptiveReasoning:validAdaptive('scripted',text,{scriptBranchId:null,scriptStepId:step.id,activeObjection:null,recommendedNextMove:'Use the next approved discovery question.'}),questions:[{text:'This model-authored question must not be used.',wording:'Invented seller words.',goal:'Unapproved.',quote:text,segmentId:'0'}]};
+ const result=await adaptiveLive(text,'scripted',response,approvedScript);assert.equal(result.result.analysis.questions.length,1);assert.equal(result.result.analysis.questions[0].wording,`Approved discovery step: “${step.text}”`);assert.doesNotMatch(result.result.analysis.questions[0].wording,/guaranteed result|invented seller/i);
 });
