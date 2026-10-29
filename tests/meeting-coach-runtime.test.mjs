@@ -529,6 +529,13 @@ test('playbook ingestion is bounded, structures sections and keeps objection bra
  const inline=adaptive.parseSalesPlaybook(`# Short guide\n## Objections\nObjection: We cannot fit it into this year’s budget.\nResponse: We can check whether next year's planning window is more appropriate.`);assert.equal(inline.objectionBranches.length,1);assert.match(inline.objectionBranches[0].response,/planning window/);
 });
 
+test('script delivery matcher tolerates natural opening wording and transcription noise without matching unrelated speech',()=>{
+ const expected='Thanks for taking the time. I’ll keep this simple. I’m really just trying to understand what you’re currently doing around employee wellbeing, what is working and where there may still be gaps.';
+ const transcript='Thanks for taking the time, I will keep this simple. I am trying to understand what you are doing around employee wellbeing, what works and where there may still be gaps.';
+ const match=adaptive.matchScriptStepDelivery(expected,transcript),unrelated=adaptive.matchScriptStepDelivery(expected,'Looking forward to half term. Some time with the kids, right?');
+ assert.equal(match.matched,true);assert.ok(match.confidence>=0.76);assert.ok(match.evidenceTokenCount>=6);assert.equal(unrelated.matched,false,'casual small talk cannot be mistaken for approved script delivery');
+});
+
 test('adaptive contract retains equivalent consultative intent across paraphrases and cites each live source',async()=>{
  const a='We are interested in a further conversation after you send the short summary.',b='Once the brief arrives, let us pick this up in another meeting.';
  const responseFor=quote=>({summary:'A further conversation is being considered.',adaptiveReasoning:validAdaptive('consultative',quote,{currentObjective:'Agree a useful follow-up conversation'}),questions:[{text:'Ask which day works for the follow-up.',wording:'Ask: “Which day would suit a follow-up conversation?”',goal:'Agree a useful follow-up conversation.',lead:'They have raised continuing the conversation.',quote,segmentId:'0',angle:'next_step',branch:'next_step'}]});
