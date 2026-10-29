@@ -298,6 +298,45 @@ test('latest human path advances from conditional purpose through accepted mater
  const retired=runtime.supersededSecondMeetingPrompts([previousWindow,nextDay],['3:q0','4:q0'],{callGoal:'secure_second_meeting',secondMeetingCloseStep:'day',secondMeetingAchieved:false});assert.deepEqual(Array.from(retired),['3:q0']);const achieved=runtime.supersededSecondMeetingPrompts([nextDay],['4:q0'],{callGoal:'secure_second_meeting',secondMeetingCloseStep:'complete',secondMeetingAchieved:true});assert.deepEqual(Array.from(achieved),['4:q0']);
 });
 
+test('incremental accepted second-meeting timing advances from an unconfigured goal and preserves each unresolved close step',()=>{
+ const utterances=[
+  'The purpose of this meeting is to decide whether a proper second conversation would be worthwhile.',
+  'Could you send short decision-support material first?',
+  'That is fine, provided it is short.',
+  'Send it through and give me a week or two after receiving it.',
+  'I’ll give you a call at some point next week.',
+  'Later next week would be better.',
+  'If we pencil in later next week, that’d be great.',
+  'Fine, we’ll arrange something at some vague time next week.',
+  'Lovely.',
+  'Thursday afternoon would be better.',
+  'Would Thursday at 2 work for the second conversation?',
+  'Yes, that works.'
+ ];
+ let state=runtime.buildConversationState([segment(0,utterances[0])]);assert.equal(state.callGoal,'gather_decision_criteria');
+ for(let index=1;index<utterances.length;index++){
+  const current=segment(index,utterances[index]);state=runtime.buildConversationState([current],state);
+  if(index<5)continue;
+  const diagnosticState={...state,salesMotion:'unconfigured',callGoal:state.secondMeetingAchieved?'secure_second_meeting':'gather_decision_criteria'};
+  const opportunity=runtime.coachingOpportunity([current],index,{intensity:'balanced',motion:'unconfigured',desiredOutcome:''},false,diagnosticState);
+  assert.equal(opportunity.callGoal,'secure_second_meeting',`the close goal must advance at transcript segment ${index} even while sales motion is unconfigured`);
+  if(index===5||index===6||index===7||index===8){
+   assert.equal(opportunity.secondMeetingCloseStep,'day',`${utterances[index]} does not provide an agreed specific day`);assert.ok(opportunity.signals.includes('check_close'));
+  }
+  if(index===5||index===6||index===7){
+   const raw=runtime.deterministicCoachingFallback([current],opportunity,index),checked=runtime.inspectLiveCoaching(raw,[current],[],[],index,1000,opportunity);
+   assert.ok(checked.candidates.some(prompt=>/Which day(?: later next week)? works best|Still no day agreed/.test(prompt.wording)),`a visible day prompt is required after ${utterances[index]}`);
+   assert.ok(!checked.trace.some(event=>event.stage==='prompt_suppressed'&&['duplicate_text','equivalent_strategy','same_strategy_same_evidence','ungrounded_problem_probe'].includes(event.reason||'')));
+   assert.ok(!checked.candidates.some(prompt=>/what (?:the second conversation|topics|questions).{0,35}(?:cover|discuss)/i.test(prompt.wording)),'resolved purpose must not be rediscovered');
+  }
+  if(index===9)assert.equal(opportunity.secondMeetingCloseStep,'time','a grounded preferred day advances coaching to the missing time');
+  if(index===10)assert.equal(opportunity.secondMeetingCloseStep,'acceptance','a proposed exact day and time require confirmation');
+  if(index===11){assert.equal(state.secondMeetingAchieved,true,'affirmation in a later chunk confirms the persisted exact-slot proposal');assert.equal(opportunity.secondMeetingAchieved,true);assert.equal(opportunity.secondMeetingCloseStep,'complete');assert.ok(!opportunity.signals.includes('check_close'));assert.equal(runtime.deterministicCoachingFallback([current],opportunity,index),null);}
+ }
+ const explicitNo=runtime.buildConversationState([segment(0,'The purpose is a second conversation.'),segment(1,'Could you send the short summary?'),segment(2,'That is fine, provided it is short.'),segment(3,'I do not want to book another meeting yet.')]);assert.equal(explicitNo.callGoal,'qualify_out_gracefully');assert.equal(runtime.coachingOpportunity([segment(3,'I do not want to book another meeting yet.')],3,undefined,false,explicitNo).secondMeetingCloseStep,null);
+ const deferral=runtime.buildConversationState([segment(0,'The purpose is a second conversation.'),segment(1,'Could you send the short summary?'),segment(2,'That is fine, provided it is short.'),segment(3,'I’ll contact you if we want to continue.')]);assert.equal(deferral.callGoal,'gather_decision_criteria','a conditional deferral is not acceptance of a second meeting');
+});
+
 test('seller waffle does not resolve the persistent second-meeting day step and earns a fresh grounded prompt',()=>{
  const base=[segment(0,'The purpose is to decide whether a proper second conversation would be worthwhile.'),segment(1,'The second conversation would review the short summary and decide whether to take it to leadership.'),segment(2,'Yes, a second conversation would be useful. Could you send something short first?'),segment(3,'That is fine, provided it is short.'),segment(4,'Give me a week or two after receiving it.'),segment(5,'Would earlier or later next week be better?'),segment(6,'Later next week would be better.')];
  const initialState=runtime.buildConversationState(base),initialOpportunity=runtime.coachingOpportunity(base,6,undefined,false,initialState),initialRaw=runtime.deterministicCoachingFallback(base,initialOpportunity,6),initialCheck=runtime.inspectLiveCoaching(initialRaw,base,[],[],6,1000,initialOpportunity),initialPrompt=initialCheck.candidates[0];assert.equal(initialOpportunity.callGoal,'secure_second_meeting');assert.equal(initialOpportunity.secondMeetingCloseStep,'day');assert.ok(initialPrompt);assert.match(initialPrompt.wording,/Which day later next week works best/);
