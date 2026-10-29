@@ -25,7 +25,7 @@ test('Diary offers a stable synthetic practice launch and relationship page has 
 test('known appointment context is auto-loaded; microphone still requires explicit consent',()=>{
  const ui=fs.readFileSync('app/dashboard/meetings/MeetingCopilot.tsx','utf8');
  assert.match(ui,/if\(appointmentId&&!brief&&autoPreparedId\.current!==appointmentId\)\{autoPreparedId\.current=appointmentId;void prepare\(\);\}/);
- assert.match(ui,/disabled=\{!consent\} onClick=\{\(\)=>void start\(\)\}/);
+ assert.match(ui,/disabled=\{!consent\|\|salesMode===\x27scripted\x27&&!playbook\} onClick=\{\(\)=>void start\(\)\}/);
  assert.match(ui,/relationship_call/);
  const server=fs.readFileSync('lib/meetingCopilot.server.ts','utf8');
  assert.match(server,/record\.intelligence\.identity\.humanReviewRequired/);assert.match(server,/meetingPrepContext\(record\)/);assert.match(server,/record\.researchAccess\?record\.approvedResearch/);assert.match(server,/note\.founder_only!==true/);
