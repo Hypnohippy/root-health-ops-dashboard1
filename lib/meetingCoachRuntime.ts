@@ -7,7 +7,7 @@ export const defaultCoachingConfig:CoachingConfig={intensity:'balanced',motion:'
 export type SalesMotion='consultative'|'one_call_transactional'|'appointment_setting'|'complex_enterprise'|'relationship_growth'|'unconfigured';
 export type ConversationStage='rapport_opening'|'discovery'|'problem_need'|'education_fit'|'objections_hesitation'|'next_step_negotiation'|'close'|'qualify_out_nurture';
 export type CallGoal='close_now'|'secure_second_meeting'|'gather_decision_criteria'|'secure_demo_or_proposal'|'book_service_appointment'|'qualify_out_gracefully';
-export type CoachTrace={stage:string;at:number;sequence:number;promptId?:string;reason?:string;signals?:string[];priority?:'low'|'normal'|'high'|'critical';durationMs?:number;salesMotion?:SalesMotion;conversationStage?:ConversationStage;callGoal?:CallGoal;goalChangeReason?:string;secondMeetingCloseStep?:MeetingCloseStep;secondMeetingAchieved?:boolean;materialFactSegmentId?:string;promptSource?:'whole_call_memory'|'latest_chunk'};
+export type CoachTrace={stage:string;at:number;sequence:number;promptId?:string;reason?:string;signals?:string[];priority?:'low'|'normal'|'high'|'critical';durationMs?:number;salesMotion?:SalesMotion;conversationStage?:ConversationStage;callGoal?:CallGoal;goalChangeReason?:string;secondMeetingCloseStep?:MeetingCloseStep;secondMeetingAchieved?:boolean;materialFactSegmentId?:string;promptSource?:'whole_call_memory'|'latest_chunk';closeStepAtGeneration?:MeetingCloseStep;closeStepAtValidation?:MeetingCloseStep;closeGoalAtValidation?:CallGoal;ordinaryFreshnessFailed?:boolean;semanticCloseRevalidated?:boolean;sourceCapturedAt?:number;transcriptionCompletedAt?:number;sourceEvidenceAgeMs?:number;}
 export type MaterialCallFact={kind:'problem'|'desired_outcome'|'concern'|'decision_criterion'|'buying_signal'|'required_information'|'timing'|'stakeholder';segmentId:string;quote:string};
 export type CoachOpportunity={run:boolean;signals:string[];reason:string;priority?:'low'|'normal'|'high'|'critical';branch?:MeetingCandidate['branch'];followUpAccepted?:boolean;secondMeetingAchieved?:boolean;secondMeetingCloseStep?:MeetingCloseStep;dateRefused?:boolean;relativeSendTiming?:string;salesMotion?:SalesMotion;conversationStage?:ConversationStage;callGoal?:CallGoal;goalChangeReason?:string;materialFact?:MaterialCallFact;followUpLadderStep?:number};
 export type ConversationStateHint={kind:'time_constraint'|'exploration'|'budget_uncertainty'|'timeframe_uncertainty'|'problem_language'|'follow_up_request'|'follow_up_agreement'|'review_window_accepted'|'follow_up_material_accepted'|'second_meeting_intent'|'second_meeting_agreement'|'relative_send_timing'|'date_refusal'|'meeting_refusal'|'contact_boundary';segmentId:string;quote:string};
@@ -243,7 +243,7 @@ export function inspectLiveCoaching(raw:unknown,segments:MeetingSegment[],facts:
  const list=Array.isArray(value.questions)?value.questions.slice(0,6):[];
  for(const [index,item] of list.entries()){
   const promptId=`${sequence}:q${index}`;let effectivePromptId=promptId,replacedFormat=false;
-  trace.push({stage:'prompt_generated',at,sequence,promptId,priority:opportunity?.priority||'normal'});
+  trace.push({stage:'prompt_generated',at,sequence,promptId,priority:opportunity?.priority||'normal',callGoal:opportunity?.callGoal,secondMeetingCloseStep:opportunity?.secondMeetingCloseStep});
   let candidate:MeetingCandidate|undefined=groundedCoachingList([item],segments,facts,1)[0];
   const unsupportedFormat=!!candidate&&unsupportedProductFormat(candidate,facts);
   if(unsupportedFormat){
@@ -258,7 +258,7 @@ export function inspectLiveCoaching(raw:unknown,segments:MeetingSegment[],facts:
    }else candidate=undefined;
   }
   const row=item&&typeof item==='object'?item as Record<string,unknown>:null;
-  const allowedBranches=new Set(['consequence','priority','trigger','stakeholder','criteria','workaround','funding','operational_impact','personal_impact','next_step','graceful_exit','follow_up']),branch=replacedFormat?'criteria':allowedBranches.has(String(row?.branch))?row?.branch as MeetingCandidate['branch']:opportunity?.branch,priority=opportunity?.priority||candidate?.priority||'normal',enriched=candidate?{...candidate,branch,priority}:null;
+  const allowedBranches=new Set(['consequence','priority','trigger','stakeholder','criteria','workaround','funding','operational_impact','personal_impact','next_step','graceful_exit','follow_up']),branch=replacedFormat?'criteria':allowedBranches.has(String(row?.branch))?row?.branch as MeetingCandidate['branch']:opportunity?.branch,priority=opportunity?.priority||candidate?.priority||'normal',closeMetadata=opportunity?.callGoal==='secure_second_meeting'&&opportunity.secondMeetingCloseStep?{closeGoal:'secure_second_meeting' as const,closeStep:opportunity.secondMeetingCloseStep}: {},enriched=candidate?{...candidate,branch,priority,...closeMetadata}:null;
   const source= row&&typeof row.segmentId==='string'?(row.evidenceKind==='recorded'?facts.find(f=>f.id===row.segmentId)?.text:segments.find(s=>s.id===row.segmentId&&!s.gap)?.text):undefined;
   const reason=!candidate?(!row||typeof row.text!=='string'||!row.text.trim()?'malformed_candidate':!source?'unknown_or_gap_source':typeof row.quote!=='string'||row.quote.trim().length<8||!source.includes(row.quote)?'quote_not_in_source':'invalid_candidate'):problemDiscoveryProbe(candidate,row)&&!segments.some(segment=>!segment.gap&&groundedProblemText(segment.text))?'ungrounded_problem_probe':typeof candidate.goal!=='string'||!candidate.goal.trim()||candidate.goal.length>120?'missing_call_goal':(!candidate.wording&&!candidate.text.includes('?')||/^(?:try|explore|choose|change|shift|switch|move).{0,32}(?:direction|branch|topic|something else)[.!]?$/i.test(candidate.wording||candidate.text))?'missing_usable_wording':coachingSuppression(enriched!,[...history,...candidates]);
   if(reason){trace.push({stage:'prompt_suppressed',at,sequence,promptId,reason});continue;}
@@ -274,13 +274,27 @@ export function inspectLiveCoaching(raw:unknown,segments:MeetingSegment[],facts:
 export type CoachRuntime={current:MeetingCandidate|null;pending:MeetingCandidate|null;shownAt:number;queuedAt:number;visiblePromptId:string|null;visibleAt:number;history:MeetingCandidate[];trace:CoachTrace[]};
 export const createCoachRuntime=():CoachRuntime=>({current:null,pending:null,shownAt:0,queuedAt:0,visiblePromptId:null,visibleAt:0,history:[],trace:[]});
 const EXPIRE_MS=40000,QUEUE_MS=24000;
-function note(s:CoachRuntime,stage:string,at:number,c:MeetingCandidate|null,reason?:string,durationMs?:number){s.trace=[...s.trace,{stage,at,sequence:Number(c?.promptId?.split(':')[0]??-1),promptId:c?.promptId,reason,priority:c?.priority||'normal',durationMs}].slice(-1200);}
+function note(s:CoachRuntime,stage:string,at:number,c:MeetingCandidate|null,reason?:string,durationMs?:number,details:Partial<CoachTrace>={}){s.trace=[...s.trace,{stage,at,sequence:Number(c?.detectedSequence??c?.promptId?.split(':')[0]??-1),promptId:c?.promptId,reason,priority:c?.priority||'normal',durationMs,...details}].slice(-1200);}
 function endVisibility(s:CoachRuntime,at:number,c:MeetingCandidate,reason:string){if(s.visiblePromptId===c.promptId){note(s,'prompt_visibility_ended',at,c,reason,Math.max(0,at-s.visibleAt));s.visiblePromptId=null;s.visibleAt=0;}}
 function show(s:CoachRuntime,c:MeetingCandidate,at:number){if(s.current){endVisibility(s,at,s.current,'replaced');note(s,'prompt_replaced',at,s.current,'new_relevant_prompt');}s.current=c;s.shownAt=at;note(s,'prompt_selected',at,c);}
-function sameUnresolvedCloseStep(state:CoachRuntime,candidate:MeetingCandidate){
- const step=meetingClosePromptStep(candidate);if(candidate.branch!=='follow_up'||!step)return false;
- const latest=[...state.trace].reverse().find(event=>event.stage==='opportunity_detected'&&event.callGoal==='secure_second_meeting');
- return !!latest&&latest.secondMeetingCloseStep===step&&latest.secondMeetingAchieved!==true;
+export type CurrentCloseState=Pick<CoachOpportunity,'callGoal'|'secondMeetingCloseStep'|'secondMeetingAchieved'>;
+function latestCloseState(state:CoachRuntime):CurrentCloseState|undefined{
+ const latest=[...state.trace].reverse().find(event=>(event.stage==='opportunity_detected'||event.stage==='opportunity_checked')&&(event.callGoal||event.secondMeetingCloseStep!==undefined));
+ return latest?{callGoal:latest.callGoal,secondMeetingCloseStep:latest.secondMeetingCloseStep,secondMeetingAchieved:latest.secondMeetingAchieved}:undefined;
+}
+function sameUnresolvedCloseStep(state:CoachRuntime,candidate:MeetingCandidate,current?:CurrentCloseState){
+ const step=candidate.closeStep||meetingClosePromptStep(candidate),closeGoal=candidate.closeGoal||(candidate.branch==='follow_up'&&step?'secure_second_meeting':undefined),latest=current||latestCloseState(state);
+ return candidate.branch==='follow_up'&&closeGoal==='secure_second_meeting'&&!!step&&latest?.callGoal==='secure_second_meeting'&&latest.secondMeetingCloseStep===step&&latest.secondMeetingAchieved!==true;
+}
+function freshnessDetails(state:CoachRuntime,candidate:MeetingCandidate,at:number,latestCapturedSequence:number|undefined,current?:CurrentCloseState):Partial<CoachTrace>{
+ const origin=Number(candidate.detectedSequence??candidate.promptId?.split(':')[0]),ordinaryFreshnessFailed=latestCapturedSequence!==undefined&&Number.isFinite(origin)&&latestCapturedSequence-origin>0,closeState=current||latestCloseState(state),sameStep=sameUnresolvedCloseStep(state,candidate,current),captured=state.trace.find(event=>event.stage==='audio_chunk_captured'&&event.sequence===origin),transcribed=state.trace.find(event=>event.stage==='transcript_segment_transcribed'&&event.sequence===origin);
+ return {closeStepAtGeneration:candidate.closeStep,closeStepAtValidation:closeState?.secondMeetingCloseStep,closeGoalAtValidation:closeState?.callGoal,ordinaryFreshnessFailed,semanticCloseRevalidated:ordinaryFreshnessFailed&&sameStep,sourceCapturedAt:captured?.at,transcriptionCompletedAt:transcribed?.at,sourceEvidenceAgeMs:captured?Math.max(0,at-captured.at):undefined};
+}
+function staleHighCandidate(state:CoachRuntime,candidate:MeetingCandidate,at:number,latestCapturedSequence?:number,current?:CurrentCloseState){
+ if(priorityRank[priorityOf(candidate)]<2||latestCapturedSequence===undefined||typeof candidate.detectedSequence!=='number')return false;
+ const details=freshnessDetails(state,candidate,at,latestCapturedSequence,current);note(state,'prompt_freshness_checked',at,candidate,details.semanticCloseRevalidated?'semantic_close_revalidated':details.ordinaryFreshnessFailed?'ordinary_sequence_window_expired':'current',undefined,details);
+ if(!details.ordinaryFreshnessFailed||details.semanticCloseRevalidated)return false;
+ note(state,'prompt_suppressed',at,candidate,'missed_window',undefined,details);return true;
 }
 export function advanceCoach(state:CoachRuntime,at:number):CoachRuntime{
  const s={...state};
@@ -296,7 +310,7 @@ export function receiveCoach(state:CoachRuntime,candidates:MeetingCandidate[],tr
  for(const [i,candidate] of candidates.slice(0,2).entries()){
   const detectedSequence=trace.find(event=>event.stage==='opportunity_detected')?.sequence??candidate.detectedSequence;
   const c={...candidate,...(typeof detectedSequence==='number'?{detectedSequence}:{}),promptId:candidate.promptId||`${candidate.segmentId}:q${i}`};
- if(priorityRank[priorityOf(c)]>=2&&latestCapturedSequence!==undefined&&typeof c.detectedSequence==='number'&&latestCapturedSequence-c.detectedSequence>0&&!sameUnresolvedCloseStep(s,c)){note(s,'prompt_suppressed',at,c,'missed_window');continue;}
+  if(staleHighCandidate(s,c,at,latestCapturedSequence))continue;
   if(priorityOf(c)==='critical'&&s.pending&&priorityRank[priorityOf(s.pending)]<priorityRank.critical){note(s,'prompt_suppressed',at,s.pending,'preempted_by_critical');s.pending=null;}
   const reason=closed?'meeting_ended':coachingSuppression(c,[...s.history,...(s.current?[s.current]:[]),...(s.pending?[s.pending]:[])]);
   if(reason){note(s,'prompt_suppressed',at,c,reason);continue;}
@@ -313,11 +327,11 @@ export function receiveCoach(state:CoachRuntime,candidates:MeetingCandidate[],tr
 }
 
 /** UI calls this after its render commit; selection/queueing alone is not a display. */
-export function markCoachRenderAttempted(state:CoachRuntime,promptId:string,at:number,latestCapturedSequence?:number):CoachRuntime{const current=state.current;if(!current||current.promptId!==promptId)return state;const s={...state};if(s.trace.some(e=>e.stage==='prompt_render_attempted'&&e.promptId===promptId))return s;if(priorityRank[priorityOf(current)]>=2&&latestCapturedSequence!==undefined&&typeof current.detectedSequence==='number'&&latestCapturedSequence-current.detectedSequence>0&&!sameUnresolvedCloseStep(s,current)){note(s,'prompt_suppressed',at,current,'missed_window');s.current=null;s.pending=null;s.visiblePromptId=null;s.visibleAt=0;return s;}note(s,'prompt_render_attempted',at,current);return s;}
-export function markCoachDisplayed(state:CoachRuntime,promptId:string,at:number,latestCapturedSequence?:number):CoachRuntime{
+export function markCoachRenderAttempted(state:CoachRuntime,promptId:string,at:number,latestCapturedSequence?:number,currentClose?:CurrentCloseState):CoachRuntime{const current=state.current;if(!current||current.promptId!==promptId)return state;const s={...state};if(s.trace.some(e=>e.stage==='prompt_render_attempted'&&e.promptId===promptId))return s;if(staleHighCandidate(s,current,at,latestCapturedSequence,currentClose)){s.current=null;s.pending=null;s.visiblePromptId=null;s.visibleAt=0;return s;}note(s,'prompt_render_attempted',at,current,undefined,undefined,freshnessDetails(s,current,at,latestCapturedSequence,currentClose));return s;}
+export function markCoachDisplayed(state:CoachRuntime,promptId:string,at:number,latestCapturedSequence?:number,currentClose?:CurrentCloseState):CoachRuntime{
  const current=state.current;if(!current||current.promptId!==promptId)return state;const s={...state};
- if(priorityRank[priorityOf(current)]>=2&&latestCapturedSequence!==undefined&&typeof current.detectedSequence==='number'&&latestCapturedSequence-current.detectedSequence>0&&!sameUnresolvedCloseStep(s,current)){note(s,'prompt_suppressed',at,current,'missed_window');s.current=null;s.pending=null;s.visiblePromptId=null;s.visibleAt=0;return s;}
- if(s.visiblePromptId!==promptId){if(s.visiblePromptId&&s.current)endVisibility(s,at,current,'out_of_view');s.visiblePromptId=promptId;s.visibleAt=at;note(s,'prompt_visible',at,current);}
+ if(staleHighCandidate(s,current,at,latestCapturedSequence,currentClose)){s.current=null;s.pending=null;s.visiblePromptId=null;s.visibleAt=0;return s;}
+ if(s.visiblePromptId!==promptId){if(s.visiblePromptId&&s.current)endVisibility(s,at,current,'out_of_view');s.visiblePromptId=promptId;s.visibleAt=at;note(s,'prompt_visible',at,current,undefined,undefined,freshnessDetails(s,current,at,latestCapturedSequence,currentClose));}
  if(s.trace.some(e=>e.stage==='prompt_displayed'&&e.promptId===promptId))return s;
  s.shownAt=at;s.history=[...s.history,current].slice(-200);note(s,'prompt_displayed',at,current);return s;
 }
