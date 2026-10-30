@@ -87,15 +87,16 @@ export default function MeetingCopilot({organisationId,appointmentId}:{organisat
   }
    async function drainCoachQueue(){
     if(coachBusy.current)return;coachBusy.current=true;
+     let processingJob:CoachJob|null=null;
     try{
      while(latestCoachJob.current&&active.current&&mounted.current){
-      const job=latestCoachJob.current;latestCoachJob.current=null;
+       const job=latestCoachJob.current;processingJob=job;latestCoachJob.current=null;
       if(job.salesMode==='scripted')setScriptDeliveryDiagnostics(old=>({...old,coachingRequestSequence:job.sequence,coachingRequestState:'in_flight',coachingError:null,recommendationResolution:'pending'}));
       const open=[coachRef.current.current?.promptId,coachRef.current.pending?.promptId].filter((id):id is string=>!!id),body={action:'coach',id:session.current,sequence:job.sequence,segments:job.segments,conversationState:job.conversationState,sourceEvidenceSegments:job.segments.filter(row=>job.conversationState.materialFacts.some(fact=>fact.segmentId===row.id)),openCoachingPrompts:open,coachingHistory:coachHistory(),conversationModel:job.conversationModel,salesMode:job.salesMode,playbookText:job.playbookText},submittedSegments=job.segments.filter(row=>!row.gap&&row.text.trim()),submittedThrough=Math.max(-1,...submittedSegments.map(row=>/^\d+$/.test(row.id)?Number(row.id):-1));
       setCaptureDiagnostics(old=>({...old,adaptiveRuntimeSubmittedSegmentCount:Math.max(old.adaptiveRuntimeSubmittedSegmentCount,submittedSegments.length),adaptiveRuntimeSubmittedThroughSequence:Math.max(old.adaptiveRuntimeSubmittedThroughSequence??-1,submittedThrough)}));
-      const requestController=new AbortController(),requestTimeout=setTimeout(()=>requestController.abort(),8000);
+       const requestController=new AbortController();let rejectRequestTimeout:(reason:Error)=>void=()=>{};const requestTimeoutPromise=new Promise<never>((_,reject)=>{rejectRequestTimeout=reject;}),requestTimeout=setTimeout(()=>{requestController.abort();rejectRequestTimeout(Error('Adaptive coaching request timed out.'));},8000);
       try{
-       const data=await json(body,requestController.signal);if(!active.current||!mounted.current)continue;
+        const data=await Promise.race([json(body,requestController.signal),requestTimeoutPromise]);if(!active.current||!mounted.current)continue;
        setCaptureDiagnostics(old=>({...old,adaptiveRuntimeReceivedSegmentCount:Math.max(old.adaptiveRuntimeReceivedSegmentCount,submittedSegments.length),adaptiveRuntimeReceivedThroughSequence:Math.max(old.adaptiveRuntimeReceivedThroughSequence??-1,submittedThrough)}));
        const latestTranscriptSequence=rows.current.reduce((latest,row)=>/^\d+$/.test(row.id)&&!row.gap?Math.max(latest,Number(row.id)):latest,-1),latestCapturedSequence=sequence.current-1,resultIsCurrent=job.sequence>=Math.max(latestTranscriptSequence,latestCapturedSequence);
        let appliedCoachState=coachRef.current;
@@ -116,6 +117,12 @@ export default function MeetingCopilot({organisationId,appointmentId}:{organisat
        }
       }finally{clearTimeout(requestTimeout);}
      }
+     }catch{
+      if(processingJob&&active.current&&mounted.current){
+       const failedJob=processingJob;
+       if(failedJob.salesMode==='scripted')setScriptDeliveryDiagnostics(old=>old.coachingRequestSequence===failedJob.sequence&&old.recommendationResolution==='pending'?{...old,coachingRequestState:'failed',coachingError:'request_preparation_failed',recommendationResolution:'failed',staleResultSuppressionDecision:'request pipeline failed before a usable response was committed'}:old);
+       setNotice('Live coaching could not refresh; captured speech remains in the transcript. Retry guidance when ready.');
+      }
     }finally{coachBusy.current=false;if(latestCoachJob.current&&active.current&&mounted.current)void drainCoachQueue();}
    }
  const prepare=useCallback(async()=>{if(busy.current||!appointmentId)return;busy.current=true;setPreparing(true);setNotice(appointmentId===PRACTICE_ID?'Preparing synthetic practice...':'Preparing recorded context...');try{const r=await tenantFetch(`${endpoint}&appointmentId=${encodeURIComponent(appointmentId)}`),data=await r.json();if(!r.ok||!data.success)throw Error(data.error||'Exact appointment unavailable.');setBrief(data.brief);setNotice('');}catch(e){setNotice(e instanceof Error?e.message:'Brief unavailable.');}finally{busy.current=false;setPreparing(false);}},[appointmentId,endpoint]);
