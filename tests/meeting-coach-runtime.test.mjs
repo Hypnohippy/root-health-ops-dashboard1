@@ -26,6 +26,20 @@ test('an explicitly connected work-wellbeing issue is grounded discovery evidenc
  const grounded={text:'Where is the work-life strain having the biggest effect?',wording:'Where is the work-life strain having the biggest effect?',goal:'Understand the impact of the expressed work-wellbeing issue.',lead:'You connected work spilling into evenings with a wellbeing issue you want help with.',quote,segmentId:'4',angle:'concern',branch:'personal_impact'},checked=runtime.inspectLiveCoaching({questions:[grounded]},rows,[],[],4,100,opportunity);
  assert.equal(checked.candidates.length,1);assert.equal(checked.candidates[0].segmentId,'4');
 });
+test('adaptive freshness advances through harmless additions but expires on newly grounded material evidence',()=>{
+ const opening=[segment(0,'Busy, but fine.'),segment(1,'Looking forward to half term.'),segment(2,'Some time with the kids, right?'),segment(3,'We arranged this meeting to talk about your wellbeing requirements.')],openingState=runtime.buildConversationState(opening);
+ assert.equal(runtime.hasMaterialAdaptiveEvidence(opening,openingState),false,'social preamble and the seller-stated meeting purpose do not imply a prospect problem');
+ const prompt={...candidate(0,'Ask what is most important for the team.','We arranged this meeting to talk about your wellbeing requirements.'),priority:'critical'};
+ let coachState=runtime.receiveCoach(runtime.createCoachRuntime(),[prompt],[],1000,[],false,0);
+ coachState=runtime.revalidateAdaptivePrompts(coachState,opening,3,2000,openingState);
+ assert.equal(coachState.current?.promptId,prompt.promptId,'harmless speech keeps relevant visible guidance active');
+ assert.ok(coachState.trace.some(event=>event.stage==='prompt_revalidated'&&event.promptId===prompt.promptId&&event.validatedThroughSequence===3));
+ const material=segment(4,"Actually, work is spilling into evenings and I'm struggling to balance it with family life; that's one of the wellbeing issues I want help with."),all=[...opening,material],allState=runtime.buildConversationState(all,openingState);
+ assert.equal(runtime.hasMaterialAdaptiveEvidence([material],openingState),true,'an explicit work-wellbeing issue is material because this utterance itself grounds it');
+ coachState=runtime.revalidateAdaptivePrompts(coachState,all,4,3000,allState);
+ assert.equal(coachState.current,null,'new material evidence invalidates advice before it can become stale');
+ assert.ok(coachState.trace.some(event=>event.stage==='prompt_expired'&&event.reason==='material_evidence_invalidated'));
+});
 test('repeated questions with vague responses flag a possible stall, not an identified-speaker fact',()=>{
  const rows=[segment(0,'When might you start? I do not know.'),segment(1,'When do you expect to decide? I am not sure yet.')];
  assert.ok(runtime.coachingOpportunity(rows,1).signals.includes('possible_stall'));
