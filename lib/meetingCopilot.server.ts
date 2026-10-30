@@ -44,15 +44,15 @@ export async function prepareMeeting(tenant:RelationshipTenant,id:string){
 async function command(t:RelationshipTenant,id:string,kind:string,data:Record<string,unknown>){const result=await supabaseAdmin.rpc('meeting_copilot_command',{p_org:t.organisationId,p_actor:t.userId,p_id:id,p_command:kind,p_data:data});if(result.error)throw Error('Meeting capture is unavailable for this workspace or its allowance has been reached. Your transcript remains available; nothing was sent to your contact.');return result.data;}
 async function session(t:RelationshipTenant,id:unknown){if(typeof id!=='string'||!uuid.test(id))throw Error('Meeting unavailable.');const {data,error}=await supabaseAdmin.from('meeting_copilot_sessions').select('*').eq('id',id).eq('organisation_id',t.organisationId).eq('user_id',t.userId).maybeSingle();if(error||!data)throw Error('Meeting unavailable.');return data;}
 const client=()=>{if(!process.env.OPENAI_API_KEY)throw Error('Meeting AI is currently unavailable.');return new OpenAI({apiKey:process.env.OPENAI_API_KEY,timeout:45000,maxRetries:0});};
-export async function analyzeMeeting(t:RelationshipTenant,context:Record<string,unknown>,segments:MeetingSegment[],review:boolean,history:MeetingCandidate[]=[],live:{sequence:number;opportunity:CoachOpportunity;config:CoachingConfig;conversationState?:ConversationState;groundingSegments?:MeetingSegment[];salesMode?:SalesMode;playbook?:SalesPlaybook|null;previousModel?:LiveConversationModel|null}={sequence:-1,opportunity:{run:true,signals:[],reason:'direct'},config:defaultCoachingConfig}){
+export async function analyzeMeeting(t:RelationshipTenant,context:Record<string,unknown>,segments:MeetingSegment[],review:boolean,history:MeetingCandidate[]=[],live:{sequence:number;opportunity:CoachOpportunity;config:CoachingConfig;conversationState?:ConversationState;groundingSegments?:MeetingSegment[];salesMode?:SalesMode;playbook?:SalesPlaybook|null;previousModel?:LiveConversationModel|null;openPromptIds?:string[]}={sequence:-1,opportunity:{run:true,signals:[],reason:'direct'},config:defaultCoachingConfig}){
  if(!segments.some(s=>!s.gap&&s.text.trim()))return {analysis:groundedMeetingAnalysis({},segments),tokens:0,emailError:false,coachingTrace:[] as CoachTrace[],resolvedPrompts:[] as string[]};
  let facts:MeetingFact[];try{facts=await readMeetingFacts(t,context);}catch{throw new MeetingAnalysisUnavailable('context_unavailable');}
  const adaptiveMessages=!review&&live.salesMode?adaptiveConversationMessages({facts,segments,history,mode:live.salesMode,playbook:live.playbook,previousModel:live.previousModel,sequence:live.sequence}):null;
  let response;try{response=await client().chat.completions.create({model:RELATIONSHIP_MODEL,temperature:0.2,max_tokens:review?1800:live.salesMode?1400:700,response_format:{type:'json_object'},messages:adaptiveMessages||meetingCoachingMessages(facts,segments,review,history,{...live.config,opportunity:live.opportunity,conversationState:live.conversationState})},{timeout:review?45000:6000});}catch{throw new MeetingAnalysisUnavailable('provider_timeout_or_failure');}
  let parsed:unknown;try{parsed=JSON.parse(response.choices[0]?.message.content||'{}');}catch{throw new MeetingAnalysisUnavailable('invalid_model_response');}
-  const analysis=groundedMeetingAnalysis(parsed,segments,facts),coachingEvidence=live.groundingSegments||segments;let adaptiveModel:LiveConversationModel|null=null,coaching:{candidates:MeetingCandidate[];trace:CoachTrace[];resolvedPrompts:string[]}|null=null;
+  const analysis=groundedMeetingAnalysis(parsed,segments,facts),coachingEvidence=live.groundingSegments||segments;let adaptiveModel:LiveConversationModel|null=null,coaching:{candidates:MeetingCandidate[];trace:CoachTrace[];resolvedPrompts:string[]}|null=null,resolvedPrompts:string[]=[];
   if(!review&&live.salesMode){
-   const validated=validateAdaptiveDecision(object(parsed),segments,live.salesMode,live.playbook,live.sequence);
+    const validated=validateAdaptiveDecision(object(parsed),segments,live.salesMode,live.playbook,live.sequence,live.previousModel);
    if(!validated)throw new MeetingAnalysisUnavailable('invalid_model_response');
    adaptiveModel=validated.model;analysis.questions=[];
    if(!validated.decision.staySilent){
@@ -62,8 +62,10 @@ export async function analyzeMeeting(t:RelationshipTenant,context:Record<string,
      if(!approved)throw new MeetingAnalysisUnavailable('invalid_model_response');wording=approved;
     }
     const raw={questions:[{text:validated.decision.recommendedNextMove!,wording,goal:validated.decision.recommendedNextMove!,lead:validated.decision.reason||undefined,priority:validated.decision.priority,quote:source.quote,segmentId:source.segmentId,angle:live.salesMode==='scripted'?'criteria':undefined}]};
-    coaching=inspectLiveCoaching(raw,coachingEvidence,facts,history,live.sequence,Date.now(),live.opportunity);analysis.questions=coaching.candidates;
+     coaching=inspectLiveCoaching(raw,coachingEvidence,facts,history,live.sequence,Date.now(),live.opportunity);analysis.questions=coaching.candidates;
    }
+    const knownOpen=(live.openPromptIds||[]).filter(id=>history.some(item=>item.promptId===id));
+    if(validated.decision.staySilent||coaching?.candidates.length)resolvedPrompts=[...new Set([...resolvedPrompts,...knownOpen])];
   }else if(!review){
    coaching=inspectLiveCoaching(parsed,coachingEvidence,facts,history,live.sequence,Date.now(),live.opportunity);
    const deterministicGuard=live.opportunity.signals.some(signal=>['check_close','material_fact_omitted','one_call_close','meeting_refusal','call_goal_changed'].includes(signal));
@@ -75,7 +77,7 @@ export async function analyzeMeeting(t:RelationshipTenant,context:Record<string,
   const external=await client().chat.completions.create({model:RELATIONSHIP_MODEL,temperature:0.2,max_tokens:900,response_format:{type:'json_object'},messages:meetingEmailMessages(typeof context.name==='string'?context.name:'',segments,await readMeetingSender(t))});tokens+=external.usage?.total_tokens||0;const value=JSON.parse(external.choices[0]?.message.content||'{}');
   if(typeof value.email!=='string'||!value.email.trim()||/relationship score|confidence score|internal (?:analysis|coaching|research)|inferred motive|\[(?:your|insert|sender)[^\]]*\]/i.test(value.email))throw Error('External draft unavailable');analysis.email=value.email.slice(0,5000);
  }catch{emailError=true;}
-  return {analysis,tokens,emailError,adaptiveModel,coachingTrace:coaching?.trace||[],resolvedPrompts:coaching?.resolvedPrompts||[]};
+  return {analysis,tokens,emailError,adaptiveModel,coachingTrace:coaching?.trace||[],resolvedPrompts:[...new Set([...resolvedPrompts,...(coaching?.resolvedPrompts||[])])]};
 }
 export async function meetingRequest(t:RelationshipTenant,body:Record<string,unknown>){
  if(body.action==='start'){if(body.consent!==true||typeof body.appointmentId!=='string'||typeof body.id!=='string'||!uuid.test(body.id))throw Error('Confirm microphone/transcription consent and exact appointment.');const context=await prepareMeeting(t,body.appointmentId);client();const s=await command(t,body.id,'start',{appointmentId:context.attachment.appointmentId,relationshipId:context.attachment.relationshipId,context:{...context,evidence:context.evidence.map(({id,at,direction})=>({id,at,direction}))}});return {id:s.id,version:s.version};}
@@ -114,7 +116,7 @@ async function coachMeeting(t:RelationshipTenant,s:MeetingSession,body:Record<st
   if(!salesMode&&shouldUseImmediateDeterministicCoaching(opportunity)){
    const immediate=inspectLiveCoaching(deterministicCoachingFallback(groundingSegments,opportunity,sequence),groundingSegments,[],history,sequence,Date.now(),opportunity);analysis.questions=immediate.candidates;coachingTrace.push(...immediate.trace,{stage:'generation_fallback',at:Date.now(),sequence,reason:'immediate_deterministic_guard',priority:opportunity.priority});
   }else if(salesMode){
-   const result=await analyzeMeeting(t,s.context,segments,false,history,{sequence,opportunity,config,conversationState,groundingSegments,salesMode,playbook,previousModel});
+    const knownOpen=open.filter((id):id is string=>typeof id==='string');const result=await analyzeMeeting(t,s.context,segments,false,history,{sequence,opportunity,config,conversationState,groundingSegments,salesMode,playbook,previousModel,openPromptIds:knownOpen});
    if('analysis' in result){analysis=result.analysis;tokens=result.tokens;adaptiveModel=result.adaptiveModel||null;coachingTrace.push(...(result.coachingTrace||[]));resolvedPrompts=[...(result.resolvedPrompts||[])];if(adaptiveModel)coachingTrace.push({stage:'adaptive_model_updated',at:Date.now(),sequence,reason:`${adaptiveModel.currentCommercialStage}:${adaptiveModel.progressAssessment}`,priority:'normal'});}
   }else if(opportunity.run){
    const result=await analyzeMeeting(t,s.context,segments,false,history,{sequence,opportunity,config,conversationState,groundingSegments});if('analysis' in result){analysis=result.analysis;tokens=result.tokens;coachingTrace.push(...(result.coachingTrace||[]));resolvedPrompts=[...(result.resolvedPrompts||[])];}
